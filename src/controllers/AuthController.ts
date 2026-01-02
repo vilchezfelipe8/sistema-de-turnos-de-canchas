@@ -3,7 +3,7 @@ import { prisma } from '../prisma';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = 'MI_SECRETO_SUPER_SECRETO_123'; // En la vida real esto va en .env
+const JWT_SECRET = process.env.JWT_SECRET as string; // Cargado desde variables de entorno (validado en startup)
 
 export class AuthController {
 
