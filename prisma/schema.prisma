@@ -1,0 +1,85 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql" // <--- CAMBIO IMPORTANTE: Antes decía "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// --- ENUMS (Ahora sí son nativos en Postgres) ---
+enum Role {
+  ADMIN
+  MEMBER
+  GUEST
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+// --- MODELOS ---
+
+model User {
+  id          Int       @id @default(autoincrement())
+  email       String    @unique
+  password    String    // <--- AGREGAR ESTO (Guardará la contraseña encriptada)
+  firstName   String
+  lastName    String
+  phoneNumber String
+  role        Role      @default(MEMBER)
+  bookings    Booking[]
+}
+
+model Club {
+  id          Int     @id @default(autoincrement())
+  name        String
+  address     String
+  contactInfo String
+  courts      Court[]
+}
+
+model Court {
+  id                 Int            @id @default(autoincrement())
+  name               String
+  isIndoor           Boolean
+  surface            String
+  isUnderMaintenance Boolean        @default(false)
+  
+  clubId             Int
+  club               Club           @relation(fields: [clubId], references: [id])
+  
+  activities         ActivityType[]
+  bookings           Booking[]
+}
+
+model ActivityType {
+  id                     Int       @id @default(autoincrement())
+  name                   String
+  description            String
+  defaultDurationMinutes Int
+  courts                 Court[]
+  bookings               Booking[]
+}
+
+model Booking {
+  id        Int           @id @default(autoincrement())
+  date      DateTime
+  startTime String
+  endTime   String
+  price     Float
+  createdAt DateTime      @default(now())
+  status    BookingStatus @default(PENDING) // <--- Enum nativo
+
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+
+  courtId   Int
+  court     Court    @relation(fields: [courtId], references: [id])
+
+  activityId Int
+  activity   ActivityType @relation(fields: [activityId], references: [id])
+}
