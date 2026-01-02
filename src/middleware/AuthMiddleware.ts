@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = 'MI_SECRETO_SUPER_SECRETO_123'; // Debe ser EL MISMO que en AuthController
+const JWT_SECRET = process.env.JWT_SECRET as string; // Proviene de las variables de entorno (validado en startup)
 
 export const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
     // 1. Buscamos el token en la cabecera "Authorization"
