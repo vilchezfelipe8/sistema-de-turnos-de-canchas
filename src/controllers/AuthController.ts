@@ -2,30 +2,36 @@ import { Request, Response } from 'express';
 import { prisma } from '../prisma';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { z } from 'zod';
 
-const JWT_SECRET = process.env.JWT_SECRET as string; // Cargado desde variables de entorno (validado en startup)
+const JWT_SECRET = process.env.JWT_SECRET as string;
 
 export class AuthController {
-
-    // REGISTRO
     register = async (req: Request, res: Response) => {
+        const registerSchema = z.object({
+            firstName: z.string().min(1),
+            lastName: z.string().min(1),
+            email: z.string().email(),
+            password: z.string().min(6),
+            phoneNumber: z.string().min(5)
+        });
+        const parsed = registerSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: parsed.error.format() });
+        }
+        const { firstName, lastName, email, password, phoneNumber } = parsed.data;
         try {
-            const { firstName, lastName, email, password, phoneNumber } = req.body;
-
-            // 1. Verificar si ya existe
             const existingUser = await prisma.user.findUnique({ where: { email } });
             if (existingUser) {
                 return res.status(400).json({ error: "El email ya está registrado" });
             }
 
-            // 2. Encriptar contraseña
             const hashedPassword = await bcrypt.hash(password, 10);
 
-            // 3. Guardar en BD
             const newUser = await prisma.user.create({
                 data: {
                     firstName, lastName, email, phoneNumber,
-                    password: hashedPassword, // <--- Guardamos la encriptada
+                    password: hashedPassword,
                     role: 'MEMBER'
                 }
             });
@@ -36,33 +42,34 @@ export class AuthController {
         }
     }
 
-    // LOGIN
     login = async (req: Request, res: Response) => {
+        const loginSchema = z.object({
+            email: z.string().email(),
+            password: z.string().min(1)
+        });
+        const parsed = loginSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: parsed.error.format() });
+        }
+        const { email, password } = parsed.data;
         try {
-            const { email, password } = req.body;
-
-            // 1. Buscar usuario por email
             const user = await prisma.user.findUnique({ where: { email } });
             if (!user) {
                 return res.status(400).json({ error: "Credenciales inválidas" });
             }
 
-            // 2. Comparar contraseña (Input vs Base de Datos)
             const isPasswordValid = await bcrypt.compare(password, user.password);
             if (!isPasswordValid) {
                 return res.status(400).json({ error: "Credenciales inválidas" });
             }
 
-            // 3. Generar el TOKEN (El "Carnet")
             const token = jwt.sign(
-                { userId: user.id, role: user.role }, 
-                JWT_SECRET, 
+                { userId: user.id, role: user.role },
+                JWT_SECRET,
                 { expiresIn: '24h' }
             );
 
-            // Devolvemos el token al usuario
             res.json({ message: "Login exitoso", token });
-
         } catch (error: any) {
             res.status(500).json({ error: error.message });
         }

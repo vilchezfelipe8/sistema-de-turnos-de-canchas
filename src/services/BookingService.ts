@@ -4,9 +4,13 @@ import { UserRepository } from '../repositories/UserRepository';
 import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
 import { Booking } from '../entities/Booking';
 import { BookingStatus } from '../entities/Enums';
-import { TimeHelper } from '../utils/TimeHelper'; // <--- Importamos el ayudante
-import { Court } from '@prisma/client';
+import { TimeHelper } from '../utils/TimeHelper';
 import { CourtRepository } from '../repositories/CourtRepository';
+import { prisma } from '../prisma';
+import { User } from '../entities/User';
+import { Club } from '../entities/Club';
+import { Court as CourtEntity } from '../entities/Court';
+import { ActivityType } from '../entities/ActivityType';
 
 export class BookingService {
     constructor(
@@ -16,9 +20,7 @@ export class BookingService {
         private activityRepo: ActivityTypeRepository
     ) {}
 
-    // 1. CREAR RESERVA (Con duración automática)
-    async createBooking(userId: number, courtId: number, date: Date, startTime: string, activityId: number): Promise<Booking> {
-        
+    async createBooking(userId: number, courtId: number, startDateTime: Date, activityId: number): Promise<Booking> {
         const user = await this.userRepo.findById(userId);
         if (!user) throw new Error("Usuario no encontrado");
 
@@ -29,28 +31,44 @@ export class BookingService {
         const activity = await this.activityRepo.findById(activityId);
         if (!activity) throw new Error("Actividad no existe");
 
-        
-        // --- LÓGICA NUEVA: CALCULAR HORA FIN REAL ---
-        // Si es Padel (90 min), startTime "14:00" -> endTime "15:30"
-        const endTime = TimeHelper.addMinutes(startTime, activity.defaultDurationMinutes);
+        const endDateTime = new Date(startDateTime.getTime() + activity.defaultDurationMinutes * 60000);
 
-        // --- LÓGICA NUEVA: VALIDAR COLISIÓN REAL ---
-        const turnosExistentes = await this.bookingRepo.findByCourtAndDate(courtId, date);
-        
-        const tieneConflicto = turnosExistentes.some(booking => {
-            if (booking.status === BookingStatus.CANCELLED) return false;
-            // Usamos el Helper para ver si los horarios se pisan
-            return TimeHelper.isOverlapping(startTime, endTime, booking.startTime, booking.endTime);
+        const created = await prisma.$transaction(async (tx: any) => {
+            const overlapping = await tx.booking.findMany({
+                where: {
+                    courtId: courtId,
+                    AND: [
+                        { startDateTime: { lt: endDateTime } },
+                        { endDateTime: { gt: startDateTime } }
+                    ],
+                    NOT: { status: BookingStatus.CANCELLED }
+                },
+                include: { user: true, court: { include: { club: true } }, activity: true }
+            });
+
+            if (overlapping.length > 0) {
+                throw new Error(`El slot ${startDateTime.toISOString()} ya está ocupado.`);
+            }
+
+            const saved = await tx.booking.create({
+                data: {
+                    startDateTime,
+                    endDateTime,
+                    price: 1500,
+                    status: BookingStatus.PENDING,
+                    userId: userId,
+                    courtId: courtId,
+                    activityId: activityId
+                },
+                include: { user: true, court: { include: { club: true } }, activity: true }
+            });
+
+            return saved;
         });
-        
-        if (tieneConflicto) throw new Error(`El turno de ${startTime} a ${endTime} ya está ocupado.`);
 
-        // GUARDAR
-        const newBooking = new Booking(0, date, startTime, endTime, 1500, user as any, court as any, activity, BookingStatus.PENDING);
-        return await this.bookingRepo.save(newBooking);
+        return this.bookingRepo.mapToEntity(created);
     }
 
-    // 2. OBTENER TURNOS DISPONIBLES (La Grilla)
     async getAvailableSlots(courtId: number, date: Date, activityId: number): Promise<string[]> {
         const court = await this.courtRepo.findById(courtId);
         if (!court) throw new Error("Cancha no encontrada");
@@ -58,13 +76,10 @@ export class BookingService {
         const activity = await this.activityRepo.findById(activityId);
         if (!activity) throw new Error("Actividad no encontrada");
 
-        // DEFINIR HORARIOS DEL CLUB (Esto podría estar en la entidad Club)
         const clubOpenTime = "09:00";
         const clubCloseTime = "23:00";
-        const duration = activity.defaultDurationMinutes; // ej: 90 min
+        const duration = activity.defaultDurationMinutes;
 
-        // GENERAR TODOS LOS TURNOS POSIBLES (Slots)
-        // Ejemplo: ["09:00", "10:30", "12:00"...]
         const possibleSlots: string[] = [];
         let currentTime = clubOpenTime;
 
@@ -73,36 +88,39 @@ export class BookingService {
             currentTime = TimeHelper.addMinutes(currentTime, duration);
         }
 
-        // FILTRAR LOS OCUPADOS
         const existingBookings = await this.bookingRepo.findByCourtAndDate(courtId, date);
 
         const freeSlots = possibleSlots.filter(slotStart => {
             const slotEnd = TimeHelper.addMinutes(slotStart, duration);
-            
-            // Verificamos si este slot choca con alguna reserva existente
+
+            const [sh, sm] = slotStart.split(':').map(Number);
+            const [eh, em] = slotEnd.split(':').map(Number);
+            const slotStartDate = new Date(date);
+            slotStartDate.setHours(sh, sm, 0, 0);
+            const slotEndDate = new Date(date);
+            slotEndDate.setHours(eh, em, 0, 0);
+
             const isOccupied = existingBookings.some(booking => {
                 if (booking.status === BookingStatus.CANCELLED) return false;
-                return TimeHelper.isOverlapping(slotStart, slotEnd, booking.startTime, booking.endTime);
+                return TimeHelper.isOverlappingDates(slotStartDate, slotEndDate, booking.startDateTime, booking.endDateTime);
             });
 
-            return !isOccupied; // Solo devolvemos los que NO están ocupados
+            return !isOccupied;
         });
 
         return freeSlots;
     }
 
-    // ... (Mantener los otros métodos cancelBooking y getUserHistory igual que antes) ...
-    async cancelBooking(bookingId: number): Promise<void> {
-    // 1. Verificamos que exista
-    const booking = await this.bookingRepo.findById(bookingId);
-    if (!booking) {
-        throw new Error("La reserva no existe.");
+    async cancelBooking(bookingId: number, cancelledByUserId: number) {
+        const booking = await this.bookingRepo.findById(bookingId);
+        if (!booking) {
+            throw new Error("La reserva no existe.");
+        }
+        await this.bookingRepo.delete(bookingId, cancelledByUserId);
+        const updated = await this.bookingRepo.findById(bookingId);
+        return updated;
     }
 
-    // 2. La borramos directamente (sin validar hora ni usuario)
-    await this.bookingRepo.delete(bookingId); 
-}
-    
     async getUserHistory(userId: number) {
         return await this.bookingRepo.findByUserId(userId);
     }

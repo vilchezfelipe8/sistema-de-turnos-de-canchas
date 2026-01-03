@@ -67,9 +67,10 @@ model ActivityType {
 
 model Booking {
   id        Int           @id @default(autoincrement())
-  date      DateTime
-  startTime String
-  endTime   String
+  startDateTime DateTime
+  endDateTime   DateTime
+  cancelledBy   Int?
+  cancelledAt   DateTime?
   price     Float
   createdAt DateTime      @default(now())
   status    BookingStatus @default(PENDING) // <--- Enum nativo

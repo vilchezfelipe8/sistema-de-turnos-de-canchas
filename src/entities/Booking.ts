@@ -4,15 +4,15 @@ import { ActivityType } from './ActivityType';
 import { BookingStatus } from './Enums';
 
 export class Booking {
-    // Declaración de tipos
     id: number;
-    date: Date;
-    startTime: string; // "14:00"
-    endTime: string;
+    startDateTime: Date;
+    endDateTime: Date;
     price: number;
     createdAt: Date;
-    status: BookingStatus; // Usamos el Enum como tipo
-    
+    status: BookingStatus;
+    cancelledBy?: number;
+    cancelledAt?: Date;
+
     // Relaciones
     user: User;
     court: Court;
@@ -20,9 +20,8 @@ export class Booking {
 
     constructor(
         id: number,
-        date: Date,
-        startTime: string,
-        endTime: string,
+        startDateTime: Date,
+        endDateTime: Date,
         price: number,
         user: User,
         court: Court,
@@ -30,9 +29,8 @@ export class Booking {
         status: BookingStatus
     ) {
         this.id = id;
-        this.date = date;
-        this.startTime = startTime;
-        this.endTime = endTime;
+        this.startDateTime = startDateTime;
+        this.endDateTime = endDateTime;
         this.price = price;
         this.user = user;
         this.court = court;
