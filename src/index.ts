@@ -31,8 +31,11 @@ app.use('/api/bookings', bookingRoutes);
 app.use('/api/courts', CourtRoutes);
 
 app.get('/', (req: Request, res: Response) => {
-  res.json({ message: 'API Sistema de Turnos (Solo Padel) 🚀' });
+  res.json({ message: 'API Sistema de Turnos' });
 });
+
+import { errorHandler } from './middleware/ErrorHandler';
+import { logger } from './utils/logger';
 
 const startServer = async () => {
   try {
@@ -51,5 +54,8 @@ const startServer = async () => {
     process.exit(1);
   }
 };
+
+// Error handler (último middleware)
+app.use(errorHandler);
 
 startServer();
