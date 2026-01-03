@@ -11,3 +11,14 @@ node_modules
 .env
 
 /generated/prisma
+#
+# Local env files for apps
+apps/backend/.env
+apps/backend/.env.local
+apps/frontend/.env
+apps/frontend/.env.local
+
+# Common dotenv variants
+.env.production
+.env.development
+.env.staging
