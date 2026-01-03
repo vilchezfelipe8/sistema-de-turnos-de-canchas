@@ -12,7 +12,6 @@ export class ClubRepository {
         return new Club(saved.id, saved.name, saved.address, saved.contactInfo);
     }
 
-    // Guardar Cancha y vincular actividades
     async saveCourt(court: Court): Promise<Court> {
         const saved = await prisma.court.create({
             data: {
@@ -20,15 +19,14 @@ export class ClubRepository {
                 isIndoor: court.isIndoor,
                 surface: court.surface,
                 isUnderMaintenance: court.isUnderMaintenance,
-                club: { connect: { id: court.club.id } }, // Conectar con Club existente
+                club: { connect: { id: court.club.id } },
                 activities: {
-                    connect: court.supportedActivities.map(a => ({ id: a.id })) // Conectar con actividades por ID
+                    connect: court.supportedActivities.map(a => ({ id: a.id }))
                 }
             },
-            include: { club: true, activities: true } // Traer los datos relacionados
+            include: { club: true, activities: true }
         });
 
-        // Reconstruir la entidad Court completa
         const activities = saved.activities.map(a => new ActivityType(a.id, a.name, a.description, a.defaultDurationMinutes));
         const club = new Club(saved.club.id, saved.club.name, saved.club.address, saved.club.contactInfo);
         
@@ -41,7 +39,7 @@ export class ClubRepository {
     async findCourtById(id: number): Promise<Court | undefined> {
         const found = await prisma.court.findUnique({
             where: { id },
-            include: { club: true, activities: true } // <--- CLAVE: Traer relaciones
+            include: { club: true, activities: true }
         });
 
         if (!found) return undefined;

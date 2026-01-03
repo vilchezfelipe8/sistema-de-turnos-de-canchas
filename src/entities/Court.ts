@@ -9,7 +9,7 @@ export class Court {
         public name: string,
         public isIndoor: boolean,
         public surface: string,
-        public club: Club, // Referencia al padre
+        public club: Club,
         public isUnderMaintenance: boolean = false
     ) {}
 
@@ -21,10 +21,7 @@ export class Court {
             surface: this.surface,
             isUnderMaintenance: this.isUnderMaintenance,
             supportedActivities: this.supportedActivities,
-            // ACÁ ESTÁ EL TRUCO:
-            // En vez de devolver todo el objeto 'club' (que causa el bucle),
-            // devolvemos solo el nombre o el ID. Rompemos el círculo.
             club: this.club ? { id: this.club.id, name: this.club.name } : null
         };
     }
-}   
+}

@@ -4,14 +4,10 @@ import { CourtController } from '../controllers/CourtController';
 
 const router = Router();
 const courtController = new CourtController();
+import { requireRole } from '../middleware/RoleMiddleware';
 
-// Listar todas
 router.get('/', courtController.getAllCourts);
-
-// Crear cancha (Solo Admin debería poder, pero por ahora lo dejamos libre)
-router.post('/', courtController.createCourt);
-
-// Actualizar (Ej: Poner en mantenimiento)
-router.put('/:id', courtController.updateCourt);
+router.post('/', requireRole('ADMIN'), courtController.createCourt);
+router.put('/:id', requireRole('ADMIN'), courtController.updateCourt);
 
 export default router;

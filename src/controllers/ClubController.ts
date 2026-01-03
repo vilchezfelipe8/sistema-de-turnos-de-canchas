@@ -4,7 +4,6 @@ import { ClubService } from '../services/ClubService';
 export class ClubController {
     constructor(private clubService: ClubService) {}
 
-    // POST /api/clubs
     createClub = async (req: Request, res: Response) => {
         try {
             const { name, address, contact } = req.body;
@@ -15,7 +14,6 @@ export class ClubController {
         }
     }
 
-    // POST /api/clubs/court
     createCourt = async (req: Request, res: Response) => {
         try {
             const { clubId, name, surface, activityIds } = req.body;
