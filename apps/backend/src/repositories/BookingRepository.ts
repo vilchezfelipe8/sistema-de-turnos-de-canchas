@@ -1,10 +1,10 @@
-import { prisma } from '../../prisma';
-import { Booking } from '../../entities/Booking';
-import { User } from '../../entities/User';
-import { Court } from '../../entities/Court';
-import { Club } from '../../entities/Club';
-import { ActivityType } from '../../entities/ActivityType';
-import { BookingStatus, Role } from '../../entities/Enums';
+import { prisma } from '../prisma';
+import { Booking } from '../entities/Booking';
+import { User } from '../entities/User';
+import { Court } from '../entities/Court';
+import { Club } from '../entities/Club';
+import { ActivityType } from '../entities/ActivityType';
+import { BookingStatus, Role } from '../entities/Enums';
 
 export class BookingRepository {
 

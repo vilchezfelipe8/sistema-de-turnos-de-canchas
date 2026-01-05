@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
-import { CourtRepository } from '../../repositories/CourtRepository';
-import { prisma } from '../../prisma';
+import { CourtRepository } from '../repositories/CourtRepository';
+import { prisma } from '../prisma';
 
 export class CourtController {
     private courtRepo: CourtRepository;

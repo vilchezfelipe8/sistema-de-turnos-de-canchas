@@ -2,15 +2,15 @@
   "name": "sistema-turnos-backend",
   "version": "1.0.0",
   "description": "Backend para sistema de reservas de canchas",
-  "main": "dist/index.js",
-  "scripts": {
-    "dev": "nodemon --exec ts-node src/index.ts",
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate:deploy": "prisma migrate deploy",
-    "prisma:seed": "ts-node prisma/seed.ts"
-  },
+  "main": "src/index.ts",
+"scripts": {
+  "dev": "nodemon src/index.ts",
+  "build": "tsc -p tsconfig.json",
+  "start": "node dist/index.js",
+  "prisma:generate": "prisma generate",
+  "prisma:migrate:deploy": "prisma migrate deploy",
+  "prisma:seed": "ts-node prisma/seed.ts"
+},
   "keywords": [],
   "author": "",
   "license": "ISC",

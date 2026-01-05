@@ -1,7 +1,7 @@
-import { ClubRepository } from '../../repositories/ClubRepository';
-import { ActivityTypeRepository } from '../../repositories/ActivityTypeRepository';
-import { Club } from '../../entities/Club';
-import { Court } from '../../entities/Court';
+import { ClubRepository } from '../repositories/ClubRepository';
+import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
+import { Club } from '../entities/Club';
+import { Court } from '../entities/Court';
 
 export class ClubService {
     constructor(
