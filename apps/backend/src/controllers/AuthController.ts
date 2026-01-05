@@ -13,7 +13,8 @@ export class AuthController {
             lastName: z.string().min(1),
             email: z.string().email(),
             password: z.string().min(6),
-            phoneNumber: z.string().min(5)
+            phoneNumber: z.string().min(5),
+            role: z.enum(["USER", "ADMIN"])
         });
         const parsed = registerSchema.safeParse(req.body);
         if (!parsed.success) {

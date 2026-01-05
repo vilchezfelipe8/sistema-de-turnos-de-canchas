@@ -41,6 +41,19 @@ export class BookingRepository {
         return found.map((b: any) => this.mapToEntity(b));
     }
 
+    async findByCourtAndDateRange(courtId: number, start: Date, end: Date) {
+    return await prisma.booking.findMany({ 
+        where: {
+            courtId: courtId,
+            startDateTime: {
+                gte: start,
+                lte: end
+            },
+            status: { not: 'CANCELLED' }
+        }
+    });
+}
+
     async findById(id: number): Promise<Booking | undefined> {
         const found = await prisma.booking.findUnique({
             where: { id },

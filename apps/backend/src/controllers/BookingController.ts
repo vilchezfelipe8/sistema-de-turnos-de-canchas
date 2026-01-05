@@ -35,33 +35,35 @@ export class BookingController {
     }
 
     getAvailability = async (req: Request, res: Response) => {
-        try {
-            const querySchema = z.object({
-                courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
-                date: z.string().refine((s) => !Number.isNaN(Date.parse(s)), { message: 'Invalid date' }),
-                activityId: z.preprocess((v) => Number(v), z.number().int().positive())
-            });
+    try {
+        const querySchema = z.object({
+            courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
+            date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: "Formato inválido. Use YYYY-MM-DD (ej: 2026-01-06)" }),
+            // O usa z.string() a secas si envías solo "2026-01-06"
+            activityId: z.preprocess((v) => Number(v), z.number().int().positive())
+        });
 
-            const parsed = querySchema.safeParse(req.query);
-            if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
-            }
+        const parsed = querySchema.safeParse(req.query); 
 
-            const { courtId, date, activityId } = parsed.data;
-            const searchDate = new Date(String(date));
-            searchDate.setHours(0,0,0,0);
-
-            const slots = await this.bookingService.getAvailableSlots(
-                Number(courtId),
-                searchDate,
-                Number(activityId)
-            );
-
-            res.json({ date: date, availableSlots: slots });
-        } catch (error: any) {
-            res.status(400).json({ error: error.message });
+        if (!parsed.success) {
+            return res.status(400).json({ error: parsed.error.format() });
         }
+
+        const { courtId, date, activityId } = parsed.data;
+
+        const searchDate = new Date(date);
+
+        const slots = await this.bookingService.getAvailableSlots(
+            Number(courtId),
+            searchDate, 
+            Number(activityId)
+        );
+
+        res.json({ date: date, availableSlots: slots });
+    } catch (error: any) {
+        res.status(400).json({ error: error.message });
     }
+}
 
     cancelBooking = async (req: Request, res: Response) => {
         try {

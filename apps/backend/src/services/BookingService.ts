@@ -47,7 +47,7 @@ export class BookingService {
             });
 
             if (overlapping.length > 0) {
-                throw new Error(`El slot ${startDateTime.toISOString()} ya está ocupado.`);
+                throw new Error(`El turno ${startDateTime.toISOString()} ya está ocupado.`);
             }
 
             const saved = await tx.booking.create({
@@ -69,47 +69,65 @@ export class BookingService {
         return this.bookingRepo.mapToEntity(created);
     }
 
-    async getAvailableSlots(courtId: number, date: Date, activityId: number): Promise<string[]> {
-        const court = await this.courtRepo.findById(courtId);
-        if (!court) throw new Error("Cancha no encontrada");
+async getAvailableSlots(courtId: number, date: Date, activityId: number): Promise<string[]> {
+    
+    
+    const court = await this.courtRepo.findById(courtId);
+    if (!court) throw new Error("Cancha no encontrada");
 
-        const activity = await this.activityRepo.findById(activityId);
-        if (!activity) throw new Error("Actividad no encontrada");
+    const activity = await this.activityRepo.findById(activityId);
+    if (!activity) throw new Error("Actividad no encontrada");
 
-        const clubOpenTime = "09:00";
-        const clubCloseTime = "23:00";
-        const duration = activity.defaultDurationMinutes;
+    const year = date.getUTCFullYear();
+    const month = date.getUTCMonth();
+    const day = date.getUTCDate();
 
-        const possibleSlots: string[] = [];
-        let currentTime = clubOpenTime;
+    const startOfDay = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+    const endOfDay = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
 
-        while (TimeHelper.timeToMinutes(currentTime) + duration <= TimeHelper.timeToMinutes(clubCloseTime)) {
-            possibleSlots.push(currentTime);
-            currentTime = TimeHelper.addMinutes(currentTime, duration);
-        }
+    const existingBookings = await this.bookingRepo.findByCourtAndDateRange(courtId, startOfDay, endOfDay);
 
-        const existingBookings = await this.bookingRepo.findByCourtAndDate(courtId, date);
+    const possibleSlots = [
+        "08:00", 
+        "09:30", 
+        "11:00", 
+        "12:30", 
+        "14:00", 
+        "15:30", 
+        // "17:00" -> SALTADO (Descanso de 17:00 a 17:30) ☕
+        "17:30", 
+        "19:00", 
+        "20:30",
+        "22:00"
+    ];
 
-        const freeSlots = possibleSlots.filter(slotStart => {
-            const slotEnd = TimeHelper.addMinutes(slotStart, duration);
+    const duration = activity.defaultDurationMinutes; 
 
-            const [sh, sm] = slotStart.split(':').map(Number);
-            const [eh, em] = slotEnd.split(':').map(Number);
-            const slotStartDate = new Date(date);
-            slotStartDate.setHours(sh, sm, 0, 0);
-            const slotEndDate = new Date(date);
-            slotEndDate.setHours(eh, em, 0, 0);
+    const freeSlots = possibleSlots.filter(slotStart => {
+        const slotEnd = TimeHelper.addMinutes(slotStart, duration);
 
-            const isOccupied = existingBookings.some(booking => {
-                if (booking.status === BookingStatus.CANCELLED) return false;
-                return TimeHelper.isOverlappingDates(slotStartDate, slotEndDate, booking.startDateTime, booking.endDateTime);
-            });
+        const [sh, sm] = slotStart.split(':').map(Number);
+        const [eh, em] = slotEnd.split(':').map(Number);
 
-            return !isOccupied;
+        const slotStartDate = new Date(Date.UTC(year, month, day, sh, sm, 0));
+        const slotEndDate = new Date(Date.UTC(year, month, day, eh, em, 0));
+
+        const isOccupied = existingBookings.some(booking => {
+            if (booking.status === "CANCELLED") return false; 
+
+            return TimeHelper.isOverlappingDates(
+                slotStartDate, 
+                slotEndDate, 
+                booking.startDateTime, 
+                booking.endDateTime
+            );
         });
 
-        return freeSlots;
-    }
+        return !isOccupied;
+    });
+
+    return freeSlots;
+}
 
     async cancelBooking(bookingId: number, cancelledByUserId: number) {
         const booking = await this.bookingRepo.findById(bookingId);
