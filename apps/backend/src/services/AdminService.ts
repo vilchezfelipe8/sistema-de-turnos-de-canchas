@@ -25,13 +25,13 @@ export class AdminService {
 
     async getAllBookingsForGrid(date: Date) {
         const all = await this.bookingRepo.findAll();
-        return all.filter(b => b.date.getTime() === date.getTime());
+        return all.filter(b => b.startDateTime.getTime() === date.getTime());
     }
 
     async getDailyRevenueReport(date: Date): Promise<number> {
         const bookings = await this.bookingRepo.findAll();
         const bookingsDelDia = bookings.filter(b => 
-            b.date.getTime() === date.getTime() && 
+            b.startDateTime.getTime() === date.getTime() && 
             b.status === BookingStatus.COMPLETED
         );
         const total = bookingsDelDia.reduce((sum, booking) => sum + booking.price, 0);
@@ -39,16 +39,23 @@ export class AdminService {
     }
 
     async getMostPopularHours() {
-        const bookings = await this.bookingRepo.findAll();
-        const conteo: Record<string, number> = {};
-        bookings.forEach(b => {
-            if (conteo[b.startTime]) {
-                conteo[b.startTime]++;
-            } else {
-                conteo[b.startTime] = 1;
-            }
-        });
-        return conteo;
-    }
+    const bookings = await this.bookingRepo.findAll();
+    const conteo: Record<string, number> = {};
+
+    bookings.forEach(b => {
+        const hours = b.startDateTime.getHours().toString().padStart(2, '0');
+        const minutes = b.startDateTime.getMinutes().toString().padStart(2, '0');
+        
+        const timeKey = `${hours}:${minutes}`;
+
+        if (conteo[timeKey]) {
+            conteo[timeKey]++;
+        } else {
+            conteo[timeKey] = 1;
+        }
+    });
+
+    return conteo;
+}
 }
 
