@@ -22,9 +22,16 @@ export default function BookingGrid() {
     if (!selectedDate || !selectedSlot) return;
     try {
       setIsBooking(true);
-      const bookingDateTime = new Date(selectedDate);
+      // El backend trabaja con fechas en UTC interpretando las horas directamente como UTC
+      // Los horarios disponibles (08:00, 22:00, etc.) se interpretan como UTC en el backend
+      // Por lo tanto, cuando el usuario selecciona 22:00, debemos guardar 22:00 UTC
       const [hours, minutes] = selectedSlot.split(':').map(Number);
-      bookingDateTime.setHours(hours, minutes, 0, 0);
+      const year = selectedDate.getFullYear();
+      const month = selectedDate.getMonth();
+      const day = selectedDate.getDate();
+      
+      // Crear fecha directamente en UTC con la hora seleccionada
+      const bookingDateTime = new Date(Date.UTC(year, month, day, hours, minutes, 0, 0));
 
       await createBooking(1, 1, bookingDateTime);
 
@@ -39,18 +46,26 @@ export default function BookingGrid() {
   };
 
   return (
-    <div className="max-w-lg mx-auto mt-10 p-8 bg-white rounded-2xl shadow-xl border border-gray-100">
-      <div className="text-center mb-8">
-        <h2 className="text-3xl font-extrabold text-slate-800 mb-2">Reservar Cancha 🎾</h2>
-        <p className="text-gray-500">Elige tu día y horario ideal</p>
+    <div className="max-w-lg mx-auto p-4 sm:p-6 lg:p-8 bg-white/90 backdrop-blur-lg rounded-2xl shadow-2xl border-2 border-white/50">
+      <div className="text-center mb-6 sm:mb-8">
+        <div className="inline-block p-2 sm:p-3 bg-gradient-to-r from-orange-500 to-amber-500 rounded-2xl mb-3 sm:mb-4 shadow-lg">
+          <span className="text-3xl sm:text-4xl">🏓</span>
+        </div>
+        <h2 className="text-2xl sm:text-3xl font-black text-gray-900 mb-2">
+          Reservar Cancha
+        </h2>
+        <p className="text-sm sm:text-base text-gray-600 font-medium">Elige tu día y horario ideal</p>
       </div>
 
       {/* SELECTOR DE FECHA */}
       <div className="mb-6">
-        <label className="block text-sm font-bold text-gray-700 mb-2 ml-1">Fecha</label>
+        <label className="block text-sm font-bold text-gray-700 mb-2 ml-1 flex items-center gap-2">
+          <span>📅</span>
+          <span>Fecha</span>
+        </label>
         <input 
           type="date" 
-          className="w-full p-4 rounded-xl border-2 border-gray-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all outline-none text-lg font-medium text-gray-700"
+          className="w-full p-4 rounded-xl border-2 border-gray-200 focus:border-orange-500 focus:ring-4 focus:ring-orange-100 transition-all outline-none text-lg font-medium text-gray-700 bg-white shadow-sm hover:shadow-md"
           onChange={handleDateChange} 
           value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''} 
         />
@@ -59,7 +74,7 @@ export default function BookingGrid() {
       {/* ESTADOS DE CARGA / ERROR */}
       {loading && (
         <div className="flex justify-center py-8">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600"></div>
         </div>
       )}
       
@@ -71,21 +86,27 @@ export default function BookingGrid() {
 
       {/* GRILLA DE HORARIOS */}
       {!loading && slots.length > 0 && (
-        <div className="grid grid-cols-3 gap-3 mb-8">
-          {slots.map((slot) => (
-            <button 
-              key={slot} 
-              onClick={() => setSelectedSlot(slot)} 
-              className={`
-                py-3 px-2 rounded-xl font-bold text-sm transition-all duration-200 transform
-                ${selectedSlot === slot 
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30 scale-105 ring-2 ring-blue-600 ring-offset-2' 
-                    : 'bg-gray-50 text-slate-600 hover:bg-blue-50 hover:text-blue-600 border border-gray-100 hover:border-blue-200'}
-              `}
-            >
-              {slot}
-            </button>
-          ))}
+        <div className="mb-8">
+          <label className="block text-sm font-bold text-gray-700 mb-3 ml-1 flex items-center gap-2">
+            <span>⏰</span>
+            <span>Horarios Disponibles</span>
+          </label>
+          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-3 gap-2 sm:gap-3">
+            {slots.map((slot) => (
+              <button 
+                key={slot} 
+                onClick={() => setSelectedSlot(slot)} 
+                className={`
+                  py-2.5 sm:py-3 px-2 rounded-xl font-bold text-xs sm:text-sm transition-all duration-200 transform
+                  ${selectedSlot === slot 
+                      ? 'bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-500/40 scale-105 ring-2 sm:ring-4 ring-orange-300 ring-offset-1 sm:ring-offset-2' 
+                      : 'bg-gradient-to-br from-gray-50 to-gray-100 text-slate-700 hover:from-orange-50 hover:to-amber-50 hover:text-orange-700 border-2 border-gray-200 hover:border-orange-300 hover:scale-105'}
+                `}
+              >
+                {slot}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -100,13 +121,32 @@ export default function BookingGrid() {
         disabled={!selectedSlot || isBooking}
         onClick={handleBooking} 
         className={`
-            w-full py-4 rounded-xl font-bold text-lg text-white shadow-lg transition-all
+            w-full py-3 sm:py-4 rounded-xl font-bold text-base sm:text-lg text-white shadow-xl transition-all flex items-center justify-center gap-2
             ${!selectedSlot || isBooking 
                 ? 'bg-gray-300 cursor-not-allowed' 
-                : 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 hover:shadow-blue-500/25 transform hover:-translate-y-0.5'}
+                : 'bg-gradient-to-r from-orange-600 via-orange-500 to-amber-600 hover:from-orange-700 hover:via-orange-600 hover:to-amber-700 hover:shadow-2xl hover:shadow-orange-500/50 transform hover:scale-[1.02]'}
         `}
       >
-        {isBooking ? 'Procesando...' : (selectedSlot ? `Confirmar ${selectedSlot} hs` : 'Selecciona un horario')}
+        {isBooking ? (
+          <>
+            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+            <span>Procesando...</span>
+          </>
+        ) : (
+          <>
+            {selectedSlot ? (
+              <>
+                <span>✅</span>
+                <span>Confirmar {selectedSlot} hs</span>
+              </>
+            ) : (
+              <>
+                <span>👆</span>
+                <span>Selecciona un horario</span>
+              </>
+            )}
+          </>
+        )}
       </button>
     </div>
   );
