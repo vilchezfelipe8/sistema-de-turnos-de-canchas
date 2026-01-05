@@ -70,10 +70,14 @@ export class AuthController {
                 { expiresIn: '24h' }
             );
 
-            res.json({ message: "Login exitoso", token });
+            res.json({ message: "Login exitoso", token,
+    user: {
+        id: user.id,
+        email: user.email,
+        role: user.role 
+    } });
         } catch (error: any) {
             res.status(500).json({ error: error.message });
         }
     }
-}
-
+}   

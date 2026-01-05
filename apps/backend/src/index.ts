@@ -4,8 +4,14 @@ import { prisma } from './prisma';
 import bookingRoutes from './routes/BookingRoutes'; // <--- SOLO IMPORTAMOS RESERVAS
 import CourtRoutes from './routes/CourtRoutes';
 import authRoutes from './routes/AuthRoutes';
+import cors from 'cors';
 
 const app = express();
+app.use(cors({
+  origin: 'http://localhost:3001', // Permite solo a tu Next.js
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+  credentials: true
+}));
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {

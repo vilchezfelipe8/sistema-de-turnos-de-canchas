@@ -6,40 +6,54 @@ export class BookingController {
     constructor(private bookingService: BookingService) {}
 
     createBooking = async (req: Request, res: Response) => {
-        try {
-            const createSchema = z.object({
-                userId: z.preprocess((v) => Number(v), z.number().int().positive()),
-                courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
-                startDateTime: z.string().refine((s) => !Number.isNaN(Date.parse(s)), { message: 'Invalid ISO datetime' }),
-                activityId: z.preprocess((v) => Number(v), z.number().int().positive())
-            });
-            const parsed = createSchema.safeParse(req.body);
-            if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
-            }
+    try {
+        const user = (req as any).user;
+        const userIdFromToken = user?.id || user?.userId;
 
-            const { userId, courtId, startDateTime, activityId } = parsed.data;
-            const startDate = new Date(String(startDateTime));
-
-            const result = await this.bookingService.createBooking(
-                Number(userId),
-                Number(courtId),
-                startDate,
-                Number(activityId)
-            );
-
-            res.status(201).json(result);
-        } catch (error: any) {
-            res.status(400).json({ error: error.message });
+        if (!userIdFromToken) {
+            return res.status(401).json({ error: "Usuario no autenticado (Token inválido o sin ID)" });
         }
+
+        const createSchema = z.object({
+            userId: z.preprocess((v) => Number(v), z.number().int().positive()),
+            courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
+            startDateTime: z.string().refine((s) => !Number.isNaN(Date.parse(s)), { message: 'Invalid ISO datetime' }),
+            activityId: z.preprocess((v) => Number(v), z.number().int().positive())
+        });
+
+        const dataToValidate = {
+            ...req.body,
+            userId: userIdFromToken 
+        };
+
+        const parsed = createSchema.safeParse(dataToValidate);
+        
+        if (!parsed.success) {
+            return res.status(400).json({ error: parsed.error.format() });
+        }
+
+        const { userId, courtId, startDateTime, activityId } = parsed.data;
+        const startDate = new Date(String(startDateTime));
+        startDate.setHours(startDate.getHours() - 3);
+
+        const result = await this.bookingService.createBooking(
+            Number(userId),
+            Number(courtId),
+            startDate,
+            Number(activityId)
+        );
+
+        res.status(201).json(result);
+    } catch (error: any) {
+        res.status(400).json({ error: error.message || "Error desconocido" });
     }
+}
 
     getAvailability = async (req: Request, res: Response) => {
     try {
         const querySchema = z.object({
             courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
             date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: "Formato inválido. Use YYYY-MM-DD (ej: 2026-01-06)" }),
-            // O usa z.string() a secas si envías solo "2026-01-06"
             activityId: z.preprocess((v) => Number(v), z.number().int().positive())
         });
 
