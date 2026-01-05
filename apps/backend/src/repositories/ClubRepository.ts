@@ -1,7 +1,7 @@
-import { prisma } from '../../prisma';
-import { Club } from '../../entities/Club';
-import { Court } from '../../entities/Court';
-import { ActivityType } from '../../entities/ActivityType';
+import { prisma } from '../prisma';
+import { Club } from '../entities/Club';
+import { Court } from '../entities/Court';
+import { ActivityType } from '../entities/ActivityType';
 
 export class ClubRepository {
 

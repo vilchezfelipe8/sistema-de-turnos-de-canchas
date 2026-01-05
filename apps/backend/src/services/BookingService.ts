@@ -1,16 +1,16 @@
-import { BookingRepository } from '../../repositories/BookingRepository';
-import { ClubRepository } from '../../repositories/ClubRepository';
-import { UserRepository } from '../../repositories/UserRepository';
-import { ActivityTypeRepository } from '../../repositories/ActivityTypeRepository';
-import { Booking } from '../../entities/Booking';
-import { BookingStatus } from '../../entities/Enums';
-import { TimeHelper } from '../../utils/TimeHelper';
-import { CourtRepository } from '../../repositories/CourtRepository';
-import { prisma } from '../../prisma';
-import { User } from '../../entities/User';
-import { Club } from '../../entities/Club';
-import { Court as CourtEntity } from '../../entities/Court';
-import { ActivityType } from '../../entities/ActivityType';
+import { BookingRepository } from '../repositories/BookingRepository';
+import { ClubRepository } from '../repositories/ClubRepository';
+import { UserRepository } from '../repositories/UserRepository';
+import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
+import { Booking } from '../entities/Booking';
+import { BookingStatus } from '../entities/Enums';
+import { TimeHelper } from '../utils/TimeHelper';
+import { CourtRepository } from '../repositories/CourtRepository';
+import { prisma } from '../prisma';
+import { User } from '../entities/User';
+import { Club } from '../entities/Club';
+import { Court as CourtEntity } from '../entities/Court';
+import { ActivityType } from '../entities/ActivityType';
 
 export class BookingService {
     constructor(

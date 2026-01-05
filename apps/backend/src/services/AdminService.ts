@@ -1,7 +1,7 @@
-import { ClubRepository } from '../../repositories/ClubRepository';
-import { BookingRepository } from '../../repositories/BookingRepository';
-import { ActivityTypeRepository } from '../../repositories/ActivityTypeRepository';
-import { BookingStatus } from '../../entities/Enums';
+import { ClubRepository } from '../repositories/ClubRepository';
+import { BookingRepository } from '../repositories/BookingRepository';
+import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
+import { BookingStatus } from '../entities/Enums';
 
 export class AdminService {
     constructor(
