@@ -34,7 +34,7 @@ export class BookingController {
 
         const { userId, courtId, startDateTime, activityId } = parsed.data;
         const startDate = new Date(String(startDateTime));
-        startDate.setHours(startDate.getHours() - 3);
+        // La fecha ya viene en UTC desde el frontend (toISOString()), no necesitamos convertir
 
         const result = await this.bookingService.createBooking(
             Number(userId),
