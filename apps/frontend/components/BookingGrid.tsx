@@ -11,6 +11,30 @@ export default function BookingGrid() {
   
   const { slots, loading, error } = useAvailability(1, selectedDate);
 
+  // Filtrar slots del pasado si es hoy o fechas anteriores
+  const filteredSlots = (() => {
+    if (!selectedDate) return [];
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const selected = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+    
+    // Si la fecha es anterior a hoy, no mostrar slots
+    if (selected < today) return [];
+    
+    // Si es hoy, filtrar slots que ya pasaron
+    if (selected.getTime() === today.getTime()) {
+      return slots.filter(slot => {
+        const [hours, minutes] = slot.split(':').map(Number);
+        const slotTime = new Date();
+        slotTime.setHours(hours, minutes, 0, 0);
+        return slotTime > now;
+      });
+    }
+    
+    // Si es futuro, mostrar todos
+    return slots;
+  })();
+
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.value) return;
     const [y, m, d] = e.target.value.split('-').map(Number);
@@ -65,6 +89,7 @@ export default function BookingGrid() {
         </label>
         <input 
           type="date" 
+          min={new Date().toISOString().split('T')[0]}
           className="w-full p-4 rounded-xl border-2 border-gray-200 focus:border-orange-500 focus:ring-4 focus:ring-orange-100 transition-all outline-none text-lg font-medium text-gray-700 bg-white shadow-sm hover:shadow-md"
           onChange={handleDateChange} 
           value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''} 
@@ -85,14 +110,14 @@ export default function BookingGrid() {
       )}
 
       {/* GRILLA DE HORARIOS */}
-      {!loading && slots.length > 0 && (
+      {!loading && filteredSlots.length > 0 && (
         <div className="mb-8">
           <label className="block text-sm font-bold text-gray-700 mb-3 ml-1 flex items-center gap-2">
             <span>⏰</span>
             <span>Horarios Disponibles</span>
           </label>
           <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-3 gap-2 sm:gap-3">
-            {slots.map((slot) => (
+            {filteredSlots.map((slot) => (
               <button 
                 key={slot} 
                 onClick={() => setSelectedSlot(slot)} 
@@ -110,9 +135,22 @@ export default function BookingGrid() {
         </div>
       )}
 
-      {!loading && slots.length === 0 && selectedDate && (
+      {!loading && filteredSlots.length === 0 && selectedDate && (
         <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-300 mb-6">
-            <p className="text-gray-500 italic">😢 No hay canchas disponibles.</p>
+            <p className="text-gray-500 italic">
+              {(() => {
+                const now = new Date();
+                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const selected = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+                if (selected < today) {
+                  return "😢 No se pueden reservar turnos en fechas pasadas.";
+                } else if (selected.getTime() === today.getTime() && slots.length > 0) {
+                  return "😢 Los turnos disponibles ya pasaron.";
+                } else {
+                  return "😢 No hay canchas disponibles.";
+                }
+              })()}
+            </p>
         </div>
       )}
 
