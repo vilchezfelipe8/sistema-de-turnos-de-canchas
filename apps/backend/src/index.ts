@@ -31,7 +31,7 @@ app.use(cors({
   credentials: true
 }));
 
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
   console.error('❌ Missing JWT_SECRET in environment. Set it in .env or as an environment variable.');
