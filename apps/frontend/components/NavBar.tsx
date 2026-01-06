@@ -6,16 +6,22 @@ import { logout } from '../services/AuthService';
 export default function Navbar() {
   const router = useRouter();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [user, setUser] = useState<any>(null);
   const [menuOpen, setMenuOpen] = useState(false); // Para móvil (opcional)
 
   useEffect(() => {
     const token = localStorage.getItem('token');
+    const userData = localStorage.getItem('user');
     setIsLoggedIn(!!token);
+    if (userData) {
+      setUser(JSON.parse(userData));
+    }
   }, []);
 
   const handleLogout = () => {
     logout();
     setIsLoggedIn(false);
+    setUser(null);
     window.location.href = '/login';
   };
 
@@ -52,12 +58,14 @@ export default function Navbar() {
                 >
                   📅 Mis Turnos
                 </Link>
-                <Link 
-                  href="/admin" 
-                  className="px-3 lg:px-4 py-2 rounded-xl hover:bg-white/20 transition-all backdrop-blur-sm border border-white/20 hover:scale-105 text-sm lg:text-base"
-                >
-                  ⚙️ Admin
-                </Link>
+                {user && user.role === 'ADMIN' && (
+                  <Link 
+                    href="/admin" 
+                    className="px-3 lg:px-4 py-2 rounded-xl hover:bg-white/20 transition-all backdrop-blur-sm border border-white/20 hover:scale-105 text-sm lg:text-base"
+                  >
+                    ⚙️ Admin
+                  </Link>
+                )}
                 
                 <div className="h-8 w-px bg-white/30 mx-2"></div>
 
@@ -119,13 +127,15 @@ export default function Navbar() {
                   >
                     📅 Mis Turnos
                   </Link>
-                  <Link 
-                    href="/admin" 
-                    onClick={() => setMenuOpen(false)}
-                    className="px-4 py-3 rounded-xl hover:bg-white/20 transition-all backdrop-blur-sm border border-white/20 text-center"
-                  >
-                    ⚙️ Admin
-                  </Link>
+                  {user && user.role === 'ADMIN' && (
+                    <Link 
+                      href="/admin" 
+                      onClick={() => setMenuOpen(false)}
+                      className="px-4 py-3 rounded-xl hover:bg-white/20 transition-all backdrop-blur-sm border border-white/20 text-center"
+                    >
+                      ⚙️ Admin
+                    </Link>
+                  )}
                   <button 
                     onClick={() => {
                       setMenuOpen(false);
