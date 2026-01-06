@@ -10,11 +10,16 @@ export const getCourts = async () => {
 
 export const createCourt = async (name: string, sport: string) => {
     const token = getToken();
+    console.log("MIRA AQUÍ EL TOKEN:", token);
+    if (!token) {
+        alert("¡No hay token! Tienes que loguearte de nuevo.");
+        return;
+    }
     const res = await fetch(`${API_URL}/api/courts`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+            'Authorization': token ? `Bearer ${token}` : ''
         },
         body: JSON.stringify({ name, sport }) // Ajusta según lo que pida tu backend
     });

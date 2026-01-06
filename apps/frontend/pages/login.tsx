@@ -1,11 +1,16 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router'; // O 'next/navigation' si es App Router
-import { login } from '../services/AuthService';
+import { login, register } from '../services/AuthService';
 
 export default function LoginPage() {
   const router = useRouter();
+  const [isLogin, setIsLogin] = useState(true); // true para login, false para registro
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [role, setRole] = useState('MEMBER');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -15,12 +20,21 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      await login(email, password);
-      // Si pasa el login, redirigimos al Home o al calendario de reservas
-      // router.push('/'); 
-      window.location.href = '/';
+      if (isLogin) {
+        await login(email, password);
+        window.location.href = '/';
+      } else {
+        await register(firstName, lastName, email, password, phoneNumber, role);
+        setError('Usuario registrado exitosamente. Ahora puedes iniciar sesión.');
+        setIsLogin(true);
+        // Limpiar campos de registro
+        setFirstName('');
+        setLastName('');
+        setPhoneNumber('');
+        setRole('MEMBER');
+      }
     } catch (err: any) {
-      setError(err.message || 'Credenciales inválidas');
+      setError(err.message || (isLogin ? 'Credenciales inválidas' : 'Error al registrar'));
     } finally {
       setLoading(false);
     }
@@ -36,13 +50,13 @@ export default function LoginPage() {
           </div>
           <h1 className="text-3xl sm:text-4xl font-black text-white mb-1">LAS TEJAS</h1>
           <p className="text-orange-100 text-xs sm:text-sm font-bold uppercase tracking-wider mb-2">CLUB DE PADEL Y AMIGOS</p>
-          <p className="text-white/90 font-medium text-sm sm:text-base">Bienvenido de vuelta</p>
+          <p className="text-white/90 font-medium text-sm sm:text-base">{isLogin ? 'Bienvenido de vuelta' : 'Únete a nosotros'}</p>
         </div>
 
-        {/* Card de Login */}
+        {/* Card de Login/Registro */}
         <div className="bg-white/95 backdrop-blur-lg rounded-2xl shadow-2xl p-5 sm:p-6 lg:p-8 border border-white/20">
           <h2 className="text-xl sm:text-2xl font-bold text-center mb-5 sm:mb-6 text-gray-800">
-            Iniciar Sesión
+            {isLogin ? 'Iniciar Sesión' : 'Crear Cuenta'}
           </h2>
           
           {error && (
@@ -55,6 +69,63 @@ export default function LoginPage() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-5">
+            {!isLogin && (
+              <>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Nombre
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-100 transition-all text-gray-700 font-medium"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    placeholder="Tu nombre"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Apellido
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-100 transition-all text-gray-700 font-medium"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    placeholder="Tu apellido"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Teléfono
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-100 transition-all text-gray-700 font-medium"
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    placeholder="Tu número de teléfono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Rol
+                  </label>
+                  <select
+                    required
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-100 transition-all text-gray-700 font-medium"
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                  >
+                    <option value="MEMBER">Miembro</option>
+                    <option value="ADMIN">Administrador</option>
+                  </select>
+                </div>
+              </>
+            )}
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-2">
                 Email
@@ -95,12 +166,31 @@ export default function LoginPage() {
                 </>
               ) : (
                 <>
-                  <span>Ingresar</span>
+                  <span>{isLogin ? 'Ingresar' : 'Registrarse'}</span>
                   <span>→</span>
                 </>
               )}
             </button>
           </form>
+
+          {/* Toggle entre login y registro */}
+          <div className="mt-6 text-center">
+            <button
+              onClick={() => {
+                setIsLogin(!isLogin);
+                setError('');
+                setFirstName('');
+                setLastName('');
+                setPhoneNumber('');
+                setRole('MEMBER');
+                setEmail('');
+                setPassword('');
+              }}
+              className="text-orange-600 hover:text-orange-800 font-medium text-sm underline"
+            >
+              {isLogin ? '¿No tienes cuenta? Regístrate' : '¿Ya tienes cuenta? Inicia sesión'}
+            </button>
+          </div>
 
           {/* Footer decorativo */}
           <div className="mt-6 pt-6 border-t border-gray-200 text-center">
