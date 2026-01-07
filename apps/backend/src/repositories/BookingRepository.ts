@@ -97,6 +97,8 @@ export class BookingRepository {
         const endOfDay = new Date(date);
         endOfDay.setHours(23, 59, 59, 999);
 
+        console.log('Buscando bookings entre:', startOfDay.toISOString(), 'y', endOfDay.toISOString());
+
         const bookings = await prisma.booking.findMany({
             where: {
                 startDateTime: { gte: startOfDay, lte: endOfDay }
@@ -110,6 +112,8 @@ export class BookingRepository {
                 startDateTime: 'asc'
             }
         });
+
+        console.log('Encontradas', bookings.length, 'reservas');
 
         return bookings.map((b: any) => this.mapToEntity(b));
     }
