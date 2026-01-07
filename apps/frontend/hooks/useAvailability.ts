@@ -1,12 +1,22 @@
 import { useState, useEffect } from 'react';
 
-interface AvailabilityResponse {
-  date: string;
-  availableSlots: string[];
+interface Court {
+  id: number;
+  name: string;
 }
 
-export function useAvailability(courtId: number, date: Date | null) {
-  const [slots, setSlots] = useState<string[]>([]);
+interface SlotWithCourts {
+  slotTime: string;
+  availableCourts: Court[];
+}
+
+interface AvailabilityResponse {
+  date: string;
+  slotsWithCourts: SlotWithCourts[];
+}
+
+export function useAvailability(date: Date | null) {
+  const [slotsWithCourts, setSlotsWithCourts] = useState<SlotWithCourts[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -14,12 +24,12 @@ export function useAvailability(courtId: number, date: Date | null) {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL; 
 
   useEffect(() => {
-    if (!date || !courtId) return;
+    if (!date) return;
 
     const fetchSlots = async () => {
       setLoading(true);
       setError(null);
-      setSlots([]);
+      setSlotsWithCourts([]);
 
       try {
         const year = date.getFullYear();
@@ -27,12 +37,12 @@ export function useAvailability(courtId: number, date: Date | null) {
         const day = String(date.getDate()).padStart(2, '0');
         const dateString = `${year}-${month}-${day}`;
 
-        // Usamos el endpoint limpio que arreglamos hoy
-        const res = await fetch(`${apiUrl}/api/bookings/availability?courtId=${courtId}&activityId=1&date=${dateString}`);
+        // Usamos el nuevo endpoint que devuelve slots con canchas disponibles
+        const res = await fetch(`${apiUrl}/api/bookings/availability-with-courts?activityId=1&date=${dateString}`);
         if (!res.ok) throw new Error('Error al cargar turnos');
 
         const data: AvailabilityResponse = await res.json();
-        setSlots(data.availableSlots);
+        setSlotsWithCourts(data.slotsWithCourts);
 
       } catch (err: any) {
         console.error(err);
@@ -43,7 +53,7 @@ export function useAvailability(courtId: number, date: Date | null) {
     };
 
     fetchSlots();
-  }, [courtId, date, apiUrl]);
+  }, [date, apiUrl]);
 
-  return { slots, loading, error };
+  return { slotsWithCourts, loading, error };
 }

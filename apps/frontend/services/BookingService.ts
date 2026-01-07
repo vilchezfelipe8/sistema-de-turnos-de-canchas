@@ -71,3 +71,23 @@ export const cancelBooking = async (bookingId: number) => {
     }
     return res.json();
 };
+
+// --- 4. OBTENER SCHEDULE COMPLETO DEL DÍA (ADMIN) ---
+export const getAdminSchedule = async (date: string) => {
+    const token = getToken();
+    if (!token) throw new Error("Debes iniciar sesión como administrador.");
+
+    const res = await fetch(`${API_URL}/api/bookings/admin/schedule?date=${date}`, {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        }
+    });
+
+    if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || 'Error al cargar el schedule');
+    }
+    return res.json();
+};

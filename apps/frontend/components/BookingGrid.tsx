@@ -7,12 +7,13 @@ import { createBooking } from '../services/BookingService';
 export default function BookingGrid() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+  const [selectedCourt, setSelectedCourt] = useState<{id: number, name: string} | null>(null);
   const [isBooking, setIsBooking] = useState(false);
   
-  const { slots, loading, error } = useAvailability(1, selectedDate);
+  const { slotsWithCourts, loading, error } = useAvailability(selectedDate);
 
   // Filtrar slots del pasado si es hoy o fechas anteriores
-  const filteredSlots = (() => {
+  const filteredSlotsWithCourts = (() => {
     if (!selectedDate) return [];
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -23,8 +24,8 @@ export default function BookingGrid() {
     
     // Si es hoy, filtrar slots que ya pasaron
     if (selected.getTime() === today.getTime()) {
-      return slots.filter(slot => {
-        const [hours, minutes] = slot.split(':').map(Number);
+      return slotsWithCourts.filter(slotWithCourt => {
+        const [hours, minutes] = slotWithCourt.slotTime.split(':').map(Number);
         const slotTime = new Date();
         slotTime.setHours(hours, minutes, 0, 0);
         return slotTime > now;
@@ -32,7 +33,7 @@ export default function BookingGrid() {
     }
     
     // Si es futuro, mostrar todos
-    return slots;
+    return slotsWithCourts;
   })();
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -40,10 +41,11 @@ export default function BookingGrid() {
     const [y, m, d] = e.target.value.split('-').map(Number);
     setSelectedDate(new Date(y, m - 1, d));
     setSelectedSlot(null);
+    setSelectedCourt(null);
   };
 
   const handleBooking = async () => {
-    if (!selectedDate || !selectedSlot) return;
+    if (!selectedDate || !selectedSlot || !selectedCourt) return;
     try {
       setIsBooking(true);
       // El backend trabaja con fechas en UTC interpretando las horas directamente como UTC
@@ -57,9 +59,9 @@ export default function BookingGrid() {
       // Crear fecha directamente en UTC con la hora seleccionada
       const bookingDateTime = new Date(Date.UTC(year, month, day, hours, minutes, 0, 0));
 
-      await createBooking(1, 1, bookingDateTime);
+      await createBooking(selectedCourt.id, 1, bookingDateTime);
 
-      alert("✅ ¡Reserva Confirmada! Te esperamos en la cancha.");
+      alert("✅ ¡Reserva Confirmada! Te esperamos en la cancha " + selectedCourt.name + ".");
       window.location.reload(); 
 
     } catch (error: any) {
@@ -110,32 +112,47 @@ export default function BookingGrid() {
       )}
 
       {/* GRILLA DE HORARIOS */}
-      {!loading && filteredSlots.length > 0 && (
+      {!loading && filteredSlotsWithCourts.length > 0 && (
         <div className="mb-8">
           <label className="block text-sm font-bold text-gray-700 mb-3 ml-1 flex items-center gap-2">
             <span>⏰</span>
             <span>Horarios Disponibles</span>
           </label>
-          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-3 gap-2 sm:gap-3">
-            {filteredSlots.map((slot) => (
-              <button 
-                key={slot} 
-                onClick={() => setSelectedSlot(slot)} 
-                className={`
-                  py-2.5 sm:py-3 px-2 rounded-xl font-bold text-xs sm:text-sm transition-all duration-200 transform
-                  ${selectedSlot === slot 
-                      ? 'bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-500/40 scale-105 ring-2 sm:ring-4 ring-orange-300 ring-offset-1 sm:ring-offset-2' 
-                      : 'bg-gradient-to-br from-gray-50 to-gray-100 text-slate-700 hover:from-orange-50 hover:to-amber-50 hover:text-orange-700 border-2 border-gray-200 hover:border-orange-300 hover:scale-105'}
-                `}
-              >
-                {slot}
-              </button>
+          <div className="space-y-4">
+            {filteredSlotsWithCourts.map((slotWithCourt) => (
+              <div key={slotWithCourt.slotTime} className="bg-white/50 backdrop-blur-sm p-4 rounded-xl border border-gray-200">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="font-bold text-lg text-gray-800">{slotWithCourt.slotTime}</span>
+                  <span className="text-sm text-gray-600">
+                    {slotWithCourt.availableCourts.length} cancha{slotWithCourt.availableCourts.length !== 1 ? 's' : ''} disponible{slotWithCourt.availableCourts.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {slotWithCourt.availableCourts.map((court) => (
+                    <button
+                      key={court.id}
+                      onClick={() => {
+                        setSelectedSlot(slotWithCourt.slotTime);
+                        setSelectedCourt(court);
+                      }}
+                      className={`
+                        py-2 px-3 rounded-lg font-bold text-sm transition-all duration-200 transform
+                        ${selectedSlot === slotWithCourt.slotTime && selectedCourt?.id === court.id
+                            ? 'bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-500/40 scale-105 ring-2 ring-orange-300 ring-offset-1'
+                            : 'bg-gradient-to-br from-gray-50 to-gray-100 text-slate-700 hover:from-orange-50 hover:to-amber-50 hover:text-orange-700 border border-gray-200 hover:border-orange-300 hover:scale-105'}
+                      `}
+                    >
+                      🏓 {court.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </div>
       )}
 
-      {!loading && filteredSlots.length === 0 && selectedDate && (
+      {!loading && filteredSlotsWithCourts.length === 0 && selectedDate && (
         <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-300 mb-6">
             <p className="text-gray-500 italic">
               {(() => {
@@ -144,7 +161,7 @@ export default function BookingGrid() {
                 const selected = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
                 if (selected < today) {
                   return "😢 No se pueden reservar turnos en fechas pasadas.";
-                } else if (selected.getTime() === today.getTime() && slots.length > 0) {
+                } else if (selected.getTime() === today.getTime() && slotsWithCourts.length > 0) {
                   return "😢 Los turnos disponibles ya pasaron.";
                 } else {
                   return "😢 No hay canchas disponibles.";
@@ -156,11 +173,11 @@ export default function BookingGrid() {
 
       {/* BOTÓN CONFIRMAR */}
       <button 
-        disabled={!selectedSlot || isBooking}
+        disabled={!selectedSlot || !selectedCourt || isBooking}
         onClick={handleBooking} 
         className={`
             w-full py-3 sm:py-4 rounded-xl font-bold text-base sm:text-lg text-white shadow-xl transition-all flex items-center justify-center gap-2
-            ${!selectedSlot || isBooking 
+            ${!selectedSlot || !selectedCourt || isBooking 
                 ? 'bg-gray-300 cursor-not-allowed' 
                 : 'bg-gradient-to-r from-orange-600 via-orange-500 to-amber-600 hover:from-orange-700 hover:via-orange-600 hover:to-amber-700 hover:shadow-2xl hover:shadow-orange-500/50 transform hover:scale-[1.02]'}
         `}
@@ -172,15 +189,15 @@ export default function BookingGrid() {
           </>
         ) : (
           <>
-            {selectedSlot ? (
+            {selectedSlot && selectedCourt ? (
               <>
                 <span>✅</span>
-                <span>Confirmar {selectedSlot} hs</span>
+                <span>Reservar {selectedCourt.name} - {selectedSlot} hs</span>
               </>
             ) : (
               <>
                 <span>👆</span>
-                <span>Selecciona un horario</span>
+                <span>Selecciona horario y cancha</span>
               </>
             )}
           </>

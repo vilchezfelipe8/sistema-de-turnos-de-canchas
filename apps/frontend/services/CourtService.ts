@@ -15,15 +15,24 @@ export const createCourt = async (name: string, sport: string) => {
         alert("¡No hay token! Tienes que loguearte de nuevo.");
         return;
     }
+    console.log("Enviando petición con headers:", {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+    });
     const res = await fetch(`${API_URL}/api/courts`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'Authorization': token ? `Bearer ${token}` : ''
+            'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ name, sport }) // Ajusta según lo que pida tu backend
+        body: JSON.stringify({ name, surface: sport, clubId: 1 }) // Ajusta según lo que pida tu backend
     });
-    if (!res.ok) throw new Error('Error al crear cancha');
+    console.log("Respuesta del servidor:", res.status, res.statusText);
+    if (!res.ok) {
+        const errorText = await res.text();
+        console.log("Error response:", errorText);
+        throw new Error('Error al crear cancha');
+    }
     return res.json();
 };
 

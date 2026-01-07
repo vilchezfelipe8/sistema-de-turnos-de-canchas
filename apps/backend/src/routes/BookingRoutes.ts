@@ -26,6 +26,8 @@ const bookingController = new BookingController(bookingService);
 import { requireRole } from '../middleware/RoleMiddleware';
 
 router.get('/availability', bookingController.getAvailability);
+router.get('/all-availability', bookingController.getAllAvailableSlots);
+router.get('/availability-with-courts', bookingController.getAvailableSlotsWithCourts);
 router.post('/', authMiddleware, bookingController.createBooking);
 router.post('/cancel', authMiddleware, bookingController.cancelBooking);
 router.get('/history/:userId', authMiddleware, bookingController.getHistory);
