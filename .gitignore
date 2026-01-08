@@ -46,3 +46,8 @@ coverage/
 # Misc
 .cache/
 .turbo/
+
+# WhatsApp Web.js session and cache (do not track)
+.wwebjs_auth/
+.wwebjs_cache/
+*.session.json
