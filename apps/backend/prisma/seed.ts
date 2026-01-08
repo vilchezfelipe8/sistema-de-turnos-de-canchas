@@ -45,17 +45,28 @@ async function main() {
   // 4. Usuario (Quitamos el ID manual)
 
   const hashedPassword = await bcrypt.hash('123456', 10);
-  await prisma.user.create({
-    data: {
+  const userEmail = 'lio@messi.com';
+
+  // Usamos upsert para que el seed sea idempotente (no rompa si el email ya existe)
+  await prisma.user.upsert({
+    where: { email: userEmail },
+    update: {
       firstName: 'Lionel',
       lastName: 'Messi',
-      email: 'lio@messi.com',
+      password: hashedPassword,
+      phoneNumber: '555-101010',
+      role: Role.MEMBER
+    },
+    create: {
+      firstName: 'Lionel',
+      lastName: 'Messi',
+      email: userEmail,
       password: hashedPassword,
       phoneNumber: '555-101010',
       role: Role.MEMBER
     },
   });
-  console.log('✅ Usuario creado: Lionel Messi');
+  console.log('✅ Usuario creado o actualizado: Lionel Messi');
 }
 
 main()
