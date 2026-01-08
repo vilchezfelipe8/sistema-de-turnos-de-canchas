@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import Navbar from '../components/NavBar';
-import { getCourts, createCourt, deleteCourt } from '../services/CourtService';
+import { getCourts, createCourt, suspendCourt, reactivateCourt } from '../services/CourtService';
 import { getAdminSchedule } from '../services/BookingService';
 
 export default function AdminPage() {
@@ -49,10 +49,22 @@ export default function AdminPage() {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('¿Suspender esta cancha?')) return;
+  const handleSuspend = async (id: number) => {
+    if (!confirm('¿Suspender esta cancha? Se pondrá en mantenimiento.')) return;
     try {
-        await deleteCourt(id);
+        await suspendCourt(id);
+        alert('✅ Cancha suspendida');
+        loadCourts();
+    } catch (error: any) {
+        alert('Error: ' + error.message);
+    }
+  };
+
+  const handleReactivate = async (id: number) => {
+    if (!confirm('¿Reactivar esta cancha? Saldrá del mantenimiento.')) return;
+    try {
+        await reactivateCourt(id);
+        alert('✅ Cancha reactivada');
         loadCourts();
     } catch (error: any) {
         alert('Error: ' + error.message);
@@ -149,7 +161,14 @@ export default function AdminPage() {
                           className="border-b border-gray-100 hover:bg-gradient-to-r hover:from-orange-50 hover:to-amber-50 transition-colors"
                         >
                           <td className="p-2 sm:p-4 font-mono font-bold text-gray-500 text-xs sm:text-sm">#{c.id}</td>
-                          <td className="p-2 sm:p-4 font-bold text-gray-800 text-sm sm:text-base lg:text-lg">{c.name}</td>
+                          <td className="p-2 sm:p-4 font-bold text-gray-800 text-sm sm:text-base lg:text-lg">
+                            {c.name}
+                            {c.isUnderMaintenance && (
+                              <span className="ml-2 inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-full font-bold text-xs">
+                                🔧 Mantenimiento
+                              </span>
+                            )}
+                          </td>
                           <td className="p-2 sm:p-4">
                             <span className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 bg-orange-100 text-orange-700 rounded-full font-bold text-xs sm:text-sm">
                               {c.sport === 'TENNIS' && '🎾'}
@@ -159,12 +178,21 @@ export default function AdminPage() {
                             </span>
                           </td>
                           <td className="p-2 sm:p-4">
-                            <button 
-                              onClick={() => handleDelete(c.id)}
-                              className="px-2 sm:px-4 py-1.5 sm:py-2 bg-red-50 text-red-600 border-2 border-red-200 rounded-lg font-bold text-xs sm:text-sm hover:bg-red-600 hover:text-white hover:border-red-600 transition-all transform hover:scale-105 whitespace-nowrap"
-                            >
-                              🗑️ <span className="hidden sm:inline">Suspender</span>
-                            </button>
+                            {c.isUnderMaintenance ? (
+                              <button 
+                                onClick={() => handleReactivate(c.id)}
+                                className="px-2 sm:px-4 py-1.5 sm:py-2 bg-green-50 text-green-600 border-2 border-green-200 rounded-lg font-bold text-xs sm:text-sm hover:bg-green-600 hover:text-white hover:border-green-600 transition-all transform hover:scale-105 whitespace-nowrap"
+                              >
+                                ✅ <span className="hidden sm:inline">Reactivar</span>
+                              </button>
+                            ) : (
+                              <button 
+                                onClick={() => handleSuspend(c.id)}
+                                className="px-2 sm:px-4 py-1.5 sm:py-2 bg-red-50 text-red-600 border-2 border-red-200 rounded-lg font-bold text-xs sm:text-sm hover:bg-red-600 hover:text-white hover:border-red-600 transition-all transform hover:scale-105 whitespace-nowrap"
+                              >
+                                🔧 <span className="hidden sm:inline">Suspender</span>
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}

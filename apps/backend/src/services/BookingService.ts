@@ -140,7 +140,23 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
     }
 
     async getUserHistory(userId: number) {
-        return await this.bookingRepo.findByUserId(userId);
+        const bookings = await this.bookingRepo.findByUserId(userId);
+        const now = new Date();
+
+        // Marcar automáticamente como completadas las reservas que ya pasaron
+        for (const booking of bookings) {
+            if (booking.status !== 'CANCELLED' && booking.status !== 'COMPLETED' && booking.startDateTime < now) {
+                // Actualizar el estado en la base de datos
+                await prisma.booking.update({
+                    where: { id: booking.id },
+                    data: { status: BookingStatus.COMPLETED }
+                });
+                // Actualizar el objeto en memoria
+                booking.status = BookingStatus.COMPLETED;
+            }
+        }
+
+        return bookings;
     }
 
     async getDaySchedule(date: Date) {

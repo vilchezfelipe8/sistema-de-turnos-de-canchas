@@ -36,6 +36,50 @@ export const createCourt = async (name: string, sport: string) => {
     return res.json();
 };
 
+export const suspendCourt = async (courtId: number) => {
+    const token = getToken();
+    if (!token) {
+        alert("¡No hay token! Tienes que loguearte de nuevo.");
+        return;
+    }
+    const res = await fetch(`${API_URL}/api/courts/${courtId}/suspend`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ isUnderMaintenance: true })
+    });
+    if (!res.ok) {
+        const errorText = await res.text();
+        console.log("Error response:", errorText);
+        throw new Error('Error al suspender cancha');
+    }
+    return res.json();
+};
+
+export const reactivateCourt = async (courtId: number) => {
+    const token = getToken();
+    if (!token) {
+        alert("¡No hay token! Tienes que loguearte de nuevo.");
+        return;
+    }
+    const res = await fetch(`${API_URL}/api/courts/${courtId}/reactivate`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ isUnderMaintenance: false })
+    });
+    if (!res.ok) {
+        const errorText = await res.text();
+        console.log("Error response:", errorText);
+        throw new Error('Error al reactivar cancha');
+    }
+    return res.json();
+};
+
 export const deleteCourt = async (courtId: number) => {
     const token = getToken();
     const res = await fetch(`${API_URL}/api/courts/${courtId}`, {
