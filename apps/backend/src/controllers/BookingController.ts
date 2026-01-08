@@ -2,72 +2,123 @@ import { Request, Response } from 'express';
 import { BookingService } from '../services/BookingService';
 import { z } from 'zod';
 import { prisma } from '../prisma';
+import { whatsappService } from '../services/WhatsappService';
 
 export class BookingController {
     constructor(private bookingService: BookingService) {}
 
     createBooking = async (req: Request, res: Response) => {
-        try {
-            const user = (req as any).user;
-            const userIdFromToken = user?.id || user?.userId;
-    
-            if (!userIdFromToken) {
-                return res.status(401).json({ error: "Usuario no autenticado (Token inválido o sin ID)" });
-            }
-    
-            const createSchema = z.object({
-                userId: z.preprocess((v) => Number(v), z.number().int().positive()),
-                courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
-                startDateTime: z.string().refine((s) => !Number.isNaN(Date.parse(s)), { message: 'Invalid ISO datetime' }),
-                activityId: z.preprocess((v) => Number(v), z.number().int().positive())
-            });
-    
-            const dataToValidate = {
-                ...req.body,
-                userId: userIdFromToken
-            };
-    
-            const parsed = createSchema.safeParse(dataToValidate);
-    
-            if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
-            }
-    
-            // [MODIFICADO] Quitamos courtId de la desestructuración
-            const { userId, courtId, startDateTime, activityId } = parsed.data;
-            const startDate = new Date(String(startDateTime));
+    try {
+        const user = (req as any).user;
+        const userIdFromToken = user?.id || user?.userId;
 
-            // [MODIFICADO] Verificar que la cancha esté disponible antes de crear la reserva
-            const existingBooking = await prisma.booking.findFirst({
-                where: {
-                    courtId: courtId,
-                    startDateTime: startDate,
-                    status: { not: 'CANCELLED' }
-                }
-            });
-
-            if (existingBooking) {
-                return res.status(400).json({ error: "Esta cancha ya está reservada en ese horario." });
-            }
-
-            const result = await this.bookingService.createBooking(
-                Number(userId),
-                Number(courtId),
-                startDate,
-                Number(activityId)
-            );
-            // Enviar la reserva y una flag para que el frontend sepa que debe refrescar la grilla
-            const year = startDate.getUTCFullYear();
-            const month = String(startDate.getUTCMonth() + 1).padStart(2, '0');
-            const day = String(startDate.getUTCDate()).padStart(2, '0');
-            const refreshDate = `${year}-${month}-${day}`;
-
-            // Mantener compatibilidad: devolver el objeto de reserva con campos extra
-            const payload = { ...result, refresh: true, refreshDate };
-            res.status(201).json(payload);
-        } catch (error: any) {
-            res.status(400).json({ error: error.message || "Error desconocido" });
+        if (!userIdFromToken) {
+            return res.status(401).json({ error: "Usuario no autenticado (Token inválido o sin ID)" });
         }
+
+        const createSchema = z.object({
+            userId: z.preprocess((v) => Number(v), z.number().int().positive()),
+            courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
+            startDateTime: z.string().refine((s) => !Number.isNaN(Date.parse(s)), { message: 'Invalid ISO datetime' }),
+            activityId: z.preprocess((v) => Number(v), z.number().int().positive())
+        });
+
+        const dataToValidate = {
+            ...req.body,
+            userId: userIdFromToken
+        };
+
+        const parsed = createSchema.safeParse(dataToValidate);
+
+        if (!parsed.success) {
+            return res.status(400).json({ error: parsed.error.format() });
+        }
+
+        const { userId, courtId, startDateTime, activityId } = parsed.data;
+        const startDate = new Date(String(startDateTime));
+
+        // Verificar disponibilidad
+        const existingBooking = await prisma.booking.findFirst({
+            where: {
+                courtId: courtId,
+                startDateTime: startDate, // Asegúrate que tu DB use 'startDateTime' o 'startTime'
+                status: { not: 'CANCELLED' }
+            }
+        });
+
+        if (existingBooking) {
+            return res.status(400).json({ error: "Esta cancha ya está reservada en ese horario." });
+        }
+
+        // 1. CREAR LA RESERVA
+        const result = await this.bookingService.createBooking(
+            Number(userId),
+            Number(courtId),
+            startDate,
+            Number(activityId)
+        );
+
+        try {
+            // Buscamos al usuario completo para obtener su número y nombre
+            const fullUser = await prisma.user.findUnique({ 
+                where: { id: Number(userId) } 
+            });
+
+            if (fullUser && fullUser.phoneNumber) {
+                const options: Intl.DateTimeFormatOptions = {timeZone: 'UTC', // 👈 La clave mágica
+                };
+
+                const dateStr = startDate.toLocaleDateString('es-AR', { 
+                    ...options, 
+                    day: '2-digit', month: '2-digit', year: 'numeric' 
+                });
+
+                const timeStr = startDate.toLocaleTimeString('es-AR', { 
+                    ...options, 
+                    hour: '2-digit', minute: '2-digit', hour12: false // false para formato 24hs
+                });
+                // Link de pago ficticio (luego lo cambias por MercadoPago real)
+                const paymentLink = `https://tu-club.com/pagar/${result.id}`;
+
+                const message = `
+🎾 *¡Reserva Confirmada!* 🎾
+
+Hola *${fullUser.firstName || 'Jugador'}*, tu turno ha sido agendado.
+
+📅 *Fecha:* ${dateStr}
+⏰ *Hora:* ${timeStr}
+💰 *Precio:* $${result.price || 1500}
+
+⚠️ *PAGO PENDIENTE:*
+Para confirmar tu asistencia, por favor abona el turno en el siguiente link:
+👉 ${paymentLink}
+
+O transfiere al Alias: *CLUB.PADEL.2025* y envía el comprobante por acá.
+
+¡Te esperamos!
+                `.trim();
+
+                // Enviamos el mensaje (sin await para no bloquear la respuesta al front)
+                whatsappService.sendMessage(fullUser.phoneNumber, message);
+            }
+        } catch (waError) {
+            // Solo lo logueamos en consola, no queremos que rompa el flujo principal
+            console.error("❌ Error enviando WhatsApp:", waError);
+        }
+    
+        // Preparar respuesta para el frontend
+        const year = startDate.getUTCFullYear();
+        const month = String(startDate.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(startDate.getUTCDate()).padStart(2, '0');
+        const refreshDate = `${year}-${month}-${day}`;
+
+        const payload = { ...result, refresh: true, refreshDate };
+        res.status(201).json(payload);
+
+    } catch (error: any) {
+        console.error(error);
+        res.status(400).json({ error: error.message || "Error desconocido" });
+    }
 }
 
     getAvailability = async (req: Request, res: Response) => {
