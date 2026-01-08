@@ -5,8 +5,8 @@ import { login, register } from '../services/AuthService';
 export default function LoginPage() {
   const router = useRouter();
   const [isLogin, setIsLogin] = useState(true); // true para login, false para registro
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('lio@messi.com');
+  const [password, setPassword] = useState('123456');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -183,8 +183,7 @@ export default function LoginPage() {
                 setLastName('');
                 setPhoneNumber('');
                 setRole('MEMBER');
-                setEmail('');
-                setPassword('');
+                // Mantener email/password por defecto para facilitar pruebas
               }}
               className="text-orange-600 hover:text-orange-800 font-medium text-sm underline"
             >

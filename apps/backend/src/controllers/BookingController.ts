@@ -56,8 +56,15 @@ export class BookingController {
                 startDate,
                 Number(activityId)
             );
-    
-            res.status(201).json(result);
+            // Enviar la reserva y una flag para que el frontend sepa que debe refrescar la grilla
+            const year = startDate.getUTCFullYear();
+            const month = String(startDate.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(startDate.getUTCDate()).padStart(2, '0');
+            const refreshDate = `${year}-${month}-${day}`;
+
+            // Mantener compatibilidad: devolver el objeto de reserva con campos extra
+            const payload = { ...result, refresh: true, refreshDate };
+            res.status(201).json(payload);
         } catch (error: any) {
             res.status(400).json({ error: error.message || "Error desconocido" });
         }

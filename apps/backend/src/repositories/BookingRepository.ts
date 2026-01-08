@@ -27,8 +27,15 @@ export class BookingRepository {
     }
 
     async findByCourtAndDate(courtId: number, date: Date): Promise<Booking[]> {
-        const startOfDay = new Date(date); startOfDay.setHours(0,0,0,0);
-        const endOfDay = new Date(date); endOfDay.setHours(23,59,59,999);
+        // Normalizar a UTC para evitar inconsistencias entre creación y lectura de bookings
+        const year = date.getUTCFullYear();
+        const month = date.getUTCMonth();
+        const day = date.getUTCDate();
+
+        const startOfDay = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+        const endOfDay = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
+
+        console.log('Buscando bookings para cancha', courtId, 'entre:', startOfDay.toISOString(), 'y', endOfDay.toISOString());
 
         const found = await prisma.booking.findMany({
             where: {
@@ -91,11 +98,13 @@ export class BookingRepository {
     }
 
     async findAllByDate(date: Date) {
-        const startOfDay = new Date(date);
-        startOfDay.setHours(0, 0, 0, 0);
+        // Normalizar a UTC para que todas las consultas de día usen el mismo rango
+        const year = date.getUTCFullYear();
+        const month = date.getUTCMonth();
+        const day = date.getUTCDate();
 
-        const endOfDay = new Date(date);
-        endOfDay.setHours(23, 59, 59, 999);
+        const startOfDay = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+        const endOfDay = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
 
         console.log('Buscando bookings entre:', startOfDay.toISOString(), 'y', endOfDay.toISOString());
 

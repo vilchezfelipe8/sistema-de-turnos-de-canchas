@@ -277,37 +277,62 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
             "08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:30", "19:00", "20:30", "22:00"
         ];
 
+        // Obtener actividad para duración
+        const activity = await this.activityRepo.findById(activityId);
+        if (!activity) throw new Error("Actividad no encontrada");
+
         // Para cada slot, encontrar qué canchas están disponibles
         const slotsWithCourts = possibleSlots.map(slotTime => {
             // Parsear el slot time - crear fecha en UTC
             const [hours, minutes] = slotTime.split(':').map(Number);
             const slotDateTime = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes, 0));
 
-            // Encontrar canchas disponibles para este slot
+            // Encontrar canchas disponibles para este slot (usando verificación de solapamiento)
+            const durationMinutes = activity.defaultDurationMinutes;
+            const slotEndDateTime = new Date(slotDateTime.getTime() + durationMinutes * 60000);
+
             const availableCourts = activeCourts.filter(court => {
-                const booking = bookings.find(b => {
-                    const courtMatch = b.court.id === court.id;
-                    const bookingUTCTime = Date.UTC(
-                        b.startDateTime.getUTCFullYear(),
-                        b.startDateTime.getUTCMonth(),
-                        b.startDateTime.getUTCDate(),
-                        b.startDateTime.getUTCHours(),
-                        b.startDateTime.getUTCMinutes()
+                // Si existe alguna booking que se solape con este slot, la cancha no está disponible
+                const overlappingBooking = bookings.find(b => {
+                    if (b.court.id !== court.id) return false;
+                    if (b.status === "CANCELLED") return false;
+
+                    return TimeHelper.isOverlappingDates(
+                        slotDateTime,
+                        slotEndDateTime,
+                        b.startDateTime,
+                        b.endDateTime
                     );
-                    const slotUTCTime = slotDateTime.getTime();
-                    const timeMatch = bookingUTCTime === slotUTCTime;
-                    
-                    return courtMatch && timeMatch;
                 });
-                return !booking; // Disponible si no hay booking
+                    
+                return !overlappingBooking;
             }).map(court => ({
                 id: court.id,
                 name: court.name
             }));
+            // Build full courts list with availability flag
+            const courtsWithAvailability = activeCourts.map(court => {
+                const overlappingBooking = bookings.find(b => {
+                    if (b.court.id !== court.id) return false;
+                    if (b.status === "CANCELLED") return false;
+                    return TimeHelper.isOverlappingDates(
+                        slotDateTime,
+                        slotEndDateTime,
+                        b.startDateTime,
+                        b.endDateTime
+                    );
+                });
+                return {
+                    id: court.id,
+                    name: court.name,
+                    isAvailable: !overlappingBooking
+                };
+            });
 
             return {
                 slotTime,
-                availableCourts
+                availableCourts,
+                courts: courtsWithAvailability
             };
         }).filter(slot => slot.availableCourts.length > 0); // Solo incluir slots con al menos una cancha disponible
 
