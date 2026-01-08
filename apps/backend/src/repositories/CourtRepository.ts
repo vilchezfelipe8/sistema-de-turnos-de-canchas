@@ -13,5 +13,11 @@ export class CourtRepository {
         const courts = await prisma.court.findMany();
         return courts;
     }
-}
 
+    async deleteCourt(id: number) {
+    return await prisma.court.update({
+        where: { id },
+        data: { isUnderMaintenance: true } // Solo la ocultamos
+    });
+}
+}

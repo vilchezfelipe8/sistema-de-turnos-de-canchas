@@ -47,9 +47,9 @@ export default function MyBookingsPage() {
         <div className="mb-4 sm:mb-6 lg:mb-8">
           <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black text-gray-900 mb-2 flex items-center gap-2 sm:gap-3">
             <span className="text-3xl sm:text-4xl lg:text-5xl">📅</span>
-            <span>Mis Reservas</span>
+            <span>Mis Reservas e Historial</span>
           </h1>
-          <p className="text-sm sm:text-base text-gray-600 font-medium ml-0 sm:ml-12 lg:ml-16">Gestiona tus reservas activas</p>
+          <p className="text-sm sm:text-base text-gray-600 font-medium ml-0 sm:ml-12 lg:ml-16">Gestiona tus reservas activas y revisa tu historial</p>
         </div>
 
         {loading && (
@@ -84,6 +84,7 @@ export default function MyBookingsPage() {
              // Por lo tanto, para mostrar, debemos interpretar la hora UTC directamente como hora de Argentina
              const date = new Date(booking.startDateTime);
              const isCancelled = booking.status === 'CANCELLED';
+             const isCompleted = booking.status === 'COMPLETED';
              
              // Las fechas están guardadas en UTC pero representan hora de Argentina directamente
              // Por lo tanto, mostramos la hora UTC directamente (sin conversión de zona horaria)
@@ -95,10 +96,10 @@ export default function MyBookingsPage() {
              const argentinaDay = date.getUTCDate();
              
              return (
-                <div key={booking.id} className={`group relative bg-white/90 backdrop-blur-lg rounded-2xl p-4 sm:p-6 shadow-lg hover:shadow-xl transition-all border-2 ${isCancelled ? 'border-red-200 opacity-75' : 'border-green-200'} overflow-hidden flex flex-col sm:flex-row justify-between items-center gap-4 ${isCancelled ? 'grayscale-[30%]' : ''}`}>
+                <div key={booking.id} className={`group relative bg-white/90 backdrop-blur-lg rounded-2xl p-4 sm:p-6 shadow-lg hover:shadow-xl transition-all border-2 ${isCancelled ? 'border-red-200 opacity-75' : isCompleted ? 'border-blue-200 opacity-90' : 'border-green-200'} overflow-hidden flex flex-col sm:flex-row justify-between items-center gap-4 ${isCancelled ? 'grayscale-[30%]' : ''}`}>
                   
                   {/* Borde de color lateral según estado */}
-                  <div className={`absolute left-0 top-0 bottom-0 w-2 ${isCancelled ? 'bg-gradient-to-b from-red-400 to-red-600' : 'bg-gradient-to-b from-green-400 to-emerald-600'}`}></div>
+                  <div className={`absolute left-0 top-0 bottom-0 w-2 ${isCancelled ? 'bg-gradient-to-b from-red-400 to-red-600' : isCompleted ? 'bg-gradient-to-b from-blue-400 to-blue-600' : 'bg-gradient-to-b from-green-400 to-emerald-600'}`}></div>
 
                   <div className="flex items-center gap-3 sm:gap-4 lg:gap-6 w-full sm:flex-1">
                     {/* Cajita de Fecha */}
@@ -112,6 +113,7 @@ export default function MyBookingsPage() {
                         <h3 className="font-bold text-base sm:text-lg text-slate-800 truncate">
                             {booking.court?.name || 'Cancha'}
                             {isCancelled && <span className="ml-2 text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">CANCELADO</span>}
+                            {isCompleted && <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">COMPLETADO</span>}
                         </h3>
                         <p className="text-sm sm:text-base text-slate-500 font-medium flex items-center gap-1">
                            ⏰ {argentinaTimeStr} hs
@@ -120,7 +122,7 @@ export default function MyBookingsPage() {
                   </div>
                   
                   {/* Botón Acción */}
-                  {!isCancelled && (
+                  {!isCancelled && !isCompleted && (
                     <button 
                       onClick={() => handleCancel(booking.id)}
                       className="w-full sm:w-auto px-4 sm:px-5 py-2 sm:py-2.5 text-sm font-bold text-white bg-gradient-to-r from-red-500 to-red-600 border-2 border-red-400 rounded-xl hover:from-red-600 hover:to-red-700 transition-all shadow-lg hover:shadow-xl transform hover:scale-105 flex items-center gap-2 justify-center"

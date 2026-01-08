@@ -12,6 +12,8 @@ router.get('/', courtController.getAllCourts);
 
 router.post('/',authMiddleware ,requireRole('ADMIN'), courtController.createCourt);
 router.put('/:id',authMiddleware, requireRole('ADMIN'), courtController.updateCourt);
+router.put('/:id/suspend', authMiddleware, requireRole('ADMIN'), courtController.suspendCourt);
+router.put('/:id/reactivate', authMiddleware, requireRole('ADMIN'), courtController.reactivateCourt);
 
 export default router;
 
