@@ -4,16 +4,18 @@
 
 @layer base {
   body {
-    @apply antialiased;
+    /* Fondo super oscuro y texto claro por defecto */
+    @apply antialiased bg-slate-950 text-slate-100;
   }
 }
 
 @layer utilities {
-  .animate-bounce-slow {
-    animation: bounce 3s infinite;
+  /* Clases para efectos de brillo (Glow) */
+  .text-glow {
+    text-shadow: 0 0 10px rgba(163, 230, 53, 0.5);
   }
   
-  .gradient-text {
-    @apply bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent;
+  .box-glow {
+    box-shadow: 0 0 20px rgba(163, 230, 53, 0.15);
   }
 }

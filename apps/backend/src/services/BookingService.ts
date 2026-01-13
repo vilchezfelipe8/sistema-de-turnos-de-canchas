@@ -85,7 +85,20 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
     const startOfDay = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
     const endOfDay = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
 
+    // --- AGREGAR ESTOS LOGS ---
+    console.log("---------------- DEBUG DISPONIBILIDAD ----------------");
+    console.log("📅 Buscando para fecha (UTC):", startOfDay.toISOString());
+    
     const existingBookings = await this.bookingRepo.findByCourtAndDateRange(courtId, startOfDay, endOfDay);
+    
+    
+    console.log(`🔎 Encontradas ${existingBookings.length} reservas en total.`);
+    existingBookings.forEach(b => {
+        console.log(`   - ID: ${b.id} | Start: ${b.startDateTime.toISOString()} | Status: ${b.status}`);
+    });
+    console.log("------------------------------------------------------");
+    // --------------------------    
+
 
     const possibleSlots = [
         "08:00", 
@@ -140,24 +153,29 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
     }
 
     async getUserHistory(userId: number) {
-        const bookings = await this.bookingRepo.findByUserId(userId);
-        const now = new Date();
+    const bookings = await this.bookingRepo.findByUserId(userId);
+    const now = new Date();
 
-        // Marcar automáticamente como completadas las reservas que ya pasaron
-        for (const booking of bookings) {
-            if (booking.status !== 'CANCELLED' && booking.status !== 'COMPLETED' && booking.startDateTime < now) {
-                // Actualizar el estado en la base de datos
-                await prisma.booking.update({
-                    where: { id: booking.id },
-                    data: { status: BookingStatus.COMPLETED }
-                });
-                // Actualizar el objeto en memoria
-                booking.status = BookingStatus.COMPLETED;
-            }
+    for (const booking of bookings) {
+        const durationMinutes = 90; 
+        
+        const endTime = new Date(booking.startDateTime.getTime() + (durationMinutes * 60000));
+
+        if (booking.status !== 'CANCELLED' && booking.status !== 'COMPLETED' && endTime < now) {
+            
+            // Actualizar en BD
+            await prisma.booking.update({
+                where: { id: booking.id },
+                data: { status: BookingStatus.COMPLETED }
+            });
+
+            // Actualizar en memoria para que el usuario lo vea bien ya mismo
+            booking.status = BookingStatus.COMPLETED;
         }
-
-        return bookings;
     }
+
+    return bookings;
+}
 
     async getDaySchedule(date: Date) {
         // Obtener todas las canchas activas (no en mantenimiento)

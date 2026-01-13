@@ -56,7 +56,7 @@ export class BookingRepository {
                 gte: start,
                 lte: end
             },
-            status: { not: 'CANCELLED' }
+            status: { not: BookingStatus.CANCELLED }
         }
     });
 }
@@ -110,7 +110,8 @@ export class BookingRepository {
 
         const bookings = await prisma.booking.findMany({
             where: {
-                startDateTime: { gte: startOfDay, lte: endOfDay }
+                startDateTime: { gte: startOfDay, lte: endOfDay },
+                status: { not: 'CANCELLED' }
             },
             include: {
                 user: true,
@@ -123,6 +124,17 @@ export class BookingRepository {
         });
 
         console.log('Encontradas', bookings.length, 'reservas');
+
+        // 👇👇👇 AGREGA ESTO JUSTO AQUÍ 👇👇👇
+        if (bookings.length > 0) {
+            console.log("--------------------------------------------------");
+            console.log("🕵️ DETALLE DE RESERVAS ENCONTRADAS:");
+            bookings.forEach((b: any) => {
+                console.log(`👉 ID: ${b.id} | Cancha: ${b.courtId} | Hora: ${b.startDateTime.toISOString()} | Status: ${b.status}`);
+            });
+            console.log("--------------------------------------------------");
+        }
+        // 👆👆👆 ----------------------------- 👆👆👆
 
         return bookings.map((b: any) => this.mapToEntity(b));
     }

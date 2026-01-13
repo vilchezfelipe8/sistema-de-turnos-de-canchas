@@ -1,4 +1,4 @@
- "use client";
+"use client";
 
 import { useState, useEffect } from 'react';
 import { useAvailability } from '../hooks/useAvailability';
@@ -17,6 +17,7 @@ export default function BookingGrid() {
   const STORAGE_PREFIX = 'disabledSlots:';
   const [allCourts, setAllCourts] = useState<Array<{ id: number; name: string }>>([]);
 
+  // --- LÓGICA (Sin cambios) ---
   const filteredSlotsWithCourts = (() => {
     if (!selectedDate) return [];
     const now = new Date();
@@ -63,17 +64,13 @@ export default function BookingGrid() {
 
       try {
         if (createResult && createResult.refresh && createResult.refreshDate) {
-          // Parsear la fecha YYYY-MM-DD y crear Date en midnight local (evita shift de zona)
           const [ry, rm, rd] = String(createResult.refreshDate).split('-').map(Number);
           setSelectedDate(new Date(ry, rm - 1, rd));
         }
         await (refresh as () => Promise<void>)?.();
-        // limpiar selección después del refresh para que el botón vuelva a "Selecciona horario y cancha"
         setSelectedSlot(null);
         setSelectedCourt(null);
-      } catch (_) {
-        /* noop */
-      }
+      } catch (_) { /* noop */ }
 
       alert('✅ ¡Reserva Confirmada! Te esperamos en la cancha ' + selectedCourt.name + '.');
     } catch (error: any) {
@@ -128,7 +125,6 @@ export default function BookingGrid() {
     fetchCourts();
   }, []);
 
-  // Sincronizar disabledSlots desde lo que trae el backend: si una cancha NO aparece en availableCourts para un slot, marcarla como deshabilitada
   useEffect(() => {
     if (!selectedDate || !slotsWithCourts) return;
     const dateString = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(
@@ -137,7 +133,6 @@ export default function BookingGrid() {
 
     const newDisabled: Record<string, boolean> = {};
     slotsWithCourts.forEach((slot) => {
-      // Para cada cancha activa, si no está dentro de availableCourts, marcarla deshabilitada
       const availableIds = new Set(slot.availableCourts.map((c) => c.id));
       const courtsToInspect = allCourts.length > 0 ? allCourts : slot.availableCourts;
       courtsToInspect.forEach((court) => {
@@ -148,45 +143,54 @@ export default function BookingGrid() {
       });
     });
 
-    // Merge sin borrar lo que pueda estar en disabledSlots por acciones del usuario
     setDisabledSlots((prev) => ({ ...newDisabled, ...prev }));
   }, [slotsWithCourts, allCourts, selectedDate]);
 
+  // --- RENDERIZADO VISUAL (Totalmente renovado) ---
   return (
-    <div className="max-w-lg mx-auto p-4 sm:p-6 lg:p-8 bg-white/90 backdrop-blur-lg rounded-2xl shadow-2xl border-2 border-white/50">
-      <div className="text-center mb-6 sm:mb-8">
-        <div className="inline-block p-2 sm:p-3 bg-gradient-to-r from-orange-500 to-amber-500 rounded-2xl mb-3 sm:mb-4 shadow-lg">
-          <span className="text-3xl sm:text-4xl">🏓</span>
+    <div className="w-full max-w-4xl mx-auto bg-slate-900/60 backdrop-blur-xl p-6 sm:p-8 rounded-3xl border border-white/10 shadow-2xl relative overflow-hidden">
+      
+      {/* Glow Effect Decorativo */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-1 bg-gradient-to-r from-transparent via-lime-500/20 to-transparent blur-md"></div>
+
+      <div className="text-center mb-8">
+        <div className="inline-block p-4 bg-slate-800 rounded-2xl mb-4 shadow-lg border border-slate-700">
+          <span className="text-4xl">🎾</span>
         </div>
-        <h2 className="text-2xl sm:text-3xl font-black text-gray-900 mb-2">Reservar Cancha</h2>
-        <p className="text-sm sm:text-base text-gray-600 font-medium">Elige tu día y horario ideal</p>
+        <h2 className="text-3xl font-black text-white mb-2 tracking-tight">Reservar Cancha</h2>
+        <p className="text-slate-400 font-medium">Elige tu día y horario ideal</p>
       </div>
 
-      <div className="mb-6">
-        <label className="block text-sm font-bold text-gray-700 mb-2 ml-1 flex items-center gap-2">
+      <div className="mb-8">
+        <label className="block text-sm font-bold text-slate-300 mb-2 ml-1 flex items-center gap-2">
           <span>📅</span>
           <span>Fecha</span>
         </label>
         <input
           type="date"
           min={new Date().toISOString().split('T')[0]}
-          className="w-full p-4 rounded-xl border-2 border-gray-200 focus:border-orange-500 focus:ring-4 focus:ring-orange-100 transition-all outline-none text-lg font-medium text-gray-700 bg-white shadow-sm hover:shadow-md"
+          className="w-full p-4 rounded-xl border border-slate-700 bg-slate-950/50 text-white placeholder-slate-500 focus:outline-none focus:border-lime-500 focus:ring-1 focus:ring-lime-500 transition-all font-medium shadow-inner"
           onChange={handleDateChange}
           value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''}
+          style={{ colorScheme: 'dark' }} // Truco para que el calendario nativo sea oscuro
         />
       </div>
 
       {loading && (
-        <div className="flex justify-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600"></div>
+        <div className="flex justify-center py-12">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-lime-500 shadow-[0_0_15px_rgba(132,204,22,0.5)]"></div>
         </div>
       )}
 
-      {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl border border-red-100 text-center mb-4">{error}</div>}
+      {error && (
+        <div className="bg-red-950/30 text-red-400 p-4 rounded-xl border border-red-500/30 text-center mb-6 flex items-center justify-center gap-2">
+           <span>⚠️</span> {error}
+        </div>
+      )}
 
       {!loading && filteredSlotsWithCourts.length > 0 && (
-        <div className="mb-8">
-          <label className="block text-sm font-bold text-gray-700 mb-3 ml-1 flex items-center gap-2">
+        <div className="mb-10">
+          <label className="block text-sm font-bold text-slate-300 mb-4 ml-1 flex items-center gap-2">
             <span>⏰</span>
             <span>Horarios Disponibles</span>
           </label>
@@ -203,15 +207,15 @@ export default function BookingGrid() {
               }, 0);
 
               return (
-                <div key={slotWithCourt.slotTime} className="bg-white/50 backdrop-blur-sm p-4 rounded-xl border border-gray-200">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="font-bold text-lg text-gray-800">{slotWithCourt.slotTime}</span>
-                    <span className="text-sm text-gray-600">
-                      {availableCount} cancha{availableCount !== 1 ? 's' : ''} disponible{availableCount !== 1 ? 's' : ''}
+                <div key={slotWithCourt.slotTime} className="bg-slate-950/30 p-4 rounded-2xl border border-white/5 hover:border-white/10 transition-colors">
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="font-bold text-xl text-white tracking-tight">{slotWithCourt.slotTime}</span>
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider bg-slate-900 px-2 py-1 rounded">
+                      {availableCount} {availableCount !== 1 ? 'DISPONIBLES' : 'DISPONIBLE'}
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {(allCourts.length > 0 ? allCourts : slotWithCourt.availableCourts).map((court) => {
                       const slotKey = `${dateString}-${slotWithCourt.slotTime}-${court.id}`;
                       const isLocallyDisabled = !!disabledSlots[slotKey];
@@ -225,38 +229,41 @@ export default function BookingGrid() {
                           const res = await fetch(`${API_URL}/api/bookings/availability?courtId=${court.id}&date=${dateString}&activityId=1`);
                           if (!res.ok) {
                             setDisabledSlots((prev) => ({ ...prev, [slotKey]: true }));
-                            alert('No se pudo verificar disponibilidad. Intenta nuevamente más tarde.');
+                            alert('No se pudo verificar disponibilidad.');
                             return;
                           }
                           const data = await res.json();
                           const availableSlots: string[] = data.availableSlots || [];
                           if (!availableSlots.includes(slotWithCourt.slotTime)) {
                             setDisabledSlots((prev) => ({ ...prev, [slotKey]: true }));
-                            alert('⚠️ Esta cancha ya no está disponible para ese horario.');
+                            alert('⚠️ Cancha ya no disponible.');
                             return;
                           }
-
                           setSelectedSlot(slotWithCourt.slotTime);
                           setSelectedCourt(court);
                         } catch (err: any) {
-                          console.error('Error verificando disponibilidad:', err);
                           setDisabledSlots((prev) => ({ ...prev, [slotKey]: true }));
-                          alert('Error al verificar disponibilidad. Intenta de nuevo.');
+                          alert('Error verificando disponibilidad.');
                         }
                       };
 
-                      const baseClass = 'py-2 px-3 rounded-lg font-bold text-sm transition-all duration-200 transform';
-                      const stateClass = isDisabled
-                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                        : selectedSlot === slotWithCourt.slotTime && selectedCourt?.id === court.id
-                        ? 'bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-500/40 scale-105 ring-2 ring-orange-300 ring-offset-1'
-                        : 'bg-gradient-to-br from-gray-50 to-gray-100 text-slate-700 hover:from-orange-50 hover:to-amber-50 hover:text-orange-700 border border-gray-200 hover:border-orange-300 hover:scale-105';
-                      const finalClass = `${baseClass} ${stateClass}`;
+                      // --- ESTILOS DE BOTONES DE CANCHA ---
+                      const isSelected = selectedSlot === slotWithCourt.slotTime && selectedCourt?.id === court.id;
+                      
+                      let btnClass = 'py-3 px-4 rounded-xl font-bold text-sm transition-all duration-300 flex items-center justify-center gap-2 border ';
+                      
+                      if (isDisabled) {
+                        btnClass += 'bg-slate-900/40 text-slate-700 border-transparent cursor-not-allowed opacity-50';
+                      } else if (isSelected) {
+                        btnClass += 'bg-lime-500 text-slate-950 border-lime-400 shadow-[0_0_15px_rgba(132,204,22,0.4)] scale-[1.02]';
+                      } else {
+                        btnClass += 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white hover:border-lime-500/50 hover:bg-slate-800 hover:scale-[1.02]';
+                      }
 
                       return (
-                        <button key={court.id} onClick={handleSelectCourt} disabled={isDisabled} className={finalClass}>
-                          🏓 {court.name}
-                          {!isBackendAvailable && <span className="ml-2 text-xs text-gray-500"> (Ocupada)</span>}
+                        <button key={court.id} onClick={handleSelectCourt} disabled={isDisabled} className={btnClass}>
+                          <span>🏓</span> {court.name}
+                          {!isBackendAvailable && <span className="text-[10px] ml-1 opacity-50">(X)</span>}
                         </button>
                       );
                     })}
@@ -269,19 +276,15 @@ export default function BookingGrid() {
       )}
 
       {!loading && filteredSlotsWithCourts.length === 0 && selectedDate && (
-        <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-300 mb-6">
-          <p className="text-gray-500 italic">
+        <div className="text-center py-12 bg-slate-950/30 rounded-2xl border border-dashed border-slate-800 mb-8">
+          <p className="text-slate-500 font-medium">
             {(() => {
               const now = new Date();
               const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
               const selected = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
-              if (selected < today) {
-                return '😢 No se pueden reservar turnos en fechas pasadas.';
-              } else if (selected.getTime() === today.getTime() && slotsWithCourts.length > 0) {
-                return '😢 Los turnos disponibles ya pasaron.';
-              } else {
-                return '😢 No hay canchas disponibles.';
-              }
+              if (selected < today) return '⏳ No se puede viajar al pasado...';
+              else if (selected.getTime() === today.getTime() && slotsWithCourts.length > 0) return '🌙 Ya no quedan turnos por hoy.';
+              else return '🚫 No hay canchas disponibles para esta fecha.';
             })()}
           </p>
         </div>
@@ -291,28 +294,29 @@ export default function BookingGrid() {
         disabled={!selectedSlot || !selectedCourt || isBooking}
         onClick={handleBooking}
         className={`
-            w-full py-3 sm:py-4 rounded-xl font-bold text-base sm:text-lg text-white shadow-xl transition-all flex items-center justify-center gap-2
-            ${!selectedSlot || !selectedCourt || isBooking ? 'bg-gray-300 cursor-not-allowed' : 'bg-gradient-to-r from-orange-600 via-orange-500 to-amber-600 hover:from-orange-700 hover:via-orange-600 hover:to-amber-700 hover:shadow-2xl hover:shadow-orange-500/50 transform hover:scale-[1.02]'}
+            w-full py-4 rounded-xl font-black text-lg shadow-lg transition-all flex items-center justify-center gap-3 uppercase tracking-wide
+            ${!selectedSlot || !selectedCourt || isBooking 
+                ? 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700' 
+                : 'bg-lime-500 text-slate-950 hover:bg-lime-400 hover:shadow-[0_0_25px_rgba(132,204,22,0.4)] transform hover:scale-[1.01] border border-lime-400'}
         `}
       >
         {isBooking ? (
           <>
-            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-slate-900"></div>
             <span>Procesando...</span>
           </>
         ) : selectedSlot && selectedCourt ? (
           <>
-            <span>✅</span>
-            <span>Reservar {selectedCourt.name} - {selectedSlot} hs</span>
+            <span>⚡</span>
+            <span>CONFIRMAR RESERVA</span>
           </>
         ) : (
           <>
-            <span>👆</span>
-            <span>Selecciona horario y cancha</span>
+            <span className="opacity-50">👆</span>
+            <span className="opacity-50">Selecciona Turno</span>
           </>
         )}
       </button>
     </div>
   );
 }
-
