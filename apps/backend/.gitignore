@@ -18,3 +18,10 @@ node_modules/
 # Logs
 npm-debug.log*
 
+# --- BLOQUEO TOTAL DE WHATSAPP Y PUPPETEER ---
+apps/backend/.wwebjs_auth/
+apps/backend/.wwebjs_cache/
+apps/backend/.wwebjs_puppeteer/
+apps/backend/*.pma
+apps/backend/DevToolsActivePort
+apps/backend/core

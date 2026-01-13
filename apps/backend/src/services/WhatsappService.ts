@@ -10,7 +10,15 @@ class WhatsappService {
         this.client = new Client({
             authStrategy: new LocalAuth(), // Guarda la sesión para no escanear el QR siempre
             puppeteer: {
-                args: ['--no-sandbox'], // Necesario para correr en servidores linux
+                protocolTimeout: 120000,
+                args: ['--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--disable-gpu'], // Necesario para correr en servidores linux
+                headless: true 
             }
         });
 
