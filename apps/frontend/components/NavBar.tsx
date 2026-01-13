@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
-import { logout } from '../services/AuthService'; // Asegúrate de que la ruta sea correcta
+import { logout } from '../services/AuthService'; 
 
 const Navbar = () => {
   const router = useRouter();
@@ -31,8 +31,6 @@ const Navbar = () => {
   const isActive = (path: string) => router.pathname === path;
 
   return (
-    // CAMBIO CLAVE: Quitamos el fondo naranja. Usamos vidrio oscuro (slate-950/X) y backdrop-blur.
-    // Se vuelve más oscuro al hacer scroll.
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 border-b border-white/5
       ${isScrolled ? 'bg-slate-950/80 backdrop-blur-xl py-2 shadow-lg' : 'bg-slate-950/50 backdrop-blur-md py-3'}`}>
       
@@ -58,11 +56,11 @@ const Navbar = () => {
               <NavLink href="/admin" icon="⚙️" text="Admin" active={isActive('/admin')} />
             )}
 
-            {/* Botón Cerrar Sesión (Estilo rojo sutil) */}
+            {/* Botón Cerrar Sesión */}
             <button
               onClick={handleLogout}
               className="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-all
-                         text-red-400 hover:bg-red-950/50 hover:text-red-200 ml-2"
+                          text-red-400 hover:bg-red-950/50 hover:text-red-200 ml-2"
             >
               <span>🚪</span>
               <span className="hidden sm:inline">Salir</span>
@@ -77,7 +75,6 @@ const Navbar = () => {
 // Subcomponente para los enlaces del menú
 const NavLink = ({ href, icon, text, active }: any) => (
   <Link href={href}
-    // CAMBIO: Estilos de botón neón. Inactivo es gris transparente, Activo es Verde Lima brillante.
     className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-bold transition-all border
       ${active 
         ? 'bg-lime-500 text-slate-950 border-lime-400 shadow-[0_0_10px_rgba(132,204,22,0.3)]' 

@@ -3,21 +3,30 @@
 import { useState, useEffect } from 'react';
 import { useAvailability } from '../hooks/useAvailability';
 import { createBooking } from '../services/BookingService';
+import { useRouter } from 'next/router'; // Importar router por si necesitas redireccionar
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 export default function BookingGrid() {
+  // const router = useRouter(); // Descomentar si usas next router
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [selectedCourt, setSelectedCourt] = useState<{ id: number; name: string } | null>(null);
   const [isBooking, setIsBooking] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false); // Estado para el botón visual
 
   const { slotsWithCourts, loading, error, refresh } = useAvailability(selectedDate);
   const [disabledSlots, setDisabledSlots] = useState<Record<string, boolean>>({});
   const STORAGE_PREFIX = 'disabledSlots:';
   const [allCourts, setAllCourts] = useState<Array<{ id: number; name: string }>>([]);
 
-  // --- LÓGICA (Sin cambios) ---
+  // --- Verificar Autenticación al cargar ---
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    setIsAuthenticated(!!token);
+  }, []);
+
+  // --- LÓGICA DE FILTRADO (Sin cambios) ---
   const filteredSlotsWithCourts = (() => {
     if (!selectedDate) return [];
     const now = new Date();
@@ -45,6 +54,14 @@ export default function BookingGrid() {
   };
 
   const handleBooking = async () => {
+    const token = localStorage.getItem('token'); 
+    
+    if (!token) {
+        alert("🔒 Debes iniciar sesión para poder reservar.");
+        window.location.href = '/login'; 
+        return;
+    }
+
     if (!selectedDate || !selectedSlot || !selectedCourt) return;
     try {
       setIsBooking(true);
@@ -56,6 +73,7 @@ export default function BookingGrid() {
 
       const createResult = await createBooking(selectedCourt.id, 1, bookingDateTime);
 
+      // Guardar bloqueo temporal localmente (Optimistic UI)
       const dateString = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(
         selectedDate.getDate()
       ).padStart(2, '0')}`;
@@ -80,6 +98,7 @@ export default function BookingGrid() {
     }
   };
 
+  // --- Cargar disabledSlots de localStorage ---
   useEffect(() => {
     if (!selectedDate) return;
     const dateString = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(
@@ -97,6 +116,7 @@ export default function BookingGrid() {
     }
   }, [selectedDate]);
 
+  // --- Guardar disabledSlots en localStorage ---
   useEffect(() => {
     if (!selectedDate) return;
     const dateString = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(
@@ -111,6 +131,7 @@ export default function BookingGrid() {
     }
   }, [disabledSlots, selectedDate]);
 
+  // --- Cargar Canchas ---
   useEffect(() => {
     const fetchCourts = async () => {
       try {
@@ -125,28 +146,38 @@ export default function BookingGrid() {
     fetchCourts();
   }, []);
 
+  // --- CORRECCIÓN MEMORIA ZOMBIE (Sincronizar Backend con Frontend) ---
   useEffect(() => {
     if (!selectedDate || !slotsWithCourts) return;
     const dateString = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(
       selectedDate.getDate()
     ).padStart(2, '0')}`;
 
-    const newDisabled: Record<string, boolean> = {};
-    slotsWithCourts.forEach((slot) => {
-      const availableIds = new Set(slot.availableCourts.map((c) => c.id));
-      const courtsToInspect = allCourts.length > 0 ? allCourts : slot.availableCourts;
-      courtsToInspect.forEach((court) => {
-        const key = `${dateString}-${slot.slotTime}-${court.id}`;
-        if (!availableIds.has(court.id)) {
-          newDisabled[key] = true;
-        }
-      });
-    });
+    setDisabledSlots((prev) => {
+      const nextState = { ...prev }; // Copiamos el estado actual
 
-    setDisabledSlots((prev) => ({ ...newDisabled, ...prev }));
+      slotsWithCourts.forEach((slot) => {
+        const availableIds = new Set(slot.availableCourts.map((c) => c.id));
+        const courtsToInspect = allCourts.length > 0 ? allCourts : slot.availableCourts;
+
+        courtsToInspect.forEach((court) => {
+          const key = `${dateString}-${slot.slotTime}-${court.id}`;
+
+          if (!availableIds.has(court.id)) {
+            // El backend dice que NO está disponible -> Lo bloqueamos
+            nextState[key] = true;
+          } else {
+            // 🔥 SI EL BACKEND DICE QUE ESTÁ LIBRE, BORRAMOS EL BLOQUEO LOCAL
+            delete nextState[key]; 
+          }
+        });
+      });
+
+      return nextState;
+    });
   }, [slotsWithCourts, allCourts, selectedDate]);
 
-  // --- RENDERIZADO VISUAL (Totalmente renovado) ---
+  // --- RENDERIZADO VISUAL ---
   return (
     <div className="w-full max-w-4xl mx-auto bg-slate-900/60 backdrop-blur-xl p-6 sm:p-8 rounded-3xl border border-white/10 shadow-2xl relative overflow-hidden">
       
@@ -172,7 +203,7 @@ export default function BookingGrid() {
           className="w-full p-4 rounded-xl border border-slate-700 bg-slate-950/50 text-white placeholder-slate-500 focus:outline-none focus:border-lime-500 focus:ring-1 focus:ring-lime-500 transition-all font-medium shadow-inner"
           onChange={handleDateChange}
           value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''}
-          style={{ colorScheme: 'dark' }} // Truco para que el calendario nativo sea oscuro
+          style={{ colorScheme: 'dark' }} 
         />
       </div>
 
@@ -226,6 +257,7 @@ export default function BookingGrid() {
                         if (!selectedDate) return;
                         if (!isBackendAvailable) return;
                         try {
+                          // Doble check de disponibilidad
                           const res = await fetch(`${API_URL}/api/bookings/availability?courtId=${court.id}&date=${dateString}&activityId=1`);
                           if (!res.ok) {
                             setDisabledSlots((prev) => ({ ...prev, [slotKey]: true }));
@@ -247,9 +279,8 @@ export default function BookingGrid() {
                         }
                       };
 
-                      // --- ESTILOS DE BOTONES DE CANCHA ---
+                      // Estilos
                       const isSelected = selectedSlot === slotWithCourt.slotTime && selectedCourt?.id === court.id;
-                      
                       let btnClass = 'py-3 px-4 rounded-xl font-bold text-sm transition-all duration-300 flex items-center justify-center gap-2 border ';
                       
                       if (isDisabled) {
@@ -290,14 +321,19 @@ export default function BookingGrid() {
         </div>
       )}
 
+      {/* BOTÓN PRINCIPAL CON LÓGICA DE LOGIN VISUAL */}
       <button
-        disabled={!selectedSlot || !selectedCourt || isBooking}
         onClick={handleBooking}
+        disabled={isBooking || (isAuthenticated && (!selectedSlot || !selectedCourt))}
         className={`
             w-full py-4 rounded-xl font-black text-lg shadow-lg transition-all flex items-center justify-center gap-3 uppercase tracking-wide
-            ${!selectedSlot || !selectedCourt || isBooking 
+            ${
+                !isAuthenticated
+                ? 'bg-slate-800 text-lime-400 border border-lime-500/50 hover:bg-slate-700 hover:shadow-[0_0_20px_rgba(132,204,22,0.2)]' // Estilo Login
+                : (!selectedSlot || !selectedCourt || isBooking)
                 ? 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700' 
-                : 'bg-lime-500 text-slate-950 hover:bg-lime-400 hover:shadow-[0_0_25px_rgba(132,204,22,0.4)] transform hover:scale-[1.01] border border-lime-400'}
+                : 'bg-lime-500 text-slate-950 hover:bg-lime-400 hover:shadow-[0_0_25px_rgba(132,204,22,0.4)] transform hover:scale-[1.01] border border-lime-400'
+            }
         `}
       >
         {isBooking ? (
@@ -305,6 +341,12 @@ export default function BookingGrid() {
             <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-slate-900"></div>
             <span>Procesando...</span>
           </>
+        ) : !isAuthenticated ? (
+            // Mensaje si NO está logueado
+            <>
+                <span>🔒</span>
+                <span>Iniciar Sesión para Reservar</span>
+            </>
         ) : selectedSlot && selectedCourt ? (
           <>
             <span>⚡</span>
