@@ -20,8 +20,8 @@ export function useAvailability(date: Date | null) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Leemos la variable de entorno que YA VIMOS que funciona en tu captura
   const apiUrl = process.env.NEXT_PUBLIC_API_URL; 
+
   const fetchSlots = async () => {
     if (!date) return;
     setLoading(true);
@@ -34,7 +34,19 @@ export function useAvailability(date: Date | null) {
       const day = String(date.getDate()).padStart(2, '0');
       const dateString = `${year}-${month}-${day}`;
 
-      const res = await fetch(`${apiUrl}/api/bookings/availability-with-courts?activityId=1&date=${dateString}`);
+      const timestamp = new Date().getTime();
+
+      const res = await fetch(
+        `${apiUrl}/api/bookings/availability-with-courts?activityId=1&date=${dateString}&t=${timestamp}`, 
+        {
+            cache: 'no-store',
+            headers: {
+                'Pragma': 'no-cache',
+                'Cache-Control': 'no-cache, no-store, must-revalidate'
+            }
+        }
+      );
+
       if (!res.ok) throw new Error('Error al cargar turnos');
 
       const data: AvailabilityResponse = await res.json();
