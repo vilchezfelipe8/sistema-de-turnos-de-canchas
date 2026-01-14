@@ -14,7 +14,9 @@ export class BookingRepository {
             endDateTime: booking.endDateTime,
             price: booking.price,
             status: booking.status,
-            userId: booking.user.id,
+            // user puede ser null para reservas de invitado
+            userId: booking.user ? booking.user.id : undefined,
+            guestIdentifier: booking.guestIdentifier,
             courtId: booking.court.id,
             activityId: booking.activity.id
         };
@@ -141,7 +143,7 @@ export class BookingRepository {
 
     // Helper para convertir lo que viene de DB a tu Clase Entidad
     public mapToEntity(dbItem: any): Booking {
-        const user = new User(dbItem.user.id, dbItem.user.firstName, dbItem.user.lastName, dbItem.user.email, dbItem.user.phoneNumber, dbItem.user.role as Role);
+        const user = dbItem.user ? new User(dbItem.user.id, dbItem.user.firstName, dbItem.user.lastName, dbItem.user.email, dbItem.user.phoneNumber, dbItem.user.role as Role) : null;
         const club = new Club(dbItem.court.club.id, dbItem.court.club.name, dbItem.court.club.address, dbItem.court.club.contactInfo);
         const court = new Court(dbItem.court.id, dbItem.court.name, dbItem.court.isIndoor, dbItem.court.surface, club, dbItem.court.isUnderMaintenance);
         const activity = new ActivityType(dbItem.activity.id, dbItem.activity.name, dbItem.activity.description, dbItem.activity.defaultDurationMinutes);
@@ -151,7 +153,7 @@ export class BookingRepository {
             dbItem.startDateTime,
             dbItem.endDateTime,
             dbItem.price,
-            user, court, activity, dbItem.status as BookingStatus
+            user, court, activity, dbItem.status as BookingStatus, dbItem.guestIdentifier
         );
         if (dbItem.cancelledBy) booking.cancelledBy = dbItem.cancelledBy;
         if (dbItem.cancelledAt) booking.cancelledAt = dbItem.cancelledAt;

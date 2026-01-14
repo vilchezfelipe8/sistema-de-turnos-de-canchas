@@ -20,9 +20,15 @@ export class BookingService {
         private activityRepo: ActivityTypeRepository
     ) {}
 
-    async createBooking(userId: number, courtId: number, startDateTime: Date, activityId: number): Promise<Booking> {
-        const user = await this.userRepo.findById(userId);
-        if (!user) throw new Error("Usuario no encontrado");
+    async createBooking(userId: number | null, guestIdentifier: string | undefined, courtId: number, startDateTime: Date, activityId: number): Promise<Booking> {
+        let user: User | null = null;
+        if (userId) {
+            user = await this.userRepo.findById(userId);
+            if (!user) throw new Error("Usuario no encontrado");
+        } else {
+            // Si no hay userId, requerimos guestIdentifier
+            if (!guestIdentifier) throw new Error("Debe proveer guestIdentifier para reservas como invitado.");
+        }
 
         const court = await this.courtRepo.findById(courtId);
         if (!court) throw new Error("Cancha no encontrada");
@@ -56,7 +62,9 @@ export class BookingService {
                     endDateTime,
                     price: 1500,
                     status: BookingStatus.PENDING,
-                    userId: userId,
+                    // userId puede ser null para invitado
+                    userId: user ? user.id : undefined,
+                    guestIdentifier: guestIdentifier,
                     courtId: courtId,
                     activityId: activityId
                 },

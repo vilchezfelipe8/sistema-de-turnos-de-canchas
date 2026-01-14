@@ -10,22 +10,17 @@ export class BookingController {
     createBooking = async (req: Request, res: Response) => {
     try {
         const user = (req as any).user;
-        const userIdFromToken = user?.id || user?.userId;
-
-        if (!userIdFromToken) {
-            return res.status(401).json({ error: "Usuario no autenticado (Token inválido o sin ID)" });
-        }
+        const userIdFromToken = user?.id || user?.userId || null;
 
         const createSchema = z.object({
-            userId: z.preprocess((v) => Number(v), z.number().int().positive()),
             courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
             startDateTime: z.string().refine((s) => !Number.isNaN(Date.parse(s)), { message: 'Invalid ISO datetime' }),
-            activityId: z.preprocess((v) => Number(v), z.number().int().positive())
+            activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
+            guestIdentifier: z.string().optional()
         });
 
         const dataToValidate = {
-            ...req.body,
-            userId: userIdFromToken
+            ...req.body
         };
 
         const parsed = createSchema.safeParse(dataToValidate);
@@ -34,8 +29,12 @@ export class BookingController {
             return res.status(400).json({ error: parsed.error.format() });
         }
 
-        const { userId, courtId, startDateTime, activityId } = parsed.data;
+        const { courtId, startDateTime, activityId, guestIdentifier } = parsed.data;
         const startDate = new Date(String(startDateTime));
+
+        if (!userIdFromToken && !guestIdentifier) {
+            return res.status(400).json({ error: "Debe enviar guestIdentifier o autenticarse para reservar." });
+        }
 
         // Verificar disponibilidad
         const existingBooking = await prisma.booking.findFirst({
@@ -52,7 +51,8 @@ export class BookingController {
 
         // 1. CREAR LA RESERVA
         const result = await this.bookingService.createBooking(
-            Number(userId),
+            userIdFromToken ? Number(userIdFromToken) : null,
+            guestIdentifier,
             Number(courtId),
             startDate,
             Number(activityId)
@@ -60,9 +60,7 @@ export class BookingController {
 
         try {
             // Buscamos al usuario completo para obtener su número y nombre
-            const fullUser = await prisma.user.findUnique({ 
-                where: { id: Number(userId) } 
-            });
+            const fullUser = userIdFromToken ? await prisma.user.findUnique({ where: { id: Number(userIdFromToken) } }) : null;
 
             if (fullUser && fullUser.phoneNumber) {
                 const options: Intl.DateTimeFormatOptions = {timeZone: 'UTC', // 👈 La clave mágica

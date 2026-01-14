@@ -4,23 +4,37 @@
 // Si no lo encuentras, puedes borrar el import y usar localStorage.getItem('token') directo.
 import { getToken } from './AuthService'; 
 
+const GUEST_KEY = 'guestId';
+function getOrCreateGuestId() {
+  try {
+    const existing = localStorage.getItem(GUEST_KEY);
+    if (existing) return existing;
+    const id = (typeof crypto !== 'undefined' && (crypto as any).randomUUID) ? (crypto as any).randomUUID() : `guest_${Math.random().toString(36).slice(2,10)}`;
+    localStorage.setItem(GUEST_KEY, id);
+    return id;
+  } catch (e) {
+    return `guest_${Math.random().toString(36).slice(2,10)}`;
+  }
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 // --- 1. CREAR UNA RESERVA ---
 export const createBooking = async (courtId: number, activityId: number, date: Date) => {
   const token = getToken();
-  if (!token) throw new Error("Debes iniciar sesión para reservar.");
+  const guestId = token ? undefined : getOrCreateGuestId();
+
+  const headers: any = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const response = await fetch(`${API_URL}/api/bookings`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    },
+    headers,
     body: JSON.stringify({
       courtId,
       activityId,
       startDateTime: date.toISOString(), // Enviamos fecha ISO, el back resta las 3hs
+      ...(guestId ? { guestIdentifier: guestId } : {})
     }),
   });
 

@@ -14,29 +14,32 @@ export class Booking {
     cancelledAt?: Date;
 
     // Relaciones
-    user: User;
+    user?: User | null;
     court: Court;
     activity: ActivityType;
+    guestIdentifier?: string;
 
     constructor(
         id: number,
         startDateTime: Date,
         endDateTime: Date,
         price: number,
-        user: User,
+        user: User | null,
         court: Court,
         activity: ActivityType,
-        status: BookingStatus
+        status: BookingStatus,
+        guestIdentifier?: string
     ) {
         this.id = id;
         this.startDateTime = startDateTime;
         this.endDateTime = endDateTime;
         this.price = price;
-        this.user = user;
+        this.user = user || null;
         this.court = court;
         this.activity = activity;
         this.status = status;
         this.createdAt = new Date();
+        if (guestIdentifier) this.guestIdentifier = guestIdentifier;
     }
 }
 

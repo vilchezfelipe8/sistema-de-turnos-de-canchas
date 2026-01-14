@@ -25,3 +25,22 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
     });
 };
 
+// Middleware opcional: si viene token lo verifica y setea req.user, si no viene token sigue sin error.
+export const optionalAuthMiddleware = (req: Request, res: Response, next: NextFunction) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];    if (!token) {
+        (req as any).user = null;
+        return next();
+    }
+
+    jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
+        if (err) {
+            console.log('Error al verificar token en optionalAuth:', err);
+            // No bloqueamos, dejamos user null para que el controlador decida
+            (req as any).user = null;
+            return next();
+        }
+        (req as any).user = user;
+        next();
+    });
+};

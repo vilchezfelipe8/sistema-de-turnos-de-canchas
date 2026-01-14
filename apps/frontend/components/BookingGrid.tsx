@@ -54,14 +54,7 @@ export default function BookingGrid() {
   };
 
   const handleBooking = async () => {
-    const token = localStorage.getItem('token'); 
-    
-    if (!token) {
-        alert("🔒 Debes iniciar sesión para poder reservar.");
-        window.location.href = '/login'; 
-        return;
-    }
-
+    // No requerimos token: BookingService se encargará de enviar guestIdentifier si no hay token
     if (!selectedDate || !selectedSlot || !selectedCourt) return;
     try {
       setIsBooking(true);
@@ -324,13 +317,12 @@ export default function BookingGrid() {
       {/* BOTÓN PRINCIPAL CON LÓGICA DE LOGIN VISUAL */}
       <button
         onClick={handleBooking}
-        disabled={isBooking || (isAuthenticated && (!selectedSlot || !selectedCourt))}
+        disabled={isBooking || !selectedSlot || !selectedCourt}
         className={`
             w-full py-4 rounded-xl font-black text-lg shadow-lg transition-all flex items-center justify-center gap-3 uppercase tracking-wide
             ${
-                !isAuthenticated
-                ? 'bg-slate-800 text-lime-400 border border-lime-500/50 hover:bg-slate-700 hover:shadow-[0_0_20px_rgba(132,204,22,0.2)]' // Estilo Login
-                : (!selectedSlot || !selectedCourt || isBooking)
+                // Mostrar como habilitado solo si hay slot y cancha seleccionados y no está en proceso
+                (isBooking || !selectedSlot || !selectedCourt)
                 ? 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700' 
                 : 'bg-lime-500 text-slate-950 hover:bg-lime-400 hover:shadow-[0_0_25px_rgba(132,204,22,0.4)] transform hover:scale-[1.01] border border-lime-400'
             }
@@ -341,11 +333,17 @@ export default function BookingGrid() {
             <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-slate-900"></div>
             <span>Procesando...</span>
           </>
-        ) : !isAuthenticated ? (
-            // Mensaje si NO está logueado
+        ) : (isBooking || !selectedSlot || !selectedCourt) ? (
+            // Si está deshabilitado (sin selección) mostrar indicación
             <>
-                <span>🔒</span>
-                <span>Iniciar Sesión para Reservar</span>
+              <span className="opacity-50">👆</span>
+              <span className="opacity-50">Selecciona Turno</span>
+            </>
+        ) : !isAuthenticated ? (
+            // Mensaje si NO está logueado -> permitir reservar como invitado (cuando ya seleccionó)
+            <>
+                <span>🤝</span>
+                <span>Reservar como Invitado</span>
             </>
         ) : selectedSlot && selectedCourt ? (
           <>

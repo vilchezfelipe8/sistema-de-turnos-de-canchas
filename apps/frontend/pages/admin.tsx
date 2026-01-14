@@ -115,7 +115,7 @@ export default function AdminPage() {
                       <td className="p-4 font-mono text-slate-600">#{c.id.toString().padStart(3, '0')}</td>
                       <td className="p-4 text-white font-bold">{c.name}</td>
                       <td className="p-4">
-                        <span className="px-2 py-1 bg-slate-800 rounded text-xs text-slate-300 border border-slate-700">{c.sport}</span>
+                        <span className="px-2 py-1 bg-slate-800 rounded text-xs text-slate-300 border border-slate-700">{c.sport || c.surface || '-'}</span>
                       </td>
                       <td className="p-4">
                         {c.isUnderMaintenance 

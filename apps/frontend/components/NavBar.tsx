@@ -6,6 +6,7 @@ import { logout } from '../services/AuthService';
 const Navbar = () => {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
+  const [isGuest, setIsGuest] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
 
   useEffect(() => {
@@ -13,6 +14,20 @@ const Navbar = () => {
     const userStr = localStorage.getItem('user');
     if (userStr) {
       setUser(JSON.parse(userStr));
+    }
+    else {
+      // Asegurarnos de que exista un guestId para sesiones de invitado
+      let guestId = localStorage.getItem('guestId');
+      if (!guestId) {
+        try {
+          guestId = (typeof crypto !== 'undefined' && (crypto as any).randomUUID) ? (crypto as any).randomUUID() : `guest_${Math.random().toString(36).slice(2,10)}`;
+          localStorage.setItem('guestId', guestId);
+        } catch (e) {
+          guestId = `guest_${Math.random().toString(36).slice(2,10)}`;
+          localStorage.setItem('guestId', guestId);
+        }
+      }
+      if (guestId) setIsGuest(true);
     }
 
     // Efecto de scroll para que la barra se oscurezca más al bajar
@@ -45,26 +60,33 @@ const Navbar = () => {
           </div>
         </Link>
 
-        {/* Menú (Solo si está logueado) */}
-        {user && (
+        {/* Menú (si está logueado o es invitado) */}
+        {(user || isGuest) && (
           <div className="flex items-center gap-1 bg-slate-900/50 p-1 rounded-full border border-white/10">
             
             <NavLink href="/" icon="🏠" text="Inicio" active={isActive('/')} />
-            <NavLink href="/bookings" icon="📅" text="Mis Turnos" active={isActive('/bookings')} />
+            {user && <NavLink href="/bookings" icon="📅" text="Mis Turnos" active={isActive('/bookings')} />}
             
-            {user.role === 'ADMIN' && (
+            {user?.role === 'ADMIN' && (
               <NavLink href="/admin" icon="⚙️" text="Admin" active={isActive('/admin')} />
             )}
 
-            {/* Botón Cerrar Sesión */}
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-all
-                          text-red-400 hover:bg-red-950/50 hover:text-red-200 ml-2"
-            >
-              <span>🚪</span>
-              <span className="hidden sm:inline">Salir</span>
-            </button>
+            {/* Botón Cerrar Sesión (solo para usuarios autenticados) */}
+            {user ? (
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-all
+                            text-red-400 hover:bg-red-950/50 hover:text-red-200 ml-2"
+              >
+                <span>🚪</span>
+                <span className="hidden sm:inline">Salir</span>
+              </button>
+            ) : (
+              <Link href="/login" className="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-all text-lime-400 hover:bg-slate-800 ml-2">
+                <span>🔐</span>
+                <span className="hidden sm:inline">Ingresar</span>
+              </Link>
+            )}
           </div>
         )}
       </div>
