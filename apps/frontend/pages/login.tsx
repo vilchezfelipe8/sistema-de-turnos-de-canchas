@@ -38,27 +38,19 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 p-4 relative overflow-hidden">
+    <div className="flex min-h-screen items-center justify-center p-4 relative overflow-hidden" style={{ backgroundColor: 'var(--bg)' }}>
       
       {/* Decoración de Fondo */}
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0">
-        <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-lime-600/10 rounded-full blur-[100px]"></div>
-        <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] bg-emerald-600/10 rounded-full blur-[100px]"></div>
+        <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] rounded-full blur-[100px]" style={{ backgroundColor: 'rgba(255,255,255,0.03)' }}></div>
+        <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] rounded-full blur-[100px]" style={{ backgroundColor: 'rgba(255,255,255,0.02)' }}></div>
       </div>
 
       <div className="w-full max-w-md relative z-10">
-        
-        {/* Header Logo */}
-        <div className="text-center mb-8">
-          <div className="inline-flex justify-center items-center w-20 h-20 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 shadow-2xl mb-4">
-            <span className="text-4xl">🎾</span>
-          </div>
-          <h1 className="text-3xl font-black text-white tracking-tight">LAS TEJAS</h1>
-          <p className="text-lime-400 text-xs font-bold uppercase tracking-[0.3em] mt-1">Access Control</p>
-        </div>
+
 
         {/* Card Glassmorphism */}
-        <div className="bg-slate-900/60 backdrop-blur-xl rounded-3xl p-8 border border-white/10 shadow-2xl">
+        <div className="bg-surface-70 backdrop-blur-xl rounded-3xl p-8 border" style={{ borderColor: 'var(--border)' }}>
           <h2 className="text-2xl font-bold text-center mb-6 text-white">
             {isLogin ? 'Iniciar Sesión' : 'Crear Cuenta'}
           </h2>
@@ -77,23 +69,23 @@ export default function LoginPage() {
                   <div>
                     <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">Nombre</label>
                     <input type="text" required value={firstName} onChange={(e) => setFirstName(e.target.value)}
-                      className="w-full bg-slate-950/50 border border-slate-800 rounded-lg px-4 py-3 text-white focus:border-lime-500 focus:outline-none focus:ring-1 focus:ring-lime-500 transition-all placeholder:text-slate-600" placeholder="Nombre" />
+                      className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-text focus:outline-none transition-all placeholder:text-muted" placeholder="Nombre" />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">Apellido</label>
                     <input type="text" required value={lastName} onChange={(e) => setLastName(e.target.value)}
-                      className="w-full bg-slate-950/50 border border-slate-800 rounded-lg px-4 py-3 text-white focus:border-lime-500 focus:outline-none focus:ring-1 focus:ring-lime-500 transition-all placeholder:text-slate-600" placeholder="Apellido" />
+                      className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-text focus:outline-none transition-all placeholder:text-muted" placeholder="Apellido" />
                   </div>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">Teléfono</label>
                   <input type="tel" required value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)}
-                    className="w-full bg-slate-950/50 border border-slate-800 rounded-lg px-4 py-3 text-white focus:border-lime-500 focus:outline-none focus:ring-1 focus:ring-lime-500 transition-all placeholder:text-slate-600" placeholder="Ej: 351..." />
+                    className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-text focus:outline-none transition-all placeholder:text-muted" placeholder="Ej: 351..." />
                 </div>
                 <div>
                    <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">Rol</label>
                    <select required value={role} onChange={(e) => setRole(e.target.value)}
-                     className="w-full bg-slate-950/50 border border-slate-800 rounded-lg px-4 py-3 text-white focus:border-lime-500 focus:outline-none focus:ring-1 focus:ring-lime-500 transition-all" >
+                     className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-text focus:outline-none transition-all" >
                      <option value="MEMBER">Miembro</option>
                      <option value="ADMIN">Administrador</option>
                    </select>
@@ -102,19 +94,18 @@ export default function LoginPage() {
             )}
             
             <div>
-              <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">Email</label>
+              <label className="block text-xs font-bold text-muted mb-1 uppercase">Email</label>
               <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-slate-950/50 border border-slate-800 rounded-lg px-4 py-3 text-white focus:border-lime-500 focus:outline-none focus:ring-1 focus:ring-lime-500 transition-all placeholder:text-slate-600" placeholder="tu@email.com" />
+                className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-text focus:outline-none transition-all placeholder:text-muted" placeholder="tu@email.com" />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">Contraseña</label>
+              <label className="block text-xs font-bold text-muted mb-1 uppercase">Contraseña</label>
               <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-slate-950/50 border border-slate-800 rounded-lg px-4 py-3 text-white focus:border-lime-500 focus:outline-none focus:ring-1 focus:ring-lime-500 transition-all placeholder:text-slate-600" placeholder="••••••••" />
+                className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-text focus:outline-none transition-all placeholder:text-muted" placeholder="••••••••" />
             </div>
 
-            <button type="submit" disabled={loading}
-              className="w-full mt-6 py-3.5 px-4 bg-lime-500 hover:bg-lime-400 text-slate-950 font-bold rounded-xl transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-[0_0_20px_rgba(132,204,22,0.3)] disabled:opacity-50 disabled:cursor-not-allowed">
+            <button type="submit" disabled={loading} className={`w-full mt-6 ${loading ? 'btn-disabled' : 'btn btn-primary'}`}>
               {loading ? 'Procesando...' : (isLogin ? 'INGRESAR' : 'REGISTRARSE')}
             </button>
           </form>

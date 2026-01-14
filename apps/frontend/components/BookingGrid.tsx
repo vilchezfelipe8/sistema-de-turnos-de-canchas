@@ -172,20 +172,17 @@ export default function BookingGrid() {
 
   // --- RENDERIZADO VISUAL ---
   return (
-    <div className="w-full max-w-4xl mx-auto bg-slate-900/60 backdrop-blur-xl p-6 sm:p-8 rounded-3xl border border-white/10 shadow-2xl relative overflow-hidden">
+    <div className="w-full max-w-4xl mx-auto bg-surface-70 backdrop-blur-xl p-6 sm:p-8 rounded-3xl border border-border shadow-soft relative overflow-hidden">
       
       {/* Glow Effect Decorativo */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-1 bg-gradient-to-r from-transparent via-lime-500/20 to-transparent blur-md"></div>
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-1" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.04), transparent)' }}></div>
 
       <div className="text-center mb-8">
-        <div className="inline-block p-4 bg-slate-800 rounded-2xl mb-4 shadow-lg border border-slate-700">
-          <span className="text-4xl">🎾</span>
-        </div>
-        <h2 className="text-3xl font-black text-white mb-2 tracking-tight">Reservar Cancha</h2>
-        <p className="text-slate-400 font-medium">Elige tu día y horario ideal</p>
+        <h2 className="text-3xl font-black text-text mb-2 tracking-tight">Reservar Cancha</h2>
+        <p className="text-muted font-medium">Elige tu día y horario ideal</p>
       </div>
 
-      <div className="mb-8">
+        <div className="mb-8">
         <label className="block text-sm font-bold text-slate-300 mb-2 ml-1 flex items-center gap-2">
           <span>📅</span>
           <span>Fecha</span>
@@ -193,7 +190,7 @@ export default function BookingGrid() {
         <input
           type="date"
           min={new Date().toISOString().split('T')[0]}
-          className="w-full p-4 rounded-xl border border-slate-700 bg-slate-950/50 text-white placeholder-slate-500 focus:outline-none focus:border-lime-500 focus:ring-1 focus:ring-lime-500 transition-all font-medium shadow-inner"
+          className="w-full p-4 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-border focus:ring-1 focus:ring-border transition-all font-medium shadow-inner"
           onChange={handleDateChange}
           value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''}
           style={{ colorScheme: 'dark' }} 
@@ -202,12 +199,12 @@ export default function BookingGrid() {
 
       {loading && (
         <div className="flex justify-center py-12">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-lime-500 shadow-[0_0_15px_rgba(132,204,22,0.5)]"></div>
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2" style={{ borderColor: 'rgba(255,255,255,0.12)' }}></div>
         </div>
       )}
 
       {error && (
-        <div className="bg-red-950/30 text-red-400 p-4 rounded-xl border border-red-500/30 text-center mb-6 flex items-center justify-center gap-2">
+        <div className="bg-surface-70 text-muted p-4 rounded-xl border border-border text-center mb-6 flex items-center justify-center gap-2">
            <span>⚠️</span> {error}
         </div>
       )}
@@ -220,7 +217,7 @@ export default function BookingGrid() {
           </label>
 
           <div className="space-y-4">
-            {filteredSlotsWithCourts.map((slotWithCourt) => {
+          {filteredSlotsWithCourts.map((slotWithCourt) => {
               const dateString = selectedDate
                 ? `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`
                 : '';
@@ -231,10 +228,10 @@ export default function BookingGrid() {
               }, 0);
 
               return (
-                <div key={slotWithCourt.slotTime} className="bg-slate-950/30 p-4 rounded-2xl border border-white/5 hover:border-white/10 transition-colors">
+                <div key={slotWithCourt.slotTime} className="bg-surface-70 p-4 rounded-2xl border border-border hover:border-border transition-colors">
                   <div className="flex items-center justify-between mb-4">
                     <span className="font-bold text-xl text-white tracking-tight">{slotWithCourt.slotTime}</span>
-                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider bg-slate-900 px-2 py-1 rounded">
+                    <span className="text-xs font-bold text-muted uppercase tracking-wider bg-surface px-2 py-1 rounded">
                       {availableCount} {availableCount !== 1 ? 'DISPONIBLES' : 'DISPONIBLE'}
                     </span>
                   </div>
@@ -277,11 +274,11 @@ export default function BookingGrid() {
                       let btnClass = 'py-3 px-4 rounded-xl font-bold text-sm transition-all duration-300 flex items-center justify-center gap-2 border ';
                       
                       if (isDisabled) {
-                        btnClass += 'bg-slate-900/40 text-slate-700 border-transparent cursor-not-allowed opacity-50';
+                        btnClass += 'btn-disabled';
                       } else if (isSelected) {
-                        btnClass += 'bg-lime-500 text-slate-950 border-lime-400 shadow-[0_0_15px_rgba(132,204,22,0.4)] scale-[1.02]';
+                        btnClass += 'btn';
                       } else {
-                        btnClass += 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white hover:border-lime-500/50 hover:bg-slate-800 hover:scale-[1.02]';
+                        btnClass += 'btn';
                       }
 
                       return (
@@ -300,8 +297,8 @@ export default function BookingGrid() {
       )}
 
       {!loading && filteredSlotsWithCourts.length === 0 && selectedDate && (
-        <div className="text-center py-12 bg-slate-950/30 rounded-2xl border border-dashed border-slate-800 mb-8">
-          <p className="text-slate-500 font-medium">
+        <div className="text-center py-12 bg-surface-70 rounded-2xl border border-dashed border-border mb-8">
+          <p className="text-muted font-medium">
             {(() => {
               const now = new Date();
               const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -318,15 +315,7 @@ export default function BookingGrid() {
       <button
         onClick={handleBooking}
         disabled={isBooking || !selectedSlot || !selectedCourt}
-        className={`
-            w-full py-4 rounded-xl font-black text-lg shadow-lg transition-all flex items-center justify-center gap-3 uppercase tracking-wide
-            ${
-                // Mostrar como habilitado solo si hay slot y cancha seleccionados y no está en proceso
-                (isBooking || !selectedSlot || !selectedCourt)
-                ? 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700' 
-                : 'bg-lime-500 text-slate-950 hover:bg-lime-400 hover:shadow-[0_0_25px_rgba(132,204,22,0.4)] transform hover:scale-[1.01] border border-lime-400'
-            }
-        `}
+        className={`${(isBooking || !selectedSlot || !selectedCourt) ? 'btn btn-disabled w-full' : 'btn btn-primary w-full'}`}
       >
         {isBooking ? (
           <>
@@ -334,13 +323,11 @@ export default function BookingGrid() {
             <span>Procesando...</span>
           </>
         ) : (isBooking || !selectedSlot || !selectedCourt) ? (
-            // Si está deshabilitado (sin selección) mostrar indicación
             <>
               <span className="opacity-50">👆</span>
               <span className="opacity-50">Selecciona Turno</span>
             </>
         ) : !isAuthenticated ? (
-            // Mensaje si NO está logueado -> permitir reservar como invitado (cuando ya seleccionó)
             <>
                 <span>🤝</span>
                 <span>Reservar como Invitado</span>

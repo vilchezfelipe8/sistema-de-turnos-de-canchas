@@ -46,23 +46,21 @@ const Navbar = () => {
   const isActive = (path: string) => router.pathname === path;
 
   return (
-    <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 border-b border-white/5
-      ${isScrolled ? 'bg-slate-950/80 backdrop-blur-xl py-2 shadow-lg' : 'bg-slate-950/50 backdrop-blur-md py-3'}`}>
+    <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 border-b ${isScrolled ? 'py-2' : 'py-3'}`} style={{ backgroundColor: 'var(--bg)', borderColor: 'var(--border)' }}>
       
       <div className="container mx-auto px-4 flex justify-between items-center">
         
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2 group">
-          <span className="text-2xl transition-transform group-hover:scale-110">🎾</span>
+        <Link href="/" className="flex items-center gap-3 group">
+          <img src="/logo1.svg" alt="LAS TEJAS" className="h-20 w-20 object-contain transition-transform group-hover:scale-110" />
           <div className="flex flex-col leading-none">
-            <span className="font-black text-lg text-white tracking-tight group-hover:text-lime-400 transition-colors">LAS TEJAS</span>
-            <span className="text-[10px] font-bold text-lime-500 uppercase tracking-widest">Club & Amigos</span>
+            <img src="/LasTejasBlanco.svg" alt="LAS TEJAS" className="h-8 md:h-12 lg:h-16 object-contain max-[900px]:hidden" />
           </div>
         </Link>
 
         {/* Menú (si está logueado o es invitado) */}
         {(user || isGuest) && (
-          <div className="flex items-center gap-1 bg-slate-900/50 p-1 rounded-full border border-white/10">
+          <div className="flex items-center gap-1 p-1 rounded-full" style={{ backgroundColor: 'var(--surface)' }}>
             
             <NavLink href="/" icon="🏠" text="Inicio" active={isActive('/')} />
             {user && <NavLink href="/bookings" icon="📅" text="Mis Turnos" active={isActive('/bookings')} />}
@@ -75,14 +73,13 @@ const Navbar = () => {
             {user ? (
               <button
                 onClick={handleLogout}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-all
-                            text-red-400 hover:bg-red-950/50 hover:text-red-200 ml-2"
+                className="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-all text-text hover:bg-surface ml-2"
               >
                 <span>🚪</span>
                 <span className="hidden sm:inline">Salir</span>
               </button>
             ) : (
-              <Link href="/login" className="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-all text-lime-400 hover:bg-slate-800 ml-2">
+              <Link href="/login" className="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-all text-text hover:bg-surface ml-2">
                 <span>🔐</span>
                 <span className="hidden sm:inline">Ingresar</span>
               </Link>
@@ -97,11 +94,7 @@ const Navbar = () => {
 // Subcomponente para los enlaces del menú
 const NavLink = ({ href, icon, text, active }: any) => (
   <Link href={href}
-    className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-bold transition-all border
-      ${active 
-        ? 'bg-lime-500 text-slate-950 border-lime-400 shadow-[0_0_10px_rgba(132,204,22,0.3)]' 
-        : 'text-slate-300 border-transparent hover:bg-slate-800 hover:text-lime-400'
-      }`}
+    className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-bold transition-all border ${active ? 'bg-surface text-text border-border' : 'text-muted border-transparent hover:bg-surface hover:text-text'}`}
   >
     <span>{icon}</span>
     <span className="hidden sm:inline">{text}</span>

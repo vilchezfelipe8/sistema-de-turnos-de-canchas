@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import Navbar from '../components/NavBar';
+import PageShell from '../components/PageShell';
 import { getCourts, createCourt, suspendCourt, reactivateCourt } from '../services/CourtService';
 // ASEGÚRATE DE EXPORTAR cancelBooking EN TU SERVICE
 import { getAdminSchedule, cancelBooking } from '../services/BookingService';
@@ -56,9 +56,8 @@ export default function AdminPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 pb-20">
-      <Navbar />
-      <div className="container mx-auto max-w-4xl p-4 lg:p-8 pt-28 lg:pt-32">
+    <PageShell title="Panel de Comando" subtitle="Bienvenido Administrador">
+      <div className="mx-auto w-full max-w-4xl">
         
         <div className="mb-8 border-b border-slate-800 pb-6">
           <h1 className="text-3xl font-black text-white tracking-tight mb-2">PANEL DE COMANDO</h1>
@@ -66,42 +65,42 @@ export default function AdminPage() {
         </div>
 
         {/* --- FORMULARIO DE CREACIÓN (Panel Oscuro) --- */}
-        <div className="bg-slate-900/50 backdrop-blur-sm border border-slate-800 rounded-2xl p-6 mb-8">
-            <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-              <span className="text-lime-500">✚</span> NUEVA CANCHA
+        <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-6 mb-8">
+            <h2 className="text-lg font-bold text-text mb-4 flex items-center gap-2">
+              <span>✚</span> NUEVA CANCHA
             </h2>
             <form onSubmit={handleCreate} className="flex flex-col sm:flex-row gap-4 items-end">
                 <div className="flex-1 w-full">
                     <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Nombre ID</label>
                     <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:border-lime-500 focus:ring-1 focus:ring-lime-500 outline-none" placeholder="Ej: Court Central" />
+                    className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none" placeholder="Ej: Court Central" />
                 </div>
                 <div className="w-full sm:w-48">
                     <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Tipo</label>
                     <select value={newSport} onChange={(e) => setNewSport(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:border-lime-500 outline-none">
+                    className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none">
                         <option value="TENNIS">🎾 Tenis</option>
                         <option value="PADEL">🏓 Padel</option>
                         <option value="FUTBOL">⚽ Fútbol</option>
                     </select>
                 </div>
-                <button type="submit" className="w-full sm:w-auto px-6 py-2 bg-lime-600 hover:bg-lime-500 text-black font-bold rounded-lg transition-colors">
+                <button type="submit" className="btn btn-primary w-full sm:w-auto px-6 py-2">
                   CREAR
                 </button>
             </form>
         </div>
 
         {/* --- LISTADO DE CANCHAS (Tabla Tech) --- */}
-        <div className="bg-slate-900/50 backdrop-blur-sm border border-slate-800 rounded-2xl p-6 mb-8 overflow-hidden">
+        <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-6 mb-8 overflow-hidden">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-lg font-bold text-white">ESTADO DE CANCHAS</h2>
-              <span className="px-3 py-1 bg-slate-800 rounded-full text-xs font-mono text-lime-400">{courts.length} ACTIVAS</span>
+              <h2 className="text-lg font-bold text-text">ESTADO DE CANCHAS</h2>
+              <span className="px-3 py-1 bg-surface rounded-full text-xs font-mono text-muted">{courts.length} ACTIVAS</span>
             </div>
             
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-800 text-slate-500 text-xs uppercase tracking-wider">
+                <tr className="border-b border-border text-muted text-xs uppercase tracking-wider">
                     <th className="p-4">ID</th>
                     <th className="p-4">Nombre</th>
                     <th className="p-4">Tipo</th>
@@ -111,43 +110,42 @@ export default function AdminPage() {
                 </thead>
                 <tbody className="text-sm font-medium">
                   {courts.map((c) => (
-                    <tr key={c.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors group">
-                      <td className="p-4 font-mono text-slate-600">#{c.id.toString().padStart(3, '0')}</td>
-                      <td className="p-4 text-white font-bold">{c.name}</td>
+                    <tr key={c.id} className="border-b border-border/50 hover:bg-surface-70 transition-colors group">
+                      <td className="p-4 font-mono text-muted">#{c.id.toString().padStart(3, '0')}</td>
+                      <td className="p-4 text-text font-bold">{c.name}</td>
                       <td className="p-4">
-                        <span className="px-2 py-1 bg-slate-800 rounded text-xs text-slate-300 border border-slate-700">{c.sport || c.surface || '-'}</span>
+                        <span className="px-2 py-1 rounded text-xs text-muted border border-border">{c.sport || c.surface || '-'}</span>
                       </td>
                       <td className="p-4">
                         {c.isUnderMaintenance 
-                          ? <span className="text-red-500 flex items-center gap-1 text-xs">● MANTENIMIENTO</span> 
-                          : <span className="text-emerald-500 flex items-center gap-1 text-xs">● OPERATIVO</span>}
+                          ? <span className="text-muted flex items-center gap-1 text-xs">● MANTENIMIENTO</span> 
+                          : <span className="text-text flex items-center gap-1 text-xs">● OPERATIVO</span>}
                       </td>
                       <td className="p-4 text-right">
                         {c.isUnderMaintenance ? (
-                          <button onClick={() => handleReactivate(c.id)} className="text-xs bg-emerald-900/30 text-emerald-400 border border-emerald-800 px-3 py-1 rounded hover:bg-emerald-900/50">REACTIVAR</button>
+                          <button onClick={() => handleReactivate(c.id)} className="text-xs btn px-3 py-1">REACTIVAR</button>
                         ) : (
-                          <button onClick={() => handleSuspend(c.id)} className="text-xs bg-red-900/30 text-red-400 border border-red-800 px-3 py-1 rounded hover:bg-red-900/50">SUSPENDER</button>
+                          <button onClick={() => handleSuspend(c.id)} className="text-xs btn px-3 py-1">SUSPENDER</button>
                         )}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
+        </div>
         </div>
 
         {/* --- GRILLA DE TURNOS (Data Grid) --- */}
-        <div className="bg-slate-900/50 backdrop-blur-sm border border-slate-800 rounded-2xl p-6">
-          <h2 className="text-lg font-bold text-white mb-6">GRILLA DE TURNOS</h2>
+        <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-6 mt-8">
+          <h2 className="text-lg font-bold text-text mb-6">GRILLA DE TURNOS</h2>
           
           <div className="flex flex-wrap gap-4 mb-6 items-end">
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-2">FECHA</label>
               <input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)}
-                className="bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white outline-none focus:border-blue-500" />
+                className="bg-surface border border-border rounded-lg px-4 py-2 text-text outline-none focus:border-border" />
             </div>
-            <button onClick={loadSchedule} disabled={loadingSchedule}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg transition-colors disabled:opacity-50">
+            <button onClick={loadSchedule} disabled={loadingSchedule} className="btn px-6 py-2">
               {loadingSchedule ? 'ESCANEANDO...' : 'CARGAR DATOS'}
             </button>
           </div>
@@ -158,7 +156,7 @@ export default function AdminPage() {
             <div className="overflow-x-auto">
                <table className="w-full text-left">
                   <thead>
-                    <tr className="bg-slate-950 text-slate-500 text-xs uppercase">
+                  <tr className="bg-surface text-muted text-xs uppercase">
                       <th className="p-3">Hora</th>
                       <th className="p-3">Cancha</th>
                       <th className="p-3">Estado</th>
@@ -170,7 +168,7 @@ export default function AdminPage() {
                   </thead>
                   <tbody className="text-sm font-mono">
                     {scheduleBookings.map((slot, i) => (
-                      <tr key={i} className="border-b border-slate-800 hover:bg-slate-800/20">
+                      <tr key={i} className="border-b border-border hover:bg-surface-70">
                         <td className="p-3 text-slate-300">{slot.slotTime}</td>
                         <td className="p-3 text-white font-bold">{slot.courtName}</td>
                         <td className="p-3">
@@ -187,7 +185,7 @@ export default function AdminPage() {
                             {!slot.isAvailable && slot.booking && (
                                 <button 
                                     onClick={() => handleCancelBooking(slot.booking.id)}
-                                    className="text-xs bg-red-900/20 text-red-500 border border-red-900/50 px-2 py-1 rounded hover:bg-red-900/40 hover:text-red-400 transition-colors"
+                                    className="text-xs btn px-2 py-1"
                                     title="Cancelar este turno"
                                 >
                                     ✕ CANCELAR
@@ -200,13 +198,13 @@ export default function AdminPage() {
                </table>
             </div>
           ) : (
-            <div className="text-center py-12 border border-dashed border-slate-800 rounded-xl bg-slate-950/30">
-               <p className="text-slate-500">Sin datos cargados para esta fecha</p>
+            <div className="text-center py-12 border border-dashed border-border rounded-xl bg-surface-70">
+               <p className="text-muted">Sin datos cargados para esta fecha</p>
             </div>
           )}
         </div>
 
       </div>
-    </div>
+    </PageShell>
   );
 }
