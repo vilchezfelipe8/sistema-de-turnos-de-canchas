@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { BookingController } from '../controllers/BookingController';
 import { BookingService } from '../services/BookingService';
-import { authMiddleware } from '../middleware/AuthMiddleware';
+import { authMiddleware, optionalAuthMiddleware } from '../middleware/AuthMiddleware';
 import { BookingRepository } from '../repositories/BookingRepository';
 import { CourtRepository } from '../repositories/CourtRepository';
 import { UserRepository } from '../repositories/UserRepository';
@@ -26,7 +26,9 @@ const bookingController = new BookingController(bookingService);
 import { requireRole } from '../middleware/RoleMiddleware';
 
 router.get('/availability', bookingController.getAvailability);
-router.post('/', authMiddleware, bookingController.createBooking);
+router.get('/all-availability', bookingController.getAllAvailableSlots);
+router.get('/availability-with-courts', bookingController.getAvailableSlotsWithCourts);
+router.post('/', optionalAuthMiddleware, bookingController.createBooking);
 router.post('/cancel', authMiddleware, bookingController.cancelBooking);
 router.get('/history/:userId', authMiddleware, bookingController.getHistory);
 router.get('/admin/schedule', authMiddleware, requireRole('ADMIN'), bookingController.getAdminSchedule);

@@ -1,6 +1,6 @@
-import { prisma } from '../../prisma';
-import { User } from '../../entities/User';
-import { Role } from '../../entities/Enums';
+import { prisma } from '../prisma';
+import { User } from '../entities/User';
+import { Role } from '../entities/Enums';
 
 export class UserRepository {
     async findById(id: number) {

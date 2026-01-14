@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { ClubService } from '../../services/ClubService';
+import { ClubService } from '../services/ClubService';
 
 export class ClubController {
     constructor(private clubService: ClubService) {}

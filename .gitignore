@@ -1,24 +1,53 @@
-node_modules/
+# Root .gitignore for monorepo
+
+# Node modules (ignore anywhere)
+**/node_modules/
+
+# Build output
 dist/
+**/dist/
+
+# Next.js build
+.next/
+**/.next/
+
+# Environment files (never commit secrets)
 .env
+.env.*.local
 .env.local
-.env.test
-/.idea
-.DS_Store
-coverage/
-node_modules
-# Keep environment variables out of version control
-.env
-
-/generated/prisma
-#
-# Local env files for apps
-apps/backend/.env
-apps/backend/.env.local
-apps/frontend/.env
-apps/frontend/.env.local
-
-# Common dotenv variants
 .env.production
 .env.development
 .env.staging
+
+# App-specific envs
+apps/*/.env
+apps/*/.env.local
+
+# Prisma generated / migrations
+**/prisma/migrations/
+**/prisma/migration_lock.toml
+**/generated/
+
+# IDEs and OS
+.idea/
+.vscode/
+.DS_Store
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Test coverage
+coverage/
+
+# Misc
+.cache/
+.turbo/
+
+# WhatsApp Web.js session and cache (do not track)
+.wwebjs_auth/
+.wwebjs_cache/
+*.session.json

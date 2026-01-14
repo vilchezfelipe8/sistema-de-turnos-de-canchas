@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { prisma } from '../../prisma';
+import { prisma } from '../prisma';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
@@ -13,13 +13,15 @@ export class AuthController {
             lastName: z.string().min(1),
             email: z.string().email(),
             password: z.string().min(6),
-            phoneNumber: z.string().min(5)
+            phoneNumber: z.string().min(5),
+            role: z.enum(["MEMBER", "ADMIN"])
         });
         const parsed = registerSchema.safeParse(req.body);
         if (!parsed.success) {
             return res.status(400).json({ error: parsed.error.format() });
         }
-        const { firstName, lastName, email, password, phoneNumber } = parsed.data;
+        const { firstName, lastName, email, password, phoneNumber, role } = parsed.data;
+        console.log('Datos recibidos para registro:', { firstName, lastName, email, phoneNumber, role });
         try {
             const existingUser = await prisma.user.findUnique({ where: { email } });
             if (existingUser) {
@@ -32,9 +34,10 @@ export class AuthController {
                 data: {
                     firstName, lastName, email, phoneNumber,
                     password: hashedPassword,
-                    role: 'MEMBER'
+                    role
                 }
             });
+            console.log('Usuario creado:', newUser);
 
             res.status(201).json({ message: "Usuario creado", userId: newUser.id });
         } catch (error: any) {
@@ -69,10 +72,14 @@ export class AuthController {
                 { expiresIn: '24h' }
             );
 
-            res.json({ message: "Login exitoso", token });
+            res.json({ message: "Login exitoso", token,
+    user: {
+        id: user.id,
+        email: user.email,
+        role: user.role 
+    } });
         } catch (error: any) {
             res.status(500).json({ error: error.message });
         }
     }
-}
-
+}   

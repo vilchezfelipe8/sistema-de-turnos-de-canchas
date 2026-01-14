@@ -1,0 +1,19 @@
+# Frontend-specific ignores
+
+# Local env
+.env.local
+.env
+
+# Next build
+.next/
+
+# Node modules
+node_modules/
+
+# Log files
+npm-debug.log*
+
+# Next.js cache / telemetry
+.vercel/
+.next/
+

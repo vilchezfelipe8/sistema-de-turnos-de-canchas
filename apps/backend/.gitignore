@@ -1,0 +1,27 @@
+# Backend-specific ignores
+
+# Local env
+.env.local
+.env
+
+# Prisma client / generated
+prisma/migrations/
+prisma/migration_lock.toml
+generated/
+
+# Build output
+dist/
+
+# Node modules
+node_modules/
+
+# Logs
+npm-debug.log*
+
+# --- BLOQUEO TOTAL DE WHATSAPP Y PUPPETEER ---
+apps/backend/.wwebjs_auth/
+apps/backend/.wwebjs_cache/
+apps/backend/.wwebjs_puppeteer/
+apps/backend/*.pma
+apps/backend/DevToolsActivePort
+apps/backend/core

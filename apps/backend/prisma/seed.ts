@@ -1,5 +1,7 @@
+/// <reference types="node" />
 import { PrismaClient, Role } from '@prisma/client'; 
 import bcrypt from 'bcryptjs';
+import process from 'process';
 
 const prisma = new PrismaClient();
 
@@ -45,17 +47,52 @@ async function main() {
   // 4. Usuario (Quitamos el ID manual)
 
   const hashedPassword = await bcrypt.hash('123456', 10);
-  await prisma.user.create({
-    data: {
+  const userEmail = 'lio@messi.com';
+
+  // Usamos upsert para que el seed sea idempotente (no rompa si el email ya existe)
+  await prisma.user.upsert({
+    where: { email: userEmail },
+    update: {
       firstName: 'Lionel',
       lastName: 'Messi',
-      email: 'lio@messi.com',
+      password: hashedPassword,
+      phoneNumber: '555-101010',
+      role: Role.MEMBER
+    },
+    create: {
+      firstName: 'Lionel',
+      lastName: 'Messi',
+      email: userEmail,
       password: hashedPassword,
       phoneNumber: '555-101010',
       role: Role.MEMBER
     },
   });
-  console.log('✅ Usuario creado: Lionel Messi');
+  console.log('✅ Usuario creado o actualizado: Lionel Messi');
+  
+  // Admin (agregado por seed)
+  const adminPassword = await bcrypt.hash('admin123', 10);
+  const adminEmail = 'admin@local.test';
+
+  await prisma.user.upsert({
+    where: { email: adminEmail },
+    update: {
+      firstName: 'Admin',
+      lastName: 'User',
+      password: adminPassword,
+      phoneNumber: '000-000000',
+      role: Role.ADMIN
+    },
+    create: {
+      firstName: 'Admin',
+      lastName: 'User',
+      email: adminEmail,
+      password: adminPassword,
+      phoneNumber: '000-000000',
+      role: Role.ADMIN
+    },
+  });
+  console.log('✅ Usuario admin creado o actualizado:', adminEmail);
 }
 
 main()

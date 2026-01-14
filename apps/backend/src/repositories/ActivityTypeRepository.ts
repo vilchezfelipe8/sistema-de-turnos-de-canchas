@@ -1,5 +1,5 @@
-import { prisma } from '../../prisma';
-import { ActivityType } from '../../entities/ActivityType';
+import { prisma } from '../prisma';
+import { ActivityType } from '../entities/ActivityType';
 
 export class ActivityTypeRepository {
     

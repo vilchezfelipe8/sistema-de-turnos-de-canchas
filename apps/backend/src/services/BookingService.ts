@@ -1,16 +1,16 @@
-import { BookingRepository } from '../../repositories/BookingRepository';
-import { ClubRepository } from '../../repositories/ClubRepository';
-import { UserRepository } from '../../repositories/UserRepository';
-import { ActivityTypeRepository } from '../../repositories/ActivityTypeRepository';
-import { Booking } from '../../entities/Booking';
-import { BookingStatus } from '../../entities/Enums';
-import { TimeHelper } from '../../utils/TimeHelper';
-import { CourtRepository } from '../../repositories/CourtRepository';
-import { prisma } from '../../prisma';
-import { User } from '../../entities/User';
-import { Club } from '../../entities/Club';
-import { Court as CourtEntity } from '../../entities/Court';
-import { ActivityType } from '../../entities/ActivityType';
+import { BookingRepository } from '../repositories/BookingRepository';
+import { ClubRepository } from '../repositories/ClubRepository';
+import { UserRepository } from '../repositories/UserRepository';
+import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
+import { Booking } from '../entities/Booking';
+import { BookingStatus } from '../entities/Enums';
+import { TimeHelper } from '../utils/TimeHelper';
+import { CourtRepository } from '../repositories/CourtRepository';
+import { prisma } from '../prisma';
+import { User } from '../entities/User';
+import { Club } from '../entities/Club';
+import { Court as CourtEntity } from '../entities/Court';
+import { ActivityType } from '../entities/ActivityType';
 
 export class BookingService {
     constructor(
@@ -20,9 +20,15 @@ export class BookingService {
         private activityRepo: ActivityTypeRepository
     ) {}
 
-    async createBooking(userId: number, courtId: number, startDateTime: Date, activityId: number): Promise<Booking> {
-        const user = await this.userRepo.findById(userId);
-        if (!user) throw new Error("Usuario no encontrado");
+    async createBooking(userId: number | null, guestIdentifier: string | undefined, courtId: number, startDateTime: Date, activityId: number): Promise<Booking> {
+        let user: User | null = null;
+        if (userId) {
+            user = await this.userRepo.findById(userId);
+            if (!user) throw new Error("Usuario no encontrado");
+        } else {
+            // Si no hay userId, requerimos guestIdentifier
+            if (!guestIdentifier) throw new Error("Debe proveer guestIdentifier para reservas como invitado.");
+        }
 
         const court = await this.courtRepo.findById(courtId);
         if (!court) throw new Error("Cancha no encontrada");
@@ -47,7 +53,7 @@ export class BookingService {
             });
 
             if (overlapping.length > 0) {
-                throw new Error(`El slot ${startDateTime.toISOString()} ya está ocupado.`);
+                throw new Error(`El turno ${startDateTime.toISOString()} ya está ocupado.`);
             }
 
             const saved = await tx.booking.create({
@@ -56,7 +62,9 @@ export class BookingService {
                     endDateTime,
                     price: 1500,
                     status: BookingStatus.PENDING,
-                    userId: userId,
+                    // userId puede ser null para invitado
+                    userId: user ? user.id : undefined,
+                    guestIdentifier: guestIdentifier,
                     courtId: courtId,
                     activityId: activityId
                 },
@@ -69,47 +77,79 @@ export class BookingService {
         return this.bookingRepo.mapToEntity(created);
     }
 
-    async getAvailableSlots(courtId: number, date: Date, activityId: number): Promise<string[]> {
-        const court = await this.courtRepo.findById(courtId);
-        if (!court) throw new Error("Cancha no encontrada");
+async getAvailableSlots(courtId: number, date: Date, activityId: number): Promise<string[]> {
+    
+    
+    const court = await this.courtRepo.findById(courtId);
+    if (!court) throw new Error("Cancha no encontrada");
 
-        const activity = await this.activityRepo.findById(activityId);
-        if (!activity) throw new Error("Actividad no encontrada");
+    const activity = await this.activityRepo.findById(activityId);
+    if (!activity) throw new Error("Actividad no encontrada");
 
-        const clubOpenTime = "09:00";
-        const clubCloseTime = "23:00";
-        const duration = activity.defaultDurationMinutes;
+    const year = date.getUTCFullYear();
+    const month = date.getUTCMonth();
+    const day = date.getUTCDate();
 
-        const possibleSlots: string[] = [];
-        let currentTime = clubOpenTime;
+    const startOfDay = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+    const endOfDay = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
 
-        while (TimeHelper.timeToMinutes(currentTime) + duration <= TimeHelper.timeToMinutes(clubCloseTime)) {
-            possibleSlots.push(currentTime);
-            currentTime = TimeHelper.addMinutes(currentTime, duration);
-        }
+    // --- AGREGAR ESTOS LOGS ---
+    console.log("---------------- DEBUG DISPONIBILIDAD ----------------");
+    console.log("📅 Buscando para fecha (UTC):", startOfDay.toISOString());
+    
+    const existingBookings = await this.bookingRepo.findByCourtAndDateRange(courtId, startOfDay, endOfDay);
+    
+    
+    console.log(`🔎 Encontradas ${existingBookings.length} reservas en total.`);
+    existingBookings.forEach(b => {
+        console.log(`   - ID: ${b.id} | Start: ${b.startDateTime.toISOString()} | Status: ${b.status}`);
+    });
+    console.log("------------------------------------------------------");
+    // --------------------------    
 
-        const existingBookings = await this.bookingRepo.findByCourtAndDate(courtId, date);
 
-        const freeSlots = possibleSlots.filter(slotStart => {
-            const slotEnd = TimeHelper.addMinutes(slotStart, duration);
+    const possibleSlots = [
+        "08:00", 
+        "09:30", 
+        "11:00", 
+        "12:30", 
+        "14:00", 
+        "15:30", 
+        // "17:00" -> SALTADO (Descanso de 17:00 a 17:30) ☕
+        "17:30", 
+        "19:00", 
+        "20:30",
+        "22:00"
+    ];
 
-            const [sh, sm] = slotStart.split(':').map(Number);
-            const [eh, em] = slotEnd.split(':').map(Number);
-            const slotStartDate = new Date(date);
-            slotStartDate.setHours(sh, sm, 0, 0);
-            const slotEndDate = new Date(date);
-            slotEndDate.setHours(eh, em, 0, 0);
+    const duration = activity.defaultDurationMinutes; 
 
-            const isOccupied = existingBookings.some(booking => {
-                if (booking.status === BookingStatus.CANCELLED) return false;
-                return TimeHelper.isOverlappingDates(slotStartDate, slotEndDate, booking.startDateTime, booking.endDateTime);
-            });
+    const freeSlots = possibleSlots.filter(slotStart => {
+        const slotEnd = TimeHelper.addMinutes(slotStart, duration);
 
-            return !isOccupied;
+        const [sh, sm] = slotStart.split(':').map(Number);
+        const [eh, em] = slotEnd.split(':').map(Number);
+
+        const slotStartDate = new Date(Date.UTC(year, month, day, sh, sm, 0));
+        const slotEndDate = new Date(Date.UTC(year, month, day, eh, em, 0));
+
+        const isOccupied = existingBookings.some(booking => {
+            if (booking.status === "CANCELLED") return false; 
+
+            return TimeHelper.isOverlappingDates(
+                slotStartDate, 
+                slotEndDate, 
+                booking.startDateTime, 
+                booking.endDateTime
+            );
         });
+        
 
-        return freeSlots;
-    }
+        return !isOccupied;
+    });
+
+    return freeSlots;
+}
 
     async cancelBooking(bookingId: number, cancelledByUserId: number) {
         const booking = await this.bookingRepo.findById(bookingId);
@@ -122,11 +162,233 @@ export class BookingService {
     }
 
     async getUserHistory(userId: number) {
-        return await this.bookingRepo.findByUserId(userId);
+    const bookings = await this.bookingRepo.findByUserId(userId);
+    const now = new Date();
+
+    for (const booking of bookings) {
+        const durationMinutes = 90; 
+        
+        const endTime = new Date(booking.startDateTime.getTime() + (durationMinutes * 60000));
+
+        if (booking.status !== 'CANCELLED' && booking.status !== 'COMPLETED' && endTime < now) {
+            
+            // Actualizar en BD
+            await prisma.booking.update({
+                where: { id: booking.id },
+                data: { status: BookingStatus.COMPLETED }
+            });
+
+            // Actualizar en memoria para que el usuario lo vea bien ya mismo
+            booking.status = BookingStatus.COMPLETED;
+        }
     }
 
+    return bookings;
+}
+
     async getDaySchedule(date: Date) {
-        return await this.bookingRepo.findAllByDate(date);
+        // Obtener todas las canchas activas (no en mantenimiento)
+        const allCourts = await this.courtRepo.findAll();
+        const activeCourts = allCourts.filter(court => !court.isUnderMaintenance);
+
+        // Obtener todas las bookings del día
+        const bookings = await this.bookingRepo.findAllByDate(date);
+
+        // Slots posibles del día
+        const possibleSlots = [
+            "08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:30", "19:00", "20:30", "22:00"
+        ];
+
+        // Crear grilla completa
+        const schedule = [];
+
+        console.log('Creando grilla para', activeCourts.length, 'canchas activas');
+
+        for (const court of activeCourts) {
+            for (const slotTime of possibleSlots) {
+                // Parsear el slot time - crear fecha en UTC
+                const [hours, minutes] = slotTime.split(':').map(Number);
+                const slotDateTime = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes, 0));
+
+                // Buscar si hay una booking para esta cancha y hora
+                // Comparar en UTC para evitar problemas de zona horaria
+                const booking = bookings.find(b => {
+                    const courtMatch = b.court.id === court.id;
+                    const bookingUTCTime = Date.UTC(
+                        b.startDateTime.getUTCFullYear(),
+                        b.startDateTime.getUTCMonth(),
+                        b.startDateTime.getUTCDate(),
+                        b.startDateTime.getUTCHours(),
+                        b.startDateTime.getUTCMinutes()
+                    );
+                    const slotUTCTime = slotDateTime.getTime();
+                    const timeMatch = bookingUTCTime === slotUTCTime;
+                    
+                    if (courtMatch) {
+                        console.log(`Cancha ${court.id} - Booking UTC: ${new Date(bookingUTCTime).toISOString()}, Slot UTC: ${slotDateTime.toISOString()}`);
+                        console.log(`Time match: ${timeMatch}`);
+                    }
+                    
+                    return courtMatch && timeMatch;
+                });
+
+                schedule.push({
+                    courtId: court.id,
+                    courtName: court.name,
+                    slotTime: slotTime,
+                    startDateTime: slotDateTime.toISOString(),
+                    isAvailable: !booking,
+                    booking: booking || null
+                });
+            }
+        }
+
+        // Ordenar por hora (slotTime) primero, luego por nombre de cancha
+        schedule.sort((a, b) => {
+            // Primero comparar por slotTime
+            if (a.slotTime < b.slotTime) return -1;
+            if (a.slotTime > b.slotTime) return 1;
+            // Si son iguales, comparar por courtName
+            if (a.courtName < b.courtName) return -1;
+            if (a.courtName > b.courtName) return 1;
+            return 0;
+        });
+
+        return schedule;
+    }
+
+    async getAllAvailableSlots(date: Date, activityId: number): Promise<string[]> {
+        // Obtener todas las canchas activas
+        const allCourts = await this.courtRepo.findAll();
+        const activeCourts = allCourts.filter(court => !court.isUnderMaintenance);
+
+        // Obtener todas las bookings del día
+        const bookings = await this.bookingRepo.findAllByDate(date);
+
+        // Slots posibles del día
+        const possibleSlots = [
+            "08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:30", "19:00", "20:30", "22:00"
+        ];
+
+        // Encontrar slots donde al menos una cancha está disponible
+        const availableSlots = possibleSlots.filter(slotTime => {
+            // Parsear el slot time - crear fecha en UTC
+            const [hours, minutes] = slotTime.split(':').map(Number);
+            const slotDateTime = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes, 0));
+
+            // Verificar si al menos una cancha está disponible en este slot
+            const hasAvailableCourt = activeCourts.some(court => {
+                const booking = bookings.find(b => {
+                    const courtMatch = b.court.id === court.id;
+                    const bookingUTCTime = Date.UTC(
+                        b.startDateTime.getUTCFullYear(),
+                        b.startDateTime.getUTCMonth(),
+                        b.startDateTime.getUTCDate(),
+                        b.startDateTime.getUTCHours(),
+                        b.startDateTime.getUTCMinutes()
+                    );
+                    const slotUTCTime = slotDateTime.getTime();
+                    const timeMatch = bookingUTCTime === slotUTCTime;
+                    
+                    return courtMatch && timeMatch;
+                });
+                return !booking; // Disponible si no hay booking
+            });
+
+            return hasAvailableCourt;
+        });
+
+        return availableSlots;
+    }
+
+    async getAvailableSlotsWithCourts(date: Date, activityId: number): Promise<Array<{
+        slotTime: string;
+        availableCourts: Array<{
+            id: number;
+            name: string;
+        }>;
+    }>> {
+        // 1. Logs para ver qué está pasando realmente (Detector de Mentiras)
+        console.log("---------------- GRID DEBUG ----------------");
+        console.log("📅 Fecha solicitada (UTC):", date.toISOString());
+        
+        // Obtener canchas y actividad
+        const allCourts = await this.courtRepo.findAll();
+        const activeCourts = allCourts.filter(court => !court.isUnderMaintenance);
+        const bookings = await this.bookingRepo.findAllByDate(date);
+        const activity = await this.activityRepo.findById(activityId);
+        
+        if (!activity) throw new Error("Actividad no encontrada");
+
+        console.log(`🔎 Encontradas ${bookings.length} reservas para filtrar en la grilla.`);
+
+        const possibleSlots = [
+            "08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:30", "19:00", "20:30", "22:00"
+        ];
+
+        // 🔥 CORRECCIÓN CLAVE: Usamos getUTC para evitar el error de "día anterior"
+        const year = date.getUTCFullYear();
+        const month = date.getUTCMonth();
+        const day = date.getUTCDate();
+
+        const slotsWithCourts = possibleSlots.map(slotTime => {
+            const [hours, minutes] = slotTime.split(':').map(Number);
+            
+            // Construimos la fecha del slot usando SOLO partes UTC
+            const slotDateTime = new Date(Date.UTC(year, month, day, hours, minutes, 0));
+            const durationMinutes = activity.defaultDurationMinutes;
+            const slotEndDateTime = new Date(slotDateTime.getTime() + durationMinutes * 60000);
+
+            // Filtrar canchas disponibles
+            const availableCourts = activeCourts.filter(court => {
+                const overlappingBooking = bookings.find(b => {
+                    // Mismo ID de cancha
+                    if (b.court.id !== court.id) return false;
+                    
+                    // Ignorar cancelados
+                    if (b.status === "CANCELLED") return false; 
+                    
+                    // Aquí NO ignoramos COMPLETED porque si recien reservaste, 
+                    // la fecha puede estar en el pasado inmediato y ser válida.
+
+                    return TimeHelper.isOverlappingDates(
+                        slotDateTime,
+                        slotEndDateTime,
+                        b.startDateTime,
+                        b.endDateTime
+                    );
+                });
+                
+                // Si encontramos superposición, la cancha NO está disponible
+                return !overlappingBooking;
+            }).map(court => ({
+                id: court.id,
+                name: court.name
+            }));
+
+            // Lógica extra para devolver "courts" completos (si tu front lo usa)
+            const courtsWithAvailability = activeCourts.map(court => {
+                 const isBusy = bookings.some(b => 
+                    b.court.id === court.id && 
+                    b.status !== "CANCELLED" &&
+                    TimeHelper.isOverlappingDates(slotDateTime, slotEndDateTime, b.startDateTime, b.endDateTime)
+                 );
+                 return {
+                    id: court.id,
+                    name: court.name,
+                    isAvailable: !isBusy
+                 };
+            });
+
+            return {
+                slotTime,
+                availableCourts,
+                courts: courtsWithAvailability
+            };
+        }).filter(slot => slot.availableCourts.length > 0); // Opcional: Filtra si no hay canchas
+
+        console.log("--------------------------------------------");
+        return slotsWithCourts;
     }
 }
 

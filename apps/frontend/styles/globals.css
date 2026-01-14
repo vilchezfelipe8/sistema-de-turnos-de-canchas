@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    /* Fondo super oscuro y texto claro por defecto */
+    @apply antialiased bg-slate-950 text-slate-100;
+  }
+}
+
+@layer utilities {
+  /* Clases para efectos de brillo (Glow) */
+  .text-glow {
+    text-shadow: 0 0 10px rgba(163, 230, 53, 0.5);
+  }
+  
+  .box-glow {
+    box-shadow: 0 0 20px rgba(163, 230, 53, 0.15);
+  }
+}

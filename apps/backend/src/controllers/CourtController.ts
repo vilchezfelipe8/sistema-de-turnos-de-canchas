@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
-import { CourtRepository } from '../../repositories/CourtRepository';
-import { prisma } from '../../prisma';
+import { CourtRepository } from '../repositories/CourtRepository';
+import { prisma } from '../prisma';
 
 export class CourtController {
     private courtRepo: CourtRepository;
@@ -53,6 +53,40 @@ export class CourtController {
     getAllCourts = async (req: Request, res: Response) => {
         const courts = await this.courtRepo.findAll();
         res.json(courts);
+    }
+
+    suspendCourt = async (req: Request, res: Response) => {
+        try {
+            const { id } = req.params;
+
+            const suspendedCourt = await prisma.court.update({
+                where: { id: Number(id) },
+                data: {
+                    isUnderMaintenance: true
+                }
+            });
+
+            res.json({ message: "Cancha suspendida exitosamente", court: suspendedCourt });
+        } catch (error: any) {
+            res.status(400).json({ error: "No se pudo suspender la cancha. Verifica el ID." });
+        }
+    }
+
+    reactivateCourt = async (req: Request, res: Response) => {
+        try {
+            const { id } = req.params;
+
+            const reactivatedCourt = await prisma.court.update({
+                where: { id: Number(id) },
+                data: {
+                    isUnderMaintenance: false
+                }
+            });
+
+            res.json({ message: "Cancha reactivada exitosamente", court: reactivatedCourt });
+        } catch (error: any) {
+            res.status(400).json({ error: "No se pudo reactivar la cancha. Verifica el ID." });
+        }
     }
 }
 
