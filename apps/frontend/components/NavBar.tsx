@@ -40,7 +40,7 @@ const Navbar = () => {
 
   const handleLogout = () => {
     logout();
-    window.location.href = '/login';
+    window.location.href = '/';
   };
 
   const isActive = (path: string) => router.pathname === path;
