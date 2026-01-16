@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { Modal } from 'react-bootstrap';
 
 type AppModalProps = {
   show: boolean;
   onClose: () => void;
+  onCancel?: () => void;
   title?: string;
-  message?: string | React.ReactNode;
+  message?: React.ReactNode;
   cancelText?: string;
   confirmText?: string;
-  onConfirm?: (inputValue?: string) => void;
+  onConfirm?: (value?: string) => void;
   isWarning?: boolean;
   showInput?: boolean;
   inputValue?: string;
@@ -17,6 +17,8 @@ type AppModalProps = {
   holdToConfirm?: boolean;
   holdDuration?: number;
   confirmDisabled?: boolean;
+  closeOnBackdrop?: boolean;
+  closeOnEscape?: boolean;
 };
 
 /**
@@ -26,6 +28,7 @@ type AppModalProps = {
 export default function AppModal({
   show,
   onClose,
+  onCancel,
   title = 'Información',
   message = '',
   cancelText = 'Cancelar',
@@ -38,11 +41,16 @@ export default function AppModal({
   onInputChange,
   holdToConfirm = false,
   holdDuration = 1200,
-  confirmDisabled = false
+  confirmDisabled = false,
+  closeOnBackdrop = true,
+  closeOnEscape = true
 }: AppModalProps) {
   const [inputText, setInputText] = useState(inputValue);
   const [holdProgress, setHoldProgress] = useState(0);
   const [holding, setHolding] = useState(false);
+  const [confirmHover, setConfirmHover] = useState(false);
+  const [cancelHover, setCancelHover] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
   const holdRef = useRef<number | null>(null);
   const holdStartRef = useRef(0);
 
@@ -53,6 +61,22 @@ export default function AppModal({
     }
   }, [show, inputValue]);
 
+  useEffect(() => {
+    if (!show) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (closeOnEscape && event.key === 'Escape') {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [show, onClose, closeOnEscape]);
+
   const handleConfirm = () => {
     if (onConfirm) {
       if (showInput) {
@@ -60,13 +84,13 @@ export default function AppModal({
       } else {
         onConfirm();
       }
-    } else {
-      onClose();
+      return;
     }
+    onClose();
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
+  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value;
     setInputText(value);
     if (onInputChange) {
       onInputChange(value);
@@ -78,6 +102,7 @@ export default function AppModal({
       cancelAnimationFrame(holdRef.current);
       holdRef.current = null;
     }
+    holdStartRef.current = 0;
     setHolding(false);
     setHoldProgress(0);
   };
@@ -97,9 +122,9 @@ export default function AppModal({
     holdRef.current = requestAnimationFrame(stepHold);
   };
 
-  const startHold = (e: React.MouseEvent | React.TouchEvent) => {
+  const startHold = (event: React.MouseEvent | React.TouchEvent) => {
     if (confirmDisabled || (showInput && !inputText.trim())) return;
-    e.preventDefault();
+    event.preventDefault();
     cancelHold();
     setHolding(true);
     holdStartRef.current = 0;
@@ -110,148 +135,165 @@ export default function AppModal({
     cancelHold();
   };
 
+  if (!show) return null;
+
   const disabled = confirmDisabled || (showInput && !inputText.trim());
+  const confirmBackground = isWarning ? '#e74c3c' : 'var(--surface)';
+  const confirmBorder = isWarning ? '#e74c3c' : 'var(--border)';
+  const confirmHoverBackground = isWarning ? '#d84335' : 'rgba(255,255,255,0.06)';
+  const confirmHoverBorder = isWarning ? '#d84335' : 'var(--border)';
 
   return (
-    <Modal
-      show={show}
-      onHide={onClose}
-      centered
-      backdrop
-      keyboard
-      backdropClassName="opacity-100"
-      style={{ zIndex: 9999 }}
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={closeOnBackdrop ? onClose : undefined}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 9999,
+        background: 'rgba(0,0,0,0.6)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '1.5rem'
+      }}
     >
-      <Modal.Header closeButton={false} style={{ borderBottom: 'none', paddingBottom: '0.5rem' }}>
-        <Modal.Title style={{ fontSize: '1rem', fontWeight: 500 }}>{title}</Modal.Title>
-      </Modal.Header>
-      <Modal.Body style={{ paddingTop: '0.5rem', paddingBottom: '1rem' }}>
-        <div style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: showInput ? '1rem' : 0 }}>
-          {typeof message === 'string' ? <p style={{ margin: 0 }}>{message}</p> : message}
+      <div
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          width: '100%',
+          maxWidth: '420px',
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: '12px',
+          boxShadow: '0 12px 40px rgba(0,0,0,0.55)',
+          color: 'var(--text)',
+          fontFamily: 'var(--font-sans)'
+        }}
+      >
+        <div style={{ padding: '1rem 1.25rem 0.5rem' }}>
+          <div style={{ fontSize: '1rem', fontWeight: 500 }}>{title}</div>
         </div>
-        {showInput && (
-          <input
-            type="text"
-            value={inputText}
-            onChange={handleInputChange}
-            placeholder={inputPlaceholder}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && inputText.trim()) {
-                handleConfirm();
-              }
-            }}
-            autoFocus
+        <div style={{ padding: '0 1.25rem 1rem' }}>
+          <div
             style={{
-              width: '100%',
-              padding: '0.5rem 0.75rem',
+              margin: 0,
               fontSize: '0.9rem',
-              borderRadius: '6px',
-              border: '1px solid var(--border-color)',
-              backgroundColor: 'var(--bg-primary)',
-              color: 'var(--text-primary)',
-              fontFamily: 'var(--font-sans)',
-              outline: 'none',
-              transition: 'border-color 0.2s ease',
-              boxSizing: 'border-box'
-            }}
-            onFocus={(e) => {
-              e.currentTarget.style.borderColor = 'var(--accent-color)';
-            }}
-            onBlur={(e) => {
-              e.currentTarget.style.borderColor = 'var(--border-color)';
-            }}
-          />
-        )}
-      </Modal.Body>
-      <Modal.Footer style={{ borderTop: 'none', paddingTop: '0.5rem', display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
-        {cancelText && (
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'var(--text-secondary)',
-              cursor: 'pointer',
-              padding: '0.5rem 1rem',
-              fontSize: '0.875rem',
-              borderRadius: '6px',
-              transition: 'all 0.2s ease',
-              fontFamily: 'var(--font-sans)'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)';
-              e.currentTarget.style.color = 'var(--text-primary)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'transparent';
-              e.currentTarget.style.color = 'var(--text-secondary)';
+              color: 'var(--muted)',
+              marginBottom: showInput ? '1rem' : 0
             }}
           >
-            {cancelText}
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={holdToConfirm ? undefined : handleConfirm}
-          onMouseDown={holdToConfirm ? startHold : undefined}
-          onMouseUp={holdToConfirm ? releaseHold : undefined}
-          onMouseLeave={(e) => {
-            if (holdToConfirm) releaseHold();
-            if (isWarning) {
-              e.currentTarget.style.backgroundColor = '#e74c3c';
-              e.currentTarget.style.borderColor = '#e74c3c';
-            } else {
-              e.currentTarget.style.backgroundColor = 'var(--bg-secondary)';
-              e.currentTarget.style.borderColor = 'var(--border-color)';
-            }
-          }}
-          onTouchStart={holdToConfirm ? startHold : undefined}
-          onTouchEnd={holdToConfirm ? releaseHold : undefined}
-          onTouchCancel={holdToConfirm ? releaseHold : undefined}
-          disabled={disabled}
-          style={{
-            background: isWarning ? '#e74c3c' : 'var(--bg-secondary)',
-            border: `1px solid ${isWarning ? '#e74c3c' : 'var(--border-color)'}`,
-            color: isWarning ? '#fff' : 'var(--text-primary)',
-            cursor: disabled ? 'not-allowed' : 'pointer',
-            padding: '0.5rem 1rem',
-            fontSize: '0.875rem',
-            borderRadius: '8px',
-            transition: 'all 0.2s ease',
-            fontFamily: 'var(--font-sans)',
-            fontWeight: 600,
-            opacity: disabled ? 0.5 : 1,
-            position: 'relative',
-            overflow: 'hidden'
-          }}
-          onMouseEnter={(e) => {
-            if (isWarning) {
-              e.currentTarget.style.backgroundColor = '#d84335';
-              e.currentTarget.style.borderColor = '#d84335';
-            } else {
-              e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)';
-              e.currentTarget.style.borderColor = 'var(--border-color)';
-            }
-          }}
-        >
-          {holdToConfirm && (
-            <span
-              aria-hidden="true"
-              style={{
-                position: 'absolute',
-                inset: 0,
-                background: 'rgba(255,255,255,0.12)',
-                transformOrigin: 'left center',
-                transform: `scaleX(${holding ? holdProgress : 0})`,
-                transition: holding ? 'none' : 'transform 0.2s ease',
-                pointerEvents: 'none'
+            {typeof message === 'string' ? <p style={{ margin: 0 }}>{message}</p> : message}
+          </div>
+          {showInput && (
+            <input
+              type="text"
+              value={inputText}
+              onChange={handleInputChange}
+              placeholder={inputPlaceholder}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && inputText.trim()) {
+                  handleConfirm();
+                }
               }}
+              autoFocus
+              style={{
+                width: '100%',
+                padding: '0.5rem 0.75rem',
+                fontSize: '0.9rem',
+                borderRadius: '8px',
+                border: `1px solid ${inputFocused ? 'var(--accent)' : 'var(--border)'}`,
+                backgroundColor: 'rgba(255,255,255,0.02)',
+                color: 'var(--text)',
+                fontFamily: 'var(--font-sans)',
+                outline: 'none',
+                transition: 'border-color 0.2s ease',
+                boxSizing: 'border-box'
+              }}
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setInputFocused(false)}
             />
           )}
-          {confirmText}
-        </button>
-      </Modal.Footer>
-    </Modal>
+        </div>
+        <div
+          style={{
+            borderTop: '1px solid rgba(255,255,255,0.04)',
+            padding: '0.75rem 1.25rem 1rem',
+            display: 'flex',
+            gap: '0.75rem',
+            justifyContent: 'flex-end'
+          }}
+        >
+          {cancelText && (
+            <button
+              type="button"
+              onClick={onCancel ?? onClose}
+              onMouseEnter={() => setCancelHover(true)}
+              onMouseLeave={() => setCancelHover(false)}
+              style={{
+                background: cancelHover ? 'rgba(255,255,255,0.05)' : 'transparent',
+                border: 'none',
+                color: cancelHover ? 'var(--text)' : 'var(--muted)',
+                cursor: 'pointer',
+                padding: '0.5rem 1rem',
+                fontSize: '0.875rem',
+                borderRadius: '8px',
+                transition: 'all 0.2s ease',
+                fontFamily: 'var(--font-sans)'
+              }}
+            >
+              {cancelText}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={holdToConfirm ? undefined : handleConfirm}
+            onMouseDown={holdToConfirm ? startHold : undefined}
+            onMouseUp={holdToConfirm ? releaseHold : undefined}
+            onTouchStart={holdToConfirm ? startHold : undefined}
+            onTouchEnd={holdToConfirm ? releaseHold : undefined}
+            onTouchCancel={holdToConfirm ? releaseHold : undefined}
+            onMouseEnter={() => setConfirmHover(true)}
+            onMouseLeave={() => {
+              setConfirmHover(false);
+              if (holdToConfirm) releaseHold();
+            }}
+            disabled={disabled}
+            style={{
+              background: confirmHover ? confirmHoverBackground : confirmBackground,
+              border: `1px solid ${confirmHover ? confirmHoverBorder : confirmBorder}`,
+              color: isWarning ? '#fff' : 'var(--text)',
+              cursor: disabled ? 'not-allowed' : 'pointer',
+              padding: '0.5rem 1rem',
+              fontSize: '0.875rem',
+              borderRadius: '8px',
+              transition: 'all 0.2s ease',
+              fontFamily: 'var(--font-sans)',
+              fontWeight: 600,
+              opacity: disabled ? 0.5 : 1,
+              position: 'relative',
+              overflow: 'hidden'
+            }}
+          >
+            {holdToConfirm && (
+              <span
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'rgba(255,255,255,0.12)',
+                  transformOrigin: 'left center',
+                  transform: `scaleX(${holding ? holdProgress : 0})`,
+                  transition: holding ? 'none' : 'transform 0.2s ease',
+                  pointerEvents: 'none'
+                }}
+              />
+            )}
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

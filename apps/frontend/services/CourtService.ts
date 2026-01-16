@@ -12,8 +12,7 @@ export const createCourt = async (name: string, sport: string) => {
     const token = getToken();
     console.log("MIRA AQUÍ EL TOKEN:", token);
     if (!token) {
-        alert("¡No hay token! Tienes que loguearte de nuevo.");
-        return;
+        throw new Error('No hay token. Tenés que loguearte de nuevo.');
     }
     console.log("Enviando petición con headers:", {
         'Content-Type': 'application/json',
@@ -39,8 +38,7 @@ export const createCourt = async (name: string, sport: string) => {
 export const suspendCourt = async (courtId: number) => {
     const token = getToken();
     if (!token) {
-        alert("¡No hay token! Tienes que loguearte de nuevo.");
-        return;
+        throw new Error('No hay token. Tenés que loguearte de nuevo.');
     }
     const res = await fetch(`${API_URL}/api/courts/${courtId}/suspend`, {
         method: 'PUT',
@@ -61,8 +59,7 @@ export const suspendCourt = async (courtId: number) => {
 export const reactivateCourt = async (courtId: number) => {
     const token = getToken();
     if (!token) {
-        alert("¡No hay token! Tienes que loguearte de nuevo.");
-        return;
+        throw new Error('No hay token. Tenés que loguearte de nuevo.');
     }
     const res = await fetch(`${API_URL}/api/courts/${courtId}/reactivate`, {
         method: 'PUT',

@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useAvailability } from '../hooks/useAvailability';
 import { createBooking } from '../services/BookingService';
-import AppModal from './AppModal';
 import { useRouter } from 'next/router'; // Importar router por si necesitas redireccionar
+import AppModal from './AppModal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
@@ -18,7 +18,39 @@ export default function BookingGrid() {
   const [guestName, setGuestName] = useState('');
   const [guestEmail, setGuestEmail] = useState('');
   const [guestPhone, setGuestPhone] = useState('');
-  const [isGuestModalOpen, setIsGuestModalOpen] = useState(false);
+  const [modalState, setModalState] = useState<{
+    show: boolean;
+    title?: string;
+    message?: string;
+    cancelText?: string;
+    confirmText?: string;
+    isWarning?: boolean;
+  }>({ show: false });
+
+  const closeModal = () => {
+    setModalState((prev) => ({ ...prev, show: false }));
+  };
+
+  const showInfo = (message: string, title = 'Información') => {
+    setModalState({
+      show: true,
+      title,
+      message,
+      cancelText: '',
+      confirmText: 'OK'
+    });
+  };
+
+  const showError = (message: string) => {
+    setModalState({
+      show: true,
+      title: 'Error',
+      message,
+      isWarning: true,
+      cancelText: '',
+      confirmText: 'Aceptar'
+    });
+  };
 
   const { slotsWithCourts, loading, error, refresh } = useAvailability(selectedDate);
   const [disabledSlots, setDisabledSlots] = useState<Record<string, boolean>>({});
@@ -68,11 +100,11 @@ export default function BookingGrid() {
 
       if (!isAuthenticated) {
         if (!trimmedName) {
-          alert('❗ Ingresá tu nombre para reservar como invitado.');
+          showError('❗ Ingresá tu nombre para reservar como invitado.');
           return;
         }
         if (!trimmedEmail && !trimmedPhone) {
-          alert('❗ Ingresá un email o teléfono para poder contactarte.');
+          showError('❗ Ingresá un email o teléfono para poder contactarte.');
           return;
         }
       }
@@ -111,25 +143,15 @@ export default function BookingGrid() {
           setGuestName('');
           setGuestEmail('');
           setGuestPhone('');
-          setIsGuestModalOpen(false);
         }
       } catch (_) { /* noop */ }
 
-      alert('✅ ¡Reserva Confirmada! Te esperamos en la cancha ' + selectedCourt.name + '.');
+      showInfo('✅ ¡Reserva Confirmada! Te esperamos en la cancha ' + selectedCourt.name + '.', 'Listo');
     } catch (error: any) {
-      alert('❌ Ups: ' + error.message);
+      showError('❌ Ups: ' + error.message);
     } finally {
       setIsBooking(false);
     }
-  };
-
-  const handlePrimaryAction = () => {
-    if (isBooking || !selectedSlot || !selectedCourt) return;
-    if (!isAuthenticated) {
-      setIsGuestModalOpen(true);
-      return;
-    }
-    void handleBooking();
   };
 
   // --- Cargar disabledSlots de localStorage ---
@@ -292,21 +314,21 @@ export default function BookingGrid() {
                           const res = await fetch(`${API_URL}/api/bookings/availability?courtId=${court.id}&date=${dateString}&activityId=1`);
                           if (!res.ok) {
                             setDisabledSlots((prev) => ({ ...prev, [slotKey]: true }));
-                            alert('No se pudo verificar disponibilidad.');
+                            showError('No se pudo verificar disponibilidad.');
                             return;
                           }
                           const data = await res.json();
                           const availableSlots: string[] = data.availableSlots || [];
                           if (!availableSlots.includes(slotWithCourt.slotTime)) {
                             setDisabledSlots((prev) => ({ ...prev, [slotKey]: true }));
-                            alert('⚠️ Cancha ya no disponible.');
+                            showError('⚠️ Cancha ya no disponible.');
                             return;
                           }
                           setSelectedSlot(slotWithCourt.slotTime);
                           setSelectedCourt(court);
                         } catch (err: any) {
                           setDisabledSlots((prev) => ({ ...prev, [slotKey]: true }));
-                          alert('Error verificando disponibilidad.');
+                          showError('Error verificando disponibilidad.');
                         }
                       };
 
@@ -352,9 +374,39 @@ export default function BookingGrid() {
         </div>
       )}
 
+      {!isAuthenticated && (
+        <div className="mb-6 bg-surface-70 border border-border rounded-2xl p-4">
+          <p className="text-sm text-slate-300 font-bold mb-3">Datos de contacto</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <input
+              type="text"
+              placeholder="Nombre y apellido"
+              value={guestName}
+              onChange={(e) => setGuestName(e.target.value)}
+              className="w-full p-3 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-border focus:ring-1 focus:ring-border transition-all font-medium shadow-inner"
+            />
+            <input
+              type="tel"
+              placeholder="Teléfono (opcional)"
+              value={guestPhone}
+              onChange={(e) => setGuestPhone(e.target.value)}
+              className="w-full p-3 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-border focus:ring-1 focus:ring-border transition-all font-medium shadow-inner"
+            />
+            <input
+              type="email"
+              placeholder="Email (opcional)"
+              value={guestEmail}
+              onChange={(e) => setGuestEmail(e.target.value)}
+              className="w-full p-3 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-border focus:ring-1 focus:ring-border transition-all font-medium shadow-inner"
+            />
+          </div>
+          <p className="text-xs text-muted mt-2">Pedimos al menos un email o teléfono para poder contactarte.</p>
+        </div>
+      )}
+
       {/* BOTÓN PRINCIPAL CON LÓGICA DE LOGIN VISUAL */}
       <button
-        onClick={handlePrimaryAction}
+        onClick={handleBooking}
         disabled={isBooking || !selectedSlot || !selectedCourt}
         className={`${(isBooking || !selectedSlot || !selectedCourt) ? 'btn btn-disabled w-full' : 'btn btn-primary w-full'}`}
       >
@@ -385,46 +437,14 @@ export default function BookingGrid() {
           </>
         )}
       </button>
-
       <AppModal
-        show={!isAuthenticated && isGuestModalOpen}
-        onClose={() => setIsGuestModalOpen(false)}
-        title="Datos de contacto"
-        message={(
-          <div>
-            <p style={{ margin: 0, fontSize: '0.9rem' }}>
-              Dejanos un nombre y al menos un medio para contactarte.
-            </p>
-            <div className="space-y-3 mt-3">
-              <input
-                type="text"
-                placeholder="Nombre y apellido"
-                value={guestName}
-                onChange={(e) => setGuestName(e.target.value)}
-                className="w-full p-3 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-border focus:ring-1 focus:ring-border transition-all font-medium shadow-inner"
-              />
-              <input
-                type="tel"
-                placeholder="Teléfono (opcional)"
-                value={guestPhone}
-                onChange={(e) => setGuestPhone(e.target.value)}
-                className="w-full p-3 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-border focus:ring-1 focus:ring-border transition-all font-medium shadow-inner"
-              />
-              <input
-                type="email"
-                placeholder="Email (opcional)"
-                value={guestEmail}
-                onChange={(e) => setGuestEmail(e.target.value)}
-                className="w-full p-3 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-border focus:ring-1 focus:ring-border transition-all font-medium shadow-inner"
-              />
-            </div>
-            <p className="text-xs text-muted mt-2">Pedimos al menos un email o teléfono para poder contactarte.</p>
-          </div>
-        )}
-        cancelText="Cancelar"
-        confirmText={isBooking ? 'Procesando...' : 'Confirmar reserva'}
-        onConfirm={() => void handleBooking()}
-        confirmDisabled={!guestName.trim() || (!guestEmail.trim() && !guestPhone.trim()) || isBooking}
+        show={modalState.show}
+        onClose={closeModal}
+        title={modalState.title}
+        message={modalState.message}
+        cancelText={modalState.cancelText}
+        confirmText={modalState.confirmText}
+        isWarning={modalState.isWarning}
       />
     </div>
   );

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import PageShell from '../components/PageShell';
+import AppModal from '../components/AppModal';
 import { getCourts, createCourt, suspendCourt, reactivateCourt } from '../services/CourtService';
 import { 
     getAdminSchedule, 
@@ -41,6 +43,79 @@ export default function AdminPage() {
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
+  const [modalState, setModalState] = useState<{
+    show: boolean;
+    title?: string;
+    message?: ReactNode;
+    cancelText?: string;
+    confirmText?: string;
+    isWarning?: boolean;
+    onConfirm?: () => Promise<void> | void;
+    onCancel?: () => Promise<void> | void;
+    closeOnBackdrop?: boolean;
+    closeOnEscape?: boolean;
+  }>({ show: false });
+
+  const closeModal = () => {
+    setModalState((prev) => ({
+      ...prev,
+      show: false,
+      onConfirm: undefined,
+      onCancel: undefined
+    }));
+  };
+
+  const wrapAction = (action?: () => Promise<void> | void) => async () => {
+    closeModal();
+    await action?.();
+  };
+
+  const showInfo = (message: ReactNode, title = 'Información') => {
+    setModalState({
+      show: true,
+      title,
+      message,
+      cancelText: '',
+      confirmText: 'OK'
+    });
+  };
+
+  const showError = (message: ReactNode) => {
+    setModalState({
+      show: true,
+      title: 'Error',
+      message,
+      isWarning: true,
+      cancelText: '',
+      confirmText: 'Aceptar'
+    });
+  };
+
+  const showConfirm = (options: {
+    title: string;
+    message: ReactNode;
+    confirmText?: string;
+    cancelText?: string;
+    isWarning?: boolean;
+    onConfirm: () => Promise<void> | void;
+    onCancel?: () => Promise<void> | void;
+    closeOnBackdrop?: boolean;
+    closeOnEscape?: boolean;
+  }) => {
+    setModalState({
+      show: true,
+      title: options.title,
+      message: options.message,
+      confirmText: options.confirmText ?? 'Aceptar',
+      cancelText: options.cancelText ?? 'Cancelar',
+      isWarning: options.isWarning ?? true,
+      closeOnBackdrop: options.closeOnBackdrop,
+      closeOnEscape: options.closeOnEscape,
+      onConfirm: wrapAction(options.onConfirm),
+      onCancel: options.onCancel ? wrapAction(options.onCancel) : undefined
+    });
+  };
+
   // --- ESTADOS PARA CREAR RESERVA MANUAL ---
   const [manualBooking, setManualBooking] = useState({
       userId: '',     
@@ -59,7 +134,11 @@ export default function AdminPage() {
       const data = await getAdminSchedule(scheduleDate);
       setScheduleBookings(data);
       setLastUpdate(new Date());
-    } catch (error: any) { alert('Error: ' + error.message); } finally { setLoadingSchedule(false); }
+    } catch (error: any) {
+      showError('Error: ' + error.message);
+    } finally {
+      setLoadingSchedule(false);
+    }
   };
 
   useEffect(() => { loadCourts(); }, []);
@@ -67,24 +146,56 @@ export default function AdminPage() {
   // --- CREAR CANCHA ---
   const handleCreateCourt = async (e: React.FormEvent) => {
     e.preventDefault();
-    try { await createCourt(newName, newSport); alert('✅ Cancha creada'); setNewName(''); loadCourts(); } 
-    catch (error: any) { alert('Error: ' + error.message); }
+    try {
+      await createCourt(newName, newSport);
+      showInfo('✅ Cancha creada', 'Listo');
+      setNewName('');
+      loadCourts();
+    } catch (error: any) {
+      showError('Error: ' + error.message);
+    }
   };
 
   const handleSuspend = async (id: number) => {
-    if (!confirm('¿Suspender?')) return;
-    try { await suspendCourt(id); loadCourts(); } catch (error: any) { alert('Error: ' + error.message); }
+    showConfirm({
+      title: 'Suspender cancha',
+      message: '¿Querés suspender esta cancha?',
+      confirmText: 'Suspender',
+      onConfirm: async () => {
+        try {
+          await suspendCourt(id);
+          loadCourts();
+        } catch (error: any) {
+          showError('Error: ' + error.message);
+        }
+      }
+    });
   };
 
   const handleReactivate = async (id: number) => {
-    if (!confirm('¿Reactivar?')) return;
-    try { await reactivateCourt(id); loadCourts(); } catch (error: any) { alert('Error: ' + error.message); }
+    showConfirm({
+      title: 'Reactivar cancha',
+      message: '¿Querés reactivar esta cancha?',
+      confirmText: 'Reactivar',
+      isWarning: false,
+      onConfirm: async () => {
+        try {
+          await reactivateCourt(id);
+          loadCourts();
+        } catch (error: any) {
+          showError('Error: ' + error.message);
+        }
+      }
+    });
   };
 
   // --- NUEVA LÓGICA: CREAR RESERVA (FIJA O NORMAL) ---
   const handleCreateBooking = async (e: React.FormEvent) => {
       e.preventDefault();
-      if(!manualBooking.courtId || !manualBooking.userId) return alert("Faltan datos");
+      if(!manualBooking.courtId || !manualBooking.userId) {
+        showError('Faltan datos');
+        return;
+      }
 
       try {
           let dateBase: Date;
@@ -114,7 +225,10 @@ export default function AdminPage() {
                   1, // Tu ID de Actividad real
                   dateToSend // <--- Enviamos la fecha ajustada
               );
-              alert(`✅ Turno FIJO creado. Arranca el: ${dateBase.toLocaleDateString()} a las ${manualBooking.time}`);
+              showInfo(
+                `✅ Turno FIJO creado. Arranca el: ${dateBase.toLocaleDateString()} a las ${manualBooking.time}`,
+                'Listo'
+              );
           } else {
               await createBooking(
                   Number(manualBooking.courtId), 
@@ -122,12 +236,12 @@ export default function AdminPage() {
                   dateToSend, // <--- Enviamos la fecha ajustada
                   Number(manualBooking.userId)
               );
-              alert("✅ Reserva simple creada");
+              showInfo('✅ Reserva simple creada', 'Listo');
           }
           
           loadSchedule(); 
       } catch (error: any) {
-          alert('Error al reservar: ' + error.message);
+          showError('Error al reservar: ' + error.message);
       }
   };
 
@@ -136,38 +250,60 @@ export default function AdminPage() {
     
     // 1. CASO TURNO FIJO
     if (booking.fixedBookingId) {
-        const confirmacion = confirm(
-            `🔄 ESTE ES UN TURNO FIJO \n\n` +
-            `[Aceptar] = Eliminar TODA la serie futura (Dar de baja)\n` +
-            `[Cancelar] = Eliminar SOLO el turno de hoy`
-        );
-
-        try {
-            if (confirmacion) {
-                // Borrar toda la serie
-                await cancelFixedBooking(booking.fixedBookingId);
-                alert('✅ Serie de turnos fijos dada de baja.');
-            } else {
-                // Borrar solo hoy
-                await cancelBooking(booking.id);
-                alert('✅ Turno del día cancelado.');
+        showConfirm({
+          title: 'Cancelar turno fijo',
+          message: (
+            <div>
+              <p style={{ margin: 0 }}>Este es un turno fijo.</p>
+              <p style={{ margin: '0.5rem 0 0' }}>
+                Aceptar = eliminar toda la serie futura.
+              </p>
+              <p style={{ margin: '0.5rem 0 0' }}>
+                Cancelar = eliminar solo el turno de hoy.
+              </p>
+            </div>
+          ),
+          confirmText: 'Dar de baja serie',
+          cancelText: 'Cancelar solo hoy',
+          onConfirm: async () => {
+            try {
+              await cancelFixedBooking(booking.fixedBookingId);
+              showInfo('✅ Serie de turnos fijos dada de baja.', 'Listo');
+              loadSchedule();
+            } catch (error: any) {
+              showError('Error: ' + error.message);
             }
-        } catch (error: any) {
-            alert('Error: ' + error.message);
-        }
+          },
+          onCancel: async () => {
+            try {
+              await cancelBooking(booking.id);
+              showInfo('✅ Turno del día cancelado.', 'Listo');
+              loadSchedule();
+            } catch (error: any) {
+              showError('Error: ' + error.message);
+            }
+          },
+          closeOnBackdrop: false,
+          closeOnEscape: false
+        });
     } 
     // 2. CASO TURNO NORMAL
     else {
-        if (!confirm('⚠️ ¿Cancelar este turno simple?')) return;
-        try {
-            await cancelBooking(booking.id);
-            alert('✅ Turno cancelado');
-        } catch (error: any) {
-            alert('Error: ' + error.message);
-        }
+        showConfirm({
+          title: 'Cancelar turno',
+          message: '⚠️ ¿Cancelar este turno simple?',
+          confirmText: 'Cancelar turno',
+          onConfirm: async () => {
+            try {
+              await cancelBooking(booking.id);
+              showInfo('✅ Turno cancelado', 'Listo');
+              loadSchedule();
+            } catch (error: any) {
+              showError('Error: ' + error.message);
+            }
+          }
+        });
     }
-    
-    loadSchedule();
   };
 
   return (
@@ -491,6 +627,19 @@ export default function AdminPage() {
         </div>
 
       </div>
+      <AppModal
+        show={modalState.show}
+        onClose={closeModal}
+        onCancel={modalState.onCancel}
+        title={modalState.title}
+        message={modalState.message}
+        cancelText={modalState.cancelText}
+        confirmText={modalState.confirmText}
+        isWarning={modalState.isWarning}
+        onConfirm={modalState.onConfirm}
+        closeOnBackdrop={modalState.closeOnBackdrop}
+        closeOnEscape={modalState.closeOnEscape}
+      />
     </PageShell>
   );
 }

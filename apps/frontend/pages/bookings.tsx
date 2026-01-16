@@ -2,11 +2,58 @@ import { useEffect, useState } from 'react';
 import Navbar from '../components/NavBar';
 import PageShell from '../components/PageShell';
 import { getMyBookings, cancelBooking } from '../services/BookingService';
+import AppModal from '../components/AppModal';
 
 export default function MyBookingsPage() {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [modalState, setModalState] = useState<{
+    show: boolean;
+    title?: string;
+    message?: string;
+    cancelText?: string;
+    confirmText?: string;
+    isWarning?: boolean;
+    onConfirm?: () => Promise<void> | void;
+  }>({ show: false });
+
+  const closeModal = () => {
+    setModalState((prev) => ({ ...prev, show: false, onConfirm: undefined }));
+  };
+
+  const showError = (message: string) => {
+    setModalState({
+      show: true,
+      title: 'Error',
+      message,
+      isWarning: true,
+      cancelText: '',
+      confirmText: 'Aceptar'
+    });
+  };
+
+  const showConfirm = (options: {
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    isWarning?: boolean;
+    onConfirm: () => Promise<void> | void;
+  }) => {
+    setModalState({
+      show: true,
+      title: options.title,
+      message: options.message,
+      confirmText: options.confirmText ?? 'Aceptar',
+      cancelText: options.cancelText ?? 'Cancelar',
+      isWarning: options.isWarning ?? true,
+      onConfirm: async () => {
+        closeModal();
+        await options.onConfirm();
+      }
+    });
+  };
 
   const loadData = async () => {
     try {
@@ -31,13 +78,19 @@ export default function MyBookingsPage() {
   useEffect(() => { loadData(); }, []);
 
   const handleCancel = async (id: number) => {
-    if (!confirm('¿Seguro que quieres cancelar?')) return;
-    try {
-      await cancelBooking(id);
-      loadData();
-    } catch (e: any) {
-      alert("❌ " + e.message);
-    }
+    showConfirm({
+      title: 'Cancelar turno',
+      message: '¿Seguro que querés cancelar esta reserva?',
+      confirmText: 'Cancelar reserva',
+      onConfirm: async () => {
+        try {
+          await cancelBooking(id);
+          loadData();
+        } catch (e: any) {
+          showError('❌ ' + e.message);
+        }
+      }
+    });
   };
 
   return (
@@ -117,6 +170,16 @@ export default function MyBookingsPage() {
           );
         })}
       </div>
+      <AppModal
+        show={modalState.show}
+        onClose={closeModal}
+        title={modalState.title}
+        message={modalState.message}
+        cancelText={modalState.cancelText}
+        confirmText={modalState.confirmText}
+        isWarning={modalState.isWarning}
+        onConfirm={modalState.onConfirm}
+      />
     </PageShell>
   );
 }

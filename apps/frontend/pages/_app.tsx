@@ -1,6 +1,5 @@
 import type { AppProps } from 'next/app';
 import Head from 'next/head';
-import 'bootstrap/dist/css/bootstrap.min.css';
 
 // IMPORTANTE: Aquí buscamos el archivo en la carpeta styles
 import '../styles/globals.css'; 

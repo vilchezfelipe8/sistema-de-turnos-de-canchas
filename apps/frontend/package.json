@@ -13,9 +13,7 @@
     "cors": "^2.8.5",
     "next": "13.4.7",
     "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "react-bootstrap": "^2.10.10",
-    "bootstrap": "^5.3.3"
+    "react-dom": "18.2.0"
   },
   "devDependencies": {
     "@types/node": "25.0.3",
