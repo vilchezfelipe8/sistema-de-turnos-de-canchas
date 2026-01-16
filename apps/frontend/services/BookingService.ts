@@ -20,7 +20,13 @@ function getOrCreateGuestId() {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 // --- 1. CREAR UNA RESERVA ---
-export const createBooking = async (courtId: number, activityId: number, date: Date, userId?: number) => {
+export const createBooking = async (
+  courtId: number,
+  activityId: number,
+  date: Date,
+  userId?: number,
+  guestInfo?: { name?: string; email?: string; phone?: string }
+) => {
   const token = getToken();
   const guestId = token ? undefined : getOrCreateGuestId();
 
@@ -35,6 +41,9 @@ export const createBooking = async (courtId: number, activityId: number, date: D
       activityId,
       startDateTime: date.toISOString(),
       ...(guestId ? { guestIdentifier: guestId } : {}),
+      ...(guestInfo?.name ? { guestName: guestInfo.name } : {}),
+      ...(guestInfo?.email ? { guestEmail: guestInfo.email } : {}),
+      ...(guestInfo?.phone ? { guestPhone: guestInfo.phone } : {}),
       
       // 👇 AGREGAR ESTA LÍNEA PARA QUE EL BACKEND RECIBA EL ID 👇
       ...(userId ? { userId } : {}) 

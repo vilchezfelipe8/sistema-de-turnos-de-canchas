@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAvailability } from '../hooks/useAvailability';
 import { createBooking } from '../services/BookingService';
+import AppModal from './AppModal';
 import { useRouter } from 'next/router'; // Importar router por si necesitas redireccionar
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -14,6 +15,10 @@ export default function BookingGrid() {
   const [selectedCourt, setSelectedCourt] = useState<{ id: number; name: string } | null>(null);
   const [isBooking, setIsBooking] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false); // Estado para el botón visual
+  const [guestName, setGuestName] = useState('');
+  const [guestEmail, setGuestEmail] = useState('');
+  const [guestPhone, setGuestPhone] = useState('');
+  const [isGuestModalOpen, setIsGuestModalOpen] = useState(false);
 
   const { slotsWithCourts, loading, error, refresh } = useAvailability(selectedDate);
   const [disabledSlots, setDisabledSlots] = useState<Record<string, boolean>>({});
@@ -57,6 +62,21 @@ export default function BookingGrid() {
     // No requerimos token: BookingService se encargará de enviar guestIdentifier si no hay token
     if (!selectedDate || !selectedSlot || !selectedCourt) return;
     try {
+      const trimmedName = guestName.trim();
+      const trimmedEmail = guestEmail.trim();
+      const trimmedPhone = guestPhone.trim();
+
+      if (!isAuthenticated) {
+        if (!trimmedName) {
+          alert('❗ Ingresá tu nombre para reservar como invitado.');
+          return;
+        }
+        if (!trimmedEmail && !trimmedPhone) {
+          alert('❗ Ingresá un email o teléfono para poder contactarte.');
+          return;
+        }
+      }
+
       setIsBooking(true);
       const [hours, minutes] = selectedSlot.split(':').map(Number);
       const year = selectedDate.getFullYear();
@@ -64,7 +84,13 @@ export default function BookingGrid() {
       const day = selectedDate.getDate();
       const bookingDateTime = new Date(Date.UTC(year, month, day, hours, minutes, 0, 0));
 
-      const createResult = await createBooking(selectedCourt.id, 1, bookingDateTime);
+      const createResult = await createBooking(
+        selectedCourt.id,
+        1,
+        bookingDateTime,
+        undefined,
+        !isAuthenticated ? { name: trimmedName, email: trimmedEmail, phone: trimmedPhone } : undefined
+      );
 
       // Guardar bloqueo temporal localmente (Optimistic UI)
       const dateString = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(
@@ -81,6 +107,12 @@ export default function BookingGrid() {
         await (refresh as () => Promise<void>)?.();
         setSelectedSlot(null);
         setSelectedCourt(null);
+        if (!isAuthenticated) {
+          setGuestName('');
+          setGuestEmail('');
+          setGuestPhone('');
+          setIsGuestModalOpen(false);
+        }
       } catch (_) { /* noop */ }
 
       alert('✅ ¡Reserva Confirmada! Te esperamos en la cancha ' + selectedCourt.name + '.');
@@ -89,6 +121,15 @@ export default function BookingGrid() {
     } finally {
       setIsBooking(false);
     }
+  };
+
+  const handlePrimaryAction = () => {
+    if (isBooking || !selectedSlot || !selectedCourt) return;
+    if (!isAuthenticated) {
+      setIsGuestModalOpen(true);
+      return;
+    }
+    void handleBooking();
   };
 
   // --- Cargar disabledSlots de localStorage ---
@@ -276,7 +317,7 @@ export default function BookingGrid() {
                       if (isDisabled) {
                         btnClass += 'btn-disabled';
                       } else if (isSelected) {
-                        btnClass += 'btn';
+                        btnClass += 'btn btn-selected';
                       } else {
                         btnClass += 'btn';
                       }
@@ -313,7 +354,7 @@ export default function BookingGrid() {
 
       {/* BOTÓN PRINCIPAL CON LÓGICA DE LOGIN VISUAL */}
       <button
-        onClick={handleBooking}
+        onClick={handlePrimaryAction}
         disabled={isBooking || !selectedSlot || !selectedCourt}
         className={`${(isBooking || !selectedSlot || !selectedCourt) ? 'btn btn-disabled w-full' : 'btn btn-primary w-full'}`}
       >
@@ -344,6 +385,47 @@ export default function BookingGrid() {
           </>
         )}
       </button>
+
+      <AppModal
+        show={!isAuthenticated && isGuestModalOpen}
+        onClose={() => setIsGuestModalOpen(false)}
+        title="Datos de contacto"
+        message={(
+          <div>
+            <p style={{ margin: 0, fontSize: '0.9rem' }}>
+              Dejanos un nombre y al menos un medio para contactarte.
+            </p>
+            <div className="space-y-3 mt-3">
+              <input
+                type="text"
+                placeholder="Nombre y apellido"
+                value={guestName}
+                onChange={(e) => setGuestName(e.target.value)}
+                className="w-full p-3 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-border focus:ring-1 focus:ring-border transition-all font-medium shadow-inner"
+              />
+              <input
+                type="tel"
+                placeholder="Teléfono (opcional)"
+                value={guestPhone}
+                onChange={(e) => setGuestPhone(e.target.value)}
+                className="w-full p-3 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-border focus:ring-1 focus:ring-border transition-all font-medium shadow-inner"
+              />
+              <input
+                type="email"
+                placeholder="Email (opcional)"
+                value={guestEmail}
+                onChange={(e) => setGuestEmail(e.target.value)}
+                className="w-full p-3 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-border focus:ring-1 focus:ring-border transition-all font-medium shadow-inner"
+              />
+            </div>
+            <p className="text-xs text-muted mt-2">Pedimos al menos un email o teléfono para poder contactarte.</p>
+          </div>
+        )}
+        cancelText="Cancelar"
+        confirmText={isBooking ? 'Procesando...' : 'Confirmar reserva'}
+        onConfirm={() => void handleBooking()}
+        confirmDisabled={!guestName.trim() || (!guestEmail.trim() && !guestPhone.trim()) || isBooking}
+      />
     </div>
   );
 }

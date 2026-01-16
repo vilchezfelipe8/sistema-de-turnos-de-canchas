@@ -81,6 +81,9 @@ model Booking {
   userId    Int?
   user      User?    @relation(fields: [userId], references: [id])
   guestIdentifier String?
+  guestName String?
+  guestEmail String?
+  guestPhone String?
 
   courtId   Int
   court     Court    @relation(fields: [courtId], references: [id])

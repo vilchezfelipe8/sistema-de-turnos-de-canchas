@@ -12,11 +12,31 @@ export class BookingController {
         const user = (req as any).user;
         const userIdFromToken = user?.id || user?.userId || null;
 
+        const optionalTrimmedString = (minLength?: number) =>
+            z.preprocess(
+                (v) => {
+                    if (typeof v !== 'string') return v;
+                    const trimmed = v.trim();
+                    return trimmed.length === 0 ? undefined : trimmed;
+                },
+                minLength ? z.string().min(minLength).optional() : z.string().optional()
+            );
+
         const createSchema = z.object({
             courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
             startDateTime: z.string().refine((s) => !Number.isNaN(Date.parse(s)), { message: 'Invalid ISO datetime' }),
             activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
-            guestIdentifier: z.string().optional()
+            guestIdentifier: optionalTrimmedString(),
+            guestName: optionalTrimmedString(2),
+            guestEmail: z.preprocess(
+                (v) => {
+                    if (typeof v !== 'string') return v;
+                    const trimmed = v.trim();
+                    return trimmed.length === 0 ? undefined : trimmed;
+                },
+                z.string().email().optional()
+            ),
+            guestPhone: optionalTrimmedString()
         });
 
         const dataToValidate = {
@@ -29,12 +49,24 @@ export class BookingController {
             return res.status(400).json({ error: parsed.error.format() });
         }
 
-        const { courtId, startDateTime, activityId, guestIdentifier } = parsed.data;
+        const { courtId, startDateTime, activityId, guestIdentifier, guestName, guestEmail, guestPhone } = parsed.data;
         const startDate = new Date(String(startDateTime));
 
         if (!userIdFromToken && !guestIdentifier) {
             return res.status(400).json({ error: "Debe enviar guestIdentifier o autenticarse para reservar." });
         }
+        if (!userIdFromToken && !guestName) {
+            return res.status(400).json({ error: "Debe enviar un nombre para reservar como invitado." });
+        }
+        if (!userIdFromToken && !guestEmail && !guestPhone) {
+            return res.status(400).json({ error: "Debe enviar un email o teléfono para reservar como invitado." });
+        }
+
+        const isGuest = !userIdFromToken;
+        const effectiveGuestIdentifier = isGuest ? guestIdentifier : undefined;
+        const effectiveGuestName = isGuest ? guestName : undefined;
+        const effectiveGuestEmail = isGuest ? guestEmail : undefined;
+        const effectiveGuestPhone = isGuest ? guestPhone : undefined;
 
         // Verificar disponibilidad
         const existingBooking = await prisma.booking.findFirst({
@@ -52,7 +84,10 @@ export class BookingController {
         // 1. CREAR LA RESERVA
         const result = await this.bookingService.createBooking(
             userIdFromToken ? Number(userIdFromToken) : null,
-            guestIdentifier,
+            effectiveGuestIdentifier,
+            effectiveGuestName,
+            effectiveGuestEmail,
+            effectiveGuestPhone,
             Number(courtId),
             startDate,
             Number(activityId)

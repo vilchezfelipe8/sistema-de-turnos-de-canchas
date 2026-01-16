@@ -20,7 +20,16 @@ export class BookingService {
         private activityRepo: ActivityTypeRepository
     ) {}
 
-    async createBooking(userId: number | null, guestIdentifier: string | undefined, courtId: number, startDateTime: Date, activityId: number): Promise<Booking> {
+    async createBooking(
+        userId: number | null,
+        guestIdentifier: string | undefined,
+        guestName: string | undefined,
+        guestEmail: string | undefined,
+        guestPhone: string | undefined,
+        courtId: number,
+        startDateTime: Date,
+        activityId: number
+    ): Promise<Booking> {
         let user: User | null = null;
         if (userId) {
             user = await this.userRepo.findById(userId);
@@ -28,6 +37,10 @@ export class BookingService {
         } else {
             // Si no hay userId, requerimos guestIdentifier
             if (!guestIdentifier) throw new Error("Debe proveer guestIdentifier para reservas como invitado.");
+            if (!guestName) throw new Error("Debe proveer un nombre para reservas como invitado.");
+            if (!guestEmail && !guestPhone) {
+                throw new Error("Debe proveer un email o teléfono para reservas como invitado.");
+            }
         }
 
         const court = await this.courtRepo.findById(courtId);
@@ -65,6 +78,9 @@ export class BookingService {
                     // userId puede ser null para invitado
                     userId: user ? user.id : undefined,
                     guestIdentifier: guestIdentifier,
+                    guestName: guestName,
+                    guestEmail: guestEmail,
+                    guestPhone: guestPhone,
                     courtId: courtId,
                     activityId: activityId
                 },

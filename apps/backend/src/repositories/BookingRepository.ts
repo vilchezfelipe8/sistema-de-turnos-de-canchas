@@ -17,6 +17,9 @@ export class BookingRepository {
             // user puede ser null para reservas de invitado
             userId: booking.user ? booking.user.id : undefined,
             guestIdentifier: booking.guestIdentifier,
+            guestName: booking.guestName,
+            guestEmail: booking.guestEmail,
+            guestPhone: booking.guestPhone,
             courtId: booking.court.id,
             activityId: booking.activity.id
         };
@@ -153,7 +156,14 @@ export class BookingRepository {
             dbItem.startDateTime,
             dbItem.endDateTime,
             dbItem.price,
-            user, court, activity, dbItem.status as BookingStatus, dbItem.guestIdentifier
+            user,
+            court,
+            activity,
+            dbItem.status as BookingStatus,
+            dbItem.guestIdentifier,
+            dbItem.guestName,
+            dbItem.guestEmail,
+            dbItem.guestPhone
         );
         if (dbItem.cancelledBy) booking.cancelledBy = dbItem.cancelledBy;
         if (dbItem.cancelledAt) booking.cancelledAt = dbItem.cancelledAt;

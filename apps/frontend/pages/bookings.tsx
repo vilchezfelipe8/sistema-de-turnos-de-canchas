@@ -60,6 +60,7 @@ export default function MyBookingsPage() {
           const date = new Date(booking.startDateTime);
           const isCancelled = booking.status === 'CANCELLED';
           const isCompleted = booking.status === 'COMPLETED';
+          const statusColor = isCancelled ? '#ef4444' : '#22c55e';
 
           const hours = date.getUTCHours().toString().padStart(2, '0');
           const minutes = date.getUTCMinutes().toString().padStart(2, '0');
@@ -68,8 +69,15 @@ export default function MyBookingsPage() {
           const argentinaDay = date.getUTCDate();
 
           return (
-            <div key={booking.id} className={`group relative bg-surface-70 backdrop-blur-md rounded-2xl p-0 overflow-hidden border transition-all`} style={{ borderColor: 'var(--border)', opacity: isCancelled ? 0.6 : 1 }}>
-              <div className={`absolute left-0 top-0 bottom-0 w-1.5`} style={{ backgroundColor: isCancelled ? 'var(--muted)' : isCompleted ? 'var(--muted-2)' : 'var(--text)', boxShadow: '0 0 8px rgba(255,255,255,0.04)' }}></div>
+            <div
+              key={booking.id}
+              className="group relative bg-surface-70 backdrop-blur-md rounded-2xl p-0 overflow-hidden border border-border transition-all"
+              style={{ borderColor: 'var(--border)', opacity: isCancelled ? 0.6 : 1 }}
+            >
+              <div
+                className="absolute left-0 top-0 bottom-0 w-1.5"
+                style={{ backgroundColor: statusColor, boxShadow: `0 0 10px ${statusColor}33` }}
+              ></div>
 
               <div className="flex flex-col sm:flex-row p-5 sm:pl-8 gap-5 items-center">
                 <div className="flex flex-col items-center justify-center bg-surface rounded-xl p-3 min-w-[80px] border border-border">
@@ -80,8 +88,16 @@ export default function MyBookingsPage() {
                 <div className="flex-1 text-center sm:text-left">
                   <h3 className="font-bold text-xl text-text mb-1">
                     {booking.court?.name || 'Cancha'}
-                    {isCancelled && <span className="ml-3 text-[10px] border border-soft text-muted px-2 py-0.5 rounded uppercase tracking-wider">Cancelado</span>}
-                    {isCompleted && <span className="ml-3 text-[10px] border border-soft text-muted px-2 py-0.5 rounded uppercase tracking-wider">Finalizado</span>}
+                    {isCancelled && (
+                      <span className="ml-3 text-[10px] border border-red-500/40 text-red-400 bg-red-500/10 px-2 py-0.5 rounded uppercase tracking-wider">
+                        Cancelado
+                      </span>
+                    )}
+                    {isCompleted && (
+                      <span className="ml-3 text-[10px] border border-emerald-500/30 text-emerald-300 bg-emerald-500/10 px-2 py-0.5 rounded uppercase tracking-wider">
+                        Finalizado
+                      </span>
+                    )}
                   </h3>
                   <p className="text-muted font-medium flex items-center justify-center sm:justify-start gap-2">
                     <span className={isCancelled ? 'text-muted' : 'text-text'}>⏰</span> {argentinaTimeStr} hs
@@ -89,8 +105,10 @@ export default function MyBookingsPage() {
                 </div>
 
                 {!isCancelled && !isCompleted && (
-                  <button onClick={() => handleCancel(booking.id)}
-                    className="w-full sm:w-auto px-4 py-2 text-sm font-bold btn">
+                  <button
+                    onClick={() => handleCancel(booking.id)}
+                    className="w-full sm:w-auto px-4 py-2 text-sm font-bold btn btn-danger"
+                  >
                     Cancelar
                   </button>
                 )}

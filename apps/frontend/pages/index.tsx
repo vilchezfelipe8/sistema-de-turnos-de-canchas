@@ -28,13 +28,8 @@ export default function Home() {
         
         <footer className="mt-16 mb-8 text-center px-4 border-t border-white/5 pt-8 w-full max-w-4xl">
           <p className="text-xs text-muted font-medium">
-            Sistema de Reservas <span className="font-bold">NexGen v1.0</span>
+            Sistema de Reservas 2026 v1.0 - All Rights Reserved
           </p>
-          <div className="flex justify-center gap-4 mt-4 opacity-50">
-            <span className="text-xl">🏓</span>
-            <span className="text-xl">⚡</span>
-            <span className="text-xl">🌐</span>
-          </div>
         </footer>
       </div>
     </main>

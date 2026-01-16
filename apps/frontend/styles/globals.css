@@ -42,12 +42,30 @@
   border: 1px solid var(--border);
 }
 .btn:hover {
+  background-color: rgba(255, 255, 255, 0.03);
   filter: brightness(1.05);
 }
 .btn-primary {
   background-color: transparent;
   color: var(--text);
   border: 1px solid var(--text);
+}
+.btn-danger {
+  background-color: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.6);
+}
+.btn-danger:hover {
+  background-color: rgba(239, 68, 68, 0.18);
+}
+.btn-selected {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+}
+.btn-primary:hover {
+  background-color: rgba(255, 255, 255, 0.03);
 }
 .btn-disabled {
   background-color: transparent;

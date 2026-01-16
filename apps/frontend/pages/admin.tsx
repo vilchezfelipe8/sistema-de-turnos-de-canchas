@@ -199,17 +199,27 @@ export default function AdminPage() {
                         <option value="FUTBOL">⚽ Fútbol</option>
                     </select>
                 </div>
-                <button type="submit" className="btn btn-primary w-full sm:w-auto px-6 py-2">
+                <button
+                  type="submit"
+                  className="btn btn-primary w-full sm:w-auto px-6 py-2 bg-white/5 hover:bg-white/10 border-white/40 hover:border-white/70 shadow-[0_0_18px_rgba(255,255,255,0.08)] transition"
+                >
                   CREAR
                 </button>
             </form>
         </div>
 
         {/* --- NUEVO: FORMULARIO DE RESERVA MANUAL --- */}
-        <div className={`bg-surface-70 backdrop-blur-sm border rounded-2xl p-6 mb-8 border-l-4 transition-all ${manualBooking.isFixed ? 'border-l-blue-500 bg-blue-900/10' : 'border-l-green-500'}`}>
+        <div className={`bg-surface-70 backdrop-blur-sm border rounded-2xl p-6 mb-8 border-l-4 transition-all relative overflow-hidden ${manualBooking.isFixed ? 'border-l-blue-500 bg-blue-900/10' : 'border-l-green-500'}`}>
+            <div
+              className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-1"
+              style={{ background: `linear-gradient(90deg, transparent, ${manualBooking.isFixed ? 'rgba(59,130,246,0.25)' : 'rgba(34,197,94,0.25)'}, transparent)` }}
+            ></div>
             <h2 className="text-lg font-bold text-text mb-4 flex items-center gap-2">
               <span>{manualBooking.isFixed ? '🔄' : '📅'}</span> 
               {manualBooking.isFixed ? 'NUEVO TURNO FIJO' : 'NUEVA RESERVA SIMPLE'}
+              <span className={`ml-2 text-[10px] px-2 py-0.5 rounded-full border ${manualBooking.isFixed ? 'border-blue-500/40 text-blue-200 bg-blue-500/10' : 'border-emerald-500/40 text-emerald-200 bg-emerald-500/10'}`}>
+                {manualBooking.isFixed ? 'SERIE' : 'SIMPLE'}
+              </span>
             </h2>
             
             <form onSubmit={handleCreateBooking} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
@@ -281,7 +291,7 @@ export default function AdminPage() {
 
                 {/* Checkbox y Botón */}
                 <div className="flex flex-col gap-2">
-                     <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer select-none">
+                     <label className={`flex items-center gap-2 text-sm cursor-pointer select-none ${manualBooking.isFixed ? 'text-blue-200' : 'text-slate-300'}`}>
                         <input 
                             type="checkbox" 
                             checked={manualBooking.isFixed}
@@ -291,7 +301,13 @@ export default function AdminPage() {
                         <span className={manualBooking.isFixed ? "text-blue-400 font-bold" : ""}>Es Fijo</span>
                     </label>
 
-                    <button type="submit" className={`btn w-full py-2 ${manualBooking.isFixed ? 'btn-primary bg-blue-600 hover:bg-blue-500' : 'btn-primary'}`}>
+                    <button
+                      type="submit"
+                      className={`btn w-full py-2 ${manualBooking.isFixed
+                        ? 'btn-primary bg-blue-600/20 hover:bg-blue-600/30 border-blue-500/50 hover:border-blue-400/70 text-blue-100 shadow-[0_0_16px_rgba(59,130,246,0.25)]'
+                        : 'btn-primary bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/40 hover:border-emerald-400/70 text-emerald-100 shadow-[0_0_16px_rgba(16,185,129,0.2)]'
+                      }`}
+                    >
                         {manualBooking.isFixed ? 'CREAR SERIE' : 'AGENDAR'}
                     </button>
                 </div>
@@ -307,10 +323,12 @@ export default function AdminPage() {
         </div>
 
         {/* --- LISTADO DE CANCHAS (Tabla) --- */}
-        <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-6 mb-8 overflow-hidden">
+            <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-6 mb-8 overflow-hidden">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-lg font-bold text-text">ESTADO DE CANCHAS</h2>
-              <span className="px-3 py-1 bg-surface rounded-full text-xs font-mono text-muted">{courts.length} ACTIVAS</span>
+                  <span className="px-3 py-1 bg-surface rounded-full text-xs font-mono text-emerald-300 border border-emerald-500/30">
+                    {courts.length} ACTIVAS
+                  </span>
             </div>
             
             <div className="overflow-x-auto">
@@ -333,15 +351,33 @@ export default function AdminPage() {
                         <span className="px-2 py-1 rounded text-xs text-muted border border-border">{c.sport || c.surface || '-'}</span>
                       </td>
                       <td className="p-4">
-                        {c.isUnderMaintenance 
-                          ? <span className="text-muted flex items-center gap-1 text-xs">● MANTENIMIENTO</span> 
-                          : <span className="text-text flex items-center gap-1 text-xs">● OPERATIVO</span>}
+                        {c.isUnderMaintenance ? (
+                          <span className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full border border-red-500/30 text-red-300 bg-red-500/10">
+                            <span className="h-2 w-2 rounded-full bg-red-400 shadow-[0_0_8px_rgba(239,68,68,0.6)]"></span>
+                            MANTENIMIENTO
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full border border-emerald-500/30 text-emerald-300 bg-emerald-500/10">
+                            <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.6)]"></span>
+                            OPERATIVO
+                          </span>
+                        )}
                       </td>
                       <td className="p-4 text-right">
                         {c.isUnderMaintenance ? (
-                          <button onClick={() => handleReactivate(c.id)} className="text-xs btn px-3 py-1">REACTIVAR</button>
+                          <button
+                            onClick={() => handleReactivate(c.id)}
+                            className="text-xs btn px-3 py-1 bg-emerald-500/15 border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/25 hover:border-emerald-400/70"
+                          >
+                            REACTIVAR
+                          </button>
                         ) : (
-                          <button onClick={() => handleSuspend(c.id)} className="text-xs btn px-3 py-1">SUSPENDER</button>
+                          <button
+                            onClick={() => handleSuspend(c.id)}
+                            className="text-xs btn px-3 py-1 bg-red-500/10 border-red-500/40 text-red-300 hover:bg-red-500/20 hover:border-red-400/70"
+                          >
+                            SUSPENDER
+                          </button>
                         )}
                       </td>
                     </tr>
@@ -352,8 +388,12 @@ export default function AdminPage() {
         </div>
 
         {/* --- GRILLA DE TURNOS --- */}
-        <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-6 mt-8">
-          <h2 className="text-lg font-bold text-text mb-6">GRILLA DE TURNOS</h2>
+        <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-6 mt-8 relative overflow-hidden">
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-1" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent)' }}></div>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-lg font-bold text-text">GRILLA DE TURNOS</h2>
+            <span className="px-3 py-1 bg-surface rounded-full text-xs font-mono text-slate-300 border border-border">ADMIN</span>
+          </div>
           
           <div className="flex flex-wrap gap-4 mb-6 items-end">
             <div>
@@ -361,7 +401,11 @@ export default function AdminPage() {
               <input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)}
                 className="bg-surface border border-border rounded-lg px-4 py-2 text-text outline-none focus:border-border" />
             </div>
-            <button onClick={loadSchedule} disabled={loadingSchedule} className="btn px-6 py-2">
+            <button
+              onClick={loadSchedule}
+              disabled={loadingSchedule}
+              className="btn btn-primary px-6 py-2 bg-white/5 hover:bg-white/10 border-white/30 hover:border-white/60 shadow-[0_0_18px_rgba(255,255,255,0.08)]"
+            >
               {loadingSchedule ? 'ESCANEANDO...' : 'CARGAR DATOS'}
             </button>
           </div>
@@ -369,10 +413,10 @@ export default function AdminPage() {
           {lastUpdate && <p className="text-xs text-slate-500 font-mono mb-4 text-right">LAST_SYNC: {lastUpdate.toLocaleTimeString()}</p>}
 
           {scheduleBookings.length > 0 ? (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto rounded-xl border border-border/60">
                <table className="w-full text-left">
                   <thead>
-                  <tr className="bg-surface text-muted text-xs uppercase">
+                  <tr className="bg-surface/60 text-muted text-xs uppercase tracking-wider border-b border-border/60">
                       <th className="p-3">Hora</th>
                       <th className="p-3">Cancha</th>
                       <th className="p-3">Estado</th>
@@ -383,29 +427,51 @@ export default function AdminPage() {
                   </thead>
                   <tbody className="text-sm font-mono">
                     {scheduleBookings.map((slot, i) => (
-                      <tr key={i} className="border-b border-border hover:bg-surface-70">
+                      <tr key={i} className="border-b border-border/60 hover:bg-surface-70/70 transition-colors">
                         <td className="p-3 text-slate-300">{slot.slotTime}</td>
                         <td className="p-3 text-white font-bold">{slot.courtName}</td>
                         <td className="p-3">
-                           {slot.isAvailable ? <span className="text-slate-600">--</span> :
-                            slot.booking?.status === 'CONFIRMED' ? <span className="text-red-400">OCUPADO</span> :
-                            <span className="text-yellow-400">PENDIENTE</span>}
+                           {slot.isAvailable ? (
+                             <span className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full border border-emerald-500/30 text-emerald-300 bg-emerald-500/10">
+                               <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.6)]"></span>
+                               DISPONIBLE
+                             </span>
+                           ) : slot.booking?.status === 'CONFIRMED' ? (
+                             <span className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full border border-red-500/30 text-red-300 bg-red-500/10">
+                               <span className="h-2 w-2 rounded-full bg-red-400 shadow-[0_0_8px_rgba(239,68,68,0.6)]"></span>
+                               OCUPADO
+                             </span>
+                           ) : (
+                             <span className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full border border-yellow-500/30 text-yellow-200 bg-yellow-500/10">
+                               <span className="h-2 w-2 rounded-full bg-yellow-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]"></span>
+                               PENDIENTE
+                             </span>
+                           )}
                             
                             {/* INDICADOR VISUAL DE FIJO */}
                             {slot.booking?.fixedBookingId && (
-                                <span className="ml-2 text-xs bg-blue-900 text-blue-200 px-1 rounded border border-blue-700" title="Turno Fijo">
+                                <span className="ml-2 text-xs bg-blue-900/60 text-blue-200 px-2 py-0.5 rounded-full border border-blue-500/40" title="Turno Fijo">
                                     🔄 FIJO
                                 </span>
                             )}
                         </td>
-                        <td className="p-3 text-slate-300">{slot.booking?.user ? `${slot.booking.user.firstName} ${slot.booking.user.lastName}` : '-'}</td>
-                        <td className="p-3 text-slate-400">{slot.booking?.user?.phoneNumber || '-'}</td>
+                        <td className="p-3 text-slate-300">
+                          {slot.booking?.user
+                            ? `${slot.booking.user.firstName} ${slot.booking.user.lastName}`
+                            : (slot.booking?.guestName || 'Invitado')}
+                        </td>
+                        <td className="p-3 text-slate-400">
+                          {slot.booking?.user?.phoneNumber ||
+                            slot.booking?.guestPhone ||
+                            slot.booking?.guestEmail ||
+                            '-'}
+                        </td>
                         
                         <td className="p-3 text-right">
                             {!slot.isAvailable && slot.booking && (
                                 <button 
                                     onClick={() => handleCancelBooking(slot.booking)} 
-                                    className={`text-xs btn px-2 py-1 ${slot.booking.fixedBookingId ? 'border-red-500 text-red-400' : ''}`}
+                                    className={`text-xs btn px-2 py-1 bg-red-500/10 border-red-500/40 text-red-300 hover:bg-red-500/20 hover:border-red-400/70 ${slot.booking.fixedBookingId ? 'shadow-[0_0_10px_rgba(239,68,68,0.25)]' : ''}`}
                                     title={slot.booking.fixedBookingId ? "Cancelar Turno Fijo" : "Cancelar"}
                                 >
                                     ✕ {slot.booking.fixedBookingId ? 'BAJA' : 'CANCELAR'}
