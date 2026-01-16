@@ -246,5 +246,35 @@ O transfiere al Alias: *CLUB.PADEL.2025* y envía el comprobante por acá.
             res.status(500).json({ error: error.message });
         }
     }
+    
+    createFixed = async (req: Request, res: Response) => {
+        try {
+            const { userId, courtId, activityId, startDateTime } = req.body;
+            
+            // Convertimos string a Date
+            const startDate = new Date(startDateTime);
+
+            const result = await this.bookingService.createFixedBooking(
+                userId, 
+                courtId, 
+                activityId, 
+                startDate
+            );
+            
+            res.status(201).json(result);
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    }
+
+    cancelFixed = async (req: Request, res: Response) => {
+        try {
+            const id = parseInt(req.params.id);
+            const result = await this.bookingService.cancelFixedBooking(id);
+            res.json(result);
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    }
 }
 

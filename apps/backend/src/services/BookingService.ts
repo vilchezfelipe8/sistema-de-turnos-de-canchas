@@ -390,5 +390,118 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
         console.log("--------------------------------------------");
         return slotsWithCourts;
     }
+
+    async createFixedBooking(userId: number, courtId: number, activityId: number, startDateTime: Date, weeksToGenerate: number = 24) {
+
+        // 1. Validaciones básicas
+        const user = await this.userRepo.findById(userId);
+        if (!user) throw new Error("Usuario no encontrado");
+
+        const court = await this.courtRepo.findById(courtId);
+        if (!court) throw new Error("Cancha no encontrada");
+
+        // IMPORTANTE: Asegúrate de que el ID de actividad exista (el que vimos antes)
+        const activity = await this.activityRepo.findById(activityId);
+        // Si no tienes actividad, usamos una duración default de 60 mins para que no falle
+        const duration = activity ? activity.defaultDurationMinutes : 60; 
+
+        // 2. Preparar fechas límites para la consulta masiva
+        const firstStart = new Date(startDateTime);
+        const lastStart = new Date(firstStart);
+        lastStart.setDate(firstStart.getDate() + (weeksToGenerate * 7)); // Fecha de la última semana
+        const lastEnd = new Date(lastStart.getTime() + duration * 60000); // Límite final absoluto
+
+        // 👇 INICIO DE LA TRANSACCIÓN
+        return await prisma.$transaction(async (tx: any) => {
+            
+            // A. Crear el "Padre" (Turno Fijo)
+            const fixedBooking = await tx.fixedBooking.create({
+                data: {
+                    userId,
+                    courtId,
+                    activityId,
+                    startDate: firstStart,
+                    dayOfWeek: firstStart.getDay(),
+                    startTime: `${firstStart.getHours().toString().padStart(2, '0')}:${firstStart.getMinutes().toString().padStart(2, '0')}`,
+                    endTime: `${new Date(firstStart.getTime() + duration * 60000).getHours().toString().padStart(2, '0')}:${new Date(firstStart.getTime() + duration * 60000).getMinutes().toString().padStart(2, '0')}`
+                }
+            });
+
+            // B. OPTIMIZACIÓN: Traer TODOS los conflictos de una sola vez 🚀
+            // En lugar de preguntar 24 veces, preguntamos 1 vez por todo el rango de fechas
+            const existingBookings = await tx.booking.findMany({
+                where: {
+                    courtId,
+                    status: { not: 'CANCELLED' },
+                    startDateTime: { gte: firstStart }, // Desde el principio
+                    endDateTime: { lte: lastEnd }       // Hasta el final de los 6 meses
+                }
+            });
+
+            const bookingsToCreate = [];
+
+            // C. Procesar en MEMORIA (Ultra rápido) ⚡
+            for (let i = 0; i < weeksToGenerate; i++) {
+                const currentStart = new Date(startDateTime);
+                currentStart.setDate(startDateTime.getDate() + (i * 7));
+                
+                const currentEnd = new Date(currentStart.getTime() + duration * 60000);
+
+                // Verificamos conflicto usando el array que ya trajimos (sin ir a la BD)
+                const hasConflict = existingBookings.some((existing: any) => {
+                    return (existing.startDateTime < currentEnd && existing.endDateTime > currentStart);
+                });
+
+                if (!hasConflict) {
+                    bookingsToCreate.push({
+                        startDateTime: currentStart,
+                        endDateTime: currentEnd,
+                        price: 1500, // O activity.price
+                        status: 'CONFIRMED',
+                        userId,
+                        courtId,
+                        activityId,
+                        fixedBookingId: fixedBooking.id
+                    });
+                }
+            }
+
+            // D. Guardar todo junto en paralelo 
+            // Usamos Promise.all para disparar todas las creaciones juntas
+            if (bookingsToCreate.length > 0) {
+                await Promise.all(bookingsToCreate.map((data) => tx.booking.create({ data })));
+            }
+
+            return { 
+                fixedBookingId: fixedBooking.id, 
+                generatedCount: bookingsToCreate.length,
+                msg: `Se crearon ${bookingsToCreate.length} turnos confirmados.`
+            };
+
+        }, {
+            maxWait: 5000,
+            timeout: 20000 // Mantenemos el timeout por seguridad
+        });
+    }
+    async cancelFixedBooking(fixedBookingId: number) {
+    const today = new Date();
+    
+    // Actualizamos todas las reservas futuras vinculadas a ese ID a "CANCELLED"
+    // O directamente las borramos (deleteMany) si prefieres limpiar la grilla.
+    
+    await prisma.booking.updateMany({
+        where: {
+            fixedBookingId: fixedBookingId,
+            startDateTime: { gte: today }, // Solo las futuras
+            status: { not: 'CANCELLED' }
+        },
+        data: {
+            status: 'CANCELLED'
+        }
+    });
+    
+    // Opcional: Marcar el FixedBooking como inactivo si le agregas un campo 'isActive'
+    return { message: "Turno fijo cancelado de hoy en adelante" };
+}
 }
 

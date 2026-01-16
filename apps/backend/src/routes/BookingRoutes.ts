@@ -32,6 +32,8 @@ router.post('/', optionalAuthMiddleware, bookingController.createBooking);
 router.post('/cancel', authMiddleware, bookingController.cancelBooking);
 router.get('/history/:userId', authMiddleware, bookingController.getHistory);
 router.get('/admin/schedule', authMiddleware, requireRole('ADMIN'), bookingController.getAdminSchedule);
+router.post('/fixed', authMiddleware, requireRole('ADMIN'), bookingController.createFixed);
+router.delete('/fixed/:id', authMiddleware, requireRole('ADMIN'), bookingController.cancelFixed);
 
 export default router;
 

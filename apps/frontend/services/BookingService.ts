@@ -20,7 +20,7 @@ function getOrCreateGuestId() {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 // --- 1. CREAR UNA RESERVA ---
-export const createBooking = async (courtId: number, activityId: number, date: Date) => {
+export const createBooking = async (courtId: number, activityId: number, date: Date, userId?: number) => {
   const token = getToken();
   const guestId = token ? undefined : getOrCreateGuestId();
 
@@ -33,8 +33,11 @@ export const createBooking = async (courtId: number, activityId: number, date: D
     body: JSON.stringify({
       courtId,
       activityId,
-      startDateTime: date.toISOString(), // Enviamos fecha ISO, el back resta las 3hs
-      ...(guestId ? { guestIdentifier: guestId } : {})
+      startDateTime: date.toISOString(),
+      ...(guestId ? { guestIdentifier: guestId } : {}),
+      
+      // 👇 AGREGAR ESTA LÍNEA PARA QUE EL BACKEND RECIBA EL ID 👇
+      ...(userId ? { userId } : {}) 
     }),
   });
 
@@ -104,4 +107,55 @@ export const getAdminSchedule = async (date: string) => {
         throw new Error(error.message || 'Error al cargar el schedule');
     }
     return res.json();
+};
+
+// --- 5. CREAR TURNO FIJO ---
+export const createFixedBooking = async (
+  userId: number, 
+  courtId: number, 
+  activityId: number, 
+  startDateTime: Date
+) => {
+  const token = getToken();
+  if (!token) throw new Error("Debes iniciar sesión como administrador.");
+
+  const res = await fetch(`${API_URL}/api/bookings/fixed`, {
+    method: 'POST',
+    headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({
+        userId,
+        courtId,
+        activityId,
+        startDateTime: startDateTime.toISOString()
+    })
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.message || 'Error al crear turno fijo');
+  }
+  return res.json();
+};
+
+// --- 6. CANCELAR TURNO FIJO (NUEVO - Corregido para usar fetch) ---
+export const cancelFixedBooking = async (fixedBookingId: number) => {
+  const token = getToken();
+  if (!token) throw new Error("Debes iniciar sesión como administrador.");
+
+  const res = await fetch(`${API_URL}/api/bookings/fixed/${fixedBookingId}`, {
+    method: 'DELETE',
+    headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.message || 'Error al cancelar turno fijo');
+  }
+  return res.json();
 };

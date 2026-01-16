@@ -32,6 +32,7 @@ model User {
   phoneNumber String
   role        Role      @default(MEMBER)
   bookings    Booking[]
+  fixedBookings FixedBooking[]
 }
 
 model Club {
@@ -54,6 +55,7 @@ model Court {
   
   activities         ActivityType[]
   bookings           Booking[]
+  fixedBookings FixedBooking[]
 }
 
 model ActivityType {
@@ -63,6 +65,7 @@ model ActivityType {
   defaultDurationMinutes Int
   courts                 Court[]
   bookings               Booking[]
+  fixedBookings FixedBooking[]
 }
 
 model Booking {
@@ -84,5 +87,30 @@ model Booking {
 
   activityId Int
   activity   ActivityType @relation(fields: [activityId], references: [id])
+
+  fixedBooking   FixedBooking? @relation(fields: [fixedBookingId], references: [id])
+  fixedBookingId Int?
+}
+
+model FixedBooking {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now())
+  
+  // Datos de la regla
+  dayOfWeek Int      // 0 = Domingo, 1 = Lunes, etc.
+  startTime String   // Ej: "20:00"
+  endTime   String   // Ej: "21:30"
+  startDate DateTime // Desde cuándo empieza el fijo
+
+  // Relaciones
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  court     Court    @relation(fields: [courtId], references: [id])
+  courtId   Int
+  activity  ActivityType @relation(fields: [activityId], references: [id])
+  activityId Int
+
+  // Todas las reservas hijas generadas por este fijo
+  bookings  Booking[]
 }
 
