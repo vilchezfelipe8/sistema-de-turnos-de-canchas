@@ -5,6 +5,7 @@ import { Court } from '../entities/Court';
 import { Club } from '../entities/Club';
 import { ActivityType } from '../entities/ActivityType';
 import { BookingStatus, Role } from '../entities/Enums';
+import { TimeHelper } from '../utils/TimeHelper';
 
 export class BookingRepository {
 
@@ -32,20 +33,14 @@ export class BookingRepository {
     }
 
     async findByCourtAndDate(courtId: number, date: Date): Promise<Booking[]> {
-        // Normalizar a UTC para evitar inconsistencias entre creación y lectura de bookings
-        const year = date.getUTCFullYear();
-        const month = date.getUTCMonth();
-        const day = date.getUTCDate();
+        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date);
 
-        const startOfDay = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
-        const endOfDay = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
-
-        console.log('Buscando bookings para cancha', courtId, 'entre:', startOfDay.toISOString(), 'y', endOfDay.toISOString());
+        console.log('Buscando bookings para cancha', courtId, 'entre:', startUtc.toISOString(), 'y', endUtc.toISOString());
 
         const found = await prisma.booking.findMany({
             where: {
                 courtId: courtId,
-                startDateTime: { gte: startOfDay, lte: endOfDay }
+                startDateTime: { gte: startUtc, lte: endUtc }
             },
             include: { user: true, court: { include: { club: true } }, activity: true }
         });
@@ -103,19 +98,13 @@ export class BookingRepository {
     }
 
     async findAllByDate(date: Date) {
-        // Normalizar a UTC para que todas las consultas de día usen el mismo rango
-        const year = date.getUTCFullYear();
-        const month = date.getUTCMonth();
-        const day = date.getUTCDate();
+        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date);
 
-        const startOfDay = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
-        const endOfDay = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
-
-        console.log('Buscando bookings entre:', startOfDay.toISOString(), 'y', endOfDay.toISOString());
+        console.log('Buscando bookings entre:', startUtc.toISOString(), 'y', endUtc.toISOString());
 
         const bookings = await prisma.booking.findMany({
             where: {
-                startDateTime: { gte: startOfDay, lte: endOfDay },
+                startDateTime: { gte: startUtc, lte: endUtc },
                 status: { not: 'CANCELLED' }
             },
             include: {

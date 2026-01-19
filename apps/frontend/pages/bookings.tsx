@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
 import Navbar from '../components/NavBar';
 import PageShell from '../components/PageShell';
 import { getMyBookings, cancelBooking } from '../services/BookingService';
 import AppModal from '../components/AppModal';
 
 export default function MyBookingsPage() {
+  const router = useRouter();
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [authChecked, setAuthChecked] = useState(false);
   const [modalState, setModalState] = useState<{
     show: boolean;
     title?: string;
@@ -55,13 +58,21 @@ export default function MyBookingsPage() {
     });
   };
 
+  useEffect(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+    if (!token || !userStr) {
+      router.replace('/login');
+      return;
+    }
+    setAuthChecked(true);
+  }, [router]);
+
   const loadData = async () => {
     try {
       const userStr = localStorage.getItem('user');
-      const token = localStorage.getItem('token');
-      if (!token) { window.location.href = '/login'; return; }
       if (!userStr) throw new Error("Datos de usuario no encontrados.");
-      
+
       const user = JSON.parse(userStr);
       const userId = user.id || user.userId;
 
@@ -75,7 +86,10 @@ export default function MyBookingsPage() {
     }
   };
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    if (!authChecked) return;
+    loadData();
+  }, [authChecked]);
 
   const handleCancel = async (id: number) => {
     showConfirm({
@@ -92,6 +106,10 @@ export default function MyBookingsPage() {
       }
     });
   };
+
+  if (!authChecked) {
+    return null;
+  }
 
   return (
     <PageShell title="Mis Reservas" subtitle="Historial de partidos y próximos encuentros">
@@ -115,11 +133,18 @@ export default function MyBookingsPage() {
           const isCompleted = booking.status === 'COMPLETED';
           const statusColor = isCancelled ? '#ef4444' : '#22c55e';
 
-          const hours = date.getUTCHours().toString().padStart(2, '0');
-          const minutes = date.getUTCMinutes().toString().padStart(2, '0');
-          const argentinaTimeStr = `${hours}:${minutes}`;
-          const argentinaMonthStr = date.toLocaleString('es-AR', { month: 'short', timeZone: 'UTC' }).toUpperCase();
-          const argentinaDay = date.getUTCDate();
+          const argentinaTimeStr = date.toLocaleTimeString('es-AR', {
+            timeZone: 'America/Argentina/Buenos_Aires',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+          });
+          const argentinaMonthStr = date
+            .toLocaleString('es-AR', { month: 'short', timeZone: 'America/Argentina/Buenos_Aires' })
+            .toUpperCase();
+          const argentinaDay = Number(
+            date.toLocaleString('es-AR', { day: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' })
+          );
 
           return (
             <div

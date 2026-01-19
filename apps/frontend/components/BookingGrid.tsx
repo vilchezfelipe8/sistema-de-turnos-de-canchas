@@ -15,9 +15,12 @@ export default function BookingGrid() {
   const [selectedCourt, setSelectedCourt] = useState<{ id: number; name: string } | null>(null);
   const [isBooking, setIsBooking] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false); // Estado para el botón visual
-  const [guestName, setGuestName] = useState('');
+  const [guestFirstName, setGuestFirstName] = useState('');
+  const [guestLastName, setGuestLastName] = useState('');
   const [guestEmail, setGuestEmail] = useState('');
   const [guestPhone, setGuestPhone] = useState('');
+  const [guestModalOpen, setGuestModalOpen] = useState(false);
+  const [guestError, setGuestError] = useState('');
   const [modalState, setModalState] = useState<{
     show: boolean;
     title?: string;
@@ -56,6 +59,49 @@ export default function BookingGrid() {
   const [disabledSlots, setDisabledSlots] = useState<Record<string, boolean>>({});
   const STORAGE_PREFIX = 'disabledSlots:';
   const [allCourts, setAllCourts] = useState<Array<{ id: number; name: string }>>([]);
+  const getTrimmedGuestInfo = () => {
+    const trimmedPhone = guestPhone.replace(/\D/g, '');
+    const firstName = guestFirstName.trim();
+    const lastName = guestLastName.trim();
+    const fullName = [firstName, lastName].filter(Boolean).join(' ');
+    return {
+      name: fullName,
+      email: guestEmail.trim(),
+      phone: trimmedPhone ? `+54${trimmedPhone}` : ''
+    };
+  };
+
+  const isEmailValid = (email: string) => {
+    if (!email) return true;
+    return /^\S+@\S+\.\S+$/.test(email);
+  };
+
+  const isPhoneValid = (phone: string) => {
+    if (!phone) return true;
+    if (!phone.startsWith('+54')) return false;
+    const digits = phone.replace(/\D/g, '');
+    if (!digits.startsWith('54')) return false;
+    const nationalDigits = digits.slice(2);
+    if (nationalDigits.length !== 10) return false;
+    return /^\+54\d+$/.test(phone);
+  };
+
+  const formatPhoneDigits = (digits: string) => {
+    const clean = digits.slice(0, 10);
+    const part1 = clean.slice(0, 3);
+    const part2 = clean.slice(3, 6);
+    const part3 = clean.slice(6, 10);
+    return [part1, part2, part3].filter(Boolean).join(' ');
+  };
+
+  const isGuestInfoValid = () => {
+    const { email, phone } = getTrimmedGuestInfo();
+    const firstName = guestFirstName.trim();
+    const lastName = guestLastName.trim();
+    if (!firstName || !lastName) return false;
+    if (!email && !phone) return false;
+    return isEmailValid(email) && isPhoneValid(phone);
+  };
 
   // --- Verificar Autenticación al cargar ---
   useEffect(() => {
@@ -90,38 +136,23 @@ export default function BookingGrid() {
     setSelectedCourt(null);
   };
 
-  const handleBooking = async () => {
+  const performBooking = async (guestInfo?: { name: string; email?: string; phone?: string }) => {
     // No requerimos token: BookingService se encargará de enviar guestIdentifier si no hay token
     if (!selectedDate || !selectedSlot || !selectedCourt) return;
     try {
-      const trimmedName = guestName.trim();
-      const trimmedEmail = guestEmail.trim();
-      const trimmedPhone = guestPhone.trim();
-
-      if (!isAuthenticated) {
-        if (!trimmedName) {
-          showError('❗ Ingresá tu nombre para reservar como invitado.');
-          return;
-        }
-        if (!trimmedEmail && !trimmedPhone) {
-          showError('❗ Ingresá un email o teléfono para poder contactarte.');
-          return;
-        }
-      }
-
       setIsBooking(true);
       const [hours, minutes] = selectedSlot.split(':').map(Number);
       const year = selectedDate.getFullYear();
       const month = selectedDate.getMonth();
       const day = selectedDate.getDate();
-      const bookingDateTime = new Date(Date.UTC(year, month, day, hours, minutes, 0, 0));
+      const bookingDateTime = new Date(year, month, day, hours, minutes, 0, 0);
 
       const createResult = await createBooking(
         selectedCourt.id,
         1,
         bookingDateTime,
         undefined,
-        !isAuthenticated ? { name: trimmedName, email: trimmedEmail, phone: trimmedPhone } : undefined
+        !isAuthenticated ? guestInfo : undefined
       );
 
       // Guardar bloqueo temporal localmente (Optimistic UI)
@@ -140,7 +171,8 @@ export default function BookingGrid() {
         setSelectedSlot(null);
         setSelectedCourt(null);
         if (!isAuthenticated) {
-          setGuestName('');
+          setGuestFirstName('');
+          setGuestLastName('');
           setGuestEmail('');
           setGuestPhone('');
         }
@@ -152,6 +184,48 @@ export default function BookingGrid() {
     } finally {
       setIsBooking(false);
     }
+  };
+
+  const handleGuestConfirm = () => {
+    const info = getTrimmedGuestInfo();
+    const firstName = guestFirstName.trim();
+    const lastName = guestLastName.trim();
+    if (!firstName || !lastName) {
+      setGuestError('❗ Ingresá tu nombre y apellido para reservar como invitado.');
+      return;
+    }
+    if (!info.email && !info.phone) {
+      setGuestError('❗ Ingresá un email o teléfono para poder contactarte.');
+      return;
+    }
+    if (info.email && !isEmailValid(info.email)) {
+      setGuestError('❗ Ingresá un email con formato válido.');
+      return;
+    }
+    if (info.phone && !isPhoneValid(info.phone)) {
+      setGuestError('❗ Ingresá un teléfono con formato válido.');
+      return;
+    }
+    setGuestError('');
+    setGuestModalOpen(false);
+    performBooking(info);
+  };
+
+  const handleGuestKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    if (isBooking || !isGuestInfoValid()) return;
+    handleGuestConfirm();
+  };
+
+  const handleBooking = () => {
+    if (!selectedDate || !selectedSlot || !selectedCourt) return;
+    if (!isAuthenticated) {
+      setGuestError('');
+      setGuestModalOpen(true);
+      return;
+    }
+    performBooking();
   };
 
   // --- Cargar disabledSlots de localStorage ---
@@ -374,36 +448,6 @@ export default function BookingGrid() {
         </div>
       )}
 
-      {!isAuthenticated && (
-        <div className="mb-6 bg-surface-70 border border-border rounded-2xl p-4">
-          <p className="text-sm text-slate-300 font-bold mb-3">Datos de contacto</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <input
-              type="text"
-              placeholder="Nombre y apellido"
-              value={guestName}
-              onChange={(e) => setGuestName(e.target.value)}
-              className="w-full p-3 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-border focus:ring-1 focus:ring-border transition-all font-medium shadow-inner"
-            />
-            <input
-              type="tel"
-              placeholder="Teléfono (opcional)"
-              value={guestPhone}
-              onChange={(e) => setGuestPhone(e.target.value)}
-              className="w-full p-3 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-border focus:ring-1 focus:ring-border transition-all font-medium shadow-inner"
-            />
-            <input
-              type="email"
-              placeholder="Email (opcional)"
-              value={guestEmail}
-              onChange={(e) => setGuestEmail(e.target.value)}
-              className="w-full p-3 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-border focus:ring-1 focus:ring-border transition-all font-medium shadow-inner"
-            />
-          </div>
-          <p className="text-xs text-muted mt-2">Pedimos al menos un email o teléfono para poder contactarte.</p>
-        </div>
-      )}
-
       {/* BOTÓN PRINCIPAL CON LÓGICA DE LOGIN VISUAL */}
       <button
         onClick={handleBooking}
@@ -445,6 +489,109 @@ export default function BookingGrid() {
         cancelText={modalState.cancelText}
         confirmText={modalState.confirmText}
         isWarning={modalState.isWarning}
+        closeOnBackdrop
+        closeOnEscape
+      />
+      <AppModal
+        show={guestModalOpen}
+        onClose={() => setGuestModalOpen(false)}
+        title="Datos de contacto"
+        message={(
+          <div className="space-y-3">
+            <p className="text-sm text-slate-300">
+              Para reservar como invitado necesitamos tus datos de contacto.
+            </p>
+            <div className="grid grid-cols-1 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="relative">
+                  <input
+                    id="guest-first-name"
+                    type="text"
+                    placeholder=" "
+                    value={guestFirstName}
+                    onChange={(e) => setGuestFirstName(e.target.value)}
+                  onKeyDown={handleGuestKeyDown}
+                    className="peer w-full p-3 pt-5 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-white focus:!border-white focus:ring-0 transition-colors font-medium shadow-inner"
+                  />
+                  <label
+                    htmlFor="guest-first-name"
+                    className="absolute left-3 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
+                  >
+                    Nombre
+                  </label>
+                </div>
+                <div className="relative">
+                  <input
+                    id="guest-last-name"
+                    type="text"
+                    placeholder=" "
+                    value={guestLastName}
+                    onChange={(e) => setGuestLastName(e.target.value)}
+                  onKeyDown={handleGuestKeyDown}
+                    className="peer w-full p-3 pt-5 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-white focus:!border-white focus:ring-0 transition-colors font-medium shadow-inner"
+                  />
+                  <label
+                    htmlFor="guest-last-name"
+                    className="absolute left-3 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
+                  >
+                    Apellido
+                  </label>
+                </div>
+              </div>
+              <div className="relative flex items-center rounded-xl border border-border bg-surface focus-within:border-white focus-within:!border-white transition-colors">
+                <span className="px-3 text-muted font-medium">+54</span>
+                <input
+                  id="guest-phone"
+                  type="tel"
+                  placeholder=" "
+                  value={formatPhoneDigits(guestPhone)}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, '');
+                    setGuestPhone(digits);
+                  }}
+                  onKeyDown={handleGuestKeyDown}
+                  maxLength={12}
+                  className="peer w-full p-3 pt-5 rounded-xl bg-transparent text-text placeholder:text-muted focus:outline-none transition-colors font-medium border-0 focus:border-0"
+                />
+                <label
+                  htmlFor="guest-phone"
+                  className="absolute left-14 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
+                >
+                  Teléfono (opcional)
+                </label>
+              </div>
+              <div className="relative">
+                <input
+                  id="guest-email"
+                  type="email"
+                  placeholder=" "
+                  value={guestEmail}
+                  onChange={(e) => setGuestEmail(e.target.value)}
+                  onKeyDown={handleGuestKeyDown}
+                  className="peer w-full p-3 pt-5 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-white focus:!border-white focus:ring-0 transition-colors font-medium shadow-inner"
+                />
+                <label
+                  htmlFor="guest-email"
+                  className="absolute left-3 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
+                >
+                  Email (opcional)
+                </label>
+              </div>
+            </div>
+            {guestError && (
+              <p className="text-xs text-red-400">{guestError}</p>
+            )}
+            <p className="text-xs text-muted">
+              Pedimos al menos un email o teléfono para poder contactarte.
+            </p>
+          </div>
+        )}
+        cancelText="Cancelar"
+        confirmText="Confirmar reserva"
+        onConfirm={handleGuestConfirm}
+        confirmDisabled={!isGuestInfoValid() || isBooking}
+        closeOnBackdrop
+        closeOnEscape
       />
     </div>
   );

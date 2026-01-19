@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 type AppModalProps = {
   show: boolean;
@@ -45,6 +46,7 @@ export default function AppModal({
   closeOnBackdrop = true,
   closeOnEscape = true
 }: AppModalProps) {
+  const [mounted, setMounted] = useState(false);
   const [inputText, setInputText] = useState(inputValue);
   const [holdProgress, setHoldProgress] = useState(0);
   const [holding, setHolding] = useState(false);
@@ -53,6 +55,10 @@ export default function AppModal({
   const [inputFocused, setInputFocused] = useState(false);
   const holdRef = useRef<number | null>(null);
   const holdStartRef = useRef(0);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (show) {
@@ -143,7 +149,7 @@ export default function AppModal({
   const confirmHoverBackground = isWarning ? '#d84335' : 'rgba(255,255,255,0.06)';
   const confirmHoverBorder = isWarning ? '#d84335' : 'var(--border)';
 
-  return (
+  const modalContent = (
     <div
       role="dialog"
       aria-modal="true"
@@ -153,6 +159,7 @@ export default function AppModal({
         inset: 0,
         zIndex: 9999,
         background: 'rgba(0,0,0,0.6)',
+        backdropFilter: 'blur(2px)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -296,4 +303,6 @@ export default function AppModal({
       </div>
     </div>
   );
+  if (!mounted || typeof document === 'undefined') return null;
+  return createPortal(modalContent, document.body);
 }

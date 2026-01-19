@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useRouter } from 'next/router';
 import PageShell from '../components/PageShell';
 import AppModal from '../components/AppModal';
 import { getCourts, createCourt, suspendCourt, reactivateCourt } from '../services/CourtService';
@@ -34,6 +35,7 @@ const getNextDateForDay = (startDate: Date, targetDayIndex: number, timeStr: str
 };
 
 export default function AdminPage() {
+  const router = useRouter();
   // --- ESTADOS DE LA PÁGINA ---
   const [courts, setCourts] = useState<any[]>([]);
   const [newName, setNewName] = useState('');
@@ -42,6 +44,7 @@ export default function AdminPage() {
   const [scheduleBookings, setScheduleBookings] = useState<any[]>([]);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
 
   const [modalState, setModalState] = useState<{
     show: boolean;
@@ -115,6 +118,22 @@ export default function AdminPage() {
       onCancel: options.onCancel ? wrapAction(options.onCancel) : undefined
     });
   };
+
+  // --- GUARDIA DE ACCESO ADMIN ---
+  useEffect(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const rawUser = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+    const user = rawUser ? JSON.parse(rawUser) : null;
+    if (!token) {
+      router.replace('/login');
+      return;
+    }
+    if (!user || user.role !== 'ADMIN') {
+      router.replace('/');
+      return;
+    }
+    setAuthChecked(true);
+  }, [router]);
 
   // --- ESTADOS PARA CREAR RESERVA MANUAL ---
   const [manualBooking, setManualBooking] = useState({
@@ -214,16 +233,15 @@ export default function AdminPage() {
               dateBase = new Date(`${scheduleDate}T${manualBooking.time}:00`);
           }
 
-          const offsetMinutes = dateBase.getTimezoneOffset(); // En Arg es 180 min (3hs)
-          const dateToSend = new Date(dateBase.getTime() - (offsetMinutes * 60000));
+          const dateToSend = dateBase;
 
-          // 3. ENVIAMOS LA FECHA TRUCADA
+          // 3. ENVIAMOS LA FECHA
           if (manualBooking.isFixed) {
               await createFixedBooking(
                   Number(manualBooking.userId), 
                   Number(manualBooking.courtId), 
                   1, // Tu ID de Actividad real
-                  dateToSend // <--- Enviamos la fecha ajustada
+                  dateToSend // <--- Enviamos la fecha
               );
               showInfo(
                 `✅ Turno FIJO creado. Arranca el: ${dateBase.toLocaleDateString()} a las ${manualBooking.time}`,
@@ -320,14 +338,14 @@ export default function AdminPage() {
     }
 };
 
+  if (!authChecked) {
+    return null;
+  }
+
   return (
     <PageShell title="Panel de Comando" subtitle="Bienvenido Administrador">
       <div className="mx-auto w-full max-w-4xl">
         
-        <div className="mb-8 border-b border-slate-800 pb-6">
-          <h1 className="text-3xl font-black text-white tracking-tight mb-2">PANEL DE COMANDO</h1>
-          <p className="text-slate-500 font-mono text-sm">BIENVENIDO ADMINISTRADOR</p>
-        </div>
 
         {/* --- FORMULARIO DE CREACIÓN CANCHA --- */}
         <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-6 mb-8">

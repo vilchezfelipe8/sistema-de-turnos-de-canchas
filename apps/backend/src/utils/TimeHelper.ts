@@ -2,6 +2,40 @@ export class TimeHelper {
     private static TIME_RE = /^\d{2}:\d{2}$/;
     private static MINUTES_IN_DAY = 24 * 60;
 
+    static getLocalOffsetMinutes(): number {
+        const raw = process.env.LOCAL_TZ_OFFSET_MINUTES;
+        if (!raw) return 180;
+        const parsed = Number(raw);
+        return Number.isNaN(parsed) ? 180 : parsed;
+    }
+
+    static getUtcRangeForLocalDate(date: Date, offsetMinutes = TimeHelper.getLocalOffsetMinutes()) {
+        const year = date.getUTCFullYear();
+        const month = date.getUTCMonth();
+        const day = date.getUTCDate();
+        const offsetMs = offsetMinutes * 60000;
+        const startUtc = new Date(Date.UTC(year, month, day, 0, 0, 0, 0) + offsetMs);
+        const endUtc = new Date(Date.UTC(year, month, day, 23, 59, 59, 999) + offsetMs);
+        return { startUtc, endUtc };
+    }
+
+    static localSlotToUtc(date: Date, time: string, offsetMinutes = TimeHelper.getLocalOffsetMinutes()): Date {
+        if (!this.TIME_RE.test(time)) {
+            throw new Error(`Invalid time format: ${time}. Expected HH:mm`);
+        }
+        const [hoursStr, minutesStr] = time.split(':');
+        const hours = Number(hoursStr);
+        const minutes = Number(minutesStr);
+        if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+            throw new Error(`Invalid time numbers in: ${time}`);
+        }
+        const year = date.getUTCFullYear();
+        const month = date.getUTCMonth();
+        const day = date.getUTCDate();
+        const offsetMs = offsetMinutes * 60000;
+        return new Date(Date.UTC(year, month, day, hours, minutes, 0) + offsetMs);
+    }
+
     static timeToMinutes(time: string): number {
         if (!this.TIME_RE.test(time)) {
             throw new Error(`Invalid time format: ${time}. Expected HH:mm`);

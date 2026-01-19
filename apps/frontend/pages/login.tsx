@@ -66,43 +66,107 @@ export default function LoginPage() {
             {!isLogin && (
               <>
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">Nombre</label>
-                    <input type="text" required value={firstName} onChange={(e) => setFirstName(e.target.value)}
-                      className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-text focus:outline-none transition-all placeholder:text-muted" placeholder="Nombre" />
+                  <div className="relative">
+                    <input
+                      id="first-name"
+                      type="text"
+                      required
+                      placeholder=" "
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      className="peer w-full bg-surface border border-border rounded-lg px-4 pt-5 pb-3 text-text focus:outline-none focus:border-white focus:!border-white focus:ring-0 transition-colors placeholder:text-muted"
+                    />
+                    <label
+                      htmlFor="first-name"
+                      className="absolute left-3 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
+                    >
+                      Nombre
+                    </label>
                   </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">Apellido</label>
-                    <input type="text" required value={lastName} onChange={(e) => setLastName(e.target.value)}
-                      className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-text focus:outline-none transition-all placeholder:text-muted" placeholder="Apellido" />
+                  <div className="relative">
+                    <input
+                      id="last-name"
+                      type="text"
+                      required
+                      placeholder=" "
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      className="peer w-full bg-surface border border-border rounded-lg px-4 pt-5 pb-3 text-text focus:outline-none focus:border-white focus:!border-white focus:ring-0 transition-colors placeholder:text-muted"
+                    />
+                    <label
+                      htmlFor="last-name"
+                      className="absolute left-3 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
+                    >
+                      Apellido
+                    </label>
                   </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">Teléfono</label>
-                  <input type="tel" required value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)}
-                    className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-text focus:outline-none transition-all placeholder:text-muted" placeholder="Ej: 351..." />
+                <div className="relative">
+                  <input
+                    id="phone-number"
+                    type="tel"
+                    required
+                    placeholder=" "
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    className="peer w-full bg-surface border border-border rounded-lg px-4 pt-5 pb-3 text-text focus:outline-none focus:border-white focus:!border-white focus:ring-0 transition-colors placeholder:text-muted"
+                  />
+                  <label
+                    htmlFor="phone-number"
+                    className="absolute left-3 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
+                  >
+                    Teléfono
+                  </label>
                 </div>
                 <div>
-                   <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">Rol</label>
-                   <select required value={role} onChange={(e) => setRole(e.target.value)}
-                     className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-text focus:outline-none transition-all" >
-                     <option value="MEMBER">Miembro</option>
-                     <option value="ADMIN">Administrador</option>
-                   </select>
+                  <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">Rol</label>
+                  <select
+                    required
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                    className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-text focus:outline-none transition-colors"
+                  >
+                    <option value="MEMBER">Miembro</option>
+                    <option value="ADMIN">Administrador</option>
+                  </select>
                 </div>
               </>
             )}
             
-            <div>
-              <label className="block text-xs font-bold text-muted mb-1 uppercase">Email</label>
-              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-text focus:outline-none transition-all placeholder:text-muted" placeholder="tu@email.com" />
+            <div className="relative">
+              <input
+                id="login-email"
+                type="email"
+                required
+                placeholder=" "
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="peer w-full bg-surface border border-border rounded-lg px-4 pt-5 pb-3 text-text focus:outline-none focus:border-white focus:!border-white focus:ring-0 transition-colors placeholder:text-muted"
+              />
+              <label
+                htmlFor="login-email"
+                className="absolute left-3 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
+              >
+                Email
+              </label>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-muted mb-1 uppercase">Contraseña</label>
-              <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-text focus:outline-none transition-all placeholder:text-muted" placeholder="••••••••" />
+            <div className="relative">
+              <input
+                id="login-password"
+                type="password"
+                required
+                placeholder=" "
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="peer w-full bg-surface border border-border rounded-lg px-4 pt-5 pb-3 text-text focus:outline-none focus:border-white focus:!border-white focus:ring-0 transition-colors placeholder:text-muted"
+              />
+              <label
+                htmlFor="login-password"
+                className="absolute left-3 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
+              >
+                Contraseña
+              </label>
             </div>
 
             <button type="submit" disabled={loading} className={`w-full mt-6 ${loading ? 'btn-disabled' : 'btn btn-primary'}`}>

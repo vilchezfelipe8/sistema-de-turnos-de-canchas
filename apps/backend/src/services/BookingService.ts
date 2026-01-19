@@ -102,12 +102,7 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
     const activity = await this.activityRepo.findById(activityId);
     if (!activity) throw new Error("Actividad no encontrada");
 
-    const year = date.getUTCFullYear();
-    const month = date.getUTCMonth();
-    const day = date.getUTCDate();
-
-    const startOfDay = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
-    const endOfDay = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
+    const { startUtc: startOfDay, endUtc: endOfDay } = TimeHelper.getUtcRangeForLocalDate(date);
 
     // --- AGREGAR ESTOS LOGS ---
     console.log("---------------- DEBUG DISPONIBILIDAD ----------------");
@@ -143,11 +138,8 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
     const freeSlots = possibleSlots.filter(slotStart => {
         const slotEnd = TimeHelper.addMinutes(slotStart, duration);
 
-        const [sh, sm] = slotStart.split(':').map(Number);
-        const [eh, em] = slotEnd.split(':').map(Number);
-
-        const slotStartDate = new Date(Date.UTC(year, month, day, sh, sm, 0));
-        const slotEndDate = new Date(Date.UTC(year, month, day, eh, em, 0));
+        const slotStartDate = TimeHelper.localSlotToUtc(date, slotStart);
+        const slotEndDate = TimeHelper.localSlotToUtc(date, slotEnd);
 
         const isOccupied = existingBookings.some(booking => {
             if (booking.status === "CANCELLED") return false; 
@@ -223,8 +215,7 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
         for (const court of activeCourts) {
             for (const slotTime of possibleSlots) {
                 // Parsear el slot time - crear fecha en UTC
-                const [hours, minutes] = slotTime.split(':').map(Number);
-                const slotDateTime = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes, 0));
+                const slotDateTime = TimeHelper.localSlotToUtc(date, slotTime);
 
                 // Buscar si hay una booking para esta cancha y hora
                 // Comparar en UTC para evitar problemas de zona horaria
@@ -289,8 +280,7 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
         // Encontrar slots donde al menos una cancha está disponible
         const availableSlots = possibleSlots.filter(slotTime => {
             // Parsear el slot time - crear fecha en UTC
-            const [hours, minutes] = slotTime.split(':').map(Number);
-            const slotDateTime = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes, 0));
+            const slotDateTime = TimeHelper.localSlotToUtc(date, slotTime);
 
             // Verificar si al menos una cancha está disponible en este slot
             const hasAvailableCourt = activeCourts.some(court => {
@@ -343,15 +333,8 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
         ];
 
         // 🔥 CORRECCIÓN CLAVE: Usamos getUTC para evitar el error de "día anterior"
-        const year = date.getUTCFullYear();
-        const month = date.getUTCMonth();
-        const day = date.getUTCDate();
-
         const slotsWithCourts = possibleSlots.map(slotTime => {
-            const [hours, minutes] = slotTime.split(':').map(Number);
-            
-            // Construimos la fecha del slot usando SOLO partes UTC
-            const slotDateTime = new Date(Date.UTC(year, month, day, hours, minutes, 0));
+            const slotDateTime = TimeHelper.localSlotToUtc(date, slotTime);
             const durationMinutes = activity.defaultDurationMinutes;
             const slotEndDateTime = new Date(slotDateTime.getTime() + durationMinutes * 60000);
 
