@@ -11,7 +11,6 @@ export default function LoginPage() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [role, setRole] = useState('MEMBER');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -25,10 +24,10 @@ export default function LoginPage() {
         await login(email, password);
         window.location.href = '/';
       } else {
-        await register(firstName, lastName, email, password, phoneNumber, role);
+        await register(firstName, lastName, email, password, phoneNumber, 'MEMBER');
         setError('Usuario registrado exitosamente. Ahora puedes iniciar sesión.');
         setIsLogin(true);
-        setFirstName(''); setLastName(''); setPhoneNumber(''); setRole('MEMBER');
+        setFirstName(''); setLastName(''); setPhoneNumber('');
       }
     } catch (err: any) {
       setError(err.message || (isLogin ? 'Credenciales inválidas' : 'Error al registrar'));
@@ -117,18 +116,6 @@ export default function LoginPage() {
                   >
                     Teléfono
                   </label>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">Rol</label>
-                  <select
-                    required
-                    value={role}
-                    onChange={(e) => setRole(e.target.value)}
-                    className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-text focus:outline-none transition-colors"
-                  >
-                    <option value="MEMBER">Miembro</option>
-                    <option value="ADMIN">Administrador</option>
-                  </select>
                 </div>
               </>
             )}
