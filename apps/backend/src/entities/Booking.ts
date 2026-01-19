@@ -34,7 +34,8 @@ export class Booking {
         guestIdentifier?: string,
         guestName?: string,
         guestEmail?: string,
-        guestPhone?: string
+        guestPhone?: string,
+        public fixedBookingId?: number | null
     ) {
         this.id = id;
         this.startDateTime = startDateTime;

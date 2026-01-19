@@ -163,7 +163,8 @@ export class BookingRepository {
             dbItem.guestIdentifier,
             dbItem.guestName,
             dbItem.guestEmail,
-            dbItem.guestPhone
+            dbItem.guestPhone,
+            dbItem.fixedBookingId || null 
         );
         if (dbItem.cancelledBy) booking.cancelledBy = dbItem.cancelledBy;
         if (dbItem.cancelledAt) booking.cancelledAt = dbItem.cancelledAt;

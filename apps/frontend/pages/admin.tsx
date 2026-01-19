@@ -251,60 +251,74 @@ export default function AdminPage() {
     // 1. CASO TURNO FIJO
     if (booking.fixedBookingId) {
         showConfirm({
-          title: 'Cancelar turno fijo',
-          message: (
-            <div>
-              <p style={{ margin: 0 }}>Este es un turno fijo.</p>
-              <p style={{ margin: '0.5rem 0 0' }}>
-                Aceptar = eliminar toda la serie futura.
-              </p>
-              <p style={{ margin: '0.5rem 0 0' }}>
-                Cancelar = eliminar solo el turno de hoy.
-              </p>
-            </div>
-          ),
-          confirmText: 'Dar de baja serie',
-          cancelText: 'Cancelar solo hoy',
-          onConfirm: async () => {
-            try {
-              await cancelFixedBooking(booking.fixedBookingId);
-              showInfo('✅ Serie de turnos fijos dada de baja.', 'Listo');
-              loadSchedule();
-            } catch (error: any) {
-              showError('Error: ' + error.message);
-            }
-          },
-          onCancel: async () => {
-            try {
-              await cancelBooking(booking.id);
-              showInfo('✅ Turno del día cancelado.', 'Listo');
-              loadSchedule();
-            } catch (error: any) {
-              showError('Error: ' + error.message);
-            }
-          },
-          closeOnBackdrop: false,
-          closeOnEscape: false
+            title: '🛑 Atención: Turno Fijo',
+            message: (
+                <div>
+                    <p>Este turno pertenece a una serie repetitiva.</p>
+                    <p className="font-bold mt-2">¿Deseas eliminar TODA la serie futura?</p>
+                </div>
+            ),
+            confirmText: 'Sí, borrar TODA la serie', // Botón Rojo fuerte
+            cancelText: 'No, ver otras opciones',     // Botón Neutro
+            
+            // OPCIÓN A: Borrar todo
+            onConfirm: async () => {
+                try {
+                    await cancelFixedBooking(booking.fixedBookingId);
+                    showInfo('✅ Serie completa eliminada.', 'Éxito');
+                    loadSchedule();
+                } catch (error: any) {
+                    showError('Error: ' + error.message);
+                }
+            },
+
+            // OPCIÓN B: El usuario dijo "No borrar serie". Ahora preguntamos por "Solo hoy".
+            onCancel: () => {
+                // Lanzamos un SEGUNDO modal inmediatamente
+                setTimeout(() => { // Pequeño delay para que no se solapen las animaciones
+                    showConfirm({
+                        title: '¿Borrar solo hoy?',
+                        message: `¿Entonces deseas eliminar únicamente el turno de hoy (${booking.slotTime}) y mantener los futuros?`,
+                        confirmText: 'Sí, borrar solo hoy',
+                        cancelText: 'Cancelar (No tocar nada)', // AHORA SÍ ES SEGURO
+                        
+                        onConfirm: async () => {
+                            try {
+                                await cancelBooking(booking.id);
+                                showInfo('✅ Turno del día eliminado.', 'Listo');
+                                loadSchedule();
+                            } catch (error: any) {
+                                showError('Error: ' + error.message);
+                            }
+                        },
+                        // onCancel aquí no hace nada, simplemente cierra el modal. Salida segura.
+                        onCancel: () => {} 
+                    });
+                }, 200);
+            },
+            closeOnBackdrop: false,
+            closeOnEscape: false
         });
     } 
-    // 2. CASO TURNO NORMAL
+    // 2. CASO TURNO NORMAL (Igual que antes)
     else {
         showConfirm({
-          title: 'Cancelar turno',
-          message: '⚠️ ¿Cancelar este turno simple?',
-          confirmText: 'Cancelar turno',
-          onConfirm: async () => {
-            try {
-              await cancelBooking(booking.id);
-              showInfo('✅ Turno cancelado', 'Listo');
-              loadSchedule();
-            } catch (error: any) {
-              showError('Error: ' + error.message);
+            title: 'Cancelar turno',
+            message: '⚠️ ¿Seguro que deseas cancelar esta reserva simple?',
+            confirmText: 'Sí, Cancelar',
+            cancelText: 'Volver',
+            onConfirm: async () => {
+                try {
+                    await cancelBooking(booking.id);
+                    showInfo('✅ Turno cancelado', 'Listo');
+                    loadSchedule();
+                } catch (error: any) {
+                    showError('Error: ' + error.message);
+                }
             }
-          }
         });
     }
-  };
+};
 
   return (
     <PageShell title="Panel de Comando" subtitle="Bienvenido Administrador">
