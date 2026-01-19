@@ -20,6 +20,7 @@ export default function BookingGrid() {
   const [guestEmail, setGuestEmail] = useState('');
   const [guestPhone, setGuestPhone] = useState('');
   const [guestModalOpen, setGuestModalOpen] = useState(false);
+  const [guestPhoneFocused, setGuestPhoneFocused] = useState(false);
   const [guestError, setGuestError] = useState('');
   const [modalState, setModalState] = useState<{
     show: boolean;
@@ -67,7 +68,7 @@ export default function BookingGrid() {
     return {
       name: fullName,
       email: guestEmail.trim(),
-      phone: trimmedPhone ? `+54${trimmedPhone}` : ''
+      phone: trimmedPhone ? `+549${trimmedPhone}` : ''
     };
   };
 
@@ -78,12 +79,12 @@ export default function BookingGrid() {
 
   const isPhoneValid = (phone: string) => {
     if (!phone) return true;
-    if (!phone.startsWith('+54')) return false;
+    if (!phone.startsWith('+549')) return false;
     const digits = phone.replace(/\D/g, '');
-    if (!digits.startsWith('54')) return false;
-    const nationalDigits = digits.slice(2);
+    if (!digits.startsWith('549')) return false;
+    const nationalDigits = digits.slice(3);
     if (nationalDigits.length !== 10) return false;
-    return /^\+54\d+$/.test(phone);
+    return /^\+549\d+$/.test(phone);
   };
 
   const formatPhoneDigits = (digits: string) => {
@@ -466,8 +467,8 @@ export default function BookingGrid() {
             </>
         ) : !isAuthenticated ? (
             <>
-                <span>🤝</span>
-                <span>Reservar como Invitado</span>
+                <span>⚡</span>
+                <span>CONFIRMAR RESERVA</span>
             </>
         ) : selectedSlot && selectedCourt ? (
           <>
@@ -539,7 +540,11 @@ export default function BookingGrid() {
                 </div>
               </div>
               <div className="relative flex items-center rounded-xl border border-border bg-surface focus-within:border-white focus-within:!border-white transition-colors">
-                <span className="px-3 text-muted font-medium">+54</span>
+                <span
+                  className={`px-3 text-muted font-medium whitespace-nowrap min-w-[3.25rem] text-center transition-all duration-150 ${guestPhone.length || guestPhoneFocused ? 'mt-1.5' : ''}`}
+                >
+                  +54&nbsp;9
+                </span>
                 <input
                   id="guest-phone"
                   type="tel"
@@ -549,13 +554,15 @@ export default function BookingGrid() {
                     const digits = e.target.value.replace(/\D/g, '');
                     setGuestPhone(digits);
                   }}
+                  onFocus={() => setGuestPhoneFocused(true)}
+                  onBlur={() => setGuestPhoneFocused(false)}
                   onKeyDown={handleGuestKeyDown}
                   maxLength={12}
-                  className="peer w-full p-3 pt-5 rounded-xl bg-transparent text-text placeholder:text-muted focus:outline-none transition-colors font-medium border-0 focus:border-0"
+                  className="peer w-full p-3 pt-5 rounded-xl bg-transparent text-text placeholder:text-muted focus:outline-none transition-colors font-medium border-0 focus:border-0 leading-tight"
                 />
                 <label
                   htmlFor="guest-phone"
-                  className="absolute left-14 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
+                  className="absolute left-16 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
                 >
                   Teléfono (opcional)
                 </label>

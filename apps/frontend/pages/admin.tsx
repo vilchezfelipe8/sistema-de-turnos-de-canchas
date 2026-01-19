@@ -624,15 +624,19 @@ export default function AdminPage() {
                             )}
                         </td>
                         <td className="p-3 text-slate-300">
-                          {slot.booking?.user
-                            ? `${slot.booking.user.firstName} ${slot.booking.user.lastName}`
-                            : (slot.booking?.guestName || 'Invitado')}
+                          {slot.isAvailable
+                            ? '-'
+                            : slot.booking?.user
+                              ? `${slot.booking.user.firstName} ${slot.booking.user.lastName}`
+                              : (slot.booking?.guestName || 'Invitado')}
                         </td>
                         <td className="p-3 text-slate-400">
-                          {slot.booking?.user?.phoneNumber ||
-                            slot.booking?.guestPhone ||
-                            slot.booking?.guestEmail ||
-                            '-'}
+                          {slot.isAvailable
+                            ? '-'
+                            : (slot.booking?.user?.phoneNumber ||
+                              slot.booking?.guestPhone ||
+                              slot.booking?.guestEmail ||
+                              '-')}
                         </td>
                         
                         <td className="p-3 text-right">
