@@ -81,7 +81,7 @@ export class BookingController {
             return res.status(400).json({ error: "Esta cancha ya está reservada en ese horario." });
         }
 
-        // 1. CREAR LA RESERVA
+        // 1. CREAR LA RESERVA (Esto sigue igual)
         const result = await this.bookingService.createBooking(
             userIdFromToken ? Number(userIdFromToken) : null,
             effectiveGuestIdentifier,
@@ -94,29 +94,44 @@ export class BookingController {
         );
 
         try {
-            // Buscamos al usuario completo para obtener su número y nombre
-            const fullUser = userIdFromToken ? await prisma.user.findUnique({ where: { id: Number(userIdFromToken) } }) : null;
+            let phoneToSend: string | null = null;
+            let nameToSend: string = 'Jugador';
 
-            if (fullUser && fullUser.phoneNumber) {
-                const options: Intl.DateTimeFormatOptions = {timeZone: 'UTC', // 👈 La clave mágica
-                };
+            // CASO A: Usuario Registrado
+            if (userIdFromToken) {
+                const fullUser = await prisma.user.findUnique({ where: { id: Number(userIdFromToken) } });
+                if (fullUser) {
+                    phoneToSend = fullUser.phoneNumber;
+                    nameToSend = fullUser.firstName || 'Jugador';
+                }
+            } 
+            // CASO B: Usuario Invitado (Guest)
+            else {
+                // Usamos directamente lo que vino del formulario
+                phoneToSend = effectiveGuestPhone || null;
+                nameToSend = effectiveGuestName || 'Jugador';
+            }
 
+            // Si conseguimos un teléfono (sea de User o de Guest), mandamos el mensaje
+            if (phoneToSend) {
+                
+                // Formateo de fecha (Tu lógica original)
+                const options: Intl.DateTimeFormatOptions = {timeZone: 'UTC'};
+                
                 const dateStr = startDate.toLocaleDateString('es-AR', { 
-                    ...options, 
-                    day: '2-digit', month: '2-digit', year: 'numeric' 
+                    ...options, day: '2-digit', month: '2-digit', year: 'numeric' 
                 });
 
                 const timeStr = startDate.toLocaleTimeString('es-AR', { 
-                    ...options, 
-                    hour: '2-digit', minute: '2-digit', hour12: false // false para formato 24hs
+                    ...options, hour: '2-digit', minute: '2-digit', hour12: false 
                 });
-                // Link de pago ficticio (luego lo cambias por MercadoPago real)
+
                 const paymentLink = `https://tu-club.com/pagar/${result.id}`;
 
                 const message = `
 🎾 *¡Reserva Confirmada!* 🎾
 
-Hola *${fullUser.firstName || 'Jugador'}*, tu turno ha sido agendado.
+Hola *${nameToSend}*, tu turno ha sido agendado.
 
 📅 *Fecha:* ${dateStr}
 ⏰ *Hora:* ${timeStr}
@@ -131,13 +146,18 @@ O transfiere al Alias: *CLUB.PADEL.2025* y envía el comprobante por acá.
 ¡Te esperamos!
                 `.trim();
 
-                // Enviamos el mensaje (sin await para no bloquear la respuesta al front)
-                whatsappService.sendMessage(fullUser.phoneNumber, message);
+                // Enviamos el mensaje al teléfono detectado
+                // (Agrego una limpieza simple por si el guest puso guiones o espacios)
+                const cleanPhone = phoneToSend.replace(/\D/g, ''); 
+                await whatsappService.sendMessage(cleanPhone, message);
             }
+
         } catch (waError) {
-            // Solo lo logueamos en consola, no queremos que rompa el flujo principal
             console.error("❌ Error enviando WhatsApp:", waError);
         }
+        // 👆 FIN DEL CAMBIO 👆
+
+// ... (El resto de tu respuesta JSON sigue igual) ...
     
         // Preparar respuesta para el frontend
         const year = startDate.getUTCFullYear();
