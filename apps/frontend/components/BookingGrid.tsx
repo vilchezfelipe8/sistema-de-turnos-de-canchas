@@ -9,6 +9,12 @@ import AppModal from './AppModal';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 export default function BookingGrid() {
+  const formatLocalDate = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
   // const router = useRouter(); // Descomentar si usas next router
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
@@ -327,10 +333,10 @@ export default function BookingGrid() {
         </label>
         <input
           type="date"
-          min={new Date().toISOString().split('T')[0]}
+          min={formatLocalDate(new Date())}
           className="w-full p-4 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-border focus:ring-1 focus:ring-border transition-all font-medium shadow-inner"
           onChange={handleDateChange}
-          value={selectedDate ? selectedDate.toISOString().split('T')[0] : ''}
+          value={selectedDate ? formatLocalDate(selectedDate) : ''}
           style={{ colorScheme: 'dark' }} 
         />
       </div>

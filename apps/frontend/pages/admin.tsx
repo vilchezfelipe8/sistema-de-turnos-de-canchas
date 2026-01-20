@@ -34,13 +34,20 @@ const getNextDateForDay = (startDate: Date, targetDayIndex: number, timeStr: str
   return resultDate;
 };
 
+const formatLocalDate = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export default function AdminPage() {
   const router = useRouter();
   // --- ESTADOS DE LA PÁGINA ---
   const [courts, setCourts] = useState<any[]>([]);
   const [newName, setNewName] = useState('');
   const [newSport, setNewSport] = useState('TENNIS');
-  const [scheduleDate, setScheduleDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [scheduleDate, setScheduleDate] = useState(() => formatLocalDate(new Date()));
   const [scheduleBookings, setScheduleBookings] = useState<any[]>([]);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
@@ -142,7 +149,7 @@ export default function AdminPage() {
       time: '18:00',
       isFixed: false,       // Checkbox
       dayOfWeek: '1',       // Nuevo: 1=Lunes, 2=Martes...
-      startDateBase: new Date().toISOString().split('T')[0] // Base para calcular
+      startDateBase: formatLocalDate(new Date()) // Base para calcular
   });
 
   const loadCourts = async () => { const data = await getCourts(); setCourts(data); };

@@ -35,8 +35,6 @@ export class BookingRepository {
     async findByCourtAndDate(courtId: number, date: Date): Promise<Booking[]> {
         const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date);
 
-        console.log('Buscando bookings para cancha', courtId, 'entre:', startUtc.toISOString(), 'y', endUtc.toISOString());
-
         const found = await prisma.booking.findMany({
             where: {
                 courtId: courtId,
@@ -100,8 +98,6 @@ export class BookingRepository {
     async findAllByDate(date: Date) {
         const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date);
 
-        console.log('Buscando bookings entre:', startUtc.toISOString(), 'y', endUtc.toISOString());
-
         const bookings = await prisma.booking.findMany({
             where: {
                 startDateTime: { gte: startUtc, lte: endUtc },
@@ -116,19 +112,6 @@ export class BookingRepository {
                 startDateTime: 'asc'
             }
         });
-
-        console.log('Encontradas', bookings.length, 'reservas');
-
-        // 👇👇👇 AGREGA ESTO JUSTO AQUÍ 👇👇👇
-        if (bookings.length > 0) {
-            console.log("--------------------------------------------------");
-            console.log("🕵️ DETALLE DE RESERVAS ENCONTRADAS:");
-            bookings.forEach((b: any) => {
-                console.log(`👉 ID: ${b.id} | Cancha: ${b.courtId} | Hora: ${b.startDateTime.toISOString()} | Status: ${b.status}`);
-            });
-            console.log("--------------------------------------------------");
-        }
-        // 👆👆👆 ----------------------------- 👆👆👆
 
         return bookings.map((b: any) => this.mapToEntity(b));
     }

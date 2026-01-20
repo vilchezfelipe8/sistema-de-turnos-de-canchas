@@ -21,7 +21,6 @@ export class AuthController {
             return res.status(400).json({ error: parsed.error.format() });
         }
         const { firstName, lastName, email, password, phoneNumber, role } = parsed.data;
-        console.log('Datos recibidos para registro:', { firstName, lastName, email, phoneNumber, role });
         try {
             const existingUser = await prisma.user.findUnique({ where: { email } });
             if (existingUser) {
@@ -37,8 +36,6 @@ export class AuthController {
                     role
                 }
             });
-            console.log('Usuario creado:', newUser);
-
             res.status(201).json({ message: "Usuario creado", userId: newUser.id });
         } catch (error: any) {
             res.status(500).json({ error: error.message });

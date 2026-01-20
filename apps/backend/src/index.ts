@@ -43,9 +43,6 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 const NODE_ENV = process.env.NODE_ENV || 'development';
-if (!['development', 'production', 'test'].includes(NODE_ENV)) {
-  console.warn(`⚠️ NODE_ENV value "${NODE_ENV}" is uncommon. Expected one of development|production|test`);
-}
 
 app.use(express.json());
 
@@ -65,23 +62,13 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 import { errorHandler } from './middleware/ErrorHandler';
-import { logger } from './utils/logger';
 
 const startServer = async () => {
   try {
     await prisma.$connect();
-    console.log('✅ Conectado a la base de datos');
-
     app.use('/api/auth', authRoutes);
 
     app.listen(PORT, '0.0.0.0', () => {
-      console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
-      console.log(`📡 Frontend URL permitida: ${FRONTEND_URL}`);
-      if (NODE_ENV === 'production') {
-        console.log(`🌐 Modo: Producción`);
-      } else {
-        console.log(`🔧 Modo: Desarrollo`);
-      }
     });
 
   } catch (error) {

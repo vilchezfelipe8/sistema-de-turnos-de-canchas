@@ -104,19 +104,7 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
 
     const { startUtc: startOfDay, endUtc: endOfDay } = TimeHelper.getUtcRangeForLocalDate(date);
 
-    // --- AGREGAR ESTOS LOGS ---
-    console.log("---------------- DEBUG DISPONIBILIDAD ----------------");
-    console.log("📅 Buscando para fecha (UTC):", startOfDay.toISOString());
-    
     const existingBookings = await this.bookingRepo.findByCourtAndDateRange(courtId, startOfDay, endOfDay);
-    
-    
-    console.log(`🔎 Encontradas ${existingBookings.length} reservas en total.`);
-    existingBookings.forEach(b => {
-        console.log(`   - ID: ${b.id} | Start: ${b.startDateTime.toISOString()} | Status: ${b.status}`);
-    });
-    console.log("------------------------------------------------------");
-    // --------------------------    
 
 
     const possibleSlots = [
@@ -210,8 +198,6 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
         // Crear grilla completa
         const schedule = [];
 
-        console.log('Creando grilla para', activeCourts.length, 'canchas activas');
-
         for (const court of activeCourts) {
             for (const slotTime of possibleSlots) {
                 // Parsear el slot time - crear fecha en UTC
@@ -230,12 +216,6 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
                     );
                     const slotUTCTime = slotDateTime.getTime();
                     const timeMatch = bookingUTCTime === slotUTCTime;
-                    
-                    if (courtMatch) {
-                        console.log(`Cancha ${court.id} - Booking UTC: ${new Date(bookingUTCTime).toISOString()}, Slot UTC: ${slotDateTime.toISOString()}`);
-                        console.log(`Time match: ${timeMatch}`);
-                    }
-                    
                     return courtMatch && timeMatch;
                 });
 
@@ -314,10 +294,6 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
             name: string;
         }>;
     }>> {
-        // 1. Logs para ver qué está pasando realmente (Detector de Mentiras)
-        console.log("---------------- GRID DEBUG ----------------");
-        console.log("📅 Fecha solicitada (UTC):", date.toISOString());
-        
         // Obtener canchas y actividad
         const allCourts = await this.courtRepo.findAll();
         const activeCourts = allCourts.filter(court => !court.isUnderMaintenance);
@@ -325,8 +301,6 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
         const activity = await this.activityRepo.findById(activityId);
         
         if (!activity) throw new Error("Actividad no encontrada");
-
-        console.log(`🔎 Encontradas ${bookings.length} reservas para filtrar en la grilla.`);
 
         const possibleSlots = [
             "08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:30", "19:00", "20:30", "22:00"
@@ -386,7 +360,6 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
             };
         }).filter(slot => slot.availableCourts.length > 0); // Opcional: Filtra si no hay canchas
 
-        console.log("--------------------------------------------");
         return slotsWithCourts;
     }
 

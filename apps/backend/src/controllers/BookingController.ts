@@ -292,8 +292,6 @@ O transfiere al Alias: *CLUB.PADEL.2025* y envía el comprobante por acá.
             const [year, month, day] = String(date).split('-').map(Number);
             const searchDate = new Date(year, month - 1, day);
 
-            console.log('Buscando reservas para fecha:', searchDate.toISOString());
-
             const bookings = await this.bookingService.getDaySchedule(searchDate);
             res.json(bookings);
         } catch (error: any) {

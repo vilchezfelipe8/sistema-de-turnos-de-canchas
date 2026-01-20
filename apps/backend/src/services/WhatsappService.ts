@@ -28,19 +28,16 @@ class WhatsappService {
 
         // Generar el QR en la terminal
         this.client.on('qr', (qr) => {
-            console.log('📱 ESCANEA ESTE QR CON WHATSAPP:');
             qrcode.generate(qr, { small: true });
         });
 
         // Cuando ya está conectado
         this.client.on('ready', () => {
             this.isReady = true;
-            console.log('✅ WhatsApp conectado y listo para enviar mensajes.');
         });
 
         // Manejo de desconexión para evitar procesos zombies
-        this.client.on('disconnected', (reason) => {
-             console.log('❌ WhatsApp desconectado:', reason);
+        this.client.on('disconnected', () => {
              this.isReady = false;
         });
 
@@ -48,7 +45,6 @@ class WhatsappService {
 
         // --- MANEJO DE CIERRE LIMPIO (IGUAL QUE ANTES) ---
         process.once('SIGUSR2', async () => {
-            console.log('🔄 Reiniciando WhatsApp por cambios en código...');
             try {
                 await this.client.destroy(); 
             } catch (e) {
@@ -58,7 +54,6 @@ class WhatsappService {
         });
 
         process.on('SIGINT', async () => {
-            console.log('🔴 Apagando WhatsApp correctamente...');
             try {
                 await this.client.destroy();
             } catch (e) {
@@ -70,7 +65,6 @@ class WhatsappService {
 
     async sendMessage(phoneNumber: string, message: string) {
         if (!this.isReady) {
-            console.warn('⚠️ WhatsApp no está listo todavía. Mensaje encolado o perdido.');
             return;
         }
 
@@ -80,7 +74,6 @@ class WhatsappService {
 
         try {
             await this.client.sendMessage(chatId, message, {sendSeen: false});
-            console.log(`✅ Mensaje enviado a ${phoneNumber}`);
         } catch (error) {
             console.error('❌ Error enviando mensaje de WhatsApp:', error);
         }
