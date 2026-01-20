@@ -116,17 +116,23 @@ export class BookingController {
             if (phoneToSend) {
                 
                 // Formateo de fecha (Tu lógica original)
-                const options: Intl.DateTimeFormatOptions = {timeZone: 'UTC'};
-                
-                const dateStr = startDate.toLocaleDateString('es-AR', { 
-                    ...options, day: '2-digit', month: '2-digit', year: 'numeric' 
-                });
+                const options: Intl.DateTimeFormatOptions = { 
+                    timeZone: 'America/Argentina/Cordoba', 
+                    };                
 
-                const timeStr = startDate.toLocaleTimeString('es-AR', { 
-                    ...options, hour: '2-digit', minute: '2-digit', hour12: false 
-                });
+                const argOffset = 3 * 60 * 60 * 1000;
+                const argDate = new Date(startDate.getTime() - argOffset);
 
-                const paymentLink = `https://tu-club.com/pagar/${result.id}`;
+                // Formateamos "a mano" para no depender de locales
+                const dia = String(argDate.getUTCDate()).padStart(2, '0');
+                const mes = String(argDate.getUTCMonth() + 1).padStart(2, '0');
+                const anio = argDate.getUTCFullYear();
+                const horas = String(argDate.getUTCHours()).padStart(2, '0');
+                const minutos = String(argDate.getUTCMinutes()).padStart(2, '0');
+
+                const dateStr = `${dia}/${mes}/${anio}`;
+                const timeStr = `${horas}:${minutos}`;
+
 
                 const message = `
 🎾 *¡Reserva Confirmada!* 🎾
@@ -138,10 +144,7 @@ Hola *${nameToSend}*, tu turno ha sido agendado.
 💰 *Precio:* $${result.price || 1500}
 
 ⚠️ *PAGO PENDIENTE:*
-Para confirmar tu asistencia, por favor abona el turno en el siguiente link:
-👉 ${paymentLink}
-
-O transfiere al Alias: *CLUB.PADEL.2025* y envía el comprobante por acá.
+Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.2025* y envía el comprobante por acá.
 
 ¡Te esperamos!
                 `.trim();

@@ -12,6 +12,14 @@ import {
     cancelFixedBooking  
 } from '../services/BookingService';
 
+// --- CONSTANTES ---
+// Horarios válidos del club (Coinciden con tu backend)
+const CLUB_TIME_SLOTS = [
+  "08:00", "09:30", "11:00", "12:30", 
+  "14:00", "15:30", "17:30", "19:00", 
+  "20:30", "22:00"
+];
+
 // --- FUNCIÓN AUXILIAR: CALCULAR PRÓXIMA FECHA ---
 // Busca la fecha del próximo "Lunes/Martes..." a partir de hoy
 const getNextDateForDay = (startDate: Date, targetDayIndex: number, timeStr: string): Date => {
@@ -146,7 +154,7 @@ export default function AdminPage() {
   const [manualBooking, setManualBooking] = useState({
       userId: '',     
       courtId: '',
-      time: '18:00',
+      time: '19:00',  // CAMBIO: Iniciamos en un horario válido por defecto
       isFixed: false,       // Checkbox
       dayOfWeek: '1',       // Nuevo: 1=Lunes, 2=Martes...
       startDateBase: formatLocalDate(new Date()) // Base para calcular
@@ -218,7 +226,7 @@ export default function AdminPage() {
   // --- NUEVA LÓGICA: CREAR RESERVA (FIJA O NORMAL) ---
   const handleCreateBooking = async (e: React.FormEvent) => {
       e.preventDefault();
-      if(!manualBooking.courtId || !manualBooking.userId) {
+      if(!manualBooking.courtId || !manualBooking.userId || !manualBooking.time) {
         showError('Faltan datos');
         return;
       }
@@ -237,7 +245,7 @@ export default function AdminPage() {
                   manualBooking.time
               );
           } else {
-              dateBase = new Date(`${scheduleDate}T${manualBooking.time}:00`);
+              dateBase = new Date(`${manualBooking.startDateBase}T${manualBooking.time}:00`);
           }
 
           const dateToSend = dateBase;
@@ -445,28 +453,40 @@ export default function AdminPage() {
                     </div>
                 ) : (
                    // MODO SIMPLE: Solo informativo
-                   <div className="opacity-50">
-                        <label className="block text-xs font-bold text-slate-500 mb-2">FECHA</label>
-                        <div className="px-3 py-2 border border-border rounded-lg text-sm text-slate-400 bg-surface/50">
-                            Ver grilla abajo 👇
-                        </div>
-                   </div>
+                   <div>
+                      <label className="block text-xs font-bold text-emerald-400 mb-2">FECHA DEL TURNO</label>
+                      <input 
+                          type="date" 
+                          value={manualBooking.startDateBase}
+                          onChange={(e) => setManualBooking({...manualBooking, startDateBase: e.target.value})}
+                          className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                          required
+                      />
+                  </div>
                 )}
 
-                {/* Hora */}
+                {/* --- CAMBIO AQUÍ: Hora con SELECT --- */}
                 <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-2">HORA</label>
-                    <input type="time" 
-                        value={manualBooking.time} 
-                        onChange={(e) => setManualBooking({...manualBooking, time: e.target.value})}
-                        className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-text" 
-                        required 
-                    />
+                  <label className="block text-xs font-bold text-slate-500 mb-2">HORA</label>
+                  <select 
+                      value={manualBooking.time} 
+                      onChange={(e) => setManualBooking({...manualBooking, time: e.target.value})}
+                      // Estilos del Select cerrado
+                      className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-white cursor-pointer focus:outline-none focus:border-primary-500 appearance-none" 
+                      required 
+                  >
+                      {CLUB_TIME_SLOTS.map((time) => (
+                          // 👇 AQUÍ ESTÁ LA MAGIA: Fondo oscuro y Texto blanco explícito
+                          <option key={time} value={time} className="bg-slate-800 text-white py-2">
+                              {time} hs
+                          </option>
+                      ))}
+                  </select>
                 </div>
 
                 {/* Checkbox y Botón */}
                 <div className="flex flex-col gap-2">
-                     <label className={`flex items-center gap-2 text-sm cursor-pointer select-none ${manualBooking.isFixed ? 'text-blue-200' : 'text-slate-300'}`}>
+                      <label className={`flex items-center gap-2 text-sm cursor-pointer select-none ${manualBooking.isFixed ? 'text-blue-200' : 'text-slate-300'}`}>
                         <input 
                             type="checkbox" 
                             checked={manualBooking.isFixed}
@@ -622,13 +642,13 @@ export default function AdminPage() {
                                PENDIENTE
                              </span>
                            )}
-                            
-                            {/* INDICADOR VISUAL DE FIJO */}
-                            {slot.booking?.fixedBookingId && (
-                                <span className="ml-2 text-xs bg-blue-900/60 text-blue-200 px-2 py-0.5 rounded-full border border-blue-500/40" title="Turno Fijo">
-                                    🔄 FIJO
-                                </span>
-                            )}
+                           
+                           {/* INDICADOR VISUAL DE FIJO */}
+                           {slot.booking?.fixedBookingId && (
+                               <span className="ml-2 text-xs bg-blue-900/60 text-blue-200 px-2 py-0.5 rounded-full border border-blue-500/40" title="Turno Fijo">
+                                   🔄 FIJO
+                               </span>
+                           )}
                         </td>
                         <td className="p-3 text-slate-300">
                           {slot.isAvailable
