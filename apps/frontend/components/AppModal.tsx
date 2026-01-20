@@ -55,6 +55,7 @@ export default function AppModal({
   const [inputFocused, setInputFocused] = useState(false);
   const holdRef = useRef<number | null>(null);
   const holdStartRef = useRef(0);
+  const backdropMouseDownRef = useRef(false);
 
   useEffect(() => {
     setMounted(true);
@@ -153,7 +154,25 @@ export default function AppModal({
     <div
       role="dialog"
       aria-modal="true"
-      onClick={closeOnBackdrop ? onClose : undefined}
+      onMouseDown={(event) => {
+        if (!closeOnBackdrop) return;
+        backdropMouseDownRef.current = event.target === event.currentTarget;
+      }}
+      onTouchStart={(event) => {
+        if (!closeOnBackdrop) return;
+        backdropMouseDownRef.current = event.target === event.currentTarget;
+      }}
+      onClick={
+        closeOnBackdrop
+          ? (event) => {
+              const startedOnBackdrop = backdropMouseDownRef.current;
+              backdropMouseDownRef.current = false;
+              if (startedOnBackdrop && event.target === event.currentTarget) {
+                onClose();
+              }
+            }
+          : undefined
+      }
       style={{
         position: 'fixed',
         inset: 0,

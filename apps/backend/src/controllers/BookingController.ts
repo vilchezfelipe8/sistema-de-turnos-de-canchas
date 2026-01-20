@@ -51,19 +51,38 @@ export class BookingController {
 
         const { courtId, startDateTime, activityId, guestIdentifier, guestName, guestEmail, guestPhone } = parsed.data;
         const startDate = new Date(String(startDateTime));
+        const userRole = user?.role;
+        const isAdmin = userRole === 'ADMIN';
+        const asGuest = Boolean((req.body as any)?.asGuest);
+        const forceGuest = isAdmin && asGuest;
+        const effectiveUserId = forceGuest ? null : (userIdFromToken ? Number(userIdFromToken) : null);
+        const allowGuestWithoutContact = forceGuest;
+        const effectiveGuestIdentifier = forceGuest && !guestIdentifier ? `admin_${Date.now()}` : guestIdentifier;
 
-        if (!userIdFromToken && !guestIdentifier) {
+        const now = new Date();
+        if (startDate.getTime() < now.getTime()) {
+            return res.status(400).json({ error: "No se pueden reservar turnos en el pasado." });
+        }
+
+        if (userRole !== 'ADMIN') {
+            const maxDate = new Date(now);
+            maxDate.setMonth(now.getMonth() + 1);
+            if (startDate.getTime() > maxDate.getTime()) {
+                return res.status(400).json({ error: "Solo se pueden reservar turnos hasta 1 mes desde hoy." });
+            }
+        }
+
+        if (!effectiveUserId && !forceGuest && !effectiveGuestIdentifier) {
             return res.status(400).json({ error: "Debe enviar guestIdentifier o autenticarse para reservar." });
         }
-        if (!userIdFromToken && !guestName) {
+        if (!effectiveUserId && !guestName) {
             return res.status(400).json({ error: "Debe enviar un nombre para reservar como invitado." });
         }
-        if (!userIdFromToken && !guestEmail && !guestPhone) {
-            return res.status(400).json({ error: "Debe enviar un email o teléfono para reservar como invitado." });
+        if (!effectiveUserId && !forceGuest && !guestPhone) {
+            return res.status(400).json({ error: "Debe enviar un teléfono para reservar como invitado." });
         }
 
-        const isGuest = !userIdFromToken;
-        const effectiveGuestIdentifier = isGuest ? guestIdentifier : undefined;
+        const isGuest = !effectiveUserId;
         const effectiveGuestName = isGuest ? guestName : undefined;
         const effectiveGuestEmail = isGuest ? guestEmail : undefined;
         const effectiveGuestPhone = isGuest ? guestPhone : undefined;
@@ -83,14 +102,15 @@ export class BookingController {
 
         // 1. CREAR LA RESERVA (Esto sigue igual)
         const result = await this.bookingService.createBooking(
-            userIdFromToken ? Number(userIdFromToken) : null,
+            effectiveUserId,
             effectiveGuestIdentifier,
             effectiveGuestName,
             effectiveGuestEmail,
             effectiveGuestPhone,
             Number(courtId),
             startDate,
-            Number(activityId)
+            Number(activityId),
+            allowGuestWithoutContact
         );
 
         try {
@@ -141,7 +161,7 @@ Hola *${nameToSend}*, tu turno ha sido agendado.
 
 📅 *Fecha:* ${dateStr}
 ⏰ *Hora:* ${timeStr}
-💰 *Precio:* $${result.price || 1500}
+💰 *Precio:* $${result.price || 28000}
 
 ⚠️ *PAGO PENDIENTE:*
 Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.2025* y envía el comprobante por acá.
@@ -213,6 +233,19 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
             const user = (req as any).user;
             const result = await this.bookingService.cancelBooking(Number(bookingId), user?.userId);
             res.json({ message: "Reserva cancelada", booking: result });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    }
+
+    confirmBooking = async (req: Request, res: Response) => {
+        try {
+            const { bookingId } = req.body;
+            if (!bookingId) {
+                return res.status(400).json({ error: "Falta bookingId." });
+            }
+            const result = await this.bookingService.confirmBooking(Number(bookingId));
+            res.json({ message: "Reserva confirmada", booking: result });
         } catch (error: any) {
             res.status(400).json({ error: error.message });
         }
@@ -305,16 +338,27 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
     
     createFixed = async (req: Request, res: Response) => {
         try {
-            const { userId, courtId, activityId, startDateTime } = req.body;
+            const { userId, courtId, activityId, startDateTime, guestName } = req.body;
+            const user = (req as any).user;
+            const isAdmin = user?.role === 'ADMIN';
+
+            if (!userId && !isAdmin) {
+                return res.status(403).json({ error: "Solo un administrador puede crear turnos fijos sin usuario." });
+            }
+            if (!userId && !guestName) {
+                return res.status(400).json({ error: "Debe enviar un nombre para el turno fijo." });
+            }
             
             // Convertimos string a Date
             const startDate = new Date(startDateTime);
 
             const result = await this.bookingService.createFixedBooking(
-                userId, 
+                userId ? Number(userId) : null, 
                 courtId, 
                 activityId, 
-                startDate
+                startDate,
+                undefined,
+                guestName
             );
             
             res.status(201).json(result);

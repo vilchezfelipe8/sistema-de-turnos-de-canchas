@@ -28,17 +28,20 @@ export class BookingService {
         guestPhone: string | undefined,
         courtId: number,
         startDateTime: Date,
-        activityId: number
+        activityId: number,
+        allowGuestWithoutContact = false
     ): Promise<Booking> {
         let user: User | null = null;
         if (userId) {
             user = await this.userRepo.findById(userId);
             if (!user) throw new Error("Usuario no encontrado");
         } else {
-            // Si no hay userId, requerimos guestIdentifier
-            if (!guestIdentifier) throw new Error("Debe proveer guestIdentifier para reservas como invitado.");
+            // Si no hay userId, requerimos guestIdentifier salvo excepción administrativa
+            if (!guestIdentifier && !allowGuestWithoutContact) {
+                throw new Error("Debe proveer guestIdentifier para reservas como invitado.");
+            }
             if (!guestName) throw new Error("Debe proveer un nombre para reservas como invitado.");
-            if (!guestEmail && !guestPhone) {
+            if (!allowGuestWithoutContact && !guestEmail && !guestPhone) {
                 throw new Error("Debe proveer un email o teléfono para reservas como invitado.");
             }
         }
@@ -66,14 +69,14 @@ export class BookingService {
             });
 
             if (overlapping.length > 0) {
-                throw new Error(`El turno ${startDateTime.toISOString()} ya está ocupado.`);
+                throw new Error(`El turno ${startDateTime.toISOString()} ya está confirmado.`);
             }
 
             const saved = await tx.booking.create({
                 data: {
                     startDateTime,
                     endDateTime,
-                    price: 1500,
+                    price: 28000,
                     status: BookingStatus.PENDING,
                     // userId puede ser null para invitado
                     userId: user ? user.id : undefined,
@@ -157,28 +160,30 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
         return updated;
     }
 
-    async getUserHistory(userId: number) {
-    const bookings = await this.bookingRepo.findByUserId(userId);
-    const now = new Date();
-
-    for (const booking of bookings) {
-        const durationMinutes = 90; 
-        
-        const endTime = new Date(booking.startDateTime.getTime() + (durationMinutes * 60000));
-
-        if (booking.status !== 'CANCELLED' && booking.status !== 'COMPLETED' && endTime < now) {
-            
-            // Actualizar en BD
-            await prisma.booking.update({
-                where: { id: booking.id },
-                data: { status: BookingStatus.COMPLETED }
-            });
-
-            // Actualizar en memoria para que el usuario lo vea bien ya mismo
-            booking.status = BookingStatus.COMPLETED;
+    async confirmBooking(bookingId: number) {
+        const booking = await this.bookingRepo.findById(bookingId);
+        if (!booking) {
+            throw new Error("La reserva no existe.");
         }
+        if (booking.status === BookingStatus.CANCELLED) {
+            throw new Error("No se puede confirmar una reserva cancelada.");
+        }
+        if (booking.status === BookingStatus.COMPLETED) {
+            throw new Error("No se puede confirmar una reserva completada.");
+        }
+        if (booking.status === BookingStatus.CONFIRMED) {
+            return booking;
+        }
+        const updated = await prisma.booking.update({
+            where: { id: bookingId },
+            data: { status: BookingStatus.CONFIRMED },
+            include: { user: true, court: { include: { club: true } }, activity: true }
+        });
+        return this.bookingRepo.mapToEntity(updated);
     }
 
+    async getUserHistory(userId: number) {
+    const bookings = await this.bookingRepo.findByUserId(userId);
     return bookings;
 }
 
@@ -363,11 +368,22 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
         return slotsWithCourts;
     }
 
-    async createFixedBooking(userId: number, courtId: number, activityId: number, startDateTime: Date, weeksToGenerate: number = 24) {
+    async createFixedBooking(
+        userId: number | null,
+        courtId: number,
+        activityId: number,
+        startDateTime: Date,
+        weeksToGenerate: number = 24,
+        guestName?: string
+    ) {
 
         // 1. Validaciones básicas
-        const user = await this.userRepo.findById(userId);
-        if (!user) throw new Error("Usuario no encontrado");
+        if (userId) {
+            const user = await this.userRepo.findById(userId);
+            if (!user) throw new Error("Usuario no encontrado");
+        } else if (!guestName) {
+            throw new Error("Debe proveer un nombre para reservas fijas como invitado.");
+        }
 
         const court = await this.courtRepo.findById(courtId);
         if (!court) throw new Error("Cancha no encontrada");
@@ -376,6 +392,25 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
         const activity = await this.activityRepo.findById(activityId);
         // Si no tienes actividad, usamos una duración default de 60 mins para que no falle
         const duration = activity ? activity.defaultDurationMinutes : 60; 
+
+        const startTime = `${startDateTime.getHours().toString().padStart(2, '0')}:${startDateTime.getMinutes().toString().padStart(2, '0')}`;
+        const endTime = `${new Date(startDateTime.getTime() + duration * 60000).getHours().toString().padStart(2, '0')}:${new Date(startDateTime.getTime() + duration * 60000).getMinutes().toString().padStart(2, '0')}`;
+        const dayOfWeek = startDateTime.getDay();
+
+        const existingFixed = await prisma.fixedBooking.findMany({
+            where: {
+                courtId,
+                dayOfWeek
+            }
+        });
+
+        const overlapsFixed = existingFixed.some((fixed) =>
+            TimeHelper.isOverlapping(startTime, endTime, fixed.startTime, fixed.endTime)
+        );
+
+        if (overlapsFixed) {
+            throw new Error("Ya existe un turno fijo en ese horario para esta cancha.");
+        }
 
         // 2. Preparar fechas límites para la consulta masiva
         const firstStart = new Date(startDateTime);
@@ -389,13 +424,14 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
             // A. Crear el "Padre" (Turno Fijo)
             const fixedBooking = await tx.fixedBooking.create({
                 data: {
-                    userId,
+                    ...(userId ? { userId } : {}),
+                    ...(guestName ? { guestName } : {}),
                     courtId,
                     activityId,
                     startDate: firstStart,
-                    dayOfWeek: firstStart.getDay(),
-                    startTime: `${firstStart.getHours().toString().padStart(2, '0')}:${firstStart.getMinutes().toString().padStart(2, '0')}`,
-                    endTime: `${new Date(firstStart.getTime() + duration * 60000).getHours().toString().padStart(2, '0')}:${new Date(firstStart.getTime() + duration * 60000).getMinutes().toString().padStart(2, '0')}`
+                    dayOfWeek,
+                    startTime,
+                    endTime
                 }
             });
 
@@ -428,9 +464,10 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
                     bookingsToCreate.push({
                         startDateTime: currentStart,
                         endDateTime: currentEnd,
-                        price: 1500, // O activity.price
+                        price: 28000, // O activity.price
                         status: 'CONFIRMED',
-                        userId,
+                        ...(userId ? { userId } : {}),
+                        ...(guestName ? { guestName } : {}),
                         courtId,
                         activityId,
                         fixedBookingId: fixedBooking.id

@@ -11,8 +11,27 @@ export default function LoginPage() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [phoneFocused, setPhoneFocused] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const isPhoneValid = (phone: string) => {
+    if (!phone) return false;
+    if (!phone.startsWith('+549')) return false;
+    const digits = phone.replace(/\D/g, '');
+    if (!digits.startsWith('549')) return false;
+    const nationalDigits = digits.slice(3);
+    if (nationalDigits.length !== 10) return false;
+    return /^\+549\d+$/.test(phone);
+  };
+
+  const formatPhoneDigits = (digits: string) => {
+    const clean = digits.slice(0, 10);
+    const part1 = clean.slice(0, 3);
+    const part2 = clean.slice(3, 6);
+    const part3 = clean.slice(6, 10);
+    return [part1, part2, part3].filter(Boolean).join(' ');
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,7 +43,17 @@ export default function LoginPage() {
         await login(email, password);
         window.location.href = '/';
       } else {
-        await register(firstName, lastName, email, password, phoneNumber, 'MEMBER');
+        const phoneDigits = phoneNumber.replace(/\D/g, '').slice(0, 10);
+        const fullPhone = phoneDigits ? `+549${phoneDigits}` : '';
+        if (!phoneDigits) {
+          setError('Ingresá un teléfono para completar el registro.');
+          return;
+        }
+        if (!isPhoneValid(fullPhone)) {
+          setError('Ingresá un teléfono con formato válido.');
+          return;
+        }
+        await register(firstName, lastName, email, password, fullPhone, 'MEMBER');
         setError('Usuario registrado exitosamente. Ahora puedes iniciar sesión.');
         setIsLogin(true);
         setFirstName(''); setLastName(''); setPhoneNumber('');
@@ -101,21 +130,34 @@ export default function LoginPage() {
                   </div>
                 </div>
                 <div className="relative">
-                  <input
-                    id="phone-number"
-                    type="tel"
-                    required
-                    placeholder=" "
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value)}
-                    className="peer w-full bg-surface border border-border rounded-lg px-4 pt-5 pb-3 text-text focus:outline-none focus:border-white focus:!border-white focus:ring-0 transition-colors placeholder:text-muted"
-                  />
-                  <label
-                    htmlFor="phone-number"
-                    className="absolute left-3 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
-                  >
-                    Teléfono
-                  </label>
+                  <div className="relative flex items-center rounded-lg border border-border bg-surface focus-within:border-white focus-within:!border-white transition-colors">
+                    <span
+                      className={`px-3 text-muted font-medium whitespace-nowrap min-w-[3.25rem] text-center transition-all duration-150 ${phoneNumber.length || phoneFocused ? 'mt-1.5' : ''}`}
+                    >
+                      +54&nbsp;9
+                    </span>
+                    <input
+                      id="phone-number"
+                      type="tel"
+                      required
+                      placeholder=" "
+                      value={formatPhoneDigits(phoneNumber)}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, '');
+                        setPhoneNumber(digits);
+                      }}
+                      onFocus={() => setPhoneFocused(true)}
+                      onBlur={() => setPhoneFocused(false)}
+                      maxLength={12}
+                      className="peer w-full bg-transparent px-4 pt-5 pb-3 text-text focus:outline-none focus:border-0 focus:ring-0 transition-colors placeholder:text-muted border-0"
+                    />
+                    <label
+                      htmlFor="phone-number"
+                      className="absolute left-16 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
+                    >
+                      Teléfono
+                    </label>
+                  </div>
                 </div>
               </>
             )}
@@ -156,8 +198,12 @@ export default function LoginPage() {
               </label>
             </div>
 
-            <button type="submit" disabled={loading} className={`w-full mt-6 ${loading ? 'btn-disabled' : 'btn btn-primary'}`}>
-              {loading ? 'Procesando...' : (isLogin ? 'INGRESAR' : 'REGISTRARSE')}
+            <button type="submit" disabled={loading} className={`w-full mt-6 btn h-11 ${loading ? 'btn-disabled' : 'btn-primary'}`}>
+              {loading ? (
+                <span className="inline-flex items-center justify-center" aria-label="Cargando">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                </span>
+              ) : (isLogin ? 'INGRESAR' : 'REGISTRARSE')}
             </button>
           </form>
 

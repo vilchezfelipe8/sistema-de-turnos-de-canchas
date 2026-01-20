@@ -65,6 +65,15 @@ export default function MyBookingsPage() {
       router.replace('/login');
       return;
     }
+    try {
+      const user = JSON.parse(userStr);
+      if (user?.role === 'ADMIN') {
+        router.replace('/admin');
+        return;
+      }
+    } catch {
+      // noop
+    }
     setAuthChecked(true);
   }, [router]);
 
@@ -121,7 +130,7 @@ export default function MyBookingsPage() {
         <div className="text-center py-20 bg-surface-70 border border-dashed border-border rounded-3xl">
           <div className="text-7xl mb-4 opacity-50">🎾</div>
           <h3 className="text-xl font-bold text-text mb-2">Sin partidos registrados</h3>
-          <p className="text-muted mb-6">El court te está esperando.</p>
+          <p className="text-muted mb-6">La cancha te está esperando.</p>
           <a href="/" className="px-6 py-3 btn btn-primary">Reservar Ahora</a>
         </div>
       )}

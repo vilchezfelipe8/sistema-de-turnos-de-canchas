@@ -5,6 +5,7 @@ import bookingRoutes from './routes/BookingRoutes'; // <--- SOLO IMPORTAMOS RESE
 import CourtRoutes from './routes/CourtRoutes';
 import authRoutes from './routes/AuthRoutes';
 import cors from 'cors';
+import { BookingStatus } from './entities/Enums';
 
 const app = express();
 
@@ -43,6 +44,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 const NODE_ENV = process.env.NODE_ENV || 'development';
+const BOOKINGS_COMPLETION_INTERVAL_MS = Number(process.env.BOOKINGS_COMPLETION_INTERVAL_MS) || 1 * 60 * 1000;
 
 app.use(express.json());
 
@@ -67,6 +69,36 @@ const startServer = async () => {
   try {
     await prisma.$connect();
     app.use('/api/auth', authRoutes);
+
+    const completePastBookings = async () => {
+      try {
+        const now = new Date();
+        const candidates = await prisma.booking.findMany({
+          where: {
+            status: { in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
+            startDateTime: { lt: now }
+          },
+          select: { id: true, endDateTime: true }
+        });
+
+        const toComplete = candidates
+          .filter((booking) => booking.endDateTime.getTime() <= now.getTime())
+          .map((booking) => booking.id);
+
+        if (toComplete.length > 0) {
+          await prisma.booking.updateMany({
+            where: { id: { in: toComplete } },
+            data: { status: BookingStatus.COMPLETED }
+          });
+        }
+      } catch (error) {
+        console.error('❌ Error al completar turnos vencidos:', error);
+      }
+    };
+
+    await completePastBookings();
+    const completionInterval = setInterval(completePastBookings, BOOKINGS_COMPLETION_INTERVAL_MS);
+    completionInterval.unref?.();
 
     app.listen(PORT, '0.0.0.0', () => {
     });

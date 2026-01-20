@@ -14,12 +14,12 @@ async function main() {
     update: {},
     create: {
       id: 1, 
-      name: 'Padel',
+      name: 'Pádel',
       description: 'Deporte de paleta',
       defaultDurationMinutes: 90
     },
   });
-  console.log('✅ Actividad creada: Padel');
+  console.log('✅ Actividad creada: Pádel');
 
   // 2. Club (Quitamos el ID manual)
   // Usamos create en lugar de upsert para simplificar y dejar que el ID sea automático
@@ -39,7 +39,7 @@ async function main() {
       name: 'Cancha Central',
       clubId: club.id, // Usamos el ID real que generó la base de datos
       isIndoor: true,
-      surface: 'Sintetico'
+      surface: 'Sintético'
     },
   });
   console.log('✅ Cancha creada: Cancha Central');

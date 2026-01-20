@@ -25,10 +25,12 @@ export const createBooking = async (
   activityId: number,
   date: Date,
   userId?: number,
-  guestInfo?: { name?: string; email?: string; phone?: string }
+  guestInfo?: { name?: string; email?: string; phone?: string },
+  options?: { asGuest?: boolean; guestIdentifier?: string }
 ) => {
   const token = getToken();
   const guestId = token ? undefined : getOrCreateGuestId();
+  const guestIdentifier = options?.guestIdentifier ?? guestId;
 
   const headers: any = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -40,10 +42,11 @@ export const createBooking = async (
       courtId,
       activityId,
       startDateTime: date.toISOString(),
-      ...(guestId ? { guestIdentifier: guestId } : {}),
+      ...(guestIdentifier ? { guestIdentifier } : {}),
       ...(guestInfo?.name ? { guestName: guestInfo.name } : {}),
       ...(guestInfo?.email ? { guestEmail: guestInfo.email } : {}),
       ...(guestInfo?.phone ? { guestPhone: guestInfo.phone } : {}),
+      ...(options?.asGuest ? { asGuest: true } : {}),
       
       // 👇 AGREGAR ESTA LÍNEA PARA QUE EL BACKEND RECIBA EL ID 👇
       ...(userId ? { userId } : {}) 
@@ -98,6 +101,26 @@ export const cancelBooking = async (bookingId: number) => {
     return res.json();
 };
 
+export const confirmBooking = async (bookingId: number) => {
+    const token = getToken();
+    if (!token) throw new Error("Debes iniciar sesión como administrador.");
+
+    const res = await fetch(`${API_URL}/api/bookings/confirm`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ bookingId })
+    });
+
+    if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || error.message || 'No se pudo confirmar el turno');
+    }
+    return res.json();
+};
+
 // --- 4. OBTENER SCHEDULE COMPLETO DEL DÍA (ADMIN) ---
 export const getAdminSchedule = async (date: string) => {
     const token = getToken();
@@ -120,10 +143,11 @@ export const getAdminSchedule = async (date: string) => {
 
 // --- 5. CREAR TURNO FIJO ---
 export const createFixedBooking = async (
-  userId: number, 
+  userId: number | undefined,
   courtId: number, 
   activityId: number, 
-  startDateTime: Date
+  startDateTime: Date,
+  guestName?: string
 ) => {
   const token = getToken();
   if (!token) throw new Error("Debes iniciar sesión como administrador.");
@@ -135,7 +159,8 @@ export const createFixedBooking = async (
         'Authorization': `Bearer ${token}`
     },
     body: JSON.stringify({
-        userId,
+        ...(userId ? { userId } : {}),
+        ...(guestName ? { guestName } : {}),
         courtId,
         activityId,
         startDateTime: startDateTime.toISOString()
@@ -144,7 +169,7 @@ export const createFixedBooking = async (
 
   if (!res.ok) {
     const error = await res.json();
-    throw new Error(error.message || 'Error al crear turno fijo');
+    throw new Error(error.error || error.message || 'Error al crear turno fijo');
   }
   return res.json();
 };

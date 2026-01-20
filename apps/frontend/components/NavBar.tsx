@@ -44,6 +44,7 @@ const Navbar = () => {
   };
 
   const isActive = (path: string) => router.pathname === path;
+  const isAdmin = user?.role === 'ADMIN';
 
   return (
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 border-b ${isScrolled ? 'py-2' : 'py-3'}`} style={{ backgroundColor: 'var(--bg)', borderColor: 'var(--border)' }}>
@@ -62,11 +63,15 @@ const Navbar = () => {
         {(user || isGuest) && (
           <div className="flex items-center gap-1 p-1 rounded-full" style={{ backgroundColor: 'var(--surface)' }}>
             
-            <NavLink href="/" icon="🏠" text="Inicio" active={isActive('/')} />
-            {user && <NavLink href="/bookings" icon="📅" text="Mis Turnos" active={isActive('/bookings')} />}
-            
-            {user?.role === 'ADMIN' && (
-              <NavLink href="/admin" icon="⚙️" text="Admin" active={isActive('/admin')} />
+            {!isAdmin && (
+              <>
+                <NavLink href="/" icon="🏠" text="Inicio" active={isActive('/')} />
+                {user && <NavLink href="/bookings" icon="📅" text="Mis Turnos" active={isActive('/bookings')} />}
+              </>
+            )}
+
+            {isAdmin && (
+              <NavLink href="/admin" icon="⚙️" text="Gestión" active={isActive('/admin')} />
             )}
 
             {/* Botón Cerrar Sesión (solo para usuarios autenticados) */}

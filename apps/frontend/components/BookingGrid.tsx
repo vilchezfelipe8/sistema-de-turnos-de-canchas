@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAvailability } from '../hooks/useAvailability';
 import { createBooking } from '../services/BookingService';
 import { useRouter } from 'next/router'; // Importar router por si necesitas redireccionar
@@ -15,6 +15,18 @@ export default function BookingGrid() {
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   };
+  const formatDateTime = (date: Date) =>
+    date.toLocaleString('es-AR', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+  const maxDate = new Date();
+  maxDate.setMonth(maxDate.getMonth() + 1);
+  const maxDateStr = formatLocalDate(maxDate);
   // const router = useRouter(); // Descomentar si usas next router
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
@@ -28,6 +40,7 @@ export default function BookingGrid() {
   const [guestModalOpen, setGuestModalOpen] = useState(false);
   const [guestPhoneFocused, setGuestPhoneFocused] = useState(false);
   const [guestError, setGuestError] = useState('');
+  const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
   const [modalState, setModalState] = useState<{
     show: boolean;
     title?: string;
@@ -106,7 +119,7 @@ export default function BookingGrid() {
     const firstName = guestFirstName.trim();
     const lastName = guestLastName.trim();
     if (!firstName || !lastName) return false;
-    if (!email && !phone) return false;
+    if (!phone) return false;
     return isEmailValid(email) && isPhoneValid(phone);
   };
 
@@ -201,16 +214,16 @@ export default function BookingGrid() {
       setGuestError('❗ Ingresá tu nombre y apellido para reservar como invitado.');
       return;
     }
-    if (!info.email && !info.phone) {
-      setGuestError('❗ Ingresá un email o teléfono para poder contactarte.');
-      return;
-    }
     if (info.email && !isEmailValid(info.email)) {
       setGuestError('❗ Ingresá un email con formato válido.');
       return;
     }
     if (info.phone && !isPhoneValid(info.phone)) {
       setGuestError('❗ Ingresá un teléfono con formato válido.');
+      return;
+    }
+    if (!info.phone) {
+      setGuestError('❗ Ingresá un teléfono para poder contactarte.');
       return;
     }
     setGuestError('');
@@ -268,6 +281,22 @@ export default function BookingGrid() {
     }
   }, [disabledSlots, selectedDate]);
 
+  const selectedTimes = (() => {
+    if (!selectedDate || !selectedSlot) return null;
+    const [hours, minutes] = selectedSlot.split(':').map(Number);
+    const start = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), hours, minutes, 0, 0);
+    const end = new Date(start.getTime() + 90 * 60000);
+    return {
+      startLabel: formatDateTime(start),
+      endLabel: formatDateTime(end)
+    };
+  })();
+
+  useEffect(() => {
+    if (!selectedSlot || !selectedCourt) return;
+    confirmButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [selectedSlot, selectedCourt]);
+
   // --- Cargar Canchas ---
   useEffect(() => {
     const fetchCourts = async () => {
@@ -317,10 +346,7 @@ export default function BookingGrid() {
   // --- RENDERIZADO VISUAL ---
   return (
     <div className="w-full max-w-4xl mx-auto bg-surface-70 backdrop-blur-xl p-6 sm:p-8 rounded-3xl border border-border shadow-soft relative overflow-hidden">
-      
-      {/* Glow Effect Decorativo */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-1" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.04), transparent)' }}></div>
-
+    
       <div className="text-center mb-8">
         <h2 className="text-3xl font-black text-text mb-2 tracking-tight">Reservar Cancha</h2>
         <p className="text-muted font-medium">Elige tu día y horario ideal</p>
@@ -334,7 +360,12 @@ export default function BookingGrid() {
         <input
           type="date"
           min={formatLocalDate(new Date())}
-          className="w-full p-4 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-border focus:ring-1 focus:ring-border transition-all font-medium shadow-inner"
+          max={maxDateStr}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            (e.currentTarget as HTMLInputElement).showPicker?.();
+          }}
+          className="date-input w-full p-4 pr-12 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none transition-all font-medium shadow-inner"
           onChange={handleDateChange}
           value={selectedDate ? formatLocalDate(selectedDate) : ''}
           style={{ colorScheme: 'dark' }} 
@@ -457,6 +488,7 @@ export default function BookingGrid() {
 
       {/* BOTÓN PRINCIPAL CON LÓGICA DE LOGIN VISUAL */}
       <button
+        ref={confirmButtonRef}
         onClick={handleBooking}
         disabled={isBooking || !selectedSlot || !selectedCourt}
         className={`${(isBooking || !selectedSlot || !selectedCourt) ? 'btn btn-disabled w-full' : 'btn btn-primary w-full'}`}
@@ -502,12 +534,27 @@ export default function BookingGrid() {
       <AppModal
         show={guestModalOpen}
         onClose={() => setGuestModalOpen(false)}
-        title="Datos de contacto"
+        title=""
         message={(
           <div className="space-y-3">
-            <p className="text-sm text-slate-300">
-              Para reservar como invitado necesitamos tus datos de contacto.
-            </p>
+            <h4 className="text-sm font-semibold text-text">Datos de reserva</h4>
+            {selectedTimes && (
+              <div className="grid grid-cols-1 gap-2 rounded-xl border border-border bg-surface p-3 text-sm text-muted">
+                <div className="flex items-center justify-between">
+                  <span>Inicia:</span>
+                  <span className="text-text font-semibold">{selectedTimes.startLabel}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Termina:</span>
+                  <span className="text-text font-semibold">{selectedTimes.endLabel}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Precio:</span>
+                  <span className="text-text font-semibold">$28.000</span>
+                </div>
+              </div>
+            )}
+            <h4 className="text-sm font-semibold text-text pt-2">Datos de contacto</h4>
             <div className="grid grid-cols-1 gap-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="relative">
@@ -547,7 +594,7 @@ export default function BookingGrid() {
               </div>
               <div className="relative flex items-center rounded-xl border border-border bg-surface focus-within:border-white focus-within:!border-white transition-colors">
                 <span
-                  className={`px-3 text-muted font-medium whitespace-nowrap min-w-[3.25rem] text-center transition-all duration-150 ${guestPhone.length || guestPhoneFocused ? 'mt-1.5' : ''}`}
+                  className={`px-3 text-muted font-medium whitespace-nowrap min-w-[3.25rem] text-center transition-all duration-150 leading-none ${guestPhone.length || guestPhoneFocused ? 'mt-2' : ''}`}
                 >
                   +54&nbsp;9
                 </span>
@@ -566,37 +613,17 @@ export default function BookingGrid() {
                   maxLength={12}
                   className="peer w-full p-3 pt-5 rounded-xl bg-transparent text-text placeholder:text-muted focus:outline-none transition-colors font-medium border-0 focus:border-0 leading-tight"
                 />
-                <label
+                  <label
                   htmlFor="guest-phone"
                   className="absolute left-16 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
                 >
-                  Teléfono (opcional)
-                </label>
-              </div>
-              <div className="relative">
-                <input
-                  id="guest-email"
-                  type="email"
-                  placeholder=" "
-                  value={guestEmail}
-                  onChange={(e) => setGuestEmail(e.target.value)}
-                  onKeyDown={handleGuestKeyDown}
-                  className="peer w-full p-3 pt-5 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-white focus:!border-white focus:ring-0 transition-colors font-medium shadow-inner"
-                />
-                <label
-                  htmlFor="guest-email"
-                  className="absolute left-3 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
-                >
-                  Email (opcional)
+                  Teléfono
                 </label>
               </div>
             </div>
             {guestError && (
               <p className="text-xs text-red-400">{guestError}</p>
             )}
-            <p className="text-xs text-muted">
-              Pedimos al menos un email o teléfono para poder contactarte.
-            </p>
           </div>
         )}
         cancelText="Cancelar"

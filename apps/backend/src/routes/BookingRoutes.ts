@@ -30,6 +30,7 @@ router.get('/all-availability', bookingController.getAllAvailableSlots);
 router.get('/availability-with-courts', bookingController.getAvailableSlotsWithCourts);
 router.post('/', optionalAuthMiddleware, bookingController.createBooking);
 router.post('/cancel', authMiddleware, bookingController.cancelBooking);
+router.post('/confirm', authMiddleware, requireRole('ADMIN'), bookingController.confirmBooking);
 router.get('/history/:userId', authMiddleware, bookingController.getHistory);
 router.get('/admin/schedule', authMiddleware, requireRole('ADMIN'), bookingController.getAdminSchedule);
 router.post('/fixed', authMiddleware, requireRole('ADMIN'), bookingController.createFixed);

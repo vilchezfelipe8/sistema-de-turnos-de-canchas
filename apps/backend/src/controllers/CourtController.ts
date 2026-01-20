@@ -21,7 +21,7 @@ export class CourtController {
                     name,
                     clubId,
                     isIndoor: isIndoor || false,
-                    surface: surface || 'Sintetico'
+                    surface: surface || 'Sintético'
                 }
             });
 
