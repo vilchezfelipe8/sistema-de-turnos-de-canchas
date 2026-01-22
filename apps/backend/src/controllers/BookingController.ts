@@ -231,7 +231,8 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
         try {
             const { bookingId } = req.body;
             const user = (req as any).user;
-            const result = await this.bookingService.cancelBooking(Number(bookingId), user?.userId);
+            const clubId = (req as any).clubId; // Agregado por middleware de verificación de club
+            const result = await this.bookingService.cancelBooking(Number(bookingId), user?.userId, clubId);
             res.json({ message: "Reserva cancelada", booking: result });
         } catch (error: any) {
             res.status(400).json({ error: error.message });
@@ -244,7 +245,8 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
             if (!bookingId) {
                 return res.status(400).json({ error: "Falta bookingId." });
             }
-            const result = await this.bookingService.confirmBooking(Number(bookingId));
+            const clubId = (req as any).clubId; // Agregado por middleware de verificación de club
+            const result = await this.bookingService.confirmBooking(Number(bookingId), clubId);
             res.json({ message: "Reserva confirmada", booking: result });
         } catch (error: any) {
             res.status(400).json({ error: error.message });
@@ -328,7 +330,10 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
             const [year, month, day] = String(date).split('-').map(Number);
             const searchDate = new Date(year, month - 1, day);
 
-            const bookings = await this.bookingService.getDaySchedule(searchDate);
+            // Obtener clubId del request (agregado por middleware de verificación de club)
+            const clubId = (req as any).clubId;
+
+            const bookings = await this.bookingService.getDaySchedule(searchDate, clubId);
             res.json(bookings);
         } catch (error: any) {
             console.error('Error en getAdminSchedule:', error);
@@ -341,6 +346,7 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
             const { userId, courtId, activityId, startDateTime, guestName } = req.body;
             const user = (req as any).user;
             const isAdmin = user?.role === 'ADMIN';
+            const clubId = (req as any).clubId; // Agregado por middleware de verificación de club
 
             if (!userId && !isAdmin) {
                 return res.status(403).json({ error: "Solo un administrador puede crear turnos fijos sin usuario." });
@@ -358,7 +364,8 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
                 activityId, 
                 startDate,
                 undefined,
-                guestName
+                guestName,
+                clubId
             );
             
             res.status(201).json(result);
@@ -370,7 +377,8 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
     cancelFixed = async (req: Request, res: Response) => {
         try {
             const id = parseInt(req.params.id);
-            const result = await this.bookingService.cancelFixedBooking(id);
+            const clubId = (req as any).clubId; // Agregado por middleware de verificación de club
+            const result = await this.bookingService.cancelFixedBooking(id, clubId);
             res.json(result);
         } catch (error: any) {
             res.status(400).json({ error: error.message });

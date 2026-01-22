@@ -3,6 +3,8 @@ import express, { Request, Response } from 'express';
 import { prisma } from './prisma'; 
 import bookingRoutes from './routes/BookingRoutes'; // <--- SOLO IMPORTAMOS RESERVAS
 import CourtRoutes from './routes/CourtRoutes';
+import ClubRoutes from './routes/ClubRoutes';
+import ClubAdminRoutes from './routes/ClubAdminRoutes';
 import authRoutes from './routes/AuthRoutes';
 import cors from 'cors';
 import { BookingStatus } from './entities/Enums';
@@ -53,6 +55,8 @@ app.use('/api/bookings', bookingRoutes);
 // Borré la linea de app.use('/api/activities'...) porque no la vamos a usar.
 
 app.use('/api/courts', CourtRoutes);
+app.use('/api/clubs', ClubRoutes);
+app.use('/api/clubs', ClubAdminRoutes);
 
 app.get('/', (req: Request, res: Response) => {
   res.json({ message: 'API Sistema de Turnos' });

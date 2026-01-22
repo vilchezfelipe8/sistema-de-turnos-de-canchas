@@ -6,7 +6,7 @@ import { login, register } from '../services/AuthService';
 export default function LoginPage() {
   // const router = useRouter(); // Descomentar si usas router para redirigir
   const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState('admin@local.test');
+  const [email, setEmail] = useState('admin@lastejas.com');
   const [password, setPassword] = useState('admin123');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');

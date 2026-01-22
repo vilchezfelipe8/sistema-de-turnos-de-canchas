@@ -5,9 +5,18 @@ export class Club {
 
     constructor(
         public id: number,
+        public slug: string,
         public name: string,
         public address: string,
-        public contactInfo: string
+        public contactInfo: string,
+        public phone?: string,
+        public logoUrl?: string,
+        public instagramUrl?: string,
+        public facebookUrl?: string,
+        public websiteUrl?: string,
+        public description?: string,
+        public createdAt?: Date,
+        public updatedAt?: Date
     ) {}
 }
 

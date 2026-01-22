@@ -1,13 +1,15 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
-import { logout } from '../services/AuthService'; 
+import { logout } from '../services/AuthService';
+import { ClubService, Club } from '../services/ClubService';
 
 const Navbar = () => {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [isGuest, setIsGuest] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
+  const [club, setClub] = useState<Club | null>(null);
 
   useEffect(() => {
     // Verificar si hay usuario logueado
@@ -38,6 +40,40 @@ const Navbar = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  useEffect(() => {
+    const loadClub = async () => {
+      try {
+        // Obtener el slug de la URL actual
+        const path = router.asPath;
+        const slugMatch = path.match(/\/club\/([^\/]+)/);
+        
+        if (slugMatch && slugMatch[1]) {
+          // Si estamos en una página de club, usar el slug de la URL
+          const clubData = await ClubService.getClubBySlug(slugMatch[1]);
+          setClub(clubData);
+        } else {
+          // Si no hay slug en la URL, intentar obtener el club del usuario
+          const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+          if (userStr) {
+            try {
+              const user = JSON.parse(userStr);
+              if (user?.clubId) {
+                const clubData = await ClubService.getClubById(user.clubId);
+                setClub(clubData);
+              }
+            } catch {
+              // noop
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error al cargar información del club:', error);
+      }
+    };
+
+    loadClub();
+  }, [router.asPath]);
+
   const handleLogout = () => {
     logout();
     window.location.href = '/';
@@ -52,11 +88,40 @@ const Navbar = () => {
       <div className="container mx-auto px-4 flex justify-between items-center">
         
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-3 group">
-          <img src="/logo1.svg" alt="LAS TEJAS" className="h-20 w-20 object-contain transition-transform group-hover:scale-110" />
-          <div className="flex flex-col leading-none">
-            <img src="/LasTejasBlanco.svg" alt="LAS TEJAS" className="h-8 md:h-12 lg:h-16 object-contain max-[900px]:hidden" />
-          </div>
+        <Link href={club ? `/club/${club.slug}` : '/'} className="flex items-center gap-3 group">
+          {club?.logoUrl ? (
+            <>
+              <img 
+                src={club.logoUrl} 
+                alt={club.name} 
+                className="h-20 w-20 object-contain transition-transform group-hover:scale-110" 
+                onError={(e) => {
+                  // Fallback a logo por defecto si falla la carga
+                  (e.target as HTMLImageElement).src = '/logo1.svg';
+                }}
+              />
+              <div className="flex flex-col leading-none max-[900px]:hidden">
+                <span className="text-lg md:text-2xl lg:text-3xl font-black text-emerald-400">
+                  {club.name}
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
+              <img src="/logo1.svg" alt="Club" className="h-20 w-20 object-contain transition-transform group-hover:scale-110" />
+              <div className="flex flex-col leading-none max-[900px]:hidden">
+                {club ? (
+                  <span className="text-lg md:text-2xl lg:text-3xl font-black text-emerald-400">
+                    {club.name}
+                  </span>
+                ) : (
+                  <span className="text-lg md:text-2xl lg:text-3xl font-black text-emerald-400">
+                    Sistema de Reservas
+                  </span>
+                )}
+              </div>
+            </>
+          )}
         </Link>
 
         {/* Menú (si está logueado o es invitado) */}
@@ -65,13 +130,13 @@ const Navbar = () => {
             
             {!isAdmin && (
               <>
-                <NavLink href="/" icon="🏠" text="Inicio" active={isActive('/')} />
+                <NavLink href={club ? `/club/${club.slug}` : '/'} icon="🏠" text="Inicio" active={router.asPath.startsWith('/club/') || router.asPath === '/'} />
                 {user && <NavLink href="/bookings" icon="📅" text="Mis Turnos" active={isActive('/bookings')} />}
               </>
             )}
 
-            {isAdmin && (
-              <NavLink href="/admin" icon="⚙️" text="Gestión" active={isActive('/admin')} />
+            {isAdmin && club && (
+              <NavLink href={`/club/${club.slug}/admin`} icon="⚙️" text="Gestión" active={router.asPath.includes('/admin')} />
             )}
 
             {/* Botón Cerrar Sesión (solo para usuarios autenticados) */}

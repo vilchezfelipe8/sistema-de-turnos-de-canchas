@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import Navbar from '../components/NavBar';
 import PageShell from '../components/PageShell';
 import { getMyBookings, cancelBooking } from '../services/BookingService';
+import { ClubService } from '../services/ClubService';
 import AppModal from '../components/AppModal';
 
 export default function MyBookingsPage() {
@@ -67,8 +68,10 @@ export default function MyBookingsPage() {
     }
     try {
       const user = JSON.parse(userStr);
-      if (user?.role === 'ADMIN') {
-        router.replace('/admin');
+      if (user?.role === 'ADMIN' && user?.clubId) {
+        // Redirigir al admin del club del usuario
+        const club = await ClubService.getClubById(user.clubId);
+        router.replace(`/club/${club.slug}/admin`);
         return;
       }
     } catch {

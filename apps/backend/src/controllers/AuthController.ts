@@ -69,12 +69,19 @@ export class AuthController {
                 { expiresIn: '24h' }
             );
 
-            res.json({ message: "Login exitoso", token,
-    user: {
-        id: user.id,
-        email: user.email,
-        role: user.role 
-    } });
+            res.json({ 
+                message: "Login exitoso", 
+                token,
+                user: {
+                    id: user.id,
+                    firstName: user.firstName,
+                    lastName: user.lastName,
+                    email: user.email,
+                    phoneNumber: user.phoneNumber,
+                    role: user.role,
+                    clubId: user.clubId
+                } 
+            });
         } catch (error: any) {
             res.status(500).json({ error: error.message });
         }

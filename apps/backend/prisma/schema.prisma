@@ -31,16 +31,28 @@ model User {
   lastName    String
   phoneNumber String
   role        Role      @default(MEMBER)
+  clubId      Int?
+  club        Club?     @relation(fields: [clubId], references: [id])
   bookings    Booking[]
   fixedBookings FixedBooking[]
 }
 
 model Club {
   id          Int     @id @default(autoincrement())
+  slug        String  @unique // Slug único para URLs (ej: "las-tejas", "club-central")
   name        String
   address     String
-  contactInfo String
+  contactInfo String  // Email de contacto general
+  phone       String? // Teléfono del club
+  logoUrl     String? // URL del logo del club
+  instagramUrl String? // URL de Instagram
+  facebookUrl  String? // URL de Facebook
+  websiteUrl   String? // URL del sitio web
+  description  String? // Descripción del club
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
   courts      Court[]
+  users       User[]
 }
 
 model Court {

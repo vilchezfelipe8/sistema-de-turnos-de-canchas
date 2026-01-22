@@ -150,21 +150,33 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
     return freeSlots;
 }
 
-    async cancelBooking(bookingId: number, cancelledByUserId: number) {
+    async cancelBooking(bookingId: number, cancelledByUserId: number, clubId?: number) {
         const booking = await this.bookingRepo.findById(bookingId);
         if (!booking) {
             throw new Error("La reserva no existe.");
         }
+        
+        // Si hay clubId, verificar que la reserva pertenece al club
+        if (clubId && booking.court.club.id !== clubId) {
+            throw new Error("No tienes acceso a esta reserva");
+        }
+        
         await this.bookingRepo.delete(bookingId, cancelledByUserId);
         const updated = await this.bookingRepo.findById(bookingId);
         return updated;
     }
 
-    async confirmBooking(bookingId: number) {
+    async confirmBooking(bookingId: number, clubId?: number) {
         const booking = await this.bookingRepo.findById(bookingId);
         if (!booking) {
             throw new Error("La reserva no existe.");
         }
+        
+        // Si hay clubId, verificar que la reserva pertenece al club
+        if (clubId && booking.court.club.id !== clubId) {
+            throw new Error("No tienes acceso a esta reserva");
+        }
+        
         if (booking.status === BookingStatus.CANCELLED) {
             throw new Error("No se puede confirmar una reserva cancelada.");
         }
@@ -187,13 +199,24 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
     return bookings;
 }
 
-    async getDaySchedule(date: Date) {
-        // Obtener todas las canchas activas (no en mantenimiento)
-        const allCourts = await this.courtRepo.findAll();
+    async getDaySchedule(date: Date, clubId?: number) {
+        // Obtener canchas activas (no en mantenimiento)
+        // Si hay clubId, filtrar por club
+        let allCourts;
+        if (clubId) {
+            allCourts = await prisma.court.findMany({
+                where: { clubId, isUnderMaintenance: false },
+                include: { club: true, activities: true }
+            });
+        } else {
+            allCourts = await this.courtRepo.findAll();
+        }
         const activeCourts = allCourts.filter(court => !court.isUnderMaintenance);
 
-        // Obtener todas las bookings del día
-        const bookings = await this.bookingRepo.findAllByDate(date);
+        // Obtener bookings del día, filtrando por club si es necesario
+        const bookings = clubId 
+            ? await this.bookingRepo.findAllByDateAndClub(date, clubId)
+            : await this.bookingRepo.findAllByDate(date);
 
         // Slots posibles del día
         const possibleSlots = [
@@ -374,7 +397,8 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
         activityId: number,
         startDateTime: Date,
         weeksToGenerate: number = 24,
-        guestName?: string
+        guestName?: string,
+        clubId?: number
     ) {
 
         // 1. Validaciones básicas
@@ -387,6 +411,11 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
 
         const court = await this.courtRepo.findById(courtId);
         if (!court) throw new Error("Cancha no encontrada");
+        
+        // Si hay clubId, verificar que la cancha pertenece al club
+        if (clubId && court.club.id !== clubId) {
+            throw new Error("No tienes acceso a esta cancha");
+        }
 
         // IMPORTANTE: Asegúrate de que el ID de actividad exista (el que vimos antes)
         const activity = await this.activityRepo.findById(activityId);
@@ -492,25 +521,42 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
             timeout: 20000 // Mantenemos el timeout por seguridad
         });
     }
-    async cancelFixedBooking(fixedBookingId: number) {
-    const today = new Date();
-    
-    // Actualizamos todas las reservas futuras vinculadas a ese ID a "CANCELLED"
-    // O directamente las borramos (deleteMany) si prefieres limpiar la grilla.
-    
-    await prisma.booking.updateMany({
-        where: {
-            fixedBookingId: fixedBookingId,
-            startDateTime: { gte: today }, // Solo las futuras
-            status: { not: 'CANCELLED' }
-        },
-        data: {
-            status: 'CANCELLED'
+    async cancelFixedBooking(fixedBookingId: number, clubId?: number) {
+        // Si hay clubId, verificar que el turno fijo pertenece al club
+        if (clubId) {
+            const fixedBooking = await prisma.fixedBooking.findUnique({
+                where: { id: fixedBookingId },
+                include: { court: { include: { club: true } } }
+            });
+            if (!fixedBooking) {
+                throw new Error("Turno fijo no encontrado");
+            }
+            if (fixedBooking.court.club.id !== clubId) {
+                throw new Error("No tienes acceso a este turno fijo");
+            }
         }
-    });
-    
-    // Opcional: Marcar el FixedBooking como inactivo si le agregas un campo 'isActive'
-    return { message: "Turno fijo cancelado de hoy en adelante" };
-}
+        
+        const today = new Date();
+        
+        // Actualizamos todas las reservas futuras vinculadas a ese ID a "CANCELLED"
+        await prisma.booking.updateMany({
+            where: {
+                fixedBookingId: fixedBookingId,
+                startDateTime: { gte: today }, // Solo las futuras
+                status: { not: 'CANCELLED' },
+                // Si hay clubId, también filtrar por club
+                ...(clubId ? {
+                    court: {
+                        clubId: clubId
+                    }
+                } : {})
+            },
+            data: {
+                status: 'CANCELLED'
+            }
+        });
+        
+        return { message: "Turno fijo cancelado de hoy en adelante" };
+    }
 }
 

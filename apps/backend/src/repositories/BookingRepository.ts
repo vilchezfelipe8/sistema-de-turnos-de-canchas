@@ -116,10 +116,40 @@ export class BookingRepository {
         return bookings.map((b: any) => this.mapToEntity(b));
     }
 
+    async findAllByDateAndClub(date: Date, clubId: number) {
+        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date);
+
+        const bookings = await prisma.booking.findMany({
+            where: {
+                startDateTime: { gte: startUtc, lte: endUtc },
+                status: { not: 'CANCELLED' },
+                court: {
+                    clubId: clubId
+                }
+            },
+            include: {
+                user: true,
+                court: { include: { club: true } },
+                activity: true
+            },
+            orderBy: {
+                startDateTime: 'asc'
+            }
+        });
+
+        return bookings.map((b: any) => this.mapToEntity(b));
+    }
+
     // Helper para convertir lo que viene de DB a tu Clase Entidad
     public mapToEntity(dbItem: any): Booking {
         const user = dbItem.user ? new User(dbItem.user.id, dbItem.user.firstName, dbItem.user.lastName, dbItem.user.email, dbItem.user.phoneNumber, dbItem.user.role as Role) : null;
-        const club = new Club(dbItem.court.club.id, dbItem.court.club.name, dbItem.court.club.address, dbItem.court.club.contactInfo);
+        const club = new Club(
+            dbItem.court.club.id,
+            dbItem.court.club.slug,
+            dbItem.court.club.name,
+            dbItem.court.club.address,
+            dbItem.court.club.contactInfo
+        );
         const court = new Court(dbItem.court.id, dbItem.court.name, dbItem.court.isIndoor, dbItem.court.surface, club, dbItem.court.isUnderMaintenance);
         const activity = new ActivityType(dbItem.activity.id, dbItem.activity.name, dbItem.activity.description, dbItem.activity.defaultDurationMinutes);
 

@@ -5,11 +5,33 @@ import { ActivityType } from '../entities/ActivityType';
 
 export class ClubRepository {
 
-    async createClub(name: string, address: string, contact: string): Promise<Club> {
+    async createClub(
+        slug: string,
+        name: string, 
+        address: string, 
+        contact: string,
+        phone?: string,
+        logoUrl?: string,
+        instagramUrl?: string,
+        facebookUrl?: string,
+        websiteUrl?: string,
+        description?: string
+    ): Promise<Club> {
         const saved = await prisma.club.create({
-            data: { name, address, contactInfo: contact }
+            data: { 
+                slug,
+                name, 
+                address, 
+                contactInfo: contact,
+                phone,
+                logoUrl,
+                instagramUrl,
+                facebookUrl,
+                websiteUrl,
+                description
+            }
         });
-        return new Club(saved.id, saved.name, saved.address, saved.contactInfo);
+        return this.mapToClub(saved);
     }
 
     async saveCourt(court: Court): Promise<Court> {
@@ -28,7 +50,7 @@ export class ClubRepository {
         });
 
         const activities = saved.activities.map(a => new ActivityType(a.id, a.name, a.description, a.defaultDurationMinutes));
-        const club = new Club(saved.club.id, saved.club.name, saved.club.address, saved.club.contactInfo);
+        const club = this.mapToClub(saved.club);
         
         const newCourt = new Court(saved.id, saved.name, saved.isIndoor, saved.surface, club, saved.isUnderMaintenance);
         newCourt.supportedActivities = activities;
@@ -45,7 +67,7 @@ export class ClubRepository {
         if (!found) return undefined;
 
         const activities = found.activities.map(a => new ActivityType(a.id, a.name, a.description, a.defaultDurationMinutes));
-        const club = new Club(found.club.id, found.club.name, found.club.address, found.club.contactInfo);
+        const club = this.mapToClub(found.club);
         
         const court = new Court(found.id, found.name, found.isIndoor, found.surface, club, found.isUnderMaintenance);
         court.supportedActivities = activities;
@@ -54,12 +76,76 @@ export class ClubRepository {
 
     // Método extra necesario para que compile el servicio
     async saveClub(club: Club): Promise<Club> {
-        return this.createClub(club.name, club.address, club.contactInfo);
+        return this.createClub(
+            club.slug,
+            club.name, 
+            club.address, 
+            club.contactInfo,
+            club.phone,
+            club.logoUrl,
+            club.instagramUrl,
+            club.facebookUrl,
+            club.websiteUrl,
+            club.description
+        );
     }
     
     async findAllClubs(): Promise<Club[]> {
         const all = await prisma.club.findMany();
-        return all.map(c => new Club(c.id, c.name, c.address, c.contactInfo));
+        return all.map(c => this.mapToClub(c));
+    }
+
+    async findClubById(id: number): Promise<Club | undefined> {
+        const found = await prisma.club.findUnique({
+            where: { id }
+        });
+        if (!found) return undefined;
+        return this.mapToClub(found);
+    }
+
+    async findClubBySlug(slug: string): Promise<Club | undefined> {
+        const found = await prisma.club.findUnique({
+            where: { slug }
+        });
+        if (!found) return undefined;
+        return this.mapToClub(found);
+    }
+
+    async updateClub(id: number, data: {
+        slug?: string;
+        name?: string;
+        address?: string;
+        contactInfo?: string;
+        phone?: string | null;
+        logoUrl?: string | null;
+        instagramUrl?: string | null;
+        facebookUrl?: string | null;
+        websiteUrl?: string | null;
+        description?: string | null;
+    }): Promise<Club> {
+        const updated = await prisma.club.update({
+            where: { id },
+            data
+        });
+        return this.mapToClub(updated);
+    }
+
+    private mapToClub(dbClub: any): Club {
+        return new Club(
+            dbClub.id,
+            dbClub.slug,
+            dbClub.name,
+            dbClub.address,
+            dbClub.contactInfo,
+            dbClub.phone || undefined,
+            dbClub.logoUrl || undefined,
+            dbClub.instagramUrl || undefined,
+            dbClub.facebookUrl || undefined,
+            dbClub.websiteUrl || undefined,
+            dbClub.description || undefined,
+            dbClub.createdAt,
+            dbClub.updatedAt
+        );
     }
 }
 

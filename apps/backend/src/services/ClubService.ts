@@ -9,14 +9,70 @@ export class ClubService {
         private activityRepo: ActivityTypeRepository
     ) {}
 
-    async createClub(name: string, address: string, contact: string) {
-        const club = new Club(0, name, address, contact);
-        return await this.clubRepo.saveClub(club);
+    async createClub(
+        slug: string,
+        name: string, 
+        address: string, 
+        contact: string,
+        phone?: string,
+        logoUrl?: string,
+        instagramUrl?: string,
+        facebookUrl?: string,
+        websiteUrl?: string,
+        description?: string
+    ) {
+        return await this.clubRepo.createClub(
+            slug,
+            name, 
+            address, 
+            contact,
+            phone,
+            logoUrl,
+            instagramUrl,
+            facebookUrl,
+            websiteUrl,
+            description
+        );
+    }
+
+    async getClubById(id: number): Promise<Club> {
+        const club = await this.clubRepo.findClubById(id);
+        if (!club) throw new Error("Club no encontrado");
+        return club;
+    }
+
+    async getClubBySlug(slug: string): Promise<Club> {
+        const club = await this.clubRepo.findClubBySlug(slug);
+        if (!club) throw new Error("Club no encontrado");
+        return club;
+    }
+
+    async getAllClubs(): Promise<Club[]> {
+        return await this.clubRepo.findAllClubs();
+    }
+
+    async updateClub(
+        id: number,
+        data: {
+            slug?: string;
+            name?: string;
+            address?: string;
+            contactInfo?: string;
+            phone?: string | null;
+            logoUrl?: string | null;
+            instagramUrl?: string | null;
+            facebookUrl?: string | null;
+            websiteUrl?: string | null;
+            description?: string | null;
+        }
+    ): Promise<Club> {
+        const club = await this.clubRepo.findClubById(id);
+        if (!club) throw new Error("Club no encontrado");
+        return await this.clubRepo.updateClub(id, data);
     }
 
     async registerCourt(clubId: number, name: string, surface: string, activityIds: number[]) {
-        const clubs = await this.clubRepo.findAllClubs();
-        const club = clubs.find(c => c.id === clubId);
+        const club = await this.clubRepo.findClubById(clubId);
         if (!club) throw new Error("Club no encontrado");
 
         const court = new Court(0, name, false, surface, club);

@@ -21,35 +21,72 @@ async function main() {
   });
   console.log('✅ Actividad creada: Pádel');
 
-  // 2. Club (Quitamos el ID manual)
-  // Usamos create en lugar de upsert para simplificar y dejar que el ID sea automático
-  // Como hacemos reset de la base antes, no hace falta verificar si existe
-  const club = await prisma.club.create({
+  // 2. Clubes (Múltiples clubes para demostrar funcionalidad multi-club)
+  const club1 = await prisma.club.create({
     data: {
-      name: 'Club Central',
-      address: 'Av. Siempre Viva 742',
-      contactInfo: 'contacto@clubcentral.com'
+      slug: 'las-tejas',
+      name: 'Las Tejas Pádel',
+      address: 'Sarmiento 60, Río Tercero, Córdoba',
+      contactInfo: 'contacto@lastejas.com',
+      phone: '+54 9 357 135 9791',
+      logoUrl: '/logo1.svg',
+      instagramUrl: 'https://www.instagram.com/lastejaspadel/',
+      description: 'Complejo deportivo Las Tejas Pádel'
     },
   });
-  console.log(`✅ Club creado: ${club.name} (ID: ${club.id})`);
+  console.log(`✅ Club creado: ${club1.name} (ID: ${club1.id}, Slug: ${club1.slug})`);
 
-  // 3. Cancha (Quitamos el ID manual)
+  const club2 = await prisma.club.create({
+    data: {
+      slug: 'club-central',
+      name: 'Club Deportivo Central',
+      address: 'Av. Siempre Viva 742',
+      contactInfo: 'contacto@clubcentral.com',
+      phone: '+54 9 11 1234 5678',
+      description: 'Club deportivo con múltiples canchas'
+    },
+  });
+  console.log(`✅ Club creado: ${club2.name} (ID: ${club2.id}, Slug: ${club2.slug})`);
+
+  // 3. Canchas
+  await prisma.court.create({
+    data: {
+      name: 'Cancha 1',
+      clubId: club1.id,
+      isIndoor: true,
+      surface: 'Sintético',
+      activities: { connect: { id: padel.id } }
+    },
+  });
+  console.log('✅ Cancha creada: Cancha 1 (Las Tejas)');
+
+  await prisma.court.create({
+    data: {
+      name: 'Cancha 2',
+      clubId: club1.id,
+      isIndoor: false,
+      surface: 'Césped',
+      activities: { connect: { id: padel.id } }
+    },
+  });
+  console.log('✅ Cancha creada: Cancha 2 (Las Tejas)');
+
   await prisma.court.create({
     data: {
       name: 'Cancha Central',
-      clubId: club.id, // Usamos el ID real que generó la base de datos
+      clubId: club2.id,
       isIndoor: true,
-      surface: 'Sintético'
+      surface: 'Sintético',
+      activities: { connect: { id: padel.id } }
     },
   });
-  console.log('✅ Cancha creada: Cancha Central');
+  console.log('✅ Cancha creada: Cancha Central (Club Central)');
 
-  // 4. Usuario (Quitamos el ID manual)
-
+  // 4. Usuarios (asociados a clubes)
   const hashedPassword = await bcrypt.hash('123456', 10);
   const userEmail = 'lio@messi.com';
 
-  // Usamos upsert para que el seed sea idempotente (no rompa si el email ya existe)
+  // Usuario miembro del club 1 (Las Tejas)
   await prisma.user.upsert({
     where: { email: userEmail },
     update: {
@@ -57,7 +94,8 @@ async function main() {
       lastName: 'Messi',
       password: hashedPassword,
       phoneNumber: '555-101010',
-      role: Role.MEMBER
+      role: Role.MEMBER,
+      clubId: club1.id
     },
     create: {
       firstName: 'Lionel',
@@ -65,34 +103,85 @@ async function main() {
       email: userEmail,
       password: hashedPassword,
       phoneNumber: '555-101010',
-      role: Role.MEMBER
+      role: Role.MEMBER,
+      clubId: club1.id
     },
   });
-  console.log('✅ Usuario creado o actualizado: Lionel Messi');
+  console.log('✅ Usuario creado o actualizado: Lionel Messi (Las Tejas)');
   
-  // Admin (agregado por seed)
+  // Admin del club 1 (Las Tejas)
   const adminPassword = await bcrypt.hash('admin123', 10);
-  const adminEmail = 'admin@local.test';
+  const adminEmail = 'admin@lastejas.com';
 
   await prisma.user.upsert({
     where: { email: adminEmail },
     update: {
       firstName: 'Admin',
-      lastName: 'User',
+      lastName: 'Las Tejas',
       password: adminPassword,
       phoneNumber: '000-000000',
-      role: Role.ADMIN
+      role: Role.ADMIN,
+      clubId: club1.id
     },
     create: {
       firstName: 'Admin',
-      lastName: 'User',
+      lastName: 'Las Tejas',
       email: adminEmail,
       password: adminPassword,
       phoneNumber: '000-000000',
-      role: Role.ADMIN
+      role: Role.ADMIN,
+      clubId: club1.id
     },
   });
-  console.log('✅ Usuario admin creado o actualizado:', adminEmail);
+  console.log('✅ Usuario admin creado o actualizado:', adminEmail, '(Las Tejas)');
+
+  // Admin del club 2 (Club Central)
+  const admin2Email = 'admin@clubcentral.com';
+  await prisma.user.upsert({
+    where: { email: admin2Email },
+    update: {
+      firstName: 'Admin',
+      lastName: 'Central',
+      password: adminPassword,
+      phoneNumber: '000-000001',
+      role: Role.ADMIN,
+      clubId: club2.id
+    },
+    create: {
+      firstName: 'Admin',
+      lastName: 'Central',
+      email: admin2Email,
+      password: adminPassword,
+      phoneNumber: '000-000001',
+      role: Role.ADMIN,
+      clubId: club2.id
+    },
+  });
+  console.log('✅ Usuario admin creado o actualizado:', admin2Email, '(Club Central)');
+
+  // Usuario miembro del club 2
+  const user2Email = 'usuario@clubcentral.com';
+  await prisma.user.upsert({
+    where: { email: user2Email },
+    update: {
+      firstName: 'Juan',
+      lastName: 'Pérez',
+      password: hashedPassword,
+      phoneNumber: '555-202020',
+      role: Role.MEMBER,
+      clubId: club2.id
+    },
+    create: {
+      firstName: 'Juan',
+      lastName: 'Pérez',
+      email: user2Email,
+      password: hashedPassword,
+      phoneNumber: '555-202020',
+      role: Role.MEMBER,
+      clubId: club2.id
+    },
+  });
+  console.log('✅ Usuario creado o actualizado: Juan Pérez (Club Central)');
 }
 
 main()

@@ -10,7 +10,12 @@
     "postbuild": "npx prisma migrate deploy",
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
-    "prisma:seed": "ts-node prisma/seed.ts"
+    "prisma:seed": "ts-node prisma/seed.ts",
+    "db:setup": "bash setup-db-simple.sh",
+    "db:setup:win": "setup-db.bat",
+    "db:reset": "docker rm -f sistema-postgres && npm run db:setup",
+    "db:push": "prisma db push --accept-data-loss",
+    "db:seed": "prisma db seed"
   },
   "keywords": [],
   "author": "",
