@@ -3,12 +3,18 @@
   "version": "1.0.0",
   "description": "Backend para sistema de reservas de canchas",
   "main": "src/index.ts",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
   "scripts": {
     "dev": "nodemon src/index.ts",
     "build": "npx prisma generate && tsc -p tsconfig.json",
     "start": "node dist/index.js",
+    "postbuild": "npx prisma migrate deploy || npx prisma db push",
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:db:push": "prisma db push",
     "prisma:seed": "ts-node prisma/seed.ts"
   },
   "keywords": [],
