@@ -8,23 +8,23 @@ class WhatsappService {
 
     constructor() {
         this.client = new Client({
-            authStrategy: new LocalAuth(),
-            
-            
-            puppeteer: {
-                protocolTimeout: 120000,
-                args: [
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--no-first-run',
-                    '--no-zygote',
-                    '--disable-gpu'
-                ],
-                headless: true 
-            }
-        });
+    authStrategy: new LocalAuth({
+        dataPath: './.wwebjs_auth' 
+    }),
+    puppeteer: {
+        headless: true,
+        
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage', 
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--disable-gpu'
+        ],
+        timeout: 60000 
+    }
+});
 
         // Generar el QR en la terminal
         this.client.on('qr', (qr) => {
