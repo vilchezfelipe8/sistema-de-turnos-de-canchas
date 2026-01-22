@@ -120,7 +120,7 @@ app.get('/whatsapp/qr', (_req: Request, res: Response) => {
     <head>
       <title>WhatsApp QR Code</title>
       <meta charset="utf-8">
-      <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js" onload="window.qrcodeLoaded = true"></script>
       <style>
         body { 
           font-family: Arial, sans-serif; 
@@ -171,29 +171,37 @@ app.get('/whatsapp/qr', (_req: Request, res: Response) => {
       <script>
         const qrData = ${JSON.stringify(qr)};
         
-        // Esperar a que la librería QRCode se cargue
+        // Esperar a que la librería QRCode se cargue completamente
         function generateQR() {
-          if (typeof QRCode === 'undefined') {
+          if (typeof QRCode === 'undefined' || !window.qrcodeLoaded) {
             console.log('Esperando QRCode...');
             setTimeout(generateQR, 100);
             return;
           }
           
-          QRCode.toCanvas(document.getElementById('qrcode'), qrData, {
-            width: 300,
-            margin: 2
-          }, function (error) {
-            if (error) {
-              console.error(error);
-              document.getElementById('qrcode').innerHTML = '<p style="color: red;">Error generando QR</p>';
-            }
-          });
+          try {
+            QRCode.toCanvas(document.getElementById('qrcode'), qrData, {
+              width: 300,
+              margin: 2
+            }, function (error) {
+              if (error) {
+                console.error(error);
+                document.getElementById('qrcode').innerHTML = '<p style="color: red;">Error generando QR</p>';
+              }
+            });
+          } catch (error) {
+            console.error('Error al generar QR:', error);
+            document.getElementById('qrcode').innerHTML = '<p style="color: red;">Error generando QR: ' + error.message + '</p>';
+          }
         }
         
-        // Iniciar cuando la página esté lista
-        if (document.readyState === 'loading') {
-          document.addEventListener('DOMContentLoaded', generateQR);
-        } else {
+        // Esperar a que todo esté listo
+        window.addEventListener('load', function() {
+          generateQR();
+        });
+        
+        // También intentar inmediatamente si ya está cargado
+        if (document.readyState === 'complete' && typeof QRCode !== 'undefined' && window.qrcodeLoaded) {
           generateQR();
         }
 
