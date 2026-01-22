@@ -1,6 +1,5 @@
 // src/services/WhatsappService.ts
 import { Client, LocalAuth } from 'whatsapp-web.js';
-import qrcode from 'qrcode-terminal';
 
 class WhatsappService {
     private client: Client;
@@ -27,12 +26,10 @@ class WhatsappService {
             }
         });
 
-        // Guardar el QR y también mostrarlo en la terminal
+        // Guardar el QR
         this.client.on('qr', (qr) => {
             this.currentQR = qr;
             console.log('📱 Nuevo QR generado. Accede a /whatsapp/qr para verlo en el navegador');
-            // También mostrarlo en terminal por si acaso
-            qrcode.generate(qr, { small: true });
         });
 
         // Cuando ya está conectado
