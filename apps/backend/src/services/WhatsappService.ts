@@ -12,7 +12,7 @@ class WhatsappService {
             
             
             puppeteer: {
-                protocolTimeout: 120000,
+                protocolTimeout: 300000, // 5 minutos para servidores lentos
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
@@ -20,9 +20,26 @@ class WhatsappService {
                     '--disable-accelerated-2d-canvas',
                     '--no-first-run',
                     '--no-zygote',
-                    '--disable-gpu'
+                    '--disable-gpu',
+                    '--disable-software-rasterizer',
+                    '--disable-extensions',
+                    '--disable-background-networking',
+                    '--disable-background-timer-throttling',
+                    '--disable-renderer-backgrounding',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-breakpad',
+                    '--disable-component-extensions-with-background-pages',
+                    '--disable-default-apps',
+                    '--disable-sync',
+                    '--metrics-recording-only',
+                    '--mute-audio',
+                    '--no-default-browser-check',
+                    '--no-pings',
+                    '--use-mock-keychain',
+                    '--single-process' // Útil para Railway
                 ],
-                headless: true 
+                headless: true,
+                timeout: 300000 // 5 minutos
             }
         });
 
@@ -69,6 +86,7 @@ class WhatsappService {
 
     async sendMessage(phoneNumber: string, message: string) {
         if (!this.isReady) {
+            console.warn('⚠️ WhatsApp no está listo, no se puede enviar mensaje');
             return;
         }
 
@@ -77,9 +95,21 @@ class WhatsappService {
         const chatId = `${phoneNumber}@c.us`; 
 
         try {
-            await this.client.sendMessage(chatId, message, {sendSeen: false});
-        } catch (error) {
+            // Aumentar timeout para el envío de mensajes
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Timeout enviando mensaje')), 60000) // 60 segundos
+            );
+            
+            await Promise.race([
+                this.client.sendMessage(chatId, message, {sendSeen: false}),
+                timeoutPromise
+            ]);
+            
+            console.log(`✅ Mensaje enviado a ${phoneNumber}`);
+        } catch (error: any) {
             console.error('❌ Error enviando mensaje de WhatsApp:', error);
+            // No lanzar el error para que no rompa el flujo de la aplicación
+            // El mensaje simplemente no se enviará
         }
     }
 
