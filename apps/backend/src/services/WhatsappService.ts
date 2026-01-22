@@ -2,11 +2,20 @@
 import { Client, LocalAuth } from 'whatsapp-web.js';
 
 class WhatsappService {
-    private client: Client;
+    private client: Client | null = null;
     private isReady: boolean = false;
     private currentQR: string | null = null;
+    private isDisabled: boolean;
 
     constructor() {
+        // Verificar si WhatsApp está deshabilitado
+        this.isDisabled = process.env.DISABLE_WHATSAPP === 'true' || process.env.DISABLE_WHATSAPP === '1';
+        
+        if (this.isDisabled) {
+            console.log('⚠️ WhatsApp deshabilitado por variable de entorno DISABLE_WHATSAPP');
+            return;
+        }
+
         this.client = new Client({
             authStrategy: new LocalAuth(),
             
@@ -73,31 +82,43 @@ class WhatsappService {
 
         // --- MANEJO DE CIERRE LIMPIO (IGUAL QUE ANTES) ---
         process.once('SIGUSR2', async () => {
-            try {
-                await this.client.destroy(); 
-            } catch (e) {
-                console.error('No se pudo cerrar Chrome, forzando...', e);
+            if (this.client) {
+                try {
+                    await this.client.destroy(); 
+                } catch (e) {
+                    console.error('No se pudo cerrar Chrome, forzando...', e);
+                }
             }
             process.kill(process.pid, 'SIGUSR2'); 
         });
 
         process.on('SIGINT', async () => {
-            try {
-                await this.client.destroy();
-            } catch (e) {
-                console.error('Error cerrando cliente:', e);
+            if (this.client) {
+                try {
+                    await this.client.destroy();
+                } catch (e) {
+                    console.error('Error cerrando cliente:', e);
+                }
             }
             process.exit(0);
         });
     }
 
     async sendMessage(phoneNumber: string, message: string, retries: number = 2): Promise<boolean> {
+        // Si WhatsApp está deshabilitado, retornar false silenciosamente
+        if (this.isDisabled || !this.client) {
+            if (this.isDisabled) {
+                console.log('📵 WhatsApp deshabilitado, mensaje no enviado');
+            }
+            return false;
+        }
+
         if (!this.isReady) {
             console.warn('⚠️ WhatsApp no está listo, no se puede enviar mensaje');
             return false;
         }
 
-        // Verificar que el cliente esté realmente conectado
+        // Verificar que el cliente esté realmente conectado (con manejo de errores de frame)
         try {
             const state = await this.client.getState();
             if (state !== 'CONNECTED') {
@@ -105,10 +126,16 @@ class WhatsappService {
                 this.isReady = false;
                 return false;
             }
-        } catch (error) {
-            console.warn('⚠️ No se pudo verificar el estado de WhatsApp:', error);
-            this.isReady = false;
-            return false;
+        } catch (error: any) {
+            const errorMsg = error?.message || String(error);
+            // Si es un error de frame desconectado, marcar como no listo y no intentar enviar
+            if (errorMsg.includes('detached Frame') || errorMsg.includes('Target closed')) {
+                console.warn('⚠️ Frame desconectado al verificar estado, WhatsApp no disponible');
+                this.isReady = false;
+                return false;
+            }
+            console.warn('⚠️ No se pudo verificar el estado de WhatsApp:', errorMsg);
+            // No marcar como no listo si es otro tipo de error, podría ser temporal
         }
 
         // Formatear el número (simple)
@@ -130,10 +157,16 @@ class WhatsappService {
                             this.isReady = false;
                             return false;
                         }
-                    } catch (e) {
-                        console.warn('⚠️ No se pudo verificar estado durante reintento');
-                        this.isReady = false;
-                        return false;
+                    } catch (e: any) {
+                        const errorMsg = e?.message || String(e);
+                        // Si es error de frame, no reintentar
+                        if (errorMsg.includes('detached Frame') || errorMsg.includes('Target closed')) {
+                            console.warn('⚠️ Frame desconectado durante verificación de reintento');
+                            this.isReady = false;
+                            return false;
+                        }
+                        // Para otros errores, solo loguear pero continuar con el reintento
+                        console.warn('⚠️ No se pudo verificar estado durante reintento, continuando...');
                     }
                 }
 
@@ -179,13 +212,15 @@ class WhatsappService {
     }
 
     getQR(): string | null {
+        if (this.isDisabled) return null;
         return this.currentQR;
     }
 
-    getStatus(): { ready: boolean; hasQR: boolean } {
+    getStatus(): { ready: boolean; hasQR: boolean; disabled: boolean } {
         return {
-            ready: this.isReady,
-            hasQR: this.currentQR !== null
+            ready: this.isReady && !this.isDisabled,
+            hasQR: this.currentQR !== null && !this.isDisabled,
+            disabled: this.isDisabled
         };
     }
 }

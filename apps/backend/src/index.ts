@@ -75,8 +75,33 @@ app.get('/health', (_req: Request, res: Response) => {
 // WhatsApp QR endpoint
 app.get('/whatsapp/qr', async (_req: Request, res: Response) => {
   const { whatsappService } = require('./services/WhatsappService');
-  const qr = whatsappService.getQR();
   const status = whatsappService.getStatus();
+
+  // Si WhatsApp está deshabilitado
+  if (status.disabled) {
+    return res.status(200).send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>WhatsApp - Deshabilitado</title>
+        <meta charset="utf-8">
+        <style>
+          body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
+          .status { background: #9e9e9e; color: white; padding: 20px; border-radius: 10px; display: inline-block; }
+        </style>
+      </head>
+      <body>
+        <div class="status">
+          <h1>📵 WhatsApp Deshabilitado</h1>
+          <p>El servicio de WhatsApp está temporalmente deshabilitado.</p>
+          <p style="font-size: 14px; margin-top: 10px;">Para habilitarlo, configura DISABLE_WHATSAPP=false en las variables de entorno.</p>
+        </div>
+      </body>
+      </html>
+    `);
+  }
+
+  const qr = whatsappService.getQR();
 
   if (!qr) {
     if (status.ready) {
