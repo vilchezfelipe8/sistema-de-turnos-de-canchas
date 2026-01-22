@@ -57,9 +57,16 @@ class WhatsappService {
         });
 
         // Manejo de desconexión para evitar procesos zombies
-        this.client.on('disconnected', () => {
+        this.client.on('disconnected', (reason) => {
              this.isReady = false;
              this.currentQR = null;
+             console.warn('⚠️ WhatsApp desconectado:', reason);
+        });
+
+        // Manejar errores de autenticación
+        this.client.on('auth_failure', (msg) => {
+            console.error('❌ Error de autenticación de WhatsApp:', msg);
+            this.isReady = false;
         });
 
         this.client.initialize();
@@ -84,33 +91,91 @@ class WhatsappService {
         });
     }
 
-    async sendMessage(phoneNumber: string, message: string) {
+    async sendMessage(phoneNumber: string, message: string, retries: number = 2): Promise<boolean> {
         if (!this.isReady) {
             console.warn('⚠️ WhatsApp no está listo, no se puede enviar mensaje');
-            return;
+            return false;
+        }
+
+        // Verificar que el cliente esté realmente conectado
+        try {
+            const state = await this.client.getState();
+            if (state !== 'CONNECTED') {
+                console.warn(`⚠️ WhatsApp no está conectado (estado: ${state}), no se puede enviar mensaje`);
+                this.isReady = false;
+                return false;
+            }
+        } catch (error) {
+            console.warn('⚠️ No se pudo verificar el estado de WhatsApp:', error);
+            this.isReady = false;
+            return false;
         }
 
         // Formatear el número (simple)
         // Asegúrate que phoneNumber venga como "549351..." sin el "+"
         const chatId = `${phoneNumber}@c.us`; 
 
-        try {
-            // Aumentar timeout para el envío de mensajes
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Timeout enviando mensaje')), 60000) // 60 segundos
-            );
-            
-            await Promise.race([
-                this.client.sendMessage(chatId, message, {sendSeen: false}),
-                timeoutPromise
-            ]);
-            
-            console.log(`✅ Mensaje enviado a ${phoneNumber}`);
-        } catch (error: any) {
-            console.error('❌ Error enviando mensaje de WhatsApp:', error);
-            // No lanzar el error para que no rompa el flujo de la aplicación
-            // El mensaje simplemente no se enviará
+        for (let attempt = 0; attempt <= retries; attempt++) {
+            try {
+                if (attempt > 0) {
+                    console.log(`🔄 Reintentando enviar mensaje (intento ${attempt + 1}/${retries + 1})...`);
+                    // Esperar un poco antes de reintentar
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    
+                    // Verificar estado nuevamente antes de reintentar
+                    try {
+                        const state = await this.client.getState();
+                        if (state !== 'CONNECTED') {
+                            console.warn(`⚠️ WhatsApp desconectado durante reintento (estado: ${state})`);
+                            this.isReady = false;
+                            return false;
+                        }
+                    } catch (e) {
+                        console.warn('⚠️ No se pudo verificar estado durante reintento');
+                        this.isReady = false;
+                        return false;
+                    }
+                }
+
+                // Aumentar timeout para el envío de mensajes
+                const timeoutPromise = new Promise<never>((_, reject) => 
+                    setTimeout(() => reject(new Error('Timeout enviando mensaje')), 60000) // 60 segundos
+                );
+                
+                await Promise.race([
+                    this.client.sendMessage(chatId, message, {sendSeen: false}),
+                    timeoutPromise
+                ]);
+                
+                console.log(`✅ Mensaje enviado a ${phoneNumber}`);
+                return true;
+            } catch (error: any) {
+                const errorMessage = error?.message || String(error);
+                
+                // Si es un error de frame desconectado o target closed, marcar como no listo
+                if (errorMessage.includes('detached Frame') || 
+                    errorMessage.includes('Target closed') ||
+                    errorMessage.includes('Session closed')) {
+                    console.warn('⚠️ Frame desconectado, marcando WhatsApp como no listo');
+                    this.isReady = false;
+                    
+                    // Si es el último intento, no reintentar
+                    if (attempt === retries) {
+                        console.error('❌ Error enviando mensaje de WhatsApp después de todos los reintentos:', errorMessage);
+                        return false;
+                    }
+                    continue; // Reintentar
+                }
+                
+                // Para otros errores, loguear y retornar false
+                if (attempt === retries) {
+                    console.error('❌ Error enviando mensaje de WhatsApp:', errorMessage);
+                    return false;
+                }
+            }
         }
+        
+        return false;
     }
 
     getQR(): string | null {
