@@ -5,40 +5,47 @@ import qrcode from 'qrcode-terminal';
 class WhatsappService {
     private client: Client;
     private isReady: boolean = false;
+    private currentQR: string | null = null;
 
     constructor() {
         this.client = new Client({
-    authStrategy: new LocalAuth({
-        dataPath: './.wwebjs_auth' 
-    }),
-    puppeteer: {
-        headless: true,
-        
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage', 
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--disable-gpu'
-        ],
-        timeout: 60000 
-    }
-});
+            authStrategy: new LocalAuth(),
+            
+            
+            puppeteer: {
+                protocolTimeout: 120000,
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--disable-gpu'
+                ],
+                headless: true 
+            }
+        });
 
-        // Generar el QR en la terminal
+        // Guardar el QR y también mostrarlo en la terminal
         this.client.on('qr', (qr) => {
+            this.currentQR = qr;
+            console.log('📱 Nuevo QR generado. Accede a /whatsapp/qr para verlo en el navegador');
+            // También mostrarlo en terminal por si acaso
             qrcode.generate(qr, { small: true });
         });
 
         // Cuando ya está conectado
         this.client.on('ready', () => {
             this.isReady = true;
+            this.currentQR = null; // Limpiar QR cuando está listo
+            console.log('✅ WhatsApp conectado y listo');
         });
 
         // Manejo de desconexión para evitar procesos zombies
         this.client.on('disconnected', () => {
              this.isReady = false;
+             this.currentQR = null;
         });
 
         this.client.initialize();
@@ -77,6 +84,17 @@ class WhatsappService {
         } catch (error) {
             console.error('❌ Error enviando mensaje de WhatsApp:', error);
         }
+    }
+
+    getQR(): string | null {
+        return this.currentQR;
+    }
+
+    getStatus(): { ready: boolean; hasQR: boolean } {
+        return {
+            ready: this.isReady,
+            hasQR: this.currentQR !== null
+        };
     }
 }
 

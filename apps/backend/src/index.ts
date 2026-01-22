@@ -63,6 +63,151 @@ app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok' });
 });
 
+// WhatsApp QR endpoint
+app.get('/whatsapp/qr', (_req: Request, res: Response) => {
+  const { whatsappService } = require('./services/WhatsappService');
+  const qr = whatsappService.getQR();
+  const status = whatsappService.getStatus();
+
+  if (!qr) {
+    if (status.ready) {
+      return res.status(200).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>WhatsApp - Conectado</title>
+          <meta charset="utf-8">
+          <style>
+            body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
+            .status { background: #25D366; color: white; padding: 20px; border-radius: 10px; display: inline-block; }
+          </style>
+        </head>
+        <body>
+          <div class="status">
+            <h1>✅ WhatsApp Conectado</h1>
+            <p>El servicio de WhatsApp ya está listo y funcionando.</p>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+    return res.status(404).send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>WhatsApp - Sin QR</title>
+        <meta charset="utf-8">
+        <style>
+          body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
+          .status { background: #ff9800; color: white; padding: 20px; border-radius: 10px; display: inline-block; }
+        </style>
+        <meta http-equiv="refresh" content="5">
+      </head>
+      <body>
+        <div class="status">
+          <h1>⏳ Esperando QR...</h1>
+          <p>El código QR se generará automáticamente. Esta página se actualizará en 5 segundos.</p>
+        </div>
+      </body>
+      </html>
+    `);
+  }
+
+  // Generar HTML con el QR usando una librería CDN
+  res.status(200).send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>WhatsApp QR Code</title>
+      <meta charset="utf-8">
+      <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+      <style>
+        body { 
+          font-family: Arial, sans-serif; 
+          text-align: center; 
+          padding: 50px; 
+          background: #f5f5f5; 
+        }
+        .container {
+          background: white;
+          padding: 30px;
+          border-radius: 10px;
+          display: inline-block;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        #qrcode {
+          margin: 20px 0;
+        }
+        .instructions {
+          margin-top: 20px;
+          color: #666;
+          max-width: 400px;
+          margin-left: auto;
+          margin-right: auto;
+        }
+        .status {
+          color: #25D366;
+          font-weight: bold;
+          margin-top: 20px;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1>📱 Escanea el código QR</h1>
+        <p>Usa WhatsApp en tu teléfono para escanear este código:</p>
+        <div id="qrcode"></div>
+        <div class="instructions">
+          <p>1. Abre WhatsApp en tu teléfono</p>
+          <p>2. Ve a Configuración → Dispositivos vinculados</p>
+          <p>3. Toca "Vincular un dispositivo"</p>
+          <p>4. Escanea este código QR</p>
+        </div>
+        <div class="status" id="status">⏳ Esperando conexión...</div>
+        <p style="margin-top: 20px; color: #999; font-size: 12px;">
+          Esta página se actualizará automáticamente cuando WhatsApp se conecte.
+        </p>
+      </div>
+      <script>
+        const qrData = ${JSON.stringify(qr)};
+        QRCode.toCanvas(document.getElementById('qrcode'), qrData, {
+          width: 300,
+          margin: 2
+        }, function (error) {
+          if (error) {
+            console.error(error);
+            document.getElementById('qrcode').innerHTML = '<p style="color: red;">Error generando QR</p>';
+          }
+        });
+
+        // Verificar estado cada 3 segundos
+        setInterval(function() {
+          fetch('/whatsapp/status')
+            .then(res => res.json())
+            .then(data => {
+              if (data.ready) {
+                document.getElementById('status').innerHTML = '✅ WhatsApp Conectado!';
+                document.getElementById('status').style.color = '#25D366';
+                setTimeout(() => {
+                  window.location.reload();
+                }, 2000);
+              }
+            })
+            .catch(err => console.error('Error:', err));
+        }, 3000);
+      </script>
+    </body>
+    </html>
+  `);
+});
+
+// WhatsApp status endpoint
+app.get('/whatsapp/status', (_req: Request, res: Response) => {
+  const { whatsappService } = require('./services/WhatsappService');
+  const status = whatsappService.getStatus();
+  res.json(status);
+});
+
 import { errorHandler } from './middleware/ErrorHandler';
 
 const startServer = async () => {
