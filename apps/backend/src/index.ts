@@ -170,15 +170,32 @@ app.get('/whatsapp/qr', (_req: Request, res: Response) => {
       </div>
       <script>
         const qrData = ${JSON.stringify(qr)};
-        QRCode.toCanvas(document.getElementById('qrcode'), qrData, {
-          width: 300,
-          margin: 2
-        }, function (error) {
-          if (error) {
-            console.error(error);
-            document.getElementById('qrcode').innerHTML = '<p style="color: red;">Error generando QR</p>';
+        
+        // Esperar a que la librería QRCode se cargue
+        function generateQR() {
+          if (typeof QRCode === 'undefined') {
+            console.log('Esperando QRCode...');
+            setTimeout(generateQR, 100);
+            return;
           }
-        });
+          
+          QRCode.toCanvas(document.getElementById('qrcode'), qrData, {
+            width: 300,
+            margin: 2
+          }, function (error) {
+            if (error) {
+              console.error(error);
+              document.getElementById('qrcode').innerHTML = '<p style="color: red;">Error generando QR</p>';
+            }
+          });
+        }
+        
+        // Iniciar cuando la página esté lista
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', generateQR);
+        } else {
+          generateQR();
+        }
 
         // Verificar estado cada 3 segundos
         setInterval(function() {
