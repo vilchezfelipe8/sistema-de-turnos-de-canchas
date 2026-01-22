@@ -16,6 +16,8 @@ const allowedOrigins = [
   FRONTEND_URL,
   'http://localhost:3001', // Para desarrollo local
   'http://localhost:3000', // Alternativa local
+  'https://sistema-de-turnos-production-83b8.up.railway.app', // Frontend en Railway
+  'https://sistema-de-turnos-de-canchas.vercel.app', // Frontend en Vercel
 ];
 
 app.use(cors({
@@ -23,11 +25,17 @@ app.use(cors({
     // Permitir requests sin origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
     
+    // Verificar si el origen está en la lista permitida
     if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+      return callback(null, true);
     }
+    
+    // Permitir cualquier subdominio de railway.app o vercel.app (para flexibilidad)
+    if (origin.includes('.railway.app') || origin.includes('.vercel.app')) {
+      return callback(null, true);
+    }
+    
+    callback(new Error('Not allowed by CORS'));
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   credentials: true

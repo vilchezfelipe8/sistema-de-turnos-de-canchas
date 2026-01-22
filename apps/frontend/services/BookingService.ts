@@ -17,7 +17,9 @@ function getOrCreateGuestId() {
   }
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+import { getApiUrl } from '../utils/apiUrl';
+
+const API_URL = getApiUrl();
 
 // --- 1. CREAR UNA RESERVA ---
 export const createBooking = async (

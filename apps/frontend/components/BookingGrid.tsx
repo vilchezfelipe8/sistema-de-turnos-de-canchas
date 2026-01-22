@@ -6,7 +6,9 @@ import { createBooking } from '../services/BookingService';
 import { useRouter } from 'next/router'; // Importar router por si necesitas redireccionar
 import AppModal from './AppModal';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+import { getApiUrl } from '../utils/apiUrl';
+
+const API_URL = getApiUrl();
 
 export default function BookingGrid() {
   const formatLocalDate = (date: Date) => {
