@@ -46,11 +46,15 @@ export default function Home() {
                   <p className="text-text font-semibold">Complejo deportivo Las Tejas Pádel</p>
                   <div className="flex items-start gap-2">
                     <span>📍</span>
-                    <span>Sarmiento 60, Río Tercero, Córdoba</span>
+                    <a href="https://www.google.com/maps/search/?api=1&query=Sarmiento%2060,%20Río%20Tercero,%20Córdoba" target="_blank" rel="noopener noreferrer" className="cursor-pointer hover:underline text-text">
+                      Sarmiento 60, Río Tercero, Córdoba
+                    </a>
                   </div>
                   <div className="flex items-center gap-2">
                     <span>📞</span>
-                    <span>+54 9 357 135 9791</span>
+                    <a href="tel:+5493571359791" className="cursor-pointer hover:underline text-text">
+                      +54 9 357 135 9791
+                    </a>
                   </div>
                   <div className="flex items-center gap-2">
                     <span>🎾</span>
