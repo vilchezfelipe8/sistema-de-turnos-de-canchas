@@ -451,8 +451,9 @@ export default function BookingGrid() {
                 <div key={slotWithCourt.slotTime} className="bg-surface-70 p-4 rounded-2xl border border-border hover:border-border transition-colors">
                   <div className="flex items-center justify-between mb-4">
                     <span className="font-bold text-xl text-white tracking-tight">{slotWithCourt.slotTime}</span>
-                    <span className="text-xs font-bold text-muted uppercase tracking-wider bg-surface px-2 py-1 rounded">
+                    <span className="text-xs font-bold text-muted uppercase tracking-wider bg-surface px-2 py-1 rounded flex items-center gap-1">
                       {availableCount} {availableCount !== 1 ? 'DISPONIBLES' : 'DISPONIBLE'}
+                      {availableCount > 0 && <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>}
                     </span>
                   </div>
 
