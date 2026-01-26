@@ -6,7 +6,7 @@ import { createBooking } from '../services/BookingService';
 import AppModal from './AppModal';
 import DatePicker from 'react-datepicker';
 import { registerLocale } from 'react-datepicker';
-import es from 'date-fns/locale/es';
+import { es } from 'date-fns/locale/es';
 import 'react-datepicker/dist/react-datepicker.css';
 
 // Registrar locale en español
