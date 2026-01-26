@@ -32,7 +32,7 @@ export default function Home() {
       <div className="relative z-10 w-full flex flex-col items-center">
         <Navbar />
         
-        <div className="w-full max-w-6xl mt-12 mb-8 px-4">
+        <div className="w-full max-w-6xl mt-20 mb-8 px-4">
 
           <div className="mt-8 grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-6">
             {/* Reservas */}
