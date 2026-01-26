@@ -11,6 +11,8 @@ export default function MyApp({ Component, pageProps }: AppProps) {
         <link rel="icon" href="/Vector.svg" type="image/svg+xml" />
       </Head>
       <Component {...pageProps} />
+      {/* Portal para react-datepicker - renderiza fuera del stacking context */}
+      <div id="datepicker-portal" />
     </>
   );
 }

@@ -3,8 +3,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAvailability } from '../hooks/useAvailability';
 import { createBooking } from '../services/BookingService';
-import { useRouter } from 'next/router'; // Importar router por si necesitas redireccionar
 import AppModal from './AppModal';
+import DatePicker from 'react-datepicker';
+import { registerLocale } from 'react-datepicker';
+import es from 'date-fns/locale/es';
+import 'react-datepicker/dist/react-datepicker.css';
+
+// Registrar locale en español
+registerLocale('es', es);
 
 import { getApiUrl } from '../utils/apiUrl';
 
@@ -17,6 +23,7 @@ export default function BookingGrid() {
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   };
+  
   const formatDateTime = (date: Date) =>
     date.toLocaleString('es-AR', {
       day: '2-digit',
@@ -26,11 +33,24 @@ export default function BookingGrid() {
       minute: '2-digit',
       hour12: false
     });
-  const maxDate = new Date();
-  maxDate.setMonth(maxDate.getMonth() + 1);
-  const maxDateStr = formatLocalDate(maxDate);
-  // const router = useRouter(); // Descomentar si usas next router
-  const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
+  
+  // Calcular fecha máxima (un mes desde hoy) sin problemas de zona horaria
+  const getMaxDate = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const day = now.getDate();
+    const maxDate = new Date(year, month + 1, day); // Un mes en adelante
+    return maxDate;
+  };
+  
+  const maxDate = getMaxDate();
+  // Inicializar con la fecha de hoy sin problemas de zona horaria
+  const getTodayDate = () => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  };
+  const [selectedDate, setSelectedDate] = useState<Date | null>(getTodayDate());
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [selectedCourt, setSelectedCourt] = useState<{ id: number; name: string } | null>(null);
   const [isBooking, setIsBooking] = useState(false);
@@ -150,13 +170,6 @@ export default function BookingGrid() {
     return slotsWithCourts;
   })();
 
-  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.value) return;
-    const [y, m, d] = e.target.value.split('-').map(Number);
-    setSelectedDate(new Date(y, m - 1, d));
-    setSelectedSlot(null);
-    setSelectedCourt(null);
-  };
 
   const performBooking = async (guestInfo?: { name: string; email?: string; phone?: string }) => {
     // No requerimos token: BookingService se encargará de enviar guestIdentifier si no hay token
@@ -360,23 +373,46 @@ export default function BookingGrid() {
           <span>Fecha</span>
         </label>
         <div className="w-full" style={{ boxSizing: 'border-box' }}>
-          <input
-            type="date"
-            min={formatLocalDate(new Date())}
-            max={maxDateStr}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              (e.currentTarget as HTMLInputElement).showPicker?.();
+          <DatePicker
+            selected={selectedDate}
+            onChange={(date: Date | null) => {
+              if (!date) return;
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              const selectedDateObj = new Date(date);
+              selectedDateObj.setHours(0, 0, 0, 0);
+              
+              // Validar que la fecha no sea pasada
+              if (selectedDateObj < today) {
+                showError('No puedes seleccionar una fecha pasada. Por favor, elige una fecha de hoy en adelante.');
+                return;
+              }
+              
+              // Validar que la fecha no sea más de un mes en adelante
+              const maxAllowedDate = getMaxDate();
+              maxAllowedDate.setHours(0, 0, 0, 0);
+              
+              if (selectedDateObj > maxAllowedDate) {
+                showError('Solo puedes reservar hasta un mes en adelante. Por favor, elige una fecha dentro del próximo mes.');
+                return;
+              }
+              
+              setSelectedDate(date);
+              setSelectedSlot(null);
+              setSelectedCourt(null);
             }}
-            className="date-input w-full p-4 pr-12 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none transition-all font-medium shadow-inner"
-            onChange={handleDateChange}
-            value={selectedDate ? formatLocalDate(selectedDate) : ''}
-            style={{ 
-              colorScheme: 'dark',
-              boxSizing: 'border-box',
-              maxWidth: '100%',
-              width: '100%'
-            }} 
+            minDate={new Date()}
+            maxDate={maxDate}
+            dateFormat="dd MMM yyyy"
+            locale={es}
+            className="date-picker-custom"
+            wrapperClassName="w-full"
+            calendarClassName="date-picker-calendar"
+            popperClassName="date-picker-popper"
+            placeholderText="Selecciona una fecha"
+            showPopperArrow={false}
+            popperPlacement="bottom-start"
+            disabledKeyboardNavigation={false}
           />
         </div>
       </div>

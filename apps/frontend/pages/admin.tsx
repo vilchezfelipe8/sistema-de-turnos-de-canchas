@@ -3,6 +3,13 @@ import type { ReactNode } from 'react';
 import { useRouter } from 'next/router';
 import PageShell from '../components/PageShell';
 import AppModal from '../components/AppModal';
+import DatePicker from 'react-datepicker';
+import { registerLocale } from 'react-datepicker';
+import es from 'date-fns/locale/es';
+import 'react-datepicker/dist/react-datepicker.css';
+
+// Registrar locale en español
+registerLocale('es', es);
 import { getCourts, createCourt, suspendCourt, reactivateCourt } from '../services/CourtService';
 import { 
     getAdminSchedule, 
@@ -67,7 +74,15 @@ const isPastSlot = (dateStr: string, timeStr: string) => {
   return slotDate.getTime() < Date.now();
 };
 
-const getTodayLocalDate = () => formatLocalDate(new Date());
+// Función para obtener la fecha mínima (hoy) sin problemas de zona horaria
+const getTodayLocalDate = () => {
+  const now = new Date();
+  // Usar la fecha local sin considerar la hora para evitar problemas de zona horaria
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const day = now.getDate();
+  return formatLocalDate(new Date(year, month, day));
+};
 
 const isPastTimeForDate = (dateStr: string, timeStr: string) => {
   const [year, month, day] = dateStr.split('-').map(Number);
@@ -84,7 +99,7 @@ export default function AdminPage() {
   const [courts, setCourts] = useState<any[]>([]);
   const [newName, setNewName] = useState('');
   const [newSport, setNewSport] = useState('TENNIS');
-  const [scheduleDate, setScheduleDate] = useState(() => formatLocalDate(new Date()));
+  const [scheduleDate, setScheduleDate] = useState(() => getTodayLocalDate());
   const [scheduleBookings, setScheduleBookings] = useState<any[]>([]);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
@@ -187,7 +202,7 @@ export default function AdminPage() {
       time: '19:00',  // CAMBIO: Iniciamos en un horario válido por defecto
       isFixed: false,       // Checkbox
       dayOfWeek: '1',       // Nuevo: 1=Lunes, 2=Martes...
-      startDateBase: formatLocalDate(new Date()) // Base para calcular
+      startDateBase: getTodayLocalDate() // Base para calcular
   });
 
   const loadCourts = async () => { const data = await getCourts(); setCourts(data); };
@@ -453,7 +468,7 @@ export default function AdminPage() {
         
         
         {/* --- NUEVO: FORMULARIO DE RESERVA MANUAL --- */}
-        <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-6 mb-4 transition-all relative overflow-hidden">
+        <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-6 mb-4 transition-all relative">
             <h2 className="text-lg font-bold text-text flex items-center gap-2">
               <span>{manualBooking.isFixed ? '🔄' : '📅'}</span> 
               {manualBooking.isFixed ? 'NUEVO TURNO FIJO' : 'NUEVA RESERVA SIMPLE'}
@@ -525,17 +540,42 @@ export default function AdminPage() {
                    // MODO SIMPLE: Solo informativo
                    <div className="w-full">
                       <label className="block text-xs font-bold text-slate-500 mb-2">FECHA DEL TURNO</label>
-                      <input 
-                          type="date" 
-                          value={manualBooking.startDateBase}
-                          onChange={(e) => setManualBooking({...manualBooking, startDateBase: e.target.value})}
-                          onClick={(e) => {
-                            e.currentTarget.focus();
-                            (e.currentTarget as HTMLInputElement).showPicker?.();
-                          }}
-                          min={getTodayLocalDate()}
-                          className="w-full h-10 date-input bg-surface border border-border rounded-lg px-3 py-2 pr-12 text-white focus:outline-none focus:border-border"
-                          required
+                      <DatePicker
+                        selected={manualBooking.startDateBase ? (() => {
+                          const [year, month, day] = manualBooking.startDateBase.split('-').map(Number);
+                          return new Date(year, month - 1, day);
+                        })() : new Date()}
+                        onChange={(date: Date | null) => {
+                          if (!date) {
+                            setManualBooking({...manualBooking, startDateBase: ''});
+                            return;
+                          }
+                          
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+                          const selectedDateObj = new Date(date);
+                          selectedDateObj.setHours(0, 0, 0, 0);
+                          
+                          // Validar que la fecha no sea pasada
+                          if (selectedDateObj < today) {
+                            alert('No puedes seleccionar una fecha pasada. Por favor, elige una fecha de hoy en adelante.');
+                            return;
+                          }
+                          
+                          setManualBooking({...manualBooking, startDateBase: formatLocalDate(selectedDateObj)});
+                        }}
+                        minDate={new Date()}
+                        dateFormat="dd MMM yyyy"
+                        locale={es}
+                        portalId="datepicker-portal"
+                        popperPlacement="bottom-start"
+                        className="date-picker-custom w-full h-10"
+                        wrapperClassName="w-full"
+                        calendarClassName="date-picker-calendar"
+                        popperClassName="date-picker-popper"
+                        placeholderText="Selecciona una fecha"
+                        showPopperArrow={false}
+                        required
                       />
                   </div>
                 )}
@@ -607,12 +647,26 @@ export default function AdminPage() {
           <div className="flex flex-wrap gap-4 mb-6 items-end">
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-2">FECHA A VER</label>
-              <input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)}
-                onClick={(e) => {
-                  e.currentTarget.focus();
-                  (e.currentTarget as HTMLInputElement).showPicker?.();
+              <DatePicker
+                selected={scheduleDate ? (() => {
+                  const [year, month, day] = scheduleDate.split('-').map(Number);
+                  return new Date(year, month - 1, day);
+                })() : new Date()}
+                onChange={(date: Date | null) => {
+                  if (date) {
+                    setScheduleDate(formatLocalDate(date));
+                  }
                 }}
-                className="date-input bg-surface border border-border rounded-lg px-4 py-2 text-text outline-none focus:border-border" />
+                dateFormat="dd MMM yyyy"
+                locale={es}
+                portalId="datepicker-portal"
+                className="date-picker-custom"
+                wrapperClassName="w-full"
+                calendarClassName="date-picker-calendar"
+                popperClassName="date-picker-popper"
+                placeholderText="Selecciona una fecha"
+                showPopperArrow={false}
+              />
             </div>
             <button
               onClick={loadSchedule}
