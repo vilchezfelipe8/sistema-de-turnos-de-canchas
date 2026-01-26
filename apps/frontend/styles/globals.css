@@ -112,12 +112,27 @@
   background-repeat: no-repeat;
   background-position: right 0.75rem center;
   background-size: 1rem 1rem;
-  padding-right: 2.5rem;
+  padding-right: 2.5rem !important;
   cursor: pointer;
   font-variant-numeric: tabular-nums;
+  /* Fix para iOS Safari - asegurar box-sizing y max-width */
+  box-sizing: border-box !important;
+  max-width: 100% !important;
+  width: 100% !important;
+  /* Prevenir que iOS Safari estire el input */
+  -webkit-appearance: none;
+  appearance: none;
 }
 .date-input::-webkit-calendar-picker-indicator {
   opacity: 0;
   cursor: pointer;
   pointer-events: none;
+}
+/* Fix específico para iOS Safari */
+@supports (-webkit-touch-callout: none) {
+  .date-input {
+    padding-right: 2.5rem !important;
+    box-sizing: border-box !important;
+    max-width: 100% !important;
+  }
 }

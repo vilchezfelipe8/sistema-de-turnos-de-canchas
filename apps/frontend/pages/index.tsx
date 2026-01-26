@@ -33,9 +33,6 @@ export default function Home() {
         <Navbar />
         
         <div className="w-full max-w-6xl mt-12 mb-8 px-4">
-          <div className="text-left mb-6">
-            <h1 className="text-2xl sm:text-3xl font-black text-emerald-400 tracking-tight">CLUBO</h1>
-          </div>
 
           <div className="mt-8 grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-6">
             {/* Reservas */}

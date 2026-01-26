@@ -359,19 +359,26 @@ export default function BookingGrid() {
           <span>📅</span>
           <span>Fecha</span>
         </label>
-        <input
-          type="date"
-          min={formatLocalDate(new Date())}
-          max={maxDateStr}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            (e.currentTarget as HTMLInputElement).showPicker?.();
-          }}
-          className="date-input w-full p-4 pr-12 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none transition-all font-medium shadow-inner"
-          onChange={handleDateChange}
-          value={selectedDate ? formatLocalDate(selectedDate) : ''}
-          style={{ colorScheme: 'dark' }} 
-        />
+        <div className="w-full" style={{ boxSizing: 'border-box' }}>
+          <input
+            type="date"
+            min={formatLocalDate(new Date())}
+            max={maxDateStr}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              (e.currentTarget as HTMLInputElement).showPicker?.();
+            }}
+            className="date-input w-full p-4 pr-12 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none transition-all font-medium shadow-inner"
+            onChange={handleDateChange}
+            value={selectedDate ? formatLocalDate(selectedDate) : ''}
+            style={{ 
+              colorScheme: 'dark',
+              boxSizing: 'border-box',
+              maxWidth: '100%',
+              width: '100%'
+            }} 
+          />
+        </div>
       </div>
 
       {loading && (
