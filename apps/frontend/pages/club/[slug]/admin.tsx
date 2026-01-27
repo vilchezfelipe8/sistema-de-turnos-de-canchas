@@ -98,6 +98,9 @@ export default function ClubAdminPage() {
     description: ''
   });
 
+  // Estado para pestañas (se sincroniza con query.tab para permitir cambios por sidebar sin navegación completa)
+  const [activeTab, setActiveTab] = useState<'courts' | 'bookings' | 'club'>('courts');
+
   const [modalState, setModalState] = useState<{
     show: boolean;
     title?: string;
@@ -238,11 +241,22 @@ export default function ClubAdminPage() {
     }
   }, [authChecked, slug, router]);
 
+  // Sincronizar activeTab con query.tab (permite que el sidebar haga shallow pushes)
+  useEffect(() => {
+    const tab = router.query.tab as string | undefined;
+    if (!tab) return;
+    if (tab === 'courts' || tab === 'bookings' || tab === 'club') {
+      setActiveTab(tab);
+    }
+  }, [router.query.tab]);
+
   const loadCourts = async () => {
     if (!slug || typeof slug !== 'string') return;
     try {
       const data = await ClubAdminService.getCourts(slug);
       setCourts(data);
+      // DEBUG: Mostrar canchas recibidas del endpoint admin/courts
+      console.debug('ClubAdminService.getCourts ->', data?.length ?? 0, 'items', data);
     } catch (error: any) {
       showError('Error: ' + error.message);
     }
@@ -253,8 +267,49 @@ export default function ClubAdminPage() {
     try {
       setLoadingSchedule(true);
       const data = await ClubAdminService.getAdminSchedule(slug, scheduleDate);
-      setScheduleBookings(data);
+      // Si ya tenemos la lista de canchas, asegurarnos de que el schedule incluya
+      // filas (slots) para TODAS las canchas en cada horario, incluso si están libres.
+      let mergedSlots = data;
+      try {
+        if (courts && courts.length > 0) {
+          // Usar los horarios válidos del archivo (si existe CLUB_TIME_SLOTS arriba)
+          const timeSlots = typeof CLUB_TIME_SLOTS !== 'undefined' ? CLUB_TIME_SLOTS : [];
+
+          // Construir mapa por (time, courtId)
+          const slotMap = new Map();
+          (data || []).forEach((s: any) => {
+            const key = `${s.slotTime}::${s.courtId}`;
+            slotMap.set(key, s);
+          });
+
+          // Generar lista completa
+          mergedSlots = [];
+          for (const time of timeSlots) {
+            for (const c of courts) {
+              const key = `${time}::${c.id}`;
+              if (slotMap.has(key)) {
+                mergedSlots.push(slotMap.get(key));
+              } else {
+                mergedSlots.push({
+                  slotTime: time,
+                  courtId: c.id,
+                  courtName: c.name,
+                  isAvailable: true
+                });
+              }
+            }
+          }
+        }
+      } catch (err) {
+        // Si algo falla, caemos a usar el data original
+        console.warn('Error merging schedule with courts:', err);
+        mergedSlots = data;
+      }
+
+      setScheduleBookings(mergedSlots);
       setLastUpdate(new Date());
+      // DEBUG: Mostrar schedule (merge) recibido para comparar con canchas
+      console.debug('ClubAdminService.getAdminSchedule (merged) ->', mergedSlots?.length ?? 0, 'slots', mergedSlots);
     } catch (error: any) {
       showError('Error: ' + error.message);
     } finally {
@@ -537,9 +592,11 @@ export default function ClubAdminPage() {
 
   return (
     <PageShell title={`Panel de ${club.name}`} subtitle="Administración del Club">
-      <div className="mx-auto w-full max-w-4xl">
-        
-        {/* --- CONFIGURACIÓN DEL CLUB --- */}
+      <div className="min-h-[80vh] w-full">
+        {/* Eliminé el panel central "Panel Admin" para usar el sidebar fijo a la izquierda. */}
+        <div className="w-full">
+        {/* --- CONTENIDO DEL CLUB --- */}
+        {activeTab === 'club' && (
         <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-6 mb-4">
           <h2 className="text-lg font-bold text-text mb-4 flex items-center gap-2">
             <span>⚙️</span> CONFIGURACIÓN DEL CLUB
@@ -660,6 +717,11 @@ export default function ClubAdminPage() {
             </div>
           </form>
         </div>
+        )}
+
+        {/* --- CONTENIDO DE TURNOS --- */}
+        {activeTab === 'bookings' && (
+        <div>
 
         {/* --- FORMULARIO DE RESERVA MANUAL --- */}
         <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-6 mb-4 transition-all relative overflow-hidden">
@@ -971,6 +1033,13 @@ export default function ClubAdminPage() {
           )}
         </div>
 
+        </div>
+        )}
+
+        {/* --- CONTENIDO DE CANCHAS --- */}
+        {activeTab === 'courts' && (
+        <div>
+
         {/* --- FORMULARIO DE CREACIÓN CANCHA --- */}
         <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-6 mt-8 mb-4">
           <h2 className="text-lg font-bold text-text mb-4 flex items-center gap-2">
@@ -1073,6 +1142,10 @@ export default function ClubAdminPage() {
           </div>
         </div>
 
+        </div>
+        )}
+
+      </div>
       </div>
       <AppModal
         show={modalState.show}
