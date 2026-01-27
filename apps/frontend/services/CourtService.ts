@@ -1,6 +1,7 @@
 import { getToken } from './AuthService';
+import { getApiUrl } from '../utils/apiUrl';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const API_URL = getApiUrl();
 
 export const getCourts = async () => {
     // Este endpoint suele ser público, pero si es privado agrega el header Authorization

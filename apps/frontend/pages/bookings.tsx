@@ -60,24 +60,28 @@ export default function MyBookingsPage() {
   };
 
   useEffect(() => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-    const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
-    if (!token || !userStr) {
-      router.replace('/login');
-      return;
-    }
-    try {
-      const user = JSON.parse(userStr);
-      if (user?.role === 'ADMIN' && user?.clubId) {
-        // Redirigir al admin del club del usuario
-        const club = await ClubService.getClubById(user.clubId);
-        router.replace(`/club/${club.slug}/admin`);
+    const checkAuth = async () => {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+      const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+      if (!token || !userStr) {
+        router.replace('/login');
         return;
       }
-    } catch {
-      // noop
-    }
-    setAuthChecked(true);
+      try {
+        const user = JSON.parse(userStr);
+        if (user?.role === 'ADMIN' && user?.clubId) {
+          // Redirigir al admin del club del usuario
+          const club = await ClubService.getClubById(user.clubId);
+          router.replace(`/club/${club.slug}/admin`);
+          return;
+        }
+      } catch {
+        // noop
+      }
+      setAuthChecked(true);
+    };
+
+    checkAuth();
   }, [router]);
 
   const loadData = async () => {

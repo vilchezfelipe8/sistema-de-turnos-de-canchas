@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import { logout } from '../services/AuthService';
+import AppModal from './AppModal';
 import { ClubService, Club } from '../services/ClubService';
 
 const Navbar = () => {
@@ -10,6 +11,7 @@ const Navbar = () => {
   const [isGuest, setIsGuest] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [club, setClub] = useState<Club | null>(null);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   useEffect(() => {
     // Verificar si hay usuario logueado
@@ -75,14 +77,14 @@ const Navbar = () => {
   }, [router.asPath]);
 
   const handleLogout = () => {
-    logout();
-    window.location.href = '/';
+    setShowLogoutModal(true);
   };
 
   const isActive = (path: string) => router.pathname === path;
   const isAdmin = user?.role === 'ADMIN';
 
   return (
+    <>
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 border-b ${isScrolled ? 'py-2' : 'py-3'}`} style={{ backgroundColor: 'var(--bg)', borderColor: 'var(--border)' }}>
       
       <div className="container mx-auto px-4 flex justify-between items-center">
@@ -158,6 +160,21 @@ const Navbar = () => {
         )}
       </div>
     </nav>
+    <AppModal
+      show={showLogoutModal}
+      onClose={() => setShowLogoutModal(false)}
+      title="Cerrar sesión"
+      message="¿Estás seguro de que quieres cerrar la sesión?"
+      cancelText="Cancelar"
+      confirmText="Salir"
+      onConfirm={() => {
+        logout();
+        window.location.href = '/';
+      }}
+      closeOnBackdrop
+      closeOnEscape
+    />
+    </>
   );
 };
 

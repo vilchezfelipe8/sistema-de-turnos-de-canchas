@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { getApiUrl } from '../utils/apiUrl';
 
 interface Court {
   id: number;
@@ -20,7 +21,7 @@ export function useAvailability(date: Date | null) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL; 
+  const apiUrl = getApiUrl(); 
 
   const fetchSlots = async () => {
     if (!date) return;

@@ -5,6 +5,8 @@ generator client {
 datasource db {
   provider = "postgresql" // <--- CAMBIO IMPORTANTE: Antes decía "sqlite"
   url      = env("DATABASE_URL")
+  // directUrl es opcional, solo necesario para connection pooling avanzado
+  // directUrl = env("DIRECT_URL")
 }
 
 // --- ENUMS (Ahora sí son nativos en Postgres) ---
