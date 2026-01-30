@@ -233,3 +233,63 @@
 .react-datepicker-popper {
   z-index: 9999999 !important;
 }
+
+/* --- BOTONES DINÁMICOS (Color solo al pasar el mouse) --- */
+
+/* 1. Botón VERDE (Confirmar / Reactivar) */
+.btn-success {
+  background-color: transparent;      /* Fondo transparente por defecto */
+  color: var(--text);                 /* Texto blanco/gris */
+  border: 1px solid var(--border);    /* Borde gris sutil */
+  transition: all 0.3s ease;          /* Transición suave */
+  opacity: 0.8;
+}
+
+.btn-success:hover {
+  background-color: rgba(16, 185, 129, 0.2); /* Fondo verde al 20% */
+  color: #10b981;                            /* Texto Verde Emerald */
+  border-color: #10b981;                     /* Borde Verde */
+  opacity: 1;
+  transform: translateY(-1px);               /* Pequeño efecto de elevación */
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.3); /* Brillo (Glow) verde */
+}
+
+/* 2. Botón ROJO (Cancelar / Suspender) */
+.btn-danger {
+  background-color: transparent;      /* Fondo transparente */
+  color: var(--text);                 /* Texto blanco/gris */
+  border: 1px solid var(--border);    /* Borde gris */
+  transition: all 0.3s ease;
+  opacity: 0.8;
+}
+
+.btn-danger:hover {
+  background-color: rgba(239, 68, 68, 0.2);  /* Fondo rojo al 20% */
+  color: #ef4444;                            /* Texto Rojo */
+  border-color: #ef4444;                     /* Borde Rojo */
+  opacity: 1;
+  transform: translateY(-1px);
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.3); /* Brillo (Glow) rojo */
+}
+
+/* --- BADGES (Etiquetas de estado: Operativo/Mantenimiento) --- */
+/* Estos sí conviene dejarlos con color fijo para leer rápido el estado, 
+   pero los hacemos sutiles */
+
+.badge-success {
+  background-color: rgba(16, 185, 129, 0.05);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.badge-danger {
+  background-color: rgba(239, 68, 68, 0.05);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.badge-warning {
+  background-color: rgba(234, 179, 8, 0.05);
+  color: #eab308;
+  border: 1px solid rgba(234, 179, 8, 0.2);
+}
