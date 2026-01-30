@@ -16,7 +16,7 @@ export const verifyClubAccess = async (req: Request, res: Response, next: NextFu
 
         // Obtener el club por slug
         const club = await prisma.club.findUnique({
-            where: { slug }
+            where: { slug: slug as string }
         });
 
         if (!club) {
@@ -53,7 +53,7 @@ export const verifyClubAccess = async (req: Request, res: Response, next: NextFu
 export const verifyClubAccessById = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = (req as any).user;
-        const clubId = parseInt(req.params.id) || parseInt(req.body.clubId);
+        const clubId = parseInt(req.params.id as string) || parseInt(req.body.clubId as string);
 
         if (!clubId || isNaN(clubId)) {
             return res.status(400).json({ error: 'ID de club inválido' });

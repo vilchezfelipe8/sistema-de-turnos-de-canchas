@@ -30,7 +30,7 @@ export class ClubController {
 
     getClubById = async (req: Request, res: Response) => {
         try {
-            const id = parseInt(req.params.id);
+            const id = parseInt(req.params.id as string);
             if (isNaN(id)) {
                 return res.status(400).json({ error: 'ID de club inválido' });
             }
@@ -47,7 +47,7 @@ export class ClubController {
             if (!slug) {
                 return res.status(400).json({ error: 'Slug de club requerido' });
             }
-            const club = await this.clubService.getClubBySlug(slug);
+            const club = await this.clubService.getClubBySlug(slug as string);
             res.json(club);
         } catch (error: any) {
             res.status(404).json({ error: error.message });
@@ -65,7 +65,7 @@ export class ClubController {
 
     updateClub = async (req: Request, res: Response) => {
         try {
-            const id = parseInt(req.params.id);
+            const id = parseInt(req.params.id as string);
             if (isNaN(id)) {
                 return res.status(400).json({ error: 'ID de club inválido' });
             }

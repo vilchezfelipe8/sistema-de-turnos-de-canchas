@@ -376,7 +376,7 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
 
     cancelFixed = async (req: Request, res: Response) => {
         try {
-            const id = parseInt(req.params.id);
+            const id = parseInt(req.params.id as string);
             const clubId = (req as any).clubId; // Agregado por middleware de verificación de club
             const result = await this.bookingService.cancelFixedBooking(id, clubId);
             res.json(result);
