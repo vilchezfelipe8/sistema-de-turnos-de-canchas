@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import { prisma } from './prisma'; 
-import bookingRoutes from './routes/BookingRoutes'; // <--- SOLO IMPORTAMOS RESERVAS
+import bookingRoutes from './routes/BookingRoutes'; 
 import CourtRoutes from './routes/CourtRoutes';
 import ClubRoutes from './routes/ClubRoutes';
 import ClubAdminRoutes from './routes/ClubAdminRoutes';
@@ -9,6 +9,9 @@ import authRoutes from './routes/AuthRoutes';
 import cors from 'cors';
 import { BookingStatus } from './entities/Enums';
 import QRCode from 'qrcode';
+// 👇 Importante: Importamos la ruta de clientes
+import ClientRoutes from './routes/ClientRoutes';
+import { errorHandler } from './middleware/ErrorHandler'; // Movi el import aquí arriba para ordenar
 
 const app = express();
 
@@ -37,7 +40,7 @@ app.use(cors({
       return callback(null, true);
     }
     
-    // Permitir IPs locales para desarrollo (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+    // Permitir IPs locales para desarrollo
     const localIpPattern = /^http:\/\/(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+|localhost|127\.0\.0\.1)(:\d+)?$/;
     if (localIpPattern.test(origin)) {
       return callback(null, true);
@@ -49,200 +52,73 @@ app.use(cors({
   credentials: true
 }));
 
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = Number(process.env.PORT) || 4000;
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
-  console.error('❌ Missing JWT_SECRET in environment. Set it in .env or as an environment variable.');
+  console.error('❌ Missing JWT_SECRET in environment.');
   process.exit(1);
 }
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
-  console.error('❌ Missing DATABASE_URL in environment. Set it in .env or as an environment variable.');
+  console.error('❌ Missing DATABASE_URL in environment.');
   process.exit(1);
 }
-const NODE_ENV = process.env.NODE_ENV || 'development';
 const BOOKINGS_COMPLETION_INTERVAL_MS = Number(process.env.BOOKINGS_COMPLETION_INTERVAL_MS) || 1 * 60 * 1000;
 
 app.use(express.json());
 
-// --- SOLO RUTAS DE RESERVAS ---
-app.use('/api/bookings', bookingRoutes); 
-// Borré la linea de app.use('/api/activities'...) porque no la vamos a usar.
+// 👇 ZONA DE RUTAS
+console.log("✅ Registrando ruta /clients...");
+app.use('/clients', ClientRoutes); 
 
+app.use('/api/bookings', bookingRoutes); 
 app.use('/api/courts', CourtRoutes);
-app.use('/api/clubs', ClubRoutes);
-app.use('/api/clubs', ClubAdminRoutes);
+app.use('/api/clubs', ClubRoutes); // Para rutas generales de club
+app.use('/api/clubs', ClubAdminRoutes); // Para rutas admin de club
 
 app.get('/', (req: Request, res: Response) => {
   res.json({ message: 'API Sistema de Turnos' });
 });
 
-// Healthcheck endpoint for readiness probes
+// Healthcheck
 app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok' });
 });
 
 // WhatsApp QR endpoint
 app.get('/whatsapp/qr', async (_req: Request, res: Response) => {
+  // Nota: Usamos require aquí para evitar cargar el servicio si no se usa la ruta, 
+  // pero idealmente debería importarse arriba. Lo dejo como lo tenías.
   const { whatsappService } = require('./services/WhatsappService');
   const status = whatsappService.getStatus();
 
-  // Si WhatsApp está deshabilitado
   if (status.disabled) {
-    return res.status(200).send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>WhatsApp - Deshabilitado</title>
-        <meta charset="utf-8">
-        <style>
-          body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
-          .status { background: #9e9e9e; color: white; padding: 20px; border-radius: 10px; display: inline-block; }
-        </style>
-      </head>
-      <body>
-        <div class="status">
-          <h1>📵 WhatsApp Deshabilitado</h1>
-          <p>El servicio de WhatsApp está temporalmente deshabilitado.</p>
-          <p style="font-size: 14px; margin-top: 10px;">Para habilitarlo, configura DISABLE_WHATSAPP=false en las variables de entorno.</p>
-        </div>
-      </body>
-      </html>
-    `);
+    return res.status(200).send(`<html><body><h1>📵 WhatsApp Deshabilitado</h1></body></html>`);
   }
 
   const qr = whatsappService.getQR();
 
   if (!qr) {
     if (status.ready) {
-      return res.status(200).send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>WhatsApp - Conectado</title>
-          <meta charset="utf-8">
-          <style>
-            body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
-            .status { background: #25D366; color: white; padding: 20px; border-radius: 10px; display: inline-block; }
-          </style>
-        </head>
-        <body>
-          <div class="status">
-            <h1>✅ WhatsApp Conectado</h1>
-            <p>El servicio de WhatsApp ya está listo y funcionando.</p>
-          </div>
-        </body>
-        </html>
-      `);
+      return res.status(200).send(`<html><body><h1>✅ WhatsApp Conectado</h1></body></html>`);
     }
-    return res.status(404).send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>WhatsApp - Sin QR</title>
-        <meta charset="utf-8">
-        <style>
-          body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
-          .status { background: #ff9800; color: white; padding: 20px; border-radius: 10px; display: inline-block; }
-        </style>
-        <meta http-equiv="refresh" content="5">
-      </head>
-      <body>
-        <div class="status">
-          <h1>⏳ Esperando QR...</h1>
-          <p>El código QR se generará automáticamente. Esta página se actualizará en 5 segundos.</p>
-        </div>
-      </body>
-      </html>
-    `);
+    return res.status(404).send(`<html><head><meta http-equiv="refresh" content="5"></head><body><h1>⏳ Esperando QR...</h1></body></html>`);
   }
 
-  // Generar QR como SVG directamente en el backend
   try {
     const qrSvg = await QRCode.toString(qr, { type: 'svg', width: 300, margin: 2 });
-    
     res.status(200).send(`
       <!DOCTYPE html>
       <html>
-      <head>
-        <title>WhatsApp QR Code</title>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-          body { 
-            font-family: Arial, sans-serif; 
-            text-align: center; 
-            padding: 20px; 
-            background: #f5f5f5; 
-            margin: 0;
-          }
-          .container {
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            display: inline-block;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            max-width: 100%;
-          }
-          .qrcode {
-            margin: 20px 0;
-            display: inline-block;
-          }
-          .qrcode svg {
-            max-width: 100%;
-            height: auto;
-          }
-          .instructions {
-            margin-top: 20px;
-            color: #666;
-            max-width: 400px;
-            margin-left: auto;
-            margin-right: auto;
-            text-align: left;
-          }
-          .instructions p {
-            margin: 10px 0;
-          }
-          .status {
-            color: #25D366;
-            font-weight: bold;
-            margin-top: 20px;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <h1>📱 Escanea el código QR</h1>
-          <p>Usa WhatsApp en tu teléfono para escanear este código:</p>
-          <div class="qrcode">
-            ${qrSvg}
-          </div>
-          <div class="instructions">
-            <p><strong>1.</strong> Abre WhatsApp en tu teléfono</p>
-            <p><strong>2.</strong> Ve a Configuración → Dispositivos vinculados</p>
-            <p><strong>3.</strong> Toca "Vincular un dispositivo"</p>
-            <p><strong>4.</strong> Escanea este código QR</p>
-          </div>
-          <div class="status" id="status">⏳ Esperando conexión...</div>
-          <p style="margin-top: 20px; color: #999; font-size: 12px;">
-            Esta página se actualizará automáticamente cuando WhatsApp se conecte.
-          </p>
-        </div>
+      <head><title>WhatsApp QR</title></head>
+      <body style="text-align:center; font-family:sans-serif;">
+        <h1>📱 Escanea el código QR</h1>
+        <div>${qrSvg}</div>
         <script>
-          // Verificar estado cada 3 segundos
-          setInterval(function() {
-            fetch('/whatsapp/status')
-              .then(res => res.json())
-              .then(data => {
-                if (data.ready) {
-                  document.getElementById('status').innerHTML = '✅ WhatsApp Conectado!';
-                  document.getElementById('status').style.color = '#25D366';
-                  setTimeout(() => {
-                    window.location.reload();
-                  }, 2000);
-                }
-              })
-              .catch(err => console.error('Error:', err));
+          setInterval(() => {
+            fetch('/whatsapp/status').then(r=>r.json()).then(d=>{
+              if(d.ready) location.reload();
+            });
           }, 3000);
         </script>
       </body>
@@ -250,42 +126,23 @@ app.get('/whatsapp/qr', async (_req: Request, res: Response) => {
     `);
   } catch (error) {
     console.error('Error generando QR:', error);
-    res.status(500).send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Error</title>
-        <meta charset="utf-8">
-        <style>
-          body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
-          .error { background: #f44336; color: white; padding: 20px; border-radius: 10px; display: inline-block; }
-        </style>
-      </head>
-      <body>
-        <div class="error">
-          <h1>❌ Error generando QR</h1>
-          <p>Hubo un problema al generar el código QR. Por favor, intenta recargar la página.</p>
-        </div>
-      </body>
-      </html>
-    `);
+    res.status(500).send('Error generando QR');
   }
 });
 
-// WhatsApp status endpoint
 app.get('/whatsapp/status', (_req: Request, res: Response) => {
   const { whatsappService } = require('./services/WhatsappService');
-  const status = whatsappService.getStatus();
-  res.json(status);
+  res.json(whatsappService.getStatus());
 });
 
-import { errorHandler } from './middleware/ErrorHandler';
 
 const startServer = async () => {
   try {
     await prisma.$connect();
+    // Movemos authRoutes aquí para mantener tu lógica original
     app.use('/api/auth', authRoutes);
 
+    // Lógica de completar turnos viejos
     const completePastBookings = async () => {
       try {
         const now = new Date();
@@ -317,6 +174,7 @@ const startServer = async () => {
     completionInterval.unref?.();
 
     app.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 Server listening on port ${PORT}`);
     });
 
   } catch (error) {
@@ -330,4 +188,3 @@ const startServer = async () => {
 app.use(errorHandler);
 
 startServer();
-

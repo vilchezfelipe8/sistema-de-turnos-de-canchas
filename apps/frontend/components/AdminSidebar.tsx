@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import Link from 'next/link'; // Import correcto para Next.js
-import { useRouter } from 'next/router'; // Hook de rutas de Next.js
+import Link from 'next/link'; 
+import { useRouter } from 'next/router'; 
 
 const AdminSidebar = () => {
   const router = useRouter();
@@ -13,17 +13,17 @@ const AdminSidebar = () => {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Usar las rutas globales del admin para redirigir a las vistas ya existentes
+  // 👇 AQUÍ SOLO AGREGUÉ LA LÍNEA DE CLIENTES (tab: 'clients')
+  // El resto de los estilos y lógica son EXACTAMENTE los tuyos.
   const navItems = [
     { name: 'Gestión de Canchas', path: '/admin/canchas', icon: '🏓', tab: 'courts' },
     { name: 'Gestión de Turnos', path: '/admin/agenda', icon: '📅', tab: 'bookings' },
+    { name: 'Gestión de Clientes', path: '/admin/clientes', icon: '👥', tab: 'clients' }, // <--- NUEVO
     { name: 'Configuración', path: '/admin/settings', icon: '⚙️', tab: 'club' },
   ];
 
   return (
     // z-40: Para que quede POR DEBAJO del Navbar (que suele tener z-50)
-    // Ahora el sidebar ocupa desde el tope (top-0) y empuja su contenido con padding-top
-    // para que el fondo llegue hasta el NavBar y no quede espacio vacío a la izquierda.
     <aside className={`fixed left-0 top-0 h-full w-64 z-40 hidden md:block overflow-y-auto transform transition-transform duration-300 pt-32 ${scrolled ? '-translate-y-1 shadow-2xl bg-gray-800/95 border-gray-700' : 'translate-y-0 bg-gray-900 border-gray-800'}`}>
       <div className="px-4 mb-8">
         <h2 className="text-xl font-bold text-white tracking-tight">Panel Admin</h2>
@@ -35,7 +35,7 @@ const AdminSidebar = () => {
           const isClubAdmin = /\/club\/[^\/]+\/admin/.test(router.asPath);
 
           if (isClubAdmin) {
-            // Cuando estamos en la vista del club admin, usar shallow push para cambiar pestañas sin navegar fuera
+            // Lógica original para cambiar de pestaña sin recargar
             const isActive = router.query.tab === item.tab || (!router.query.tab && item.tab === 'courts' && router.asPath.endsWith('/admin'));
 
             const handleClick = (e: React.MouseEvent) => {
@@ -43,7 +43,6 @@ const AdminSidebar = () => {
               const slugMatch = router.asPath.match(/\/club\/([^\/]+)\/admin/);
               const slug = slugMatch ? slugMatch[1] : undefined;
               if (slug) {
-                // Mantener la misma ruta, sólo actualizar query.tab con shallow
                 router.push({ pathname: `/club/${slug}/admin`, query: { tab: item.tab } }, undefined, { shallow: true });
               }
             };
@@ -66,7 +65,7 @@ const AdminSidebar = () => {
             );
           }
 
-          // Comportamiento por defecto: enlaces hacia el admin global
+          // Enlaces normales
           const isActive = router.asPath.startsWith(item.path);
           return (
             <Link
@@ -87,7 +86,6 @@ const AdminSidebar = () => {
         })}
       </nav>
       
-      {/* Footer del Sidebar */}
       <div className="absolute bottom-0 left-0 w-full p-4 border-t border-gray-800">
         <div className="flex items-center gap-2 text-xs text-gray-500">
            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
