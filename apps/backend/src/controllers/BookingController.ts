@@ -343,7 +343,10 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
     
     createFixed = async (req: Request, res: Response) => {
         try {
-            const { userId, courtId, activityId, startDateTime, guestName } = req.body;
+            // 🚨 LOG 2: ¿Llegó el dato al servidor?
+            console.log("📨 [BACK-CONTROLLER] Body completo recibido:", req.body);
+            console.log("📨 [BACK-CONTROLLER] guestPhone extraído:", req.body.guestPhone);
+            const { userId, courtId, activityId, startDateTime, guestName, guestPhone } = req.body;
             const user = (req as any).user;
             const isAdmin = user?.role === 'ADMIN';
             const clubId = (req as any).clubId; // Agregado por middleware de verificación de club
@@ -365,6 +368,7 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
                 startDate,
                 undefined,
                 guestName,
+                guestPhone,
                 clubId
             );
             
@@ -382,6 +386,59 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
             res.json(result);
         } catch (error: any) {
             res.status(400).json({ error: error.message });
+        }
+    }
+
+    // OBTENER CONSUMOS (GET)
+    getItems = async (req: Request, res: Response) => {
+        try {
+            const { id } = req.params; // El ID de la reserva viene en la URL
+            
+            // Llamamos al servicio (asegurate que tu servicio tenga este método)
+            const items = await this.bookingService.getBookingItems(Number(id));
+            
+            res.json(items);
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ error: 'Error al obtener los consumos' });
+        }
+    }
+
+    //  AGREGAR CONSUMO (POST)
+    addItem = async (req: Request, res: Response) => {
+        try {
+            const { id } = req.params; // ID de la reserva
+            const { productId, quantity } = req.body; // Datos del producto
+
+            // Validamos que vengan los datos
+            if (!productId || !quantity) {
+                return res.status(400).json({ error: 'Falta productId o quantity' });
+            }
+
+            const item = await this.bookingService.addItemToBooking(
+                Number(id), 
+                Number(productId), 
+                Number(quantity)
+            );
+            
+            res.status(201).json(item);
+        } catch (error: any) {
+            // Si el servicio tira error (ej: "Sin stock"), lo devolvemos al frontend
+            res.status(400).json({ error: error.message || 'Error al agregar consumo' });
+        }
+    }
+
+    //  ELIMINAR CONSUMO (DELETE)
+    removeItem = async (req: Request, res: Response) => {
+        try {
+            const { itemId } = req.params; // OJO: Acá esperamos el ID del item, no de la reserva
+
+            await this.bookingService.removeItemFromBooking(Number(itemId));
+            
+            res.json({ message: 'Consumo eliminado y stock devuelto' });
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ error: 'Error al eliminar el consumo' });
         }
     }
 }

@@ -293,3 +293,13 @@
   color: #eab308;
   border: 1px solid rgba(234, 179, 8, 0.2);
 }
+
+/* Badge AZUL para Turnos Fijos */
+.badge-info {
+  background-color: rgba(59, 130, 246, 0.15); /* Azul Blue-500 transparente */
+  color: #60a5fa;                             /* Texto Azul claro */
+  border: 1px solid rgba(59, 130, 246, 0.4);  /* Borde Azul */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px; /* Espacio entre icono y texto */
+}

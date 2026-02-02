@@ -4,6 +4,7 @@ import DatePicker from 'react-datepicker';
 import { registerLocale } from 'react-datepicker';
 import { es } from 'date-fns/locale/es';
 import 'react-datepicker/dist/react-datepicker.css';
+import { useRouter } from 'next/router';
 
 // Registrar locale en español
 registerLocale('es', es);
@@ -18,6 +19,8 @@ import {
 } from '../../services/BookingService';
 import AdminLayout from '../../components/AdminLayout';
 import AppModal from '../../components/AppModal';
+import { ClubAdminService } from '../../services/ClubAdminService';
+import BookingConsumption from '../../components/BookingConsumption';
 
 // --- CONSTANTES ---
 // Horarios válidos del club (Coinciden con tu backend)
@@ -100,11 +103,15 @@ export default function AgendaPage() {
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [selectedBookingForDetails, setSelectedBookingForDetails] = useState<any>(null);
+  const router = useRouter();
+  const { slug } = router.query;
 
   // --- ESTADOS PARA CREAR RESERVA MANUAL ---
   const [manualBooking, setManualBooking] = useState({
       guestFirstName: '',
       guestLastName: '',
+      guestPhone: '',
       courtId: '',
       time: '19:00',  // CAMBIO: Iniciamos en un horario válido por defecto
       isFixed: false,       // Checkbox
@@ -261,6 +268,13 @@ export default function AgendaPage() {
   // --- NUEVA LÓGICA: CREAR RESERVA (FIJA O NORMAL) ---
   const handleCreateBooking = async (e: React.FormEvent) => {
       e.preventDefault();
+
+      // Verificamos que 'slug' exista (viene del inicio del componente)
+      if (!slug || typeof slug !== 'string') {
+        showError('Error: No se identificó el club (Falta el slug en la URL).');
+        return;
+      }
+
       if(!manualBooking.courtId || !manualBooking.time) {
         showError('Faltan datos');
         return;
@@ -273,13 +287,19 @@ export default function AgendaPage() {
       }
 
       try {
+          const safePhone = manualBooking.guestPhone || ''; ''; 
+          const rawPhone = safePhone.replace(/\D/g, ''); 
+          const phoneToSend = rawPhone ? `+549${rawPhone}` : '';
+          console.log("📞 DATO CORRECTO:", phoneToSend);
+          const guestName = `${firstName} ${lastName}`.trim();
+
           let dateBase: Date;
           let skipNote = '';
 
-          // 1. OBTENEMOS LA FECHA "LOCAL" (Tal cual la ves en tu reloj)
+          // 2. LÓGICA DE FECHAS
           if (manualBooking.isFixed) {
               const base = new Date(manualBooking.startDateBase);
-              base.setHours(12,0,0,0); // Evitamos saltos de día
+              base.setHours(12,0,0,0); 
 
               const nextDateInfo = getNextDateForDay(
                   base,
@@ -293,9 +313,10 @@ export default function AgendaPage() {
 
               const todayStr = formatLocalDate(new Date());
               const dateStr = formatLocalDate(dateBase);
+              
               if (!nextDateInfo.skippedPast && dateStr === todayStr) {
                 try {
-                  const schedule = await getAdminSchedule(dateStr);
+                  const schedule = await ClubAdminService.getAdminSchedule(slug, dateStr);
                   const courtId = Number(manualBooking.courtId);
                   const hasConflict = schedule.some((slot: any) =>
                     slot.courtId === courtId &&
@@ -309,7 +330,7 @@ export default function AgendaPage() {
                     skipNote = '⏭️ No se reservó para hoy porque ya hay un turno en ese horario.';
                   }
                 } catch (error) {
-                  // Si falla el chequeo, seguimos sin bloquear
+                   // Ignorar error de validación
                 }
               }
           } else {
@@ -318,16 +339,16 @@ export default function AgendaPage() {
 
           const dateToSend = dateBase;
 
-          // 3. ENVIAMOS LA FECHA
+          // 3. ENVIAMOS LA RESERVA
           if (manualBooking.isFixed) {
-              const guestName = `${manualBooking.guestFirstName.trim()} ${manualBooking.guestLastName.trim()}`.trim();
-              await createFixedBooking(
-                  undefined,
-                  Number(manualBooking.courtId),
-                  1, // Tu ID de Actividad real
-                  dateToSend, // <--- Enviamos la fecha
-                  guestName
-              );
+              await ClubAdminService.createFixedBooking(slug, {
+                  courtId: Number(manualBooking.courtId),
+                  activityId: 1,
+                  startDateTime: dateToSend.toISOString(),
+                  guestName: guestName,
+                  guestPhone: phoneToSend // <--- SE ENVÍA EL TELÉFONO
+              });
+
               const startLabel = dateBase.toLocaleDateString();
               const baseMessage = `✅ Turno FIJO creado. Arranca el: ${startLabel} a las ${manualBooking.time}`;
               const message = skipNote ? (
@@ -337,26 +358,38 @@ export default function AgendaPage() {
                 </div>
               ) : baseMessage;
               showInfo(message, 'Listo');
+
           } else {
-              const guestName = `${manualBooking.guestFirstName.trim()} ${manualBooking.guestLastName.trim()}`.trim();
               const guestIdentifier = `admin_${Date.now()}`;
+              
               await createBooking(
                   Number(manualBooking.courtId),
                   1,
-                  dateToSend, // <--- Enviamos la fecha ajustada
+                  dateToSend,
                   undefined,
-                  { name: guestName },
+                  { 
+                    name: guestName,
+                    phone: phoneToSend // <--- SE ENVÍA EL TELÉFONO
+                  },
                   { asGuest: true, guestIdentifier }
               );
               showInfo('✅ Reserva simple creada', 'Listo');
           }
 
           loadSchedule();
+
+          // 4. LIMPIEZA DEL FORMULARIO
+          setManualBooking(prev => ({
+            ...prev,
+            guestFirstName: '',
+            guestLastName: '',
+            guestPhone: ''
+          }));
+
       } catch (error: any) {
           showError('Error al reservar: ' + error.message);
       }
   };
-
   // --- LÓGICA MEJORADA DE CANCELACIÓN ---
   const handleCancelBooking = async (booking: any) => {
 
@@ -690,7 +723,16 @@ export default function AgendaPage() {
                       <td className="p-5 text-text">
                         {slot.booking ? (
                           <div>
-                            <div className="font-bold">{slot.booking.userName}</div>
+                            <div className="font-bold">{slot.booking.userName || slot.booking.guestName}</div>
+                            
+                            {/* 👇 AGREGÁ ESTO ACÁ PARA VER EL TELÉFONO 👇 */}
+                            {(slot.booking.guestPhone || slot.booking.user?.phoneNumber) && (
+                                <div className="text-xs text-emerald-400 mt-0.5 flex items-center gap-1">
+                                  📞 {slot.booking.guestPhone || slot.booking.user?.phoneNumber}
+                                </div>
+                            )}
+                            {/* 👆 FIN DEL AGREGADO 👆 */}
+
                             {slot.booking.fixedBookingId && (
                               <div className="text-xs text-muted mt-1">
                                 🔄 Turno fijo #{slot.booking.fixedBookingId}

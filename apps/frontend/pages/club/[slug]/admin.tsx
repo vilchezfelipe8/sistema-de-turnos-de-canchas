@@ -16,6 +16,8 @@ import {
   cancelFixedBooking
 } from '../../../services/BookingService';
 import { ClubService, Club } from '../../../services/ClubService';
+import ProductsPage from '../../../components/ProductsPage'; 
+import BookingConsumption from '../../../components/BookingConsumption';
 
 // Registrar locale en español
 registerLocale('es', es);
@@ -74,13 +76,14 @@ export default function ClubAdminPage() {
   const [authChecked, setAuthChecked] = useState(false);
   const [club, setClub] = useState<Club | null>(null);
   const [loadingClub, setLoadingClub] = useState(false);
+  const [selectedBookingForDetails, setSelectedBookingForDetails] = useState<any>(null);
 
   const [clubForm, setClubForm] = useState({
     slug: '', name: '', address: '', contactInfo: '', phone: '',
     logoUrl: '', instagramUrl: '', facebookUrl: '', websiteUrl: '', description: ''
   });
 
-  const [activeTab, setActiveTab] = useState<'courts' | 'bookings' | 'club' | 'clients'>('courts');
+  const [activeTab, setActiveTab] = useState<'courts' | 'bookings' | 'club' | 'clients' | 'products'>('courts') ;
 
   const [modalState, setModalState] = useState<{
     show: boolean; title?: string; message?: ReactNode; cancelText?: string;
@@ -165,7 +168,7 @@ export default function ClubAdminPage() {
   useEffect(() => {
     const tab = router.query.tab as string | undefined;
     if (!tab) return;
-    if (tab === 'courts' || tab === 'bookings' || tab === 'club' || tab === 'clients') {
+    if (tab === 'courts' || tab === 'bookings' || tab === 'club' || tab === 'clients' || tab === 'products') {
       setActiveTab(tab as any);
     }
   }, [router.query.tab]);
@@ -306,32 +309,43 @@ export default function ClubAdminPage() {
       const dateToSend = dateBase;
       const guestName = `${firstName} ${lastName}`.trim();
 
-      if (manualBooking.isFixed) {
-        await ClubAdminService.createFixedBooking(slug, {
-          courtId: Number(manualBooking.courtId),
-          activityId: 1,
-          startDateTime: dateToSend.toISOString(),
-          guestName
-        });
-        const msg = `✅ Turno FIJO creado. Arranca: ${dateBase.toLocaleDateString()} a las ${manualBooking.time}. ${skipNote}`;
-        showInfo(msg, 'Listo');
-      } else {
-        const guestIdentifier = `admin_${Date.now()}`;
-        const rawPhone = manualBooking.guestPhone.replace(/\D/g, '');
-        const phoneToSend = rawPhone ? `549${rawPhone}` : '';
+      const rawPhone = (manualBooking.guestPhone || '').replace(/\D/g, '');
+      const phoneToSend = rawPhone ? `+549${rawPhone}` : '';
 
-        await createBooking(
-          Number(manualBooking.courtId),
-          1,
-          dateToSend,
-          undefined,
-          {
-            name: guestName,
-            phone: phoneToSend
-          },
-          { asGuest: true, guestIdentifier }
-        );
-        showInfo('✅ Reserva creada. Cliente actualizado.', 'Listo');
+      console.log("📞 Teléfono formateado:", phoneToSend); // Para verificar
+
+      if (manualBooking.isFixed) {
+          // CASO 1: TURNO FIJO
+          await ClubAdminService.createFixedBooking(slug, {
+              courtId: Number(manualBooking.courtId),
+              activityId: 1,
+              startDateTime: dateToSend.toISOString(),
+              guestName,
+              
+              // 👇 AHORA SÍ USAMOS LA VARIABLE CON EL +549
+              guestPhone: phoneToSend 
+          });
+
+          const msg = `✅ Turno FIJO creado. Arranca: ${dateBase.toLocaleDateString()} a las ${manualBooking.time}. ${skipNote}`;
+          showInfo(msg, 'Listo');
+
+      } else {
+          // CASO 2: TURNO NORMAL
+          const guestIdentifier = `admin_${Date.now()}`;
+          // (Ya no hace falta calcular rawPhone/phoneToSend acá porque lo hicimos arriba)
+
+          await createBooking(
+              Number(manualBooking.courtId),
+              1,
+              dateToSend,
+              undefined,
+              {
+                  name: guestName,
+                  phone: phoneToSend // Este ya funcionaba bien, ahora usa la variable de arriba
+              },
+              { asGuest: true, guestIdentifier }
+          );
+          showInfo('✅ Reserva creada. Cliente actualizado.', 'Listo');
       }
 
       loadSchedule();
@@ -391,6 +405,10 @@ export default function ClubAdminPage() {
           {activeTab === 'clients' && (
             <ClientsPage />
           )}
+
+          {activeTab === 'products' && slug && (
+          <ProductsPage params={{ slug: slug as string }} />
+        )}
 
           {/* --- CONTENIDO DEL CLUB --- */}
           {activeTab === 'club' && (
@@ -482,28 +500,81 @@ export default function ClubAdminPage() {
                 </div>
                 {scheduleBookings.length > 0 ? (
                   <div className="overflow-x-auto rounded-xl border border-border/60">
-                    <table className="w-full text-left">
-                      <thead><tr className="bg-surface/60 text-muted text-xs uppercase border-b border-border/60"><th className="p-3">Hora</th><th className="p-3">Cancha</th><th className="p-3">Estado</th><th className="p-3">Usuario</th><th className="p-3">Contacto</th><th className="p-4 text-right">Acciones</th></tr></thead>
-                      <tbody className="text-sm font-mono">
-                        {scheduleBookings.map((slot, i) => (
-                          <tr key={i} className="border-b border-border/60 hover:bg-surface-70/70">
-                            <td className="p-3 text-slate-300">{slot.slotTime}</td>
-                            <td className="p-3 text-white font-bold">{slot.courtName}</td>
-                            <td className="p-3">
-                              {slot.isAvailable ? (
-                                <span className="badge badge-success">DISPONIBLE</span>
-                              ) : (
-                                <span className={`badge ${slot.booking?.status === 'CONFIRMED' ? 'badge-danger' : 'badge-warning'}`}>{slot.booking?.status === 'CONFIRMED' ? 'CONFIRMADO' : 'PENDIENTE'}{slot.booking?.fixedBookingId && ' 🔄'}</span>
-                              )}
-                            </td>
-                            <td className="p-3 text-slate-300">{slot.isAvailable ? '-' : (slot.booking?.user ? `${slot.booking.user.firstName} ${slot.booking.user.lastName}` : (slot.booking?.guestName || 'Invitado'))}</td>
-                            <td className="p-3 text-slate-400">{slot.isAvailable ? '-' : (slot.booking?.user?.phoneNumber || slot.booking?.guestPhone || '-')}</td>
-                            <td className="p-4 text-right">{!slot.isAvailable && slot.booking && (<div className="flex justify-end gap-2">{slot.booking.status === 'PENDING' && (<button onClick={() => handleConfirmBooking(slot.booking)} className="text-xs btn btn-success px-3 py-1">CONFIRMAR</button>)}<button onClick={() => handleCancelBooking(slot.booking)} className="text-xs btn btn-danger px-3 py-1">CANCELAR</button></div>)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+  <table className="w-full text-left">
+    <thead>
+      <tr className="bg-surface/60 text-muted text-xs uppercase border-b border-border/60">
+        <th className="p-3">Hora</th>
+        <th className="p-3">Cancha</th>
+        <th className="p-3">Estado</th>
+        <th className="p-3">Usuario</th>
+        <th className="p-3">Contacto</th>
+        <th className="p-4 text-right">Acciones</th>
+      </tr>
+    </thead>
+    <tbody className="text-sm font-mono">
+      {scheduleBookings.map((slot, i) => (
+        <tr key={i} className="border-b border-border/60 hover:bg-surface-70/70">
+          <td className="p-3 text-slate-300">{slot.slotTime}</td>
+          <td className="p-3 text-white font-bold">{slot.courtName}</td>
+          
+          {/* 👇 AQUÍ ESTÁ EL CAMBIO PARA LOS TURNOS FIJOS */}
+          <td className="p-3">
+            {slot.isAvailable ? (
+              <span className="badge badge-success">DISPONIBLE</span>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className={`badge ${slot.booking?.status === 'CONFIRMED' ? 'badge-danger' : 'badge-warning'}`}>
+                  {slot.booking?.status === 'CONFIRMED' ? 'CONFIRMADO' : 'PENDIENTE'}
+                </span>
+                {slot.booking?.fixedBookingId && (
+                  <span className="badge badge-info">
+                    🔄 FIJO
+                  </span>
+                )}
+              </div>
+            )}
+          </td>
+          {/* 👆 FIN DEL CAMBIO */}
+
+          <td className="p-3 text-slate-300">{slot.isAvailable ? '-' : (slot.booking?.user ? `${slot.booking.user.firstName} ${slot.booking.user.lastName}` : (slot.booking?.guestName || 'Invitado'))}</td>
+          <td className="p-3 text-slate-400">{slot.isAvailable ? '-' : (slot.booking?.user?.phoneNumber || slot.booking?.guestPhone || '-')}</td>
+          <td className="p-4 text-right">
+  {!slot.isAvailable && slot.booking && (
+    <div className="flex justify-end gap-2">
+      
+      {/* 👇 1. AGREGAMOS EL BOTÓN DE VER / CARRITO 👇 */}
+      <button 
+        onClick={() => setSelectedBookingForDetails(slot.booking)}
+        className="text-xs btn bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 flex items-center gap-1 rounded shadow-sm transition-all"
+        title="Ver consumos y detalles"
+      >
+        <span>🛒</span> Ver
+      </button>
+
+      {/* 👇 2. TUS BOTONES ORIGINALES (Confirmar y Cancelar) 👇 */}
+      {slot.booking.status === 'PENDING' && (
+        <button 
+           onClick={() => handleConfirmBooking(slot.booking)} 
+           className="text-xs btn btn-success px-3 py-1"
+        >
+           CONFIRMAR
+        </button>
+      )}
+      
+      <button 
+         onClick={() => handleCancelBooking(slot.booking)} 
+         className="text-xs btn btn-danger px-3 py-1"
+      >
+         CANCELAR
+      </button>
+    </div>
+  )}
+</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
                 ) : (<div className="text-center py-12 border border-dashed border-border rounded-xl bg-surface-70"><p className="text-muted">Sin datos</p></div>)}
               </div>
             </div>
@@ -556,6 +627,28 @@ export default function ClubAdminPage() {
         </div>
       </div>
       <AppModal show={modalState.show} onClose={closeModal} onCancel={modalState.onCancel} title={modalState.title} message={modalState.message} cancelText={modalState.cancelText} confirmText={modalState.confirmText} isWarning={modalState.isWarning} onConfirm={modalState.onConfirm} closeOnBackdrop={modalState.closeOnBackdrop} closeOnEscape={modalState.closeOnEscape} />
+      {selectedBookingForDetails && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+           <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl relative">
+              {/* Cabecera */}
+              <div className="flex justify-between items-center p-6 border-b border-gray-800 bg-gray-900/95 sticky top-0 z-10">
+                 <h3 className="text-xl font-bold text-white">📅 Reserva #{selectedBookingForDetails.id}</h3>
+                 <button onClick={() => setSelectedBookingForDetails(null)} className="text-gray-400 hover:text-white">✕</button>
+              </div>
+              
+              <div className="p-6">
+                 {/* Componente de Consumos */}
+                 {slug && (
+                    <BookingConsumption 
+                       bookingId={selectedBookingForDetails.id} 
+                       slug={slug as string} 
+                       courtPrice={selectedBookingForDetails.price || 28000}
+                    />
+                 )}
+              </div>
+           </div>
+        </div>
+      )}
     </PageShell>
   );
 }

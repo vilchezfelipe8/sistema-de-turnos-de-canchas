@@ -12,6 +12,7 @@ import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
 import { authMiddleware } from '../middleware/AuthMiddleware';
 import { requireRole } from '../middleware/RoleMiddleware';
 import { verifyClubAccess } from '../middleware/ClubMiddleware';
+import { ProductController } from '../controllers/ProductController';
 
 const router = Router();
 
@@ -21,6 +22,7 @@ const courtRepository = new CourtRepository();
 const userRepository = new UserRepository();
 const activityRepository = new ActivityTypeRepository();
 const clubRepository = new ClubRepository();
+const productController = new ProductController();
 
 const bookingService = new BookingService(
     bookingRepository,
@@ -141,6 +143,38 @@ router.post('/:slug/admin/bookings/cancel',
     requireRole('ADMIN'),
     verifyClubAccess,
     bookingController.cancelBooking
+);
+
+// 1. Obtener todos los productos del club
+router.get('/:slug/admin/products',
+    authMiddleware,
+    requireRole('ADMIN'),
+    verifyClubAccess,
+    productController.getAll
+);
+
+// 2. Crear un nuevo producto
+router.post('/:slug/admin/products',
+    authMiddleware,
+    requireRole('ADMIN'),
+    verifyClubAccess,
+    productController.create
+);
+
+// 3. Editar un producto existente (precio, stock, nombre)
+router.put('/:slug/admin/products/:id',
+    authMiddleware,
+    requireRole('ADMIN'),
+    verifyClubAccess,
+    productController.update
+);
+
+// 4. Eliminar un producto
+router.delete('/:slug/admin/products/:id',
+    authMiddleware,
+    requireRole('ADMIN'),
+    verifyClubAccess,
+    productController.delete
 );
 
 export default router;

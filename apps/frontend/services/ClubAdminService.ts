@@ -254,4 +254,87 @@ export class ClubAdminService {
     }
     return res.json();
   }
+
+  static async getProducts(slug: string) {
+    const token = getToken();
+    const res = await fetch(`${API_URL}/api/clubs/${slug}/admin/products`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error('Error al cargar productos');
+    return res.json();
+  }
+
+  static async createProduct(slug: string, data: any) {
+    const token = getToken();
+    const res = await fetch(`${API_URL}/api/clubs/${slug}/admin/products`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error('Error al crear producto');
+    return res.json();
+  }
+
+  static async updateProduct(slug: string, id: number, data: any) {
+    const token = getToken();
+    const res = await fetch(`${API_URL}/api/clubs/${slug}/admin/products/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error('Error al actualizar producto');
+    return res.json();
+  }
+
+  static async deleteProduct(slug: string, id: number) {
+    const token = getToken();
+    const res = await fetch(`${API_URL}/api/clubs/${slug}/admin/products/${id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error('Error al eliminar producto');
+    return res.json();
+  }
+
+  static async getBookingItems(bookingId: number) {
+        const token = getToken(); // Asegurate de tener tu función getToken importada
+        const res = await fetch(`${API_URL}/api/bookings/${bookingId}/items`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error('Error al cargar consumos');
+        return res.json();
+    }
+
+    static async addItemToBooking(bookingId: number, productId: number, quantity: number) {
+        const token = getToken();
+        const res = await fetch(`${API_URL}/api/bookings/${bookingId}/items`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ productId, quantity })
+        });
+        if (!res.ok) {
+            const errorData = await res.json();
+            throw new Error(errorData.error || 'Error al agregar producto');
+        }
+        return res.json();
+    }
+
+    static async removeItemFromBooking(itemId: number) {
+        const token = getToken();
+        const res = await fetch(`${API_URL}/api/bookings/items/${itemId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error('Error al eliminar consumo');
+        return res.json();
+    }
 }

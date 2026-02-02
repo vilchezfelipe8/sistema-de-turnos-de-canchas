@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link'; 
 import { useRouter } from 'next/router'; 
+import { Package } from 'lucide-react';
 
 const AdminSidebar = () => {
   const router = useRouter();
@@ -18,7 +19,8 @@ const AdminSidebar = () => {
   const navItems = [
     { name: 'Gestión de Canchas', path: '/admin/canchas', icon: '🏓', tab: 'courts' },
     { name: 'Gestión de Turnos', path: '/admin/agenda', icon: '📅', tab: 'bookings' },
-    { name: 'Gestión de Clientes', path: '/admin/clientes', icon: '👥', tab: 'clients' }, // <--- NUEVO
+    { name: 'Gestión de Clientes', path: '/admin/clientes', icon: '👥', tab: 'clients' }, 
+    { name: 'Gestión de Stock', path: `/admin/products`, icon: '📦', tab: 'products'},
     { name: 'Configuración', path: '/admin/settings', icon: '⚙️', tab: 'club' },
   ];
 

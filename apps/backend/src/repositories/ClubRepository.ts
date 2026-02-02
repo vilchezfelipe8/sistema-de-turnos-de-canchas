@@ -2,8 +2,15 @@ import { prisma } from '../prisma';
 import { Club } from '../entities/Club';
 import { Court } from '../entities/Court';
 import { ActivityType } from '../entities/ActivityType';
+import { PrismaClient } from '@prisma/client';
 
 export class ClubRepository {
+
+    private prisma: PrismaClient;
+
+    constructor() {
+        this.prisma = new PrismaClient();
+    }
 
     async createClub(
         slug: string,
@@ -146,6 +153,11 @@ export class ClubRepository {
             dbClub.createdAt,
             dbClub.updatedAt
         );
+    }
+    async findBySlug(slug: string) {
+        return await this.prisma.club.findUnique({
+            where: { slug }
+        });
     }
 }
 

@@ -29,7 +29,7 @@ export default function ClientsPage() {
     try {
       const token = localStorage.getItem('token');
       // Usamos la variable de entorno o localhost por defecto
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+      const apiUrl = 'http://localhost:4000';
       
       // Ajusta la ruta '/clients' según tu Backend (ej: /api/clients)
       // Le pasamos el slug del club para filtrar

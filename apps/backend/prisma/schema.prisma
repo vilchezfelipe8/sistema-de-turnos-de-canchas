@@ -55,6 +55,7 @@ model Club {
   updatedAt   DateTime @updatedAt
   courts      Court[]
   users       User[]
+  products      Product[]
 }
 
 model Court {
@@ -107,6 +108,7 @@ model Booking {
 
   fixedBooking   FixedBooking? @relation(fields: [fixedBookingId], references: [id])
   fixedBookingId Int?
+  items      BookingItem[]
 }
 
 model FixedBooking {
@@ -118,6 +120,8 @@ model FixedBooking {
   startTime String   // Ej: "20:00"
   endTime   String   // Ej: "21:30"
   startDate DateTime // Desde cuándo empieza el fijo
+  status    String   @default("ACTIVE")
+  guestPhone String?
 
   // Relaciones
   user      User?     @relation(fields: [userId], references: [id])
@@ -130,5 +134,36 @@ model FixedBooking {
 
   // Todas las reservas hijas generadas por este fijo
   bookings  Booking[]
+}
+
+model Product {
+  id          Int      @id @default(autoincrement())
+  name        String   
+  category    String? 
+  price       Decimal  @db.Decimal(10, 2) 
+  stock       Int      @default(0) 
+  minStock    Int      @default(5) 
+  
+  clubId      Int
+  club        Club     @relation(fields: [clubId], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  bookingItems BookingItem[]
+
+  @@index([clubId])
+}
+
+model BookingItem {
+  id        Int      @id @default(autoincrement())
+  
+  bookingId Int
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  
+  productId Int
+  product   Product  @relation(fields: [productId], references: [id])
+  
+  quantity  Int      // Cuántos compró (ej: 2)
+  price     Float    // A cuánto se vendió en ese momento (por si mañana subís el precio)
 }
 
