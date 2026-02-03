@@ -18,6 +18,7 @@ import {
 import { ClubService, Club } from '../../../services/ClubService';
 import ProductsPage from '../../../components/ProductsPage'; 
 import BookingConsumption from '../../../components/BookingConsumption';
+import { Trash2, Check, ShoppingCart, Eye } from 'lucide-react';
 
 // Registrar locale en español
 registerLocale('es', es);
@@ -540,32 +541,36 @@ export default function ClubAdminPage() {
           <td className="p-3 text-slate-400">{slot.isAvailable ? '-' : (slot.booking?.user?.phoneNumber || slot.booking?.guestPhone || '-')}</td>
           <td className="p-4 text-right">
   {!slot.isAvailable && slot.booking && (
-    <div className="flex justify-end gap-2">
+    <div className="flex justify-end items-center gap-2">
       
-      {/* 👇 1. AGREGAMOS EL BOTÓN DE VER / CARRITO 👇 */}
+      {/* 1. BOTÓN VER / CONSUMOS (Siempre visible) */}
       <button 
         onClick={() => setSelectedBookingForDetails(slot.booking)}
-        className="text-xs btn bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 flex items-center gap-1 rounded shadow-sm transition-all"
-        title="Ver consumos y detalles"
+        className="p-2 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 hover:border-blue-500/50 transition-all"
+        title="Ver detalles y consumos"
       >
-        <span>🛒</span> Ver
+        {/* Usamos ShoppingCart si hay consumos, sino Eye */}
+        <ShoppingCart size={18} />
       </button>
 
-      {/* 👇 2. TUS BOTONES ORIGINALES (Confirmar y Cancelar) 👇 */}
+      {/* 2. BOTÓN CONFIRMAR (Solo si está pendiente) */}
       {slot.booking.status === 'PENDING' && (
         <button 
            onClick={() => handleConfirmBooking(slot.booking)} 
-           className="text-xs btn btn-success px-3 py-1"
+           className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 hover:border-emerald-500/50 transition-all"
+           title="Confirmar Reserva"
         >
-           CONFIRMAR
+           <Check size={18} />
         </button>
       )}
       
+      {/* 3. BOTÓN CANCELAR (Rojo) */}
       <button 
          onClick={() => handleCancelBooking(slot.booking)} 
-         className="text-xs btn btn-danger px-3 py-1"
+         className={`p-2 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 hover:border-red-500/50 transition-all ${slot.booking.fixedBookingId ? 'shadow-[0_0_10px_rgba(239,68,68,0.2)]' : ''}`}
+         title={slot.booking.fixedBookingId ? "Dar de baja Turno Fijo" : "Cancelar Reserva"}
       >
-         CANCELAR
+         <Trash2 size={18} />
       </button>
     </div>
   )}
@@ -629,23 +634,37 @@ export default function ClubAdminPage() {
       <AppModal show={modalState.show} onClose={closeModal} onCancel={modalState.onCancel} title={modalState.title} message={modalState.message} cancelText={modalState.cancelText} confirmText={modalState.confirmText} isWarning={modalState.isWarning} onConfirm={modalState.onConfirm} closeOnBackdrop={modalState.closeOnBackdrop} closeOnEscape={modalState.closeOnEscape} />
       {selectedBookingForDetails && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-           <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl relative">
+           <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
+              
               {/* Cabecera */}
               <div className="flex justify-between items-center p-6 border-b border-gray-800 bg-gray-900/95 sticky top-0 z-10">
-                 <h3 className="text-xl font-bold text-white">📅 Reserva #{selectedBookingForDetails.id}</h3>
-                 <button onClick={() => setSelectedBookingForDetails(null)} className="text-gray-400 hover:text-white">✕</button>
+                 <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                    📅 Reserva #{selectedBookingForDetails.id}
+                 </h3>
+                 {/* Opcional: Podés dejar esta X o sacarla, ya que agregamos "Cancelar" abajo */}
+                 <button onClick={() => setSelectedBookingForDetails(null)} className="text-gray-400 hover:text-white transition">✕</button>
               </div>
               
               <div className="p-6">
-                 {/* Componente de Consumos */}
+                 {/* COMPONENTE CON LÓGICA DE GUARDADO */}
                  {slug && (
                     <BookingConsumption 
                        bookingId={selectedBookingForDetails.id} 
-                       slug={slug as string} 
-                       courtPrice={selectedBookingForDetails.price || 28000}
+                       slug={slug as string}
+                       courtPrice={selectedBookingForDetails.price || 20000} // Precio hardcodeado temporalmente
+                       
+                       // 👇 ESTAS SON LAS DOS FUNCIONES CLAVE 👇
+                       onClose={() => setSelectedBookingForDetails(null)} 
+                       onConfirm={() => {
+                          loadSchedule(); // Recarga la grilla para ver si algo cambió
+                          // Podrías poner un toast de éxito acá
+                       }}
                     />
                  )}
               </div>
+              
+              {/* ⚠️ IMPORTANTE: BORRÁ EL FOOTER VIEJO QUE TENÍA EL BOTÓN "CERRAR" */}
+              {/* Ya no lo necesitás porque los botones están adentro del componente */}
            </div>
         </div>
       )}
