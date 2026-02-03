@@ -343,9 +343,6 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
     
     createFixed = async (req: Request, res: Response) => {
         try {
-            // 🚨 LOG 2: ¿Llegó el dato al servidor?
-            console.log("📨 [BACK-CONTROLLER] Body completo recibido:", req.body);
-            console.log("📨 [BACK-CONTROLLER] guestPhone extraído:", req.body.guestPhone);
             const { userId, courtId, activityId, startDateTime, guestName, guestPhone } = req.body;
             const user = (req as any).user;
             const isAdmin = user?.role === 'ADMIN';
@@ -439,6 +436,22 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
         } catch (error) {
             console.error(error);
             res.status(500).json({ error: 'Error al eliminar el consumo' });
+        }
+    }
+
+    updateStatus = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { paymentStatus } = req.body; // 'PAID' o 'DEBT'
+    await this.bookingService.updatePaymentStatus(Number(id), paymentStatus);
+    res.json({ success: true });
+}
+
+    getDebtors = async (req: Request, res: Response) => { 
+        try {
+            const data = await this.bookingService.getClientStats(); 
+            res.json(data);
+        } catch (error) {
+            res.status(500).json({ error: 'Error al obtener clientes' });
         }
     }
 }

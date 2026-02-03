@@ -38,6 +38,8 @@ router.delete('/fixed/:id', authMiddleware, requireRole('ADMIN'), bookingControl
 router.get('/:id/items', authMiddleware, bookingController.getItems);
 router.post('/:id/items', authMiddleware, bookingController.addItem);
 router.delete('/items/:itemId', authMiddleware, bookingController.removeItem);
+router.get('/debtors/list', authMiddleware, bookingController.getDebtors);
+router.patch('/:id/payment-status', authMiddleware, bookingController.updateStatus);
 
 export default router;
 

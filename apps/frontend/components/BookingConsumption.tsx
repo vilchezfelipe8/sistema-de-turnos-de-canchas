@@ -108,25 +108,27 @@ export default function BookingConsumption({ bookingId, slug, courtPrice = 0, on
   };
 
   // 4. GUARDAR CAMBIOS (ACCIÓN MASIVA) 💾
-  const handleSaveChanges = async () => {
+  const handleSaveChanges = async (paymentStatus: 'PAID' | 'DEBT') => {
     try {
       setSaving(true);
 
-      // A) Borrar los que el usuario quitó
+      // 1. Guardar/Borrar productos (Lógica que ya tenías)
       const deletePromises = itemsToDelete.map(id => 
         ClubAdminService.removeItemFromBooking(id)
       );
 
-      // B) Agregar los nuevos
       const newItems = cartItems.filter(i => i.isNew);
       const addPromises = newItems.map(item => 
         ClubAdminService.addItemToBooking(bookingId, item.productId, item.quantity)
       );
 
-      // Esperar a que todo termine
+      // Esperamos que termine de guardar los productos
       await Promise.all([...deletePromises, ...addPromises]);
 
-      // Éxito: avisar al padre y cerrar
+      // 2. 👇 NUEVO: Actualizar si pagó o debe (Esto llama al backend)
+      await ClubAdminService.updateBookingPaymentStatus(bookingId, paymentStatus);
+
+      // Todo salió bien
       onConfirm(); 
       onClose();
 
@@ -228,23 +230,29 @@ export default function BookingConsumption({ bookingId, slug, courtPrice = 0, on
 
       {/* BOTONES DE ACCIÓN (ACEPTAR / CANCELAR) */}
       <div className="grid grid-cols-2 gap-3 pt-2">
+        
+        {/* OPCIÓN A: DEJAR EN CUENTA (AMIGOS/DEUDA) */}
         <button 
-          onClick={onClose}
-          className="flex items-center justify-center gap-2 px-4 py-3 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl font-bold transition"
+          onClick={() => handleSaveChanges('DEBT')} // 👈 Le pasamos 'DEBT'
+          disabled={saving}
+          className="flex flex-col items-center justify-center gap-1 px-4 py-3 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-500 border border-yellow-500/30 rounded-xl transition group"
         >
-          <X size={18} /> Cancelar
+          <div className="flex items-center gap-2 font-bold">
+             <span className="text-lg">📝</span> Dejar en Cuenta
+          </div>
+          <span className="text-[10px] opacity-70 group-hover:opacity-100">Marca como "Debe"</span>
         </button>
         
+        {/* OPCIÓN B: COBRAR TODO (PAGADO) */}
         <button 
-          onClick={handleSaveChanges}
+          onClick={() => handleSaveChanges('PAID')} // 👈 Le pasamos 'PAID'
           disabled={saving}
-          className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-white transition
-            ${saving ? 'bg-emerald-800 cursor-wait' : 'bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-900/50'}
-          `}
+          className="flex flex-col items-center justify-center gap-1 px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow-lg shadow-emerald-900/50 transition"
         >
-          {saving ? 'Guardando...' : (
-             <> <Save size={18} /> Confirmar Cambios </>
-          )}
+          <div className="flex items-center gap-2 font-bold">
+             <span className="text-lg">💵</span> Cobrar Total
+          </div>
+          <span className="text-[10px] opacity-80">Cierra la caja</span>
         </button>
       </div>
     </div>

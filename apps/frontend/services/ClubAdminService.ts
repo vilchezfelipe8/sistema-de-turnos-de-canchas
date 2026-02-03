@@ -337,4 +337,51 @@ export class ClubAdminService {
         if (!res.ok) throw new Error('Error al eliminar consumo');
         return res.json();
     }
+
+    static async updateBookingPaymentStatus(bookingId: number, status: 'PAID' | 'DEBT') {
+        const token = getToken(); // Asegurate de tener tu función getToken disponible
+        const res = await fetch(`${API_URL}/api/bookings/${bookingId}/payment-status`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ paymentStatus: status })
+        });
+        
+        if (!res.ok) {
+            throw new Error('Error al actualizar el estado del pago');
+        }
+        return res.json();
+    }
+
+    static async getDebtors(slug: string) {
+        const token = getToken();
+        // Nota: El slug no lo usamos en la query porque el token ya filtra por club si tenés multi-tenancy,
+        // pero si tu backend usa el slug para filtrar, agregalo a la URL.
+        const res = await fetch(`${API_URL}/api/bookings/debtors/list`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error('Error cargando deudores');
+        return res.json();
+    }
+
+    static async markAsPaid(bookingIds: number[]) {
+        const token = getToken();
+        
+        const promises = bookingIds.map(id => 
+            fetch(`${API_URL}/api/bookings/${id}/payment-status`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ paymentStatus: 'PAID' })
+            })
+        );
+
+        await Promise.all(promises);
+        return true;
+    }
 }
+

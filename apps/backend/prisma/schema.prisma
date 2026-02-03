@@ -23,6 +23,13 @@ enum BookingStatus {
   COMPLETED
 }
 
+enum PaymentStatus {
+  PENDING  // Recién creado, no se sabe nada
+  PAID     // Pagado total
+  PARTIAL  // Pagó una seña (para el futuro)
+  DEBT     // Quedó debiendo (Fiado/Cuenta Corriente)
+}
+
 // --- MODELOS ---
 
 model User {
@@ -109,6 +116,7 @@ model Booking {
   fixedBooking   FixedBooking? @relation(fields: [fixedBookingId], references: [id])
   fixedBookingId Int?
   items      BookingItem[]
+  paymentStatus PaymentStatus @default(PENDING)
 }
 
 model FixedBooking {

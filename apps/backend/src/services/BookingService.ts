@@ -361,7 +361,6 @@ export class BookingService {
         guestPhone?: string | number, // Agregado para recibir el dato del front
         clubId?: number
     ) {
-        console.log("🛠️ [BACK-SERVICE] guestPhone recibido:", guestPhone);
         const safePhone = guestPhone ? String(guestPhone) : undefined;
 
         // 1. Validaciones básicas
@@ -576,6 +575,94 @@ export class BookingService {
 
             // Borramos el item
             return await tx.bookingItem.delete({ where: { id: itemId } });
+        });
+    }
+
+    async updatePaymentStatus(id: number, status: 'PAID' | 'DEBT') {
+    return this.prisma.booking.update({
+        where: { id },
+        data: { paymentStatus: status }
+    });
+    }
+
+    async getClientStats() {
+        const bookings = await this.prisma.booking.findMany({
+            where: { 
+                status: { not: 'CANCELLED' } 
+            },
+            include: {
+                user: true, 
+                items: { include: { product: true } }
+            },
+            orderBy: { startDateTime: 'desc' }
+        });
+
+        // 2. Agrupamos por persona
+        const clientsMap: any = {};
+
+        // Función auxiliar para convertir "fELiPe" en "Felipe" (Capitalizar)
+        const capitalize = (str: string) => {
+            if (!str) return '';
+            return str.toLowerCase().replace(/(?:^|\s)\S/g, (a) => a.toUpperCase());
+        };
+
+        for (const booking of bookings) {
+            // 1. Detectamos el nombre original (usuario o invitado)
+            const rawName = booking.user 
+                ? `${booking.user.firstName} ${booking.user.lastName}` 
+                : (booking.guestName || 'Cliente');
+
+            const cleanName = rawName.trim().toLowerCase(); 
+            
+            const clientKey = booking.userId 
+                ? `u_${booking.userId}` 
+                : `g_${cleanName}`;
+            
+            // 3. Inicializamos si no existe
+            if (!clientsMap[clientKey]) {
+                clientsMap[clientKey] = {
+                    id: clientKey,
+                    // ACÁ USAMOS LA FUNCIÓN CAPITALIZE PARA QUE SE VEA LINDO (Felipe Vilchez)
+                    name: capitalize(rawName), 
+                    phone: booking.user ? booking.user.phoneNumber : booking.guestPhone,
+                    totalBookings: 0,
+                    totalDebt: 0,
+                    lastVisit: booking.startDateTime,
+                    bookings: []
+                };
+            }
+
+            const client = clientsMap[clientKey];
+
+            // ... (El resto de la lógica de precios y push sigue IGUAL) ...
+            
+            const courtPrice = Number(booking.price) || 0; 
+            const itemsTotal = booking.items.reduce((sum, item) => sum + (Number(item.price) * item.quantity), 0);
+            const bookingTotal = courtPrice + itemsTotal;
+
+            client.totalBookings += 1;
+
+            if (booking.paymentStatus === 'DEBT') {
+                client.totalDebt += bookingTotal;
+            }
+            
+            client.bookings.push({
+                id: booking.id,
+                date: booking.startDateTime,
+                total: bookingTotal,
+                courtName: booking.courtId,
+                paymentStatus: booking.paymentStatus,
+                items: booking.items
+            });
+
+            if (new Date(booking.startDateTime) > new Date(client.lastVisit)) {
+                client.lastVisit = booking.startDateTime;
+            }
+        }
+
+        return Object.values(clientsMap).sort((a: any, b: any) => {
+            if (b.totalDebt !== a.totalDebt) return b.totalDebt - a.totalDebt; 
+            return b.totalBookings - a.totalBookings; 
         });
     }
 }
