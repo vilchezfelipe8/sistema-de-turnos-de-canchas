@@ -17,10 +17,10 @@ const AdminSidebar = () => {
   // 👇 AQUÍ SOLO AGREGUÉ LA LÍNEA DE CLIENTES (tab: 'clients')
   // El resto de los estilos y lógica son EXACTAMENTE los tuyos.
   const navItems = [
-    { name: 'Gestión de Canchas', path: '/admin/canchas', icon: '🏓', tab: 'courts' },
     { name: 'Gestión de Turnos', path: '/admin/agenda', icon: '📅', tab: 'bookings' },
     { name: 'Gestión de Clientes', path: '/admin/clientes', icon: '👥', tab: 'clients' }, 
     { name: 'Gestión de Stock', path: `/admin/products`, icon: '📦', tab: 'products'},
+    { name: 'Gestión de Canchas', path: '/admin/canchas', icon: '🏓', tab: 'courts' },
     { name: 'Configuración', path: '/admin/settings', icon: '⚙️', tab: 'club' },
   ];
 
