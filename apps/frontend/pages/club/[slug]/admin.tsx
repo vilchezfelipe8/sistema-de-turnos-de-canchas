@@ -78,6 +78,47 @@ export default function ClubAdminPage() {
   const [club, setClub] = useState<Club | null>(null);
   const [loadingClub, setLoadingClub] = useState(false);
   const [selectedBookingForDetails, setSelectedBookingForDetails] = useState<any>(null);
+  const [clients, setClients] = useState<any[]>([]); // Tu lista de clientes históricos
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  useEffect(() => {
+    if (authChecked && slug) {
+       // Asumo que tenés un método así, sino usá el que usas en ClientsPage
+       ClubAdminService.getClients(slug as string).then(setClients).catch(console.error);
+    }
+}, [authChecked, slug]);
+
+  const handleSelectClient = (client: any) => {
+    const rawName = client.firstName || '';
+    let finalFirstName = rawName;
+    let finalLastName = client.lastName || '';
+
+    if (!finalLastName && rawName.includes(' ')) {
+       const parts = rawName.split(' '); 
+       finalFirstName = parts[0]; 
+       finalLastName = parts.slice(1).join(' '); 
+    }
+
+    let rawPhone = client.phone || client.phoneNumber || '';
+    
+    rawPhone = rawPhone.replace(/\D/g, ''); 
+
+    if (rawPhone.startsWith('549')) {
+        rawPhone = rawPhone.substring(3);
+    }
+
+    setManualBooking({
+      ...manualBooking,
+      guestFirstName: finalFirstName,
+      guestLastName: finalLastName,
+      guestPhone: rawPhone, 
+      guestDni: client.dni || '', 
+    });
+
+    setSearchTerm('');
+    setShowSuggestions(false);
+  };
 
   const [clubForm, setClubForm] = useState({
     slug: '', name: '', address: '', contactInfo: '', phone: '',
@@ -432,12 +473,60 @@ export default function ClubAdminPage() {
           {/* --- CONTENIDO DE TURNOS --- */}
           {activeTab === 'bookings' && (
             <div>
-              <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-6 mb-4 transition-all relative overflow-hidden">
+              <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-6 mb-4 transition-all relative">
                 <h2 className="text-lg font-bold text-text flex items-center gap-2">
                   <span>{manualBooking.isFixed ? '🔄' : '📅'}</span>{manualBooking.isFixed ? 'NUEVO TURNO FIJO' : 'NUEVA RESERVA SIMPLE'}
                 </h2>
 
-                <form onSubmit={handleCreateBooking} className="flex flex-col gap-4 mt-4">
+                <div className="relative mb-6 z-30 mt-4">
+              <label className="block text-xs font-bold text-blue-400 mb-1 flex items-center gap-2">
+                <span>🔍</span> BUSCAR CLIENTE
+              </label>
+              <input
+                type="text"
+                className="w-full bg-surface-70 border border-blue-500/30 text-white rounded-lg p-3 focus:outline-none focus:border-blue-500 transition placeholder:text-slate-500"
+                placeholder="Escribí nombre..."
+                value={searchTerm}
+                onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setShowSuggestions(true);
+                }}
+                onFocus={() => setShowSuggestions(true)}
+              />
+
+              {/* LISTA DESPLEGABLE */}
+              {showSuggestions && searchTerm.length > 1 && (
+                <div className="absolute top-full left-0 right-0 bg-gray-900 border border-gray-700 rounded-lg mt-1 max-h-60 overflow-y-auto shadow-2xl z-50">
+                  {clients
+                    .filter(c => 
+                        (c.firstName && c.firstName.toLowerCase().includes(searchTerm.toLowerCase())) || 
+                        (c.lastName && c.lastName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                        (c.dni && c.dni.includes(searchTerm))
+                    )
+                    .slice(0, 5)
+                    .map((client, i) => (
+                      <div 
+                        key={i}
+                        onClick={() => handleSelectClient(client)}
+                        className="p-3 hover:bg-blue-600/20 cursor-pointer border-b border-gray-800 last:border-0 transition-colors group"
+                      >
+                        <div className="font-bold text-white group-hover:text-blue-300">
+                            {client.firstName} {client.lastName}
+                        </div>
+                        <div className="text-xs text-slate-400 flex gap-3 mt-1">
+                            <span className="flex items-center gap-1">🆔 {client.dni || 'S/D'}</span>
+                            <span className="flex items-center gap-1">📞 {client.phone || client.phoneNumber || '-'}</span>
+                        </div>
+                      </div>
+                  ))}
+                  {clients.filter(c => c.firstName?.toLowerCase().includes(searchTerm.toLowerCase())).length === 0 && (
+                      <div className="p-3 text-slate-500 text-sm text-center">No encontrado.</div>
+                  )}
+                </div>
+              )}
+          </div>
+
+          <form onSubmit={handleCreateBooking} className="flex flex-col gap-4 mt-4">
   
           {/* --- FILA 1: DATOS DEL CLIENTE (Ocupa todo el ancho) --- */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

@@ -177,4 +177,11 @@ router.delete('/:slug/admin/products/:id',
     productController.delete
 );
 
+router.get('/:slug/admin/clients-list',
+    authMiddleware,
+    requireRole('ADMIN'),
+    verifyClubAccess,
+    clubController.getClubClientsList 
+);
+
 export default router;

@@ -17,40 +17,32 @@ class WhatsappService {
         }
 
         this.client = new Client({
-            authStrategy: new LocalAuth(),
-            
-            
-            puppeteer: {
-                protocolTimeout: 300000, // 5 minutos para servidores lentos
-                args: [
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--no-first-run',
-                    '--no-zygote',
-                    '--disable-gpu',
-                    '--disable-software-rasterizer',
-                    '--disable-extensions',
-                    '--disable-background-networking',
-                    '--disable-background-timer-throttling',
-                    '--disable-renderer-backgrounding',
-                    '--disable-backgrounding-occluded-windows',
-                    '--disable-breakpad',
-                    '--disable-component-extensions-with-background-pages',
-                    '--disable-default-apps',
-                    '--disable-sync',
-                    '--metrics-recording-only',
-                    '--mute-audio',
-                    '--no-default-browser-check',
-                    '--no-pings',
-                    '--use-mock-keychain',
-                    '--single-process' // Útil para Railway
-                ],
-                headless: true,
-                timeout: 300000 // 5 minutos
-            }
-        });
+    authStrategy: new LocalAuth(),
+    authTimeoutMs: 60000,
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36',
+    puppeteer: {
+        executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        headless: false, 
+        args: [
+            '--no-sandbox',
+            // 2. Desactivamos el aislamiento de procesos (CRUCIAL para que no crashee en Windows)
+            '--disable-features=IsolateOrigins,site-per-process', 
+            '--disable-site-isolation-trials',
+            '--disable-setuid-sandbox',
+            '--disable-extensions',
+            // Si tenés GPU dedicada, a veces ayuda desactivarla para bots
+            // '--disable-gpu' 
+        ],
+        // 👇 Esto fuerza a que use el Puppeteer 19 que acabamos de instalar manualmente
+    },
+    // Forzamos versión web estable
+    
+    webVersionCache: {
+        type: 'remote',
+        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
+    }
+        
+});
 
         // Guardar el QR
         this.client.on('qr', (qr) => {

@@ -109,5 +109,19 @@ export class ClubController {
             res.status(400).json({ error: error.message });
         }
     }
+
+    getClubClientsList = async (req: Request, res: Response) => {
+    try {
+        const { slug } = req.params;
+        
+        // 👇 LLAMAMOS AL MÉTODO NUEVO DEL SERVICIO
+        const clients = await this.clubService.getClientsList(slug as string);
+        
+        res.json(clients);
+    } catch (error: any) {
+        console.error("Error obteniendo clientes:", error);
+        res.status(500).json({ error: 'Error interno al obtener clientes' });
+    }
+}
 }
 

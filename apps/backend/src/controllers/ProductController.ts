@@ -15,7 +15,7 @@ export class ProductController {
     getAll = async (req: Request, res: Response) => {
         try {
             const { slug } = req.params;
-            const club = await this.clubRepository.findBySlug(slug);
+            const club = await this.clubRepository.findBySlug(slug as string);
             if (!club) return res.status(404).json({ error: 'Club no encontrado' });
 
             const products = await this.productService.getProductsByClub(club.id);
@@ -31,7 +31,7 @@ export class ProductController {
             const { slug } = req.params;
             const { name, price, stock, category } = req.body;
             
-            const club = await this.clubRepository.findBySlug(slug);
+            const club = await this.clubRepository.findBySlug(slug as string);
             if (!club) return res.status(404).json({ error: 'Club no encontrado' });
 
             const newProduct = await this.productService.createProduct(club.id, { name, price, stock, category });

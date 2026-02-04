@@ -383,5 +383,24 @@ export class ClubAdminService {
         await Promise.all(promises);
         return true;
     }
+
+    static async getClients(slug: string) {
+      
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    
+    const response = await fetch(`${API_URL}/api/clubs/${slug}/admin/clients-list`, { // Usamos un endpoint liviano
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Error al obtener lista de clientes');
+    }
+
+    return response.json();
+  }
 }
 
