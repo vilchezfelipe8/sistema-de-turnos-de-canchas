@@ -36,7 +36,8 @@ export class BookingController {
                 },
                 z.string().email().optional()
             ),
-            guestPhone: optionalTrimmedString()
+            guestPhone: optionalTrimmedString(),
+            guestDni: optionalTrimmedString()
         });
 
         const dataToValidate = {
@@ -49,7 +50,7 @@ export class BookingController {
             return res.status(400).json({ error: parsed.error.format() });
         }
 
-        const { courtId, startDateTime, activityId, guestIdentifier, guestName, guestEmail, guestPhone } = parsed.data;
+        const { courtId, startDateTime, activityId, guestIdentifier, guestName, guestEmail, guestPhone, guestDni } = parsed.data;
         const startDate = new Date(String(startDateTime));
         const userRole = user?.role;
         const isAdmin = userRole === 'ADMIN';
@@ -86,6 +87,7 @@ export class BookingController {
         const effectiveGuestName = isGuest ? guestName : undefined;
         const effectiveGuestEmail = isGuest ? guestEmail : undefined;
         const effectiveGuestPhone = isGuest ? guestPhone : undefined;
+        const effectiveGuestDni = isGuest ? guestDni : undefined;
 
         // Verificar disponibilidad
         const existingBooking = await prisma.booking.findFirst({
@@ -107,6 +109,7 @@ export class BookingController {
             effectiveGuestName,
             effectiveGuestEmail,
             effectiveGuestPhone,
+            effectiveGuestDni,
             Number(courtId),
             startDate,
             Number(activityId),

@@ -99,14 +99,16 @@ model Booking {
   price     Float
   createdAt DateTime      @default(now())
   status    BookingStatus @default(PENDING) // <--- Enum nativo
-  // Permitir reservas de invitados: userId opcional + guestIdentifier
-  userId    Int?
-  user      User?    @relation(fields: [userId], references: [id])
   guestIdentifier String?
   guestName String?
   guestEmail String?
   guestPhone String?
+  guestDni       String?
 
+  // Permitir reservas de invitados: userId opcional + guestIdentifier
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id])
+  
   courtId   Int
   court     Court    @relation(fields: [courtId], references: [id])
 

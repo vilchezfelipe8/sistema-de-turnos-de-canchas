@@ -59,6 +59,7 @@ export default function BookingGrid() {
   const [guestLastName, setGuestLastName] = useState('');
   const [guestEmail, setGuestEmail] = useState('');
   const [guestPhone, setGuestPhone] = useState('');
+  const [guestDni, setGuestDni] = useState('');
   const [guestModalOpen, setGuestModalOpen] = useState(false);
   const [guestPhoneFocused, setGuestPhoneFocused] = useState(false);
   const [guestError, setGuestError] = useState('');
@@ -106,10 +107,12 @@ export default function BookingGrid() {
     const firstName = guestFirstName.trim();
     const lastName = guestLastName.trim();
     const fullName = [firstName, lastName].filter(Boolean).join(' ');
+    const trimmedDni = guestDni.trim().replace(/\./g, '');
     return {
       name: fullName,
       email: guestEmail.trim(),
-      phone: trimmedPhone ? `+549${trimmedPhone}` : ''
+      phone: trimmedPhone ? `+549${trimmedPhone}` : '',
+      guestDni: trimmedDni
     };
   };
 
@@ -171,9 +174,10 @@ export default function BookingGrid() {
   })();
 
 
-  const performBooking = async (guestInfo?: { name: string; email?: string; phone?: string }) => {
-    // No requerimos token: BookingService se encargará de enviar guestIdentifier si no hay token
+const performBooking = async (guestInfo?: { name: string; email?: string; phone?: string; guestDni?: string }) => {
+    
     if (!selectedDate || !selectedSlot || !selectedCourt) return;
+    
     try {
       setIsBooking(true);
       const [hours, minutes] = selectedSlot.split(':').map(Number);
@@ -182,12 +186,18 @@ export default function BookingGrid() {
       const day = selectedDate.getDate();
       const bookingDateTime = new Date(year, month, day, hours, minutes, 0, 0);
 
+      const guestDataForBackend = (!isAuthenticated && guestInfo) ? {
+          guestName: guestInfo.name,     
+          guestPhone: guestInfo.phone,    
+          guestDni: guestInfo.guestDni    
+      } : undefined;
+
       const createResult = await createBooking(
         selectedCourt.id,
         1,
         bookingDateTime,
         undefined,
-        !isAuthenticated ? guestInfo : undefined
+        !isAuthenticated ? guestInfo : undefined// 
       );
 
       // Guardar bloqueo temporal localmente (Optimistic UI)
@@ -205,11 +215,14 @@ export default function BookingGrid() {
         await (refresh as () => Promise<void>)?.();
         setSelectedSlot(null);
         setSelectedCourt(null);
+        
+        // 👇 4. LIMPIEZA DE FORMULARIO
         if (!isAuthenticated) {
           setGuestFirstName('');
           setGuestLastName('');
           setGuestEmail('');
           setGuestPhone('');
+          setGuestDni(''); // 👈 ¡NO TE OLVIDES DE LIMPIAR EL DNI TAMBIÉN!
         }
       } catch (_) { /* noop */ }
 
@@ -225,9 +238,19 @@ export default function BookingGrid() {
     const info = getTrimmedGuestInfo();
     const firstName = guestFirstName.trim();
     const lastName = guestLastName.trim();
+    const dni = guestDni.trim();
     if (!firstName || !lastName) {
       setGuestError('❗ Ingresá tu nombre y apellido para reservar como invitado.');
       return;
+    }
+    if (!dni) {
+      setGuestError('❗ El DNI es obligatorio para identificar la reserva.');
+      return;
+    }
+    // Opcional: Validar largo mínimo (ej: que tenga al menos 7 números)
+    if (dni.length < 7) {
+       setGuestError('❗ Ingresá un DNI válido (mínimo 7 números).');
+       return;
     }
     if (info.email && !isEmailValid(info.email)) {
       setGuestError('❗ Ingresá un email con formato válido.');
@@ -637,6 +660,26 @@ export default function BookingGrid() {
                     Apellido
                   </label>
                 </div>
+                <div className="relative col-span-1 sm:col-span-2">
+                <input
+                  id="guest-dni"
+                  type="text"
+                  placeholder=" " 
+                  value={guestDni}
+                  onChange={(e) => {
+                    const soloNumeros = e.target.value.replace(/\D/g, '');
+                    setGuestDni(soloNumeros);
+                  }}
+                  onKeyDown={handleGuestKeyDown}
+                  className="peer w-full p-3 pt-5 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-white focus:!border-white focus:ring-0 transition-colors font-medium shadow-inner"
+                />
+                <label
+                  htmlFor="guest-dni"
+                  className="absolute left-3 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
+                >
+                  DNI 
+                </label>
+              </div>
               </div>
               <div className="relative flex items-center rounded-xl border border-border bg-surface focus-within:border-white focus-within:!border-white transition-colors">
                 <span

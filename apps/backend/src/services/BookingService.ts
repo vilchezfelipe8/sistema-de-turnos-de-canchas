@@ -30,6 +30,7 @@ export class BookingService {
         guestName: string | undefined,
         guestEmail: string | undefined,
         guestPhone: string | undefined,
+        guestDni: string | undefined,
         courtId: number,
         startDateTime: Date,
         activityId: number,
@@ -88,6 +89,7 @@ export class BookingService {
                     guestName: guestName,
                     guestEmail: guestEmail,
                     guestPhone: guestPhone,
+                    guestDni: guestDni,
                     courtId: courtId,
                     activityId: activityId
                 },
@@ -602,35 +604,46 @@ export class BookingService {
 
         // Función auxiliar para convertir "fELiPe" en "Felipe" (Capitalizar)
         const capitalize = (str: string) => {
-            if (!str) return '';
-            return str.toLowerCase().replace(/(?:^|\s)\S/g, (a) => a.toUpperCase());
-        };
+        if (!str) return '';
+        return str.toLowerCase().replace(/(?:^|\s)\S/g, (a) => a.toUpperCase());
+    };
 
-        for (const booking of bookings) {
-            // 1. Detectamos el nombre original (usuario o invitado)
-            const rawName = booking.user 
-                ? `${booking.user.firstName} ${booking.user.lastName}` 
-                : (booking.guestName || 'Cliente');
+    for (const booking of bookings) {
+        // 1. Detectamos el nombre base para mostrar
+        const rawName = booking.user 
+            ? `${booking.user.firstName} ${booking.user.lastName}` 
+            : (booking.guestName || 'Cliente Sin Nombre');
 
-            const cleanName = rawName.trim().toLowerCase(); 
-            
-            const clientKey = booking.userId 
-                ? `u_${booking.userId}` 
-                : `g_${cleanName}`;
-            
-            // 3. Inicializamos si no existe
-            if (!clientsMap[clientKey]) {
-                clientsMap[clientKey] = {
-                    id: clientKey,
-                    // ACÁ USAMOS LA FUNCIÓN CAPITALIZE PARA QUE SE VEA LINDO (Felipe Vilchez)
-                    name: capitalize(rawName), 
-                    phone: booking.user ? booking.user.phoneNumber : booking.guestPhone,
-                    totalBookings: 0,
-                    totalDebt: 0,
-                    lastVisit: booking.startDateTime,
-                    bookings: []
-                };
-            }
+        // 2. 👇 NUEVA LÓGICA DE IDENTIFICACIÓN (KEY)
+        let clientKey = '';
+        let dniDisplay = booking.guestDni || '-'; // Para mostrar en la tabla luego
+
+        if (booking.userId) {
+            // A: Es Usuario Registrado (Usamos su ID y su DNI si lo tuviera en perfil)
+            clientKey = `u_${booking.userId}`;
+        } else if (booking.guestDni) {
+            // B: Es Invitado pero TIENE DNI (Usamos el DNI como clave única)
+            clientKey = `d_${booking.guestDni}`;
+        } else {
+            // C: LEGACY (Reservas viejas sin DNI). Usamos nombre normalizado.
+            // Esto evita que desaparezcan los datos viejos.
+            const cleanName = rawName.trim().toLowerCase();
+            clientKey = `n_${cleanName}`;
+        }
+
+        // 3. Inicializamos si no existe
+        if (!clientsMap[clientKey]) {
+            clientsMap[clientKey] = {
+                id: clientKey,
+                name: capitalize(rawName),
+                dni: dniDisplay, // 👈 Guardamos el DNI para enviarlo al front
+                phone: booking.user ? booking.user.phoneNumber : booking.guestPhone,
+                totalBookings: 0,
+                totalDebt: 0,
+                lastVisit: booking.startDateTime,
+                bookings: []
+            };
+        }
 
             const client = clientsMap[clientKey];
 

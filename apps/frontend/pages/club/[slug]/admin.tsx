@@ -95,6 +95,7 @@ export default function ClubAdminPage() {
   const [manualBooking, setManualBooking] = useState({
     guestFirstName: '',
     guestLastName: '',
+    guestDni: '',
     guestPhone: '',
     courtId: '',
     time: '19:00',
@@ -322,9 +323,8 @@ export default function ClubAdminPage() {
               activityId: 1,
               startDateTime: dateToSend.toISOString(),
               guestName,
-              
-              // 👇 AHORA SÍ USAMOS LA VARIABLE CON EL +549
-              guestPhone: phoneToSend 
+              guestPhone: phoneToSend,
+              guestDni: manualBooking.guestDni
           });
 
           const msg = `✅ Turno FIJO creado. Arranca: ${dateBase.toLocaleDateString()} a las ${manualBooking.time}. ${skipNote}`;
@@ -342,7 +342,8 @@ export default function ClubAdminPage() {
               undefined,
               {
                   name: guestName,
-                  phone: phoneToSend // Este ya funcionaba bien, ahora usa la variable de arriba
+                  phone: phoneToSend,
+                  guestDni: manualBooking.guestDni
               },
               { asGuest: true, guestIdentifier }
           );
@@ -436,45 +437,148 @@ export default function ClubAdminPage() {
                   <span>{manualBooking.isFixed ? '🔄' : '📅'}</span>{manualBooking.isFixed ? 'NUEVO TURNO FIJO' : 'NUEVA RESERVA SIMPLE'}
                 </h2>
 
-                <form onSubmit={handleCreateBooking} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-4 items-end mt-4">
-                  <div className="grid grid-cols-2 gap-2 col-span-1 sm:col-span-2 lg:col-span-1">
-                    <div><label className="block text-xs font-bold text-slate-500 mb-1">NOMBRE</label><input type="text" value={manualBooking.guestFirstName} onChange={(e) => setManualBooking({...manualBooking, guestFirstName: e.target.value})} className="w-full h-10 bg-surface border border-border rounded px-3 py-2 text-text" placeholder="Nombre" required /></div>
-                    <div><label className="block text-xs font-bold text-slate-500 mb-1">APELLIDO</label><input type="text" value={manualBooking.guestLastName} onChange={(e) => setManualBooking({...manualBooking, guestLastName: e.target.value})} className="w-full h-10 bg-surface border border-border rounded px-3 py-2 text-text" placeholder="Apellido" required /></div>
-                  </div>
+                <form onSubmit={handleCreateBooking} className="flex flex-col gap-4 mt-4">
+  
+          {/* --- FILA 1: DATOS DEL CLIENTE (Ocupa todo el ancho) --- */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            
+            {/* 1. Nombre */}
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">NOMBRE</label>
+              <input 
+                type="text" 
+                value={manualBooking.guestFirstName} 
+                onChange={(e) => setManualBooking({...manualBooking, guestFirstName: e.target.value})} 
+                className="w-full h-10 bg-surface border border-border rounded px-3 py-2 text-text focus:border-blue-500 focus:outline-none transition-colors" 
+                placeholder="Nombre" 
+                required 
+              />
+            </div>
 
-                  <div className="col-span-1 sm:col-span-2 lg:col-span-1">
-                    <label className="block text-xs font-bold text-slate-500 mb-1">TELÉFONO</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-2 text-slate-400 select-none text-sm pointer-events-none">+54 9</span>
-                      <input type="text" value={manualBooking.guestPhone} onChange={(e) => setManualBooking({...manualBooking, guestPhone: e.target.value})} className="w-full h-10 bg-surface border border-border rounded px-3 pl-16 py-2 text-text" placeholder="351..." />
-                    </div>
-                  </div>
+            {/* 2. Apellido */}
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">APELLIDO</label>
+              <input 
+                type="text" 
+                value={manualBooking.guestLastName} 
+                onChange={(e) => setManualBooking({...manualBooking, guestLastName: e.target.value})} 
+                className="w-full h-10 bg-surface border border-border rounded px-3 py-2 text-text focus:border-blue-500 focus:outline-none transition-colors" 
+                placeholder="Apellido" 
+                required 
+              />
+            </div>
 
-                  <div><label className="block text-xs font-bold text-slate-500 mb-1">CANCHA</label><select value={manualBooking.courtId} onChange={(e) => setManualBooking({...manualBooking, courtId: e.target.value})} className="w-full h-10 bg-surface border border-border rounded px-3 py-2 text-text" required><option value="">Seleccionar...</option>{courts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+            {/* 3. DNI */}
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">DNI</label>
+              <input 
+                type="text" 
+                value={manualBooking.guestDni} 
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, ''); 
+                  setManualBooking({...manualBooking, guestDni: val});
+                }} 
+                className="w-full h-10 bg-surface border border-border rounded px-3 py-2 text-text focus:border-blue-500 focus:outline-none transition-colors" 
+                placeholder="DNI (Opcional)" 
+              />
+            </div>
 
-                  {manualBooking.isFixed ? (
-                    <div><label className="block text-xs font-bold text-slate-500 mb-1">DÍA</label><select value={manualBooking.dayOfWeek} onChange={(e) => setManualBooking({...manualBooking, dayOfWeek: e.target.value})} className="w-full h-10 bg-surface border border-border rounded px-3 py-2 text-white font-bold"><option value="1">Lunes</option><option value="2">Martes</option><option value="3">Miércoles</option><option value="4">Jueves</option><option value="5">Viernes</option><option value="6">Sábado</option><option value="0">Domingo</option></select></div>
-                  ) : (
-                    // 👇 CALENDARIO DATEPICKER (DARK) PARA CREAR TURNO
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 mb-1">FECHA</label>
-                      <DatePicker
-                        selected={manualBooking.startDateBase ? (() => { const [y, m, d] = manualBooking.startDateBase.split('-').map(Number); return new Date(y, m - 1, d); })() : new Date()}
-                        onChange={(date: Date | null) => { if (date) setManualBooking({ ...manualBooking, startDateBase: formatLocalDate(date) }); }}
-                        minDate={new Date()}
-                        dateFormat="dd/MM/yyyy"
-                        locale={es}
-                        className="date-picker-custom"
-                        calendarClassName="date-picker-calendar"
-                        popperPlacement="bottom-start"
-                      />
-                    </div>
-                  )}
+            {/* 4. Teléfono */}
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">TELÉFONO</label>
+              <div className="relative">
+                <span className="absolute left-3 top-2 text-slate-400 select-none text-sm pointer-events-none">+54 9</span>
+                <input 
+                  type="text" 
+                  value={manualBooking.guestPhone} 
+                  onChange={(e) => setManualBooking({...manualBooking, guestPhone: e.target.value})} 
+                  className="w-full h-10 bg-surface border border-border rounded px-3 pl-16 py-2 text-text focus:border-blue-500 focus:outline-none transition-colors" 
+                  placeholder="351..." 
+                />
+              </div>
+            </div>
+          </div>
 
-                  <div className="w-full"><label className="block text-xs font-bold text-slate-500 mb-1">HORA</label><select value={manualBooking.time} onChange={(e) => setManualBooking({...manualBooking, time: e.target.value})} className="w-full h-10 bg-surface border border-border rounded px-2 py-2 text-text cursor-pointer" required>{CLUB_TIME_SLOTS.map((time) => { const isPast = !manualBooking.isFixed && isPastTimeForDate(manualBooking.startDateBase, time); return (<option key={time} value={time} disabled={isPast}>{time} hs</option>); })}</select></div>
+          {/* --- FILA 2: DATOS DE LA RESERVA --- */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+            
+            {/* 1. Cancha */}
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">CANCHA</label>
+              <select 
+                value={manualBooking.courtId} 
+                onChange={(e) => setManualBooking({...manualBooking, courtId: e.target.value})} 
+                className="w-full h-10 bg-surface border border-border rounded px-3 py-2 text-text cursor-pointer focus:border-blue-500 focus:outline-none" 
+                required
+              >
+                <option value="">Seleccionar...</option>
+                {courts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
 
-                  <button type="submit" className="btn btn-primary w-full h-10">AGENDAR</button>
-                </form>
+            {/* 2. Día / Fecha */}
+            {manualBooking.isFixed ? (
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">DÍA (FIJO)</label>
+                <select 
+                  value={manualBooking.dayOfWeek} 
+                  onChange={(e) => setManualBooking({...manualBooking, dayOfWeek: e.target.value})} 
+                  className="w-full h-10 bg-surface border border-border rounded px-3 py-2 text-white font-bold"
+                >
+                  <option value="1">Lunes</option>
+                  <option value="2">Martes</option>
+                  <option value="3">Miércoles</option>
+                  <option value="4">Jueves</option>
+                  <option value="5">Viernes</option>
+                  <option value="6">Sábado</option>
+                  <option value="0">Domingo</option>
+                </select>
+              </div>
+            ) : (
+              <div className="relative z-20"> {/* z-20 para que el calendario flote por encima */}
+                <label className="block text-xs font-bold text-slate-500 mb-1">FECHA</label>
+                <DatePicker
+                  selected={manualBooking.startDateBase ? (() => { const [y, m, d] = manualBooking.startDateBase.split('-').map(Number); return new Date(y, m - 1, d); })() : new Date()}
+                  onChange={(date: Date | null) => { if (date) setManualBooking({ ...manualBooking, startDateBase: formatLocalDate(date) }); }}
+                  minDate={new Date()}
+                  dateFormat="dd/MM/yyyy"
+                  locale={es}
+                  className="date-picker-custom w-full h-10" // Asegurate que tu CSS global soporte w-full aquí o ajustalo
+                  calendarClassName="date-picker-calendar"
+                  popperPlacement="bottom-start"
+                  wrapperClassName="w-full" // Truco para que el DatePicker ocupe el ancho
+                />
+              </div>
+            )}
+
+            {/* 3. Hora */}
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">HORA</label>
+              <select 
+                value={manualBooking.time} 
+                onChange={(e) => setManualBooking({...manualBooking, time: e.target.value})} 
+                className="w-full h-10 bg-surface border border-border rounded px-2 py-2 text-text cursor-pointer font-mono" 
+                required
+              >
+                {CLUB_TIME_SLOTS.map((time) => { 
+                  const isPast = !manualBooking.isFixed && isPastTimeForDate(manualBooking.startDateBase, time); 
+                  return (<option key={time} value={time} disabled={isPast}>{time} hs</option>); 
+                })}
+              </select>
+            </div>
+
+            {/* 4. Botón Agendar */}
+            <div>
+              <button 
+                type="submit" 
+                className="btn btn-primary w-full h-10 font-bold tracking-wide shadow-lg hover:shadow-emerald-500/20 transition-all"
+              >
+                AGENDAR
+              </button>
+            </div>
+          </div>
+
+        </form>
                 <div className="mt-2 text-sm"><label className="flex items-center gap-2 cursor-pointer text-slate-300"><input type="checkbox" checked={manualBooking.isFixed} onChange={(e) => setManualBooking({...manualBooking, isFixed: e.target.checked})} className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" /><span className={manualBooking.isFixed ? 'font-bold' : ''}>Es Turno Fijo</span></label></div>
               </div>
 

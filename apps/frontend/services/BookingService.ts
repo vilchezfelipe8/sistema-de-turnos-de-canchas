@@ -27,7 +27,7 @@ export const createBooking = async (
   activityId: number,
   date: Date,
   userId?: number,
-  guestInfo?: { name?: string; email?: string; phone?: string },
+  guestInfo?: { name?: string; email?: string; phone?: string; guestDni?: string },
   options?: { asGuest?: boolean; guestIdentifier?: string }
 ) => {
   const token = getToken();
@@ -48,6 +48,7 @@ export const createBooking = async (
       ...(guestInfo?.name ? { guestName: guestInfo.name } : {}),
       ...(guestInfo?.email ? { guestEmail: guestInfo.email } : {}),
       ...(guestInfo?.phone ? { guestPhone: guestInfo.phone } : {}),
+      ...(guestInfo?.guestDni ? { guestDni: guestInfo.guestDni } : {}),
       ...(options?.asGuest ? { asGuest: true } : {}),
       
       // 👇 AGREGAR ESTA LÍNEA PARA QUE EL BACKEND RECIBA EL ID 👇

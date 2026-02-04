@@ -107,9 +107,12 @@ export default function ClientsPage() {
   // Lógica de filtrado
   const filteredClients = clients.filter(client => {
     const term = searchTerm.toLowerCase();
+    
     const nameMatch = client.name.toLowerCase().includes(term);
     const phoneMatch = client.phone && client.phone.includes(term);
-    return nameMatch || phoneMatch;
+    const dniMatch = client.dni && client.dni.toLowerCase().includes(term); 
+    
+    return nameMatch || phoneMatch || dniMatch;
   });
 
   const totalDebt = clients.reduce((sum, c) => sum + c.totalDebt, 0);
@@ -152,6 +155,7 @@ export default function ClientsPage() {
               <thead>
                 <tr className="text-xs uppercase text-muted border-b border-border bg-gray-900/30">
                   <th className="p-4 rounded-tl-lg">Cliente</th>
+                  <th className="p-4">DNI</th> {/* 👈 NUEVA COLUMNA */}
                   <th className="p-4">Contacto</th>
                   <th className="p-4">Historial</th>
                   <th className="p-4">Estado de Cuenta</th>
@@ -162,9 +166,18 @@ export default function ClientsPage() {
                 {filteredClients.length > 0 ? (
                     filteredClients.map((client) => (
                     <tr key={client.id} className="border-b border-border/50 hover:bg-surface-80 transition group">
+                        
+                        {/* NOMBRE */}
                         <td className="p-4 font-bold text-white flex items-center gap-3">
                            <div className="bg-gray-700 p-2 rounded-full"><User size={16} /></div>
                            {client.name}
+                        </td>
+                        <td className="p-4 text-muted text-xs font-mono">
+                           {client.dni !== '-' ? (
+                             <span className="bg-gray-800 border border-gray-700 px-2 py-1 rounded text-gray-300">
+                               {client.dni}
+                             </span>
+                           ) : <span className="opacity-50">-</span>}
                         </td>
                         <td className="p-4 text-muted text-xs font-mono">
                             {client.phone ? <span className="flex items-center gap-1"><Phone size={12}/> {client.phone}</span> : '-'}
