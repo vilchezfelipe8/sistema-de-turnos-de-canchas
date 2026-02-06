@@ -91,55 +91,56 @@ export class ClubService {
     }
 
     // 👇 2. NUEVO MÉTODO AGREGADO (Para el Buscador Inteligente)
-    async getClientsList(slug: string) {
-        const club = await this.getClubBySlug(slug);
-        
-        const bookings = await prisma.booking.findMany({
-            where: {
-                court: { clubId: club.id },
-                status: { not: 'CANCELLED' }
-            },
-            select: {
-                guestName: true,
-                guestPhone: true,
-                guestDni: true,
-                user: { 
-                    select: {
-                        firstName: true,
-                        lastName: true,
-                        phoneNumber: true
-                        // ❌ dni: true  <-- BORRAMOS ESTO PORQUE NO EXISTE EN 'User'
-                    }
-                }
-            },
-            orderBy: { startDateTime: 'desc' }
-        });
-
-        const uniqueClients = new Map();
-
-        bookings.forEach(b => {
-            const name = b.user ? `${b.user.firstName} ${b.user.lastName}` : b.guestName;
-            const phone = b.user ? b.user.phoneNumber : b.guestPhone;
-            
-            // 👇 CAMBIO: Solo buscamos el DNI si es un invitado (guestDni)
-            // Si el usuario registrado no tiene campo DNI, entonces es undefined.
-            const dni = b.guestDni; 
-
-            if (name) {
-                // Si tiene DNI usamos ese, sino usamos el Nombre como clave
-                const key = dni ? `dni_${dni}` : `name_${name.toLowerCase().trim()}`;
-
-                if (!uniqueClients.has(key)) {
-                    uniqueClients.set(key, {
-                        firstName: name,
-                        lastName: '', 
-                        phone: phone,
-                        dni: dni
-                    });
+    async getClients(clubId: number) {
+    
+    // Buscamos todas las reservas de ese club que no estén canceladas
+    const bookings = await prisma.booking.findMany({
+        where: {
+            court: { clubId: clubId }, // Usamos el ID directo
+            status: { not: 'CANCELLED' }
+        },
+        select: {
+            guestName: true,
+            guestPhone: true,
+            guestDni: true,
+            user: { 
+                select: {
+                    firstName: true,
+                    lastName: true,
+                    phoneNumber: true
+                    // ✅ Perfecto borrar dni de acá si User no lo tiene en tu schema
                 }
             }
-        });
+        },
+        orderBy: { startDateTime: 'desc' }
+    });
 
-        return Array.from(uniqueClients.values());
-    }
+    const uniqueClients = new Map();
+
+    bookings.forEach(b => {
+        // Lógica para decidir si es User o Guest
+        const name = b.user ? `${b.user.firstName} ${b.user.lastName}` : b.guestName;
+        const phone = b.user ? b.user.phoneNumber : b.guestPhone;
+        
+        // El DNI lo sacamos del guestDni (el de la reserva)
+        const dni = b.guestDni; 
+
+        if (name) {
+            // Usamos DNI como clave única si existe, sino el nombre
+            const key = dni ? `dni_${dni}` : `name_${name.toLowerCase().trim()}`;
+
+            if (!uniqueClients.has(key)) {
+                uniqueClients.set(key, {
+                    // Mapeamos para que el Frontend lo entienda
+                    firstName: name, // El front se encarga de separar nombre/apellido si viene junto
+                    lastName: '', 
+                    phoneNumber: phone, // Importante: usar 'phoneNumber' para que coincida con tu front
+                    dni: dni
+                });
+            }
+        }
+    });
+
+    return Array.from(uniqueClients.values());
+}
 }

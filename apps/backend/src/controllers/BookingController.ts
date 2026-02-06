@@ -362,7 +362,7 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
     
     createFixed = async (req: Request, res: Response) => {
         try {
-            const { userId, courtId, activityId, startDateTime, guestName, guestPhone } = req.body;
+            const { userId, courtId, activityId, startDateTime, guestName, guestPhone, guestDni } = req.body;
             const user = (req as any).user;
             const isAdmin = user?.role === 'ADMIN';
             const clubId = (req as any).clubId; // Agregado por middleware de verificación de club
@@ -385,6 +385,7 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
                 undefined,
                 guestName,
                 guestPhone,
+                guestDni,
                 clubId
             );
             

@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import type { ReactNode } from 'react';
 import { ClubAdminService } from '../services/ClubAdminService';
 import { Search, Plus, Edit, Trash2, X } from 'lucide-react';
 
@@ -8,6 +10,27 @@ interface ProductsPageProps {
   slug?: string;
   params?: { slug: string };
 }
+
+// --- ✨ COMPONENTE PORTAL (VERSIÓN BLACK) ✨ ---
+const ModalPortal = ({ children, onClose }: { children: ReactNode, onClose: () => void }) => {
+  if (typeof document === 'undefined') return null;
+  
+  return createPortal(
+    // 1. Fondo Oscuro (Backdrop)
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+      <div className="absolute inset-0" onClick={onClose}></div>
+      
+      {/* 2. Tarjeta Flotante (AHORA EN NEGRO) */}
+      {/* Cambié bg-[#0f172a] por bg-black y el borde a gray-800 */}
+      <div className="relative z-10 w-full max-w-md bg-black border border-gray-800 rounded-2xl shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+        <div className="overflow-y-auto p-6 custom-scrollbar">
+            {children}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+};
 
 export default function ProductsPage({ slug: slugProp, params }: ProductsPageProps) {
   const slug = slugProp ?? params?.slug ?? '';
@@ -87,18 +110,19 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
     p.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const inputClass = 'w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50';
-  const labelClass = 'block text-xs font-bold text-slate-500 mb-2 uppercase';
+  // Estilos unificados para input (fondo gris oscuro sobre negro queda bien)
+  const inputClass = 'w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors placeholder-gray-500';
+  const labelClass = 'block text-xs font-bold text-slate-400 mb-1.5 uppercase tracking-wide';
 
   return (
     <>
       <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center mb-6">
         <div className="relative flex-1 w-full sm:max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" size={18} />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
           <input
             type="text"
             placeholder="Buscar producto..."
-            className={`${inputClass} pl-10`}
+            className="w-full bg-surface-70 border border-border rounded-lg pl-10 pr-4 py-2 text-text focus:outline-none focus:border-emerald-500/50 transition-colors"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -106,16 +130,16 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
         <button
           type="button"
           onClick={openNew}
-          className="btn btn-primary px-4 py-2 bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/40 text-emerald-200 flex items-center gap-2 shrink-0"
+          className="btn btn-primary px-4 py-2 bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/40 text-emerald-200 flex items-center gap-2 shrink-0 transition-all shadow-[0_0_15px_rgba(16,185,129,0.15)]"
         >
           <Plus size={18} /> Nuevo producto
         </button>
       </div>
 
-      <div className="border border-border rounded-xl overflow-hidden bg-surface/50">
+      <div className="border border-border rounded-xl overflow-hidden bg-surface-70/50 backdrop-blur-sm">
         <table className="w-full text-left text-sm">
           <thead>
-            <tr className="border-b border-border text-muted uppercase tracking-wider text-xs">
+            <tr className="border-b border-border text-muted uppercase tracking-wider text-xs bg-surface-70">
               <th className="p-4 font-semibold">Producto</th>
               <th className="p-4 font-semibold">Categoría</th>
               <th className="p-4 font-semibold">Stock</th>
@@ -123,7 +147,7 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
               <th className="p-4 text-right font-semibold">Acciones</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-border">
+          <tbody className="divide-y divide-border/50">
             {loading ? (
               <tr>
                 <td colSpan={5} className="p-8 text-center text-muted">
@@ -138,7 +162,7 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
               </tr>
             ) : (
               filteredProducts.map((product) => (
-                <tr key={product.id} className="hover:bg-surface-70/50 transition-colors">
+                <tr key={product.id} className="hover:bg-surface-70 transition-colors">
                   <td className="p-4 font-medium text-text">{product.name}</td>
                   <td className="p-4 text-muted">{product.category || '-'}</td>
                   <td className="p-4">
@@ -178,73 +202,83 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
         </table>
       </div>
 
+      {/* MODAL CON FONDO NEGRO */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-          <div className="bg-surface-70 border border-border rounded-2xl w-full max-w-md shadow-xl overflow-hidden">
-            <div className="flex justify-between items-center p-6 border-b border-border">
-              <h3 className="text-lg font-bold text-text">
-                {editingProduct ? 'Editar producto' : 'Nuevo producto'}
+        <ModalPortal onClose={() => setIsModalOpen(false)}>
+            
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                {editingProduct ? <Edit size={20} className="text-blue-400"/> : <Plus size={20} className="text-emerald-400"/>}
+                {editingProduct ? 'Editar Producto' : 'Nuevo Producto'}
               </h3>
               <button
                 type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="p-2 rounded-lg text-muted hover:text-text hover:bg-surface transition-colors"
+                className="p-1 rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
               >
-                <X size={20} />
+                <X size={24} />
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+
+            <form onSubmit={handleSubmit} className="space-y-5">
               <div>
-                <label className={labelClass}>Nombre</label>
+                <label className={labelClass}>Nombre del Producto</label>
                 <input
                   required
+                  placeholder="Ej: Gatorade Blue"
                   className={inputClass}
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              
+              <div className="grid grid-cols-2 gap-5">
                 <div>
                   <label className={labelClass}>Precio ($)</label>
                   <input
                     required
                     type="number"
                     min="0"
+                    placeholder="0"
                     className={inputClass}
                     value={formData.price}
                     onChange={(e) => setFormData({ ...formData, price: e.target.value })}
                   />
                 </div>
                 <div>
-                  <label className={labelClass}>Stock</label>
+                  <label className={labelClass}>Stock Inicial</label>
                   <input
                     required
                     type="number"
                     min="0"
+                    placeholder="0"
                     className={inputClass}
                     value={formData.stock}
                     onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
                   />
                 </div>
               </div>
+
               <div>
-                <label className={labelClass}>Categoría (opcional)</label>
+                <label className={labelClass}>Categoría (Opcional)</label>
                 <input
                   className={inputClass}
-                  placeholder="Ej: Bebidas, Grips..."
+                  placeholder="Ej: Bebidas, Grips, Alquiler..."
                   value={formData.category}
                   onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                 />
               </div>
-              <button
-                type="submit"
-                className="w-full btn btn-primary py-3 bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/40 text-emerald-200 font-semibold"
-              >
-                {editingProduct ? 'Guardar cambios' : 'Crear producto'}
-              </button>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  className="w-full btn btn-primary py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg shadow-lg shadow-emerald-900/20 transition-all transform active:scale-[0.98]"
+                >
+                  {editingProduct ? 'Guardar Cambios' : 'Crear Producto'}
+                </button>
+              </div>
             </form>
-          </div>
-        </div>
+        </ModalPortal>
       )}
     </>
   );

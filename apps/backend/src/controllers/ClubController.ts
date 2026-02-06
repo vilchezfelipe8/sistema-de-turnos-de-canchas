@@ -112,16 +112,42 @@ export class ClubController {
 
     getClubClientsList = async (req: Request, res: Response) => {
     try {
-        const { slug } = req.params;
+        // 1. Obtenemos el ID del club (gracias al middleware verifyClubAccess)
+        // Si TypeScript se queja de req.club, podés usar (req as any).club
+        const club = (req as any).club;
         
-        // 👇 LLAMAMOS AL MÉTODO NUEVO DEL SERVICIO
-        const clients = await this.clubService.getClientsList(slug as string);
-        
-        res.json(clients);
+        if (!club) {
+            return res.status(404).json({ message: 'Club no encontrado' });
+        }
+
+        // 2. Obtenemos lo que escribiste en el buscador
+        const query = (req.query.q as string || '').toLowerCase();
+
+        // 3. Pedimos TODOS los clientes al servicio
+        // Usamos clubService, que es lo que tenés disponible en el controller
+        const allClients = await this.clubService.getClients(club.id);
+
+        // 4. FILTRAMOS NOSOTROS (Acá arreglamos que no traiga todo)
+        if (!query) {
+            // Si no escribió nada, devolvemos vacío o los primeros 10
+            return res.json([]); 
+        }
+
+        const filtered = allClients.filter((c: any) => {
+            const fullName = `${c.firstName || ''} ${c.lastName || ''}`.toLowerCase();
+            const phone = c.phoneNumber || c.phone || '';
+            const dni = c.dni || '';
+            
+            // Si el nombre, telefono o dni contiene lo que escribiste... ¡Adentro!
+            return fullName.includes(query) || phone.includes(query) || dni.includes(query);
+        });
+
+        res.json(filtered);
+
     } catch (error: any) {
-        console.error("Error obteniendo clientes:", error);
-        res.status(500).json({ error: 'Error interno al obtener clientes' });
+        console.error("Error buscando clientes:", error);
+        res.status(500).json({ error: error.message });
     }
-}
+};
 }
 

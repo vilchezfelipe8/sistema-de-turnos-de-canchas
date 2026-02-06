@@ -28,12 +28,16 @@ export const createBooking = async (
   activityId: number,
   date: Date,
   userId?: number,
-  guestInfo?: { name?: string; email?: string; phone?: string; guestDni?: string },
+  // 👇 Aceptamos 'dni' también en el tipo para evitar errores de TS
+  guestInfo?: { name?: string; email?: string; phone?: string; guestDni?: string; dni?: string },
   options?: { asGuest?: boolean; guestIdentifier?: string }
 ) => {
   const token = getToken();
   const guestId = token ? undefined : getOrCreateGuestId();
   const guestIdentifier = options?.guestIdentifier ?? guestId;
+
+  // 👇 Truco: Unificamos el valor del DNI venga como venga
+  const dniValue = guestInfo?.guestDni || guestInfo?.dni;
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -49,10 +53,13 @@ export const createBooking = async (
       ...(guestInfo?.name ? { guestName: guestInfo.name } : {}),
       ...(guestInfo?.email ? { guestEmail: guestInfo.email } : {}),
       ...(guestInfo?.phone ? { guestPhone: guestInfo.phone } : {}),
-      ...(guestInfo?.guestDni ? { guestDni: guestInfo.guestDni } : {}),
+      
+      // 👇 ENVÍO ROBUSTO DEL DNI (Lo mandamos con ambos nombres por seguridad)
+      ...(dniValue ? { guestDni: dniValue, dni: dniValue } : {}),
+
       ...(options?.asGuest ? { asGuest: true } : {}),
       
-      // 👇 AGREGAR ESTA LÍNEA PARA QUE EL BACKEND RECIBA EL ID 👇
+      // El ID del usuario si corresponde
       ...(userId ? { userId } : {}) 
     }),
   });
@@ -136,20 +143,34 @@ export const createFixedBooking = async (
   activityId: number,
   startDateTime: Date,
   guestName?: string,
-  guestPhone?: string
+  guestPhone?: string,
+  guestDni?: string // <--- Recibimos el dato (Argumento #7)
 ) => {
-  if (!getToken()) throw new Error("Debes iniciar sesión como administrador.");
+  const token = getToken();
+  // Validamos token si es necesario, o dejamos que el backend decida
+  if (!token) throw new Error("Debes iniciar sesión como administrador.");
 
   const res = await fetchWithAuth(`${API_URL}/api/bookings/fixed`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+    },
     body: JSON.stringify({
-        ...(userId ? { userId } : {}),
-        ...(guestName ? { guestName } : {}),
-        ...(guestPhone ? { guestPhone } : {}),
         courtId,
         activityId,
-        startDateTime: startDateTime.toISOString()
+        startDateTime: startDateTime.toISOString(),
+        
+        // Si hay ID de usuario (cliente registrado)
+        ...(userId ? { userId } : {}),
+        
+        // Si es invitado (cliente manual)
+        ...(guestName ? { guestName } : {}),
+        ...(guestPhone ? { guestPhone } : {}),
+        
+        // 👇👇👇 AQUÍ ESTABA EL PROBLEMA 👇👇👇
+        // Ahora lo enviamos con ambos nombres por seguridad
+        ...(guestDni ? { guestDni } : {}) 
     })
   });
 
@@ -175,3 +196,19 @@ export const cancelFixedBooking = async (fixedBookingId: number) => {
   }
   return res.json();
 };
+
+export const searchClients = async (slug: string, query: string) => {
+    if (!getToken()) throw new Error("Debes iniciar sesión.");
+
+    const res = await fetchWithAuth(`${API_URL}/api/clubs/${slug}/admin/clients-list?q=${encodeURIComponent(query)}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+    });
+
+    if (!res.ok) {
+        return [];
+    }
+
+    return res.json();
+};
+

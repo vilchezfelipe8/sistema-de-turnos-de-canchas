@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 import DatePicker from 'react-datepicker';
 import { registerLocale } from 'react-datepicker';
@@ -11,9 +12,12 @@ import {
   confirmBooking as confirmBookingService,
   createBooking,
   createFixedBooking,
-  cancelFixedBooking
+  cancelFixedBooking,
+  searchClients 
 } from '../../services/BookingService';
 import AppModal from '../AppModal';
+import BookingConsumption from '../BookingConsumption';
+import { useParams } from 'react-router-dom';
 
 registerLocale('es', es);
 
@@ -23,6 +27,24 @@ const CLUB_TIME_SLOTS = [
   '20:30', '22:00'
 ];
 
+// --- COMPONENTE PORTAL (Diseño Profesional) ---
+const ModalPortal = ({ children, onClose }: { children: ReactNode, onClose: () => void }) => {
+  if (typeof document === 'undefined') return null;
+  
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+      <div className="absolute inset-0" onClick={onClose}></div>
+      <div className="relative z-10 w-full max-w-xl bg-[#0f172a] border border-slate-700 rounded-2xl shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+        <div className="overflow-y-auto p-6 custom-scrollbar">
+            {children}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
+// --- FUNCIONES AUXILIARES ---
 const getNextDateForDay = (startDate: Date, targetDayIndex: number, timeStr: string) => {
   const resultDate = new Date(startDate);
   const currentDay = resultDate.getDay();
@@ -67,10 +89,111 @@ export default function AdminTabBookings() {
   const [scheduleBookings, setScheduleBookings] = useState<any[]>([]);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  
+  const [selectedBooking, setSelectedBooking] = useState<any>(null);
+  const params = useParams();
+  const urlSlug = params.slug;
+
   const [manualBooking, setManualBooking] = useState({
-    guestFirstName: '', guestLastName: '', guestPhone: '', courtId: '', time: '19:00',
-    isFixed: false, dayOfWeek: '1', startDateBase: getTodayLocalDate()
+    guestFirstName: '',
+    guestLastName: '',
+    guestPhone: '',
+    guestDni: '',
+    courtId: '',
+    time: '19:00',
+    isFixed: false,
+    dayOfWeek: '1',
+    startDateBase: getTodayLocalDate()
   });
+
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const searchTimeoutRef = useRef<any>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // --- 🔥 OBTENER SLUG (INTELIGENTE - AUTOMÁTICO) 🔥 ---
+  const getClubSlug = () => {
+    // 1. Prioridad: URL
+    if (urlSlug) return urlSlug;
+    
+    try {
+      const userStored = localStorage.getItem('user');
+      if (userStored) {
+        const user = JSON.parse(userStored);
+        
+        // 2. Buscamos si tiene el slug guardado explícitamente
+        const foundSlug = user.slug || user.clubSlug || (user.club && user.club.slug);
+        if (foundSlug) return foundSlug;
+
+        // 3. 🪄 MAGIA: Si no tiene slug, convertimos el APELLIDO (Nombre del club) a formato slug
+        // Ejemplo: "Club Nuevo" -> "club-nuevo" | "Las Tejas" -> "las-tejas"
+        if (user.lastName) {
+             // Pasamos a minúsculas y reemplazamos espacios por guiones
+             return user.lastName.toLowerCase().trim().replace(/\s+/g, '-');
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    
+    return ''; 
+  };
+
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setManualBooking({ ...manualBooking, guestFirstName: value });
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+
+    if (value.length >= 2) {
+      searchTimeoutRef.current = setTimeout(async () => {
+        try {
+          const currentSlug = getClubSlug();
+          
+          if (!currentSlug) {
+              console.warn("⚠️ No se pudo determinar el slug del club.");
+              return; 
+          }
+
+          const results = await searchClients(currentSlug, value);
+          setSearchResults(results || []);
+          setShowDropdown(true);
+        } catch (error) {
+          console.error("Error buscando:", error);
+        }
+      }, 300);
+    } else {
+      setShowDropdown(false);
+    }
+  };
+
+  const selectClient = (client: any) => {
+    let fName = client.firstName || '';
+    let lName = client.lastName || '';
+    if (!lName && fName.includes(' ')) {
+      const parts = fName.split(' ');
+      fName = parts[0];
+      lName = parts.slice(1).join(' ');
+    }
+    setManualBooking({
+      ...manualBooking,
+      guestFirstName: fName,
+      guestLastName: lName,
+      guestPhone: client.phoneNumber || client.phone || client.celular || '', 
+      guestDni: client.dni || client.dniNumber || client.document || '' 
+    });
+    setShowDropdown(false);
+  };
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setShowDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [wrapperRef]);
+
   const [modalState, setModalState] = useState<{
     show: boolean; title?: string; message?: ReactNode; cancelText?: string; confirmText?: string;
     isWarning?: boolean; onConfirm?: () => Promise<void> | void; onCancel?: () => Promise<void> | void;
@@ -81,6 +204,7 @@ export default function AdminTabBookings() {
   const showInfo = (message: ReactNode, title = 'Información') => setModalState({ show: true, title, message, cancelText: '', confirmText: 'OK' });
   const showError = (message: ReactNode) => setModalState({ show: true, title: 'Error', message, isWarning: true, cancelText: '', confirmText: 'Aceptar' });
   const wrapAction = (action?: () => Promise<void> | void) => async () => { closeModal(); await action?.(); };
+  
   const showConfirm = (options: {
     title: string; message: ReactNode; confirmText?: string; cancelText?: string; isWarning?: boolean;
     onConfirm: () => Promise<void> | void; onCancel?: () => Promise<void> | void; closeOnBackdrop?: boolean; closeOnEscape?: boolean;
@@ -161,16 +285,17 @@ export default function AdminTabBookings() {
       } else {
         dateBase = new Date(`${manualBooking.startDateBase}T${manualBooking.time}:00`);
       }
+      const guestData = { name: guestName, phone: phoneToSend, dni: manualBooking.guestDni };
       if (manualBooking.isFixed) {
         await createFixedBooking(undefined, Number(manualBooking.courtId), 1, dateBase, guestName, phoneToSend || undefined);
         const message = skipNote ? <div><p className="mb-2">{skipNote}</p><p>✅ Turno FIJO creado. Arranca el: {dateBase.toLocaleDateString()} a las {manualBooking.time}</p></div> : `✅ Turno FIJO creado. Arranca el: ${dateBase.toLocaleDateString()} a las ${manualBooking.time}`;
         showInfo(message, 'Listo');
       } else {
-        await createBooking(Number(manualBooking.courtId), 1, dateBase, undefined, { name: guestName, phone: phoneToSend }, { asGuest: true, guestIdentifier: `admin_${Date.now()}` });
+        await createBooking(Number(manualBooking.courtId), 1, dateBase, undefined, guestData, { asGuest: true, guestIdentifier: `admin_${Date.now()}` });
         showInfo('✅ Reserva simple creada', 'Listo');
       }
       loadSchedule();
-      setManualBooking({ guestFirstName: '', guestLastName: '', guestPhone: '', courtId: '', time: '19:00', isFixed: false, dayOfWeek: '1', startDateBase: getTodayLocalDate() });
+      setManualBooking({ guestFirstName: '', guestLastName: '', guestPhone: '', guestDni: '', courtId: '', time: '19:00', isFixed: false, dayOfWeek: '1', startDateBase: getTodayLocalDate() });
     } catch (error: any) {
       showError('Error al reservar: ' + error.message);
     }
@@ -183,19 +308,18 @@ export default function AdminTabBookings() {
         message: <div><p>Este turno pertenece a una serie repetitiva.</p><p className="font-bold mt-2">¿Deseas eliminar TODA la serie futura?</p></div>,
         confirmText: 'Sí, borrar TODA la serie', cancelText: 'No, ver otras opciones',
         onConfirm: async () => { try { await cancelFixedBooking(booking.fixedBookingId); showInfo('✅ Serie completa eliminada.', 'Éxito'); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } },
-        onCancel: () => setTimeout(() => showConfirm({
-          title: '¿Borrar solo hoy?',
-          message: `¿Eliminar únicamente el turno de hoy (${booking.slotTime}) y mantener los futuros?`,
-          confirmText: 'Sí, borrar solo hoy', cancelText: 'Cancelar',
-          onConfirm: async () => { try { await cancelBooking(booking.id); showInfo('✅ Turno del día eliminado.', 'Listo'); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } },
-          onCancel: () => {}
-        }), 200),
+        onCancel: () => { 
+          setTimeout(() => showConfirm({
+            title: '¿Borrar solo hoy?', message: `¿Eliminar únicamente el turno de hoy (${booking.slotTime}) y mantener los futuros?`, confirmText: 'Sí, borrar solo hoy', cancelText: 'Cancelar',
+            onConfirm: async () => { try { await cancelBooking(booking.id); showInfo('✅ Turno del día eliminado.', 'Listo'); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } },
+            onCancel: () => {}
+          }), 200);
+        },
         closeOnBackdrop: false, closeOnEscape: false
       });
     } else {
       showConfirm({
-        title: 'Cancelar turno', message: '⚠️ ¿Seguro que deseas cancelar esta reserva simple?',
-        confirmText: 'Sí, Cancelar', cancelText: 'Volver',
+        title: 'Cancelar turno', message: '⚠️ ¿Seguro que deseas cancelar esta reserva simple?', confirmText: 'Sí, Cancelar', cancelText: 'Volver',
         onConfirm: async () => { try { await cancelBooking(booking.id); showInfo('✅ Turno cancelado', 'Listo'); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } }
       });
     }
@@ -219,14 +343,35 @@ export default function AdminTabBookings() {
           {manualBooking.isFixed ? 'NUEVO TURNO FIJO' : 'NUEVA RESERVA SIMPLE'}
           <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full border border-border text-muted bg-surface">{manualBooking.isFixed ? 'SERIE' : 'SIMPLE'}</span>
         </h2>
-        <form onSubmit={handleCreateBooking} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label className="block text-sm font-semibold text-slate-300 mb-2">Nombre</label>
-            <input type="text" value={manualBooking.guestFirstName} onChange={(e) => setManualBooking({ ...manualBooking, guestFirstName: e.target.value })} className="w-full h-12 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" placeholder="Ingresa el nombre" required />
+        <form onSubmit={handleCreateBooking} className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+          <div className="relative" ref={wrapperRef}>
+              <label className="block text-sm font-semibold text-slate-300 mb-2">Nombre (Buscar Cliente)</label>
+              <input type="text" value={manualBooking.guestFirstName} onChange={handleNameChange} className="w-full h-12 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" placeholder="Escribe para buscar..." required autoComplete="off" name="search_guest_name_unique" />
+              {showDropdown && searchResults.length > 0 && (
+                  <ul className="absolute z-50 w-full mt-1 bg-gray-700 border border-gray-600 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                      {searchResults.map((client) => (
+                          <li key={client.id} onClick={() => selectClient(client)} className="px-4 py-3 hover:bg-emerald-600/30 cursor-pointer text-white border-b border-gray-600/50 last:border-0 transition-colors">
+                              <div className="font-bold text-sm">{client.firstName} {client.lastName}</div>
+                              <div className="text-xs text-gray-300 flex gap-3 mt-1">
+                                  {client.phoneNumber && <span className="flex items-center gap-1">📞 {client.phoneNumber}</span>}
+                                  {client.dni && <span className="flex items-center gap-1">🆔 {client.dni}</span>}
+                              </div>
+                          </li>
+                      ))}
+                  </ul>
+              )}
           </div>
           <div>
             <label className="block text-sm font-semibold text-slate-300 mb-2">Apellido</label>
-            <input type="text" value={manualBooking.guestLastName} onChange={(e) => setManualBooking({ ...manualBooking, guestLastName: e.target.value })} className="w-full h-12 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" placeholder="Ingresa el apellido" required />
+            <input autoComplete="off" name="guest_lastname_unique" type="text" value={manualBooking.guestLastName} onChange={(e) => setManualBooking({ ...manualBooking, guestLastName: e.target.value })} className="w-full h-12 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" placeholder="Ingresa el apellido" required />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-slate-300 mb-2">Teléfono</label>
+            <input autoComplete="off" name="guest_phone_unique" type="tel" value={manualBooking.guestPhone} onChange={(e) => setManualBooking({ ...manualBooking, guestPhone: e.target.value })} className="w-full h-12 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" placeholder="Ej: 3511234567" />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-slate-300 mb-2">DNI (Opcional)</label>
+            <input autoComplete="off" name="guest_dni_unique" type="text" value={manualBooking.guestDni} onChange={(e) => setManualBooking({ ...manualBooking, guestDni: e.target.value })} className="w-full h-12 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" placeholder="Número de documento" />
           </div>
           <div className="relative z-10">
             <label className="block text-sm font-semibold text-slate-300 mb-2">Fecha</label>
@@ -285,7 +430,7 @@ export default function AdminTabBookings() {
           <ul className="text-sm text-muted space-y-1">
             <li>• <strong>Reserva Simple:</strong> Completa nombre, apellido, fecha, hora y cancha para una reserva única.</li>
             <li>• <strong>Turno Fijo:</strong> Marca la casilla &quot;Es un turno fijo&quot; y selecciona el día de la semana. Se creará una serie semanal automática.</li>
-            <li>• <strong>Validaciones:</strong> No se permiten fechas pasadas ni horarios ya ocupados.</li>
+            <li>• <strong>Buscador:</strong> Escribe en "Nombre" para buscar clientes existentes.</li>
           </ul>
         </div>
       </div>
@@ -315,7 +460,7 @@ export default function AdminTabBookings() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-border text-muted text-xs uppercase tracking-wider">
-                  <th className="p-4">Horario</th><th className="p-4">Cancha</th><th className="p-4">Estado</th><th className="p-4">Reservante</th><th className="p-5 text-right">Acciones</th>
+                  <th className="p-4">Horario</th><th className="p-4">Cancha</th><th className="p-4">Estado</th><th className="p-4">Reservante</th><th className="p-4">Consumos / Extras</th><th className="p-5 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="text-sm font-medium">
@@ -331,7 +476,7 @@ export default function AdminTabBookings() {
                           <span className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full border border-yellow-500/30 text-yellow-300 bg-yellow-500/10"><span className="h-2 w-2 rounded-full bg-yellow-400 shadow-[0_0_8px_rgba(234,179,8,0.6)]"></span> PENDIENTE</span>
                         )
                       ) : (
-                        <span className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full border border-gray-500/30 text-gray-300 bg-gray-500/10"><span className="h-2 w-2 rounded-full bg-gray-400"></span> LIBRE</span>
+                        <span className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full border border-gray-500/30 text-gray-500/10"><span className="h-2 w-2 rounded-full bg-gray-400"></span> LIBRE</span>
                       )}
                     </td>
                     <td className="p-5 text-text">
@@ -343,9 +488,30 @@ export default function AdminTabBookings() {
                         </div>
                       ) : <span className="text-muted">-</span>}
                     </td>
+                    <td className="p-4">
+                      {slot.booking && slot.booking.items && slot.booking.items.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {slot.booking.items.map((item: any, i: number) => (
+                            <span key={i} className="text-[10px] px-2 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 whitespace-nowrap">
+                              {item.quantity > 1 ? <span className="font-bold text-emerald-400">{item.quantity}x </span> : ''}
+                              {item.product?.name || 'Producto'}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-muted text-xs">-</span>
+                      )}
+                    </td>
                     <td className="p-5 text-right">
                       {slot.booking && (
                         <div className="flex justify-end gap-2">
+                          <button 
+                            onClick={() => setSelectedBooking(slot.booking)}
+                            className="text-xs btn h-7 px-2.5 py-0 bg-blue-500/10 border-blue-500/40 text-blue-300 hover:bg-blue-500/20 hover:border-blue-400/70 leading-none whitespace-nowrap" 
+                            title="Agregar Consumos / Extras"
+                          >
+                            🛒 EXTRAS
+                          </button>
                           {slot.booking.status !== 'CONFIRMED' && (
                             <button onClick={() => handleConfirmBooking(slot.booking)} className="text-xs btn h-7 px-2.5 py-0 bg-emerald-500/10 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/20 hover:border-emerald-400/70 leading-none whitespace-nowrap" title="Confirmar turno">✓ CONFIRMAR</button>
                           )}
@@ -362,6 +528,21 @@ export default function AdminTabBookings() {
           <div className="text-center py-12 border border-dashed border-border rounded-xl bg-surface-70"><p className="text-muted">Sin datos cargados para esta fecha</p></div>
         )}
       </div>
+
+      {selectedBooking && (
+        <ModalPortal onClose={() => setSelectedBooking(null)}>
+          <BookingConsumption 
+            bookingId={selectedBooking.id}
+            slug={getClubSlug() || ''} 
+            courtPrice={selectedBooking.price}
+            onClose={() => setSelectedBooking(null)}
+            onConfirm={() => {
+                setSelectedBooking(null);
+                loadSchedule();
+            }}
+          />
+        </ModalPortal>
+      )}
 
       <AppModal show={modalState.show} onClose={closeModal} onCancel={modalState.onCancel} title={modalState.title} message={modalState.message} cancelText={modalState.cancelText} confirmText={modalState.confirmText} isWarning={modalState.isWarning} onConfirm={modalState.onConfirm} closeOnBackdrop={modalState.closeOnBackdrop} closeOnEscape={modalState.closeOnEscape} />
     </>

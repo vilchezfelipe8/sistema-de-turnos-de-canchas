@@ -132,6 +132,7 @@ model FixedBooking {
   startDate DateTime // Desde cuándo empieza el fijo
   status    String   @default("ACTIVE")
   guestPhone String?
+  guestDni   String?
 
   // Relaciones
   user      User?     @relation(fields: [userId], references: [id])

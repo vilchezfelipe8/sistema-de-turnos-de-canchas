@@ -204,10 +204,34 @@ export class BookingService {
         }
         const activeCourts = allCourts.filter(court => !court.isUnderMaintenance);
 
-        // Obtener bookings del día
-        const bookings = clubId 
-            ? await this.bookingRepo.findAllByDateAndClub(date, clubId)
-            : await this.bookingRepo.findAllByDate(date);
+        const startOfDay = new Date(date);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(date);
+        endOfDay.setHours(23, 59, 59, 999);
+
+        // 2. Buscamos directo con Prisma para incluir los PRODUCTOS
+       const bookings = await prisma.booking.findMany({
+    where: {
+        startDateTime: {
+            gte: startOfDay,
+            lte: endOfDay
+        },
+        // Si hay clubId, filtramos por ese club
+        ...(clubId ? { court: { clubId: clubId } } : {}),
+        status: { not: 'CANCELLED' }
+    },
+    include: {
+        court: true,
+        user: true, 
+        
+        // 👇 AQUÍ ESTÁ LA CLAVE: Traemos los items y sus productos
+        items: { 
+            include: {
+                product: true
+            }
+        }
+    }
+});
 
         const possibleSlots = [
             "08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:30", "19:00", "20:30", "22:00"
@@ -361,6 +385,7 @@ export class BookingService {
         weeksToGenerate: number = 24,
         guestName?: string,
         guestPhone?: string | number, // Agregado para recibir el dato del front
+        guestDni?: string,
         clubId?: number
     ) {
         const safePhone = guestPhone ? String(guestPhone) : undefined;
@@ -418,6 +443,7 @@ export class BookingService {
                     ...(userId ? { userId } : {}),
                     ...(guestName ? { guestName } : {}),
                     ...(safePhone ? { guestPhone: safePhone } : {}),
+                    ...(guestDni ? { guestDni } : {}),
 
                     courtId,
                     activityId,
@@ -461,6 +487,7 @@ export class BookingService {
                         ...(userId ? { userId } : {}),
                         ...(guestName ? { guestName } : {}),
                         ...(safePhone ? { guestPhone: safePhone } : {}), // Guardar teléfono en cada reserva hija
+                        ...(guestDni ? { guestDni } : {}), // Guardar DNI en cada reserva hija
                         courtId,
                         activityId,
                         fixedBookingId: fixedBooking.id
