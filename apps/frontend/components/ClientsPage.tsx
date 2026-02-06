@@ -84,23 +84,31 @@ const DebtModal = ({ client, onClose, onSuccess }: any) => {
 
 
 // 👇 2. COMPONENTE PRINCIPAL (Con Buscador y Tabla)
-export default function ClientsPage() {
+interface ClientsPageProps {
+  /** Opcional: slug del club (si viene de /club/[slug]/admin). En /admin/clientes se usa el token. */
+  clubSlug?: string;
+}
+
+export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const router = useRouter();
-  const { slug } = router.query;
-  
+  const slugFromQuery = router.query.slug as string | undefined;
+  const slug = clubSlug ?? slugFromQuery;
+
   const [clients, setClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDebtor, setSelectedDebtor] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
-  useEffect(() => { if (slug) loadClients(); }, [slug]);
+  useEffect(() => {
+    loadClients();
+  }, [slug]);
 
   const loadClients = async () => {
     try {
       setLoading(true);
-      const data = await ClubAdminService.getDebtors(slug as string); 
+      const data = await ClubAdminService.getDebtors(slug);
       setClients(data);
-    } catch (error) { console.error(error); } 
+    } catch (error) { console.error(error); }
     finally { setLoading(false); }
   };
 

@@ -24,21 +24,22 @@ const bookingService = new BookingService(
 const bookingController = new BookingController(bookingService);
 
 import { requireRole } from '../middleware/RoleMiddleware';
+import { setAdminClubFromUser } from '../middleware/ClubMiddleware';
 
 router.get('/availability', bookingController.getAvailability);
 router.get('/all-availability', bookingController.getAllAvailableSlots);
 router.get('/availability-with-courts', bookingController.getAvailableSlotsWithCourts);
 router.post('/', optionalAuthMiddleware, bookingController.createBooking);
 router.post('/cancel', authMiddleware, bookingController.cancelBooking);
-router.post('/confirm', authMiddleware, requireRole('ADMIN'), bookingController.confirmBooking);
+router.post('/confirm', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, bookingController.confirmBooking);
 router.get('/history/:userId', authMiddleware, bookingController.getHistory);
-router.get('/admin/schedule', authMiddleware, requireRole('ADMIN'), bookingController.getAdminSchedule);
-router.post('/fixed', authMiddleware, requireRole('ADMIN'), bookingController.createFixed);
-router.delete('/fixed/:id', authMiddleware, requireRole('ADMIN'), bookingController.cancelFixed);
+router.get('/admin/schedule', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, bookingController.getAdminSchedule);
+router.post('/fixed', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, bookingController.createFixed);
+router.delete('/fixed/:id', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, bookingController.cancelFixed);
 router.get('/:id/items', authMiddleware, bookingController.getItems);
 router.post('/:id/items', authMiddleware, bookingController.addItem);
 router.delete('/items/:itemId', authMiddleware, bookingController.removeItem);
-router.get('/debtors/list', authMiddleware, bookingController.getDebtors);
+router.get('/debtors/list', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, bookingController.getDebtors);
 router.patch('/:id/payment-status', authMiddleware, bookingController.updateStatus);
 
 export default router;

@@ -12,20 +12,6 @@ export default function ClubPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
-    if (!userStr) return;
-    try {
-      const user = JSON.parse(userStr);
-      if (user?.role === 'ADMIN' && slug && typeof slug === 'string') {
-        // Redirigir al admin del club si es admin
-        router.replace(`/club/${slug}/admin`);
-      }
-    } catch {
-      // noop
-    }
-  }, [router, slug]);
-
-  useEffect(() => {
     const loadClub = async () => {
       if (!slug || typeof slug !== 'string') {
         setLoadingClub(false);
@@ -48,10 +34,16 @@ export default function ClubPage() {
     loadClub();
   }, [slug]);
 
-  if (loadingClub) {
+  const slugReady = router.isReady && slug && typeof slug === 'string';
+  const stillLoading = !slugReady || loadingClub;
+
+  if (stillLoading) {
     return (
       <main className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center p-4">
-        <div className="animate-pulse text-muted">Cargando...</div>
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-10 w-10 rounded-full border-2 border-emerald-500/40 border-t-emerald-400 animate-spin" />
+          <p className="text-muted text-sm">Cargando club...</p>
+        </div>
       </main>
     );
   }
@@ -92,8 +84,8 @@ export default function ClubPage() {
           </div>
 
           <div className="mt-8 grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-6">
-            {/* Reservas */}
-            <BookingGrid />
+            {/* Reservas: solo canchas y turnos de este club */}
+            <BookingGrid clubSlug={slug} />
 
             {/* Info del club */}
             <div className="flex flex-col gap-6">

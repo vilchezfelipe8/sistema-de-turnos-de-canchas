@@ -53,9 +53,10 @@ export const verifyClubAccess = async (req: Request, res: Response, next: NextFu
 export const verifyClubAccessById = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = (req as any).user;
-        const clubId = parseInt(req.params.id as string) || parseInt(req.body.clubId as string);
+        const clubId = req.params.id != null ? parseInt(req.params.id as string) : NaN;
+        const parsed = !isNaN(clubId) ? clubId : (req.body?.clubId != null ? parseInt(String(req.body.clubId)) : NaN);
 
-        if (!clubId || isNaN(clubId)) {
+        if (!parsed || isNaN(parsed)) {
             return res.status(400).json({ error: 'ID de club inválido' });
         }
 
@@ -69,13 +70,59 @@ export const verifyClubAccessById = async (req: Request, res: Response, next: Ne
         }
 
         // Verificar que el usuario pertenece al club
-        if (fullUser.clubId !== clubId) {
+        if (fullUser.clubId !== parsed) {
             return res.status(403).json({ error: 'No tienes acceso a este club' });
         }
 
-        // Agregar el clubId al request
-        (req as any).clubId = clubId;
+        (req as any).clubId = parsed;
+        next();
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};
 
+/**
+ * Middleware para rutas admin que no llevan slug en la URL.
+ * Establece req.clubId con el club del usuario autenticado.
+ * Debe usarse después de authMiddleware y requireRole('ADMIN').
+ * Si el admin no tiene clubId, responde 403.
+ */
+export const setAdminClubFromUser = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = (req as any).user;
+        if (!user?.userId) {
+            return res.status(401).json({ error: 'No autorizado' });
+        }
+        const fullUser = await prisma.user.findUnique({
+            where: { id: user.userId },
+            select: { clubId: true }
+        });
+        if (!fullUser) {
+            return res.status(401).json({ error: 'Usuario no encontrado' });
+        }
+        if (fullUser.clubId == null) {
+            return res.status(403).json({ error: 'No tienes un club asignado' });
+        }
+        (req as any).clubId = fullUser.clubId;
+        next();
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+/**
+ * Versión opcional: solo setea req.clubId si el usuario está autenticado y es ADMIN con club.
+ * Para GET /api/courts: sin auth devuelve todas las canchas; con auth de admin devuelve solo las de su club.
+ */
+export const optionalSetAdminClubFromUser = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const user = (req as any).user;
+        if (!user?.userId || user.role !== 'ADMIN') return next();
+        const fullUser = await prisma.user.findUnique({
+            where: { id: user.userId },
+            select: { clubId: true }
+        });
+        if (fullUser?.clubId != null) (req as any).clubId = fullUser.clubId;
         next();
     } catch (error: any) {
         res.status(500).json({ error: error.message });

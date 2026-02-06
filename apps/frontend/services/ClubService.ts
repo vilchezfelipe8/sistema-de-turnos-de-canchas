@@ -1,4 +1,8 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+import { getToken } from './AuthService';
+import { fetchWithAuth } from '../utils/apiClient';
+import { getApiUrl } from '../utils/apiUrl';
+
+const API_URL = getApiUrl();
 
 export interface Club {
   id: number;
@@ -42,17 +46,11 @@ export class ClubService {
   }
 
   static async updateClub(id: number, data: Partial<Club>): Promise<Club> {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      throw new Error('No autenticado');
-    }
+    if (!getToken()) throw new Error('No autenticado');
 
-    const response = await fetch(`${API_URL}/api/clubs/${id}`, {
+    const response = await fetchWithAuth(`${API_URL}/api/clubs/${id}`, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
 
@@ -65,17 +63,11 @@ export class ClubService {
   }
 
   static async createClub(data: Partial<Club>): Promise<Club> {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      throw new Error('No autenticado');
-    }
+    if (!getToken()) throw new Error('No autenticado');
 
-    const response = await fetch(`${API_URL}/api/clubs`, {
+    const response = await fetchWithAuth(`${API_URL}/api/clubs`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
 

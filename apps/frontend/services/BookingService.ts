@@ -2,7 +2,8 @@
 
 // Si tienes el AuthService en otra carpeta, ajusta esta línea "../services/AuthService"
 // Si no lo encuentras, puedes borrar el import y usar localStorage.getItem('token') directo.
-import { getToken } from './AuthService'; 
+import { getToken } from './AuthService';
+import { fetchWithAuth } from '../utils/apiClient';
 
 const GUEST_KEY = 'guestId';
 function getOrCreateGuestId() {
@@ -34,10 +35,10 @@ export const createBooking = async (
   const guestId = token ? undefined : getOrCreateGuestId();
   const guestIdentifier = options?.guestIdentifier ?? guestId;
 
-  const headers: any = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const response = await fetch(`${API_URL}/api/bookings`, {
+  const response = await fetchWithAuth(`${API_URL}/api/bookings`, {
     method: 'POST',
     headers,
     body: JSON.stringify({
@@ -66,15 +67,11 @@ export const createBooking = async (
 
 // --- 2. OBTENER MIS RESERVAS (HISTORIAL) ---
 export const getMyBookings = async (userId: number) => {
-    const token = getToken();
-    if (!token) throw new Error("Debes iniciar sesión.");
+    if (!getToken()) throw new Error("Debes iniciar sesión.");
 
-    const res = await fetch(`${API_URL}/api/bookings/history/${userId}`, {
+    const res = await fetchWithAuth(`${API_URL}/api/bookings/history/${userId}`, {
         method: 'GET',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Content-Type': 'application/json' }
     });
 
     if (!res.ok) {
@@ -85,15 +82,11 @@ export const getMyBookings = async (userId: number) => {
 
 // --- 3. CANCELAR UNA RESERVA ---
 export const cancelBooking = async (bookingId: number) => {
-    const token = getToken();
-    if (!token) throw new Error("Debes iniciar sesión.");
+    if (!getToken()) throw new Error("Debes iniciar sesión.");
 
-    const res = await fetch(`${API_URL}/api/bookings/cancel`, {
+    const res = await fetchWithAuth(`${API_URL}/api/bookings/cancel`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bookingId })
     });
 
@@ -105,15 +98,11 @@ export const cancelBooking = async (bookingId: number) => {
 };
 
 export const confirmBooking = async (bookingId: number) => {
-    const token = getToken();
-    if (!token) throw new Error("Debes iniciar sesión como administrador.");
+    if (!getToken()) throw new Error("Debes iniciar sesión como administrador.");
 
-    const res = await fetch(`${API_URL}/api/bookings/confirm`, {
+    const res = await fetchWithAuth(`${API_URL}/api/bookings/confirm`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bookingId })
     });
 
@@ -126,15 +115,11 @@ export const confirmBooking = async (bookingId: number) => {
 
 // --- 4. OBTENER SCHEDULE COMPLETO DEL DÍA (ADMIN) ---
 export const getAdminSchedule = async (date: string) => {
-    const token = getToken();
-    if (!token) throw new Error("Debes iniciar sesión como administrador.");
+    if (!getToken()) throw new Error("Debes iniciar sesión como administrador.");
 
-    const res = await fetch(`${API_URL}/api/bookings/admin/schedule?date=${date}`, {
+    const res = await fetchWithAuth(`${API_URL}/api/bookings/admin/schedule?date=${date}`, {
         method: 'GET',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Content-Type': 'application/json' }
     });
 
     if (!res.ok) {
@@ -147,23 +132,21 @@ export const getAdminSchedule = async (date: string) => {
 // --- 5. CREAR TURNO FIJO ---
 export const createFixedBooking = async (
   userId: number | undefined,
-  courtId: number, 
-  activityId: number, 
+  courtId: number,
+  activityId: number,
   startDateTime: Date,
-  guestName?: string
+  guestName?: string,
+  guestPhone?: string
 ) => {
-  const token = getToken();
-  if (!token) throw new Error("Debes iniciar sesión como administrador.");
+  if (!getToken()) throw new Error("Debes iniciar sesión como administrador.");
 
-  const res = await fetch(`${API_URL}/api/bookings/fixed`, {
+  const res = await fetchWithAuth(`${API_URL}/api/bookings/fixed`, {
     method: 'POST',
-    headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
         ...(userId ? { userId } : {}),
         ...(guestName ? { guestName } : {}),
+        ...(guestPhone ? { guestPhone } : {}),
         courtId,
         activityId,
         startDateTime: startDateTime.toISOString()
@@ -179,15 +162,11 @@ export const createFixedBooking = async (
 
 // --- 6. CANCELAR TURNO FIJO (NUEVO - Corregido para usar fetch) ---
 export const cancelFixedBooking = async (fixedBookingId: number) => {
-  const token = getToken();
-  if (!token) throw new Error("Debes iniciar sesión como administrador.");
+  if (!getToken()) throw new Error("Debes iniciar sesión como administrador.");
 
-  const res = await fetch(`${API_URL}/api/bookings/fixed/${fixedBookingId}`, {
+  const res = await fetchWithAuth(`${API_URL}/api/bookings/fixed/${fixedBookingId}`, {
     method: 'DELETE',
-    headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-    }
+    headers: { 'Content-Type': 'application/json' }
   });
 
   if (!res.ok) {

@@ -12,7 +12,7 @@ export class CourtController {
     createCourt = async (req: Request, res: Response) => {
         try {
             const { name, isIndoor, surface } = req.body;
-            const clubId = (req as any).clubId || req.body.clubId; // Priorizar clubId del middleware
+            const clubId = (req as any).clubId; // Solo del middleware (admin de un club), nunca del body
             
             if (!name) {
                 return res.status(400).json({ error: "Falta el nombre de la cancha" });
@@ -73,19 +73,15 @@ export class CourtController {
     }
 
     getAllCourts = async (req: Request, res: Response) => {
-        const clubId = (req as any).clubId;
-        
-        // Si hay clubId en el request (de middleware), filtrar por club
-        if (clubId) {
-            const courts = await prisma.court.findMany({
-                where: { clubId },
-                include: { club: true, activities: true }
-            });
-            return res.json(courts);
+        let clubId = (req as any).clubId;
+        const clubSlug = req.query.clubSlug;
+
+        if (!clubId && typeof clubSlug === 'string' && clubSlug.trim()) {
+            const club = await prisma.club.findUnique({ where: { slug: clubSlug.trim() } });
+            if (club) clubId = club.id;
         }
-        
-        // Si no hay clubId, devolver todas (para compatibilidad con rutas públicas)
-        const courts = await this.courtRepo.findAll();
+
+        const courts = await this.courtRepo.findAll(clubId);
         res.json(courts);
     }
 

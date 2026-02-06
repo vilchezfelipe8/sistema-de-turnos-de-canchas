@@ -288,14 +288,14 @@ export class BookingService {
         return availableSlots;
     }
 
-    async getAvailableSlotsWithCourts(date: Date, activityId: number): Promise<Array<{
+    async getAvailableSlotsWithCourts(date: Date, activityId: number, clubId?: number): Promise<Array<{
         slotTime: string;
         availableCourts: Array<{
             id: number;
             name: string;
         }>;
     }>> {
-        const allCourts = await this.courtRepo.findAll();
+        const allCourts = await this.courtRepo.findAll(clubId);
         const activeCourts = allCourts.filter(court => !court.isUnderMaintenance);
         const bookings = await this.bookingRepo.findAllByDate(date);
         const activity = await this.activityRepo.findById(activityId);
@@ -587,13 +587,16 @@ export class BookingService {
     });
     }
 
-    async getClientStats() {
+    async getClientStats(clubId?: number) {
+        const where: any = { status: { not: 'CANCELLED' } };
+        if (clubId != null) {
+            where.court = { clubId };
+        }
         const bookings = await this.prisma.booking.findMany({
-            where: { 
-                status: { not: 'CANCELLED' } 
-            },
+            where,
             include: {
-                user: true, 
+                user: true,
+                court: true,
                 items: { include: { product: true } }
             },
             orderBy: { startDateTime: 'desc' }

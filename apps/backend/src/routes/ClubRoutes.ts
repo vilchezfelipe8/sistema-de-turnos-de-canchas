@@ -5,6 +5,7 @@ import { ClubRepository } from '../repositories/ClubRepository';
 import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
 import { authMiddleware } from '../middleware/AuthMiddleware';
 import { requireRole } from '../middleware/RoleMiddleware';
+import { verifyClubAccessById } from '../middleware/ClubMiddleware';
 
 const router = Router();
 
@@ -18,9 +19,9 @@ router.get('/', clubController.getAllClubs);
 router.get('/slug/:slug', clubController.getClubBySlug);
 router.get('/:id', clubController.getClubById);
 
-// Rutas protegidas (requieren autenticación)
+// Rutas protegidas: solo el admin del club puede actualizar ese club
 router.post('/', authMiddleware, requireRole('ADMIN'), clubController.createClub);
-router.put('/:id', authMiddleware, requireRole('ADMIN'), clubController.updateClub);
-router.patch('/:id', authMiddleware, requireRole('ADMIN'), clubController.updateClub);
+router.put('/:id', authMiddleware, requireRole('ADMIN'), verifyClubAccessById, clubController.updateClub);
+router.patch('/:id', authMiddleware, requireRole('ADMIN'), verifyClubAccessById, clubController.updateClub);
 
 export default router;

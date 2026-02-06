@@ -138,8 +138,8 @@ const Navbar = () => {
               </>
             )}
 
-            {isAdmin && club && (
-              <NavLink href={`/club/${club.slug}/admin`} icon="⚙️" text="Gestión" active={router.asPath.includes('/admin')} />
+            {isAdmin && (
+              <NavLink href="/admin/agenda" icon="⚙️" text="Gestión" active={router.asPath.startsWith('/admin')} />
             )}
 
             {/* Botón Cerrar Sesión (solo para usuarios autenticados) */}
@@ -152,7 +152,7 @@ const Navbar = () => {
                 <span className="hidden sm:inline">Salir</span>
               </button>
             ) : (
-              <Link href="/login" className="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-all text-text hover:bg-surface ml-2">
+              <Link href={`/login?from=${encodeURIComponent(router.asPath)}`} className="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-all text-text hover:bg-surface ml-2">
                 <span>🔐</span>
                 <span className="hidden sm:inline">Ingresar</span>
               </Link>
@@ -163,7 +163,7 @@ const Navbar = () => {
     </nav>
     {/* Renderizar el sidebar desde el NavBar para que quede anclado bajo la barra
         Solo mostrar en rutas de admin y para usuarios admin del club */}
-    {isAdmin && club && router.asPath.includes('/admin') && (
+    {isAdmin && router.asPath.includes('/admin') && (
       <AdminSidebar />
     )}
     <AppModal

@@ -260,7 +260,15 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
         try {
             const userId = Number(req.params.userId);
             const history = await this.bookingService.getUserHistory(userId);
-            res.json(history);
+            const payload = history.map((b: any) => ({
+                ...b,
+                court: b.court ? {
+                    id: b.court.id,
+                    name: b.court.name,
+                    club: b.court.club ? { id: b.court.club.id, name: b.court.club.name, slug: b.court.club.slug } : null
+                } : null
+            }));
+            res.json(payload);
         } catch (error: any) {
             res.status(400).json({ error: error.message });
         }
@@ -298,7 +306,8 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
         try {
             const querySchema = z.object({
                 date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: "Formato inválido. Use YYYY-MM-DD (ej: 2026-01-06)" }),
-                activityId: z.preprocess((v) => Number(v), z.number().int().positive())
+                activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                clubSlug: z.string().optional()
             });
 
             const parsed = querySchema.safeParse(req.query);
@@ -307,13 +316,20 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
                 return res.status(400).json({ error: parsed.error.format() });
             }
 
-            const { date, activityId } = parsed.data;
+            const { date, activityId, clubSlug } = parsed.data;
 
             const searchDate = new Date(date);
 
+            let clubId: number | undefined;
+            if (clubSlug && typeof clubSlug === 'string' && clubSlug.trim()) {
+                const club = await prisma.club.findUnique({ where: { slug: clubSlug.trim() } });
+                if (club) clubId = club.id;
+            }
+
             const slotsWithCourts = await this.bookingService.getAvailableSlotsWithCourts(
                 searchDate,
-                Number(activityId)
+                Number(activityId),
+                clubId
             );
 
             res.json({ date: date, slotsWithCourts });
@@ -449,9 +465,10 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
     res.json({ success: true });
 }
 
-    getDebtors = async (req: Request, res: Response) => { 
+    getDebtors = async (req: Request, res: Response) => {
         try {
-            const data = await this.bookingService.getClientStats(); 
+            const clubId = (req as any).clubId;
+            const data = await this.bookingService.getClientStats(clubId);
             res.json(data);
         } catch (error) {
             res.status(500).json({ error: 'Error al obtener clientes' });

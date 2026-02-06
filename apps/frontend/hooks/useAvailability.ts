@@ -16,12 +16,12 @@ interface AvailabilityResponse {
   slotsWithCourts: SlotWithCourts[];
 }
 
-export function useAvailability(date: Date | null) {
+export function useAvailability(date: Date | null, clubSlug?: string) {
   const [slotsWithCourts, setSlotsWithCourts] = useState<SlotWithCourts[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const apiUrl = getApiUrl(); 
+  const apiUrl = getApiUrl();
 
   const fetchSlots = async () => {
     if (!date) return;
@@ -36,9 +36,10 @@ export function useAvailability(date: Date | null) {
       const dateString = `${year}-${month}-${day}`;
 
       const timestamp = new Date().getTime();
+      const clubParam = clubSlug ? `&clubSlug=${encodeURIComponent(clubSlug)}` : '';
 
       const res = await fetch(
-        `${apiUrl}/api/bookings/availability-with-courts?activityId=1&date=${dateString}&t=${timestamp}`, 
+        `${apiUrl}/api/bookings/availability-with-courts?activityId=1&date=${dateString}&t=${timestamp}${clubParam}`, 
         {
             cache: 'no-store',
             headers: {
@@ -63,7 +64,7 @@ export function useAvailability(date: Date | null) {
 
   useEffect(() => {
     fetchSlots();
-  }, [date, apiUrl]);
+  }, [date, apiUrl, clubSlug]);
 
   return { slotsWithCourts, loading, error, refresh: fetchSlots };
 }

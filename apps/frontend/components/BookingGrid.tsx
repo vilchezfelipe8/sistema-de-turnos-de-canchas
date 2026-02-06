@@ -16,7 +16,12 @@ import { getApiUrl } from '../utils/apiUrl';
 
 const API_URL = getApiUrl();
 
-export default function BookingGrid() {
+interface BookingGridProps {
+  /** Slug del club: cuando está en /club/[slug], solo se muestran canchas y turnos de ese club */
+  clubSlug?: string;
+}
+
+export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   const formatLocalDate = (date: Date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -98,7 +103,7 @@ export default function BookingGrid() {
     });
   };
 
-  const { slotsWithCourts, loading, error, refresh } = useAvailability(selectedDate);
+  const { slotsWithCourts, loading, error, refresh } = useAvailability(selectedDate, clubSlug);
   const [disabledSlots, setDisabledSlots] = useState<Record<string, boolean>>({});
   const STORAGE_PREFIX = 'disabledSlots:';
   const [allCourts, setAllCourts] = useState<Array<{ id: number; name: string }>>([]);
@@ -335,11 +340,14 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
     confirmButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [selectedSlot, selectedCourt]);
 
-  // --- Cargar Canchas ---
+  // --- Cargar Canchas (solo del club cuando hay clubSlug) ---
   useEffect(() => {
     const fetchCourts = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/courts`);
+        const url = clubSlug
+          ? `${API_URL}/api/courts?clubSlug=${encodeURIComponent(clubSlug)}`
+          : `${API_URL}/api/courts`;
+        const res = await fetch(url);
         if (!res.ok) return;
         const data = await res.json();
         setAllCourts(data);
@@ -348,7 +356,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
       }
     };
     fetchCourts();
-  }, []);
+  }, [clubSlug]);
 
   // --- CORRECCIÓN MEMORIA ZOMBIE (Sincronizar Backend con Frontend) ---
   useEffect(() => {

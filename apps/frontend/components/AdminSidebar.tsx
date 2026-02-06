@@ -1,11 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import Link from 'next/link'; 
-import { useRouter } from 'next/router'; 
-import { Package } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter } from 'next/router';
+import { PanelLeftClose, PanelRight } from 'lucide-react';
+
+const STORAGE_KEY = 'adminSidebarCollapsed';
+const TRANSITION = 'transition-all duration-300 ease-in-out';
 
 const AdminSidebar = () => {
   const router = useRouter();
   const [scrolled, setScrolled] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem(STORAGE_KEY) === 'true';
+  });
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -14,85 +21,97 @@ const AdminSidebar = () => {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // 👇 AQUÍ SOLO AGREGUÉ LA LÍNEA DE CLIENTES (tab: 'clients')
-  // El resto de los estilos y lógica son EXACTAMENTE los tuyos.
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem(STORAGE_KEY, String(next));
+      return next;
+    });
+  };
+
   const navItems = [
-    { name: 'Gestión de Turnos', path: '/admin/agenda', icon: '📅', tab: 'bookings' },
-    { name: 'Gestión de Clientes', path: '/admin/clientes', icon: '👥', tab: 'clients' }, 
-    { name: 'Gestión de Stock', path: `/admin/products`, icon: '📦', tab: 'products'},
-    { name: 'Gestión de Canchas', path: '/admin/canchas', icon: '🏓', tab: 'courts' },
-    { name: 'Configuración', path: '/admin/settings', icon: '⚙️', tab: 'club' },
+    { name: 'Gestión de Turnos', path: '/admin/agenda', icon: '📅' },
+    { name: 'Gestión de Clientes', path: '/admin/clientes', icon: '👥' },
+    { name: 'Gestión de Stock', path: '/admin/products', icon: '📦' },
+    { name: 'Gestión de Canchas', path: '/admin/canchas', icon: '🏓' },
+    { name: 'Configuración', path: '/admin/settings', icon: '⚙️' },
   ];
 
   return (
-    // z-40: Para que quede POR DEBAJO del Navbar (que suele tener z-50)
-    <aside className={`fixed left-0 top-0 h-full w-64 z-40 hidden md:block overflow-y-auto transform transition-transform duration-300 pt-32 ${scrolled ? '-translate-y-1 shadow-2xl bg-gray-800/95 border-gray-700' : 'translate-y-0 bg-gray-900 border-gray-800'}`}>
-      <div className="px-4 mb-8">
-        <h2 className="text-xl font-bold text-white tracking-tight">Panel Admin</h2>
-        <p className="text-gray-400 text-xs uppercase tracking-wider mt-1">Administración del Club</p>
+    <aside
+      className={`fixed left-0 top-0 h-full z-40 hidden md:flex flex-col pt-32 border-r border-gray-800 select-none ${TRANSITION} ${
+        scrolled ? '-translate-y-1 shadow-2xl bg-gray-800/95' : 'translate-y-0 bg-gray-900'
+      } ${collapsed ? 'w-16 pr-2' : 'w-64'}`}
+      style={{ overflowX: 'hidden', overflowY: 'auto', boxSizing: 'border-box' }}
+    >
+      {/* Header: título + botón toggle (botón siempre a la derecha) */}
+      <div className="flex items-center justify-between shrink-0 border-b border-gray-800/50 gap-2 px-4 py-4 min-w-0">
+        <div
+          className={`overflow-hidden whitespace-nowrap min-w-0 ${TRANSITION} ${
+            collapsed ? 'max-w-0 opacity-0' : 'max-w-[11rem] opacity-100'
+          }`}
+        >
+          <h2 className="text-xl font-bold text-white tracking-tight">Panel Admin</h2>
+          <p className="text-gray-400 text-xs uppercase tracking-wider mt-0.5">Administración del Club</p>
+        </div>
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          className="p-2 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white shrink-0"
+          title={collapsed ? 'Expandir menú' : 'Ocultar menú'}
+          aria-label={collapsed ? 'Expandir menú' : 'Ocultar menú'}
+        >
+          {collapsed ? <PanelRight className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
+        </button>
       </div>
 
-      <nav className="space-y-1 px-2">
-        {navItems.map((item) => {
-          const isClubAdmin = /\/club\/[^\/]+\/admin/.test(router.asPath);
-
-          if (isClubAdmin) {
-            // Lógica original para cambiar de pestaña sin recargar
-            const isActive = router.query.tab === item.tab || (!router.query.tab && item.tab === 'courts' && router.asPath.endsWith('/admin'));
-
-            const handleClick = (e: React.MouseEvent) => {
-              e.preventDefault();
-              const slugMatch = router.asPath.match(/\/club\/([^\/]+)\/admin/);
-              const slug = slugMatch ? slugMatch[1] : undefined;
-              if (slug) {
-                router.push({ pathname: `/club/${slug}/admin`, query: { tab: item.tab } }, undefined, { shallow: true });
-              }
-            };
-
+      <nav className={`flex-1 min-w-0 py-2 overflow-x-hidden overflow-y-auto ${collapsed ? 'pr-3' : ''}`}>
+        <div className={`space-y-1 ${collapsed ? 'pl-3 pr-0' : 'px-4'}`}>
+          {navItems.map((item) => {
+            const isActive = router.pathname === item.path;
             return (
-              <button
+              <Link
                 key={item.path}
-                onClick={handleClick}
-                className={`w-full text-left flex items-center px-4 py-3 rounded-lg transition-all duration-200 group ${
+                href={item.path}
+                title={item.name}
+                className={`flex items-center rounded-lg py-3 px-2 group ${
+                  collapsed ? 'w-fit mr-2' : 'w-full'
+                } ${
                   isActive
                     ? 'bg-green-500/10 text-green-400 border border-green-500/20'
                     : 'text-gray-400 hover:bg-gray-800 hover:text-white'
                 }`}
               >
-                <span className={`mr-3 text-lg transition-transform group-hover:scale-110 ${isActive ? 'scale-110' : ''}`}>
+                <span
+                  className={`shrink-0 w-6 text-lg text-center group-hover:scale-110 ${
+                    isActive ? 'scale-110' : ''
+                  }`}
+                >
                   {item.icon}
                 </span>
-                <span className="font-medium text-sm">{item.name}</span>
-              </button>
+                <span
+                  className={`ml-3 font-medium text-sm overflow-hidden whitespace-nowrap ${TRANSITION} ${
+                    collapsed ? 'max-w-0 opacity-0 min-w-0' : 'max-w-[10rem] opacity-100'
+                  }`}
+                >
+                  {item.name}
+                </span>
+              </Link>
             );
-          }
-
-          // Enlaces normales
-          const isActive = router.asPath.startsWith(item.path);
-          return (
-            <Link
-              key={item.path}
-              href={item.path}
-              className={`flex items-center px-4 py-3 rounded-lg transition-all duration-200 group ${
-                isActive
-                  ? 'bg-green-500/10 text-green-400 border border-green-500/20'
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-              }`}
-            >
-              <span className={`mr-3 text-lg transition-transform group-hover:scale-110 ${isActive ? 'scale-110' : ''}`}>
-                {item.icon}
-              </span>
-              <span className="font-medium text-sm">{item.name}</span>
-            </Link>
-          );
-        })}
-      </nav>
-      
-      <div className="absolute bottom-0 left-0 w-full p-4 border-t border-gray-800">
-        <div className="flex items-center gap-2 text-xs text-gray-500">
-           <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-           <span>Sistema Online</span>
+          })}
         </div>
+      </nav>
+
+      {/* Footer: altura fija, icono siempre en la misma posición */}
+      <div className="shrink-0 border-t border-gray-800 flex items-center min-h-[3.25rem] px-4 py-3">
+        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shrink-0" />
+        <span
+          className={`ml-2 text-xs text-gray-500 overflow-hidden whitespace-nowrap ${TRANSITION} ${
+            collapsed ? 'max-w-0 opacity-0 min-w-0' : 'max-w-[8rem] opacity-100'
+          }`}
+        >
+          Sistema Online
+        </span>
       </div>
     </aside>
   );

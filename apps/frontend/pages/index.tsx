@@ -15,15 +15,8 @@ export default function Home() {
     try {
       const user = JSON.parse(userStr);
       if (user?.role === 'ADMIN') {
-        // Redirigir al admin del club del usuario
-        if (user?.clubId) {
-          loadUserClub(user.clubId, true);
-        } else {
-          router.replace('/admin');
-        }
         return;
       }
-      // Si el usuario tiene un club, redirigir a su página
       if (user?.clubId) {
         loadUserClub(user.clubId);
       }
@@ -32,16 +25,11 @@ export default function Home() {
     }
   }, [router]);
 
-  const loadUserClub = async (clubId: number, isAdmin = false) => {
+  const loadUserClub = async (clubId: number) => {
     try {
       const club = await ClubService.getClubById(clubId);
       setUserClub(club);
-      // Redirigir a la página del club o admin según corresponda
-      if (isAdmin) {
-        router.push(`/club/${club.slug}/admin`);
-      } else {
-        router.push(`/club/${club.slug}`);
-      }
+      router.push(`/club/${club.slug}`);
     } catch (error) {
       console.error('Error al cargar el club del usuario:', error);
     }

@@ -1,10 +1,14 @@
 import { useState } from 'react';
-import { useRouter } from 'next/router'; 
-import { login, register } from '../services/AuthService'; 
-// Ajusta los imports de servicios según tu estructura
+import { useRouter } from 'next/router';
+import { login, register } from '../services/AuthService';
+import { ClubService } from '../services/ClubService';
 
 export default function LoginPage() {
-  // const router = useRouter(); // Descomentar si usas router para redirigir
+  const router = useRouter();
+  const returnTo = typeof router.query.from === 'string' && router.query.from.startsWith('/') && !router.query.from.startsWith('//')
+    ? router.query.from
+    : null;
+
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('admin@lastejas.com');
   const [password, setPassword] = useState('admin123');
@@ -40,8 +44,17 @@ export default function LoginPage() {
 
     try {
       if (isLogin) {
-        await login(email, password);
-        window.location.href = '/';
+        const data = await login(email, password);
+        if (returnTo) {
+          window.location.href = returnTo;
+        } else if (data?.user?.role === 'ADMIN') {
+          window.location.href = '/admin/agenda';
+        } else if (data?.user?.clubId) {
+          const club = await ClubService.getClubById(data.user.clubId);
+          window.location.href = `/club/${club.slug}`;
+        } else {
+          window.location.href = '/';
+        }
       } else {
         const phoneDigits = phoneNumber.replace(/\D/g, '').slice(0, 10);
         const fullPhone = phoneDigits ? `+549${phoneDigits}` : '';

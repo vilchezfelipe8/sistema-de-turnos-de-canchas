@@ -86,4 +86,32 @@ export class AuthController {
             res.status(500).json({ error: error.message });
         }
     }
+
+    /** GET /me: valida el token y devuelve el usuario actual (para rutas protegidas). */
+    getMe = async (req: Request, res: Response) => {
+        const payload = (req as any).user;
+        if (!payload?.userId) {
+            return res.status(401).json({ error: 'No autorizado' });
+        }
+        try {
+            const user = await prisma.user.findUnique({
+                where: { id: payload.userId },
+                select: { id: true, firstName: true, lastName: true, email: true, phoneNumber: true, role: true, clubId: true }
+            });
+            if (!user) {
+                return res.status(401).json({ error: 'Usuario no encontrado' });
+            }
+            res.json({
+                id: user.id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                phoneNumber: user.phoneNumber,
+                role: user.role,
+                clubId: user.clubId
+            });
+        } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    };
 }   

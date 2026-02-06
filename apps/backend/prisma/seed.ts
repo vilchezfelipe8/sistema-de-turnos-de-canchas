@@ -86,7 +86,7 @@ async function main() {
   const hashedPassword = await bcrypt.hash('123456', 10);
   const userEmail = 'lio@messi.com';
 
-  // Usuario miembro del club 1 (Las Tejas)
+  // Usuario miembro SIN club asignado (como quien se registra por su cuenta)
   await prisma.user.upsert({
     where: { email: userEmail },
     update: {
@@ -95,7 +95,7 @@ async function main() {
       password: hashedPassword,
       phoneNumber: '555-101010',
       role: Role.MEMBER,
-      clubId: club1.id
+      clubId: null
     },
     create: {
       firstName: 'Lionel',
@@ -103,11 +103,11 @@ async function main() {
       email: userEmail,
       password: hashedPassword,
       phoneNumber: '555-101010',
-      role: Role.MEMBER,
-      clubId: club1.id
+      role: Role.MEMBER
+      // clubId no se asigna: usuarios que se registran no tienen club
     },
   });
-  console.log('✅ Usuario creado o actualizado: Lionel Messi (Las Tejas)');
+  console.log('✅ Usuario creado o actualizado: Lionel Messi (sin club)');
   
   // Admin del club 1 (Las Tejas)
   const adminPassword = await bcrypt.hash('admin123', 10);

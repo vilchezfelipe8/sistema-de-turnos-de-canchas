@@ -3,15 +3,15 @@ import { useRouter } from 'next/router';
 import Navbar from '../components/NavBar';
 import PageShell from '../components/PageShell';
 import { getMyBookings, cancelBooking } from '../services/BookingService';
-import { ClubService } from '../services/ClubService';
 import AppModal from '../components/AppModal';
+import { useValidateAuth } from '../hooks/useValidateAuth';
 
 export default function MyBookingsPage() {
   const router = useRouter();
+  const { authChecked, user } = useValidateAuth();
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [authChecked, setAuthChecked] = useState(false);
   const [modalState, setModalState] = useState<{
     show: boolean;
     title?: string;
@@ -59,38 +59,10 @@ export default function MyBookingsPage() {
     });
   };
 
-  useEffect(() => {
-    const checkAuth = async () => {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-      const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
-      if (!token || !userStr) {
-        router.replace('/login');
-        return;
-      }
-      try {
-        const user = JSON.parse(userStr);
-        if (user?.role === 'ADMIN' && user?.clubId) {
-          // Redirigir al admin del club del usuario
-          const club = await ClubService.getClubById(user.clubId);
-          router.replace(`/club/${club.slug}/admin`);
-          return;
-        }
-      } catch {
-        // noop
-      }
-      setAuthChecked(true);
-    };
-
-    checkAuth();
-  }, [router]);
-
   const loadData = async () => {
+    if (!user) return;
     try {
-      const userStr = localStorage.getItem('user');
-      if (!userStr) throw new Error("Datos de usuario no encontrados.");
-
-      const user = JSON.parse(userStr);
-      const userId = user.id || user.userId;
+      const userId = user.id;
 
       const data = await getMyBookings(userId);
       setBookings(data.sort((a:any, b:any) => new Date(b.startDateTime).getTime() - new Date(a.startDateTime).getTime()));
@@ -103,9 +75,9 @@ export default function MyBookingsPage() {
   };
 
   useEffect(() => {
-    if (!authChecked) return;
+    if (!authChecked || !user) return;
     loadData();
-  }, [authChecked]);
+  }, [authChecked, user]);
 
   const handleCancel = async (id: number) => {
     showConfirm({
@@ -123,9 +95,7 @@ export default function MyBookingsPage() {
     });
   };
 
-  if (!authChecked) {
-    return null;
-  }
+  if (!authChecked || !user) return null;
 
   return (
     <PageShell title="Mis Reservas" subtitle="Historial de partidos y próximos encuentros">
@@ -182,6 +152,21 @@ export default function MyBookingsPage() {
                 <div className="flex-1 text-center sm:text-left">
                   <h3 className="font-bold text-xl text-text mb-1">
                     {booking.court?.name || 'Cancha'}
+                    {booking.court?.club?.name && (
+                      <span className="ml-2 text-sm font-normal text-muted">
+                        ·{' '}
+                        {booking.court.club.slug ? (
+                          <a
+                            href={`/club/${booking.court.club.slug}`}
+                            className="text-muted hover:text-emerald-400 transition-colors underline underline-offset-2"
+                          >
+                            {booking.court.club.name}
+                          </a>
+                        ) : (
+                          booking.court.club.name
+                        )}
+                      </span>
+                    )}
                     {isCancelled && (
                       <span className="ml-3 text-[10px] border border-red-500/40 text-red-400 bg-red-500/10 px-2 py-0.5 rounded uppercase tracking-wider">
                         Cancelado

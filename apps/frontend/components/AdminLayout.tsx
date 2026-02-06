@@ -7,17 +7,18 @@ interface AdminLayoutProps {
 
 const AdminLayout = ({ children }: AdminLayoutProps) => {
   return (
-    <div className="min-h-screen bg-background">
-      {/* Contenedor Principal:
-        md:ml-64: dejo margen a la izquierda para el Sidebar cuando exista (en desktop)
-        pt-28: deja espacio arriba para el Navbar (que es fixed)
-      */}
-      <main className="md:ml-64 pt-28 px-6 pb-10 transition-all duration-300">
+    <>
+      {/* Fondo ambiental (mismo que en el resto del sistema) */}
+      <div className="fixed inset-0 z-0 pointer-events-none" aria-hidden>
+        <div className="absolute top-[-10%] left-[-10%] w-96 h-96 rounded-full blur-[128px]" style={{ backgroundColor: 'rgba(255,255,255,0.03)' }} />
+        <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 rounded-full blur-[128px]" style={{ backgroundColor: 'rgba(255,255,255,0.02)' }} />
+      </div>
+      <main className="relative z-10 md:ml-64 pt-28 px-6 pb-10 transition-all duration-300 min-h-screen">
         <div className="max-w-6xl mx-auto animate-fade-in">
           {children}
         </div>
       </main>
-    </div>
+    </>
   );
 };
 
