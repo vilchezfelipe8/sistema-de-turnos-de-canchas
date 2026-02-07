@@ -18,6 +18,7 @@ import {
 import AppModal from '../AppModal';
 import BookingConsumption from '../BookingConsumption';
 import { useParams } from 'react-router-dom';
+import DatePickerDark from '../../components/ui/DatePickerDark'; 
 
 registerLocale('es', es);
 
@@ -401,10 +402,10 @@ export default function AdminTabBookings() {
                   type="text" 
                   value={manualBooking.guestFirstName} 
                   onChange={handleNameChange}
-                  className="w-full h-12 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" 
+                  className="w-full h-12 bg-gray-950 border border-gray-800 rounded-lg px-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
                   placeholder="Escribe para buscar..." 
                   required 
-                  autoComplete="off"
+                  autoComplete="chorme-off"
                   name="search_guest_name_unique"
               />
               {showDropdown && searchResults.length > 0 && (
@@ -428,40 +429,71 @@ export default function AdminTabBookings() {
 
           <div>
             <label className="block text-sm font-semibold text-slate-300 mb-2">Apellido</label>
-            <input autoComplete="off" name="guest_lastname_unique" type="text" value={manualBooking.guestLastName} onChange={(e) => setManualBooking({ ...manualBooking, guestLastName: e.target.value })} className="w-full h-12 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" placeholder="Ingresa el apellido" required />
+            <input autoComplete="chrome-off" name="guest_lastname_unique" type="text" value={manualBooking.guestLastName} onChange={(e) => setManualBooking({ ...manualBooking, guestLastName: e.target.value })} 
+            className="w-full h-12 bg-gray-950 border border-gray-800 rounded-lg px-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all" placeholder="Ingresa el apellido" required />
           </div>
 
           <div>
             <label className="block text-sm font-semibold text-slate-300 mb-2">Teléfono</label>
-            <input autoComplete="off" name="guest_phone_unique" type="tel" value={manualBooking.guestPhone} onChange={(e) => setManualBooking({ ...manualBooking, guestPhone: e.target.value })} className="w-full h-12 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" placeholder="Ej: 3511234567" />
+            <input autoComplete="chrome-off" name="guest_phone_unique" type="tel" value={manualBooking.guestPhone} onChange={(e) => setManualBooking({ ...manualBooking, guestPhone: e.target.value })} className="w-full h-12 bg-gray-950 border border-gray-800 rounded-lg px-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all" placeholder="Ej: 3511234567" />
           </div>
 
           <div>
             <label className="block text-sm font-semibold text-slate-300 mb-2">DNI (Opcional)</label>
-            <input autoComplete="off" name="guest_dni_unique" type="text" value={manualBooking.guestDni} onChange={(e) => setManualBooking({ ...manualBooking, guestDni: e.target.value })} className="w-full h-12 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" placeholder="Número de documento" />
+            <input autoComplete="chrome-off" name="guest_dni_unique" type="text" value={manualBooking.guestDni} onChange={(e) => setManualBooking({ ...manualBooking, guestDni: e.target.value })} className="w-full h-12 bg-gray-950 border border-gray-800 rounded-lg px-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all" placeholder="Número de documento" />
           </div>
 
           <div className="relative z-10">
-            <label className="block text-sm font-semibold text-slate-300 mb-2">Fecha</label>
+          <label className="block text-sm font-semibold text-slate-300 mb-2">Fecha</label>
+
             {manualBooking.isFixed ? (
-              <div className="h-12 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white text-base flex items-center"><span className="text-gray-400">Selecciona día de la semana abajo</span></div>
+              <div className="h-12 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white text-base flex items-center">
+                <span className="text-gray-400">Selecciona día de la semana abajo</span>
+              </div>
             ) : (
-              <DatePicker
-                selected={manualBooking.startDateBase ? (() => { const [y, m, d] = manualBooking.startDateBase.split('-').map(Number); return new Date(y, m - 1, d); })() : new Date()}
+              <DatePickerDark
+                // 1. Convertimos el string a Date para el componente
+                selected={
+                  manualBooking.startDateBase
+                    ? (() => {
+                        const [y, m, d] = manualBooking.startDateBase.split('-').map(Number);
+                        return new Date(y, m - 1, d);
+                      })()
+                    : null // Si es null, muestra el placeholder
+                }
+                
+                // 2. Lógica de cambio y validación
                 onChange={(date: Date | null) => {
-                  if (!date) { setManualBooking({ ...manualBooking, startDateBase: '' }); return; }
-                  const today = new Date(); today.setHours(0, 0, 0, 0);
-                  const sel = new Date(date); sel.setHours(0, 0, 0, 0);
-                  if (sel < today) { alert('No puedes seleccionar una fecha pasada.'); return; }
+                  if (!date) {
+                      setManualBooking({ ...manualBooking, startDateBase: '' });
+                      return;
+                  }
+                  
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  
+                  const sel = new Date(date);
+                  sel.setHours(0, 0, 0, 0);
+
+                  if (sel < today) {
+                    // Podés usar tu toast/alert acá
+                    alert('No puedes seleccionar una fecha pasada.'); 
+                    return;
+                  }
+                  
+                  // Guardamos en tu formato string
                   setManualBooking({ ...manualBooking, startDateBase: formatLocalDate(sel) });
                 }}
-                dateFormat="yyyy-MM-dd" minDate={new Date()} className="w-full h-12 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" placeholderText="Selecciona fecha" required
+                
+                // 3. Props adicionales (Igual que en tu cliente)
+                minDate={new Date()}
+                // maxDate={...} // Si querés limitar a futuro también en admin
               />
             )}
           </div>
           <div>
             <label className="block text-sm font-semibold text-slate-300 mb-2">Hora</label>
-            <select value={manualBooking.time} onChange={(e) => setManualBooking({ ...manualBooking, time: e.target.value })} className="w-full h-12 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" required>
+            <select value={manualBooking.time} onChange={(e) => setManualBooking({ ...manualBooking, time: e.target.value })} className="w-full h-12 bg-gray-950 border border-gray-800 rounded-lg px-4 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all appearance-none" required>
               <option value="" className="bg-gray-800">Selecciona hora</option>
               {CLUB_TIME_SLOTS.map(slot => (
                 <option key={slot} value={slot} className="bg-gray-800" disabled={!!(manualBooking.startDateBase && isPastTimeForDate(manualBooking.startDateBase, slot))}>{slot}</option>
@@ -470,7 +502,7 @@ export default function AdminTabBookings() {
           </div>
           <div>
             <label className="block text-sm font-semibold text-slate-300 mb-2">Cancha</label>
-            <select value={manualBooking.courtId} onChange={(e) => setManualBooking({ ...manualBooking, courtId: e.target.value })} className="w-full h-12 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" required>
+            <select value={manualBooking.courtId} onChange={(e) => setManualBooking({ ...manualBooking, courtId: e.target.value })} className="w-full h-12 bg-gray-950 border border-gray-800 rounded-lg px-4 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all appearance-none" required>
               <option value="" className="bg-gray-800">Selecciona cancha</option>
               {courts.map(c => <option key={c.id} value={c.id} className="bg-gray-800">{c.name}</option>)}
             </select>

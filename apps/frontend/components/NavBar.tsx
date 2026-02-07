@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import { logout } from '../services/AuthService';
 import AppModal from './AppModal';
-import AdminSidebar from './AdminSidebar';
+//import AdminSidebar from './AdminSidebar';
 import { ClubService, Club } from '../services/ClubService';
 
 const Navbar = () => {
@@ -163,9 +163,7 @@ const Navbar = () => {
     </nav>
     {/* Renderizar el sidebar desde el NavBar para que quede anclado bajo la barra
         Solo mostrar en rutas de admin y para usuarios admin del club */}
-    {isAdmin && router.asPath.includes('/admin') && (
-      <AdminSidebar />
-    )}
+    
     <AppModal
       show={showLogoutModal}
       onClose={() => setShowLogoutModal(false)}

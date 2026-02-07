@@ -30,10 +30,12 @@ const AdminSidebar = () => {
   };
 
   const navItems = [
-    { name: 'Gestión de Turnos', path: '/admin/agenda', icon: '📅' },
-    { name: 'Gestión de Clientes', path: '/admin/clientes', icon: '👥' },
-    { name: 'Gestión de Stock', path: '/admin/products', icon: '📦' },
-    { name: 'Gestión de Canchas', path: '/admin/canchas', icon: '🏓' },
+    { name: 'Turnos', path: '/admin/agenda', icon: '📅' },
+    { name: 'Clientes', path: '/admin/clientes', icon: '👥' },
+    { name: 'Productos & Stock', path: '/admin/products', icon: '📦' },
+    { name: 'Canchas', path: '/admin/canchas', icon: '🏓' },
+    // 👇 Agregado aquí
+    { name: 'Métricas', path: '/admin/metrics', icon: '📊' }, 
     { name: 'Configuración', path: '/admin/settings', icon: '⚙️' },
   ];
 

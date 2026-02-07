@@ -111,7 +111,7 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
   );
 
   // Estilos unificados para input (fondo gris oscuro sobre negro queda bien)
-  const inputClass = 'w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors placeholder-gray-500';
+  const inputClass ="w-full h-12 bg-gray-950 border border-gray-800 rounded-lg px-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all";
   const labelClass = 'block text-xs font-bold text-slate-400 mb-1.5 uppercase tracking-wide';
 
   return (

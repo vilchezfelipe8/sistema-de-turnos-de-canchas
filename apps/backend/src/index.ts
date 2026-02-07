@@ -12,6 +12,7 @@ import QRCode from 'qrcode';
 // 👇 Importante: Importamos la ruta de clientes
 import ClientRoutes from './routes/ClientRoutes';
 import { errorHandler } from './middleware/ErrorHandler'; // Movi el import aquí arriba para ordenar
+import HealthRoutes from './routes/HealthRoutes'; // Importamos las rutas de healthcheck
 
 const app = express();
 
@@ -75,6 +76,7 @@ app.use('/api/bookings', bookingRoutes);
 app.use('/api/courts', CourtRoutes);
 app.use('/api/clubs', ClubRoutes); // Para rutas generales de club
 app.use('/api/clubs', ClubAdminRoutes); // Para rutas admin de club
+app.use('/api/health', HealthRoutes);
 
 app.get('/', (req: Request, res: Response) => {
   res.json({ message: 'API Sistema de Turnos' });
