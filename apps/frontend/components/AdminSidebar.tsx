@@ -33,8 +33,8 @@ const AdminSidebar = () => {
     { name: 'Turnos', path: '/admin/agenda', icon: '📅' },
     { name: 'Clientes', path: '/admin/clientes', icon: '👥' },
     { name: 'Productos & Stock', path: '/admin/products', icon: '📦' },
+    { name: 'Caja y Movimientos', path: '/admin/cash', icon: '💰' },
     { name: 'Canchas', path: '/admin/canchas', icon: '🏓' },
-    // 👇 Agregado aquí
     { name: 'Métricas', path: '/admin/metrics', icon: '📊' }, 
     { name: 'Configuración', path: '/admin/settings', icon: '⚙️' },
   ];

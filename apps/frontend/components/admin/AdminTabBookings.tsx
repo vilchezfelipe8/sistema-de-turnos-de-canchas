@@ -569,15 +569,66 @@ export default function AdminTabBookings() {
                     <td className="p-4 font-mono text-muted">{slot.slotTime}</td>
                     <td className="p-4 text-text font-bold">{slot.courtName}</td>
                     <td className="p-5">
-                      {slot.booking ? (
-                        slot.booking.status === 'CONFIRMED' ? (
-                          <span className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full border border-emerald-500/30 text-emerald-300 bg-emerald-500/10"><span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.6)]"></span> CONFIRMADO</span>
-                        ) : (
-                          <span className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full border border-yellow-500/30 text-yellow-300 bg-yellow-500/10"><span className="h-2 w-2 rounded-full bg-yellow-400 shadow-[0_0_8px_rgba(234,179,8,0.6)]"></span> PENDIENTE</span>
-                        )
-                      ) : (
-                        <span className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full border border-gray-500/30 text-gray-500/10"><span className="h-2 w-2 rounded-full bg-gray-400"></span> LIBRE</span>
-                      )}
+                      {/* LÓGICA DE ESTADO CON ESTÉTICA PREMIUM */}
+                      {(() => {
+                        const [h, m] = slot.slotTime.split(':').map(Number);
+                        const slotDate = new Date();
+                        slotDate.setHours(h, m, 0, 0);
+                        const now = new Date();
+                        const isPast = slotDate < now;
+
+                        let statusText = '';
+                        // Usamos un contenedor base y clases dinámicas para el color y el brillo
+                        let containerClasses = '';
+                        let dotClasses = '';
+                        let textClasses = '';
+
+                        if (!slot.booking) {
+                          // --- HUECO VACÍO ---
+                          if (isPast) {
+                            statusText = 'NO JUGADO';
+                            // Gris apagado, sin brillo, se funde con el fondo
+                            containerClasses = 'bg-gray-800/40 border-gray-700/50 text-gray-500';
+                            dotClasses = 'bg-gray-600';
+                          } else {
+                            statusText = 'DISPONIBLE';
+                            // Verde vibrante pero elegante. El punto tiene un "glow" intenso.
+                            containerClasses = 'bg-emerald-950/30 border-emerald-500/30 text-emerald-400';
+                            dotClasses = 'bg-emerald-400 shadow-[0_0_10px_2px_rgba(52,211,153,0.4)] animate-pulse-slow'; // animate-pulse-slow es opcional si lo tenés configurado
+                          }
+                        } else {
+                          // --- HAY RESERVA ---
+                          const status = slot.booking.status;
+
+                          if (isPast && (status === 'CONFIRMED' || status === 'PENDING' || status === 'COMPLETED')) {
+                            statusText = 'COMPLETADO';
+                            // Azul tecnológico, calmado
+                            containerClasses = 'bg-blue-950/30 border-blue-500/30 text-blue-400';
+                            dotClasses = 'bg-blue-400 shadow-[0_0_10px_2px_rgba(96,165,250,0.4)]';
+                          } 
+                          else if (status === 'CONFIRMED') {
+                            statusText = 'CONFIRMADO';
+                            // Rojo intenso, señal de ocupado
+                            containerClasses = 'bg-red-950/30 border-red-500/30 text-red-400';
+                            dotClasses = 'bg-red-500 shadow-[0_0_10px_2px_rgba(239,68,68,0.4)]';
+                          } 
+                          else {
+                            statusText = 'PENDIENTE';
+                            // Amarillo alerta, brillante
+                            containerClasses = 'bg-yellow-950/30 border-yellow-500/30 text-yellow-300';
+                            dotClasses = 'bg-yellow-400 shadow-[0_0_10px_2px_rgba(250,204,21,0.4)]';
+                          }
+                        }
+
+                        return (
+                          // El contenedor ahora es más sutil (border más fino, fondo más oscuro)
+                          <span className={`inline-flex items-center gap-2.5 text-[11px] px-3 py-1.5 rounded-full font-bold uppercase tracking-widest border transition-all duration-300 ${containerClasses}`}>
+                            {/* El puntito ahora es una "luz led" */}
+                            <span className={`w-2 h-2 rounded-full ${dotClasses}`}></span>
+                            {statusText}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="p-5 text-text">
                       {slot.booking ? (

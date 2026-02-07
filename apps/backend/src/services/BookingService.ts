@@ -12,6 +12,8 @@ import { Club } from '../entities/Club';
 import { Court as CourtEntity } from '../entities/Court';
 import { ActivityType } from '../entities/ActivityType';
 import { PrismaClient } from '@prisma/client';
+import { CashRepository } from '../repositories/CashRepository';
+import { ProductRepository } from '../repositories/ProductRepository';
 
 export class BookingService {
 
@@ -21,7 +23,9 @@ export class BookingService {
         private bookingRepo: BookingRepository,
         private courtRepo: CourtRepository,
         private userRepo: UserRepository,
-        private activityRepo: ActivityTypeRepository
+        private activityRepo: ActivityTypeRepository,
+        private cashRepository: CashRepository,
+        private productRepository: ProductRepository
     ) {}
 
     async createBooking(
@@ -160,6 +164,7 @@ export class BookingService {
 
     async confirmBooking(bookingId: number, clubId?: number) {
         const booking = await this.bookingRepo.findById(bookingId);
+    
         if (!booking) {
             throw new Error("La reserva no existe.");
         }
@@ -178,11 +183,33 @@ export class BookingService {
         if (booking.status === BookingStatus.CONFIRMED) {
             return booking;
         }
+
+        // 1. Actualizamos el estado en la DB
         const updated = await prisma.booking.update({
             where: { id: bookingId },
             data: { status: BookingStatus.CONFIRMED },
             include: { user: true, court: { include: { club: true } }, activity: true }
         });
+
+        try {
+            
+            const price = 28000; // Aquí podrías usar updated.price si el precio es dinámico o depende de la actividad/cancha/etc.
+            if (price > 0) {
+                await this.cashRepository.create({
+                    date: new Date(),
+                    type: 'INCOME', // Es un Ingreso
+                    amount: price,
+                    description: `Cobro Turno #${updated.id} - ${updated.court.name}`,
+                    method: 'CASH', // Por defecto Efectivo (luego podés recibirlo por parámetro)
+                    bookingId: updated.id
+                });
+                console.log(`💰 Caja actualizada: +$${price} por Turno #${updated.id}`);
+            }
+        } catch (error) {
+            console.error("⚠️ Error al registrar movimiento en caja:", error);
+        }
+        // ----------------------------------------
+
         return this.bookingRepo.mapToEntity(updated);
     }
 
@@ -564,31 +591,50 @@ export class BookingService {
         });
     }
 
-    async addItemToBooking(bookingId: number, productId: number, quantity: number) {
-        return await this.prisma.$transaction(async (tx) => {
-            const product = await tx.product.findUnique({ where: { id: productId } });
-            
-            if (!product) throw new Error("Producto no encontrado");
-            if (product.stock < quantity) throw new Error(`Stock insuficiente. Quedan ${product.stock}`);
+   async addItemToBooking(bookingId: number, productId: number, quantity: number, paymentMethod: string = 'CASH') {
+    // 👆 Agregué paymentMethod como opcional (por defecto CASH) para futuro uso
 
-            const item = await tx.bookingItem.create({
-                data: {
-                    bookingId,
-                    productId,
-                    quantity,
-                    // 👇 2. ACÁ ESTÁ EL TRUCO: Convertimos el Decimal a Number
-                    price: Number(product.price) 
-                }
-            });
+    return await this.prisma.$transaction(async (tx) => {
+        // 1. Buscamos el producto
+        const product = await tx.product.findUnique({ where: { id: productId } });
+        
+        if (!product) throw new Error("Producto no encontrado");
+        if (product.stock < quantity) throw new Error(`Stock insuficiente. Quedan ${product.stock}`);
 
-            await tx.product.update({
-                where: { id: productId },
-                data: { stock: product.stock - quantity }
-            });
+        const unitPrice = Number(product.price);
+        const totalPrice = unitPrice * quantity;
 
-            return item;
+        // 2. Creamos el Item en la Reserva
+        const item = await tx.bookingItem.create({
+            data: {
+                bookingId,
+                productId,
+                quantity,
+                price: unitPrice 
+            }
         });
-    }
+
+        // 3. Descontamos Stock
+        await tx.product.update({
+            where: { id: productId },
+            data: { stock: product.stock - quantity }
+        });
+
+        // 4. 👇 ¡LA MAGIA DE LA CAJA! (Todo dentro de la misma transacción)
+        await tx.cashMovement.create({
+            data: {
+                date: new Date(),
+                type: 'INCOME',   // Es un Ingreso
+                amount: totalPrice,
+                description: `Venta Extra: ${quantity}x ${product.name} (Turno #${bookingId})`,
+                method: paymentMethod, // 'CASH', 'TRANSFER', etc.
+                bookingId: bookingId
+            }
+        });
+
+        return item;
+    });
+}
 
     // 👇 (OPCIONAL) PARA BORRAR SI TE EQUIVOCASTE (Devuelve el stock)
     async removeItemFromBooking(itemId: number) {

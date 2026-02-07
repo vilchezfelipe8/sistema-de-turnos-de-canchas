@@ -6,6 +6,11 @@ import { BookingRepository } from '../repositories/BookingRepository';
 import { CourtRepository } from '../repositories/CourtRepository';
 import { UserRepository } from '../repositories/UserRepository';
 import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
+import { CashRepository } from '../repositories/CashRepository';
+import { requireRole } from '../middleware/RoleMiddleware';
+import { setAdminClubFromUser } from '../middleware/ClubMiddleware';
+import { ProductRepository } from '../repositories/ProductRepository';
+
 
 const router = Router();
 
@@ -13,18 +18,19 @@ const bookingRepository = new BookingRepository();
 const courtRepository = new CourtRepository();
 const userRepository = new UserRepository();
 const activityRepository = new ActivityTypeRepository();
+const cashRepository = new CashRepository();
+const productRepository = new ProductRepository();
 
 const bookingService = new BookingService(
     bookingRepository,
     courtRepository,
     userRepository,
-    activityRepository
+    activityRepository,
+    cashRepository,
+    productRepository
 );
 
 const bookingController = new BookingController(bookingService);
-
-import { requireRole } from '../middleware/RoleMiddleware';
-import { setAdminClubFromUser } from '../middleware/ClubMiddleware';
 
 router.get('/availability', bookingController.getAvailability);
 router.get('/all-availability', bookingController.getAllAvailableSlots);

@@ -13,6 +13,8 @@ import { authMiddleware } from '../middleware/AuthMiddleware';
 import { requireRole } from '../middleware/RoleMiddleware';
 import { verifyClubAccess } from '../middleware/ClubMiddleware';
 import { ProductController } from '../controllers/ProductController';
+import { ProductRepository } from '../repositories/ProductRepository';
+import { CashRepository } from '../repositories/CashRepository';
 
 const router = Router();
 
@@ -23,12 +25,16 @@ const userRepository = new UserRepository();
 const activityRepository = new ActivityTypeRepository();
 const clubRepository = new ClubRepository();
 const productController = new ProductController();
+const cashRepository = new CashRepository();
+const productRepository = new ProductRepository();
 
 const bookingService = new BookingService(
     bookingRepository,
     courtRepository,
     userRepository,
-    activityRepository
+    activityRepository,
+        cashRepository,
+        productRepository
 );
 
 const clubService = new ClubService(clubRepository, activityRepository);

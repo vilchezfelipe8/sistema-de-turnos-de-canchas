@@ -41,9 +41,15 @@ const AdminDevDashboard = () => {
     </div>
   );
 
-  // Convertimos el porcentaje "15%" a número 15 para pintar la barra
-  const cpuPercent = parseFloat(metrics.server.cpu.usage);
-  // Color dinámico: Verde (<50%), Amarillo (<80%), Rojo (>80%)
+  // CÁLCULOS
+  const totalCores = metrics.server.cpu.cores;
+  const cpuPercent = parseFloat(metrics.server.cpu.usage); 
+  
+  // En entornos estándar (Windows/Linux PC), casi siempre es 1 CPU físico.
+  // Si fuera un servidor Blade con dual socket, esto requeriría una librería extra.
+  // Para tu caso real, asumimos 1 Socket físico que contiene todos los cores.
+  const physicalCpus = 1;
+
   const barColor = cpuPercent > 80 ? 'bg-red-500' : cpuPercent > 50 ? 'bg-yellow-500' : 'bg-blue-500';
 
   return (
@@ -65,7 +71,6 @@ const AdminDevDashboard = () => {
           
           {/* COLUMNA 1 */}
           <div className="space-y-6">
-            {/* DB Status */}
             <div className="bg-gray-900 p-5 rounded border border-gray-800">
               <p className="text-gray-500 text-xs uppercase mb-2 font-bold">Database Status</p>
               <div className="flex justify-between items-end">
@@ -74,13 +79,11 @@ const AdminDevDashboard = () => {
               </div>
             </div>
 
-            {/* Server Uptime */}
             <div className="bg-gray-900 p-5 rounded border border-gray-800">
               <p className="text-gray-500 text-xs uppercase mb-2 font-bold">Server Uptime</p>
               <p className="text-white text-xl font-mono">{metrics.server.uptime}</p>
             </div>
             
-            {/* OS Info */}
             <div className="bg-gray-900 p-5 rounded border border-gray-800">
                <p className="text-gray-500 text-xs uppercase mb-2 font-bold">Platform</p>
                <p className="text-gray-400 text-sm">{metrics.server.platform}</p>
@@ -90,37 +93,46 @@ const AdminDevDashboard = () => {
           {/* COLUMNA 2 */}
           <div className="space-y-6">
             
-            {/* CPU COMPLETO (Núcleos + Consumo) */}
+            {/* CPU FÍSICO (SOCKETS) */}
             <div className="bg-gray-900 p-5 rounded border border-gray-800">
-              <p className="text-blue-400 text-xs font-bold uppercase mb-2">Procesador (CPU)</p>
+              <p className="text-blue-400 text-xs font-bold uppercase mb-2">Procesador Físico (Socket)</p>
               
-              {/* Parte 1: Hardware disponible */}
-              <div className="flex items-baseline gap-2 mb-4">
-                 <p className="text-4xl font-bold text-white font-mono">{metrics.server.cpu.cores}</p>
-                 <span className="text-sm text-gray-500">núcleos físicos</span>
+              <div className="flex items-baseline gap-2 mb-1">
+                 {/* AQUI MOSTRAMOS 1 (El hardware físico) */}
+                 <p className="text-5xl font-bold text-white font-mono">{physicalCpus}</p>
+                 <span className="text-lg text-gray-500">Unidad Física</span>
+              </div>
+              
+              {/* Info técnica de los núcleos abajo */}
+              <div className="flex items-center gap-2 mb-4 mt-1">
+                 <span className="px-2 py-0.5 bg-gray-800 rounded text-xs text-gray-300 border border-gray-700">
+                    {totalCores} Núcleos Lógicos
+                 </span>
+                 <span className="px-2 py-0.5 bg-gray-800 rounded text-xs text-gray-300 border border-gray-700">
+                    x64 Arch
+                 </span>
               </div>
 
-              {/* Parte 2: Consumo actual */}
+              {/* Barra de carga general del CPU Físico */}
               <div className="space-y-1">
-                <div className="flex justify-between text-xs">
-                  <span className="text-gray-400">Uso Actual:</span>
-                  <span className="text-white font-bold font-mono">{metrics.server.cpu.usage}</span>
-                </div>
-                {/* Barra de progreso */}
-                <div className="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
-                  <div 
-                    className={`h-full transition-all duration-500 ${barColor}`} 
-                    style={{ width: metrics.server.cpu.usage }}
-                  ></div>
-                </div>
+                 <div className="flex justify-between text-xs">
+                    <span className="text-gray-500">Carga del CPU:</span>
+                    <span className="text-white font-mono">{metrics.server.cpu.usage}</span>
+                 </div>
+                 <div className="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
+                    <div 
+                        className={`h-full transition-all duration-500 ${barColor}`} 
+                        style={{ width: metrics.server.cpu.usage }}
+                    ></div>
+                 </div>
               </div>
 
-              <p className="text-xs text-gray-500 mt-3 font-mono truncate">
+              <p className="text-xs text-gray-500 mt-3 font-mono truncate" title={metrics.server.cpu.model}>
                 {metrics.server.cpu.model}
               </p>
             </div>
 
-            {/* RAM USAGE */}
+            {/* RAM */}
             <div className="bg-gray-900 p-5 rounded border border-gray-800">
               <p className="text-purple-400 text-xs font-bold uppercase mb-1">Memory Usage (RSS)</p>
               <p className="text-4xl font-bold text-white font-mono mb-4">{metrics.server.memory.rss}</p>

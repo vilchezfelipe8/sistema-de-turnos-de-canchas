@@ -24,157 +24,170 @@ enum BookingStatus {
 }
 
 enum PaymentStatus {
-  PENDING  // Recién creado, no se sabe nada
-  PAID     // Pagado total
-  PARTIAL  // Pagó una seña (para el futuro)
-  DEBT     // Quedó debiendo (Fiado/Cuenta Corriente)
+  PENDING // Recién creado, no se sabe nada
+  PAID // Pagado total
+  PARTIAL // Pagó una seña (para el futuro)
+  DEBT // Quedó debiendo (Fiado/Cuenta Corriente)
 }
 
 // --- MODELOS ---
 
 model User {
-  id          Int       @id @default(autoincrement())
-  email       String    @unique
-  password    String    // <--- AGREGAR ESTO (Guardará la contraseña encriptada)
-  firstName   String
-  lastName    String
-  phoneNumber String
-  role        Role      @default(MEMBER)
-  clubId      Int?
-  club        Club?     @relation(fields: [clubId], references: [id])
-  bookings    Booking[]
+  id            Int            @id @default(autoincrement())
+  email         String         @unique
+  password      String // <--- AGREGAR ESTO (Guardará la contraseña encriptada)
+  firstName     String
+  lastName      String
+  phoneNumber   String
+  role          Role           @default(MEMBER)
+  clubId        Int?
+  club          Club?          @relation(fields: [clubId], references: [id])
+  bookings      Booking[]
   fixedBookings FixedBooking[]
 }
 
 model Club {
-  id          Int     @id @default(autoincrement())
-  slug        String  @unique // Slug único para URLs (ej: "las-tejas", "club-central")
-  name        String
-  address     String
-  contactInfo String  // Email de contacto general
-  phone       String? // Teléfono del club
-  logoUrl     String? // URL del logo del club
+  id           Int       @id @default(autoincrement())
+  slug         String    @unique // Slug único para URLs (ej: "las-tejas", "club-central")
+  name         String
+  address      String
+  contactInfo  String // Email de contacto general
+  phone        String? // Teléfono del club
+  logoUrl      String? // URL del logo del club
   instagramUrl String? // URL de Instagram
   facebookUrl  String? // URL de Facebook
   websiteUrl   String? // URL del sitio web
   description  String? // Descripción del club
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  courts      Court[]
-  users       User[]
-  products      Product[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  courts       Court[]
+  users        User[]
+  products     Product[]
 }
 
 model Court {
-  id                 Int            @id @default(autoincrement())
+  id                 Int     @id @default(autoincrement())
   name               String
   isIndoor           Boolean
   surface            String
-  isUnderMaintenance Boolean        @default(false)
-  
-  clubId             Int
-  club               Club           @relation(fields: [clubId], references: [id])
-  
-  activities         ActivityType[]
-  bookings           Booking[]
+  isUnderMaintenance Boolean @default(false)
+
+  clubId Int
+  club   Club @relation(fields: [clubId], references: [id])
+
+  activities    ActivityType[]
+  bookings      Booking[]
   fixedBookings FixedBooking[]
 }
 
 model ActivityType {
-  id                     Int       @id @default(autoincrement())
+  id                     Int            @id @default(autoincrement())
   name                   String
   description            String
   defaultDurationMinutes Int
   courts                 Court[]
   bookings               Booking[]
-  fixedBookings FixedBooking[]
+  fixedBookings          FixedBooking[]
 }
 
 model Booking {
-  id        Int           @id @default(autoincrement())
-  startDateTime DateTime
-  endDateTime   DateTime
-  cancelledBy   Int?
-  cancelledAt   DateTime?
-  price     Float
-  createdAt DateTime      @default(now())
-  status    BookingStatus @default(PENDING) // <--- Enum nativo
+  id              Int           @id @default(autoincrement())
+  startDateTime   DateTime
+  endDateTime     DateTime
+  cancelledBy     Int?
+  cancelledAt     DateTime?
+  price           Float
+  createdAt       DateTime      @default(now())
+  status          BookingStatus @default(PENDING) // <--- Enum nativo
   guestIdentifier String?
-  guestName String?
-  guestEmail String?
-  guestPhone String?
-  guestDni       String?
+  guestName       String?
+  guestEmail      String?
+  guestPhone      String?
+  guestDni        String?
 
   // Permitir reservas de invitados: userId opcional + guestIdentifier
-  userId    Int?
-  user      User?    @relation(fields: [userId], references: [id])
-  
-  courtId   Int
-  court     Court    @relation(fields: [courtId], references: [id])
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id])
+
+  courtId Int
+  court   Court @relation(fields: [courtId], references: [id])
 
   activityId Int
   activity   ActivityType @relation(fields: [activityId], references: [id])
 
-  fixedBooking   FixedBooking? @relation(fields: [fixedBookingId], references: [id])
+  fixedBooking   FixedBooking?  @relation(fields: [fixedBookingId], references: [id])
   fixedBookingId Int?
-  items      BookingItem[]
-  paymentStatus PaymentStatus @default(PENDING)
+  items          BookingItem[]
+  paymentStatus  PaymentStatus  @default(PENDING)
+  CashMovement   CashMovement[]
 }
 
 model FixedBooking {
   id        Int      @id @default(autoincrement())
   createdAt DateTime @default(now())
-  
+
   // Datos de la regla
-  dayOfWeek Int      // 0 = Domingo, 1 = Lunes, etc.
-  startTime String   // Ej: "20:00"
-  endTime   String   // Ej: "21:30"
-  startDate DateTime // Desde cuándo empieza el fijo
-  status    String   @default("ACTIVE")
+  dayOfWeek  Int // 0 = Domingo, 1 = Lunes, etc.
+  startTime  String // Ej: "20:00"
+  endTime    String // Ej: "21:30"
+  startDate  DateTime // Desde cuándo empieza el fijo
+  status     String   @default("ACTIVE")
   guestPhone String?
   guestDni   String?
 
   // Relaciones
-  user      User?     @relation(fields: [userId], references: [id])
-  userId    Int?
-  guestName String?
-  court     Court    @relation(fields: [courtId], references: [id])
-  courtId   Int
-  activity  ActivityType @relation(fields: [activityId], references: [id])
+  user       User?        @relation(fields: [userId], references: [id])
+  userId     Int?
+  guestName  String?
+  court      Court        @relation(fields: [courtId], references: [id])
+  courtId    Int
+  activity   ActivityType @relation(fields: [activityId], references: [id])
   activityId Int
 
   // Todas las reservas hijas generadas por este fijo
-  bookings  Booking[]
+  bookings Booking[]
 }
 
 model Product {
-  id          Int      @id @default(autoincrement())
-  name        String   
-  category    String? 
-  price       Decimal  @db.Decimal(10, 2) 
-  stock       Int      @default(0) 
-  minStock    Int      @default(5) 
-  
-  clubId      Int
-  club        Club     @relation(fields: [clubId], references: [id])
+  id       Int     @id @default(autoincrement())
+  name     String
+  category String?
+  price    Decimal @db.Decimal(10, 2)
+  stock    Int     @default(0)
+  minStock Int     @default(5)
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  clubId Int
+  club   Club @relation(fields: [clubId], references: [id])
+
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
   bookingItems BookingItem[]
 
   @@index([clubId])
 }
 
 model BookingItem {
-  id        Int      @id @default(autoincrement())
-  
+  id Int @id @default(autoincrement())
+
   bookingId Int
-  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
   productId Int
-  product   Product  @relation(fields: [productId], references: [id])
-  
-  quantity  Int      // Cuántos compró (ej: 2)
-  price     Float    // A cuánto se vendió en ese momento (por si mañana subís el precio)
+  product   Product @relation(fields: [productId], references: [id])
+
+  quantity Int // Cuántos compró (ej: 2)
+  price    Float // A cuánto se vendió en ese momento (por si mañana subís el precio)
 }
 
+model CashMovement {
+  id          Int      @id @default(autoincrement())
+  date        DateTime @default(now())
+  type        String // 'INCOME' (Ingreso) o 'EXPENSE' (Gasto/Retiro)
+  amount      Float // Monto
+  description String // Ej: "Turno Juan", "Venta Gatorade", "Pago Luz"
+  method      String // 'CASH' (Efectivo), 'TRANSFER' (Transferencia), 'CARD' (Tarjeta)
+
+  // Opcional: Relaciones para saber de dónde vino
+  bookingId Int?
+  booking   Booking? @relation(fields: [bookingId], references: [id])
+}
