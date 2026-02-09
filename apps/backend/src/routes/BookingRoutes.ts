@@ -52,6 +52,7 @@ router.get('/debtors/list', authMiddleware, requireRole('ADMIN'), setAdminClubFr
 
 // Crear Reserva (Base)
 router.post('/', optionalAuthMiddleware, (req, res) => bookingController.createBooking(req, res));
+router.post('/pay-debt', authMiddleware, (req, res) => bookingController.payDebt(req, res));
 
 
 // Items y Productos

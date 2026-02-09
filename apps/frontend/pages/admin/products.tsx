@@ -5,6 +5,7 @@ import NotFound from '../../components/NotFound';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
 import { ClubService, Club } from '../../services/ClubService';
 import AdminTabProducts from '../../components/admin/AdminTabProducts';
+import Head from 'next/dist/shared/lib/head';
 
 export default function AdminProductsPage() {
   const { authChecked, user } = useValidateAuth({ requireAdmin: true });
@@ -22,6 +23,9 @@ export default function AdminProductsPage() {
     <div className="min-h-screen text-text relative overflow-hidden" style={{ backgroundColor: 'var(--bg)' }}>
       <Navbar />
       <AdminLayout>
+        <Head>
+          <title>Productos & Stock | Admin Panel</title>
+        </Head>
         <AdminTabProducts clubSlug={club?.slug} />
       </AdminLayout>
     </div>

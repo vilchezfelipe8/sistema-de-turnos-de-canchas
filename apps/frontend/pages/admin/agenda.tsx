@@ -3,6 +3,7 @@ import AdminLayout from '../../components/AdminLayout';
 import NotFound from '../../components/NotFound';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
 import AdminTabBookings from '../../components/admin/AdminTabBookings';
+import Head from 'next/dist/shared/lib/head';
 
 export default function AdminAgendaPage() {
   const { authChecked, user } = useValidateAuth({ requireAdmin: true });
@@ -14,6 +15,9 @@ export default function AdminAgendaPage() {
     <div className="min-h-screen text-text relative overflow-hidden" style={{ backgroundColor: 'var(--bg)' }}>
       <Navbar />
       <AdminLayout>
+        <Head>
+          <title>Turnos | Admin Panel</title>
+        </Head>
         <AdminTabBookings />
       </AdminLayout>
     </div>

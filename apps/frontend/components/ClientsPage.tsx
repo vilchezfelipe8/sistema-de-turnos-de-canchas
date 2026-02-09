@@ -98,6 +98,8 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const [loading, setLoading] = useState(true);
   const [selectedDebtor, setSelectedDebtor] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [showPayMethodModal, setShowPayMethodModal] = useState(false);
+  const [bookingToPayId, setBookingToPayId] = useState<number | null>(null);
 
   useEffect(() => {
     loadClients();
@@ -127,6 +129,71 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const totalClients = clients.length;
   const topClient = clients.reduce((prev, current) => (prev.totalBookings > current.totalBookings) ? prev : current, {name: '-', totalBookings: 0});
 
+  // 1. Abre el modal chiquito
+const handleOpenPayModal = (bookingId: number) => {
+    setBookingToPayId(bookingId);
+    setShowPayMethodModal(true);
+};
+
+// 2. Procesa el pago (Llama al backend)
+const processDebtPayment = async (method: 'CASH' | 'TRANSFER') => {
+    if (!bookingToPayId) return;
+
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/bookings/pay-debt`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ 
+                bookingId: bookingToPayId, 
+                paymentMethod: method 
+            })
+        });
+
+        if (!response.ok) throw new Error('Error al procesar el cobro');
+
+        // ✅ ÉXITO
+        // 1. Cerramos el modal chiquito de pago
+        setShowPayMethodModal(false);
+        setBookingToPayId(null);
+
+        // 2. 👇 IMPORTANTE: Recargamos la tabla de fondo
+        // (Asegurate de usar el nombre real de tu función de carga)
+        await loadClients(); 
+
+        // 3. Actualizamos el modal grande (el detalle del cliente)
+        // para que desaparezca la línea cobrada sin tener que cerrar y abrir
+        if (selectedDebtor) {
+            // Filtramos la reserva que acabamos de pagar
+            const updatedBookings = selectedDebtor.bookings.filter((b: any) => b.id !== bookingToPayId);
+            
+            // Recalculamos el total adeudado restando lo que pagó
+            const paidAmount = selectedDebtor.bookings.find((b: any) => b.id === bookingToPayId)?.total || 0;
+            const newTotalDebt = selectedDebtor.totalDebt - paidAmount;
+
+            // Si ya no debe nada, cerramos el modal grande también. Si debe, actualizamos los datos.
+            if (newTotalDebt <= 0) {
+                setSelectedDebtor(null); // 👋 Chau modal, ya no es deudor
+                alert(`✅ ¡Deuda saldada por completo!`);
+            } else {
+                setSelectedDebtor({
+                    ...selectedDebtor,
+                    bookings: updatedBookings,
+                    totalDebt: newTotalDebt
+                });
+                alert(`✅ Cobro registrado. Restan $${newTotalDebt}`);
+            }
+        }
+
+    } catch (error) {
+        console.error(error);
+        alert("❌ Error al cobrar la deuda");
+    }
+};
+  
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       
@@ -222,12 +289,120 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
 
       {/* RENDERIZAMOS EL MODAL SI HAY UN DEUDOR SELECCIONADO */}
       {selectedDebtor && (
-        <DebtModal 
-           client={selectedDebtor} 
-           onClose={() => setSelectedDebtor(null)} 
-           onSuccess={loadClients} 
-        />
-      )}
+    <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4 animate-in fade-in">
+        <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            
+            {/* CABECERA */}
+            <div className="p-6 border-b border-gray-800 bg-gray-950 flex justify-between items-center">
+                <div>
+                    <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                        🔴 Deuda de {selectedDebtor.name}
+                    </h3>
+                    <p className="text-gray-400 text-sm mt-1">
+                        Total adeudado: <span className="text-red-400 font-mono font-bold">${selectedDebtor.totalDebt}</span>
+                    </p>
+                </div>
+                <button onClick={() => setSelectedDebtor(null)} className="text-gray-500 hover:text-white transition">
+                    ✕
+                </button>
+            </div>
+
+            {/* LISTA DE RESERVAS IMPAGAS */}
+            <div className="p-6 overflow-y-auto custom-scrollbar space-y-3">
+                {selectedDebtor.bookings
+                    .filter((b: any) => b.paymentStatus === 'DEBT' || b.paymentStatus === 'PENDING') // Filtramos solo lo que debe
+                    .map((booking: any) => (
+                        <div key={booking.id} className="bg-gray-800/50 border border-gray-700 p-4 rounded-lg flex flex-col sm:flex-row justify-between items-center gap-4">
+                            
+                            {/* Info de la Reserva */}
+                            <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-emerald-400 font-bold text-sm">#{booking.id}</span>
+                                    <span className="text-gray-300 font-medium">| {new Date(booking.date).toLocaleDateString()} - {new Date(booking.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                </div>
+                                <div className="text-sm text-gray-400">
+                                    Cancha: {booking.courtName || 'Cancha'}
+                                </div>
+                                {/* Si tiene productos extra */}
+                                {booking.items && booking.items.length > 0 && (
+                                    <div className="mt-2 flex flex-wrap gap-1">
+                                        {booking.items.map((item: any, i: number) => (
+                                            <span key={i} className="text-[10px] bg-gray-700 px-2 py-0.5 rounded text-gray-300">
+                                                {item.quantity}x {item.product?.name}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Monto y Botón de Cobrar */}
+                            <div className="flex items-center gap-4">
+                                <div className="text-right">
+                                    <div className="text-lg font-bold text-white font-mono">${booking.total}</div>
+                                    <div className="text-[10px] text-red-400 uppercase tracking-wider font-bold">Impago</div>
+                                </div>
+                                
+                                <button
+                                    onClick={() => handleOpenPayModal(booking.id)} // <--- ESTO ABRE EL MODAL DE CASH/TRANSFER
+                                    className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-lg shadow-emerald-900/20 transition-all active:scale-95 flex items-center gap-2"
+                                >
+                                    💵 Cobrar
+                                </button>
+                            </div>
+                        </div>
+                ))}
+                
+                {selectedDebtor.bookings.filter((b: any) => b.paymentStatus === 'DEBT').length === 0 && (
+                    <p className="text-center text-gray-500 py-4">No hay reservas pendientes (Error visual: actualice la página)</p>
+                )}
+
+                {showPayMethodModal && (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] animate-in fade-in">
+                    <div className="bg-gray-900 border border-gray-700 p-6 rounded-xl shadow-2xl w-80 relative">
+                        
+                        <button 
+                            onClick={() => setShowPayMethodModal(false)}
+                            className="absolute top-2 right-2 text-gray-500 hover:text-white"
+                        >✕</button>
+
+                        <h3 className="text-lg font-bold text-white mb-4 text-center">Cobrar Deuda</h3>
+                        
+                        <div className="grid grid-cols-2 gap-3">
+                            <button
+                                onClick={() => processDebtPayment('CASH')}
+                                className="p-3 bg-emerald-900/40 border border-emerald-700 hover:bg-emerald-800 rounded-lg text-emerald-400 flex flex-col items-center transition-all hover:scale-105"
+                            >
+                                <span className="text-2xl mb-1">💵</span>
+                                <span className="text-xs font-bold uppercase">Efectivo</span>
+                            </button>
+
+                            <button
+                                onClick={() => processDebtPayment('TRANSFER')}
+                                className="p-3 bg-blue-900/40 border border-blue-700 hover:bg-blue-800 rounded-lg text-blue-400 flex flex-col items-center transition-all hover:scale-105"
+                            >
+                                <span className="text-2xl mb-1">💳</span>
+                                <span className="text-xs font-bold uppercase">Transfer</span>
+                            </button>
+                        </div>
+                        
+                        <p className="text-center text-xs text-gray-500 mt-4">
+                            Esto sumará el dinero a la caja de hoy.
+                        </p>
+                    </div>
+                </div>
+            )}
+            </div>
+
+            <div className="p-4 border-t border-gray-800 bg-gray-950 text-right">
+                <button onClick={() => setSelectedDebtor(null)} className="text-gray-400 hover:text-white text-sm underline">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    
+)}
     </div>
   );
 }

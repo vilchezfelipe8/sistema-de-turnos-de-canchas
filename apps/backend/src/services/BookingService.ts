@@ -3,7 +3,7 @@ import { ClubRepository } from '../repositories/ClubRepository';
 import { UserRepository } from '../repositories/UserRepository';
 import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
 import { Booking } from '../entities/Booking';
-import { BookingStatus } from '../entities/Enums';
+//import { BookingStatus } from '../entities/Enums';
 import { TimeHelper } from '../utils/TimeHelper';
 import { CourtRepository } from '../repositories/CourtRepository';
 import { prisma } from '../prisma';
@@ -11,7 +11,7 @@ import { User } from '../entities/User';
 import { Club } from '../entities/Club';
 import { Court as CourtEntity } from '../entities/Court';
 import { ActivityType } from '../entities/ActivityType';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, PaymentStatus, BookingStatus } from '@prisma/client';
 import { CashRepository } from '../repositories/CashRepository';
 import { ProductRepository } from '../repositories/ProductRepository';
 
@@ -186,21 +186,29 @@ export class BookingService {
     const updated = await this.bookingRepo.findById(bookingId);
     return updated;
 }
-    async confirmBooking(bookingId: number, userId: number, paymentMethod: string = 'CASH') { 
+    async confirmBooking(bookingId: number, userId: number, paymentMethod: string = 'CASH') {
     
+    // 1. Buscamos la reserva
     const booking = await this.bookingRepo.findById(bookingId);
     if (!booking) throw new Error("La reserva no existe.");
-    // ... validaciones ...
 
-    // 1. Actualizamos estado
+    const paymentStatus = paymentMethod === 'DEBT' 
+    ? PaymentStatus.DEBT
+    : PaymentStatus.PAID;
+
     const updated = await prisma.booking.update({
         where: { id: bookingId },
-        data: { status: BookingStatus.CONFIRMED },
+        data: { 
+            status: BookingStatus.CONFIRMED, // La cancha está ocupada
+            paymentStatus: paymentStatus,    // <--- ACÁ SE GENERA LA DEUDA O EL PAGO
+            // Opcional: Si tenés una columna para guardar el método en la reserva:
+            // paymentMethod: paymentMethod 
+        },
         include: { user: true, court: { include: { club: true } }, activity: true }
     });
 
-    // 2. Registramos en CAJA con el método elegido
-    if (paymentMethod !== 'DEBT') { 
+    // 4. Lógica de CAJA (Solo entra plata si NO es deuda)
+    if (paymentMethod !== 'DEBT') {
         try {
             const price = 28000;
             if (price > 0) {
@@ -217,7 +225,8 @@ export class BookingService {
             console.error("⚠️ Error caja:", error);
         }
     } else {
-        console.log("📝 Reserva confirmada como 'En Cuenta' (No ingresa dinero a caja).");
+        // Log para control
+        console.log(`📝 Deuda registrada al cliente ${updated.guestName} por Reserva #${updated.id}`);
     }
 
     return this.bookingRepo.mapToEntity(updated);
@@ -602,48 +611,50 @@ export class BookingService {
     }
 
    async addItemToBooking(bookingId: number, productId: number, quantity: number, paymentMethod: string = 'CASH') {
-    // 👆 Agregué paymentMethod como opcional (por defecto CASH) para futuro uso
-
-    return await this.prisma.$transaction(async (tx) => {
-        // 1. Buscamos el producto
-        const product = await tx.product.findUnique({ where: { id: productId } });
-        
-        if (!product) throw new Error("Producto no encontrado");
-        if (product.stock < quantity) throw new Error(`Stock insuficiente. Quedan ${product.stock}`);
-
-        const unitPrice = Number(product.price);
-        const totalPrice = unitPrice * quantity;
-
-        // 2. Creamos el Item en la Reserva
-        const item = await tx.bookingItem.create({
-            data: {
-                bookingId,
-                productId,
-                quantity,
-                price: unitPrice 
-            }
-        });
-
-        // 3. Descontamos Stock
-        await tx.product.update({
-            where: { id: productId },
-            data: { stock: product.stock - quantity }
-        });
-
-        // 4. 👇 ¡LA MAGIA DE LA CAJA! (Todo dentro de la misma transacción)
-        await tx.cashMovement.create({
-            data: {
-                date: new Date(),
-                type: 'INCOME',   // Es un Ingreso
-                amount: totalPrice,
-                description: `Venta Extra: ${quantity}x ${product.name} (Turno #${bookingId})`,
-                method: paymentMethod, // 'CASH', 'TRANSFER', etc.
-                bookingId: bookingId
-            }
-        });
-
-        return item;
+   const booking = await prisma.booking.findUnique({
+        where: { id: bookingId },
+        include: { court: { include: { club: true } } } // Traemos datos necesarios
     });
+
+    if (!booking) throw new Error("Reserva no encontrada");
+
+    // 2. Buscamos el producto
+    const product = await prisma.product.findUnique({ where: { id: productId } });
+    if (!product) throw new Error("Producto no encontrado");
+
+    // 3. Creamos el Item en la base de datos (Esto siempre se hace)
+    const item = await prisma.bookingItem.create({
+        data: {
+            bookingId,
+            productId,
+            quantity,
+            price: Number(product.price), // Guardamos el precio histórico
+            
+        }
+    });
+
+    // 4. 👇 LÓGICA DE CAJA CORREGIDA 👇
+    // Solo registramos el ingreso en caja si la reserva NO es deuda.
+    // Si la reserva es DEBT, el item se guarda arriba 👆 pero NO entra plata 💰.
+    
+    if (booking.paymentStatus !== PaymentStatus.DEBT) { 
+        // Si YA pagó o es pago parcial, asumimos que el extra lo paga en el momento (Efectivo)
+        // (O podés pasarle el método de pago como parámetro si querés ser más específico)
+        
+        await this.cashRepository.create({
+            date: new Date(),
+            type: 'INCOME',
+            amount: Number(product.price) * quantity,
+            description: `Venta Extra: ${quantity}x ${product.name} (Reserva #${bookingId})`,
+            method: 'CASH', // Asumimos efectivo por defecto para extras rápidos
+            bookingId: booking.id,
+            clubId: booking.court.clubId
+        });
+    } else {
+        console.log("📝 Item agregado a cuenta corriente (Deuda). No ingresa a caja.");
+    }
+
+    return item;
 }
 
     // 👇 (OPCIONAL) PARA BORRAR SI TE EQUIVOCASTE (Devuelve el stock)
@@ -741,9 +752,9 @@ export class BookingService {
 
             client.totalBookings += 1;
 
-            if (booking.paymentStatus === 'DEBT') {
-                client.totalDebt += bookingTotal;
-            }
+            if (booking.paymentStatus === PaymentStatus.DEBT) { 
+    client.totalDebt += bookingTotal;
+}
             
             client.bookings.push({
                 id: booking.id,
@@ -764,4 +775,54 @@ export class BookingService {
             return b.totalBookings - a.totalBookings; 
         });
     }
+
+    async payBookingDebt(bookingId: number, paymentMethod: string) {
+    // 1. Buscamos la reserva con sus items para saber el total real
+    const booking = await prisma.booking.findUnique({
+        where: { id: bookingId },
+        include: { 
+            items: { include: { product: true } }, 
+            court: true, 
+            user: true 
+        }
+    });
+
+    if (!booking) throw new Error("La reserva no existe.");
+    
+    // Verificamos que sea una deuda
+    if (booking.paymentStatus !== PaymentStatus.DEBT) {
+        throw new Error("Esta reserva no figura como deuda.");
+    }
+
+    // 2. Calculamos el total (Precio Cancha + Consumos)
+    const courtPrice = 28000;
+    const itemsTotal = booking.items.reduce((sum, item) => sum + (Number(item.price) * item.quantity), 0);
+    const totalAmount = courtPrice + itemsTotal;
+
+    // 3. Actualizamos el estado a PAGADO
+    const updated = await prisma.booking.update({
+        where: { id: bookingId },
+        data: { 
+            paymentStatus: PaymentStatus.PAID 
+        }
+    });
+
+    // 4. 👇 REGISTRAMOS EL INGRESO EN LA CAJA (HOY)
+    if (totalAmount > 0) {
+        const clientName = booking.user 
+            ? `${booking.user.firstName} ${booking.user.lastName}` 
+            : booking.guestName;
+
+        await this.cashRepository.create({
+            date: new Date(), // Entra con fecha de HOY
+            type: 'INCOME',
+            amount: totalAmount,
+            description: `Cobro Deuda - Reserva #${booking.id} (${clientName})`,
+            method: paymentMethod, // 'CASH' o 'TRANSFER'
+            bookingId: booking.id
+        });
+    }
+
+    return updated;
+}
 }

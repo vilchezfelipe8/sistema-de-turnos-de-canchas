@@ -481,5 +481,21 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
             res.status(500).json({ error: 'Error al obtener clientes' });
         }
     }
+
+    payDebt = async (req: Request, res: Response) => {
+    try {
+        const { bookingId, paymentMethod } = req.body;
+
+        if (!bookingId || !paymentMethod) {
+            return res.status(400).json({ error: "Faltan datos (ID o Método)" });
+        }
+
+        const result = await this.bookingService.payBookingDebt(bookingId, paymentMethod);
+        res.json(result);
+    } catch (error: any) {
+        console.error("Error al saldar deuda:", error);
+        res.status(400).json({ error: error.message });
+    }
+}
 }
 

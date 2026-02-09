@@ -3,6 +3,7 @@ import AdminLayout from '../../components/AdminLayout';
 import NotFound from '../../components/NotFound';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
 import AdminTabClients from '../../components/admin/AdminTabClients';
+import Head from 'next/dist/shared/lib/head';
 
 export default function AdminClientesPage() {
   const { authChecked, user } = useValidateAuth({ requireAdmin: true });
@@ -14,6 +15,9 @@ export default function AdminClientesPage() {
     <div className="min-h-screen text-text relative overflow-hidden" style={{ backgroundColor: 'var(--bg)' }}>
       <Navbar />
       <AdminLayout>
+        <Head>
+          <title>Clientes | Admin Panel</title>
+        </Head>
         <AdminTabClients />
       </AdminLayout>
     </div>
