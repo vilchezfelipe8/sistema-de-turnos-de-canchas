@@ -90,10 +90,20 @@ export default function AdminTabBookings() {
   const [scheduleBookings, setScheduleBookings] = useState<any[]>([]);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedBookingId, setSelectedBookingId] = useState<number | null>(null);
+
   
   const [selectedBooking, setSelectedBooking] = useState<any>(null);
   const params = useParams();
   const urlSlug = params.slug;
+
+  const handleOpenPaymentModal = (bookingId: number) => {
+    setSelectedBookingId(bookingId);
+    setShowPaymentModal(true);
+};
+
+
 
   const [manualBooking, setManualBooking] = useState({
     guestFirstName: '',
@@ -376,15 +386,45 @@ export default function AdminTabBookings() {
     }
   };
 
-  const handleConfirmBooking = async (booking: any) => {
+
+    const handleConfirmBooking = async (method: 'CASH' | 'TRANSFER' | 'DEBT') => {
+    if (!selectedBookingId) return;
+
     try {
-      await confirmBookingService(booking.id);
-      showInfo('✅ Turno confirmado', 'Listo');
-      loadSchedule();
-    } catch (error: any) {
-      showError('Error: ' + error.message);
+        const token = localStorage.getItem('token');
+        
+        // Llamada al backend
+        await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/bookings/confirm`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ 
+                bookingId: selectedBookingId, 
+                paymentMethod: method 
+            })
+        });
+
+        // 1. Cerramos el modal
+        setShowPaymentModal(false);
+        
+        // 2. Recargamos la grilla para ver el cambio de color
+        loadSchedule(); 
+
+        // 3. Feedback al usuario
+        if (method === 'DEBT') {
+             // Puedes usar showInfo o alert
+             alert("✅ Reserva confirmada y dejada en cuenta.");
+        } else {
+             alert(`✅ Cobro registrado con ${method === 'CASH' ? 'Efectivo' : 'Transferencia'}`);
+        }
+
+    } catch (error) {
+        console.error(error);
+        alert("❌ Error al confirmar la reserva");
     }
-  };
+};
 
   return (
     <>
@@ -667,7 +707,12 @@ export default function AdminTabBookings() {
                           </button>
 
                           {slot.booking.status !== 'CONFIRMED' && (
-                            <button onClick={() => handleConfirmBooking(slot.booking)} className="text-xs btn h-7 px-2.5 py-0 bg-emerald-500/10 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/20 hover:border-emerald-400/70 leading-none whitespace-nowrap" title="Confirmar turno">✓ CONFIRMAR</button>
+                            <button 
+                              onClick={() => handleOpenPaymentModal(slot.booking.id)} // 👈 Ahora abre el modal
+                              className="text-xs btn h-7 px-2.5 py-0 bg-green-500/10 border-green-500/40 text-green-300 hover:bg-green-500/20 hover:border-green-400/70 leading-none whitespace-nowrap"
+>
+                              ✓ Confirmar
+                          </button>
                           )}
                           <button onClick={() => handleCancelBooking(slot.booking)} className={`text-xs btn h-7 px-2.5 py-0 bg-red-500/10 border-red-500/40 text-red-300 hover:bg-red-500/20 hover:border-red-400/70 leading-none whitespace-nowrap ${slot.booking.fixedBookingId ? 'shadow-[0_0_10px_rgba(239,68,68,0.25)]' : ''}`} title={slot.booking.fixedBookingId ? 'Cancelar Turno Fijo' : 'Cancelar'}>✕ {slot.booking.fixedBookingId ? 'BAJA' : 'CANCELAR'}</button>
                         </div>
@@ -699,6 +744,59 @@ export default function AdminTabBookings() {
         </ModalPortal>
       )}
       {/* 👆👆👆 FIN DEL MODAL 👆👆👆 */}
+
+      {/* --- MODAL DE SELECCIÓN DE PAGO --- */}
+      {showPaymentModal && (
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[9999] p-4 animate-in fade-in duration-200">
+        <div className="bg-gray-900 border border-gray-700 p-6 rounded-xl shadow-2xl max-w-sm w-full relative">
+            {/* Botón X para cerrar rápido */}
+            <button 
+                onClick={() => setShowPaymentModal(false)}
+                className="absolute top-3 right-3 text-gray-500 hover:text-white"
+            >✕</button>
+
+            <h3 className="text-xl font-bold text-white mb-2 text-center">Confirmar Reserva</h3>
+            <p className="text-gray-400 text-sm mb-6 text-center">
+                Selecciona el método de cobro
+            </p>
+            
+            {/* Grilla de opciones */}
+            <div className="grid grid-cols-2 gap-3 mb-3">
+                <button
+                    onClick={() => handleConfirmBooking('CASH')}
+                    className="flex flex-col items-center justify-center p-4 bg-emerald-900/30 border border-emerald-800 hover:bg-emerald-900/50 rounded-lg text-emerald-400 transition-all hover:scale-[1.02]"
+                >
+                    <span className="text-2xl mb-1">💵</span>
+                    <span className="font-bold text-sm">Efectivo</span>
+                </button>
+
+                <button
+                    onClick={() => handleConfirmBooking('TRANSFER')}
+                    className="flex flex-col items-center justify-center p-4 bg-blue-900/30 border border-blue-800 hover:bg-blue-900/50 rounded-lg text-blue-400 transition-all hover:scale-[1.02]"
+                >
+                    <span className="text-2xl mb-1">💳</span>
+                    <span className="font-bold text-sm">Digital / MP</span>
+                </button>
+            </div>
+
+            {/* Botón Dejar en Cuenta (Ancho completo abajo) */}
+            <button
+                onClick={() => handleConfirmBooking('DEBT')}
+                className="w-full p-3 flex items-center justify-center gap-2 bg-yellow-900/20 border border-yellow-700/50 hover:bg-yellow-900/40 rounded-lg text-yellow-500 transition-all mb-4"
+            >
+                <span>📄</span>
+                <span className="font-bold text-sm">Dejar en Cuenta (Sin cobrar)</span>
+            </button>
+
+            <button 
+                onClick={() => setShowPaymentModal(false)}
+                className="w-full text-gray-500 hover:text-gray-300 text-xs hover:underline"
+            >
+                Cancelar operación
+            </button>
+        </div>
+    </div>
+)}
 
       <AppModal show={modalState.show} onClose={closeModal} onCancel={modalState.onCancel} title={modalState.title} message={modalState.message} cancelText={modalState.cancelText} confirmText={modalState.confirmText} isWarning={modalState.isWarning} onConfirm={modalState.onConfirm} closeOnBackdrop={modalState.closeOnBackdrop} closeOnEscape={modalState.closeOnEscape} />
     </>

@@ -11,9 +11,9 @@ import { requireRole } from '../middleware/RoleMiddleware';
 import { setAdminClubFromUser } from '../middleware/ClubMiddleware';
 import { ProductRepository } from '../repositories/ProductRepository';
 
-
 const router = Router();
 
+// 1. Instanciamos todo
 const bookingRepository = new BookingRepository();
 const courtRepository = new CourtRepository();
 const userRepository = new UserRepository();
@@ -32,21 +32,36 @@ const bookingService = new BookingService(
 
 const bookingController = new BookingController(bookingService);
 
-router.get('/availability', bookingController.getAvailability);
-router.get('/all-availability', bookingController.getAllAvailableSlots);
-router.get('/availability-with-courts', bookingController.getAvailableSlotsWithCourts);
-router.post('/', optionalAuthMiddleware, bookingController.createBooking);
-router.post('/cancel', authMiddleware, bookingController.cancelBooking);
-router.post('/confirm', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, bookingController.confirmBooking);
-router.get('/history/:userId', authMiddleware, bookingController.getHistory);
-router.get('/admin/schedule', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, bookingController.getAdminSchedule);
-router.post('/fixed', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, bookingController.createFixed);
-router.delete('/fixed/:id', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, bookingController.cancelFixed);
-router.get('/:id/items', authMiddleware, bookingController.getItems);
-router.post('/:id/items', authMiddleware, bookingController.addItem);
-router.delete('/items/:itemId', authMiddleware, bookingController.removeItem);
-router.get('/debtors/list', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, bookingController.getDebtors);
-router.patch('/:id/payment-status', authMiddleware, bookingController.updateStatus);
+// Disponibilidad
+router.get('/availability', (req, res) => bookingController.getAvailability(req, res));
+router.get('/all-availability', (req, res) => bookingController.getAllAvailableSlots(req, res));
+router.get('/availability-with-courts', (req, res) => bookingController.getAvailableSlotsWithCourts(req, res));
+
+router.post('/confirm', authMiddleware, (req, res) => bookingController.confirmBooking(req, res));
+
+// Cancelación
+router.post('/cancel', authMiddleware, (req, res) => bookingController.cancelBooking(req, res));
+
+// Rutas de Admin (Schedule, Fixed, Debtors)
+router.get('/admin/schedule', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, (req, res) => bookingController.getAdminSchedule(req, res));
+router.post('/fixed', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, (req, res) => bookingController.createFixed(req, res));
+router.delete('/fixed/:id', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, (req, res) => bookingController.cancelFixed(req, res));
+
+// Deudores (Esta tiene que ir ANTES de cualquier ruta con /:id para no confundirse)
+router.get('/debtors/list', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, (req, res) => bookingController.getDebtors(req, res));
+
+// Crear Reserva (Base)
+router.post('/', optionalAuthMiddleware, (req, res) => bookingController.createBooking(req, res));
+
+
+// Items y Productos
+router.get('/:id/items', authMiddleware, (req, res) => bookingController.getItems(req, res));
+router.post('/:id/items', authMiddleware, (req, res) => bookingController.addItem(req, res));
+router.delete('/items/:itemId', authMiddleware, (req, res) => bookingController.removeItem(req, res));
+
+// Historial y Estados
+router.get('/history/:userId', authMiddleware, (req, res) => bookingController.getHistory(req, res));
+router.patch('/:id/payment-status', authMiddleware, (req, res) => bookingController.updateStatus(req, res));
+
 
 export default router;
-

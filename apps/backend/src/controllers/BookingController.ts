@@ -243,18 +243,24 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
     }
 
     confirmBooking = async (req: Request, res: Response) => {
-        try {
-            const { bookingId } = req.body;
-            if (!bookingId) {
-                return res.status(400).json({ error: "Falta bookingId." });
-            }
-            const clubId = (req as any).clubId; // Agregado por middleware de verificación de club
-            const result = await this.bookingService.confirmBooking(Number(bookingId), clubId);
-            res.json({ message: "Reserva confirmada", booking: result });
-        } catch (error: any) {
-            res.status(400).json({ error: error.message });
-        }
+    try {
+        const { bookingId, paymentMethod } = req.body; 
+        
+        const userId = (req as any).user.id; 
+
+
+        const result = await this.bookingService.confirmBooking(
+            bookingId, 
+            userId, 
+            paymentMethod 
+        );
+
+        res.json(result);
+    } catch (error: any) {
+        console.error("Error en confirmBooking:", error);
+        res.status(400).json({ error: error.message });
     }
+};
 
     getHistory = async (req: Request, res: Response) => {
         try {

@@ -146,72 +146,82 @@ export class BookingService {
         return freeSlots;
     }
 
-    async cancelBooking(bookingId: number, cancelledByUserId: number, clubId?: number) {
-        const booking = await this.bookingRepo.findById(bookingId);
-        if (!booking) {
-            throw new Error("La reserva no existe.");
-        }
-        
-        // Si hay clubId, verificar que la reserva pertenece al club
-        if (clubId && booking.court.club.id !== clubId) {
-            throw new Error("No tienes acceso a esta reserva");
-        }
-        
-        await this.bookingRepo.delete(bookingId, cancelledByUserId);
-        const updated = await this.bookingRepo.findById(bookingId);
-        return updated;
+   async cancelBooking(bookingId: number, cancelledByUserId: number, clubId?: number) {
+    // 1. Buscamos la reserva
+    const booking = await this.bookingRepo.findById(bookingId);
+    
+    if (!booking) {
+        throw new Error("La reserva no existe.");
+    }
+    
+    // Si hay clubId, verificar que la reserva pertenece al club
+    if (clubId && booking.court.club.id !== clubId) {
+        throw new Error("No tienes acceso a esta reserva");
     }
 
-    async confirmBooking(bookingId: number, clubId?: number) {
-        const booking = await this.bookingRepo.findById(bookingId);
-    
-        if (!booking) {
-            throw new Error("La reserva no existe.");
-        }
-        
-        // Si hay clubId, verificar que la reserva pertenece al club
-        if (clubId && booking.court.club.id !== clubId) {
-            throw new Error("No tienes acceso a esta reserva");
-        }
-        
-        if (booking.status === BookingStatus.CANCELLED) {
-            throw new Error("No se puede confirmar una reserva cancelada.");
-        }
-        if (booking.status === BookingStatus.COMPLETED) {
-            throw new Error("No se puede confirmar una reserva completada.");
-        }
-        if (booking.status === BookingStatus.CONFIRMED) {
-            return booking;
-        }
-
-        // 1. Actualizamos el estado en la DB
-        const updated = await prisma.booking.update({
-            where: { id: bookingId },
-            data: { status: BookingStatus.CONFIRMED },
-            include: { user: true, court: { include: { club: true } }, activity: true }
-        });
-
+    if (booking.status === BookingStatus.CONFIRMED) {
         try {
-            
-            const price = 28000; // Aquí podrías usar updated.price si el precio es dinámico o depende de la actividad/cancha/etc.
+            const price = 28000;
+
             if (price > 0) {
                 await this.cashRepository.create({
                     date: new Date(),
-                    type: 'INCOME', // Es un Ingreso
+                    type: 'EXPENSE', // 🔴 Registramos un GASTO (Salida)
                     amount: price,
-                    description: `Cobro Turno #${updated.id} - ${updated.court.name}`,
-                    method: 'CASH', // Por defecto Efectivo (luego podés recibirlo por parámetro)
-                    bookingId: updated.id
+                    description: `Anulación Reserva #${bookingId} (${booking.court.name})`,
+                    method: 'CASH', // Asumimos devolución en efectivo por defecto
+                    bookingId: bookingId
                 });
-                console.log(`💰 Caja actualizada: +$${price} por Turno #${updated.id}`);
+                console.log(`📉 Caja ajustada: -$${price} por cancelación de reserva #${bookingId}`);
             }
         } catch (error) {
-            console.error("⚠️ Error al registrar movimiento en caja:", error);
+            console.error("⚠️ Error al registrar devolución en caja:", error);
+            // No detenemos la cancelación, solo avisamos.
         }
-        // ----------------------------------------
-
-        return this.bookingRepo.mapToEntity(updated);
     }
+
+    // 2. Ahora sí, procedemos a cancelar (Soft Delete o cambio de estado)
+    await this.bookingRepo.delete(bookingId, cancelledByUserId);
+    
+    const updated = await this.bookingRepo.findById(bookingId);
+    return updated;
+}
+    async confirmBooking(bookingId: number, userId: number, paymentMethod: string = 'CASH') { 
+    
+    const booking = await this.bookingRepo.findById(bookingId);
+    if (!booking) throw new Error("La reserva no existe.");
+    // ... validaciones ...
+
+    // 1. Actualizamos estado
+    const updated = await prisma.booking.update({
+        where: { id: bookingId },
+        data: { status: BookingStatus.CONFIRMED },
+        include: { user: true, court: { include: { club: true } }, activity: true }
+    });
+
+    // 2. Registramos en CAJA con el método elegido
+    if (paymentMethod !== 'DEBT') { 
+        try {
+            const price = 28000;
+            if (price > 0) {
+                await this.cashRepository.create({
+                    date: new Date(),
+                    type: 'INCOME',
+                    amount: price,
+                    description: `Cobro Turno #${updated.id} - ${updated.court.name}`,
+                    method: paymentMethod, 
+                    bookingId: updated.id
+                });
+            }
+        } catch (error) {
+            console.error("⚠️ Error caja:", error);
+        }
+    } else {
+        console.log("📝 Reserva confirmada como 'En Cuenta' (No ingresa dinero a caja).");
+    }
+
+    return this.bookingRepo.mapToEntity(updated);
+}
 
     async getUserHistory(userId: number) {
         const bookings = await this.bookingRepo.findByUserId(userId);
