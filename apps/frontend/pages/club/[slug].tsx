@@ -78,10 +78,8 @@ export default function ClubPage() {
       <div className="relative z-10 w-full flex flex-col items-center">
         <Navbar />
         
-        <div className="w-full max-w-6xl mt-12 mb-8 px-4">
-          <div className="text-left mb-6">
-            <h1 className="text-2xl sm:text-3xl font-black text-emerald-400 tracking-tight">{club.name}</h1>
-          </div>
+        <div className="w-full max-w-6xl mt-20 md:mt-20 mb-8 px-4">
+          
 
           <div className="mt-8 grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-6">
             {/* Reservas: solo canchas y turnos de este club */}
@@ -89,112 +87,123 @@ export default function ClubPage() {
 
             {/* Info del club */}
             <div className="flex flex-col gap-6">
-              <div className="bg-surface-70 border border-border rounded-3xl p-5">
-                <h3 className="text-lg font-bold text-text mb-4">Información</h3>
-                <div className="space-y-3 text-sm text-muted">
-                  <p className="text-text font-semibold">{club.name}</p>
-                  {club.description && (
-                    <p className="text-text text-xs">{club.description}</p>
-                  )}
-                  <div className="flex items-start gap-2">
-                    <span>📍</span>
-                    <span>{club.address}</span>
-                  </div>
-                  {club.phone && (
-                    <div className="flex items-center gap-2">
-                      <span>📞</span>
-                      <span>{club.phone}</span>
-                    </div>
-                  )}
-                  {club.contactInfo && (
-                    <div className="flex items-center gap-2">
-                      <span>✉️</span>
+            {/* BLOQUE INFORMACIÓN */}
+            <div className="bg-surface-70 border border-border rounded-3xl p-5">
+              <h3 className="text-lg font-bold text-text mb-4">Información</h3>
+              <div className="space-y-3 text-sm text-muted">
+                                
+                {club.description && (
+                  <p className="text-text font-semibold">{club.description}</p>
+                )}
+
+                {/* 📍 DIRECCIÓN -> GOOGLE MAPS */}
+                <a 
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(club.name + ' ' + club.address)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  // 👇 CAMBIO: hover:text-white (Texto blanco al pasar mouse)
+                  className="flex items-start gap-2 font-bold hover:text-white transition-colors group cursor-pointer"
+                >
+                  <span>📍</span>
+                  {/* 👇 CAMBIO: decoration-white (Subrayado blanco) */}
+                  <span className="group-hover:underline decoration-white underline-offset-4">
+                    {club.address}
+                  </span>
+                </a>
+
+                {/* 📞 TELÉFONO -> LLAMAR */}
+                {club.phone && (
+                  <a 
+                    href={`tel:${club.phone.replace(/\s+/g, '')}`}
+                    // 👇 CAMBIO: hover:text-white
+                    className="flex items-start gap-2 font-bold hover:text-white transition-colors group cursor-pointer"
+                  >
+                    <span>📞</span>
+                    {/* 👇 CAMBIO: decoration-white */}
+                    <span className="group-hover:underline decoration-white underline-offset-4">
+                      {club.phone}
+                    </span>
+                  </a>
+                )}
+
+                {/* ✉️ CONTACTO / EMAIL */}
+                {club.contactInfo && (
+                  <div className="flex items-center gap-2">
+                    <span>✉️</span>
+                    {club.contactInfo.includes('@') ? (
+                      <a 
+                        href={`mailto:${club.contactInfo}`}
+                        // 👇 CAMBIO: hover:text-white y decoration-white
+                        className="flex items-start gap-2 font-bold hover:text-white transition-colors group cursor-pointer"
+                      >
+                        {club.contactInfo}
+                      </a>
+                    ) : (
                       <span>{club.contactInfo}</span>
-                    </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* BLOQUE SOCIAL (Este lo dejé igual, avisame si también querés el social en blanco) */}
+            {(club.instagramUrl || club.facebookUrl || club.websiteUrl) && (
+              <div className="bg-surface-70 border border-border rounded-3xl p-5">
+                <h3 className="text-lg font-bold text-text mb-4">Social</h3>
+                <div className="space-y-2">
+                  {club.instagramUrl && (
+                    <a
+                      href={club.instagramUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-start gap-2 font-bold hover:text-white transition-colors group cursor-pointer"
+                    >
+                      <span aria-hidden="true" className="inline-flex">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="3" width="18" height="18" rx="5" />
+                          <circle cx="12" cy="12" r="4" />
+                          <circle cx="17" cy="7" r="1.2" fill="currentColor" stroke="none" />
+                        </svg>
+                      </span>
+                      <span>{club.instagramUrl.replace(/^https?:\/\/(www\.)?(instagram\.com\/)?/, '@')}</span>
+                    </a>
+                  )}
+                  {club.facebookUrl && (
+                    <a
+                      href={club.facebookUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-sm text-muted hover:text-white hover:underline decoration-white transition-colors flex items-center gap-2"
+                    >
+                      <span aria-hidden="true" className="inline-flex">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                        </svg>
+                      </span>
+                      <span>Facebook</span>
+                    </a>
+                  )}
+                  {club.websiteUrl && (
+                    <a
+                      href={club.websiteUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-sm text-muted hover:text-white hover:underline decoration-white transition-colors flex items-center gap-2"
+                    >
+                      <span aria-hidden="true" className="inline-flex">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="12" r="10"/>
+                          <line x1="2" y1="12" x2="22" y2="12"/>
+                          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                        </svg>
+                      </span>
+                      <span>Sitio web</span>
+                    </a>
                   )}
                 </div>
               </div>
-
-              {(club.instagramUrl || club.facebookUrl || club.websiteUrl) && (
-                <div className="bg-surface-70 border border-border rounded-3xl p-5">
-                  <h3 className="text-lg font-bold text-text mb-4">Social</h3>
-                  <div className="space-y-2">
-                    {club.instagramUrl && (
-                      <a
-                        href={club.instagramUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sm text-muted hover:text-text hover:underline transition-colors flex items-center gap-2"
-                      >
-                        <span aria-hidden="true" className="inline-flex">
-                          <svg
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.6"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <rect x="3" y="3" width="18" height="18" rx="5" />
-                            <circle cx="12" cy="12" r="4" />
-                            <circle cx="17" cy="7" r="1.2" fill="currentColor" stroke="none" />
-                          </svg>
-                        </span>
-                        <span>{club.instagramUrl.replace(/^https?:\/\/(www\.)?(instagram\.com\/)?/, '@')}</span>
-                      </a>
-                    )}
-                    {club.facebookUrl && (
-                      <a
-                        href={club.facebookUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sm text-muted hover:text-text hover:underline transition-colors flex items-center gap-2"
-                      >
-                        <span aria-hidden="true" className="inline-flex">
-                          <svg
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                          >
-                            <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-                          </svg>
-                        </span>
-                        <span>Facebook</span>
-                      </a>
-                    )}
-                    {club.websiteUrl && (
-                      <a
-                        href={club.websiteUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sm text-muted hover:text-text hover:underline transition-colors flex items-center gap-2"
-                      >
-                        <span aria-hidden="true" className="inline-flex">
-                          <svg
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.6"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <circle cx="12" cy="12" r="10"/>
-                            <line x1="2" y1="12" x2="22" y2="12"/>
-                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-                          </svg>
-                        </span>
-                        <span>Sitio web</span>
-                      </a>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
+            )}
+          </div>
           </div>
         </div>
 

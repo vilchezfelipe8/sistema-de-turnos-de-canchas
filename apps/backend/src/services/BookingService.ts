@@ -711,114 +711,61 @@ async updatePaymentStatus(id: number, status: 'PAID' | 'DEBT' | 'PARTIAL') {
 
     // En BookingService.ts
 
-async getClientStats(clubId?: number) {
-    const where: any = { status: { not: 'CANCELLED' } };
-    if (clubId != null) where.court = { clubId };
-
-    const bookings = await this.prisma.booking.findMany({
-        where,
-        include: {
-            user: true,
-            court: true,
-            items: { include: { product: true } },
-            cashMovements: true 
+async getClientStats(clubId: number, userId: number) {
+    // 1. Buscamos SOLO los turnos que realmente generan deuda (DEBT o PARTIAL)
+    // EXCLUIMOS 'PENDING' para que las reservas web no sumen deuda automáticamente.
+    const debtBookings = await prisma.booking.findMany({
+      where: {
+        court: {
+            clubId: clubId
         },
-        orderBy: { startDateTime: 'desc' }
+        userId,
+        paymentStatus: {
+          in: ['DEBT', 'PARTIAL'] // 👈 CLAVE: Solo estos estados suman deuda
+        },
+        status: { not: 'CANCELLED' }
+      },
+      include: {
+        items: true,
+        cashMovements: true // Necesitamos ver si hubo señas
+      }
     });
 
-    const clientsMap: any = {};
+    // 2. Calculamos la deuda real
+    let totalDebt = 0;
 
-    const capitalize = (str: string) => {
-        if (!str) return '';
-        return str.toLowerCase().replace(/(?:^|\s)\S/g, (a) => a.toUpperCase());
-    };
+    for (const booking of debtBookings) {
+      // Precio cancha
+      const courtPrice = Number(booking.price);
+      
+      // Precio productos/items extras
+      const itemsPrice = booking.items.reduce((sum, item) => sum + (Number(item.price) * item.quantity), 0);
+      
+      // Total que debería haber pagado
+      const grandTotal = courtPrice + itemsPrice;
 
-    for (const rawBooking of bookings) {
-        const booking = rawBooking as any; // Evitamos errores de tipos
+      // Total que YA pagó (señas o pagos parciales)
+      const totalPaid = booking.cashMovements.reduce((sum, mov) => sum + Number(mov.amount), 0);
 
-        const rawName = booking.user 
-            ? `${booking.user.firstName} ${booking.user.lastName}` 
-            : (booking.guestName || 'Cliente Sin Nombre');
-
-        let clientKey = '';
-        if (booking.userId) clientKey = `u_${booking.userId}`;
-        else if (booking.guestDni) clientKey = `d_${booking.guestDni}`;
-        else {
-            const cleanName = rawName.trim().toLowerCase();
-            clientKey = `n_${cleanName}`;
-        }
-
-        if (!clientsMap[clientKey]) {
-            clientsMap[clientKey] = {
-                id: clientKey,
-                name: capitalize(rawName),
-                dni: booking.guestDni || '-',
-                phone: booking.user ? booking.user.phoneNumber : booking.guestPhone,
-                totalBookings: 0,
-                totalDebt: 0,
-                lastVisit: booking.startDateTime,
-                bookings: []
-            };
-        }
-
-        const client = clientsMap[clientKey];
-
-        // --- 💰 NUEVA LÓGICA: RESPETANDO EL ESTADO ---
-        
-        const courtPrice = Number(booking.price) || 0; 
-        
-        // Sumamos el precio de todos los items de esta reserva
-        const itemsTotal = (booking.items || []).reduce((sum: number, item: any) => {
-            return sum + (Number(item.price) * item.quantity);
-        }, 0);
-
-        let bookingDebt = 0;
-
-        // 1. Si está PAGADO, la deuda es 0 (no importa si hay items, ya se pagaron).
-        if (booking.paymentStatus === 'PAID') {
-            bookingDebt = 0;
-        } 
-        // 2. Si es PARCIAL, asumimos que la CANCHA está paga, pero debe los ITEMS (el "fiado").
-        else if (booking.paymentStatus === 'PARTIAL') {
-            bookingDebt = itemsTotal; 
-            
-            // Opcional: Si hubiera pagos parciales de items registrados en caja, se restarían acá.
-            // Pero por ahora, PARTIAL = Debe todo lo consumido.
-        }
-        // 3. Si es DEBT (o PENDING), debe TODO (Cancha + Items).
-        else {
-            bookingDebt = courtPrice + itemsTotal;
-        }
-
-        // --- FIN LÓGICA DEUDA ---
-
-        client.totalBookings += 1;
-        
-        // Solo sumamos si hay deuda real
-        if (bookingDebt > 0) {
-            client.totalDebt += bookingDebt;
-        }
-
-        // Agregamos al historial si hay deuda o si es reciente
-        client.bookings.push({
-            id: booking.id,
-            date: booking.startDateTime,
-            total: bookingDebt, // Mostramos lo que debe
-            originalTotal: courtPrice + itemsTotal, // Total real de la operación
-            courtName: booking.court?.name || 'Cancha',
-            paymentStatus: booking.paymentStatus,
-            items: booking.items
-        });
-
-        if (new Date(booking.startDateTime) > new Date(client.lastVisit)) {
-            client.lastVisit = booking.startDateTime;
-        }
+      // La deuda es la diferencia
+      totalDebt += (grandTotal - totalPaid);
     }
 
-    return Object.values(clientsMap).sort((a: any, b: any) => {
-        if (b.totalDebt !== a.totalDebt) return b.totalDebt - a.totalDebt; 
-        return b.totalBookings - a.totalBookings; 
+    // 3. Contamos partidos jugados (Histórico)
+    const totalBookings = await prisma.booking.count({
+      where: {
+        court: {
+            clubId: clubId
+        },
+        userId,
+        status: 'COMPLETED'
+      }
     });
+
+    return {
+      totalBookings,
+      totalDebt: totalDebt > 0 ? totalDebt : 0 // Devolvemos 0 si no hay deuda
+    };
 }
 
     async payBookingDebt(bookingId: number, paymentMethod: string) {
@@ -870,4 +817,116 @@ async getClientStats(clubId?: number) {
 
     return updated;
 }
+
+
+async getClubDebtors(clubId: number) {
+    // 1. Traemos TODAS las reservas activas
+    const bookings = await prisma.booking.findMany({
+      where: {
+        court: { clubId: clubId },
+        status: { not: 'CANCELLED' }
+      },
+      include: {
+        user: true, 
+        items: {
+            include: {
+                product: true // 👈 ESTO TRAE EL NOMBRE (Coca, Gatorade, etc.)
+            }
+        },
+        cashMovements: true, // Esto es vital para que veas los pagos anteriores
+        court: true
+      }
+    });
+
+    // 2. Mapa para agrupar clientes
+    const clientsMap = new Map();
+
+    for (const booking of bookings) {
+      
+      // --- LÓGICA DE AGRUPACIÓN (DNI > Teléfono > Nombre) ---
+      let uniqueKey = "";
+      let displayName = "";
+      let displayPhone = "";
+      let displayEmail = "";
+      let displayDni = "";
+
+      if (booking.userId && booking.user) {
+        uniqueKey = `USER_${booking.userId}`;
+        displayName = `${booking.user.firstName || ''} ${booking.user.lastName || ''}`.trim();
+        displayPhone = booking.user.phoneNumber || "";
+        displayEmail = booking.user.email || "";
+      } else {
+        const guestDni = booking.guestDni?.trim();
+        const guestPhone = booking.guestPhone?.trim();
+        const guestName = booking.guestName?.trim();
+
+        if (guestDni) uniqueKey = `GUEST_DNI_${guestDni}`;
+        else if (guestPhone) uniqueKey = `GUEST_PHONE_${guestPhone}`;
+        else if (guestName) uniqueKey = `GUEST_NAME_${guestName.toLowerCase()}`;
+        else uniqueKey = `ANON_${booking.id}`;
+
+        displayName = guestName || "Invitado";
+        displayPhone = guestPhone || "";
+        displayEmail = booking.guestEmail || "";
+        displayDni = guestDni || "";
+      }
+
+      // --- INICIALIZAR EN EL MAPA ---
+      if (!clientsMap.has(uniqueKey)) {
+        clientsMap.set(uniqueKey, {
+          // Datos básicos del cliente
+          id: booking.userId || parseInt(uniqueKey.replace(/\D/g, '').substring(0, 8)) || Date.now(),
+          name: displayName || "Sin Nombre",
+          phone: displayPhone, 
+          email: displayEmail,
+          dni: displayDni,
+          
+          // Contadores
+          totalDebt: 0,
+          totalBookings: 0, 
+          bookings: [] // Lista de reservas
+        });
+      }
+
+      const client = clientsMap.get(uniqueKey);
+      client.totalBookings++; // Sumamos al historial
+
+      // --- CÁLCULOS DE DINERO ---
+      const courtPrice = Number(booking.price);
+      const itemsPrice = booking.items.reduce((acc, item) => acc + (Number(item.price) * item.quantity), 0);
+      const total = courtPrice + itemsPrice;
+      const paid = booking.cashMovements.reduce((acc, mov) => acc + Number(mov.amount), 0);
+      const debt = total - paid;
+      
+      // Verificamos si es una deuda real (DEBT/PARTIAL y > 0)
+      const isDebtStatus = ['DEBT', 'PARTIAL'].includes(booking.paymentStatus);
+      const hasPendingDebt = isDebtStatus && debt > 0;
+
+      // Si hay deuda, agregamos la reserva a la lista de "A pagar"
+      if (hasPendingDebt) {
+          client.totalDebt += debt;
+
+          const fechaObj = new Date(booking.startDateTime);
+          
+          // 👇 ACÁ ESTABA EL ERROR: Ahora usamos spread (...booking) para mandar TODO
+          client.bookings.push({
+            ...booking, // 👈 ESTO ES CLAVE: Manda cashMovements, items, notes, etc.
+
+            // Sobreescribimos/Agregamos los campos calculados que necesita el frontend visualmente
+            date: fechaObj.toISOString().split('T')[0],
+            time: fechaObj.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }),
+            
+            courtName: booking.court.name, // Helper visual
+            
+            // Valores calculados
+            price: total,       // Total original (Cancha + Items)
+            amount: debt,       // Lo que falta pagar (Deuda)
+            paid: paid          // Lo que ya se pagó
+          });
+      }
+    }
+
+    return Array.from(clientsMap.values());
+}
+
 }

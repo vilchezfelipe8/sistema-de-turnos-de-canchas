@@ -536,10 +536,10 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
     getDebtors = async (req: Request, res: Response) => {
         try {
             const clubId = (req as any).clubId;
-            const data = await this.bookingService.getClientStats(clubId);
+            const data = await this.bookingService.getClubDebtors(clubId);
             res.json(data);
         } catch (error) {
-            res.status(500).json({ error: 'Error al obtener clientes' });
+            res.status(500).json({ error: 'Error al obtener clientes con deuda' });
         }
     }
 

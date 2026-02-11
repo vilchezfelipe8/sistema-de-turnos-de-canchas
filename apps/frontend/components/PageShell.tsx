@@ -36,7 +36,6 @@ export default function PageShell({ title, subtitle, children }: PageShellProps)
                 {subtitle && <p className="text-muted">{subtitle}</p>}
               </div>
             )}
-
             <div className="content">
               {children}
             </div>
