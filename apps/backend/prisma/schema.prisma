@@ -63,6 +63,7 @@ model Club {
   courts       Court[]
   users        User[]
   products     Product[]
+  cashMovements CashMovement[]
 }
 
 model Court {
@@ -119,7 +120,7 @@ model Booking {
   fixedBookingId Int?
   items          BookingItem[]
   paymentStatus  PaymentStatus  @default(PENDING)
-  CashMovement   CashMovement[]
+  cashMovements CashMovement[]
 }
 
 model FixedBooking {
@@ -190,4 +191,7 @@ model CashMovement {
   // Opcional: Relaciones para saber de dónde vino
   bookingId Int?
   booking   Booking? @relation(fields: [bookingId], references: [id])
+
+  clubId      Int      @default(1) // Le ponemos default 1 para que no falle con datos viejos
+  club        Club     @relation(fields: [clubId], references: [id])
 }

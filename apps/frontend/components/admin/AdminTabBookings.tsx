@@ -612,8 +612,17 @@ export default function AdminTabBookings() {
                       {/* LÓGICA DE ESTADO CON ESTÉTICA PREMIUM */}
                       {(() => {
                         const [h, m] = slot.slotTime.split(':').map(Number);
-                        const slotDate = new Date();
+  
+                        let slotDate;
+                        if (scheduleDate) {
+                            const [year, month, day] = scheduleDate.split('-').map(Number);
+                            slotDate = new Date(year, month - 1, day); // Mes es 0-indexado
+                        } else {
+                            slotDate = new Date(); // Si no hay fecha, usamos hoy
+                        }
+
                         slotDate.setHours(h, m, 0, 0);
+
                         const now = new Date();
                         const isPast = slotDate < now;
 
@@ -735,6 +744,7 @@ export default function AdminTabBookings() {
             bookingId={selectedBooking.id}
             slug={getClubSlug() || ''} // <--- Función arreglada para no devolver vacío
             courtPrice={selectedBooking.price}
+            paymentStatus={selectedBooking.paymentStatus}
             onClose={() => setSelectedBooking(null)}
             onConfirm={() => {
                 setSelectedBooking(null);

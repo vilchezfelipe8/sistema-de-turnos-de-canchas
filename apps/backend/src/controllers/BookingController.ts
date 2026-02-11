@@ -428,28 +428,89 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
     }
 
     //  AGREGAR CONSUMO (POST)
-    addItem = async (req: Request, res: Response) => {
-        try {
-            const { id } = req.params; // ID de la reserva
-            const { productId, quantity } = req.body; // Datos del producto
+   async addItem(req: Request, res: Response) {
+    try {
 
-            // Validamos que vengan los datos
-            if (!productId || !quantity) {
-                return res.status(400).json({ error: 'Falta productId o quantity' });
-            }
+        // 1. 👇 LÓGICA DE SEGURIDAD PARA EL ID
+        // Buscamos el ID en la URL (params) O en el cuerpo (body)
+        const paramId = req.params.id || req.params.bookingId;
+        const bodyId = req.body.bookingId;
+        const rawBookingId = paramId || bodyId;
 
-            const item = await this.bookingService.addItemToBooking(
-                Number(id), 
-                Number(productId), 
-                Number(quantity)
-            );
-            
-            res.status(201).json(item);
-        } catch (error: any) {
-            // Si el servicio tira error (ej: "Sin stock"), lo devolvemos al frontend
-            res.status(400).json({ error: error.message || 'Error al agregar consumo' });
+        // Recuperamos el resto de datos
+        const { productId, quantity, paymentMethod } = req.body;
+
+        // Si después de buscar en los dos lados no hay ID, cortamos acá
+        if (!rawBookingId) {
+            return res.status(400).json({ error: "Falta el ID de la reserva (bookingId no encontrado en URL ni Body)" });
         }
+
+        const bookingId = Number(rawBookingId); // Convertimos a número seguro
+
+        // Validaciones básicas...
+        const booking = await prisma.booking.findUnique({ 
+            where: { id: bookingId }, // Usamos el ID seguro
+            include: { court: true }
+        });
+        if (!booking) return res.status(404).json({ error: "Reserva no encontrada" });
+
+        const product = await prisma.product.findUnique({ where: { id: Number(productId) } });
+        if (!product) return res.status(404).json({ error: "Producto no encontrado" });
+
+        if (product.stock < quantity) {
+            return res.status(400).json({ error: "No hay suficiente stock" });
+        }
+
+        // 2. Agregamos el Item a la Reserva
+        const newItem = await prisma.bookingItem.create({
+            data: {
+                bookingId: bookingId,
+                productId: Number(productId),
+                quantity: Number(quantity),
+                price: Number(product.price) // Convertimos Decimal a Number
+            }
+        });
+
+        // 3. Descontamos Stock
+        await prisma.product.update({
+            where: { id: Number(productId) },
+            data: { stock: { decrement: Number(quantity) } }
+        });
+
+        // 4. Lógica de Caja (CashMovement)
+        if (paymentMethod !== 'DEBT') {
+            await prisma.cashMovement.create({
+                data: {
+                    date: new Date(),
+                    type: 'INCOME',
+                    amount: Number(product.price) * Number(quantity),
+                    description: `Venta Extra: ${quantity}x ${product.name} (Reserva #${bookingId})`,
+                    method: paymentMethod || 'CASH', // CASH o TRANSFER
+                    bookingId: bookingId,
+                    clubId: booking.court.clubId
+                }
+            });
+        } 
+        else {
+            // Si es 'DEBT', actualizamos estado si estaba todo pago
+            if (booking.paymentStatus === 'PAID') {
+                await prisma.booking.update({
+                    where: { id: bookingId },
+                    data: { paymentStatus: 'PARTIAL' } 
+                });
+            }
+        }
+
+        return res.json(newItem);
+
+    } catch (error: any) { // 👇 Le ponemos 'any' para poder leer el mensaje
+        console.error("❌ Error en addItem:", error);
+        // Devolvemos el error real para verlo en el frontend
+        return res.status(500).json({ 
+            error: "Error al agregar item: " + (error.message || "Desconocido") 
+        });
     }
+}
 
     //  ELIMINAR CONSUMO (DELETE)
     removeItem = async (req: Request, res: Response) => {
@@ -482,19 +543,74 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
         }
     }
 
-    payDebt = async (req: Request, res: Response) => {
+   async payDebt(req: Request, res: Response) {
     try {
-        const { bookingId, paymentMethod } = req.body;
+        const { bookingId, paymentMethod } = req.body; // 'CASH' o 'TRANSFER'
 
-        if (!bookingId || !paymentMethod) {
-            return res.status(400).json({ error: "Faltan datos (ID o Método)" });
+        // 1. Buscamos la reserva con sus items y datos de cancha
+        const booking = await prisma.booking.findUnique({
+            where: { id: Number(bookingId) },
+            include: { 
+                items: true, 
+                court: true 
+            }
+        });
+
+        if (!booking) {
+            return res.status(404).json({ error: "Reserva no encontrada" });
         }
 
-        const result = await this.bookingService.payBookingDebt(bookingId, paymentMethod);
-        res.json(result);
-    } catch (error: any) {
-        console.error("Error al saldar deuda:", error);
-        res.status(400).json({ error: error.message });
+        if (booking.paymentStatus !== 'DEBT' && booking.paymentStatus !== 'PARTIAL') {
+            return res.status(400).json({ error: "Esta reserva no figura como deuda." });
+        }
+
+        // 👇 CAMBIO 2: Calculamos cuánto hay que cobrar
+        let amountToPay = 0;
+        
+        // Sumamos el total de los consumos (items)
+        const itemsTotal = booking.items.reduce((sum, item) => sum + (Number(item.price) * item.quantity), 0);
+
+        if (booking.paymentStatus === 'DEBT') {
+            // Si es DEUDA TOTAL: Cobramos Cancha + Items
+            amountToPay = Number(booking.price) + itemsTotal;
+        } else {
+            // Si es PARTIAL: La cancha ya estaba paga, solo cobramos los Items
+            amountToPay = itemsTotal;
+        }
+
+        // Si por alguna razón el monto es 0 o menor, solo actualizamos el estado y salimos
+        if (amountToPay <= 0) {
+            await prisma.booking.update({
+                where: { id: booking.id },
+                data: { paymentStatus: 'PAID' }
+            });
+            return res.json({ message: "Deuda regularizada (Monto $0)" });
+        }
+
+        // 3. Registramos el ingreso en la CAJA 💰
+        await prisma.cashMovement.create({
+            data: {
+                date: new Date(),
+                type: 'INCOME',
+                amount: amountToPay,
+                description: `Cobro Deuda Reserva #${booking.id} (${booking.paymentStatus === 'PARTIAL' ? 'Consumos' : 'Total'})`,
+                method: paymentMethod || 'CASH',
+                bookingId: booking.id,
+                clubId: booking.court.clubId
+            }
+        });
+
+        // 4. Finalmente, marcamos la reserva como PAGADA ✅
+        await prisma.booking.update({
+            where: { id: booking.id },
+            data: { paymentStatus: 'PAID' }
+        });
+
+        return res.json({ message: "Deuda cobrada exitosamente" });
+
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: "Error al cobrar deuda" });
     }
 }
 }

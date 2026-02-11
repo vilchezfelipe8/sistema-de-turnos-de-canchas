@@ -255,13 +255,26 @@ export class ClubAdminService {
     return res.json();
   }
 
-  static async addItemToBooking(bookingId: number, productId: number, quantity: number) {
+  static async addItemToBooking(
+    bookingId: number, 
+    productId: number, 
+    quantity: number, 
+    paymentMethod: 'CASH' | 'DEBT' | 'TRANSFER'
+  ) {
     if (!getToken()) throw new Error('No autenticado');
+    
+    // La URL está bien...
     const res = await fetchWithAuth(`${API_URL}/api/bookings/${bookingId}/items`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ productId, quantity })
+      body: JSON.stringify({ 
+          bookingId,  // 👈 ¡FALTABA ESTA LÍNEA! AGREGALA
+          productId, 
+          quantity,
+          paymentMethod 
+      })
     });
+
     if (!res.ok) {
       const errorData = await res.json();
       throw new Error(errorData.error || 'Error al agregar producto');
@@ -278,7 +291,7 @@ export class ClubAdminService {
     return res.json();
   }
 
-  static async updateBookingPaymentStatus(bookingId: number, status: 'PAID' | 'DEBT') {
+  static async updateBookingPaymentStatus(bookingId: number, status: 'PAID' | 'DEBT' | 'PARTIAL') {
     if (!getToken()) throw new Error('No autenticado');
     const res = await fetchWithAuth(`${API_URL}/api/bookings/${bookingId}/payment-status`, {
       method: 'PATCH',

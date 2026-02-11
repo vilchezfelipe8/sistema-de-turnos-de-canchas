@@ -310,50 +310,67 @@ const processDebtPayment = async (method: 'CASH' | 'TRANSFER') => {
             {/* LISTA DE RESERVAS IMPAGAS */}
             <div className="p-6 overflow-y-auto custom-scrollbar space-y-3">
                 {selectedDebtor.bookings
-                    .filter((b: any) => b.paymentStatus === 'DEBT' || b.paymentStatus === 'PENDING') // Filtramos solo lo que debe
-                    .map((booking: any) => (
-                        <div key={booking.id} className="bg-gray-800/50 border border-gray-700 p-4 rounded-lg flex flex-col sm:flex-row justify-between items-center gap-4">
-                            
-                            {/* Info de la Reserva */}
-                            <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                    <span className="text-emerald-400 font-bold text-sm">#{booking.id}</span>
-                                    <span className="text-gray-300 font-medium">| {new Date(booking.date).toLocaleDateString()} - {new Date(booking.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                                </div>
-                                <div className="text-sm text-gray-400">
-                                    Cancha: {booking.courtName || 'Cancha'}
-                                </div>
-                                {/* Si tiene productos extra */}
-                                {booking.items && booking.items.length > 0 && (
-                                    <div className="mt-2 flex flex-wrap gap-1">
-                                        {booking.items.map((item: any, i: number) => (
-                                            <span key={i} className="text-[10px] bg-gray-700 px-2 py-0.5 rounded text-gray-300">
-                                                {item.quantity}x {item.product?.name}
-                                            </span>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
+                    // 👇 CORRECCIÓN 1: Agregamos 'PARTIAL' al filtro para que aparezcan las que deben solo consumos
+                    .filter((b: any) => ['DEBT', 'PENDING', 'PARTIAL'].includes(b.paymentStatus)) 
+                    .map((booking: any) => {
+                        
+                        // 👇 CORRECCIÓN 2: Calculamos cuánto debe realmente esa línea
+                        // Si es PARTIAL, solo debe los items. Si es DEBT, debe todo.
+                        const itemsTotal = booking.items?.reduce((s: any, i: any) => s + (i.price * i.quantity), 0) || 0;
+                        const amountOwed = booking.paymentStatus === 'PARTIAL' ? itemsTotal : booking.total;
 
-                            {/* Monto y Botón de Cobrar */}
-                            <div className="flex items-center gap-4">
-                                <div className="text-right">
-                                    <div className="text-lg font-bold text-white font-mono">${booking.total}</div>
-                                    <div className="text-[10px] text-red-400 uppercase tracking-wider font-bold">Impago</div>
-                                </div>
+                        return (
+                            <div key={booking.id} className="bg-gray-800/50 border border-gray-700 p-4 rounded-lg flex flex-col sm:flex-row justify-between items-center gap-4">
                                 
-                                <button
-                                    onClick={() => handleOpenPayModal(booking.id)} // <--- ESTO ABRE EL MODAL DE CASH/TRANSFER
-                                    className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-lg shadow-emerald-900/20 transition-all active:scale-95 flex items-center gap-2"
-                                >
-                                    💵 Cobrar
-                                </button>
+                                {/* Info de la Reserva */}
+                                <div className="flex-1">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className="text-emerald-400 font-bold text-sm">#{booking.id}</span>
+                                        <span className="text-gray-300 font-medium">| {new Date(booking.date).toLocaleDateString()}</span>
+                                        {/* Etiqueta de estado para claridad */}
+                                        {booking.paymentStatus === 'PARTIAL' && (
+                                            <span className="text-[10px] bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-1.5 rounded">PARCIAL</span>
+                                        )}
+                                    </div>
+                                    <div className="text-sm text-gray-400">
+                                        Cancha: {booking.courtName || 'Cancha'} 
+                                        {booking.paymentStatus === 'PARTIAL' && <span className="text-emerald-500 ml-1">(Pagada)</span>}
+                                    </div>
+                                    
+                                    {/* Productos Extra */}
+                                    {booking.items && booking.items.length > 0 && (
+                                        <div className="mt-2 flex flex-wrap gap-1">
+                                            {booking.items.map((item: any, i: number) => (
+                                                <span key={i} className="text-[10px] bg-gray-700 px-2 py-0.5 rounded text-gray-300 border border-gray-600">
+                                                    {item.quantity}x {item.product?.name}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Monto y Botón de Cobrar */}
+                                <div className="flex items-center gap-4">
+                                    <div className="text-right">
+                                        {/* 👇 Mostramos el monto real de deuda (amountOwed) en vez del total */}
+                                        <div className="text-lg font-bold text-white font-mono">${amountOwed}</div>
+                                        <div className="text-[10px] text-red-400 uppercase tracking-wider font-bold">Impago</div>
+                                    </div>
+                                    
+                                    <button
+                                        onClick={() => handleOpenPayModal(booking.id)}
+                                        className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-lg shadow-emerald-900/20 transition-all active:scale-95 flex items-center gap-2"
+                                    >
+                                        💵 Cobrar
+                                    </button>
+                                </div>
                             </div>
-                        </div>
-                ))}
+                        );
+                    })}
                 
-                {selectedDebtor.bookings.filter((b: any) => b.paymentStatus === 'DEBT').length === 0 && (
-                    <p className="text-center text-gray-500 py-4">No hay reservas pendientes (Error visual: actualice la página)</p>
+                {/* 👇 CORRECCIÓN 3: Ajustar el mensaje de "No hay reservas" también */}
+                {selectedDebtor.bookings.filter((b: any) => ['DEBT', 'PENDING', 'PARTIAL'].includes(b.paymentStatus)).length === 0 && (
+                    <p className="text-center text-gray-500 py-4">No hay deudas pendientes.</p>
                 )}
 
                 {showPayMethodModal && (
