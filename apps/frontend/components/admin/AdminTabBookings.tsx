@@ -18,7 +18,8 @@ import {
 import AppModal from '../AppModal';
 import BookingConsumption from '../BookingConsumption';
 import { useParams } from 'react-router-dom';
-import DatePickerDark from '../../components/ui/DatePickerDark'; 
+import DatePickerDark from '../../components/ui/DatePickerDark';
+import { Trash2, Check, ShoppingCart } from 'lucide-react'; 
 
 registerLocale('es', es);
 
@@ -709,21 +710,28 @@ export default function AdminTabBookings() {
                           {/* BOTÓN CARRITO - EXTRAS */}
                           <button 
                             onClick={() => setSelectedBooking(slot.booking)}
-                            className="text-xs btn h-7 px-2.5 py-0 bg-blue-500/10 border-blue-500/40 text-blue-300 hover:bg-blue-500/20 hover:border-blue-400/70 leading-none whitespace-nowrap" 
-                            title="Agregar Consumos / Extras"
+                            className="p-2 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 hover:border-blue-500/50 transition-all"
+                            title="Ver detalles y consumos"
                           >
-                            🛒 EXTRAS
+                            <ShoppingCart size={18} />
                           </button>
 
-                          {slot.booking.status !== 'CONFIRMED' && (
-                            <button 
-                              onClick={() => handleOpenPaymentModal(slot.booking.id)} // 👈 Ahora abre el modal
-                              className="text-xs btn h-7 px-2.5 py-0 bg-green-500/10 border-green-500/40 text-green-300 hover:bg-green-500/20 hover:border-green-400/70 leading-none whitespace-nowrap"
->
-                              ✓ Confirmar
-                          </button>
+                          {slot.booking.status === 'PENDING' && (
+                            <button
+                              onClick={() => handleOpenPaymentModal(slot.booking.id)}
+                              className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 hover:border-emerald-500/50 transition-all"
+                              title="Confirmar Reserva"
+                            >
+                              <Check size={18} />
+                            </button>
                           )}
-                          <button onClick={() => handleCancelBooking(slot.booking)} className={`text-xs btn h-7 px-2.5 py-0 bg-red-500/10 border-red-500/40 text-red-300 hover:bg-red-500/20 hover:border-red-400/70 leading-none whitespace-nowrap ${slot.booking.fixedBookingId ? 'shadow-[0_0_10px_rgba(239,68,68,0.25)]' : ''}`} title={slot.booking.fixedBookingId ? 'Cancelar Turno Fijo' : 'Cancelar'}>✕ {slot.booking.fixedBookingId ? 'BAJA' : 'CANCELAR'}</button>
+                                                    <button
+                            onClick={() => handleCancelBooking(slot.booking)}
+                            className={`p-2 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 hover:border-red-500/50 transition-all ${slot.booking.fixedBookingId ? 'shadow-[0_0_10px_rgba(239,68,68,0.2)]' : ''}`}
+                            title={slot.booking.fixedBookingId ? 'Dar de baja Turno Fijo' : 'Cancelar Reserva'}
+                          >
+                            <Trash2 size={18} />
+                          </button>
                         </div>
                       )}
                     </td>

@@ -46,16 +46,22 @@ const Navbar = () => {
   useEffect(() => {
     const loadClub = async () => {
       try {
-        // Obtener el slug de la URL actual
         const path = router.asPath;
+        // Usar pathname para detectar home (pathname no incluye query params)
+        const isHome = router.pathname === '/';
+
+        // En la home mostramos siempre branding genérico (no es una página de club específico)
+        if (isHome) {
+          setClub(null);
+          return;
+        }
+
         const slugMatch = path.match(/\/club\/([^\/]+)/);
-        
         if (slugMatch && slugMatch[1]) {
-          // Si estamos en una página de club, usar el slug de la URL
           const clubData = await ClubService.getClubBySlug(slugMatch[1]);
           setClub(clubData);
         } else {
-          // Si no hay slug en la URL, intentar obtener el club del usuario
+          // En otras rutas sin slug (ej: /bookings), mostrar el club del usuario
           const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
           if (userStr) {
             try {
@@ -63,19 +69,24 @@ const Navbar = () => {
               if (user?.clubId) {
                 const clubData = await ClubService.getClubById(user.clubId);
                 setClub(clubData);
+              } else {
+                setClub(null);
               }
             } catch {
-              // noop
+              setClub(null);
             }
+          } else {
+            setClub(null);
           }
         }
       } catch (error) {
         console.error('Error al cargar información del club:', error);
+        setClub(null);
       }
     };
 
     loadClub();
-  }, [router.asPath]);
+  }, [router.asPath, router.pathname]);
 
   const handleLogout = () => {
     setShowLogoutModal(true);
@@ -92,32 +103,36 @@ const Navbar = () => {
         
         {/* Logo y Título Estilizado */}
         <Link href={club ? `/club/${club.slug}` : '/'} className="flex items-center gap-3 group">
-  
-        {/* 1. LOGO (Se mantiene igual) */}
-        <img 
-          src={club?.logoUrl || '/logo1.svg'} 
-          alt={club?.name || 'Logo'} 
-          className="h-16 w-16 md:h-20 md:w-20 object-contain transition-transform group-hover:scale-110" 
-          onError={(e) => { (e.target as HTMLImageElement).src = '/logo1.svg'; }}
-        />
-
-        {/* 2. TEXTO DINÁMICO (Ahora visible en celular) */}
-        {/* 👇 CAMBIO: Se eliminó la clase 'max-[900px]:hidden' */}
-        <div className="flex flex-col justify-center">
-            
-            {/* TÍTULO PRINCIPAL */}
-            {/* 👇 CAMBIO: Tamaño base 'text-3xl' para celular. Luego crece en md y lg */}
-            <h1 className="text-3xl md:text-5xl lg:text-6xl font-extrabold text-white uppercase tracking-tighter leading-none whitespace-nowrap">
-              {club?.name || 'LAS TEJAS'}
-            </h1>
-            
-            {/* SUBTÍTULO (El tamaño pequeño está bien para celular) */}
-            <span className="text-[9px] md:text-[11px] font-bold text-gray-300 uppercase tracking-[0.4em] leading-tight pl-0.5 mt-1">
-              CLUB DE PADEL Y AMIGOS
-            </span>
-
-        </div>
-      </Link>
+          {club?.logoUrl ? (
+            <>
+              <img 
+                src={club.logoUrl} 
+                alt={club.name} 
+                className="h-20 w-20 object-contain transition-transform group-hover:scale-110" 
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                }}
+              />
+              <div className="flex flex-col leading-none max-[900px]:hidden">
+                <span className="text-lg md:text-2xl lg:text-3xl font-black text-emerald-400">
+                  {club.name}
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center gap-3">
+              {/* Solo mostramos logo genérico si no hay club asociado */}
+              {!club && router.pathname !== '/' && (
+                <img src="/logo1.svg" alt="Club" className="h-20 w-20 object-contain transition-transform group-hover:scale-110" />
+              )}
+              <div className="flex flex-col leading-none max-[900px]:hidden">
+                <span className="text-lg md:text-2xl lg:text-3xl font-black text-emerald-400">
+                  {club ? club.name : 'Sistema de Reservas'}
+                </span>
+              </div>
+            </div>
+          )}
+        </Link>
 
         {/* Menú (si está logueado o es invitado) */}
         {(user || isGuest) && (

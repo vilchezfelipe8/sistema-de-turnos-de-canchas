@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { ClubService, Club } from '../../services/ClubService';
 import AppModal from '../AppModal';
@@ -10,6 +10,9 @@ export default function AdminTabClub() {
     slug: '', name: '', address: '', contactInfo: '', phone: '', logoUrl: '',
     instagramUrl: '', facebookUrl: '', websiteUrl: '', description: ''
   });
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [logoError, setLogoError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [modalState, setModalState] = useState<{
     show: boolean; title?: string; message?: ReactNode; cancelText?: string; confirmText?: string;
     isWarning?: boolean; onConfirm?: () => Promise<void> | void; onCancel?: () => Promise<void> | void;
@@ -44,6 +47,7 @@ export default function AdminTabClub() {
           instagramUrl: clubData.instagramUrl || '', facebookUrl: clubData.facebookUrl || '',
           websiteUrl: clubData.websiteUrl || '', description: clubData.description || ''
         });
+        setLogoPreview(clubData.logoUrl || null);
       }
     } catch (error: any) {
       showError('Error al cargar información del club: ' + error.message);
@@ -63,6 +67,39 @@ export default function AdminTabClub() {
       showInfo('✅ Información del club actualizada correctamente', 'Éxito');
     } catch (error: any) {
       showError('Error al actualizar el club: ' + error.message);
+    }
+  };
+
+  const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setLogoError('El archivo debe ser una imagen (PNG, JPG, etc).');
+      return;
+    }
+    // Límite razonable de 2MB para el logo
+    if (file.size > 2 * 1024 * 1024) {
+      setLogoError('El logo no puede pesar más de 2MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      setClubForm((prev) => ({ ...prev, logoUrl: result }));
+      setLogoPreview(result);
+      setLogoError(null);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveLogo = () => {
+    setClubForm((prev) => ({ ...prev, logoUrl: '' }));
+    setLogoPreview(null);
+    setLogoError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -102,8 +139,48 @@ export default function AdminTabClub() {
                 <input type="text" value={clubForm.phone} onChange={(e) => setClubForm({ ...clubForm, phone: e.target.value })} className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50" placeholder="+54 9 357 135 9791" />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">URL del Logo</label>
-                <input type="url" value={clubForm.logoUrl} onChange={(e) => setClubForm({ ...clubForm, logoUrl: e.target.value })} className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50" placeholder="https://ejemplo.com/logo.png" />
+                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Logo del Club</label>
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-lg overflow-hidden border border-border bg-surface flex items-center justify-center">
+                    {logoPreview ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={logoPreview} alt="Logo del club" className="w-full h-full object-contain" />
+                    ) : (
+                      <span className="text-xs text-muted">Sin logo</span>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-surface border border-border text-text hover:border-emerald-500/60 hover:text-emerald-300 transition"
+                      >
+                        Subir imagen
+                      </button>
+                      {logoPreview && (
+                        <button
+                          type="button"
+                          onClick={handleRemoveLogo}
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-surface border border-red-500/50 text-red-300 hover:bg-red-500/10 transition"
+                        >
+                          Quitar logo
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted">
+                      Formato recomendado: cuadrado, máximo 2MB. Se guardará como parte de la configuración del club.
+                    </p>
+                    {logoError && <p className="text-[11px] text-red-400">{logoError}</p>}
+                  </div>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleLogoFileChange}
+                />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Instagram</label>
