@@ -3,7 +3,7 @@ import { ClubAdminService } from '../services/ClubAdminService';
 import { User, Phone, DollarSign, Calendar, Users, Trophy, Search, X, CheckCircle } from 'lucide-react';
 import { useRouter } from 'next/router';
 
- const formatDate = (dateInput: any) => {
+const formatDate = (dateInput: any) => {
   if (!dateInput) return '-';
   // Aseguramos que sea un objeto Date
   const date = new Date(dateInput);
@@ -13,6 +13,20 @@ import { useRouter } from 'next/router';
     month: '2-digit',
     year: 'numeric'
   });
+};
+
+const bookingStatusLabel: Record<string, string> = {
+  PENDING: 'Pendiente',
+  CONFIRMED: 'Confirmado',
+  COMPLETED: 'Completado',
+  CANCELLED: 'Cancelado'
+};
+
+const paymentStatusLabel: Record<string, string> = {
+  PENDING: 'Pendiente',
+  PAID: 'Pagado',
+  DEBT: 'Fiado',
+  PARTIAL: 'Parcial'
 };
 
 // 👇 1. DEFINICIÓN DEL MODAL (Esto es lo que te faltaba)
@@ -109,6 +123,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const [clients, setClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDebtor, setSelectedDebtor] = useState<any>(null);
+  const [selectedClientHistory, setSelectedClientHistory] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [showPayMethodModal, setShowPayMethodModal] = useState(false);
   const [bookingToPayId, setBookingToPayId] = useState<number | null>(null);
@@ -271,22 +286,31 @@ const processDebtPayment = async (method: 'CASH' | 'TRANSFER') => {
                         </td>
                         <td className="p-4"><span className="bg-gray-800 px-2 py-1 rounded text-xs text-gray-300">{client.totalBookings} reservas</span></td>
                         <td className="p-4">
-                        {client.totalDebt > 0 ? (
-                            <span className="inline-flex items-center gap-1 bg-red-500/10 text-red-400 px-3 py-1 rounded-full text-xs font-bold border border-red-500/20">
-                                DEBE: ${client.totalDebt.toLocaleString()}
-                            </span>
-                        ) : (
-                            <span className="inline-flex items-center gap-1 text-emerald-500 text-xs font-bold">✓ AL DÍA</span>
-                        )}
+                          {client.totalDebt > 0 ? (
+                              <span className="inline-flex items-center gap-1 bg-red-500/10 text-red-400 px-3 py-1 rounded-full text-xs font-bold border border-red-500/20">
+                                  DEBE: ${client.totalDebt.toLocaleString()}
+                              </span>
+                          ) : (
+                              <span className="inline-flex items-center gap-1 text-emerald-500 text-xs font-bold">✓ AL DÍA</span>
+                          )}
                         </td>
-                        <td className="p-4 text-right">
-                        {client.totalDebt > 0 ? (
-                            <button onClick={() => setSelectedDebtor(client)} className="text-xs bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg transition shadow-lg shadow-red-900/20 flex items-center gap-2 ml-auto font-bold">
-                            <DollarSign size={14}/> SALDAR DEUDA
+                        <td className="p-4">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              onClick={() => setSelectedClientHistory(client)}
+                              className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 px-3 py-2 rounded-lg transition"
+                            >
+                              Ver Historial
                             </button>
-                        ) : (
-                            <button onClick={() => alert('Historial de ' + client.name)} className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 px-3 py-2 rounded-lg transition ml-auto">Ver Historial</button>
-                        )}
+                            {client.totalDebt > 0 && (
+                              <button
+                                onClick={() => setSelectedDebtor(client)}
+                                className="text-xs bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg transition shadow-lg shadow-red-900/20 flex items-center gap-2 font-bold"
+                              >
+                                <DollarSign size={14}/> SALDAR DEUDA
+                              </button>
+                            )}
+                          </div>
                         </td>
                     </tr>
                     ))
@@ -299,7 +323,7 @@ const processDebtPayment = async (method: 'CASH' | 'TRANSFER') => {
         )}
       </div>
 
-      {/* RENDERIZAMOS EL MODAL SI HAY UN DEUDOR SELECCIONADO */}
+      {/* RENDERIZAMOS EL MODAL DE DEUDA SI HAY UN DEUDOR SELECCIONADO */}
       {selectedDebtor && (
     <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4 animate-in fade-in">
         <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -461,9 +485,146 @@ const processDebtPayment = async (method: 'CASH' | 'TRANSFER') => {
             </div>
         </div>
     </div>
+      )}
 
-    
-)}
+      {/* MODAL DE HISTORIAL COMPLETO DEL CLIENTE */}
+      {selectedClientHistory && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-gray-800 flex items-center justify-between bg-gray-950">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Users size={18} /> Historial de {selectedClientHistory.name}
+                </h3>
+                <p className="text-xs text-gray-400 mt-1">
+                  DNI: {selectedClientHistory.dni || '-'} · Tel: {selectedClientHistory.phone || '-'}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Total de reservas: <span className="font-mono text-emerald-400">{selectedClientHistory.totalBookings}</span>
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedClientHistory(null)}
+                className="text-gray-400 hover:text-white transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-3 custom-scrollbar">
+              {selectedClientHistory.history && selectedClientHistory.history.length > 0 ? (
+                selectedClientHistory.history
+                  .slice()
+                  .sort((a: any, b: any) => new Date(b.startDateTime).getTime() - new Date(a.startDateTime).getTime())
+                  .map((booking: any) => {
+                    const status = booking.status;
+                    const paymentStatus = booking.paymentStatus;
+                    const isCancelled = status === 'CANCELLED';
+                    const itemsTotal = (booking.items || []).reduce(
+                      (sum: number, item: any) => sum + Number(item.price) * item.quantity,
+                      0
+                    );
+                    const courtPrice = Number(booking.price || 0) - itemsTotal;
+
+                    return (
+                      <div
+                        key={booking.id}
+                        className={`flex justify-between items-center p-3 rounded-lg border ${
+                          isCancelled
+                            ? 'border-gray-700 bg-gray-900/60'
+                            : 'border-gray-700/70 bg-gray-800/60'
+                        }`}
+                      >
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2 text-sm text-white">
+                            <span className="font-mono text-emerald-400 font-bold">#{booking.id}</span>
+                            <span className="text-xs text-gray-400">
+                              {formatDate(booking.date)} · {booking.time}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-300">
+                            Cancha:{' '}
+                            <span className="font-semibold">
+                              {booking.courtName || booking.court?.name}
+                            </span>
+                            {courtPrice > 0 && (
+                              <span className="ml-2 text-[11px] text-gray-400">
+                                (${courtPrice.toLocaleString()})
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-2 mt-1 text-[10px] uppercase tracking-wide">
+                            <span
+                              className={`px-2 py-0.5 rounded-full border ${
+                                isCancelled
+                                  ? 'border-gray-500 text-gray-400'
+                                  : status === 'CONFIRMED' || status === 'COMPLETED'
+                                  ? 'border-emerald-500 text-emerald-400'
+                                  : 'border-yellow-500 text-yellow-300'
+                              }`}
+                            >
+                              Estado: {bookingStatusLabel[status] ?? status}
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded-full border ${
+                                paymentStatus === 'PAID'
+                                  ? 'border-emerald-500 text-emerald-400'
+                                  : ['DEBT', 'PARTIAL'].includes(paymentStatus)
+                                  ? 'border-red-500 text-red-400'
+                                  : 'border-gray-500 text-gray-400'
+                              }`}
+                            >
+                              Pago: {paymentStatusLabel[paymentStatus] ?? paymentStatus}
+                            </span>
+                          </div>
+
+                          {/* Detalle de productos / consumos */}
+                          {booking.items && booking.items.length > 0 && (
+                            <div className="mt-2 pl-2 border-l border-gray-700/60 space-y-1 text-[11px] text-gray-300">
+                              {booking.items.map((item: any, idx: number) => {
+                                const itemName = item.name || item.product?.name || 'Ítem';
+                                const itemTotal = Number(item.price) * item.quantity;
+                                return (
+                                  <div key={idx} className="flex justify-between gap-3">
+                                    <span className="flex items-center gap-1">
+                                      <span className="px-1.5 py-0.5 rounded bg-gray-800 text-[10px]">
+                                        {item.quantity}x
+                                      </span>
+                                      <span>{itemName}</span>
+                                    </span>
+                                    <span className="text-xs opacity-70">
+                                      ${itemTotal.toLocaleString()}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-right text-xs">
+                          <div className="text-gray-400">Total</div>
+                          <div className="text-white font-mono font-bold text-sm">
+                            ${Number(booking.price).toLocaleString()}
+                          </div>
+                          <div className="mt-1 text-gray-400">
+                            {booking.amount > 0
+                              ? `Debe $${Number(booking.amount).toLocaleString()}`
+                              : 'Sin deuda'}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+              ) : (
+                <p className="text-center text-gray-500 text-sm">
+                  Este cliente todavía no tiene reservas registradas.
+                </p>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -9,6 +9,8 @@ export const BookingTicket: React.FC<TicketProps> = ({ booking, currentItems }) 
   
   // 1. Precios Base
   const courtPrice = Number(booking.price) || 0;
+  const BASE_COURT_PRICE = 28000;
+  const lightsExtra = Math.max(courtPrice - BASE_COURT_PRICE, 0);
   
   // 2. Items YA cargados en base de datos
   const savedItems = booking.items || [];
@@ -41,6 +43,12 @@ export const BookingTicket: React.FC<TicketProps> = ({ booking, currentItems }) 
           <span>1x Alquiler Cancha</span>
           <span>${courtPrice}</span>
         </div>
+        {lightsExtra > 0 && (
+          <div className="flex justify-between text-[11px] text-gray-400">
+            <span>Incluye extra por luces</span>
+            <span>+ ${lightsExtra}</span>
+          </div>
+        )}
 
         {/* Items Guardados */}
         {savedItems.map((item: any) => (

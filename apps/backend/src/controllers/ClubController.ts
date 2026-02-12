@@ -6,7 +6,8 @@ export class ClubController {
 
     createClub = async (req: Request, res: Response) => {
         try {
-            const { slug, name, address, contact, phone, logoUrl, instagramUrl, facebookUrl, websiteUrl, description } = req.body;
+            const { slug, name, address, contact, phone, logoUrl, instagramUrl, facebookUrl, websiteUrl, description,
+                lightsEnabled, lightsExtraAmount, lightsFromHour } = req.body;
             if (!slug) {
                 return res.status(400).json({ error: 'El slug es requerido' });
             }
@@ -20,7 +21,10 @@ export class ClubController {
                 instagramUrl,
                 facebookUrl,
                 websiteUrl,
-                description
+                description,
+                Boolean(lightsEnabled),
+                lightsExtraAmount !== undefined && lightsExtraAmount !== null ? Number(lightsExtraAmount) : null,
+                lightsFromHour || null
             );
             res.status(201).json(club);
         } catch (error: any) {
@@ -79,7 +83,10 @@ export class ClubController {
                 instagramUrl,
                 facebookUrl,
                 websiteUrl,
-                description
+                description,
+                lightsEnabled,
+                lightsExtraAmount,
+                lightsFromHour
             } = req.body;
 
             const club = await this.clubService.updateClub(id, {
@@ -92,7 +99,10 @@ export class ClubController {
                 instagramUrl: instagramUrl === '' ? null : instagramUrl,
                 facebookUrl: facebookUrl === '' ? null : facebookUrl,
                 websiteUrl: websiteUrl === '' ? null : websiteUrl,
-                description: description === '' ? null : description
+                description: description === '' ? null : description,
+                lightsEnabled: typeof lightsEnabled === 'boolean' ? lightsEnabled : undefined,
+                lightsExtraAmount: lightsExtraAmount === '' || lightsExtraAmount === undefined ? null : Number(lightsExtraAmount),
+                lightsFromHour: lightsFromHour === '' ? null : lightsFromHour
             });
             res.json(club);
         } catch (error: any) {

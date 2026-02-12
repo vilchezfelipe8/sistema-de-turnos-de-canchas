@@ -22,7 +22,10 @@ export class ClubRepository {
         instagramUrl?: string,
         facebookUrl?: string,
         websiteUrl?: string,
-        description?: string
+        description?: string,
+        lightsEnabled: boolean = false,
+        lightsExtraAmount?: number | null,
+        lightsFromHour?: string | null
     ): Promise<Club> {
         const saved = await prisma.club.create({
             data: { 
@@ -35,7 +38,10 @@ export class ClubRepository {
                 instagramUrl,
                 facebookUrl,
                 websiteUrl,
-                description
+                description,
+                lightsEnabled,
+                lightsExtraAmount,
+                lightsFromHour
             }
         });
         return this.mapToClub(saved);
@@ -93,7 +99,10 @@ export class ClubRepository {
             club.instagramUrl,
             club.facebookUrl,
             club.websiteUrl,
-            club.description
+            club.description,
+            club.lightsEnabled,
+            club.lightsExtraAmount ?? null,
+            club.lightsFromHour ?? null
         );
     }
     
@@ -129,6 +138,9 @@ export class ClubRepository {
         facebookUrl?: string | null;
         websiteUrl?: string | null;
         description?: string | null;
+        lightsEnabled?: boolean;
+        lightsExtraAmount?: number | null;
+        lightsFromHour?: string | null;
     }): Promise<Club> {
         const updated = await prisma.club.update({
             where: { id },
@@ -150,6 +162,9 @@ export class ClubRepository {
             dbClub.facebookUrl || undefined,
             dbClub.websiteUrl || undefined,
             dbClub.description || undefined,
+            dbClub.lightsEnabled ?? false,
+            dbClub.lightsExtraAmount ?? null,
+            dbClub.lightsFromHour ?? null,
             dbClub.createdAt,
             dbClub.updatedAt
         );

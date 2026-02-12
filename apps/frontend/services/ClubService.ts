@@ -16,6 +16,9 @@ export interface Club {
   facebookUrl?: string;
   websiteUrl?: string;
   description?: string;
+  lightsEnabled?: boolean;
+  lightsExtraAmount?: number | null;
+  lightsFromHour?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }

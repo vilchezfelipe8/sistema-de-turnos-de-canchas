@@ -127,6 +127,8 @@ export default function BookingConsumption({ bookingId, slug, courtPrice = 0, pa
   // Si está en DEUDA, se gestiona desde Clientes, no acá.
   const isCourtResolved = paymentStatus === 'PAID' || paymentStatus === 'PARTIAL' || paymentStatus === 'DEBT';
   const courtPriceToPay = isCourtResolved ? 0 : (courtPrice || 0);
+  const BASE_COURT_PRICE = 28000;
+  const lightsExtra = Math.max((courtPrice || 0) - BASE_COURT_PRICE, 0);
 
   const consumptionTotal = cartItems
     .filter(item => item.isNew)
@@ -232,6 +234,12 @@ export default function BookingConsumption({ bookingId, slug, courtPrice = 0, pa
                 </span>
             </div>
           </div>
+          {lightsExtra > 0 && (
+            <div className="flex justify-between text-[11px] text-emerald-200/80">
+              <span>Incluye extra por luces</span>
+              <span>+ ${lightsExtra}</span>
+            </div>
+          )}
           <div className="flex justify-between text-gray-400">
             <span>Consumos (Nuevos)</span>
             <span>${consumptionTotal}</span>

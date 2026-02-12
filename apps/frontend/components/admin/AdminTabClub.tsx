@@ -8,7 +8,10 @@ export default function AdminTabClub() {
   const [loadingClub, setLoadingClub] = useState(false);
   const [clubForm, setClubForm] = useState({
     slug: '', name: '', address: '', contactInfo: '', phone: '', logoUrl: '',
-    instagramUrl: '', facebookUrl: '', websiteUrl: '', description: ''
+    instagramUrl: '', facebookUrl: '', websiteUrl: '', description: '',
+    lightsEnabled: false,
+    lightsExtraAmount: '',
+    lightsFromHour: ''
   });
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [logoError, setLogoError] = useState<string | null>(null);
@@ -45,7 +48,10 @@ export default function AdminTabClub() {
           slug: clubData.slug || '', name: clubData.name || '', address: clubData.address || '',
           contactInfo: clubData.contactInfo || '', phone: clubData.phone || '', logoUrl: clubData.logoUrl || '',
           instagramUrl: clubData.instagramUrl || '', facebookUrl: clubData.facebookUrl || '',
-          websiteUrl: clubData.websiteUrl || '', description: clubData.description || ''
+          websiteUrl: clubData.websiteUrl || '', description: clubData.description || '',
+          lightsEnabled: clubData.lightsEnabled ?? false,
+          lightsExtraAmount: clubData.lightsExtraAmount != null ? String(clubData.lightsExtraAmount) : '',
+          lightsFromHour: clubData.lightsFromHour || ''
         });
         setLogoPreview(clubData.logoUrl || null);
       }
@@ -62,7 +68,13 @@ export default function AdminTabClub() {
     e.preventDefault();
     if (!club) { showError('No se pudo identificar el club'); return; }
     try {
-      const updatedClub = await ClubService.updateClub(club.id, clubForm);
+      const payload: any = {
+        ...clubForm,
+        lightsEnabled: !!clubForm.lightsEnabled,
+        lightsExtraAmount: clubForm.lightsExtraAmount === '' ? null : Number(clubForm.lightsExtraAmount),
+        lightsFromHour: clubForm.lightsFromHour || null
+      };
+      const updatedClub = await ClubService.updateClub(club.id, payload);
       setClub(updatedClub);
       showInfo('✅ Información del club actualizada correctamente', 'Éxito');
     } catch (error: any) {
@@ -181,6 +193,54 @@ export default function AdminTabClub() {
                   className="hidden"
                   onChange={handleLogoFileChange}
                 />
+              </div>
+              <div className="md:col-span-2 mt-4 border-t border-border pt-4">
+                <p className="text-xs font-bold text-slate-500 mb-2 uppercase">Luces y Horarios</p>
+                <div className="flex flex-col md:flex-row gap-4 items-center">
+                  <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={clubForm.lightsEnabled}
+                      onChange={(e) => setClubForm({ ...clubForm, lightsEnabled: e.target.checked })}
+                      className="w-4 h-4 rounded border-gray-600 text-emerald-500 focus:ring-emerald-500 focus:ring-2"
+                    />
+                    <span className="text-sm">Cobrar extra por luces en horarios nocturnos</span>
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-400 mb-1">Monto extra</label>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-slate-500">$</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={100}
+                          disabled={!clubForm.lightsEnabled}
+                          value={clubForm.lightsExtraAmount}
+                          onChange={(e) => setClubForm({ ...clubForm, lightsExtraAmount: e.target.value })}
+                          className="w-28 bg-surface border border-border rounded-lg px-2 py-1 text-text text-sm focus:outline-none focus:border-emerald-500/50 disabled:opacity-50"
+                          placeholder="5000"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-400 mb-1">Desde hora</label>
+                      <select
+                        disabled={!clubForm.lightsEnabled}
+                        value={clubForm.lightsFromHour || ''}
+                        onChange={(e) => setClubForm({ ...clubForm, lightsFromHour: e.target.value })}
+                        className="bg-surface border border-border rounded-lg px-2 py-1 text-text text-sm focus:outline-none focus:border-emerald-500/50 disabled:opacity-50"
+                      >
+                        <option value="">Seleccionar...</option>
+                        <option value="18:00">18:00</option>
+                        <option value="19:00">19:00</option>
+                        <option value="20:00">20:00</option>
+                        <option value="21:00">21:00</option>
+                        <option value="22:00">22:00</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Instagram</label>

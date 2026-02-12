@@ -58,6 +58,10 @@ model Club {
   facebookUrl  String? // URL de Facebook
   websiteUrl   String? // URL del sitio web
   description  String? // Descripción del club
+  // Configuración de precios y luces
+  lightsEnabled      Boolean @default(false) // Si el club cobra extra por luces
+  lightsExtraAmount  Float?               // Monto extra por luces (opcional)
+  lightsFromHour     String?              // Hora local a partir de la cual se cobra (ej: "20:00")
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   courts       Court[]

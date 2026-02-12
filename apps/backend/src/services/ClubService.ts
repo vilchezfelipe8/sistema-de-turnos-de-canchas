@@ -22,7 +22,10 @@ export class ClubService {
         instagramUrl?: string,
         facebookUrl?: string,
         websiteUrl?: string,
-        description?: string
+        description?: string,
+        lightsEnabled: boolean = false,
+        lightsExtraAmount?: number | null,
+        lightsFromHour?: string | null
     ) {
         return await this.clubRepo.createClub(
             slug,
@@ -34,7 +37,10 @@ export class ClubService {
             instagramUrl,
             facebookUrl,
             websiteUrl,
-            description
+            description,
+            lightsEnabled,
+            lightsExtraAmount,
+            lightsFromHour
         );
     }
 
@@ -67,6 +73,9 @@ export class ClubService {
             facebookUrl?: string | null;
             websiteUrl?: string | null;
             description?: string | null;
+            lightsEnabled?: boolean;
+            lightsExtraAmount?: number | null;
+            lightsFromHour?: string | null;
         }
     ): Promise<Club> {
         const club = await this.clubRepo.findClubById(id);
@@ -93,11 +102,10 @@ export class ClubService {
     // 👇 2. NUEVO MÉTODO AGREGADO (Para el Buscador Inteligente)
     async getClients(clubId: number) {
     
-    // Buscamos todas las reservas de ese club que no estén canceladas
+    // Buscamos todas las reservas de ese club (incluyendo CANCELLED para mantener historial)
     const bookings = await prisma.booking.findMany({
         where: {
             court: { clubId: clubId }, // Usamos el ID directo
-            status: { not: 'CANCELLED' }
         },
         select: {
             guestName: true,

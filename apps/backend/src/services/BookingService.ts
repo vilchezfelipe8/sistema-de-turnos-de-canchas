@@ -64,6 +64,28 @@ export class BookingService {
 
         const endDateTime = new Date(startDateTime.getTime() + activity.defaultDurationMinutes * 60000);
 
+        // Calcular precio base y extra por luces según configuración del club
+        const BASE_PRICE = 28000; // TODO: opcionalmente mover a configuración por club
+        let finalPrice = BASE_PRICE;
+
+        const clubConfig = court.club as any;
+        if (clubConfig && clubConfig.lightsEnabled && clubConfig.lightsExtraAmount && clubConfig.lightsFromHour) {
+            try {
+                const [lh, lm] = String(clubConfig.lightsFromHour).split(':').map((n: string) => parseInt(n, 10));
+                if (!Number.isNaN(lh) && !Number.isNaN(lm)) {
+                    const bookingHour = startDateTime.getHours();
+                    const bookingMinutes = startDateTime.getMinutes();
+                    const bookingTotalMinutes = bookingHour * 60 + bookingMinutes;
+                    const lightsTotalMinutes = lh * 60 + lm;
+                    if (bookingTotalMinutes >= lightsTotalMinutes) {
+                        finalPrice += Number(clubConfig.lightsExtraAmount);
+                    }
+                }
+            } catch {
+                // Si algo falla en el parseo, seguimos cobrando solo el precio base
+            }
+        }
+
         const created = await prisma.$transaction(async (tx: any) => {
             const overlapping = await tx.booking.findMany({
                 where: {
@@ -85,7 +107,7 @@ export class BookingService {
                 data: {
                     startDateTime,
                     endDateTime,
-                    price: 28000,
+                    price: finalPrice,
                     status: BookingStatus.PENDING,
                     // userId puede ser null para invitado
                     userId: user ? user.id : undefined,
@@ -820,11 +842,10 @@ async getClientStats(clubId: number, userId: number) {
 
 
 async getClubDebtors(clubId: number) {
-    // 1. Traemos TODAS las reservas activas
+    // 1. Traemos TODAS las reservas del club (incluyendo CANCELLED para conservar historial)
     const bookings = await prisma.booking.findMany({
       where: {
-        court: { clubId: clubId },
-        status: { not: 'CANCELLED' }
+        court: { clubId: clubId }
       },
       include: {
         user: true, 
@@ -884,12 +905,13 @@ async getClubDebtors(clubId: number) {
           // Contadores
           totalDebt: 0,
           totalBookings: 0, 
-          bookings: [] // Lista de reservas
+          bookings: [], // Lista de reservas con deuda (compatibilidad hacia el front actual)
+          history: []   // Historial completo de reservas (incluye CANCELLED, PAID, etc.)
         });
       }
 
       const client = clientsMap.get(uniqueKey);
-      client.totalBookings++; // Sumamos al historial
+      client.totalBookings++; // Sumamos al historial (aunque no deba nada)
 
       // --- CÁLCULOS DE DINERO ---
       const courtPrice = Number(booking.price);
@@ -902,27 +924,29 @@ async getClubDebtors(clubId: number) {
       const isDebtStatus = ['DEBT', 'PARTIAL'].includes(booking.paymentStatus);
       const hasPendingDebt = isDebtStatus && debt > 0;
 
-      // Si hay deuda, agregamos la reserva a la lista de "A pagar"
+      const fechaObj = new Date(booking.startDateTime);
+      const bookingView = {
+        ...booking, // 👈 Manda cashMovements, items, etc.
+
+        // Sobreescribimos/Agregamos los campos calculados que necesita el frontend visualmente
+        date: fechaObj.toISOString().split('T')[0],
+        time: fechaObj.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }),
+        
+        courtName: booking.court.name, // Helper visual
+        
+        // Valores calculados
+        price: total,       // Total original (Cancha + Items)
+        amount: debt,       // Lo que falta pagar (Deuda)
+        paid: paid          // Lo que ya se pagó
+      };
+
+      // Siempre agregamos al historial completo
+      client.history.push(bookingView);
+
+      // Si hay deuda, también lo agregamos a la lista de "A pagar"
       if (hasPendingDebt) {
           client.totalDebt += debt;
-
-          const fechaObj = new Date(booking.startDateTime);
-          
-          // 👇 ACÁ ESTABA EL ERROR: Ahora usamos spread (...booking) para mandar TODO
-          client.bookings.push({
-            ...booking, // 👈 ESTO ES CLAVE: Manda cashMovements, items, notes, etc.
-
-            // Sobreescribimos/Agregamos los campos calculados que necesita el frontend visualmente
-            date: fechaObj.toISOString().split('T')[0],
-            time: fechaObj.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }),
-            
-            courtName: booking.court.name, // Helper visual
-            
-            // Valores calculados
-            price: total,       // Total original (Cancha + Items)
-            amount: debt,       // Lo que falta pagar (Deuda)
-            paid: paid          // Lo que ya se pagó
-          });
+          client.bookings.push(bookingView);
       }
     }
 

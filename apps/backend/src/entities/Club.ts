@@ -15,6 +15,9 @@ export class Club {
         public facebookUrl?: string,
         public websiteUrl?: string,
         public description?: string,
+        public lightsEnabled: boolean = false,
+        public lightsExtraAmount?: number | null,
+        public lightsFromHour?: string | null,
         public createdAt?: Date,
         public updatedAt?: Date
     ) {}

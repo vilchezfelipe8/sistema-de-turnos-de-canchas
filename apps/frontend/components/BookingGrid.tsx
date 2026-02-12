@@ -13,8 +13,10 @@ import 'react-datepicker/dist/react-datepicker.css';
 registerLocale('es', es);
 
 import { getApiUrl } from '../utils/apiUrl';
+import { ClubService, Club } from '../services/ClubService';
 
 const API_URL = getApiUrl();
+const BASE_COURT_PRICE = 28000;
 
 interface BookingGridProps {
   /** Slug del club: cuando está en /club/[slug], solo se muestran canchas y turnos de ese club */
@@ -107,6 +109,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   const [disabledSlots, setDisabledSlots] = useState<Record<string, boolean>>({});
   const STORAGE_PREFIX = 'disabledSlots:';
   const [allCourts, setAllCourts] = useState<Array<{ id: number; name: string }>>([]);
+  const [clubConfig, setClubConfig] = useState<Club | null>(null);
   const getTrimmedGuestInfo = () => {
     const trimmedPhone = guestPhone.replace(/\D/g, '');
     const firstName = guestFirstName.trim();
@@ -159,6 +162,24 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     setIsAuthenticated(!!token);
   }, []);
 
+  // --- Cargar configuración del club (para saber si aplica extra por luces) ---
+  useEffect(() => {
+    if (!clubSlug) {
+      setClubConfig(null);
+      return;
+    }
+    const fetchClub = async () => {
+      try {
+        const data = await ClubService.getClubBySlug(clubSlug);
+        setClubConfig(data);
+      } catch (err) {
+        console.error('Error loading club config', err);
+        setClubConfig(null);
+      }
+    };
+    fetchClub();
+  }, [clubSlug]);
+
   // --- LÓGICA DE FILTRADO (Sin cambios) ---
   const filteredSlotsWithCourts = (() => {
     if (!selectedDate) return [];
@@ -178,6 +199,41 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     return slotsWithCourts;
   })();
 
+
+  const getPriceInfo = () => {
+    const base = BASE_COURT_PRICE;
+    if (!selectedDate || !selectedSlot) {
+      return { base, final: base, extra: 0, hasLights: false };
+    }
+    const cfg = clubConfig;
+    if (!cfg || !cfg.lightsEnabled || !cfg.lightsExtraAmount || !cfg.lightsFromHour) {
+      return { base, final: base, extra: 0, hasLights: false };
+    }
+
+    try {
+      const [lh, lm] = String(cfg.lightsFromHour).split(':').map((n) => parseInt(n, 10));
+      if (Number.isNaN(lh) || Number.isNaN(lm)) {
+        return { base, final: base, extra: 0, hasLights: false };
+      }
+
+      const [sh, sm] = selectedSlot.split(':').map((n) => parseInt(n, 10));
+      if (Number.isNaN(sh) || Number.isNaN(sm)) {
+        return { base, final: base, extra: 0, hasLights: false };
+      }
+
+      const slotMinutes = sh * 60 + sm;
+      const lightsMinutes = lh * 60 + lm;
+      if (slotMinutes >= lightsMinutes) {
+        const extra = Number(cfg.lightsExtraAmount);
+        return { base, final: base + extra, extra, hasLights: true };
+      }
+      return { base, final: base, extra: 0, hasLights: false };
+    } catch {
+      return { base, final: base, extra: 0, hasLights: false };
+    }
+  };
+
+  const priceInfo = getPriceInfo();
 
 const performBooking = async (guestInfo?: { name: string; email?: string; phone?: string; guestDni?: string }) => {
     
@@ -597,6 +653,25 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
           </>
         )}
       </button>
+      {selectedSlot && selectedCourt && (
+        <div className="mt-2 text-xs text-muted text-center">
+          {priceInfo.hasLights && clubConfig ? (
+            <>
+              Precio estimado: <span className="font-semibold text-text">${priceInfo.final.toLocaleString()}</span>{' '}
+              <span className="ml-1 text-[11px]">
+                (incluye extra por luces de ${priceInfo.extra.toLocaleString()} desde las {clubConfig.lightsFromHour})
+              </span>
+            </>
+          ) : (
+            <>
+              Precio estimado:{' '}
+              <span className="font-semibold text-text">
+                ${priceInfo.final.toLocaleString()}
+              </span>
+            </>
+          )}
+        </div>
+      )}
       <AppModal
         show={modalState.show}
         onClose={closeModal}
@@ -627,8 +702,18 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                 </div>
                 <div className="flex items-center justify-between">
                   <span>Precio:</span>
-                  <span className="text-text font-semibold">$28.000</span>
+                  <span className="text-text font-semibold">
+                    ${priceInfo.final.toLocaleString()}
+                  </span>
                 </div>
+                {priceInfo.hasLights && clubConfig && (
+                  <div className="flex items-center justify-between text-xs text-muted">
+                    <span>Detalle:</span>
+                    <span>
+                      ${priceInfo.base.toLocaleString()} cancha + ${priceInfo.extra.toLocaleString()} luces
+                    </span>
+                  </div>
+                )}
               </div>
             )}
             <h4 className="text-sm font-semibold text-text pt-2">Datos de contacto</h4>
