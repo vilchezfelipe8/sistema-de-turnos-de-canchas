@@ -1,29 +1,40 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { ClubService, Club } from '../services/ClubService';
-// Agregamos iconos de contacto: Phone, Mail, Instagram, X (Cerrar)
-import { Search, MapPin, Calendar, TrendingUp, ShieldCheck, ArrowRight, Menu, X, Phone, Mail, Instagram } from 'lucide-react';
+import { Search, MapPin, Calendar, TrendingUp, ShieldCheck, ArrowRight, Menu, X, Phone, Mail, Instagram, Activity, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
+
+// --- 1. FUNCIÓN DE NORMALIZACIÓN (La clave para ignorar tildes) ---
+// Transforma "Río Cuarto" -> "rio cuarto"
+const normalizeText = (text: string) => {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+};
 
 export default function Home() {
   const router = useRouter();
   const [clubs, setClubs] = useState<Club[]>([]);
   const [loadingClubs, setLoadingClubs] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
   const [user, setUser] = useState<any>(null);
-  
-  // ESTADO NUEVO: Para controlar si el sidebar está abierto o cerrado
   const [showContact, setShowContact] = useState(false);
+  const resultsRef = useRef<HTMLElement>(null);
+
+  // Estados del Buscador
+  const [searchCity, setSearchCity] = useState('');
+  const [showCityDropdown, setShowCityDropdown] = useState(false); // Para mostrar/ocultar el combo
+  
+  const [searchSport, setSearchSport] = useState('');
+  const [searchDate, setSearchDate] = useState('');
 
   useEffect(() => {
+    // Carga Usuario
     const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
-    if (userStr) {
-        try {
-            const parsedUser = JSON.parse(userStr);
-            setUser(parsedUser);
-        } catch {}
-    }
+    if (userStr) { try { setUser(JSON.parse(userStr)); } catch {} }
 
+    // Carga Clubes
     const loadClubs = async () => {
       try {
         const allClubs = await ClubService.getAllClubs();
@@ -37,13 +48,48 @@ export default function Home() {
     loadClubs();
   }, []);
 
-  const filteredClubs = clubs.filter(club => 
-    club.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (club.address && club.address.toLowerCase().includes(searchTerm.toLowerCase()))
+  // --- 2. EXTRAER CIUDADES ÚNICAS PARA EL COMBO ---
+  // Creamos una lista de ciudades basada en los clubes que existen
+  const uniqueCities = useMemo(() => {
+    const cities = clubs.map(c => c.name || '').filter(Boolean);
+    // Eliminamos duplicados
+    return Array.from(new Set(cities));
+  }, [clubs]);
+
+  // Filtrar las sugerencias del combo mientras escribís
+  const suggestedCities = uniqueCities.filter(city => 
+    normalizeText(city).includes(normalizeText(searchCity))
   );
 
+  // --- 3. FILTRADO PRINCIPAL (GRID) ---
+  const filteredClubs = clubs.filter(club => {
+    const term = normalizeText(searchCity); // Lo que escribió el usuario (normalizado)
+    
+    const name = normalizeText(club.name || '');
+    const city = normalizeText(club.address || '');
+    const address = normalizeText(club.address || '');
+
+    // Si coincide con nombre, ciudad o dirección
+    return name.includes(term) || city.includes(term) || address.includes(term);
+  });
+
+  const handleSearch = () => {
+    setShowCityDropdown(false); // Cerramos el combo al buscar
+    if (resultsRef.current) {
+        resultsRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
+  // Función al elegir una ciudad del combo
+  const selectCity = (city: string) => {
+    setSearchCity(city);
+    setShowCityDropdown(false);
+    // Opcional: Auto-scroll al seleccionar
+    // if (resultsRef.current) resultsRef.current.scrollIntoView({ behavior: 'smooth' });
+  };
+
   return (
-    <div className="min-h-screen relative overflow-x-hidden bg-[#347048] text-[#D4C5B0] selection:bg-[#B9CF32] selection:text-[#347048]">
+    <div className="min-h-screen relative overflow-x-hidden bg-[#347048] text-[#D4C5B0] selection:bg-[#B9CF32] selection:text-[#347048]" onClick={() => setShowCityDropdown(false)}>
       
       {/* NAVBAR */}
       <nav className="absolute top-0 left-0 right-0 z-50 px-6 py-6 flex justify-between items-center max-w-7xl mx-auto">
@@ -52,63 +98,152 @@ export default function Home() {
                 TuCancha
             </span>
         </div>
-
         <div className="flex items-center gap-4">
-            {/* BOTÓN CONTACTO (Reemplaza a "Mi Panel") */}
-            {/* Al hacer clic, abre el Sidebar (setShowContact(true)) */}
-            <button 
-                onClick={() => setShowContact(true)}
-                className="hidden md:flex items-center gap-2 px-5 py-2 rounded-full border border-[#D4C5B0]/30 text-[#D4C5B0] font-bold text-sm hover:bg-[#D4C5B0] hover:text-[#347048] transition-all"
-            >
+            <button onClick={() => setShowContact(true)} className="hidden md:flex items-center gap-2 px-5 py-2 rounded-full border border-[#D4C5B0]/30 text-[#D4C5B0] font-bold text-sm hover:bg-[#D4C5B0] hover:text-[#347048] transition-all">
                 <span>Contacto</span>
             </button>
-
-            {/* Si está logueado, igual le mostramos el botón de Ingresar/Salir o Panel si querés, 
-                pero acá dejé el de "Ingresar" fijo para dueños nuevos */}
             {!user && (
                 <Link href="/login" className="px-5 py-2 rounded-full bg-[#D4C5B0] text-[#347048] font-bold hover:bg-[#B9CF32] transition-all text-sm shadow-lg shadow-[#347048]/50">
                     Ingresar
                 </Link>
             )}
-            
-            {/* Botón hamburguesa para móviles que también abre contacto */}
-            <button onClick={() => setShowContact(true)} className="md:hidden text-[#D4C5B0]">
-                <Menu />
-            </button>
+            <button onClick={() => setShowContact(true)} className="md:hidden text-[#D4C5B0]"> <Menu /> </button>
         </div>
       </nav>
 
       {/* HERO SECTION */}
-      <section className="relative pt-40 pb-20 px-4 flex flex-col items-center text-center">
+      <section className="relative pt-32 pb-24 px-4 flex flex-col items-center text-center z-10">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-[#B9CF32]/10 rounded-full blur-[120px] -z-10 pointer-events-none" />
         
         <h1 className="text-5xl md:text-7xl font-black mb-6 tracking-tight text-[#D4C5B0]">
           Tu cancha, <span className="text-[#B9CF32]">al toque.</span>
         </h1>
-        
         <p className="text-[#D4C5B0]/80 text-lg md:text-xl max-w-2xl mb-12 font-medium leading-relaxed">
-          La forma más rápida de encontrar y reservar turno en los mejores clubes. <br className="hidden md:block"/> Sin llamadas, sin esperas.
+          Explorá las canchas disponibles en tu ciudad y en tiempo real.
         </p>
 
-        {/* BUSCADOR */}
-        <div className="relative w-full max-w-lg group z-20">
-          <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none">
-            <Search className="h-5 w-5 text-[#347048]/60 group-focus-within:text-[#347048] transition-colors" />
-          </div>
-          <input
-            type="text"
-            placeholder="Buscar por nombre o ciudad..."
-            className="block w-full pl-12 pr-4 py-4 bg-[#EBE1D8] border-2 border-transparent focus:border-[#B9CF32] rounded-2xl text-[#347048] placeholder-[#347048]/50 focus:outline-none focus:ring-4 focus:ring-[#B9CF32]/30 transition-all shadow-2xl font-bold"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+        {/* --- BARRA DE BÚSQUEDA --- */}
+        <div 
+            className="w-full max-w-4xl bg-[#EBE1D8] rounded-[2rem] p-2 shadow-2xl shadow-[#347048]/50 flex flex-col md:flex-row items-center divide-y md:divide-y-0 md:divide-x divide-[#347048]/10 relative z-50"
+            onClick={(e) => e.stopPropagation()} // Evita que se cierre al hacer click adentro
+        >
+            
+            {/* CAMPO 1: UBICACIÓN (Con Combo) */}
+            <div className="flex-1 w-full relative group">
+                <div 
+                    className="p-2 px-4 hover:bg-[#d4c5b0]/20 rounded-xl transition-colors cursor-pointer h-full flex items-center gap-3"
+                    // Al hacer click mostramos el combo
+                    onClick={() => {
+                        setShowCityDropdown(true);
+                        document.getElementById('cityInput')?.focus();
+                    }}
+                >
+                    <MapPin className="text-[#347048] group-hover:text-[#B9CF32] transition-colors shrink-0" size={20} />
+                    <div className="flex flex-col items-start text-left w-full overflow-hidden">
+                        <label className="text-[10px] font-bold text-[#347048]/60 uppercase tracking-wider">Ubicación</label>
+                        <input 
+                            id="cityInput"
+                            type="text" 
+                            placeholder="¿Dónde jugás?" 
+                            className="bg-transparent border-none outline-none text-[#347048] font-bold placeholder-[#347048]/40 w-full p-0 leading-tight truncate"
+                            value={searchCity}
+                            onChange={(e) => {
+                                setSearchCity(e.target.value);
+                                setShowCityDropdown(true);
+                            }}
+                            onFocus={() => setShowCityDropdown(true)}
+                            autoComplete="off"
+                        />
+                    </div>
+                </div>
+
+                {/* --- EL COMBO FLOTANTE (Dropdown) --- */}
+                {showCityDropdown && (
+                    <div className="absolute top-full left-0 w-full md:w-[300px] mt-4 bg-white rounded-2xl shadow-xl border border-[#347048]/10 overflow-hidden z-[100] animate-in fade-in zoom-in-95 duration-200">
+                        <div className="p-3 bg-[#EBE1D8]/30 border-b border-[#347048]/5">
+                            <span className="text-xs font-bold text-[#347048] uppercase tracking-wider">Lugares disponibles</span>
+                        </div>
+                        <ul className="max-h-60 overflow-y-auto">
+                            {suggestedCities.length > 0 ? (
+                                suggestedCities.map((city, idx) => (
+                                    <li 
+                                        key={idx}
+                                        onClick={() => selectCity(city)}
+                                        className="px-4 py-3 hover:bg-[#B9CF32]/10 cursor-pointer flex items-center justify-between group transition-colors border-b border-gray-50 last:border-0"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="bg-[#EBE1D8] p-1.5 rounded-full text-[#347048]">
+                                                <MapPin size={14} />
+                                            </div>
+                                            <span className="text-[#347048] font-medium text-sm">{city}</span>
+                                        </div>
+                                        <ChevronRight size={14} className="text-[#B9CF32] opacity-0 group-hover:opacity-100 transition-opacity transform group-hover:translate-x-1" />
+                                    </li>
+                                ))
+                            ) : (
+                                <li className="px-4 py-6 text-center text-gray-400 text-sm">
+                                    No hay clubes en esa ciudad aún.
+                                </li>
+                            )}
+                        </ul>
+                    </div>
+                )}
+            </div>
+
+            {/* CAMPO 2: DEPORTE */}
+            <div className="flex-1 w-full p-2 px-4 hover:bg-[#d4c5b0]/20 rounded-xl transition-colors group">
+                <div className="flex items-center gap-3 h-full">
+                    <Activity className="text-[#347048] group-hover:text-[#B9CF32] transition-colors shrink-0" size={20} />
+                    <div className="flex flex-col items-start text-left w-full">
+                        <label className="text-[10px] font-bold text-[#347048]/60 uppercase tracking-wider">Deporte</label>
+                        <select 
+                            className="bg-transparent border-none outline-none text-[#347048] font-bold w-full p-0 leading-tight cursor-pointer appearance-none truncate"
+                            value={searchSport}
+                            onChange={(e) => setSearchSport(e.target.value)}
+                        >
+                            <option value="">Todos</option>
+                            <option value="padel">Pádel</option>
+                            <option value="futbol">Fútbol</option>
+                            <option value="tenis">Tenis</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            {/* CAMPO 3: FECHA */}
+            <div className="flex-1 w-full p-2 px-4 hover:bg-[#d4c5b0]/20 rounded-xl transition-colors group">
+                <div className="flex items-center gap-3 h-full">
+                    <Calendar className="text-[#347048] group-hover:text-[#B9CF32] transition-colors shrink-0" size={20} />
+                    <div className="flex flex-col items-start text-left w-full">
+                        <label className="text-[10px] font-bold text-[#347048]/60 uppercase tracking-wider">Fecha</label>
+                        <input 
+                            type="date" 
+                            className="bg-transparent border-none outline-none text-[#347048] font-bold text-sm w-full p-0 leading-tight uppercase cursor-pointer"
+                            value={searchDate}
+                            onChange={(e) => setSearchDate(e.target.value)}
+                        />
+                    </div>
+                </div>
+            </div>
+
+            {/* BOTÓN BUSCAR */}
+            <div className="p-2 w-full md:w-auto">
+                <button 
+                    onClick={handleSearch}
+                    className="w-full md:w-auto bg-[#347048] hover:bg-[#B9CF32] hover:text-[#347048] text-[#EBE1D8] font-black py-4 px-8 rounded-full transition-all shadow-lg flex items-center justify-center gap-2 group"
+                >
+                    <Search size={20} strokeWidth={3} className="group-hover:scale-110 transition-transform"/>
+                    <span className="md:hidden lg:inline">Buscar</span>
+                </button>
+            </div>
         </div>
       </section>
 
-      {/* GRILLA DE CLUBES */}
-      <section className="container mx-auto px-4 py-10 pb-32 max-w-6xl">
+      {/* RESULTADOS */}
+      <section ref={resultsRef} className="container mx-auto px-4 py-10 pb-32 max-w-6xl">
         <h2 className="text-2xl font-bold mb-8 flex items-center gap-2 text-[#D4C5B0]/90">
-          <MapPin className="text-[#B9CF32]" /> Clubes Disponibles
+          <MapPin className="text-[#B9CF32]" /> 
+          {searchCity ? `Resultados en ${searchCity}` : 'Clubes Disponibles'}
         </h2>
 
         {loadingClubs ? (
@@ -134,16 +269,10 @@ export default function Home() {
                    </div>
                 </div>
                 <div className="p-6">
-                  <h3 className="text-xl font-black text-[#347048] mb-1 leading-tight">
-                    {club.name}
-                  </h3>
-                  <p className="text-[#347048]/70 text-sm mb-5 font-medium line-clamp-1">
-                     {club.address || 'Ubicación no disponible'}
-                  </p>
+                  <h3 className="text-xl font-black text-[#347048] mb-1 leading-tight">{club.name}</h3>
+                  <p className="text-[#347048]/70 text-sm mb-5 font-medium line-clamp-1">{club.address || 'Ubicación no disponible'}</p>
                   <div className="w-full bg-[#347048] group-hover:bg-[#B9CF32] py-3 rounded-xl text-center transition-colors duration-300">
-                     <span className="text-xs font-black text-[#D4C5B0] group-hover:text-[#347048] uppercase tracking-widest">
-                        Reservar
-                     </span>
+                     <span className="text-xs font-black text-[#D4C5B0] group-hover:text-[#347048] uppercase tracking-widest">Reservar</span>
                   </div>
                 </div>
               </Link>
@@ -151,146 +280,16 @@ export default function Home() {
           </div>
         ) : (
           <div className="text-center py-20 bg-[#D4C5B0]/5 rounded-3xl border border-dashed border-[#D4C5B0]/20">
-            <p className="text-[#D4C5B0]/60">No encontramos resultados.</p>
+            <p className="text-[#D4C5B0]/60">No encontramos canchas con ese criterio.</p>
+            <button onClick={() => setSearchCity('')} className="mt-4 text-[#B9CF32] font-bold hover:underline">Ver todos</button>
           </div>
         )}
       </section>
-
-      {/* SECCIÓN B2B (DUEÑOS) */}
-      <section className="bg-[#926699] relative overflow-hidden">
-        <div className="container mx-auto px-4 py-24 max-w-6xl relative z-10">
-          <div className="grid md:grid-cols-2 gap-16 items-center">
-            
-            <div>
-              <span className="text-[#B9CF32] font-black tracking-wider uppercase text-xs mb-3 block">
-                Software para complejos
-              </span>
-              <h2 className="text-4xl md:text-5xl font-black mb-6 leading-tight text-[#EBE1D8]">
-                Tu club, <br/>
-                <span className="opacity-70">a otro nivel.</span>
-              </h2>
-              <p className="text-[#EBE1D8]/80 text-lg mb-8 font-medium leading-relaxed">
-                Olvidate de los mensajes de WhatsApp y las planillas de excel. Automatizá reservas, cobros y estadísticas hoy mismo.
-              </p>
-              
-              <ul className="space-y-4 mb-10">
-                <FeatureItem icon={<Calendar className="text-[#926699]" />} text="Reservas Online 24/7." />
-                <FeatureItem icon={<ShieldCheck className="text-[#926699]" />} text="Adiós a los deudores." />
-              </ul>
-
-              <a href="#" className="inline-flex items-center gap-2 bg-[#B9CF32] hover:bg-[#d6ed42] text-[#347048] px-8 py-4 rounded-2xl font-black transition-all shadow-xl shadow-[#347048]/20 hover:-translate-y-1">
-                Probar Demo Gratis <ArrowRight size={20} />
-              </a>
-            </div>
-
-            {/* MINI DASHBOARD VENDEDOR */}
-            <div className="hidden md:block relative">
-                <div className="bg-[#EBE1D8] rounded-3xl p-8 shadow-2xl rotate-3 hover:rotate-0 transition-transform duration-500 border-4 border-[#EBE1D8]/20 select-none">
-                    <div className="flex justify-between items-start mb-8 border-b border-[#347048]/10 pb-6">
-                        <div>
-                            <p className="text-[#347048]/60 text-xs font-bold uppercase tracking-wider mb-1">Ingresos de Febrero</p>
-                            <h3 className="text-4xl font-black text-[#347048] tracking-tight">$ 1.250.000</h3>
-                        </div>
-                        <div className="bg-[#B9CF32] px-3 py-1 rounded-full flex items-center gap-1 shadow-sm">
-                            <TrendingUp size={16} className="text-[#347048]" />
-                            <span className="text-[#347048] font-bold text-xs">+24%</span>
-                        </div>
-                    </div>
-                    <div className="flex items-end justify-between gap-2 h-32 mb-8 px-2">
-                        <div className="w-full bg-[#347048]/10 rounded-t-lg h-[40%]"></div>
-                        <div className="w-full bg-[#347048]/10 rounded-t-lg h-[60%]"></div>
-                        <div className="w-full bg-[#347048]/10 rounded-t-lg h-[45%]"></div>
-                        <div className="w-full bg-[#347048]/10 rounded-t-lg h-[70%]"></div>
-                        <div className="w-full bg-[#347048]/10 rounded-t-lg h-[55%]"></div>
-                        <div className="w-full bg-[#347048]/20 rounded-t-lg h-[80%]"></div>
-                        <div className="w-full bg-gradient-to-t from-[#347048] to-[#B9CF32] rounded-t-lg h-[95%]"></div>
-                    </div>
-                </div>
-            </div>
-
-          </div>
-        </div>
-      </section>
-
-      {/* FOOTER */}
-      <footer className="border-t border-[#D4C5B0]/10 py-10 bg-[#2a5c3b] text-center text-[#D4C5B0]/50 text-sm">
-        <p className="font-medium">&copy; {new Date().getFullYear()} TuCancha App. Todos los derechos reservados.</p>
-      </footer>
-
-      {/* ------------------------------------------------------- */}
-      {/* SIDEBAR DE CONTACTO (OFF-CANVAS) */}
-      {/* ------------------------------------------------------- */}
       
-      {/* Fondo oscuro (Backdrop) */}
-      <div 
-        className={`fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] transition-opacity duration-300 ${showContact ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-        onClick={() => setShowContact(false)}
-      />
-
-      {/* El Panel Lateral */}
-      <div className={`fixed top-0 right-0 h-full w-full max-w-sm bg-[#EBE1D8] z-[70] shadow-2xl transform transition-transform duration-300 ease-out ${showContact ? 'translate-x-0' : 'translate-x-full'}`}>
-            
-            {/* Cabecera del Sidebar */}
-            <div className="p-6 flex justify-between items-center border-b border-[#347048]/10">
-                <h2 className="text-2xl font-black text-[#347048]">Contacto</h2>
-                <button 
-                    onClick={() => setShowContact(false)}
-                    className="p-2 hover:bg-[#347048]/10 rounded-full text-[#347048] transition-colors"
-                >
-                    <X size={24} />
-                </button>
-            </div>
-
-            {/* Contenido del Sidebar */}
-            <div className="p-8 flex flex-col gap-6">
-                <p className="text-[#347048]/80 font-medium leading-relaxed">
-                    ¿Tenés dudas sobre el sistema o querés dar de alta tu club? Escribinos, respondemos al toque.
-                </p>
-
-                {/* Botones de Contacto */}
-                <a href="https://wa.me/549351000000" target="_blank" rel="noreferrer" className="flex items-center gap-4 p-4 bg-white rounded-2xl shadow-sm border border-[#347048]/5 hover:border-[#B9CF32] hover:shadow-md transition-all group">
-                    <div className="bg-[#B9CF32] h-12 w-12 rounded-full flex items-center justify-center text-[#347048] group-hover:scale-110 transition-transform">
-                        <Phone size={20} fill="currentColor" className="text-[#347048]" />
-                    </div>
-                    <div>
-                        <p className="text-[#347048]/50 text-xs font-bold uppercase tracking-wider">WhatsApp</p>
-                        <p className="text-[#347048] font-bold text-lg">+54 9 351 ...</p>
-                    </div>
-                </a>
-
-                <a href="mailto:hola@tucancha.app" className="flex items-center gap-4 p-4 bg-white rounded-2xl shadow-sm border border-[#347048]/5 hover:border-[#B9CF32] hover:shadow-md transition-all group">
-                    <div className="bg-[#347048] h-12 w-12 rounded-full flex items-center justify-center text-[#EBE1D8] group-hover:scale-110 transition-transform">
-                        <Mail size={20} />
-                    </div>
-                    <div>
-                        <p className="text-[#347048]/50 text-xs font-bold uppercase tracking-wider">Email</p>
-                        <p className="text-[#347048] font-bold text-lg">hola@tucancha.app</p>
-                    </div>
-                </a>
-
-                {/* Redes Sociales */}
-                <div className="mt-8 pt-8 border-t border-[#347048]/10">
-                    <p className="text-[#347048]/60 text-sm font-bold mb-4 text-center">Seguinos en redes</p>
-                    <div className="flex justify-center gap-4">
-                        <a href="#" className="p-3 bg-[#347048] text-[#EBE1D8] rounded-full hover:bg-[#B9CF32] hover:text-[#347048] transition-colors">
-                            <Instagram size={20} />
-                        </a>
-                        {/* Podés agregar más redes acá */}
-                    </div>
-                </div>
-
-            </div>
-      </div>
-
+      {/* ... (Aquí abajo va la sección B2B violeta y el footer que ya tenías) ... */}
+      
+      {/* ... (Y aquí el Sidebar de Contacto) ... */}
+      
     </div>
   );
 }
-
-const FeatureItem = ({ icon, text }: any) => (
-  <li className="flex items-center gap-3">
-    <div className="bg-[#EBE1D8] h-8 w-8 rounded-lg flex items-center justify-center shadow-sm shrink-0 opacity-90">
-        {icon}
-    </div>
-    <span className="text-[#EBE1D8]/90 font-bold text-lg tracking-tight">{text}</span>
-  </li>
-);
