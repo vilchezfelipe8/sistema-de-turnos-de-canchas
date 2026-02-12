@@ -6,7 +6,7 @@ export class ClubController {
 
     createClub = async (req: Request, res: Response) => {
         try {
-            const { slug, name, address, contact, phone, logoUrl, instagramUrl, facebookUrl, websiteUrl, description,
+            const { slug, name, addressLine, city, province, country, contact, phone, logoUrl, instagramUrl, facebookUrl, websiteUrl, description,
                 lightsEnabled, lightsExtraAmount, lightsFromHour } = req.body;
             if (!slug) {
                 return res.status(400).json({ error: 'El slug es requerido' });
@@ -14,7 +14,10 @@ export class ClubController {
             const club = await this.clubService.createClub(
                 slug,
                 name, 
-                address, 
+                addressLine,
+                city,
+                province,
+                country,
                 contact,
                 phone,
                 logoUrl,
@@ -76,7 +79,10 @@ export class ClubController {
             const {
                 slug,
                 name,
-                address,
+                addressLine,
+                city,
+                province,
+                country,
                 contactInfo,
                 phone,
                 logoUrl,
@@ -92,7 +98,10 @@ export class ClubController {
             const club = await this.clubService.updateClub(id, {
                 slug,
                 name,
-                address,
+                addressLine,
+                city,
+                province,
+                country,
                 contactInfo,
                 phone: phone === '' ? null : phone,
                 logoUrl: logoUrl === '' ? null : logoUrl,

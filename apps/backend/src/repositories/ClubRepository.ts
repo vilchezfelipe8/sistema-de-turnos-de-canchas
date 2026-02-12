@@ -15,7 +15,10 @@ export class ClubRepository {
     async createClub(
         slug: string,
         name: string, 
-        address: string, 
+        addressLine: string,
+        city: string,
+        province: string,
+        country: string,
         contact: string,
         phone?: string,
         logoUrl?: string,
@@ -27,11 +30,16 @@ export class ClubRepository {
         lightsExtraAmount?: number | null,
         lightsFromHour?: string | null
     ): Promise<Club> {
+        const location = await this.ensureLocation(city, province, country);
         const saved = await prisma.club.create({
             data: { 
                 slug,
                 name, 
-                address, 
+                addressLine,
+                city,
+                province,
+                country,
+                locationId: location.id,
                 contactInfo: contact,
                 phone,
                 logoUrl,
@@ -92,7 +100,10 @@ export class ClubRepository {
         return this.createClub(
             club.slug,
             club.name, 
-            club.address, 
+            club.addressLine,
+            club.city,
+            club.province,
+            club.country,
             club.contactInfo,
             club.phone,
             club.logoUrl,
@@ -130,7 +141,11 @@ export class ClubRepository {
     async updateClub(id: number, data: {
         slug?: string;
         name?: string;
-        address?: string;
+        addressLine?: string;
+        city?: string;
+        province?: string;
+        country?: string;
+        locationId?: number | null;
         contactInfo?: string;
         phone?: string | null;
         logoUrl?: string | null;
@@ -142,6 +157,10 @@ export class ClubRepository {
         lightsExtraAmount?: number | null;
         lightsFromHour?: string | null;
     }): Promise<Club> {
+        if (data.city && data.province && data.country) {
+            const location = await this.ensureLocation(data.city, data.province, data.country);
+            data.locationId = location.id;
+        }
         const updated = await prisma.club.update({
             where: { id },
             data
@@ -154,7 +173,10 @@ export class ClubRepository {
             dbClub.id,
             dbClub.slug,
             dbClub.name,
-            dbClub.address,
+            dbClub.addressLine,
+            dbClub.city,
+            dbClub.province,
+            dbClub.country,
             dbClub.contactInfo,
             dbClub.phone || undefined,
             dbClub.logoUrl || undefined,
@@ -168,6 +190,16 @@ export class ClubRepository {
             dbClub.createdAt,
             dbClub.updatedAt
         );
+    }
+
+    private async ensureLocation(city: string, province: string, country: string) {
+        return await prisma.location.upsert({
+            where: {
+                city_province_country: { city, province, country }
+            },
+            update: {},
+            create: { city, province, country }
+        });
     }
     async findBySlug(slug: string) {
         return await this.prisma.club.findUnique({

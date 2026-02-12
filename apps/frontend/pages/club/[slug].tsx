@@ -4,6 +4,10 @@ import BookingGrid from '../../components/BookingGrid';
 import Navbar from '../../components/NavBar';
 import { ClubService, Club } from '../../services/ClubService';
 
+const formatClubAddress = (club: Club) => {
+  return [club.addressLine, club.city, club.province, club.country].filter(Boolean).join(', ');
+};
+
 export default function ClubPage() {
   const router = useRouter();
   const { slug } = router.query;
@@ -98,7 +102,7 @@ export default function ClubPage() {
 
                 {/* 📍 DIRECCIÓN -> GOOGLE MAPS */}
                 <a 
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(club.name + ' ' + club.address)}`}
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(club.name + ' ' + formatClubAddress(club))}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   // 👇 CAMBIO: hover:text-white (Texto blanco al pasar mouse)
@@ -107,7 +111,7 @@ export default function ClubPage() {
                   <span>📍</span>
                   {/* 👇 CAMBIO: decoration-white (Subrayado blanco) */}
                   <span className="group-hover:underline decoration-white underline-offset-4">
-                    {club.address}
+                    {formatClubAddress(club)}
                   </span>
                 </a>
 

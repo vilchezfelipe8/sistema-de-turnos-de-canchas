@@ -21,30 +21,77 @@ async function main() {
   });
   console.log('✅ Actividad creada: Pádel');
 
-  // 2. Clubes (Múltiples clubes para demostrar funcionalidad multi-club)
-  const club1 = await prisma.club.create({
-    data: {
-      slug: 'las-tejas',
+  // 2. Ubicaciones
+  const locationRíoTercero = await prisma.location.upsert({
+    where: { city_province_country: { city: 'Río Tercero', province: 'Córdoba', country: 'Argentina' } },
+    update: {},
+    create: { city: 'Río Tercero', province: 'Córdoba', country: 'Argentina' }
+  });
+
+  const locationCaba = await prisma.location.upsert({
+    where: { city_province_country: { city: 'Ciudad Autónoma de Buenos Aires', province: 'Buenos Aires', country: 'Argentina' } },
+    update: {},
+    create: { city: 'Ciudad Autónoma de Buenos Aires', province: 'Buenos Aires', country: 'Argentina' }
+  });
+
+  // 3. Clubes (Múltiples clubes para demostrar funcionalidad multi-club)
+  const club1 = await prisma.club.upsert({
+    where: { slug: 'las-tejas' },
+    update: {
       name: 'Las Tejas Pádel',
-      address: 'Sarmiento 60, Río Tercero, Córdoba',
+      addressLine: 'Sarmiento 60',
+      city: 'Río Tercero',
+      province: 'Córdoba',
+      country: 'Argentina',
+      locationId: locationRíoTercero.id,
       contactInfo: 'contacto@lastejas.com',
       phone: '+54 9 357 135 9791',
       logoUrl: '/logo1.svg',
       instagramUrl: 'https://www.instagram.com/lastejaspadel/',
       description: 'Complejo deportivo Las Tejas Pádel'
     },
+    create: {
+      slug: 'las-tejas',
+      name: 'Las Tejas Pádel',
+      addressLine: 'Sarmiento 60',
+      city: 'Río Tercero',
+      province: 'Córdoba',
+      country: 'Argentina',
+      locationId: locationRíoTercero.id,
+      contactInfo: 'contacto@lastejas.com',
+      phone: '+54 9 357 135 9791',
+      logoUrl: '/logo1.svg',
+      instagramUrl: 'https://www.instagram.com/lastejaspadel/',
+      description: 'Complejo deportivo Las Tejas Pádel'
+    }
   });
   console.log(`✅ Club creado: ${club1.name} (ID: ${club1.id}, Slug: ${club1.slug})`);
 
-  const club2 = await prisma.club.create({
-    data: {
-      slug: 'club-central',
+  const club2 = await prisma.club.upsert({
+    where: { slug: 'club-central' },
+    update: {
       name: 'Club Deportivo Central',
-      address: 'Av. Siempre Viva 742',
+      addressLine: 'Av. Siempre Viva 742',
+      city: 'Ciudad Autónoma de Buenos Aires',
+      province: 'Buenos Aires',
+      country: 'Argentina',
+      locationId: locationCaba.id,
       contactInfo: 'contacto@clubcentral.com',
       phone: '+54 9 11 1234 5678',
       description: 'Club deportivo con múltiples canchas'
     },
+    create: {
+      slug: 'club-central',
+      name: 'Club Deportivo Central',
+      addressLine: 'Av. Siempre Viva 742',
+      city: 'Ciudad Autónoma de Buenos Aires',
+      province: 'Buenos Aires',
+      country: 'Argentina',
+      locationId: locationCaba.id,
+      contactInfo: 'contacto@clubcentral.com',
+      phone: '+54 9 11 1234 5678',
+      description: 'Club deportivo con múltiples canchas'
+    }
   });
   console.log(`✅ Club creado: ${club2.name} (ID: ${club2.id}, Slug: ${club2.slug})`);
 

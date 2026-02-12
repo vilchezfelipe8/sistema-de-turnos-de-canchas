@@ -5,6 +5,7 @@ import bookingRoutes from './routes/BookingRoutes';
 import CourtRoutes from './routes/CourtRoutes';
 import ClubRoutes from './routes/ClubRoutes';
 import ClubAdminRoutes from './routes/ClubAdminRoutes';
+import LocationRoutes from './routes/LocationRoutes';
 import authRoutes from './routes/AuthRoutes';
 import cors from 'cors';
 import { BookingStatus } from './entities/Enums';
@@ -70,13 +71,13 @@ const BOOKINGS_COMPLETION_INTERVAL_MS = Number(process.env.BOOKINGS_COMPLETION_I
 app.use(express.json());
 
 // 👇 ZONA DE RUTAS
-console.log("✅ Registrando ruta /clients...");
 app.use('/clients', ClientRoutes); 
 
 app.use('/api/bookings', bookingRoutes); 
 app.use('/api/courts', CourtRoutes);
 app.use('/api/clubs', ClubRoutes); // Para rutas generales de club
 app.use('/api/clubs', ClubAdminRoutes); // Para rutas admin de club
+app.use('/api/locations', LocationRoutes);
 app.use('/api/health', HealthRoutes);
 app.use('/api/cash', CashRoutes); // Ruta para caja
 

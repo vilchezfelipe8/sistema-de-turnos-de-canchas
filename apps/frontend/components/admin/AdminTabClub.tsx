@@ -7,7 +7,7 @@ export default function AdminTabClub() {
   const [club, setClub] = useState<Club | null>(null);
   const [loadingClub, setLoadingClub] = useState(false);
   const [clubForm, setClubForm] = useState({
-    slug: '', name: '', address: '', contactInfo: '', phone: '', logoUrl: '',
+    slug: '', name: '', addressLine: '', city: '', province: '', country: '', contactInfo: '', phone: '', logoUrl: '',
     instagramUrl: '', facebookUrl: '', websiteUrl: '', description: '',
     lightsEnabled: false,
     lightsExtraAmount: '',
@@ -45,7 +45,8 @@ export default function AdminTabClub() {
         const clubData = await ClubService.getClubById(clubId);
         setClub(clubData);
         setClubForm({
-          slug: clubData.slug || '', name: clubData.name || '', address: clubData.address || '',
+          slug: clubData.slug || '', name: clubData.name || '',
+          addressLine: clubData.addressLine || '', city: clubData.city || '', province: clubData.province || '', country: clubData.country || '',
           contactInfo: clubData.contactInfo || '', phone: clubData.phone || '', logoUrl: clubData.logoUrl || '',
           instagramUrl: clubData.instagramUrl || '', facebookUrl: clubData.facebookUrl || '',
           websiteUrl: clubData.websiteUrl || '', description: clubData.description || '',
@@ -140,7 +141,44 @@ export default function AdminTabClub() {
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Dirección</label>
-                <input type="text" value={clubForm.address} onChange={(e) => setClubForm({ ...clubForm, address: e.target.value })} className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50" required />
+                <input
+                  type="text"
+                  value={clubForm.addressLine}
+                  onChange={(e) => setClubForm({ ...clubForm, addressLine: e.target.value })}
+                  className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50"
+                  placeholder="Calle y número"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Ciudad</label>
+                <input
+                  type="text"
+                  value={clubForm.city}
+                  onChange={(e) => setClubForm({ ...clubForm, city: e.target.value })}
+                  className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Provincia / Estado</label>
+                <input
+                  type="text"
+                  value={clubForm.province}
+                  onChange={(e) => setClubForm({ ...clubForm, province: e.target.value })}
+                  className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">País</label>
+                <input
+                  type="text"
+                  value={clubForm.country}
+                  onChange={(e) => setClubForm({ ...clubForm, country: e.target.value })}
+                  className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50"
+                  required
+                />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Email de Contacto</label>

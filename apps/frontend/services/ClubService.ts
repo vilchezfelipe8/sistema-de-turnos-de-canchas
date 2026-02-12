@@ -8,7 +8,10 @@ export interface Club {
   id: number;
   slug: string;
   name: string;
-  address: string;
+  addressLine: string;
+  city: string;
+  province: string;
+  country: string;
   contactInfo: string;
   phone?: string;
   logoUrl?: string;

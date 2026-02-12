@@ -147,7 +147,10 @@ export class BookingRepository {
             dbItem.court.club.id,
             dbItem.court.club.slug,
             dbItem.court.club.name,
-            dbItem.court.club.address,
+            dbItem.court.club.addressLine,
+            dbItem.court.club.city,
+            dbItem.court.club.province,
+            dbItem.court.club.country,
             dbItem.court.club.contactInfo
         );
         const court = new Court(dbItem.court.id, dbItem.court.name, dbItem.court.isIndoor, dbItem.court.surface, club, dbItem.court.isUnderMaintenance);

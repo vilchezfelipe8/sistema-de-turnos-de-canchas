@@ -15,7 +15,10 @@ export class ClubService {
     async createClub(
         slug: string,
         name: string, 
-        address: string, 
+        addressLine: string,
+        city: string,
+        province: string,
+        country: string,
         contact: string,
         phone?: string,
         logoUrl?: string,
@@ -30,7 +33,10 @@ export class ClubService {
         return await this.clubRepo.createClub(
             slug,
             name, 
-            address, 
+            addressLine,
+            city,
+            province,
+            country,
             contact,
             phone,
             logoUrl,
@@ -65,7 +71,10 @@ export class ClubService {
         data: {
             slug?: string;
             name?: string;
-            address?: string;
+            addressLine?: string;
+            city?: string;
+            province?: string;
+            country?: string;
             contactInfo?: string;
             phone?: string | null;
             logoUrl?: string | null;

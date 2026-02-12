@@ -50,7 +50,12 @@ model Club {
   id           Int       @id @default(autoincrement())
   slug         String    @unique // Slug único para URLs (ej: "las-tejas", "club-central")
   name         String
-  address      String
+  addressLine  String
+  city         String
+  province     String
+  country      String
+  locationId   Int?
+  location     Location? @relation(fields: [locationId], references: [id])
   contactInfo  String // Email de contacto general
   phone        String? // Teléfono del club
   logoUrl      String? // URL del logo del club
@@ -68,6 +73,18 @@ model Club {
   users        User[]
   products     Product[]
   cashMovements CashMovement[]
+}
+
+model Location {
+  id       Int      @id @default(autoincrement())
+  city     String
+  province String
+  country  String
+  clubs    Club[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([city, province, country])
 }
 
 model Court {
