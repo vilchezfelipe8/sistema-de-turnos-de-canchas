@@ -42,18 +42,31 @@ export class BookingService {
     ): Promise<Booking> {
         let user: User | null = null;
         if (userId) {
-            user = await this.userRepo.findById(userId);
-            if (!user) throw new Error("Usuario no encontrado");
-        } else {
-            // Si no hay userId, requerimos guestIdentifier salvo excepción administrativa
-            if (!guestIdentifier && !allowGuestWithoutContact) {
-                throw new Error("Debe proveer guestIdentifier para reservas como invitado.");
-            }
-            if (!guestName) throw new Error("Debe proveer un nombre para reservas como invitado.");
-            if (!allowGuestWithoutContact && !guestEmail && !guestPhone) {
-                throw new Error("Debe proveer un email o teléfono para reservas como invitado.");
-            }
+        user = await this.userRepo.findById(userId);
+        if (!user) throw new Error("Usuario no encontrado");
+    } else {
+        // --- VALIDACIONES ESTRICTAS PARA INVITADOS/ADMIN ---
+        
+        // 1. Nombre obligatorio
+        if (!guestName || guestName.trim().length < 2) {
+            throw new Error("El nombre es obligatorio para reservas como invitado.");
         }
+
+        // 2. DNI obligatorio (Vital para tu lista de deudores)
+        if (!guestDni || guestDni.trim().length < 6) {
+            throw new Error("El DNI es obligatorio para identificar al cliente.");
+        }
+
+        // 3. Teléfono obligatorio (Vital para contacto y agrupación)
+        if (!guestPhone || guestPhone.trim().length < 7) {
+            throw new Error("El número de teléfono es obligatorio.");
+        }
+
+        // 4. Aseguramos el guestIdentifier (usamos el DNI si no hay uno)
+        if (!guestIdentifier) {
+            guestIdentifier = guestDni; 
+        }
+    }
 
         const court = await this.courtRepo.findById(courtId);
         if (!court) throw new Error("Cancha no encontrada");
@@ -790,54 +803,63 @@ async getClientStats(clubId: number, userId: number) {
     };
 }
 
-    async payBookingDebt(bookingId: number, paymentMethod: string) {
-    // 1. Buscamos la reserva con sus items para saber el total real
+    // apps/backend/src/services/BookingService.ts
+
+async payBookingDebt(bookingId: number, paymentMethod: string) {
+
+    // 1. Buscamos la reserva
     const booking = await prisma.booking.findUnique({
         where: { id: bookingId },
-        include: { 
-            items: { include: { product: true } }, 
-            court: true, 
-            user: true 
-        }
+        include: { cashMovements: true, items: true } 
     });
 
-    if (!booking) throw new Error("La reserva no existe.");
+    if (!booking) throw new Error("Reserva no encontrada");
+
+    // 2. DIAGNÓSTICO: Ver qué trae la base de datos
+    const dbPrice = Number(booking.price);
+
+    // 3. Calcular Pagos (Sumamos solo movimientos positivos tipo INCOME)
+    const totalPaid = booking.cashMovements
+        .filter(m => m.type === 'INCOME') // Aseguramos no restar devoluciones si las hubiera
+        .reduce((acc, mov) => acc + Number(mov.amount), 0);
     
-    // Verificamos que sea una deuda
-    if (booking.paymentStatus !== PaymentStatus.DEBT) {
-        throw new Error("Esta reserva no figura como deuda.");
+    // 4. Calcular Items
+    const itemsTotal = booking.items.reduce((acc, item) => acc + (Number(item.price) * item.quantity), 0);
+
+    // 5. Calcular GRAN TOTAL
+    // IMPORTANTE: Asumimos que booking.price es SOLO la cancha.
+    const grandTotal = dbPrice + itemsTotal; 
+
+    // 6. Calcular DEUDA REAL
+    let debtAmount = grandTotal - totalPaid;
+
+
+    
+    if (debtAmount <= 0) {
+        console.log("Error: La deuda es 0 o negativa.");
+        throw new Error("Esta reserva ya figura como pagada.");
     }
 
-    // 2. Calculamos el total (Precio Cancha + Consumos)
-    const courtPrice = 28000;
-    const itemsTotal = booking.items.reduce((sum, item) => sum + (Number(item.price) * item.quantity), 0);
-    const totalAmount = courtPrice + itemsTotal;
-
-    // 3. Actualizamos el estado a PAGADO
-    const updated = await prisma.booking.update({
-        where: { id: bookingId },
-        data: { 
-            paymentStatus: PaymentStatus.PAID 
+    // 7. Guardar Movimiento
+    
+    const movement = await prisma.cashMovement.create({
+        data: {
+            amount: debtAmount,
+            type: 'INCOME',
+            description: `Saldo final reserva #${booking.id} (Cancha + Consumos)`, 
+            method: paymentMethod,
+            bookingId: booking.id,
+            date: new Date()
         }
     });
 
-    // 4. 👇 REGISTRAMOS EL INGRESO EN LA CAJA (HOY)
-    if (totalAmount > 0) {
-        const clientName = booking.user 
-            ? `${booking.user.firstName} ${booking.user.lastName}` 
-            : booking.guestName;
+    // 8. Actualizar Reserva a PAGADO
+    await prisma.booking.update({
+        where: { id: bookingId },
+        data: { paymentStatus: 'PAID' } // No tocamos el campo 'paid' porque no existe
+    });
 
-        await this.cashRepository.create({
-            date: new Date(), // Entra con fecha de HOY
-            type: 'INCOME',
-            amount: totalAmount,
-            description: `Cobro Deuda - Reserva #${booking.id} (${clientName})`,
-            method: paymentMethod, // 'CASH' o 'TRANSFER'
-            bookingId: booking.id
-        });
-    }
-
-    return updated;
+    return movement;
 }
 
 

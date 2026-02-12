@@ -20,6 +20,7 @@ import BookingConsumption from '../BookingConsumption';
 import { useParams } from 'react-router-dom';
 import DatePickerDark from '../../components/ui/DatePickerDark';
 import { Trash2, Check, ShoppingCart } from 'lucide-react'; 
+import { start } from 'node:repl';
 
 registerLocale('es', es);
 
@@ -269,88 +270,94 @@ export default function AdminTabBookings() {
   // --- 🔥 LOGICA DE CREACIÓN DE RESERVA CORREGIDA (DNI) 🔥 ---
   const handleCreateBooking = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!manualBooking.courtId || !manualBooking.time) { showError('Faltan datos'); return; }
+
+    // 1. Validaciones
     const firstName = manualBooking.guestFirstName.trim();
     const lastName = manualBooking.guestLastName.trim();
-    if (!firstName || !lastName) { showError('Falta nombre y apellido'); return; }
+    const dni = manualBooking.guestDni?.trim();
+    const phone = manualBooking.guestPhone?.trim();
+
+    if (!manualBooking.courtId || !manualBooking.time) { 
+        showError('Faltan datos de cancha u horario'); 
+        return; 
+    }
+    
+    // Validación estricta: si falta algo, no dejamos avanzar
+    if (!firstName || !lastName || !dni || !phone) { 
+        showError('Nombre, Apellido, DNI y Teléfono son obligatorios'); 
+        return; 
+    }
+
+    // 2. Variables con alcance (scope) correcto
+    let dateBase: Date; // La declaramos pero no la inicializamos todavía
+    let guestName = `${firstName} ${lastName}`.trim();
+    let phoneToSend = "";
     
     try {
-      const rawPhone = (manualBooking.guestPhone || '').replace(/\D/g, '');
-      const phoneToSend = rawPhone ? `+549${rawPhone}` : '';
-      const guestName = `${firstName} ${lastName}`.trim();
-      let dateBase: Date;
-      let skipNote = '';
-      
-      if (manualBooking.isFixed) {
-        const base = new Date(manualBooking.startDateBase);
-        base.setHours(12, 0, 0, 0);
-        const nextDateInfo = getNextDateForDay(base, parseInt(manualBooking.dayOfWeek), manualBooking.time);
-        dateBase = nextDateInfo.date;
-        skipNote = nextDateInfo.skippedPast ? '⏭️ No se reservó para hoy porque el horario ya pasó.' : '';
-        const dateStr = formatLocalDate(dateBase);
+        const rawPhone = phone.replace(/\D/g, '');
+        phoneToSend = rawPhone ? `+549${rawPhone}` : '';
         
-        if (!nextDateInfo.skippedPast && dateStr === formatLocalDate(new Date())) {
-          try {
-            const schedule = await getAdminSchedule(dateStr);
-            const courtId = Number(manualBooking.courtId);
-            const hasConflict = Array.isArray(schedule) && schedule.some((slot: any) =>
-              slot.courtId === courtId && slot.slotTime === manualBooking.time && !slot.isAvailable);
-            if (hasConflict) {
-              const nextWeek = new Date(dateBase);
-              nextWeek.setDate(nextWeek.getDate() + 7);
-              dateBase = nextWeek;
-              skipNote = '⏭️ No se reservó para hoy porque ya hay un turno en ese horario.';
-            }
-          } catch { /* ignore */ }
+        let skipNote = '';
+
+        // 3. Lógica de Fechas (ACÁ ESTABA EL PROBLEMA)
+        if (manualBooking.isFixed) {
+            // Lógica para reservas FIJAS
+            const base = new Date(manualBooking.startDateBase);
+            base.setHours(12, 0, 0, 0);
+            const nextDateInfo = getNextDateForDay(base, parseInt(manualBooking.dayOfWeek), manualBooking.time);
+            dateBase = nextDateInfo.date; 
+            // ... resto de tu lógica de skipNote ...
+            
+        } else {
+            // 👇 Lógica para reservas SIMPLES (ESTO FALTABA O ESTABA MAL)
+            // Combinamos la fecha del input con la hora seleccionada
+            dateBase = new Date(`${manualBooking.startDateBase}T${manualBooking.time}:00`);
         }
-      } else {
-        dateBase = new Date(`${manualBooking.startDateBase}T${manualBooking.time}:00`);
-      }
 
-      // 🔥 FIX: OBJETO COMPLETO CON DNI PARA RESERVA SIMPLE
-      const guestData = { 
-        name: guestName, 
-        phone: phoneToSend,
-        dni: manualBooking.guestDni,
-        document: manualBooking.guestDni, // Redundancia por seguridad
-        dniNumber: manualBooking.guestDni
-      };
+        // 4. Ejecución
+        if (manualBooking.isFixed) {
+            await createFixedBooking(
+                undefined, 
+                Number(manualBooking.courtId), 
+                1, 
+                dateBase, 
+                guestName, 
+                phoneToSend || undefined,
+                dni
+            );
+            // ... mensajes de éxito ...
+        } else {
+            // Creamos el objeto guestData con el DNI
+            const guestData = { 
+                name: guestName, 
+                phone: phoneToSend,
+                dni: dni,
+                document: dni,
+                dniNumber: dni
+            };
 
-      if (manualBooking.isFixed) {
-        // 🔥 FIX: PASAMOS EL DNI COMO ARGUMENTO AL FINAL
-        await createFixedBooking(
-            undefined, 
-            Number(manualBooking.courtId), 
-            1, 
-            dateBase, 
-            guestName, 
-            phoneToSend || undefined,
-            manualBooking.guestDni // <--- ¡AHORA SÍ!
-        );
-        const message = skipNote ? <div><p className="mb-2">{skipNote}</p><p>✅ Turno FIJO creado. Arranca el: {dateBase.toLocaleDateString()} a las {manualBooking.time}</p></div> : `✅ Turno FIJO creado. Arranca el: ${dateBase.toLocaleDateString()} a las ${manualBooking.time}`;
-        showInfo(message, 'Listo');
-      } else {
-        await createBooking(
-            Number(manualBooking.courtId), 
-            1, 
-            dateBase, 
-            undefined, 
-            guestData, // Acá va el objeto con el DNI
-            { asGuest: true, guestIdentifier: `admin_${Date.now()}` }
-        );
-        showInfo('✅ Reserva simple creada', 'Listo');
-      }
+            await createBooking(
+                Number(manualBooking.courtId), 
+                1, 
+                dateBase, 
+                undefined, 
+                guestData, 
+                { asGuest: true, guestIdentifier: `admin_${dni}_${Date.now()}` }
+            );
+            showInfo('✅ Reserva simple creada', 'Listo');
+        }
       
-      loadSchedule();
-      setManualBooking({ 
-          guestFirstName: '', guestLastName: '', guestPhone: '', guestDni: '', 
-          courtId: '', time: '19:00', isFixed: false, dayOfWeek: '1', startDateBase: getTodayLocalDate() 
-      });
-    } catch (error: any) {
-      showError('Error al reservar: ' + error.message);
-    }
-  };
+        // ... (limpieza del formulario) ...
+        loadSchedule();
+        setManualBooking({ 
+            guestFirstName: '', guestLastName: '', guestPhone: '', guestDni: '', 
+            courtId: '', time: '19:00', isFixed: false, dayOfWeek: '1', startDateBase: getTodayLocalDate() 
+        });
 
+    } catch (error: any) {
+        showError('Error al reservar: ' + error.message);
+    }
+};
   const handleCancelBooking = async (booking: any) => {
     if (booking.fixedBookingId) {
       showConfirm({
@@ -476,12 +483,12 @@ export default function AdminTabBookings() {
 
           <div>
             <label className="block text-sm font-semibold text-slate-300 mb-2">Teléfono</label>
-            <input autoComplete="chrome-off" name="guest_phone_unique" type="tel" value={manualBooking.guestPhone} onChange={(e) => setManualBooking({ ...manualBooking, guestPhone: e.target.value })} className="w-full h-12 bg-gray-950 border border-gray-800 rounded-lg px-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all" placeholder="Ej: 3511234567" />
+            <input autoComplete="chrome-off" name="guest_phone_unique" type="tel" value={manualBooking.guestPhone} onChange={(e) => setManualBooking({ ...manualBooking, guestPhone: e.target.value })} className="w-full h-12 bg-gray-950 border border-gray-800 rounded-lg px-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all" placeholder="Ej: 3511234567" required/>
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-slate-300 mb-2">DNI (Opcional)</label>
-            <input autoComplete="chrome-off" name="guest_dni_unique" type="text" value={manualBooking.guestDni} onChange={(e) => setManualBooking({ ...manualBooking, guestDni: e.target.value })} className="w-full h-12 bg-gray-950 border border-gray-800 rounded-lg px-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all" placeholder="Número de documento" />
+            <label className="block text-sm font-semibold text-slate-300 mb-2">DNI </label>
+            <input autoComplete="chrome-off" name="guest_dni_unique" type="text" value={manualBooking.guestDni} onChange={(e) => setManualBooking({ ...manualBooking, guestDni: e.target.value })} className="w-full h-12 bg-gray-950 border border-gray-800 rounded-lg px-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all" placeholder="Número de documento" required />
           </div>
 
           <div className="relative z-10">

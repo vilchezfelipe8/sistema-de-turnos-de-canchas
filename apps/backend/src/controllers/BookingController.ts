@@ -543,75 +543,18 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
         }
     }
 
-   async payDebt(req: Request, res: Response) {
-    try {
-        const { bookingId, paymentMethod } = req.body; // 'CASH' o 'TRANSFER'
-
-        // 1. Buscamos la reserva con sus items y datos de cancha
-        const booking = await prisma.booking.findUnique({
-            where: { id: Number(bookingId) },
-            include: { 
-                items: true, 
-                court: true 
-            }
-        });
-
-        if (!booking) {
-            return res.status(404).json({ error: "Reserva no encontrada" });
+  payDebt = async (req: Request, res: Response) => {
+        try {
+            const { bookingId, paymentMethod } = req.body; // 'CASH' o 'TRANSFER'
+            
+            // 👇 ACÁ ESTÁ LA MAGIA: Llamamos al servicio que tiene los logs y la cuenta arreglada
+            const result = await this.bookingService.payBookingDebt(Number(bookingId), paymentMethod);
+            
+            res.json({ message: "Deuda cobrada exitosamente", result });
+        } catch (error: any) {
+            console.error("Error en payDebt Controller:", error);
+            res.status(400).json({ error: error.message || "Error al cobrar deuda" });
         }
-
-        if (booking.paymentStatus !== 'DEBT' && booking.paymentStatus !== 'PARTIAL') {
-            return res.status(400).json({ error: "Esta reserva no figura como deuda." });
-        }
-
-        // 👇 CAMBIO 2: Calculamos cuánto hay que cobrar
-        let amountToPay = 0;
-        
-        // Sumamos el total de los consumos (items)
-        const itemsTotal = booking.items.reduce((sum, item) => sum + (Number(item.price) * item.quantity), 0);
-
-        if (booking.paymentStatus === 'DEBT') {
-            // Si es DEUDA TOTAL: Cobramos Cancha + Items
-            amountToPay = Number(booking.price) + itemsTotal;
-        } else {
-            // Si es PARTIAL: La cancha ya estaba paga, solo cobramos los Items
-            amountToPay = itemsTotal;
-        }
-
-        // Si por alguna razón el monto es 0 o menor, solo actualizamos el estado y salimos
-        if (amountToPay <= 0) {
-            await prisma.booking.update({
-                where: { id: booking.id },
-                data: { paymentStatus: 'PAID' }
-            });
-            return res.json({ message: "Deuda regularizada (Monto $0)" });
-        }
-
-        // 3. Registramos el ingreso en la CAJA 💰
-        await prisma.cashMovement.create({
-            data: {
-                date: new Date(),
-                type: 'INCOME',
-                amount: amountToPay,
-                description: `Cobro Deuda Reserva #${booking.id} (${booking.paymentStatus === 'PARTIAL' ? 'Consumos' : 'Total'})`,
-                method: paymentMethod || 'CASH',
-                bookingId: booking.id,
-                clubId: booking.court.clubId
-            }
-        });
-
-        // 4. Finalmente, marcamos la reserva como PAGADA ✅
-        await prisma.booking.update({
-            where: { id: booking.id },
-            data: { paymentStatus: 'PAID' }
-        });
-
-        return res.json({ message: "Deuda cobrada exitosamente" });
-
-    } catch (error) {
-        console.error(error);
-        return res.status(500).json({ error: "Error al cobrar deuda" });
     }
-}
 }
 

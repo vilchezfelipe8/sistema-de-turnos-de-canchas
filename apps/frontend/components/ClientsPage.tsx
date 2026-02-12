@@ -349,89 +349,89 @@ const processDebtPayment = async (method: 'CASH' | 'TRANSFER') => {
                 .filter((b: any) => ['DEBT', 'PARTIAL', 'PENDING'].includes(b.paymentStatus)) // Aseguramos que solo muestre lo impago
                 .map((booking: any) => {
                     
-                    // --- LÓGICA DE TACHADO (CASCADA) ---
-                    // 1. Calculamos cuánto salen los items y cuánto sale la cancha sola
+                    // 1. Definimos precios
                     const itemsTotal = booking.items.reduce((sum: any, item: any) => sum + (Number(item.price) * item.quantity), 0);
                     const courtPrice = Number(booking.price) - itemsTotal; 
+                    const totalPaid = Number(booking.paid);
 
-                    // 2. Usamos una variable temporal para ir "gastando" lo que ya pagó
-                    let remainingPayment = Number(booking.paid);
+                    // 2. LÓGICA HÍBRIDA (La Solución)
+                    let isCourtPaid = false;
+                    let remainingPayment = 0;
 
-                    // 3. ¿Alcanza para pagar la Cancha?
-                    const isCourtPaid = remainingPayment >= courtPrice;
-                    
-                    // Si pagó la cancha, descontamos esa plata. Si no, seteamos en 0 para que no pague items
-                    if (isCourtPaid) {
-                        remainingPayment -= courtPrice;
+                    if (totalPaid >= courtPrice) {
+                        // CASO A: Hay suficiente plata para la cancha (ej: ya pagó el total antes).
+                        // Prioridad: Aseguramos que la cancha se vea PAGADA.
+                        isCourtPaid = true;
+                        remainingPayment = totalPaid - courtPrice; // Usamos el sobrante para los items
                     } else {
-                        remainingPayment = 0; 
+                        // CASO B: Es una seña chica (ej: pagó $5000 de $28000).
+                        // Prioridad: Pagamos los items primero visualmente.
+                        isCourtPaid = false;
+                        remainingPayment = totalPaid; // Usamos todo para intentar pagar items
                     }
 
+                    // 3. Mapeamos los items con la plata que definimos arriba
+                    const itemsWithStatus = booking.items.map((item: any) => {
+                        const itemCost = Number(item.price) * item.quantity;
+                        let isPaid = false;
+                        
+                        // Si hay plata disponible (sea del sobrante o del total), pagamos el item
+                        if (remainingPayment >= itemCost) {
+                            remainingPayment -= itemCost;
+                            isPaid = true;
+                        }
+                        return { ...item, isPaid }; 
+                    });
                     return (
                     <div key={booking.id} className="bg-gray-800/40 p-4 rounded-lg border border-gray-700 flex justify-between items-center mb-3">
                         
-                        {/* --- COLUMNA IZQUIERDA (DETALLE TACHADO) --- */}
+                        {/* COLUMNA IZQUIERDA */}
                         <div className="flex flex-col">
-                            <div className="flex items-center gap-2 mb-2">
-                                <span className="font-mono text-emerald-400 font-bold">#{booking.id}</span>
-                                <span className="text-muted text-xs">| {formatDate(booking.date)}</span>
-                            </div>
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="font-mono text-emerald-400 font-bold">#{booking.id}</span>
+                            <span className="text-muted text-xs">| {formatDate(booking.date)}</span>
+                        </div>
                             
-                            {/* 1. CANCHA: Si está paga, se ve gris y tachada. Si no, blanca. */}
+                            {/* RENDER CANCHA (Usamos isCourtPaid calculado al final) */}
                             <div className={`text-sm mb-2 flex justify-between min-w-[200px] ${isCourtPaid ? 'text-gray-500 line-through decoration-gray-500' : 'text-gray-200'}`}>
-                                <span>{booking.courtName || booking.court?.name}</span>
+                                <span>Cancha: {booking.courtName || booking.court?.name}</span>
                                 <span className="opacity-60 text-xs">${courtPrice}</span>
                             </div>
 
                             {/* 2. PRODUCTOS: Lógica de tachado uno por uno */}
                             <div className="flex flex-col gap-1 pl-2 border-l-2 border-gray-700">
-                            {booking.items && booking.items.length > 0 && booking.items.map((item: any, index: number) => {
-                                
-                                // Calculamos costo total de este item (precio x cantidad)
-                                const thisItemCost = Number(item.price) * item.quantity;
-                                
-                                // Verificamos si el sobrante de la seña cubre este item
-                                const isItemPaid = remainingPayment >= thisItemCost;
-                                
-                                // Si cubre, descontamos para el siguiente item
-                                if (isItemPaid) remainingPayment -= thisItemCost;
-
-                                return (
-                                    <div key={index} className={`flex justify-between items-center text-sm gap-4 ${isItemPaid ? 'text-gray-500 line-through decoration-gray-500' : 'text-gray-300'}`}>
-                                    <span className="flex items-center gap-2">
-                                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${isItemPaid ? 'bg-gray-800 text-gray-600' : 'bg-gray-700 text-white'}`}>
-                                        {item.quantity}x
-                                        </span>
-                                        {/* Usamos el nombre correcto que viene del backend */}
-                                        <span>{item.name || item.product?.name || "Ítem"}</span>
-                                    </span>
-                                    <span className="text-xs opacity-60">${thisItemCost}</span>
-                                    </div>
-                                );
-                            })}
-                            </div>
+                            {itemsWithStatus.length > 0 && itemsWithStatus.map((item: any, index: number) => (
+                              <div key={index} className={`flex justify-between items-center text-sm gap-4 ${item.isPaid ? 'text-gray-500 line-through decoration-gray-500' : 'text-gray-300'}`}>
+                                  <span className="flex items-center gap-2">
+                                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${item.isPaid ? 'bg-gray-800 text-gray-600' : 'bg-gray-700 text-white'}`}>
+                                          {item.quantity}x
+                                      </span>
+                                      <span>{item.name || item.product?.name || "Ítem"}</span>
+                                  </span>
+                                  <span className="text-xs opacity-60">${Number(item.price) * item.quantity}</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
 
                         {/* --- COLUMNA DERECHA (SOLO LO QUE DEBE) --- */}
                         <div className="flex items-center gap-4 pl-6 border-l border-gray-700/50">
-                            <div className="text-right">
-                                {/* Mostramos el 'booking.amount' que es la DEUDA FINAL calculada por el backend */}
-                                <div className="text-xl font-black text-white font-mono tracking-tight">
-                                    ${booking.amount}
-                                </div>
-                                <div className="text-[10px] text-red-400 uppercase tracking-wider font-bold">
-                                    A Pagar
-                                </div>
-                            </div>
-                            
-                            <button
-                                onClick={() => handleOpenPayModal(booking.id)}
-                                className="bg-emerald-600 hover:bg-emerald-500 text-white h-10 w-10 flex items-center justify-center rounded-lg shadow-lg shadow-emerald-900/20 transition-all active:scale-95"
-                                title="Cobrar Deuda"
-                            >
-                                <DollarSign size={20} />
-                            </button>
-                        </div>
+                          <div className="text-right">
+                              <div className="text-xl font-black text-white font-mono tracking-tight">
+                                  ${booking.amount} 
+                              </div>
+                              <div className="text-[10px] text-red-400 uppercase tracking-wider font-bold">
+                                  A Pagar
+                              </div>
+                          </div>
+                          
+                          <button
+                              onClick={() => handleOpenPayModal(booking.id)}
+                              className="bg-emerald-600 hover:bg-emerald-500 text-white h-10 w-10 flex items-center justify-center rounded-lg shadow-lg shadow-emerald-900/20 transition-all active:scale-95"
+                          >
+                              <DollarSign size={20} />
+                          </button>
+                      </div>
                     </div>
                     );
                 })}

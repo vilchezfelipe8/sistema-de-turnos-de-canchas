@@ -114,7 +114,7 @@ const Navbar = () => {
                 }}
               />
               <div className="flex flex-col leading-none max-[900px]:hidden">
-                <span className="text-lg md:text-2xl lg:text-3xl font-black text-emerald-400">
+                <span className="text-lg md:text-2xl lg:text-3xl font-black text-white">
                   {club.name}
                 </span>
               </div>
@@ -126,8 +126,8 @@ const Navbar = () => {
                 <img src="/logo1.svg" alt="Club" className="h-20 w-20 object-contain transition-transform group-hover:scale-110" />
               )}
               <div className="flex flex-col leading-none max-[900px]:hidden">
-                <span className="text-lg md:text-2xl lg:text-3xl font-black text-emerald-400">
-                  {club ? club.name : 'Sistema de Reservas'}
+               <span className="text-lg md:text-2xl lg:text-3xl font-black text-white">
+                  {club ? club.name : 'TuCancha'}
                 </span>
               </div>
             </div>
