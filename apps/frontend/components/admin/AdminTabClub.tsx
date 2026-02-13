@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { ClubService, Club } from '../../services/ClubService';
 import AppModal from '../AppModal';
+import { Settings, Globe, Instagram, Facebook, MapPin, Phone, Mail, Lightbulb, Image as ImageIcon, Trash2, Save } from 'lucide-react';
 
 export default function AdminTabClub() {
   const [club, setClub] = useState<Club | null>(null);
@@ -86,17 +87,14 @@ export default function AdminTabClub() {
   const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     if (!file.type.startsWith('image/')) {
       setLogoError('El archivo debe ser una imagen (PNG, JPG, etc).');
       return;
     }
-    // Límite razonable de 2MB para el logo
     if (file.size > 2 * 1024 * 1024) {
       setLogoError('El logo no puede pesar más de 2MB.');
       return;
     }
-
     const reader = new FileReader();
     reader.onloadend = () => {
       const result = typeof reader.result === 'string' ? reader.result : '';
@@ -111,200 +109,185 @@ export default function AdminTabClub() {
     setClubForm((prev) => ({ ...prev, logoUrl: '' }));
     setLogoPreview(null);
     setLogoError(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
+
+  const inputClass = "w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/20 focus:outline-none shadow-sm transition-all";
+  const labelClass = "block text-[10px] font-black text-[#347048]/60 mb-1.5 uppercase tracking-widest ml-1";
 
   return (
     <>
-      <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-8 mb-6">
-        <h2 className="text-lg font-bold text-text mb-4 flex items-center gap-2"><span>⚙️</span> CONFIGURACIÓN DEL CLUB</h2>
+      <div className="bg-[#EBE1D8] border-4 border-white rounded-[2rem] p-8 mb-8 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
+        {/* ENCABEZADO */}
+        <div className="mb-8 pb-6 border-b border-[#347048]/10">
+          <h2 className="text-2xl font-black text-[#926699] flex items-center gap-3 uppercase italic tracking-tight">
+            <div className="bg-[#926699] text-[#EBE1D8] p-2 rounded-xl text-xl shadow-lg shadow-[#926699]/20">
+              <Settings size={24} strokeWidth={3} />
+            </div>
+            Configuración del Club
+          </h2>
+          <p className="text-[#347048] text-sm font-bold opacity-70 mt-2 ml-1">Personaliza la identidad y reglas de tu establecimiento.</p>
+        </div>
+
         {loadingClub ? (
-          <div className="animate-pulse space-y-4">
-            <div className="h-10 bg-surface-50 rounded w-full"></div>
-            <div className="h-10 bg-surface-50 rounded w-full"></div>
-            <div className="h-10 bg-surface-50 rounded w-full"></div>
+          <div className="space-y-6 py-10">
+            <div className="h-12 bg-white/50 animate-pulse rounded-2xl w-full"></div>
+            <div className="h-12 bg-white/50 animate-pulse rounded-2xl w-full"></div>
+            <div className="h-12 bg-white/50 animate-pulse rounded-2xl w-full"></div>
           </div>
         ) : club ? (
-          <form onSubmit={handleUpdateClub} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <form onSubmit={handleUpdateClub} className="space-y-8 relative z-10">
+            {/* GRID DE DATOS BÁSICOS */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Slug (URL)</label>
+                <label className={labelClass}>Slug (Identificador URL)</label>
                 <input type="text" value={clubForm.slug} onChange={(e) => setClubForm({ ...clubForm, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })}
-                  className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50" placeholder="las-tejas" required />
-                <p className="text-xs text-muted mt-1">Usado en la URL: /club/{clubForm.slug || 'slug'}</p>
+                  className={inputClass} placeholder="ej: las-tejas-padel" required />
+                <p className="text-[10px] font-bold text-[#347048]/40 mt-1.5 ml-1">Tu link será: <span className="text-[#347048]">tucancha.com/club/{clubForm.slug || '...'}</span></p>
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Nombre del Club</label>
-                <input type="text" value={clubForm.name} onChange={(e) => setClubForm({ ...clubForm, name: e.target.value })} className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50" required />
+                <label className={labelClass}>Nombre Comercial</label>
+                <input type="text" value={clubForm.name} onChange={(e) => setClubForm({ ...clubForm, name: e.target.value })} className={inputClass} required />
+              </div>
+              
+              <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="md:col-span-2">
+                  <label className={labelClass}>Dirección</label>
+                  <input type="text" value={clubForm.addressLine} onChange={(e) => setClubForm({ ...clubForm, addressLine: e.target.value })} className={inputClass} placeholder="Calle y número" required />
+                </div>
+                <div>
+                  <label className={labelClass}>Ciudad</label>
+                  <input type="text" value={clubForm.city} onChange={(e) => setClubForm({ ...clubForm, city: e.target.value })} className={inputClass} required />
+                </div>
+                <div>
+                  <label className={labelClass}>Provincia / Estado</label>
+                  <input type="text" value={clubForm.province} onChange={(e) => setClubForm({ ...clubForm, province: e.target.value })} className={inputClass} required />
+                </div>
+              </div>
+
+              <div>
+                <label className={labelClass}>Email Administrativo</label>
+                <div className="relative">
+                  <input type="email" value={clubForm.contactInfo} onChange={(e) => setClubForm({ ...clubForm, contactInfo: e.target.value })} className={`${inputClass} pl-11`} required />
+                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-[#347048]/30" size={16} />
+                </div>
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Dirección</label>
-                <input
-                  type="text"
-                  value={clubForm.addressLine}
-                  onChange={(e) => setClubForm({ ...clubForm, addressLine: e.target.value })}
-                  className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50"
-                  placeholder="Calle y número"
-                  required
-                />
+                <label className={labelClass}>Teléfono Público</label>
+                <div className="relative">
+                  <input type="text" value={clubForm.phone} onChange={(e) => setClubForm({ ...clubForm, phone: e.target.value })} className={`${inputClass} pl-11`} placeholder="+54 9 351..." />
+                  <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-[#347048]/30" size={16} />
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Ciudad</label>
-                <input
-                  type="text"
-                  value={clubForm.city}
-                  onChange={(e) => setClubForm({ ...clubForm, city: e.target.value })}
-                  className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Provincia / Estado</label>
-                <input
-                  type="text"
-                  value={clubForm.province}
-                  onChange={(e) => setClubForm({ ...clubForm, province: e.target.value })}
-                  className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">País</label>
-                <input
-                  type="text"
-                  value={clubForm.country}
-                  onChange={(e) => setClubForm({ ...clubForm, country: e.target.value })}
-                  className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Email de Contacto</label>
-                <input type="email" value={clubForm.contactInfo} onChange={(e) => setClubForm({ ...clubForm, contactInfo: e.target.value })} className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50" required />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Teléfono</label>
-                <input type="text" value={clubForm.phone} onChange={(e) => setClubForm({ ...clubForm, phone: e.target.value })} className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50" placeholder="+54 9 357 135 9791" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Logo del Club</label>
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-lg overflow-hidden border border-border bg-surface flex items-center justify-center">
-                    {logoPreview ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={logoPreview} alt="Logo del club" className="w-full h-full object-contain" />
-                    ) : (
-                      <span className="text-xs text-muted">Sin logo</span>
+            </div>
+
+            {/* SECCIÓN DE LOGO */}
+            <div className="bg-white/40 p-6 rounded-[1.5rem] border-2 border-white shadow-sm">
+              <label className={labelClass}>Identidad Visual (Logo)</label>
+              <div className="flex flex-col sm:flex-row items-center gap-6 mt-2">
+                <div className="w-24 h-24 rounded-2xl overflow-hidden border-4 border-white bg-white shadow-md flex items-center justify-center relative group">
+                  {logoPreview ? (
+                    <img src={logoPreview} alt="Logo" className="w-full h-full object-contain p-1" />
+                  ) : (
+                    <ImageIcon size={32} className="text-[#347048]/20" />
+                  )}
+                </div>
+                <div className="flex-1 space-y-3">
+                  <div className="flex gap-3">
+                    <button type="button" onClick={() => fileInputRef.current?.click()} className="px-5 py-2.5 rounded-xl text-xs font-black bg-[#347048] text-[#EBE1D8] hover:bg-[#B9CF32] hover:text-[#347048] transition-all uppercase tracking-widest shadow-lg shadow-[#347048]/20">
+                      Subir Imagen
+                    </button>
+                    {logoPreview && (
+                      <button type="button" onClick={handleRemoveLogo} className="px-5 py-2.5 rounded-xl text-xs font-black bg-red-50 text-red-600 border border-red-100 hover:bg-red-600 hover:text-white transition-all uppercase tracking-widest">
+                        Eliminar
+                      </button>
                     )}
                   </div>
-                  <div className="flex flex-col gap-2">
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-surface border border-border text-text hover:border-emerald-500/60 hover:text-emerald-300 transition"
-                      >
-                        Subir imagen
-                      </button>
-                      {logoPreview && (
-                        <button
-                          type="button"
-                          onClick={handleRemoveLogo}
-                          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-surface border border-red-500/50 text-red-300 hover:bg-red-500/10 transition"
-                        >
-                          Quitar logo
-                        </button>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-muted">
-                      Formato recomendado: cuadrado, máximo 2MB. Se guardará como parte de la configuración del club.
-                    </p>
-                    {logoError && <p className="text-[11px] text-red-400">{logoError}</p>}
-                  </div>
+                  <p className="text-[10px] font-bold text-[#347048]/40 uppercase tracking-wider italic">Recomendado: 512x512px, máx 2MB (PNG/JPG).</p>
+                  {logoError && <p className="text-xs text-red-500 font-bold italic">⚠️ {logoError}</p>}
                 </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleLogoFileChange}
-                />
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoFileChange} />
               </div>
-              <div className="md:col-span-2 mt-4 border-t border-border pt-4">
-                <p className="text-xs font-bold text-slate-500 mb-2 uppercase">Luces y Horarios</p>
-                <div className="flex flex-col md:flex-row gap-4 items-center">
-                  <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={clubForm.lightsEnabled}
-                      onChange={(e) => setClubForm({ ...clubForm, lightsEnabled: e.target.checked })}
-                      className="w-4 h-4 rounded border-gray-600 text-emerald-500 focus:ring-emerald-500 focus:ring-2"
-                    />
-                    <span className="text-sm">Cobrar extra por luces en horarios nocturnos</span>
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-400 mb-1">Monto extra</label>
-                      <div className="flex items-center gap-1">
-                        <span className="text-xs text-slate-500">$</span>
-                        <input
-                          type="number"
-                          min={0}
-                          step={100}
-                          disabled={!clubForm.lightsEnabled}
-                          value={clubForm.lightsExtraAmount}
-                          onChange={(e) => setClubForm({ ...clubForm, lightsExtraAmount: e.target.value })}
-                          className="w-28 bg-surface border border-border rounded-lg px-2 py-1 text-text text-sm focus:outline-none focus:border-emerald-500/50 disabled:opacity-50"
-                          placeholder="5000"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-400 mb-1">Desde hora</label>
-                      <select
-                        disabled={!clubForm.lightsEnabled}
-                        value={clubForm.lightsFromHour || ''}
-                        onChange={(e) => setClubForm({ ...clubForm, lightsFromHour: e.target.value })}
-                        className="bg-surface border border-border rounded-lg px-2 py-1 text-text text-sm focus:outline-none focus:border-emerald-500/50 disabled:opacity-50"
-                      >
-                        <option value="">Seleccionar...</option>
-                        <option value="18:00">18:00</option>
-                        <option value="19:00">19:00</option>
-                        <option value="20:00">20:00</option>
-                        <option value="21:00">21:00</option>
-                        <option value="22:00">22:00</option>
-                      </select>
-                    </div>
+            </div>
+
+            {/* LUCES Y HORARIOS (LIMA ACCENT) */}
+            <div className="bg-[#B9CF32]/10 p-6 rounded-[1.5rem] border-2 border-[#B9CF32]/20">
+              <div className="flex items-center gap-2 mb-4 text-[#347048]">
+                <Lightbulb size={18} strokeWidth={3} />
+                <h3 className="text-xs font-black uppercase tracking-[0.2em]">Configuración de Iluminación</h3>
+              </div>
+              <div className="flex flex-col md:flex-row gap-8 items-start md:items-center">
+                <label className="flex items-center gap-3 text-[#347048] font-black cursor-pointer group">
+                  <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${clubForm.lightsEnabled ? 'bg-[#B9CF32] border-[#B9CF32]' : 'border-[#347048]/20 bg-white'}`}>
+                    {clubForm.lightsEnabled && <Save size={16} className="text-[#347048]" strokeWidth={4} />}
+                  </div>
+                  <input type="checkbox" checked={clubForm.lightsEnabled} onChange={(e) => setClubForm({ ...clubForm, lightsEnabled: e.target.checked })} className="hidden" />
+                  <span className="text-sm uppercase tracking-wide italic">Activar recargo nocturno</span>
+                </label>
+                <div className="flex flex-wrap gap-6">
+                  <div>
+                    <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Monto Extra ($)</label>
+                    <input type="number" min={0} step={100} disabled={!clubForm.lightsEnabled} value={clubForm.lightsExtraAmount}
+                      onChange={(e) => setClubForm({ ...clubForm, lightsExtraAmount: e.target.value })}
+                      className="w-32 h-10 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm disabled:opacity-30 transition-all" placeholder="5000" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Desde la hora</label>
+                    <select disabled={!clubForm.lightsEnabled} value={clubForm.lightsFromHour || ''} onChange={(e) => setClubForm({ ...clubForm, lightsFromHour: e.target.value })}
+                      className="h-10 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm disabled:opacity-30 transition-all cursor-pointer">
+                      <option value="">Seleccionar...</option>
+                      {["18:00", "19:00", "20:00", "21:00", "22:00"].map(h => <option key={h} value={h}>{h}</option>)}
+                    </select>
                   </div>
                 </div>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Instagram</label>
-                <input type="url" value={clubForm.instagramUrl} onChange={(e) => setClubForm({ ...clubForm, instagramUrl: e.target.value })} className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50" placeholder="https://instagram.com/club" />
+            </div>
+
+            {/* REDES SOCIALES */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="space-y-1.5">
+                <label className={labelClass}>Instagram URL</label>
+                <div className="relative group">
+                  <input type="url" value={clubForm.instagramUrl} onChange={(e) => setClubForm({ ...clubForm, instagramUrl: e.target.value })} className={`${inputClass} pl-11`} placeholder="https://instagram.com/..." />
+                  <Instagram className="absolute left-4 top-1/2 -translate-y-1/2 text-[#347048]/30 group-focus-within:text-[#926699]" size={16} />
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Facebook</label>
-                <input type="url" value={clubForm.facebookUrl} onChange={(e) => setClubForm({ ...clubForm, facebookUrl: e.target.value })} className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50" placeholder="https://facebook.com/club" />
+              <div className="space-y-1.5">
+                <label className={labelClass}>Facebook URL</label>
+                <div className="relative group">
+                  <input type="url" value={clubForm.facebookUrl} onChange={(e) => setClubForm({ ...clubForm, facebookUrl: e.target.value })} className={`${inputClass} pl-11`} placeholder="https://facebook.com/..." />
+                  <Facebook className="absolute left-4 top-1/2 -translate-y-1/2 text-[#347048]/30 group-focus-within:text-[#347048]" size={16} />
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Sitio Web</label>
-                <input type="url" value={clubForm.websiteUrl} onChange={(e) => setClubForm({ ...clubForm, websiteUrl: e.target.value })} className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50" placeholder="https://club.com" />
+              <div className="space-y-1.5">
+                <label className={labelClass}>Sitio Web Propio</label>
+                <div className="relative group">
+                  <input type="url" value={clubForm.websiteUrl} onChange={(e) => setClubForm({ ...clubForm, websiteUrl: e.target.value })} className={`${inputClass} pl-11`} placeholder="https://mi-club.com" />
+                  <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-[#347048]/30 group-focus-within:text-[#B9CF32]" size={16} />
+                </div>
               </div>
             </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Descripción</label>
-              <textarea value={clubForm.description} onChange={(e) => setClubForm({ ...clubForm, description: e.target.value })} className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none focus:border-emerald-500/50" rows={3} placeholder="Descripción del club..." />
+
+            {/* DESCRIPCIÓN */}
+            <div className="space-y-2">
+              <label className={labelClass}>Descripción del Club / Información Adicional</label>
+              <textarea value={clubForm.description} onChange={(e) => setClubForm({ ...clubForm, description: e.target.value })} 
+                className="w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-[1.5rem] p-5 text-[#347048] font-bold placeholder-[#347048]/20 focus:outline-none shadow-sm transition-all" rows={4} placeholder="Escribe aquí las reglas del club, servicios (duchas, buffet, etc) o historia..." />
             </div>
-            <div className="flex justify-end">
-              <button type="submit" className="btn btn-primary px-6 py-2 bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/40 hover:border-emerald-400/70 text-emerald-200 shadow-[0_0_18px_rgba(16,185,129,0.15)] transition">GUARDAR CAMBIOS</button>
+
+            {/* BOTÓN FINAL */}
+            <div className="flex justify-end pt-6 border-t border-[#347048]/10">
+              <button type="submit" className="w-full md:w-auto px-10 py-4 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-2xl shadow-xl shadow-[#347048]/20 transition-all uppercase tracking-[0.2em] text-sm italic flex items-center justify-center gap-3">
+                <Save size={20} strokeWidth={3} />
+                Guardar Configuración
+              </button>
             </div>
           </form>
         ) : (
-          <p className="text-muted text-sm">No se pudo cargar la información del club</p>
+          <div className="py-20 text-center text-[#347048]/40 font-black uppercase italic tracking-widest">No se pudo cargar la información</div>
         )}
       </div>
+
       <AppModal show={modalState.show} onClose={closeModal} onCancel={modalState.onCancel} title={modalState.title} message={modalState.message}
         cancelText={modalState.cancelText} confirmText={modalState.confirmText} isWarning={modalState.isWarning} onConfirm={modalState.onConfirm}
         closeOnBackdrop={modalState.closeOnBackdrop} closeOnEscape={modalState.closeOnEscape} />

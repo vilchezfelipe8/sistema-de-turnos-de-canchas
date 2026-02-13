@@ -4,9 +4,8 @@
 
 @layer base {
   body {
-    /* Fondo super oscuro y texto claro por defecto (usa variables B/N) */
     @apply antialiased;
-    background-color: var(--bg);
+    background-color: #347048; /* Forzamos el verde aquí también */
     color: var(--text);
   }
 }
@@ -24,14 +23,14 @@
 
 /* Paleta B/N global */
 :root {
-  --bg: #000000;
-  --bg-base: #070707;
-  --surface: #0b0b0b;
-  --muted: #9ca3af;
-  --text: #ffffff;
-  --muted-2: #6b7280;
-  --border: #1f2937;
-  --accent: #ffffff;
+  --bg: #347048;        /* CAMBIO: Ahora el fondo base es el Verde */
+  --bg-base: #2a5c3b;   /* Un verde más profundo */
+  --surface: #EBE1D8;   /* CAMBIO: Surface ahora es el Beige */
+  --muted: #347048;     /* Texto verde sobre el beige */
+  --text: #EBE1D8;      /* Texto beige sobre el verde */
+  --muted-2: #d4c5b0;
+  --border: rgba(235, 225, 216, 0.1);
+  --accent: #B9CF32;    /* Lima */
 }
 
 /* Botones y utilidades globales B/N */
@@ -302,4 +301,80 @@
   display: inline-flex;
   align-items: center;
   gap: 4px; /* Espacio entre icono y texto */
+}
+
+/* --- ESTILOS PARA EL CALENDARIO WIMBLEDON --- */
+
+/* Contenedor principal del calendario */
+.wimbledon-datepicker .react-datepicker {
+  background-color: #347048 !important; /* Fondo Verde */
+  border: 4px solid #EBE1D8 !important; /* Borde Beige */
+  border-radius: 1.5rem !important;
+  font-family: inherit !important;
+  overflow: hidden;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Encabezado (Mes y flechas) */
+.wimbledon-datepicker .react-datepicker__header {
+  background-color: #2a5c3b !important; /* Un verde un pelín más oscuro */
+  border-bottom: 1px solid rgba(235, 225, 216, 0.1) !important;
+  padding-top: 1rem !important;
+}
+
+/* Texto de mes y días de la semana */
+.wimbledon-datepicker .react-datepicker__current-month,
+.wimbledon-datepicker .react-datepicker__day-name {
+  color: #EBE1D8 !important; /* Texto Beige */
+  font-weight: 800 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Los días del mes */
+.wimbledon-datepicker .react-datepicker__day {
+  color: #EBE1D8 !important;
+  font-weight: 600 !important;
+  border-radius: 0.5rem !important;
+  transition: all 0.2s ease;
+}
+
+/* Hover sobre los días */
+.wimbledon-datepicker .react-datepicker__day:hover {
+  background-color: #B9CF32 !important; /* Fondo Lima */
+  color: #347048 !important; /* Texto Verde */
+}
+
+/* Día seleccionado */
+.wimbledon-datepicker .react-datepicker__day--selected,
+.wimbledon-datepicker .react-datepicker__day--keyboard-selected {
+  background-color: #B9CF32 !important; /* Fondo Lima */
+  color: #347048 !important; /* Texto Verde */
+  font-weight: 900 !important;
+}
+
+/* Días de otros meses (fuera de foco) */
+.wimbledon-datepicker .react-datepicker__day--outside-month {
+  color: rgba(235, 225, 216, 0.2) !important;
+}
+
+/* Flechas de navegación */
+.wimbledon-datepicker .react-datepicker__navigation-icon::before {
+  border-color: #B9CF32 !important; /* Flechas Lima */
+}
+
+/* El input donde se ve la fecha elegida */
+.wimbledon-datepicker input {
+  background-color: white !important;
+  color: #347048 !important;
+  font-weight: 700 !important;
+  border-radius: 0.75rem !important;
+  padding: 0.75rem 1rem !important;
+  border: 2px solid transparent !important;
+  width: 100% !important;
+}
+
+.wimbledon-datepicker input:focus {
+  border-color: #B9CF32 !important; /* Borde Lima al hacer clic */
+  outline: none !important;
 }

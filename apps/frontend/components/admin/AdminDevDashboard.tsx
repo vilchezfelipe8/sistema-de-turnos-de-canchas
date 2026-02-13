@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Activity, Database, Server, Cpu, HardDrive, Clock } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -29,126 +30,143 @@ const AdminDevDashboard = () => {
   }, []);
 
   if (loading) return (
-    <div className="flex items-center justify-center p-12 bg-gray-950 rounded-xl border border-gray-800">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+    <div className="flex flex-col items-center justify-center p-20 bg-[#EBE1D8] rounded-[2rem] border-4 border-white shadow-xl">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-[#347048]"></div>
+      <p className="text-[#347048] font-black uppercase tracking-widest mt-4">Escaneando Sistema...</p>
     </div>
   );
   
   if (error || !metrics) return (
-    <div className="p-6 bg-red-950/30 border border-red-900 text-red-400 rounded-xl flex items-center gap-4">
-      <span className="text-xl">❌</span>
-      <span className="font-bold">Offline</span>
+    <div className="p-10 bg-red-50 border-4 border-white text-red-600 rounded-[2rem] flex flex-col items-center gap-4 shadow-xl">
+      <span className="text-4xl">⚠️</span>
+      <span className="font-black uppercase tracking-widest italic">Servidor fuera de línea</span>
+      <button onClick={fetchMetrics} className="mt-2 text-xs font-bold underline uppercase">Reintentar conexión</button>
     </div>
   );
 
-  // CÁLCULOS
-  const totalCores = metrics.server.cpu.cores;
   const cpuPercent = parseFloat(metrics.server.cpu.usage); 
-  
-  // En entornos estándar (Windows/Linux PC), casi siempre es 1 CPU físico.
-  // Si fuera un servidor Blade con dual socket, esto requeriría una librería extra.
-  // Para tu caso real, asumimos 1 Socket físico que contiene todos los cores.
   const physicalCpus = 1;
-
-  const barColor = cpuPercent > 80 ? 'bg-red-500' : cpuPercent > 50 ? 'bg-yellow-500' : 'bg-blue-500';
+  const barColor = cpuPercent > 80 ? 'bg-red-500' : cpuPercent > 50 ? 'bg-[#926699]' : 'bg-[#B9CF32]';
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="bg-gray-950 text-white p-6 rounded-lg shadow-2xl border border-gray-800">
+    <div className="max-w-6xl mx-auto animate-in fade-in duration-500">
+      {/* TARJETA PRINCIPAL BEIGE */}
+      <div className="bg-[#EBE1D8] text-[#347048] p-8 rounded-[2.5rem] shadow-2xl border-4 border-white relative overflow-hidden">
         
-        {/* Header */}
-        <div className="flex justify-between items-center mb-6 border-b border-gray-800 pb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
-            <h2 className="text-xl font-bold tracking-widest font-mono">SYSTEM_MONITOR_V2</h2>
+        {/* Decoración de fondo */}
+        <div className="absolute -top-10 -right-10 opacity-[0.03] pointer-events-none">
+            <Activity size={300} strokeWidth={1} />
+        </div>
+
+        {/* Header Estilo Wimbledon */}
+        <div className="flex justify-between items-center mb-10 border-b border-[#347048]/10 pb-6 relative z-10">
+          <div className="flex items-center gap-4">
+            <div className="bg-[#B9CF32] p-2 rounded-xl shadow-lg shadow-[#B9CF32]/20">
+                <Activity size={24} className="text-[#347048]" strokeWidth={3} />
+            </div>
+            <div>
+                <h2 className="text-2xl font-black italic tracking-tighter uppercase leading-none">Estado del Sistema</h2>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]/40 mt-1">Monitor de Salud en Tiempo Real</p>
+            </div>
           </div>
-          <div className="text-xs text-gray-500 font-mono">
-             REALTIME
+          <div className="flex items-center gap-2 bg-white/40 px-4 py-2 rounded-full border border-white/60 shadow-sm">
+            <div className="w-2 h-2 rounded-full bg-[#B9CF32] animate-pulse"></div>
+            <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Servidor Activo</span>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-10">
           
-          {/* COLUMNA 1 */}
+          {/* COLUMNA 1: INFRAESTRUCTURA */}
           <div className="space-y-6">
-            <div className="bg-gray-900 p-5 rounded border border-gray-800">
-              <p className="text-gray-500 text-xs uppercase mb-2 font-bold">Database Status</p>
+            {/* DATABASE */}
+            <div className="bg-white/60 p-6 rounded-2xl border border-white shadow-sm hover:bg-white transition-colors">
+              <div className="flex items-center gap-3 mb-4 text-[#926699]">
+                <Database size={18} strokeWidth={2.5} />
+                <p className="text-[10px] font-black uppercase tracking-widest">Base de Datos (PostgreSQL)</p>
+              </div>
               <div className="flex justify-between items-end">
-                <span className="text-white font-bold text-lg">{metrics.database.status}</span>
-                <span className="text-2xl font-bold text-emerald-400 font-mono">{metrics.database.latency}</span>
+                <span className="text-[#347048] font-black text-xl italic uppercase tracking-tight">{metrics.database.status}</span>
+                <div className="text-right">
+                    <span className="block text-[9px] font-black uppercase opacity-40">Latencia</span>
+                    <span className="text-2xl font-black text-[#B9CF32] italic tracking-tighter drop-shadow-sm">{metrics.database.latency}</span>
+                </div>
               </div>
             </div>
 
-            <div className="bg-gray-900 p-5 rounded border border-gray-800">
-              <p className="text-gray-500 text-xs uppercase mb-2 font-bold">Server Uptime</p>
-              <p className="text-white text-xl font-mono">{metrics.server.uptime}</p>
+            {/* UPTIME */}
+            <div className="bg-white/60 p-6 rounded-2xl border border-white shadow-sm">
+              <div className="flex items-center gap-3 mb-4 text-[#347048]/50">
+                <Clock size={18} strokeWidth={2.5} />
+                <p className="text-[10px] font-black uppercase tracking-widest">Tiempo de Actividad</p>
+              </div>
+              <p className="text-[#347048] text-2xl font-black italic tracking-tighter">{metrics.server.uptime}</p>
             </div>
             
-            <div className="bg-gray-900 p-5 rounded border border-gray-800">
-               <p className="text-gray-500 text-xs uppercase mb-2 font-bold">Platform</p>
-               <p className="text-gray-400 text-sm">{metrics.server.platform}</p>
+            {/* PLATFORM */}
+            <div className="bg-[#347048] p-6 rounded-2xl border border-[#347048] shadow-lg shadow-[#347048]/20">
+               <div className="flex items-center gap-3 mb-2 text-[#EBE1D8]/40">
+                 <Server size={18} />
+                 <p className="text-[10px] font-black uppercase tracking-widest">Entorno de Ejecución</p>
+               </div>
+               <p className="text-[#EBE1D8] font-black text-sm uppercase tracking-wider italic">{metrics.server.platform}</p>
             </div>
           </div>
 
-          {/* COLUMNA 2 */}
+          {/* COLUMNA 2: HARDWARE */}
           <div className="space-y-6">
             
-            {/* CPU FÍSICO (SOCKETS) */}
-            <div className="bg-gray-900 p-5 rounded border border-gray-800">
-              <p className="text-blue-400 text-xs font-bold uppercase mb-2">Procesador Físico (Socket)</p>
-              
-              <div className="flex items-baseline gap-2 mb-1">
-                 {/* AQUI MOSTRAMOS 1 (El hardware físico) */}
-                 <p className="text-5xl font-bold text-white font-mono">{physicalCpus}</p>
-                 <span className="text-lg text-gray-500">Unidad Física</span>
+            {/* CPU */}
+            <div className="bg-white p-6 rounded-3xl border-2 border-[#347048]/5 shadow-xl">
+              <div className="flex items-center gap-3 mb-4 text-[#347048]/60">
+                <Cpu size={18} strokeWidth={2.5} />
+                <p className="text-[10px] font-black uppercase tracking-widest">Unidad de Procesamiento</p>
               </div>
               
-              {/* Info técnica de los núcleos abajo */}
-              <div className="flex items-center gap-2 mb-4 mt-1">
-                 <span className="px-2 py-0.5 bg-gray-800 rounded text-xs text-gray-300 border border-gray-700">
-                    {totalCores} Núcleos Lógicos
-                 </span>
-                 <span className="px-2 py-0.5 bg-gray-800 rounded text-xs text-gray-300 border border-gray-700">
-                    x64 Arch
-                 </span>
+              <div className="flex items-baseline gap-3 mb-4">
+                <p className="text-6xl font-black text-[#347048] italic tracking-tighter">{physicalCpus}</p>
+                <div className="flex flex-col">
+                    <span className="text-sm font-black uppercase tracking-tight italic">Socket Físico</span>
+                    <span className="text-[10px] font-bold opacity-40 uppercase">{metrics.server.cpu.cores} Núcleos Lógicos</span>
+                </div>
               </div>
 
-              {/* Barra de carga general del CPU Físico */}
-              <div className="space-y-1">
-                 <div className="flex justify-between text-xs">
-                    <span className="text-gray-500">Carga del CPU:</span>
-                    <span className="text-white font-mono">{metrics.server.cpu.usage}</span>
+              {/* Barra de carga */}
+              <div className="space-y-2 bg-[#347048]/5 p-4 rounded-2xl border border-[#347048]/5">
+                 <div className="flex justify-between text-[10px] font-black uppercase tracking-widest mb-1">
+                    <span className="opacity-40">Carga Actual:</span>
+                    <span className="text-[#347048]">{metrics.server.cpu.usage}</span>
                  </div>
-                 <div className="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
+                 <div className="w-full bg-[#347048]/10 h-3 rounded-full overflow-hidden p-0.5">
                     <div 
-                        className={`h-full transition-all duration-500 ${barColor}`} 
+                        className={`h-full rounded-full transition-all duration-700 ${barColor}`} 
                         style={{ width: metrics.server.cpu.usage }}
                     ></div>
                  </div>
               </div>
 
-              <p className="text-xs text-gray-500 mt-3 font-mono truncate" title={metrics.server.cpu.model}>
+              <p className="text-[9px] text-[#347048]/30 mt-4 font-bold uppercase tracking-widest truncate italic" title={metrics.server.cpu.model}>
                 {metrics.server.cpu.model}
               </p>
             </div>
 
-            {/* RAM */}
-            <div className="bg-gray-900 p-5 rounded border border-gray-800">
-              <p className="text-purple-400 text-xs font-bold uppercase mb-1">Memory Usage (RSS)</p>
-              <p className="text-4xl font-bold text-white font-mono mb-4">{metrics.server.memory.rss}</p>
-              <div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden">
-                <div className="bg-purple-500 h-full w-1/3 animate-pulse"></div>
-              </div>
-            </div>
-
-            {/* HEAP */}
-            <div className="bg-gray-900 p-5 rounded border border-gray-800">
-                <p className="text-gray-500 text-xs uppercase mb-1 font-bold">Heap Objects</p>
-                <p className="text-white text-lg font-mono">{metrics.server.memory.heap}</p>
+            {/* RAM & HEAP */}
+            <div className="grid grid-cols-2 gap-4">
+                <div className="bg-[#926699] p-5 rounded-2xl shadow-lg shadow-[#926699]/10">
+                    <p className="text-[#EBE1D8]/60 text-[9px] font-black uppercase tracking-widest mb-1">Memoria (RSS)</p>
+                    <p className="text-xl font-black text-[#EBE1D8] italic tracking-tighter">{metrics.server.memory.rss}</p>
+                    <div className="w-full bg-white/20 h-1 rounded-full mt-3 overflow-hidden">
+                        <div className="bg-[#B9CF32] h-full w-1/3 animate-pulse"></div>
+                    </div>
+                </div>
+                <div className="bg-white/60 p-5 rounded-2xl border border-white">
+                    <p className="text-[#347048]/40 text-[9px] font-black uppercase tracking-widest mb-1">Heap Objects</p>
+                    <p className="text-xl font-black text-[#347048] italic tracking-tighter">{metrics.server.memory.heap}</p>
+                </div>
             </div>
             
-            <div className="text-right pt-2">
-                <p className="text-xs text-gray-600 font-mono">Updated: {metrics.timestamp.split('T')[1].split('.')[0]}</p>
+            <div className="text-right pt-4 border-t border-[#347048]/5">
+                <p className="text-[10px] font-black text-[#347048]/30 uppercase tracking-[0.2em]">Último análisis: {metrics.timestamp.split('T')[1].split('.')[0]}</p>
             </div>
           </div>
         </div>

@@ -448,47 +448,79 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
 
   // --- RENDERIZADO VISUAL ---
   return (
-    <div className="w-full max-w-4xl mx-auto bg-surface-70 backdrop-blur-xl p-6 sm:p-8 rounded-3xl border border-border shadow-soft relative overflow-hidden">
+    <div className="w-full max-w-4xl mx-auto bg-[#EBE1D8] p-6 sm:p-8 rounded-[2rem] shadow-2xl shadow-[#347048]/50 border-4 border-[#d4c5b0]/50 relative overflow-hidden">
     
       <div className="text-center mb-8">
-        <h2 className="text-3xl font-black text-text mb-2 tracking-tight">Reservar Cancha</h2>
-        <p className="text-muted font-medium">Elige tu día y horario ideal</p>
+        <h2 className="text-4xl font-black text-[#926699] mb-2 tracking-tighter uppercase italic">Reservar Cancha</h2>
+        <p className="text-[#347048] font-bold text-sm tracking-wide opacity-80">Elige tu día y horario ideal</p>
       </div>
 
       <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-bold text-slate-300 mb-2 ml-1 flex items-center gap-2">
-            <span>🎾</span>
+          <label className="block text-xs font-black text-[#926699] mb-2 ml-1 flex items-center gap-2 uppercase tracking-wider">
+            <span className="text-[#B9CF32] text-base">🎾</span>
             <span>Tipo de cancha</span>
           </label>
-          <select
-            value={selectedActivityFilter}
-            onChange={(event) => {
-              const value = event.target.value;
-              setSelectedActivityFilter(value);
-              setSelectedSlot(null);
-              setSelectedCourt(null);
-            }}
-            className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-text font-semibold focus:outline-none focus:border-white/40"
-          >
-            <option value="ALL">Todas las canchas</option>
-            {Array.from(
-              new Set(
-                allCourts.flatMap((court) => court.activities?.map((activity) => activity.name) || [])
-              )
-            ).map((activityName) => (
-              <option key={activityName} value={activityName}>
-                {activityName}
-              </option>
-            ))}
-          </select>
+          <div className="relative group">
+            <select
+              value={selectedActivityFilter}
+              onChange={(event) => {
+                const value = event.target.value;
+                setSelectedActivityFilter(value);
+                setSelectedSlot(null);
+                setSelectedCourt(null);
+              }}
+              className="w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 py-3 text-[#347048] font-bold focus:outline-none shadow-sm appearance-none cursor-pointer hover:bg-white/90"
+            >
+              <option value="ALL">Todas las canchas</option>
+              {Array.from(
+                new Set(
+                  allCourts.flatMap((court) => court.activities?.map((activity) => activity.name) || [])
+                )
+              ).map((activityName) => (
+                <option key={activityName} value={activityName}>
+                  {activityName}
+                </option>
+              ))}
+            </select>
+             {/* Flecha personalizada */}
+             <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-[#B9CF32]">
+              <svg className="fill-current h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+            </div>
+          </div>
         </div>
         <div>
-          <label className="block text-sm font-bold text-slate-300 mb-2 ml-1 flex items-center gap-2">
-            <span>📅</span>
+          <label className="block text-xs font-black text-[#926699] mb-2 ml-1 flex items-center gap-2 uppercase tracking-wider">
+            <span className="text-[#B9CF32] text-base">📅</span>
             <span>Fecha</span>
           </label>
-          <div className="w-full" style={{ boxSizing: 'border-box' }}>
+          <div className="w-full relative">
+            <style jsx global>{`
+                .date-picker-custom {
+                    background-color: white !important;
+                    color: #347048 !important;
+                    font-weight: bold !important;
+                    border: 2px solid transparent !important;
+                    border-radius: 0.75rem !important;
+                    padding: 0.75rem 1rem !important;
+                    width: 100% !important;
+                    outline: none !important;
+                }
+                .date-picker-custom:focus { border-color: #B9CF32 !important; }
+                .react-datepicker {
+                    background-color: #347048 !important;
+                    border: none !important;
+                    border-radius: 1rem !important;
+                    font-family: inherit !important;
+                }
+                .react-datepicker__header { background-color: #2a5c3b !important; border-bottom: 1px solid rgba(255,255,255,0.1) !important; }
+                .react-datepicker__current-month, .react-datepicker__day-name { color: #EBE1D8 !important; }
+                .react-datepicker__day { color: #EBE1D8 !important; font-weight: 500 !important; }
+                .react-datepicker__day:hover, .react-datepicker__day--selected {
+                    background-color: #B9CF32 !important; color: #347048 !important; font-weight: bold !important; border-radius: 50% !important;
+                }
+                .react-datepicker__day--disabled { color: rgba(235, 225, 216, 0.3) !important; }
+            `}</style>
             <DatePicker
               selected={selectedDate}
               onChange={(date: Date | null) => {
@@ -521,7 +553,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
               maxDate={maxDate}
               dateFormat="dd MMM yyyy"
               locale={es}
-              className="date-picker-custom"
+              className="date-picker-custom shadow-sm"
               wrapperClassName="w-full"
               calendarClassName="date-picker-calendar"
               popperClassName="date-picker-popper"
@@ -536,20 +568,20 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
 
       {loading && (
         <div className="flex justify-center py-12">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2" style={{ borderColor: 'rgba(255,255,255,0.12)' }}></div>
+          <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-[#347048]"></div>
         </div>
       )}
 
       {error && (
-        <div className="bg-surface-70 text-muted p-4 rounded-xl border border-border text-center mb-6 flex items-center justify-center gap-2">
+        <div className="bg-red-50 text-red-800 p-4 rounded-xl border border-red-100 text-center mb-6 flex items-center justify-center gap-2 font-bold text-sm">
            <span>⚠️</span> {error}
         </div>
       )}
 
       {!loading && filteredSlotsWithCourts.length > 0 && (
         <div className="mb-10">
-          <label className="block text-sm font-bold text-slate-300 mb-4 ml-1 flex items-center gap-2">
-            <span>⏰</span>
+          <label className="block text-xs font-black text-[#926699] mb-4 ml-1 flex items-center gap-2 uppercase tracking-wider">
+            <span className="text-[#B9CF32] text-base">⏰</span>
             <span>Horarios Disponibles</span>
           </label>
 
@@ -572,12 +604,12 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
               }, 0);
 
               return (
-                <div key={slotWithCourt.slotTime} className="bg-surface-70 p-4 rounded-2xl border border-border hover:border-border transition-colors">
+                <div key={slotWithCourt.slotTime} className="bg-white/60 p-5 rounded-2xl border border-[#926699]/10 shadow-sm hover:border-[#926699]/30 transition-colors">
                   <div className="flex items-center justify-between mb-4">
-                    <span className="font-bold text-xl text-white tracking-tight">{slotWithCourt.slotTime}</span>
-                    <span className="text-xs font-bold text-muted uppercase tracking-wider bg-surface px-2 py-1 rounded flex items-center gap-1">
+                    <span className="font-black text-3xl text-[#347048] tracking-tight">{slotWithCourt.slotTime}</span>
+                    <span className="text-[10px] font-black bg-[#926699] text-[#EBE1D8] px-3 py-1 rounded-full uppercase tracking-widest flex items-center gap-2">
                       {availableCount} {availableCount !== 1 ? 'DISPONIBLES' : 'DISPONIBLE'}
-                      {availableCount > 0 && <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>}
+                      {availableCount > 0 && <div className="w-2 h-2 bg-[#B9CF32] rounded-full animate-pulse shadow-[0_0_8px_#B9CF32]"></div>}
                     </span>
                   </div>
 
@@ -616,14 +648,14 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
 
                       // Estilos
                       const isSelected = selectedSlot === slotWithCourt.slotTime && selectedCourt?.id === court.id;
-                      let btnClass = 'py-3 px-4 rounded-xl font-bold text-sm transition-all duration-300 flex items-center justify-center gap-2 border ';
+                      let btnClass = 'py-3 px-4 rounded-xl text-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 border-2 ';
                       
                       if (isDisabled) {
-                        btnClass += 'btn-disabled';
+                        btnClass += 'bg-gray-100 text-gray-400 border-transparent cursor-not-allowed opacity-60';
                       } else if (isSelected) {
-                        btnClass += 'btn btn-selected';
+                        btnClass += 'bg-[#B9CF32] text-[#347048] border-[#B9CF32] transform scale-[1.02] shadow-lg font-black';
                       } else {
-                        btnClass += 'btn';
+                        btnClass += 'bg-white text-[#347048] border-transparent hover:border-[#B9CF32] hover:text-[#B9CF32] hover:bg-[#B9CF32]/10';
                       }
 
                       return (
@@ -642,8 +674,8 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
       )}
 
       {!loading && filteredSlotsWithCourts.length === 0 && selectedDate && (
-        <div className="text-center py-12 bg-surface-70 rounded-2xl border border-dashed border-border mb-8">
-          <p className="text-muted font-medium">
+        <div className="text-center py-12 bg-[#347048]/5 rounded-2xl border border-dashed border-[#347048]/20 mb-8">
+          <p className="text-[#347048]/60 font-bold">
             {(() => {
               const now = new Date();
               const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -661,11 +693,14 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
         ref={confirmButtonRef}
         onClick={handleBooking}
         disabled={isBooking || !selectedSlot || !selectedCourt}
-        className={`${(isBooking || !selectedSlot || !selectedCourt) ? 'btn btn-disabled w-full' : 'btn btn-primary w-full'}`}
+        className={`w-full py-4 rounded-2xl font-black text-lg uppercase tracking-widest transition-all shadow-xl flex items-center justify-center gap-2
+            ${(isBooking || !selectedSlot || !selectedCourt) 
+                ? 'bg-[#347048]/10 text-[#347048]/30 cursor-not-allowed border border-[#347048]/5' 
+                : 'bg-[#347048] text-[#EBE1D8] hover:bg-[#B9CF32] hover:text-[#347048] hover:-translate-y-1 hover:shadow-[#B9CF32]/30'}`}
       >
         {isBooking ? (
           <>
-            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-slate-900"></div>
+            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-current"></div>
             <span>Procesando...</span>
           </>
         ) : (isBooking || !selectedSlot || !selectedCourt) ? (
@@ -691,10 +726,10 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
         )}
       </button>
       {selectedSlot && selectedCourt && (
-        <div className="mt-2 text-xs text-muted text-center">
+        <div className="mt-2 text-xs text-[#347048]/80 text-center font-medium">
           {priceInfo.hasLights && clubConfig ? (
             <>
-              Precio estimado: <span className="font-semibold text-text">${priceInfo.final.toLocaleString()}</span>{' '}
+              Precio estimado: <span className="font-black text-[#347048] text-base">${priceInfo.final.toLocaleString()}</span>{' '}
               <span className="ml-1 text-[11px]">
                 (incluye extra por luces de ${priceInfo.extra.toLocaleString()} desde las {clubConfig.lightsFromHour})
               </span>
@@ -702,7 +737,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
           ) : (
             <>
               Precio estimado:{' '}
-              <span className="font-semibold text-text">
+              <span className="font-black text-[#347048] text-base">
                 ${priceInfo.final.toLocaleString()}
               </span>
             </>
@@ -726,25 +761,25 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
         title=""
         message={(
           <div className="space-y-3">
-            <h4 className="text-sm font-semibold text-text">Datos de reserva</h4>
+            <h4 className="text-sm font-black text-[#926699] uppercase tracking-wider">Datos de reserva</h4>
             {selectedTimes && (
-              <div className="grid grid-cols-1 gap-2 rounded-xl border border-border bg-surface p-3 text-sm text-muted">
+              <div className="grid grid-cols-1 gap-2 rounded-xl border border-[#926699]/20 bg-[#fdfaff] p-3 text-sm text-[#347048]">
                 <div className="flex items-center justify-between">
-                  <span>Inicia:</span>
-                  <span className="text-text font-semibold">{selectedTimes.startLabel}</span>
+                  <span className="font-bold text-[#926699] uppercase text-xs">Inicia:</span>
+                  <span className="text-[#347048] font-black">{selectedTimes.startLabel}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span>Termina:</span>
-                  <span className="text-text font-semibold">{selectedTimes.endLabel}</span>
+                  <span className="font-bold text-[#926699] uppercase text-xs">Termina:</span>
+                  <span className="text-[#347048] font-black">{selectedTimes.endLabel}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span>Precio:</span>
-                  <span className="text-text font-semibold">
+                  <span className="font-bold text-[#926699] uppercase text-xs">Precio:</span>
+                  <span className="text-[#347048] font-black text-lg">
                     ${priceInfo.final.toLocaleString()}
                   </span>
                 </div>
                 {priceInfo.hasLights && clubConfig && (
-                  <div className="flex items-center justify-between text-xs text-muted">
+                  <div className="flex items-center justify-between text-xs text-[#347048]/60">
                     <span>Detalle:</span>
                     <span>
                       ${priceInfo.base.toLocaleString()} cancha + ${priceInfo.extra.toLocaleString()} luces
@@ -753,7 +788,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                 )}
               </div>
             )}
-            <h4 className="text-sm font-semibold text-text pt-2">Datos de contacto</h4>
+            <h4 className="text-sm font-black text-[#926699] uppercase tracking-wider pt-2">Datos de contacto</h4>
             <div className="grid grid-cols-1 gap-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="relative">
@@ -763,12 +798,12 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                     placeholder=" "
                     value={guestFirstName}
                     onChange={(e) => setGuestFirstName(e.target.value)}
-                  onKeyDown={handleGuestKeyDown}
-                    className="peer w-full p-3 pt-5 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-white focus:!border-white focus:ring-0 transition-colors font-medium shadow-inner"
+                    onKeyDown={handleGuestKeyDown}
+                    className="peer w-full p-3 pt-5 rounded-xl border border-[#347048]/20 bg-white text-[#347048] placeholder:text-transparent focus:outline-none focus:border-[#B9CF32] focus:ring-0 transition-colors font-bold shadow-sm"
                   />
                   <label
                     htmlFor="guest-first-name"
-                    className="absolute left-3 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
+                    className="absolute left-3 top-0 -translate-y-1/2 bg-white px-1 text-[#347048]/60 text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-white peer-focus:px-1 peer-focus:text-xs peer-focus:text-[#B9CF32] peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs font-bold"
                   >
                     Nombre
                   </label>
@@ -780,12 +815,12 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                     placeholder=" "
                     value={guestLastName}
                     onChange={(e) => setGuestLastName(e.target.value)}
-                  onKeyDown={handleGuestKeyDown}
-                    className="peer w-full p-3 pt-5 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-white focus:!border-white focus:ring-0 transition-colors font-medium shadow-inner"
+                    onKeyDown={handleGuestKeyDown}
+                    className="peer w-full p-3 pt-5 rounded-xl border border-[#347048]/20 bg-white text-[#347048] placeholder:text-transparent focus:outline-none focus:border-[#B9CF32] focus:ring-0 transition-colors font-bold shadow-sm"
                   />
                   <label
                     htmlFor="guest-last-name"
-                    className="absolute left-3 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
+                    className="absolute left-3 top-0 -translate-y-1/2 bg-white px-1 text-[#347048]/60 text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-white peer-focus:px-1 peer-focus:text-xs peer-focus:text-[#B9CF32] peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs font-bold"
                   >
                     Apellido
                   </label>
@@ -801,19 +836,19 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                     setGuestDni(soloNumeros);
                   }}
                   onKeyDown={handleGuestKeyDown}
-                  className="peer w-full p-3 pt-5 rounded-xl border border-border bg-surface text-text placeholder:text-muted focus:outline-none focus:border-white focus:!border-white focus:ring-0 transition-colors font-medium shadow-inner"
+                  className="peer w-full p-3 pt-5 rounded-xl border border-[#347048]/20 bg-white text-[#347048] placeholder:text-transparent focus:outline-none focus:border-[#B9CF32] focus:ring-0 transition-colors font-bold shadow-sm"
                 />
                 <label
                   htmlFor="guest-dni"
-                  className="absolute left-3 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
+                  className="absolute left-3 top-0 -translate-y-1/2 bg-white px-1 text-[#347048]/60 text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-white peer-focus:px-1 peer-focus:text-xs peer-focus:text-[#B9CF32] peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs font-bold"
                 >
                   DNI 
                 </label>
               </div>
               </div>
-              <div className="relative flex items-center rounded-xl border border-border bg-surface focus-within:border-white focus-within:!border-white transition-colors">
+              <div className="relative flex items-center rounded-xl border border-[#347048]/20 bg-white focus-within:border-[#B9CF32] transition-colors shadow-sm">
                 <span
-                  className={`px-3 text-muted font-medium whitespace-nowrap min-w-[3.25rem] text-center transition-all duration-150 leading-none ${guestPhone.length || guestPhoneFocused ? 'mt-2' : ''}`}
+                  className={`px-3 text-[#347048]/60 font-bold whitespace-nowrap min-w-[3.25rem] text-center transition-all duration-150 leading-none ${guestPhone.length || guestPhoneFocused ? 'mt-2' : ''}`}
                 >
                   +54&nbsp;9
                 </span>
@@ -830,18 +865,18 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                   onBlur={() => setGuestPhoneFocused(false)}
                   onKeyDown={handleGuestKeyDown}
                   maxLength={12}
-                  className="peer w-full p-3 pt-5 rounded-xl bg-transparent text-text placeholder:text-muted focus:outline-none transition-colors font-medium border-0 focus:border-0 leading-tight"
+                  className="peer w-full p-3 pt-5 rounded-xl bg-transparent text-[#347048] placeholder:text-transparent focus:outline-none transition-colors font-bold border-0 focus:border-0 leading-tight"
                 />
                   <label
                   htmlFor="guest-phone"
-                  className="absolute left-16 top-0 -translate-y-1/2 bg-surface px-1 text-muted text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-surface peer-focus:px-1 peer-focus:text-xs peer-focus:text-slate-300 peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs"
+                  className="absolute left-16 top-0 -translate-y-1/2 bg-white px-1 text-[#347048]/60 text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-white peer-focus:px-1 peer-focus:text-xs peer-focus:text-[#B9CF32] peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs font-bold"
                 >
                   Teléfono
                 </label>
               </div>
             </div>
             {guestError && (
-              <p className="text-xs text-red-400">{guestError}</p>
+              <p className="text-xs text-red-500 font-bold bg-red-50 p-2 rounded-lg text-center">{guestError}</p>
             )}
           </div>
         )}

@@ -1,124 +1,99 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { PanelLeftClose, PanelRight } from 'lucide-react';
+import { X, Calendar, Users, Package, DollarSign, LayoutGrid, BarChart3, Settings, LogOut } from 'lucide-react';
 
-const STORAGE_KEY = 'adminSidebarCollapsed';
-const TRANSITION = 'transition-all duration-300 ease-in-out';
+interface AdminSidebarProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
 
-const AdminSidebar = () => {
+const AdminSidebar = ({ isOpen, onClose }: AdminSidebarProps) => {
   const router = useRouter();
-  const [scrolled, setScrolled] = useState(false);
-  const [collapsed, setCollapsed] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return localStorage.getItem(STORAGE_KEY) === 'true';
-  });
 
+  // Cerrar el sidebar automáticamente cuando cambiamos de ruta
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 12);
-    onScroll();
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
-
-  const toggleCollapsed = () => {
-    setCollapsed((prev) => {
-      const next = !prev;
-      localStorage.setItem(STORAGE_KEY, String(next));
-      return next;
-    });
-  };
+    onClose();
+  }, [router.asPath]);
 
   const navItems = [
-    { name: 'Turnos', path: '/admin/agenda', icon: '📅' },
-    { name: 'Clientes', path: '/admin/clientes', icon: '👥' },
-    { name: 'Productos & Stock', path: '/admin/products', icon: '📦' },
-    { name: 'Caja y Movimientos', path: '/admin/cash', icon: '💰' },
-    { name: 'Canchas', path: '/admin/canchas', icon: '🏓' },
-    { name: 'Métricas', path: '/admin/metrics', icon: '📊' }, 
-    { name: 'Configuración', path: '/admin/settings', icon: '⚙️' },
+    { name: 'Turnos', path: '/admin/agenda', icon: <Calendar size={20} /> },
+    { name: 'Clientes', path: '/admin/clientes', icon: <Users size={20} /> },
+    { name: 'Productos & Stock', path: '/admin/products', icon: <Package size={20} /> },
+    { name: 'Caja y Movimientos', path: '/admin/cash', icon: <DollarSign size={20} /> },
+    { name: 'Canchas', path: '/admin/canchas', icon: <LayoutGrid size={20} /> },
+    { name: 'Métricas', path: '/admin/metrics', icon: <BarChart3 size={20} /> }, 
+    { name: 'Configuración', path: '/admin/settings', icon: <Settings size={20} /> },
   ];
 
   return (
-    <aside
-      className={`fixed left-0 top-0 h-full z-40 hidden md:flex flex-col pt-32 border-r border-white/15 select-none ${TRANSITION} ${
-        scrolled ? '-translate-y-1 shadow-2xl bg-[#2f5f41]/95 shadow-[0_20px_40px_rgba(146,102,153,0.25)]' : 'translate-y-0 bg-[#2a553a]'
-      } ${collapsed ? 'w-16 pr-2' : 'w-64'}`}
-      style={{ overflowX: 'hidden', overflowY: 'auto', boxSizing: 'border-box' }}
-    >
-      {/* Header: título + botón toggle (botón siempre a la derecha) */}
-    <div className="flex items-center justify-between shrink-0 border-b border-white/10 gap-2 px-4 py-4 min-w-0">
-        <div
-          className={`overflow-hidden whitespace-nowrap min-w-0 ${TRANSITION} ${
-            collapsed ? 'max-w-0 opacity-0' : 'max-w-[11rem] opacity-100'
-          }`}
-        >
-          <h2 className="text-xl font-bold text-[#D4C5B0] tracking-tight">
-            Panel Admin
-            <span className="ml-2 inline-block h-2 w-2 rounded-full bg-[#926699] align-middle" />
-          </h2>
-          <p className="text-[#D4C5B0]/60 text-xs uppercase tracking-wider mt-0.5">Administración del Club</p>
-        </div>
-        <button
-          type="button"
-          onClick={toggleCollapsed}
-          className="p-2 rounded-lg text-[#D4C5B0]/70 hover:bg-white/10 hover:text-[#D4C5B0] shrink-0"
-          title={collapsed ? 'Expandir menú' : 'Ocultar menú'}
-          aria-label={collapsed ? 'Expandir menú' : 'Ocultar menú'}
-        >
-          {collapsed ? <PanelRight className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
-        </button>
-      </div>
+    <>
+      {/* 1. BACKDROP OSCURO (Fondo negro transparente) */}
+      <div 
+        className={`fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        onClick={onClose}
+      />
 
-      <nav className={`flex-1 min-w-0 py-2 overflow-x-hidden overflow-y-auto ${collapsed ? 'pr-3' : ''}`}>
-        <div className={`space-y-1 ${collapsed ? 'pl-3 pr-0' : 'px-4'}`}>
+      {/* 2. EL PANEL LATERAL (Drawer) */}
+      <aside
+        className={`fixed top-0 left-0 h-full w-[280px] bg-[#EBE1D8] z-[70] shadow-2xl transform transition-transform duration-300 ease-out flex flex-col border-r-4 border-[#347048]/20 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+      >
+        
+        {/* CABECERA */}
+        <div className="p-6 flex justify-between items-center border-b border-[#347048]/10 bg-[#EBE1D8]">
+          <div>
+            <h2 className="text-2xl font-black text-[#926699] tracking-tighter italic uppercase">
+                Panel Admin
+            </h2>
+            <p className="text-[#347048] text-[10px] font-bold uppercase tracking-widest opacity-60">
+                Gestión del Club
+            </p>
+          </div>
+          <button 
+            onClick={onClose}
+            className="p-2 hover:bg-[#347048]/10 rounded-full text-[#347048] transition-colors"
+          >
+            <X size={24} strokeWidth={3} />
+          </button>
+        </div>
+
+        {/* LISTA DE NAVEGACIÓN */}
+        <nav className="flex-1 overflow-y-auto py-6 px-4 space-y-2">
           {navItems.map((item) => {
             const isActive = router.pathname === item.path;
             return (
               <Link
                 key={item.path}
                 href={item.path}
-                title={item.name}
-                className={`flex items-center rounded-lg py-3 px-2 group ${
-                  collapsed ? 'w-fit mr-2' : 'w-full'
-                } ${
+                className={`flex items-center gap-4 px-4 py-3 rounded-xl transition-all duration-200 group ${
                   isActive
-                      ? 'bg-[#926699]/20 text-[#D4C5B0] border border-[#926699]/60'
-                    : 'text-[#D4C5B0]/70 hover:bg-white/10 hover:text-[#D4C5B0]'
+                    // ACTIVO: Fondo Verde Oscuro, Texto Lima, Sombra
+                    ? 'bg-[#347048] text-[#B9CF32] font-black shadow-lg shadow-[#347048]/30 translate-x-1'
+                    // INACTIVO: Texto Verde, Hover Fondo Blanco
+                    : 'text-[#347048] hover:bg-white hover:text-[#347048] font-bold hover:shadow-sm'
                 }`}
               >
-                <span
-                  className={`shrink-0 w-6 text-lg text-center group-hover:scale-110 ${
-                    isActive ? 'scale-110' : ''
-                  }`}
-                >
-                  {item.icon}
+                <span className={`${isActive ? 'text-[#B9CF32]' : 'text-[#347048]/60 group-hover:text-[#347048]'}`}>
+                    {item.icon}
                 </span>
-                <span
-                  className={`ml-3 font-medium text-sm overflow-hidden whitespace-nowrap ${TRANSITION} ${
-                    collapsed ? 'max-w-0 opacity-0 min-w-0' : 'max-w-[10rem] opacity-100'
-                  }`}
-                >
-                  {item.name}
-                </span>
+                <span className="text-sm tracking-wide">{item.name}</span>
               </Link>
             );
           })}
-        </div>
-      </nav>
+        </nav>
 
-      {/* Footer: altura fija, icono siempre en la misma posición */}
-        <div className="shrink-0 border-t border-white/10 flex items-center min-h-[3.25rem] px-4 py-3">
-        <div className="w-2 h-2 rounded-full bg-[#926699] animate-pulse shrink-0" />
-        <span
-          className={`ml-2 text-xs text-[#D4C5B0]/60 overflow-hidden whitespace-nowrap ${TRANSITION} ${
-            collapsed ? 'max-w-0 opacity-0 min-w-0' : 'max-w-[8rem] opacity-100'
-          }`}
-        >
-          Sistema Online
-        </span>
-      </div>
-    </aside>
+        {/* FOOTER */}
+        <div className="p-6 border-t border-[#347048]/10 bg-[#dcd0c5]/30">
+            <div className="flex items-center gap-3 px-4 py-3 bg-[#347048]/5 rounded-xl border border-[#347048]/5">
+                <div className="w-2 h-2 rounded-full bg-[#0bbd49] animate-pulse shrink-0" />
+                <span className="text-xs font-bold text-[#347048]/60 uppercase tracking-wider">
+                    Sistema Online
+                </span>
+            </div>
+        </div>
+
+      </aside>
+    </>
   );
 };
 

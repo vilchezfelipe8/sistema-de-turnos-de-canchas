@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ClubAdminService } from '../services/ClubAdminService';
-import { Trash2, Plus, ShoppingCart, Receipt, Lock } from 'lucide-react'; // 👈 Asegurate de tener Lock
+import { Trash2, Plus, ShoppingCart, Receipt, Lock } from 'lucide-react';
 import { BookingTicket } from './BookingTicket';
 
 interface Props {
@@ -62,7 +62,6 @@ export default function BookingConsumption({ bookingId, slug, courtPrice = 0, pa
     }
   }, [bookingId, slug]);
 
-  // 1. Cargar Datos
   useEffect(() => {
     loadData();
   }, [loadData]);
@@ -93,28 +92,18 @@ export default function BookingConsumption({ bookingId, slug, courtPrice = 0, pa
     setCartItems(cartItems.filter(i => item.isNew ? i.tempId !== item.tempId : i.id !== item.id));
   };
 
-  // 👇 LÓGICA CORE MODIFICADA 👇
   const handleSaveChanges = async (targetBookingStatus: 'PAID' | 'DEBT' | 'PARTIAL', itemPaymentMethod: 'CASH' | 'DEBT' | 'TRANSFER') => {
     try {
       setSaving(true);
-
-      // 1. Actualizamos el estado de la reserva
-      // IMPORTANTE: Si era DEUDA y ahora pagamos items en CASH, pasamos a PARTIAL.
       await ClubAdminService.updateBookingPaymentStatus(bookingId, targetBookingStatus);
-
-      // 2. Borrados
       const deletePromises = itemsToDelete.map(id => ClubAdminService.removeItemFromBooking(id));
-      // 3. Agregados (Con el método explícito que elegimos en el botón)
       const newItems = cartItems.filter(i => i.isNew);
       const addPromises = newItems.map(item => 
         ClubAdminService.addItemToBooking(bookingId, item.productId, item.quantity, itemPaymentMethod)
       );
-
       await Promise.all([...deletePromises, ...addPromises]);
-
       onConfirm(); 
       onClose();
-
     } catch (error: any) {
       alert("Error: " + (error.message || "Intente nuevamente"));
     } finally {
@@ -122,9 +111,6 @@ export default function BookingConsumption({ bookingId, slug, courtPrice = 0, pa
     }
   };
 
-  // CÁLCULOS VISUALES 🧮
-  // Consideramos la cancha "resuelta" si está PAGADA, PARCIAL O DEUDA.
-  // Si está en DEUDA, se gestiona desde Clientes, no acá.
   const isCourtResolved = paymentStatus === 'PAID' || paymentStatus === 'PARTIAL' || paymentStatus === 'DEBT';
   const courtPriceToPay = isCourtResolved ? 0 : (courtPrice || 0);
   const BASE_COURT_PRICE = 28000;
@@ -137,32 +123,27 @@ export default function BookingConsumption({ bookingId, slug, courtPrice = 0, pa
   const finalTotal = courtPriceToPay + consumptionTotal;
 
   const handlePaymentConfirm = (method: 'CASH' | 'TRANSFER') => {
-     let nextStatus: 'PAID' | 'PARTIAL' | 'DEBT' = 'PAID';
-     
-     // Si la cancha se debe (DEBT), y pagamos solo consumos -> PARTIAL
-     if (paymentStatus === 'DEBT') {
-         nextStatus = 'PARTIAL';
-     } 
-     // Si ya era parcial (cancha paga, items fiados), sigue PARTIAL (items nuevos pagos)
-     else if (paymentStatus === 'PARTIAL') {
-         nextStatus = 'PARTIAL';
-     }
-     
-     // Ejecutamos el guardado enviando el método real (CASH o TRANSFER)
-     handleSaveChanges(nextStatus, method);
-     setShowPaymentModal(false); // Cerramos modal
+      let nextStatus: 'PAID' | 'PARTIAL' | 'DEBT' = 'PAID';
+      if (paymentStatus === 'DEBT') {
+          nextStatus = 'PARTIAL';
+      } 
+      else if (paymentStatus === 'PARTIAL') {
+          nextStatus = 'PARTIAL';
+      }
+      handleSaveChanges(nextStatus, method);
+      setShowPaymentModal(false);
   };
 
   return (
-    <div className="space-y-4">
-      {/* SELECCIÓN DE PRODUCTO (Igual que antes) */}
-      <div className="bg-gray-800/50 p-4 rounded-xl border border-gray-700">
-        <h3 className="text-white font-bold flex items-center gap-2 mb-3 text-sm uppercase tracking-wide">
-          <ShoppingCart size={16} className="text-emerald-400" /> Agregar Consumo
+    <div className="space-y-6 text-[#347048]">
+      {/* SECCIÓN: AGREGAR CONSUMO (Diseño Beige Wimbledon) */}
+      <div className="bg-[#347048]/5 p-5 rounded-2xl border border-[#347048]/10">
+        <h3 className="text-[#926699] font-black flex items-center gap-2 mb-4 text-xs uppercase tracking-[0.1em]">
+          <ShoppingCart size={16} strokeWidth={3} /> Agregar Consumo / Extra
         </h3>
-        <div className="flex gap-2">
+        <div className="flex gap-3">
             <select 
-                className="flex-1 bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:border-emerald-500 outline-none"
+                className="flex-1 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 py-3 text-[#347048] font-bold text-sm shadow-sm outline-none transition-all appearance-none cursor-pointer"
                 value={selectedProductId}
                 onChange={(e) => setSelectedProductId(e.target.value)}
             >
@@ -175,152 +156,153 @@ export default function BookingConsumption({ bookingId, slug, courtPrice = 0, pa
             </select>
             <input 
                 type="number" min="1" 
-                className="w-16 bg-gray-900 border border-gray-600 rounded-lg px-2 text-center text-white text-sm"
+                className="w-20 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-2 text-center text-[#347048] font-black shadow-sm outline-none"
                 value={quantity} onChange={(e) => setQuantity(Number(e.target.value))}
             />
             <button 
                 onClick={handleAddToDraft} disabled={!selectedProductId}
-                className="bg-gray-700 hover:bg-emerald-600 disabled:opacity-50 text-white p-2 rounded-lg transition"
+                className="bg-[#926699] hover:bg-[#7a5580] disabled:opacity-30 text-[#EBE1D8] p-3 rounded-xl transition-all shadow-md active:scale-95"
             >
-                <Plus size={20} />
+                <Plus size={24} strokeWidth={3} />
             </button>
         </div>
       </div>
 
-      {/* LISTA DE ITEMS (Igual a la última versión visual) */}
-      <div className="bg-gray-900/30 rounded-lg border border-gray-800 overflow-hidden min-h-[100px]">
+      {/* LISTA DE ITEMS (Diseño Limpio y Contrastado) */}
+      <div className="bg-white/40 rounded-2xl border-2 border-dashed border-[#347048]/10 overflow-hidden min-h-[120px]">
         {cartItems.length === 0 ? (
-           <p className="text-gray-500 text-center py-8 text-sm italic">No hay consumos en esta lista.</p>
+           <div className="flex flex-col items-center justify-center py-10 opacity-40 italic">
+              <Receipt size={32} className="mb-2" />
+              <p className="text-sm font-bold uppercase tracking-widest">Sin consumos cargados</p>
+           </div>
         ) : (
-          cartItems.map((item) => (
-            <div 
-              key={item.isNew ? item.tempId : item.id} 
-              className={`flex justify-between items-center p-3 border-b border-gray-800 last:border-0 transition ${item.isNew ? 'bg-emerald-500/5' : 'bg-transparent opacity-60'}`}
-            >
-              <div className="text-sm flex items-center">
-                <span className="font-bold text-white mr-2">{item.quantity}x</span> 
-                <span className="text-gray-300 mr-2">{item.productName}</span>
-                {item.isNew ? (
-                  <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-bold border border-emerald-500/20">NUEVO</span>
-                ) : (
-                  <span className="flex items-center gap-1 text-[10px] bg-gray-800 text-gray-500 px-1.5 py-0.5 rounded border border-gray-700"><Lock size={10} /> YA CARGADO</span>
-                )}
+          <div className="divide-y divide-[#347048]/5">
+            {cartItems.map((item) => (
+              <div 
+                key={item.isNew ? item.tempId : item.id} 
+                className={`flex justify-between items-center p-4 transition-colors ${item.isNew ? 'bg-white/60' : 'bg-transparent opacity-60'}`}
+              >
+                <div className="text-sm flex items-center">
+                  <span className="font-black text-[#347048] bg-[#347048]/10 w-8 h-8 flex items-center justify-center rounded-lg mr-3 italic">{item.quantity}x</span> 
+                  <div className="flex flex-col">
+                    <span className="text-[#347048] font-black uppercase tracking-tight leading-none mb-1">{item.productName}</span>
+                    {item.isNew ? (
+                      <span className="text-[9px] text-[#B9CF32] font-black tracking-widest uppercase">✨ Pendiente de cobro</span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-[9px] text-[#347048]/40 font-black uppercase tracking-widest"><Lock size={8} /> Ya cargado en cuenta</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span className={`font-black text-sm ${item.isNew ? 'text-[#347048]' : 'text-[#347048]/50'}`}>${(item.price * item.quantity).toLocaleString()}</span>
+                  {item.isNew ? (
+                    <button onClick={() => handleRemoveFromDraft(item)} className="text-red-400 hover:text-red-600 transition p-2 hover:bg-red-50 rounded-xl"><Trash2 size={18} strokeWidth={2.5} /></button>
+                  ) : <div className="w-9 flex justify-center text-[#347048]/20"><Lock size={16} /></div>}
+                </div>
               </div>
-              <div className="flex items-center gap-3">
-                <span className={`font-mono text-sm ${item.isNew ? 'text-white' : 'text-gray-500'}`}>${item.price * item.quantity}</span>
-                {item.isNew ? (
-                  <button onClick={() => handleRemoveFromDraft(item)} className="text-gray-500 hover:text-red-400 transition p-1 hover:bg-white/5 rounded"><Trash2 size={16} /></button>
-                ) : <div className="w-6 flex justify-center text-gray-600"><Lock size={14} /></div>}
-              </div>
-            </div>
-          ))
+            ))}
+          </div>
         )}
       </div>
 
-      {/* TICKET FINAL */}
-      <div className="bg-emerald-900/20 border border-emerald-500/30 rounded-xl p-5 relative overflow-hidden">
-        <div className="space-y-1 text-sm mb-3">
-          <div className="flex justify-between items-center text-gray-400">
+      {/* TICKET FINAL (Ultra Legible Estilo Wimbledon) */}
+      <div className="bg-white border-4 border-[#B9CF32]/30 rounded-[2rem] p-6 shadow-sm relative overflow-hidden">
+        <div className="space-y-2 mb-5">
+          <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest opacity-60">
             <span>Alquiler Cancha</span>
-            <div className="flex items-center gap-2">
-                {/* Si ya está resuelto (Pago, Parcial o Deuda), mostramos etiqueta */}
+            <div className="flex items-center gap-3">
                 {isCourtResolved && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${paymentStatus === 'DEBT' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'}`}>
+                    <span className={`px-2 py-0.5 rounded-md font-black border ${paymentStatus === 'DEBT' ? 'bg-yellow-100 text-yellow-700 border-yellow-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
                         {paymentStatus === 'DEBT' ? 'EN CUENTA' : 'PAGADO'}
                     </span>
                 )}
-                <span className={isCourtResolved ? "text-gray-600 line-through" : "text-gray-400"}>
-                    ${courtPrice || 0}
+                <span className={isCourtResolved ? "line-through opacity-50" : ""}>
+                    ${(courtPrice || 0).toLocaleString()}
                 </span>
             </div>
           </div>
+          
           {lightsExtra > 0 && (
-            <div className="flex justify-between text-[11px] text-emerald-200/80">
-              <span>Incluye extra por luces</span>
-              <span>+ ${lightsExtra}</span>
+            <div className="flex justify-between text-[10px] font-black text-[#926699] uppercase tracking-widest">
+              <span>+ Extra por luces</span>
+              <span>${lightsExtra.toLocaleString()}</span>
             </div>
           )}
-          <div className="flex justify-between text-gray-400">
+          
+          <div className="flex justify-between text-[10px] font-black text-[#347048] uppercase tracking-widest">
             <span>Consumos (Nuevos)</span>
-            <span>${consumptionTotal}</span>
+            <span>${consumptionTotal.toLocaleString()}</span>
           </div>
         </div>
 
-        <div className="flex justify-between items-end pt-3 border-t border-dashed border-emerald-500/30">
-          <span className="text-white font-bold text-lg">TOTAL A COBRAR</span>
-          <span className="text-3xl font-bold text-emerald-400 font-mono tracking-tighter">
-            ${finalTotal}
+        <div className="flex justify-between items-end pt-4 border-t-2 border-dashed border-[#347048]/10">
+          <span className="text-[#347048]/50 font-black text-[10px] uppercase tracking-[0.2em] mb-1">Total a Cobrar</span>
+          <span className="text-5xl font-black text-[#347048] tracking-tighter leading-none italic">
+            ${finalTotal.toLocaleString()}
           </span>
         </div>
       </div>
 
-      {/* BOTONES DE ACCIÓN (Lógica corregida) */}
-      <div className="grid grid-cols-2 gap-3 pt-2">
-        
-        {/* BOTÓN A: DEJAR EN CUENTA */}
-        {/* Siempre manda todo a DEBT/PARTIAL y los items como 'DEBT' */}
+      {/* BOTONES DE ACCIÓN (Contraste Profesional) */}
+      <div className="grid grid-cols-2 gap-4 pt-2">
         <button 
           onClick={() => {
-             // Si ya estaba pagado, pasa a PARTIAL. Si era Deuda, sigue DEBT.
-             const nextStatus = (paymentStatus === 'PAID' || paymentStatus === 'PARTIAL') ? 'PARTIAL' : 'DEBT';
-             handleSaveChanges(nextStatus, 'DEBT');
+              const nextStatus = (paymentStatus === 'PAID' || paymentStatus === 'PARTIAL') ? 'PARTIAL' : 'DEBT';
+              handleSaveChanges(nextStatus, 'DEBT');
           }}
           disabled={saving}
-          className="flex flex-col items-center justify-center gap-1 px-4 py-3 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-500 border border-yellow-500/30 rounded-xl transition group"
+          className="flex flex-col items-center justify-center gap-1 py-4 bg-[#EBE1D8] border-2 border-[#347048]/20 text-[#347048] font-black uppercase text-[10px] tracking-widest rounded-2xl transition-all hover:bg-white shadow-sm disabled:opacity-30"
         >
-          <div className="flex items-center gap-2 font-bold"><span className="text-lg">📝</span> Dejar en Cuenta</div>
+          <div className="flex items-center gap-2"><span className="text-lg">📝</span> Dejar en Cuenta</div>
         </button>
         
-        {/* BOTÓN B: COBRAR TOTAL (Solo lo nuevo) */}
-        {/* Cobra items en CASH. Si la cancha era DEBT, pasa a PARTIAL (Cancha debe, items pagos) */}
         <button 
-          onClick={() => setShowPaymentModal(true)} // 👈 AHORA SOLO ABRE EL MODAL
+          onClick={() => setShowPaymentModal(true)} 
           disabled={saving || cartItems.filter(i => i.isNew).length === 0}
-          className="flex flex-col items-center justify-center gap-1 px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow-lg shadow-emerald-900/50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex flex-col items-center justify-center gap-1 py-4 bg-[#B9CF32] text-[#347048] font-black uppercase text-[10px] tracking-widest rounded-2xl shadow-xl shadow-[#B9CF32]/20 transition-all hover:-translate-y-1 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed"
         >
-          <div className="flex items-center gap-2 font-bold"><span className="text-lg">💵</span> Cobrar Total</div>
+          <div className="flex items-center gap-2"><span className="text-lg">💵</span> Cobrar Total</div>
         </button>
       </div>
-      {/* MODAL DE COBRO (Tu diseño adaptado) */}
+
+      {/* MODAL DE COBRO (Paleta Beige Wimbledon) */}
       {showPaymentModal && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[9999] p-4 animate-in fade-in duration-200">
-            <div className="bg-gray-900 border border-gray-700 p-6 rounded-xl shadow-2xl max-w-sm w-full relative">
-                {/* Botón X para cerrar rápido */}
+        <div className="fixed inset-0 bg-[#347048]/80 backdrop-blur-md flex items-center justify-center z-[9999] p-4 animate-in fade-in duration-200">
+            <div className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full relative">
                 <button 
                     onClick={() => setShowPaymentModal(false)}
-                    className="absolute top-3 right-3 text-gray-500 hover:text-white transition"
+                    className="absolute top-6 right-6 text-[#347048]/40 hover:text-[#347048] transition font-black"
                 >✕</button>
 
-                <h3 className="text-xl font-bold text-white mb-2 text-center">Cobrar Consumo</h3>
-                <p className="text-gray-400 text-sm mb-6 text-center">
-                    Total a cobrar: <span className="text-emerald-400 font-bold font-mono text-lg">${consumptionTotal}</span>
-                    <br/>Selecciona el método:
+                <h3 className="text-2xl font-black text-[#347048] mb-2 text-center uppercase tracking-tight italic">Cobrar Consumo</h3>
+                <p className="text-[#347048]/60 text-xs font-bold mb-8 text-center uppercase tracking-widest">
+                    Total: <span className="text-[#347048] text-lg font-black">${consumptionTotal.toLocaleString()}</span>
                 </p>
                 
-                {/* Grilla de opciones */}
-                <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className="grid grid-cols-2 gap-4 mb-6">
                     <button
-                        // 👇 ACÁ USAMOS LA FUNCIÓN CORRECTA DEL CONSUMO
                         onClick={() => handlePaymentConfirm('CASH')}
-                        className="flex flex-col items-center justify-center p-4 bg-emerald-900/30 border border-emerald-800 hover:bg-emerald-900/50 rounded-lg text-emerald-400 transition-all hover:scale-[1.02] group"
+                        className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-3xl text-[#347048] transition-all hover:scale-[1.02] shadow-sm group"
                     >
-                        <span className="text-2xl mb-1 group-hover:scale-110 transition">💵</span>
-                        <span className="font-bold text-sm uppercase tracking-wide">Efectivo</span>
+                        <span className="text-3xl mb-2 group-hover:scale-110 transition">💵</span>
+                        <span className="font-black text-[10px] uppercase tracking-widest">Efectivo</span>
                     </button>
 
                     <button
-                        // 👇 ACÁ TAMBIÉN
                         onClick={() => handlePaymentConfirm('TRANSFER')}
-                        className="flex flex-col items-center justify-center p-4 bg-blue-900/30 border border-blue-800 hover:bg-blue-900/50 rounded-lg text-blue-400 transition-all hover:scale-[1.02] group"
+                        className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-3xl text-[#347048] transition-all hover:scale-[1.02] shadow-sm group"
                     >
-                        <span className="text-2xl mb-1 group-hover:scale-110 transition">💳</span>
-                        <span className="font-bold text-sm uppercase tracking-wide">Digital / MP</span>
+                        <span className="text-3xl mb-2 group-hover:scale-110 transition">💳</span>
+                        <span className="font-black text-[10px] uppercase tracking-widest">Digital</span>
                     </button>
                 </div>
                 
-                <p className="text-xs text-center text-gray-600 mt-2">
-                    Esto cerrará la cuenta de los ítems nuevos.
-                </p>
+                <button 
+                    onClick={() => setShowPaymentModal(false)}
+                    className="w-full text-[#347048]/40 hover:text-[#347048] text-[10px] font-black uppercase tracking-widest hover:underline transition-all"
+                >
+                    Cancelar operación
+                </button>
             </div>
         </div>
       )}

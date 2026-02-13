@@ -1,5 +1,4 @@
-import { ReactNode } from 'react';
-// 👇 IMPORTANTE: Importar los componentes de navegación
+import { ReactNode, useState } from 'react';
 import NavBar from './NavBar'; 
 import AdminSidebar from './AdminSidebar';
 
@@ -8,21 +7,28 @@ interface AdminLayoutProps {
 }
 
 const AdminLayout = ({ children }: AdminLayoutProps) => {
-  return (
-    <div className="min-h-screen bg-[#347048] text-[#D4C5B0]">
-      {/* 1. Renderizamos el Sidebar y el Navbar para que se vean */}
-      <AdminSidebar />
-      <NavBar />
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-      {/* Fondo ambiental */}
-      <div className="fixed inset-0 z-0 pointer-events-none" aria-hidden>
-        <div className="absolute top-[-10%] left-[-10%] w-96 h-96 rounded-full blur-[128px]" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }} />
-  <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 rounded-full blur-[128px]" style={{ backgroundColor: 'rgba(146,102,153,0.35)' }} />
+  return (
+    // "min-h-screen" asegura el mínimo, pero el color viene del bg-fixed de abajo
+    <div className="relative min-h-screen w-full text-[#EBE1D8] selection:bg-[#B9CF32] selection:text-[#347048]">
+      
+      {/* CAPA DE FONDO FIJA E INFINITA */}
+      <div className="fixed inset-0 z-0 bg-[#347048] pointer-events-none">
+        {/* Blobs de luz */}
+        <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] rounded-full blur-[128px] opacity-20" style={{ backgroundColor: '#B9CF32' }} />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] rounded-full blur-[128px] opacity-30" style={{ backgroundColor: '#926699' }} />
       </div>
 
-      {/* Contenido principal (respetando los márgenes del sidebar y navbar) */}
-      <main className="relative z-10 md:ml-64 pt-28 px-6 pb-10 transition-all duration-300 min-h-screen">
-        <div className="max-w-6xl mx-auto animate-fade-in">
+      {/* Navegación */}
+      <div className="relative z-50">
+        <NavBar onMenuClick={() => setIsSidebarOpen(true)} />
+        <AdminSidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      </div>
+
+      {/* Contenido: z-10 para estar sobre el fondo fijo */}
+      <main className="relative z-10 pt-28 px-6 pb-20 transition-all duration-300">
+        <div className="max-w-6xl mx-auto">
           {children}
         </div>
       </main>

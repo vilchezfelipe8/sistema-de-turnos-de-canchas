@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { getCourts, createCourt, suspendCourt, reactivateCourt } from '../../services/CourtService';
 import AppModal from '../AppModal';
+import { Plus, LayoutGrid, Activity, Power, Ban } from 'lucide-react';
 
 export default function AdminTabCourts() {
   const [courts, setCourts] = useState<any[]>([]);
@@ -17,6 +18,7 @@ export default function AdminTabCourts() {
   const wrapAction = (action?: () => Promise<void> | void) => async () => { closeModal(); await action?.(); };
   const showInfo = (message: ReactNode, title = 'Información') => setModalState({ show: true, title, message, cancelText: '', confirmText: 'OK' });
   const showError = (message: ReactNode) => setModalState({ show: true, title: 'Error', message, isWarning: true, cancelText: '', confirmText: 'Aceptar' });
+  
   const showConfirm = (options: {
     title: string; message: ReactNode; confirmText?: string; cancelText?: string; isWarning?: boolean;
     onConfirm: () => Promise<void> | void; onCancel?: () => Promise<void> | void; closeOnBackdrop?: boolean; closeOnEscape?: boolean;
@@ -34,7 +36,7 @@ export default function AdminTabCourts() {
     e.preventDefault();
     try {
       await createCourt(newName, newSport);
-      showInfo('✅ Cancha creada', 'Listo');
+      showInfo('✅ Cancha creada con éxito', 'Listo');
       setNewName('');
       loadCourts();
     } catch (error: any) { showError('Error: ' + error.message); }
@@ -42,70 +44,125 @@ export default function AdminTabCourts() {
 
   const handleSuspend = async (id: number) => {
     showConfirm({
-      title: 'Suspender cancha', message: '¿Querés suspender esta cancha?', confirmText: 'Suspender',
+      title: 'Suspender cancha', message: '¿Seguro que deseas poner esta cancha en mantenimiento?', confirmText: 'Suspender',
       onConfirm: async () => { try { await suspendCourt(id); loadCourts(); } catch (error: any) { showError('Error: ' + error.message); } }
     });
   };
 
   const handleReactivate = async (id: number) => {
     showConfirm({
-      title: 'Reactivar cancha', message: '¿Querés reactivar esta cancha?', confirmText: 'Reactivar', isWarning: false,
+      title: 'Reactivar cancha', message: '¿Deseas habilitar nuevamente esta cancha para reservas?', confirmText: 'Reactivar', isWarning: false,
       onConfirm: async () => { try { await reactivateCourt(id); loadCourts(); } catch (error: any) { showError('Error: ' + error.message); } }
     });
   };
 
   return (
     <>
-      <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-8 mb-6">
-        <h2 className="text-lg font-bold text-text mb-4 flex items-center gap-2"><span>✚</span> NUEVA CANCHA</h2>
-        <form onSubmit={handleCreateCourt} className="flex flex-col sm:flex-row gap-4 items-end">
-          <div className="flex-1 w-full">
-            <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Nombre ID</label>
-            <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)}
-              className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none" placeholder="Ej: Cancha Central" />
+      {/* --- FORMULARIO DE ALTA (TARJETA BEIGE) --- */}
+      <div className="bg-[#EBE1D8] border-4 border-white rounded-[2rem] p-8 mb-8 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
+        <h2 className="text-2xl font-black text-[#926699] mb-6 flex items-center gap-3 uppercase italic tracking-tight">
+          <div className="bg-[#926699] text-[#EBE1D8] p-2 rounded-xl text-xl shadow-lg shadow-[#926699]/20">
+            <Plus size={24} strokeWidth={3} />
           </div>
-          <div className="w-full sm:w-48">
-            <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Tipo</label>
-            <select value={newSport} onChange={(e) => setNewSport(e.target.value)} className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-text focus:outline-none">
+          Nueva Cancha
+        </h2>
+        
+        <form onSubmit={handleCreateCourt} className="flex flex-col md:flex-row gap-6 items-end relative z-10">
+          <div className="flex-1 w-full">
+            <label className="block text-[10px] font-black text-[#347048]/60 mb-2 uppercase tracking-widest ml-1">Nombre / Identificador</label>
+            <input 
+              type="text" 
+              value={newName} 
+              onChange={(e) => setNewName(e.target.value)}
+              className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/20 focus:outline-none shadow-sm transition-all" 
+              placeholder="Ej: Cancha Central o Pista 1" 
+              required
+            />
+          </div>
+          
+          <div className="w-full md:w-64">
+            <label className="block text-[10px] font-black text-[#347048]/60 mb-2 uppercase tracking-widest ml-1">Deporte / Tipo</label>
+            <select 
+              value={newSport} 
+              onChange={(e) => setNewSport(e.target.value)} 
+              className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black focus:outline-none shadow-sm appearance-none cursor-pointer"
+            >
               <option value="TENNIS">🎾 Tenis</option>
               <option value="PADEL">🏓 Pádel</option>
               <option value="FUTBOL">⚽ Fútbol</option>
             </select>
           </div>
-          <button type="submit" className="btn btn-primary w-full sm:w-auto px-6 py-2 bg-white/5 hover:bg-white/10 border-white/40 hover:border-white/70 shadow-[0_0_18px_rgba(255,255,255,0.08)] transition">CREAR</button>
+
+          <button 
+            type="submit" 
+            className="w-full md:w-auto h-12 px-10 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-xl transition-all shadow-xl shadow-[#347048]/20 uppercase tracking-widest text-xs italic"
+          >
+            Crear Cancha
+          </button>
         </form>
       </div>
 
-      <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-8 mb-8 overflow-hidden">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-lg font-bold text-text">ESTADO DE CANCHAS</h2>
-          <span className="px-3 py-1 bg-surface rounded-full text-xs font-mono text-emerald-300 border border-emerald-500/30">{courts.length} ACTIVAS</span>
+      {/* --- LISTADO Y ESTADOS (DISEÑO PREMIUM) --- */}
+      <div className="bg-[#EBE1D8] border-4 border-white rounded-[2rem] p-8 mb-8 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-8">
+          <h2 className="text-2xl font-black text-[#347048] uppercase italic tracking-tighter flex items-center gap-3">
+             <div className="w-2 h-8 bg-[#B9CF32] rounded-full"></div>
+             Estado de Canchas
+          </h2>
+          <div className="bg-white/40 border border-white px-4 py-1.5 rounded-full shadow-sm">
+             <span className="text-[10px] font-black text-[#347048] uppercase tracking-widest">{courts.length} Registradas</span>
+          </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+
+        <div className="overflow-x-auto -mx-8 sm:mx-0">
+          <table className="w-full text-left border-separate border-spacing-y-2">
             <thead>
-              <tr className="border-b border-border text-muted text-xs uppercase tracking-wider">
-                <th className="p-4">ID</th><th className="p-4">Nombre</th><th className="p-4">Tipo</th><th className="p-4">Estado</th><th className="p-5 text-right">Controles</th>
+              <tr className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]/40">
+                <th className="px-6 py-2">ID</th>
+                <th className="px-6 py-2">Nombre Cancha</th>
+                <th className="px-6 py-2">Disciplina</th>
+                <th className="px-6 py-2 text-center">Estado Operativo</th>
+                <th className="px-6 py-2 text-right">Controles</th>
               </tr>
             </thead>
-            <tbody className="text-sm font-medium">
+            <tbody className="text-sm">
               {courts.map((c) => (
-                <tr key={c.id} className="border-b border-border/50 hover:bg-surface-70 transition-colors group">
-                  <td className="p-4 font-mono text-muted">#{c.id.toString().padStart(3, '0')}</td>
-                  <td className="p-4 text-text font-bold">{c.name}</td>
-                  <td className="p-5"><span className="px-2 py-1 rounded text-xs text-muted border border-border">{c.sport || c.surface || '-'}</span></td>
-                  <td className="p-5">
+                <tr key={c.id} className="bg-white/60 hover:bg-white transition-all shadow-sm group">
+                  <td className="px-6 py-5 first:rounded-l-2xl font-black text-[#347048]/40 italic">#{c.id.toString().padStart(3, '0')}</td>
+                  <td className="px-6 py-5 font-black text-[#347048] uppercase tracking-tight">{c.name}</td>
+                  <td className="px-6 py-5">
+                    <span className="text-[10px] font-black bg-[#926699]/10 text-[#926699] px-3 py-1 rounded-full border border-[#926699]/20 uppercase tracking-widest">
+                        {c.sport || c.surface || '-'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-5 text-center">
                     {c.isUnderMaintenance ? (
-                      <span className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full border border-red-500/30 text-red-300 bg-red-500/10">MANTENIMIENTO</span>
+                      <span className="inline-flex items-center gap-2 text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-wider border bg-red-50 text-red-600 border-red-200">
+                        <div className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse"></div>
+                        Mantenimiento
+                      </span>
                     ) : (
-                      <span className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full border border-emerald-500/30 text-emerald-300 bg-emerald-500/10">OPERATIVO</span>
+                      <span className="inline-flex items-center gap-2 text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-wider border bg-emerald-50 text-emerald-700 border-emerald-200">
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+                        Operativo
+                      </span>
                     )}
                   </td>
-                  <td className="p-5 text-right">
+                  <td className="px-6 py-5 last:rounded-r-2xl text-right">
                     {c.isUnderMaintenance ? (
-                      <button onClick={() => handleReactivate(c.id)} className="text-xs btn px-3 py-1 bg-emerald-500/15 border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/25">REACTIVAR</button>
+                      <button 
+                        onClick={() => handleReactivate(c.id)} 
+                        className="text-[10px] font-black uppercase tracking-widest bg-[#B9CF32] text-[#347048] px-4 py-2 rounded-xl shadow-md hover:scale-105 transition-all flex items-center gap-2 ml-auto"
+                      >
+                        <Power size={14} strokeWidth={3} /> Reactivar
+                      </button>
                     ) : (
-                      <button onClick={() => handleSuspend(c.id)} className="text-xs btn px-3 py-1 bg-red-500/10 border-red-500/40 text-red-300 hover:bg-red-500/20">SUSPENDER</button>
+                      <button 
+                        onClick={() => handleSuspend(c.id)} 
+                        className="text-[10px] font-black uppercase tracking-widest bg-white border-2 border-red-100 text-red-500 px-4 py-2 rounded-xl hover:bg-red-500 hover:text-white transition-all flex items-center gap-2 ml-auto"
+                      >
+                        <Ban size={14} strokeWidth={3} /> Suspender
+                      </button>
                     )}
                   </td>
                 </tr>
@@ -115,9 +172,19 @@ export default function AdminTabCourts() {
         </div>
       </div>
 
-      <AppModal show={modalState.show} onClose={closeModal} onCancel={modalState.onCancel} title={modalState.title} message={modalState.message}
-        cancelText={modalState.cancelText} confirmText={modalState.confirmText} isWarning={modalState.isWarning}
-        onConfirm={modalState.onConfirm} closeOnBackdrop={modalState.closeOnBackdrop} closeOnEscape={modalState.closeOnEscape} />
+      <AppModal 
+        show={modalState.show} 
+        onClose={closeModal} 
+        onCancel={modalState.onCancel} 
+        title={modalState.title} 
+        message={modalState.message}
+        cancelText={modalState.cancelText} 
+        confirmText={modalState.confirmText} 
+        isWarning={modalState.isWarning}
+        onConfirm={modalState.onConfirm} 
+        closeOnBackdrop={modalState.closeOnBackdrop} 
+        closeOnEscape={modalState.closeOnEscape} 
+      />
     </>
   );
 }

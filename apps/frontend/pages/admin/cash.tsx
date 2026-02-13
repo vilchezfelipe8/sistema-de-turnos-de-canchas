@@ -10,10 +10,7 @@ const CashPage = () => {
         <title>Caja | Admin Panel</title>
       </Head>
       
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-white">Gestión de Caja</h1>
-        <p className="text-gray-400 text-sm">Control de ingresos, egresos y balance diario.</p>
-      </div>
+     
 
       {/* Aquí renderizamos el tablero que creamos antes */}
       <AdminCashDashboard />

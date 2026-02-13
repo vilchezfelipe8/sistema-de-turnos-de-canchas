@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, ArrowUpCircle, ArrowDownCircle, Banknote, CreditCard, Plus } from 'lucide-react';
+import { Wallet, ArrowUpCircle, ArrowDownCircle, Banknote, CreditCard, Plus, Receipt, History } from 'lucide-react';
 
 // Tipos
 interface Movement {
@@ -24,41 +24,30 @@ const AdminCashDashboard = () => {
   const [balance, setBalance] = useState<Balance>({ total: 0, cash: 0, digital: 0, income: 0, expense: 0 });
   const [loading, setLoading] = useState(true);
 
-  // Formulario simple para agregar manual (luego lo haremos modal)
+  // Formulario
   const [newMove, setNewMove] = useState({ description: '', amount: '', type: 'INCOME', method: 'CASH' });
 
   const fetchCash = async () => {
     try {
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-      
-      // 1. Recuperamos el token del almacenamiento local
-      // (Asegurate de que se llame 'token' o 'authToken' en tu localStorage)
       const token = localStorage.getItem('token'); 
 
-      if (!token) {
-        console.error("No hay token, el usuario no está logueado.");
-        return;
-      }
-
-      console.log("Intentando conectar a:", `${API_URL}/api/cash`);
+      if (!token) return;
 
       const res = await fetch(`${API_URL}/api/cash`, {
          method: 'GET',
          headers: {
            'Content-Type': 'application/json',
-           // 2. 👇 ESTA ES LA CLAVE: Enviamos la credencial
            'Authorization': `Bearer ${token}` 
          }
       });
 
       if (!res.ok) {
-        // Si el token expiró, esto te avisará
-        if (res.status === 401) throw new Error('Sesión expirada o no autorizado');
-        throw new Error(`Error del servidor: ${res.status}`);
+        if (res.status === 401) throw new Error('Sesión expirada');
+        throw new Error(`Error: ${res.status}`);
       }
 
       const data = await res.json();
-
       if (data && data.balance) setBalance(data.balance);
       if (data && data.movements) setMovements(data.movements);
 
@@ -75,14 +64,14 @@ const AdminCashDashboard = () => {
     e.preventDefault();
     if (!newMove.amount || !newMove.description) return;
     
-    const token = localStorage.getItem('token'); // <--- Recuperar token
+    const token = localStorage.getItem('token');
     const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
     await fetch(`${API_URL}/api/cash`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}` // <--- Enviar token
+        'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify(newMove)
     });
@@ -91,128 +80,145 @@ const AdminCashDashboard = () => {
     fetchCash(); 
   };
 
-  if (loading) return <div className="text-text p-10">Cargando Billetera...</div>;
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center p-20">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-[#EBE1D8]"></div>
+        <p className="text-[#EBE1D8] font-black uppercase tracking-widest mt-4">Cargando Billetera...</p>
+    </div>
+  );
 
   return (
-  <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-8 mb-8 overflow-hidden">
-      <div className="mb-6">
-        <h2 className="text-lg font-bold text-text flex items-center gap-2">
-          <span>💰</span> CAJA Y MOVIMIENTOS
-        </h2>
-        <p className="text-muted text-sm mt-1">Resumen diario y registro de movimientos.</p>
+    <div className="space-y-8 animate-in fade-in duration-500">
+      
+      {/* TÍTULO DE SECCIÓN */}
+      <div className="flex items-center justify-between mb-2">
+        <div>
+            <h2 className="text-3xl font-black text-[#EBE1D8] flex items-center gap-3 uppercase italic tracking-tighter">
+            <span className="bg-[#B9CF32] text-[#347048] p-2 rounded-xl text-2xl shadow-lg shadow-[#B9CF32]/20 italic">💰</span>
+            Caja y Movimientos
+            </h2>
+            <p className="text-[#EBE1D8]/60 text-xs font-bold uppercase tracking-[0.2em] mt-1 ml-14">Resumen diario y control de flujo</p>
+        </div>
+        <div className="bg-[#347048]/40 border border-[#EBE1D8]/10 px-4 py-2 rounded-2xl backdrop-blur-sm">
+            <span className="text-[#EBE1D8] font-black text-sm uppercase italic">{new Date().toLocaleDateString('es-AR', { day: '2-digit', month: 'long' })}</span>
+        </div>
       </div>
 
-      <div className="space-y-8">
-        {/* HEADER DE BALANCE */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* HEADER DE BALANCE (TARJETAS BLANCAS) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
-        {/* TARJETA PRINCIPAL: TOTAL */}
-        <div className="bg-surface-70/50 border border-border rounded-2xl p-6 backdrop-blur-sm">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-400"><Wallet size={22} /></div>
-            <h3 className="text-text font-bold">Balance Total (Hoy)</h3>
+        {/* BALANCE TOTAL */}
+        <div className="bg-white border-4 border-white p-6 rounded-[2.5rem] shadow-xl flex flex-col justify-between relative overflow-hidden group">
+          <div className="flex items-center justify-between mb-4">
+            <div className="p-3 bg-[#347048]/5 rounded-2xl text-[#347048]"><Wallet size={24} strokeWidth={2.5} /></div>
+            <span className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest">Balance Hoy</span>
           </div>
-          <div className="text-4xl font-mono font-bold text-text mb-3">
+          <p className="text-4xl font-black text-[#347048] italic tracking-tighter mb-4">
             ${(balance?.total || 0).toLocaleString()}
-          </div>
-          <div className="flex gap-3 text-xs font-bold font-mono">
-            <span className="text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded flex items-center gap-1">
-              <ArrowUpCircle size={14}/> IN: ${(balance?.income || 0).toLocaleString()}
+          </p>
+          <div className="flex gap-2 text-[9px] font-black uppercase tracking-wider">
+            <span className="text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100 flex items-center gap-1">
+              <ArrowUpCircle size={12}/> +${(balance?.income || 0).toLocaleString()}
             </span>
-            <span className="text-red-400 bg-red-500/10 border border-red-500/20 px-2 py-1 rounded flex items-center gap-1">
-              <ArrowDownCircle size={14}/> OUT: ${(balance?.expense || 0).toLocaleString()}
+            <span className="text-red-500 bg-red-50 px-3 py-1 rounded-full border border-red-100 flex items-center gap-1">
+              <ArrowDownCircle size={12}/> -${(balance?.expense || 0).toLocaleString()}
             </span>
           </div>
         </div>
 
-        {/* TARJETA: CAJA FÍSICA (Lo que hay en el cajón) */}
-        <div className="bg-surface-70/50 p-6 rounded-2xl border border-border flex flex-col justify-between backdrop-blur-sm">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-400"><Banknote size={24} /></div>
-            <h3 className="text-text font-bold">Efectivo en Caja</h3>
+        {/* EFECTIVO EN CAJA */}
+        <div className="bg-white border-4 border-white p-6 rounded-[2.5rem] shadow-xl flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-4">
+            <div className="p-3 bg-emerald-50 rounded-2xl text-emerald-600"><Banknote size={24} strokeWidth={2.5} /></div>
+            <span className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest">Efectivo Físico</span>
           </div>
-          <p className="text-3xl font-mono text-text font-bold">${(balance?.cash || 0).toLocaleString()}</p>
-          <p className="text-xs text-muted mt-2">Dinero físico disponible</p>
+          <p className="text-4xl font-black text-[#347048] italic tracking-tighter mb-4">
+            ${(balance?.cash || 0).toLocaleString()}
+          </p>
+          <p className="text-[10px] font-bold text-[#347048]/40 uppercase italic tracking-widest">Dinero en caja fuerte</p>
         </div>
 
-        {/* TARJETA: DIGITAL (MercadoPago/Bancos) */}
-        <div className="bg-surface-70/50 p-6 rounded-2xl border border-border flex flex-col justify-between backdrop-blur-sm">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-blue-500/10 rounded-lg text-blue-400"><CreditCard size={24} /></div>
-            <h3 className="text-text font-bold">Banco / Digital</h3>
+        {/* DIGITAL / TRANSFERENCIAS */}
+        <div className="bg-white border-4 border-white p-6 rounded-[2.5rem] shadow-xl flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-4">
+            <div className="p-3 bg-blue-50 rounded-2xl text-blue-600"><CreditCard size={24} strokeWidth={2.5} /></div>
+            <span className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest">Banco / Digital</span>
           </div>
-          <p className="text-3xl font-mono text-text font-bold">${(balance?.digital || 0).toLocaleString()}</p>
-          <p className="text-xs text-muted mt-2">Transferencias acumuladas</p>
+          <p className="text-4xl font-black text-[#347048] italic tracking-tighter mb-4">
+            ${(balance?.digital || 0).toLocaleString()}
+          </p>
+          <p className="text-[10px] font-bold text-[#347048]/40 uppercase italic tracking-widest">MercadoPago y Bancos</p>
         </div>
       </div>
 
-      {/* SECCIÓN DE MOVIMIENTOS Y AGREGAR */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
-        {/* COLUMNA IZQUIERDA: LISTA DE MOVIMIENTOS */}
-        <div className="lg:col-span-2 bg-surface-70/50 border border-border rounded-xl overflow-hidden backdrop-blur-sm">
-          <div className="p-5 border-b border-border bg-surface-70 flex justify-between items-center">
-            <h3 className="text-text font-bold">Movimientos del Día</h3>
-            <span className="text-xs text-muted bg-surface px-2 py-1 rounded border border-border">
-              {new Date().toLocaleDateString()}
+        {/* LISTA DE MOVIMIENTOS (ESTILO TABLA BEIGE) */}
+        <div className="lg:col-span-2 bg-[#EBE1D8] border-4 border-white/50 rounded-[2.5rem] overflow-hidden shadow-2xl shadow-[#347048]/20 flex flex-col min-h-[500px]">
+          <div className="p-6 border-b border-[#347048]/10 flex justify-between items-center bg-[#EBE1D8]">
+            <h3 className="text-xl font-black text-[#347048] flex items-center gap-3 uppercase italic tracking-tight">
+                <History size={20} className="text-[#926699]" /> Actividad Reciente
+            </h3>
+            <span className="text-[10px] font-black text-[#347048]/50 bg-white/40 px-4 py-1.5 rounded-full border border-white/60 uppercase tracking-widest">
+              Últimas 24hs
             </span>
           </div>
           
-          <div className="max-h-[400px] overflow-y-auto">
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-4 bg-white/40">
             {movements.length === 0 ? (
-              <div className="p-10 text-center text-muted">No hay movimientos hoy.</div>
+              <div className="h-full flex flex-col items-center justify-center opacity-30 italic">
+                  <Receipt size={48} className="mb-4" />
+                  <p className="text-lg font-black uppercase tracking-widest text-[#347048]">No hay movimientos hoy</p>
+              </div>
             ) : (
-              <table className="w-full text-left text-sm text-muted">
-                <thead className="bg-surface-70 text-xs uppercase font-bold text-muted sticky top-0">
-                  <tr>
-                    <th className="p-4">Hora</th>
-                    <th className="p-4">Descripción</th>
-                    <th className="p-4">Método</th>
-                    <th className="p-4 text-right">Monto</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {movements.map((m) => (
-                    <tr key={m.id} className="hover:bg-white/5 transition-colors">
-                      <td className="p-4 font-mono text-xs text-muted">
-                        {new Date(m.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                      </td>
-                      <td className="p-4 text-text font-medium">{m.description}</td>
-                      <td className="p-4">
-                        <span className={`text-[10px] px-2 py-1 rounded border ${
-                          m.method === 'CASH' 
-                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
-                            : 'bg-blue-500/10 border-blue-500/20 text-blue-400'
-                        }`}>
-                          {m.method === 'CASH' ? 'EFECTIVO' : 'DIGITAL'}
-                        </span>
-                      </td>
-                      <td className={`p-4 text-right font-mono font-bold ${
-                        m.type === 'INCOME' ? 'text-emerald-400' : 'text-red-400'
-                      }`}>
+              <div className="space-y-3">
+                {movements.map((m) => (
+                  <div key={m.id} className="bg-white p-4 rounded-2xl flex items-center justify-between shadow-sm border border-[#347048]/5 hover:scale-[1.01] transition-transform">
+                    <div className="flex items-center gap-4">
+                        <div className="text-right pr-4 border-r border-[#347048]/10">
+                            <span className="block text-xs font-black text-[#347048]">
+                                {new Date(m.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                            </span>
+                            <span className="text-[9px] font-bold text-[#347048]/40 uppercase">Hora</span>
+                        </div>
+                        <div>
+                            <span className="block text-sm font-black text-[#347048] uppercase tracking-tight leading-none mb-1">
+                                {m.description}
+                            </span>
+                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-md border uppercase tracking-widest ${
+                                m.method === 'CASH' 
+                                    ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
+                                    : 'bg-blue-50 text-blue-600 border-blue-100'
+                            }`}>
+                                {m.method === 'CASH' ? '💵 Efectivo' : '💳 Digital'}
+                            </span>
+                        </div>
+                    </div>
+                    <div className={`text-xl font-black italic tracking-tighter ${
+                        m.type === 'INCOME' ? 'text-emerald-600' : 'text-red-600'
+                    }`}>
                         {m.type === 'INCOME' ? '+' : '-'}${m.amount.toLocaleString()}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>
 
-        {/* COLUMNA DERECHA: AGREGAR RÁPIDO */}
-        <div className="bg-surface-70/50 p-6 rounded-xl border border-border h-fit backdrop-blur-sm">
-          <h3 className="text-text font-bold mb-4 flex items-center gap-2">
-            <Plus size={18} className="text-emerald-500"/> Nuevo Movimiento
+        {/* FORMULARIO AGREGAR RÁPIDO (TARJETA BEIGE SÓLIDA) */}
+        <div className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl h-fit">
+          <h3 className="text-xl font-black text-[#926699] mb-8 flex items-center gap-3 uppercase italic tracking-tight">
+            <Plus size={24} strokeWidth={3} className="bg-[#926699] text-[#EBE1D8] rounded-lg p-1" /> Nuevo Registro
           </h3>
           
-          <form onSubmit={handleAddMovement} className="space-y-4">
+          <form onSubmit={handleAddMovement} className="space-y-6">
             <div>
-              <label className="block text-xs font-bold text-muted mb-1">Concepto</label>
+              <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Concepto / Detalle</label>
               <input 
                 type="text" 
-                placeholder="Ej: Retiro de Efectivo, Compra Pelotas..."
-                className="w-full bg-surface border border-border rounded p-3 text-text focus:border-emerald-500/50 focus:outline-none text-sm"
+                placeholder="Ej: Retiro, Compra Insumos..."
+                className="w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl p-4 text-[#347048] font-bold focus:outline-none shadow-sm placeholder-[#347048]/20 transition-all"
                 value={newMove.description}
                 onChange={e => setNewMove({...newMove, description: e.target.value})}
               />
@@ -220,19 +226,19 @@ const AdminCashDashboard = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-muted mb-1">Monto</label>
+                <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Monto ($)</label>
                 <input 
                   type="number" 
-                  placeholder="0.00"
-                  className="w-full bg-surface border border-border rounded p-3 text-text focus:border-emerald-500/50 focus:outline-none text-sm font-mono"
+                  placeholder="0"
+                  className="w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl p-4 text-[#347048] font-black focus:outline-none shadow-sm transition-all"
                   value={newMove.amount}
                   onChange={e => setNewMove({...newMove, amount: e.target.value})}
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-muted mb-1">Tipo</label>
+                <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Operación</label>
                 <select 
-                  className="w-full bg-surface border border-border rounded p-3 text-text focus:border-emerald-500/50 focus:outline-none text-sm"
+                  className="w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl p-4 text-[#347048] font-bold focus:outline-none shadow-sm appearance-none cursor-pointer"
                   value={newMove.type}
                   onChange={e => setNewMove({...newMove, type: e.target.value})}
                 >
@@ -243,32 +249,37 @@ const AdminCashDashboard = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-muted mb-1">Método de Pago</label>
-              <div className="grid grid-cols-2 gap-2">
+              <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Medio de Pago</label>
+              <div className="grid grid-cols-2 gap-3">
                 <button 
                   type="button"
                   onClick={() => setNewMove({...newMove, method: 'CASH'})}
-                  className={`p-2 rounded text-xs font-bold border ${newMove.method === 'CASH' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-surface border-border text-muted'}`}
+                  className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
+                      newMove.method === 'CASH' 
+                        ? 'bg-[#347048] border-[#347048] text-[#B9CF32] shadow-lg' 
+                        : 'bg-white border-transparent text-[#347048]/40 hover:bg-white/80'}`}
                 >
                   💵 Efectivo
                 </button>
                 <button 
                   type="button"
                   onClick={() => setNewMove({...newMove, method: 'TRANSFER'})}
-                  className={`p-2 rounded text-xs font-bold border ${newMove.method === 'TRANSFER' ? 'bg-blue-500/20 border-blue-500 text-blue-400' : 'bg-surface border-border text-muted'}`}
+                  className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
+                      newMove.method === 'TRANSFER' 
+                        ? 'bg-[#347048] border-[#347048] text-[#B9CF32] shadow-lg' 
+                        : 'bg-white border-transparent text-[#347048]/40 hover:bg-white/80'}`}
                 >
                   💳 Digital
                 </button>
               </div>
             </div>
 
-            <button type="submit" className="w-full py-3 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 font-bold rounded border border-emerald-500/40 shadow-[0_0_18px_rgba(16,185,129,0.2)] transition-all mt-2">
+            <button type="submit" className="w-full py-4 bg-[#B9CF32] hover:bg-[#aebd2b] text-[#347048] font-black rounded-[1.5rem] shadow-xl shadow-[#B9CF32]/20 transition-all hover:-translate-y-1 uppercase tracking-widest text-sm italic mt-2">
               Registrar Movimiento
             </button>
           </form>
         </div>
 
-        </div>
       </div>
     </div>
   );

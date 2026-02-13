@@ -19,8 +19,7 @@ import AppModal from '../AppModal';
 import BookingConsumption from '../BookingConsumption';
 import { useParams } from 'react-router-dom';
 import DatePickerDark from '../../components/ui/DatePickerDark';
-import { Trash2, Check, ShoppingCart } from 'lucide-react'; 
-import { start } from 'node:repl';
+import { Trash2, Check, ShoppingCart, Calendar as CalendarIcon, RefreshCw } from 'lucide-react'; 
 
 registerLocale('es', es);
 
@@ -30,15 +29,15 @@ const CLUB_TIME_SLOTS = [
   '20:30', '22:00'
 ];
 
-// --- COMPONENTE PORTAL (VERSIÓN BLACK) ---
+// --- COMPONENTE PORTAL (VERSIÓN WIMBLEDON BEIGE) ---
 const ModalPortal = ({ children, onClose }: { children: ReactNode, onClose: () => void }) => {
   if (typeof document === 'undefined') return null;
   
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#347048]/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
       <div className="absolute inset-0" onClick={onClose}></div>
-      <div className="relative z-10 w-full max-w-xl bg-black border border-gray-800 rounded-2xl shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
-        <div className="overflow-y-auto p-6 custom-scrollbar">
+      <div className="relative z-10 w-full max-w-xl bg-[#EBE1D8] border-4 border-white rounded-[2rem] shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200 overflow-hidden text-[#347048]">
+        <div className="overflow-y-auto p-8 custom-scrollbar">
             {children}
         </div>
       </div>
@@ -47,7 +46,7 @@ const ModalPortal = ({ children, onClose }: { children: ReactNode, onClose: () =
   );
 };
 
-// --- FUNCIONES AUXILIARES ---
+// --- FUNCIONES AUXILIARES (SE MANTIENEN IGUAL) ---
 const getNextDateForDay = (startDate: Date, targetDayIndex: number, timeStr: string) => {
   const resultDate = new Date(startDate);
   const currentDay = resultDate.getDay();
@@ -57,12 +56,10 @@ const getNextDateForDay = (startDate: Date, targetDayIndex: number, timeStr: str
   const [hours, minutes] = timeStr.split(':').map(Number);
   resultDate.setHours(hours, minutes, 0, 0);
   const now = new Date();
-  let skippedPast = false;
   if (daysUntilTarget === 0 && resultDate.getTime() <= now.getTime()) {
     resultDate.setDate(resultDate.getDate() + 7);
-    skippedPast = true;
   }
-  return { date: resultDate, skippedPast };
+  return { date: resultDate };
 };
 
 const formatLocalDate = (date: Date) => {
@@ -94,8 +91,6 @@ export default function AdminTabBookings() {
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedBookingId, setSelectedBookingId] = useState<number | null>(null);
-
-  
   const [selectedBooking, setSelectedBooking] = useState<any>(null);
   const params = useParams();
   const urlSlug = params.slug;
@@ -103,9 +98,7 @@ export default function AdminTabBookings() {
   const handleOpenPaymentModal = (bookingId: number) => {
     setSelectedBookingId(bookingId);
     setShowPaymentModal(true);
-};
-
-
+  };
 
   const [manualBooking, setManualBooking] = useState({
     guestFirstName: '',
@@ -124,7 +117,6 @@ export default function AdminTabBookings() {
   const searchTimeoutRef = useRef<any>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  // --- OBTENER SLUG (INTELIGENTE) ---
   const getClubSlug = () => {
     if (urlSlug) return urlSlug;
     try {
@@ -133,18 +125,11 @@ export default function AdminTabBookings() {
         const user = JSON.parse(userStored);
         const foundSlug = user.slug || user.clubSlug || (user.club && user.club.slug);
         if (foundSlug) return foundSlug;
-
-        // Fallbacks por apellido/nombre si falta el slug
         if (user.lastName && user.lastName.toLowerCase() !== 'admin') {
              return user.lastName.toLowerCase().trim().replace(/\s+/g, '-');
         }
-        if (user.firstName && user.firstName.toLowerCase() !== 'admin') {
-             return user.firstName.toLowerCase().trim().replace(/\s+/g, '-');
-        }
       }
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
     return ''; 
   };
 
@@ -152,55 +137,38 @@ export default function AdminTabBookings() {
     const value = e.target.value;
     setManualBooking({ ...manualBooking, guestFirstName: value });
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-
     if (value.length >= 2) {
       searchTimeoutRef.current = setTimeout(async () => {
         try {
           const currentSlug = getClubSlug();
-          if (!currentSlug) {
-              console.warn("⚠️ Búsqueda cancelada: No hay slug.");
-              return; 
-          }
+          if (!currentSlug) return; 
           const results = await searchClients(currentSlug, value);
           setSearchResults(results || []);
           setShowDropdown(true);
-        } catch (error) {
-          console.error("Error buscando:", error);
-        }
+        } catch (error) { console.error(error); }
       }, 300);
-    } else {
-      setShowDropdown(false);
-    }
+    } else { setShowDropdown(false); }
   };
 
   const selectClient = (client: any) => {
     let fName = client.firstName || '';
     let lName = client.lastName || '';
-    
-    // Si el nombre viene todo junto, lo separamos
     if (!lName && fName.includes(' ')) {
       const parts = fName.split(' ');
       fName = parts[0];
       lName = parts.slice(1).join(' ');
     }
-
-    // 👇 LÓGICA DE LIMPIEZA DEL TELÉFONO 👇
     let rawPhone = client.phoneNumber || client.phone || client.celular || '';
-    
-    // Si existe el teléfono, le sacamos el +549 o el 549 del principio
-    if (rawPhone) {
-        rawPhone = rawPhone.toString().replace(/^(\+?549)/, '');
-    }
-
+    if (rawPhone) { rawPhone = rawPhone.toString().replace(/^(\+?549)/, ''); }
     setManualBooking({
       ...manualBooking,
       guestFirstName: fName,
       guestLastName: lName,
-      guestPhone: rawPhone, // <--- Ahora va limpio (ej: 351...)
+      guestPhone: rawPhone,
       guestDni: client.dni || client.dniNumber || client.document || '' 
     });
     setShowDropdown(false);
-  };;
+  };
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -240,124 +208,63 @@ export default function AdminTabBookings() {
       setLoadingSchedule(true);
       const data = await getAdminSchedule(scheduleDate);
       let mergedSlots = data;
-      try {
-        if (courts && courts.length > 0) {
-          const slotMap = new Map();
-          (data || []).forEach((s: any) => slotMap.set(`${s.slotTime}::${s.courtId}`, s));
-          mergedSlots = [];
-          for (const time of CLUB_TIME_SLOTS) {
-            for (const c of courts) {
-              const key = `${time}::${c.id}`;
-              mergedSlots.push(slotMap.get(key) || { slotTime: time, courtId: c.id, courtName: c.name, isAvailable: true });
-            }
+      if (courts && courts.length > 0) {
+        const slotMap = new Map();
+        (data || []).forEach((s: any) => slotMap.set(`${s.slotTime}::${s.courtId}`, s));
+        mergedSlots = [];
+        for (const time of CLUB_TIME_SLOTS) {
+          for (const c of courts) {
+            const key = `${time}::${c.id}`;
+            mergedSlots.push(slotMap.get(key) || { slotTime: time, courtId: c.id, courtName: c.name, isAvailable: true });
           }
         }
-      } catch (err) {
-        console.warn('Error merging schedule with courts:', err);
       }
       setScheduleBookings(mergedSlots);
       setLastUpdate(new Date());
-    } catch (error: any) {
-      showError('Error: ' + error.message);
-    } finally {
-      setLoadingSchedule(false);
-    }
+    } catch (error: any) { showError('Error: ' + error.message); } finally { setLoadingSchedule(false); }
   }, [scheduleDate, courts]);
 
   useEffect(() => { loadCourts(); }, [loadCourts]);
   useEffect(() => { loadSchedule(); }, [loadSchedule]);
 
-  // --- 🔥 LOGICA DE CREACIÓN DE RESERVA CORREGIDA (DNI) 🔥 ---
   const handleCreateBooking = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // 1. Validaciones
     const firstName = manualBooking.guestFirstName.trim();
     const lastName = manualBooking.guestLastName.trim();
     const dni = manualBooking.guestDni?.trim();
     const phone = manualBooking.guestPhone?.trim();
-
-    if (!manualBooking.courtId || !manualBooking.time) { 
-        showError('Faltan datos de cancha u horario'); 
-        return; 
-    }
-    
-    // Validación estricta: si falta algo, no dejamos avanzar
-    if (!firstName || !lastName || !dni || !phone) { 
-        showError('Nombre, Apellido, DNI y Teléfono son obligatorios'); 
-        return; 
-    }
-
-    // 2. Variables con alcance (scope) correcto
-    let dateBase: Date; // La declaramos pero no la inicializamos todavía
+    if (!manualBooking.courtId || !manualBooking.time) { showError('Faltan datos de cancha u horario'); return; }
+    if (!firstName || !lastName || !dni || !phone) { showError('Nombre, Apellido, DNI y Teléfono son obligatorios'); return; }
+    let dateBase: Date;
     let guestName = `${firstName} ${lastName}`.trim();
     let phoneToSend = "";
-    
     try {
         const rawPhone = phone.replace(/\D/g, '');
         phoneToSend = rawPhone ? `+549${rawPhone}` : '';
-        
-        let skipNote = '';
-
-        // 3. Lógica de Fechas (ACÁ ESTABA EL PROBLEMA)
         if (manualBooking.isFixed) {
-            // Lógica para reservas FIJAS
             const base = new Date(manualBooking.startDateBase);
             base.setHours(12, 0, 0, 0);
             const nextDateInfo = getNextDateForDay(base, parseInt(manualBooking.dayOfWeek), manualBooking.time);
             dateBase = nextDateInfo.date; 
-            // ... resto de tu lógica de skipNote ...
-            
         } else {
-            // 👇 Lógica para reservas SIMPLES (ESTO FALTABA O ESTABA MAL)
-            // Combinamos la fecha del input con la hora seleccionada
             dateBase = new Date(`${manualBooking.startDateBase}T${manualBooking.time}:00`);
         }
-
-        // 4. Ejecución
         if (manualBooking.isFixed) {
-            await createFixedBooking(
-                undefined, 
-                Number(manualBooking.courtId), 
-                1, 
-                dateBase, 
-                guestName, 
-                phoneToSend || undefined,
-                dni
-            );
-            // ... mensajes de éxito ...
+            await createFixedBooking(undefined, Number(manualBooking.courtId), 1, dateBase, guestName, phoneToSend || undefined, dni);
+            showInfo('✅ Turno fijo creado', 'Listo');
         } else {
-            // Creamos el objeto guestData con el DNI
-            const guestData = { 
-                name: guestName, 
-                phone: phoneToSend,
-                dni: dni,
-                document: dni,
-                dniNumber: dni
-            };
-
-            await createBooking(
-                Number(manualBooking.courtId), 
-                1, 
-                dateBase, 
-                undefined, 
-                guestData, 
-                { asGuest: true, guestIdentifier: `admin_${dni}_${Date.now()}` }
-            );
+            const guestData = { name: guestName, phone: phoneToSend, dni: dni, document: dni, dniNumber: dni };
+            await createBooking(Number(manualBooking.courtId), 1, dateBase, undefined, guestData, { asGuest: true, guestIdentifier: `admin_${dni}_${Date.now()}` });
             showInfo('✅ Reserva simple creada', 'Listo');
         }
-      
-        // ... (limpieza del formulario) ...
         loadSchedule();
         setManualBooking({ 
             guestFirstName: '', guestLastName: '', guestPhone: '', guestDni: '', 
             courtId: '', time: '19:00', isFixed: false, dayOfWeek: '1', startDateBase: getTodayLocalDate() 
         });
+    } catch (error: any) { showError('Error al reservar: ' + error.message); }
+  };
 
-    } catch (error: any) {
-        showError('Error al reservar: ' + error.message);
-    }
-};
   const handleCancelBooking = async (booking: any) => {
     if (booking.fixedBookingId) {
       showConfirm({
@@ -369,105 +276,70 @@ export default function AdminTabBookings() {
           setTimeout(() => showConfirm({
             title: '¿Borrar solo hoy?',
             message: `¿Eliminar únicamente el turno de hoy (${booking.slotTime}) y mantener los futuros?`,
-            confirmText: 'Sí, borrar solo hoy',
-            cancelText: 'Cancelar',
-            onConfirm: async () => { 
-                try { 
-                    await cancelBooking(booking.id); 
-                    showInfo('✅ Turno del día eliminado.', 'Listo'); 
-                    loadSchedule(); 
-                } catch (e: any) { 
-                    showError('Error: ' + e.message); 
-                } 
-            },
-            onCancel: () => {}
+            confirmText: 'Sí, borrar solo hoy', cancelText: 'Cancelar',
+            onConfirm: async () => { try { await cancelBooking(booking.id); showInfo('✅ Turno del día eliminado.', 'Listo'); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } },
           }), 200);
-        },
-        closeOnBackdrop: false, closeOnEscape: false
+        }
       });
     } else {
       showConfirm({
         title: 'Cancelar turno', message: '⚠️ ¿Seguro que deseas cancelar esta reserva simple?',
-        confirmText: 'Sí, Cancelar', cancelText: 'Volver',
-        onConfirm: async () => { try { await cancelBooking(booking.id); showInfo('✅ Turno cancelado', 'Listo'); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } }
+        confirmText: 'Sí, Cancelar', onConfirm: async () => { try { await cancelBooking(booking.id); showInfo('✅ Turno cancelado', 'Listo'); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } }
       });
     }
   };
 
-
-    const handleConfirmBooking = async (method: 'CASH' | 'TRANSFER' | 'DEBT') => {
+  const handleConfirmBooking = async (method: 'CASH' | 'TRANSFER' | 'DEBT') => {
     if (!selectedBookingId) return;
-
     try {
         const token = localStorage.getItem('token');
-        
-        // Llamada al backend
         await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/bookings/confirm`, {
             method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({ 
-                bookingId: selectedBookingId, 
-                paymentMethod: method 
-            })
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ bookingId: selectedBookingId, paymentMethod: method })
         });
-
-        // 1. Cerramos el modal
         setShowPaymentModal(false);
-        
-        // 2. Recargamos la grilla para ver el cambio de color
         loadSchedule(); 
-
-        // 3. Feedback al usuario
-        if (method === 'DEBT') {
-             // Puedes usar showInfo o alert
-             alert("✅ Reserva confirmada y dejada en cuenta.");
-        } else {
-             alert(`✅ Cobro registrado con ${method === 'CASH' ? 'Efectivo' : 'Transferencia'}`);
-        }
-
-    } catch (error) {
-        console.error(error);
-        alert("❌ Error al confirmar la reserva");
-    }
-};
+        showInfo(`✅ Cobro registrado correctamente.`, "Listo");
+    } catch (error) { alert("❌ Error al confirmar"); }
+  };
 
   return (
     <>
-      <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-8 mb-6 transition-all relative z-20">
-        <h2 className="text-lg font-bold text-text flex items-center gap-2">
-          <span>{manualBooking.isFixed ? '🔄' : '📅'}</span>
-          {manualBooking.isFixed ? 'NUEVO TURNO FIJO' : 'NUEVA RESERVA SIMPLE'}
-          <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full border border-border text-muted bg-surface">{manualBooking.isFixed ? 'SERIE' : 'SIMPLE'}</span>
+      {/* --- TARJETA DE CREACIÓN DE RESERVA (BEIGE WIMBLEDON) --- */}
+      <div className="bg-[#EBE1D8] border-4 border-white/50 rounded-[2rem] p-8 mb-8 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
+        <h2 className="text-2xl font-black text-[#926699] flex items-center gap-3 uppercase italic tracking-tight">
+          <span className="bg-[#926699] text-[#EBE1D8] p-2 rounded-xl text-xl">
+            {manualBooking.isFixed ? '🔄' : '📅'}
+          </span>
+          {manualBooking.isFixed ? 'Nuevo Turno Fijo' : 'Nueva Reserva Simple'}
+          <span className="ml-2 text-[10px] px-3 py-1 rounded-full bg-[#347048] text-[#EBE1D8] font-black tracking-widest not-italic">
+            {manualBooking.isFixed ? 'SERIE' : 'SIMPLE'}
+          </span>
         </h2>
-        <form onSubmit={handleCreateBooking} className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+
+        <form onSubmit={handleCreateBooking} className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
           
+          {/* BUSCADOR CLIENTE */}
           <div className="relative" ref={wrapperRef}>
-              <label className="block text-sm font-semibold text-slate-300 mb-2">Nombre (Buscar Cliente)</label>
+              <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Nombre (Buscar Cliente)</label>
               <input 
                   type="text" 
                   value={manualBooking.guestFirstName} 
                   onChange={handleNameChange}
-                  className="w-full h-12 bg-gray-950 border border-gray-800 rounded-lg px-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
+                  className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
                   placeholder="Escribe para buscar..." 
-                  required 
-                  autoComplete="chorme-off"
-                  name="search_guest_name_unique"
+                  required autoComplete="off"
               />
               {showDropdown && searchResults.length > 0 && (
-                  <ul className="absolute z-50 w-full mt-1 bg-gray-700 border border-gray-600 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                  <ul className="absolute z-50 w-full mt-2 bg-white border-2 border-[#347048]/10 rounded-xl shadow-2xl max-h-60 overflow-y-auto">
                       {searchResults.map((client) => (
-                          <li 
-                              key={client.id} 
-                              onClick={() => selectClient(client)}
-                              className="px-4 py-3 hover:bg-emerald-600/30 cursor-pointer text-white border-b border-gray-600/50 last:border-0 transition-colors"
-                          >
-                              <div className="font-bold text-sm">{client.firstName} {client.lastName}</div>
-                              <div className="text-xs text-gray-300 flex gap-3 mt-1">
-                                  {client.phoneNumber && <span className="flex items-center gap-1">📞 {client.phoneNumber}</span>}
-                                  {client.dni && <span className="flex items-center gap-1">🆔 {client.dni}</span>}
+                          <li key={client.id} onClick={() => selectClient(client)}
+                              className="px-4 py-3 hover:bg-[#B9CF32]/20 cursor-pointer text-[#347048] border-b border-[#347048]/5 last:border-0 transition-colors">
+                              <div className="font-black text-sm">{client.firstName} {client.lastName}</div>
+                              <div className="text-[10px] font-bold text-[#347048]/60 flex gap-3 mt-1 uppercase">
+                                  {client.phoneNumber && <span>📞 {client.phoneNumber}</span>}
+                                  {client.dni && <span>🆔 {client.dni}</span>}
                               </div>
                           </li>
                       ))}
@@ -476,268 +348,181 @@ export default function AdminTabBookings() {
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-slate-300 mb-2">Apellido</label>
-            <input autoComplete="chrome-off" name="guest_lastname_unique" type="text" value={manualBooking.guestLastName} onChange={(e) => setManualBooking({ ...manualBooking, guestLastName: e.target.value })} 
-            className="w-full h-12 bg-gray-950 border border-gray-800 rounded-lg px-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all" placeholder="Ingresa el apellido" required />
+            <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Apellido</label>
+            <input type="text" value={manualBooking.guestLastName} onChange={(e) => setManualBooking({ ...manualBooking, guestLastName: e.target.value })} 
+            className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all" placeholder="Ingresa el apellido" required />
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-slate-300 mb-2">Teléfono</label>
-            <input autoComplete="chrome-off" name="guest_phone_unique" type="tel" value={manualBooking.guestPhone} onChange={(e) => setManualBooking({ ...manualBooking, guestPhone: e.target.value })} className="w-full h-12 bg-gray-950 border border-gray-800 rounded-lg px-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all" placeholder="Ej: 3511234567" required/>
+            <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Teléfono</label>
+            <input type="tel" value={manualBooking.guestPhone} onChange={(e) => setManualBooking({ ...manualBooking, guestPhone: e.target.value })} 
+            className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all" placeholder="Ej: 3511234567" required/>
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-slate-300 mb-2">DNI </label>
-            <input autoComplete="chrome-off" name="guest_dni_unique" type="text" value={manualBooking.guestDni} onChange={(e) => setManualBooking({ ...manualBooking, guestDni: e.target.value })} className="w-full h-12 bg-gray-950 border border-gray-800 rounded-lg px-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all" placeholder="Número de documento" required />
+            <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">DNI</label>
+            <input type="text" value={manualBooking.guestDni} onChange={(e) => setManualBooking({ ...manualBooking, guestDni: e.target.value })} 
+            className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all" placeholder="Número de documento" required />
           </div>
 
-          <div className="relative z-10">
-          <label className="block text-sm font-semibold text-slate-300 mb-2">Fecha</label>
+          <div className="relative z-10 w-full">
+  <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Fecha</label>
+  <div className="wimbledon-datepicker"> {/* Envolvemos el DatePicker */}
+    <DatePickerDark
+      selected={manualBooking.startDateBase ? (() => { const [y, m, d] = manualBooking.startDateBase.split('-').map(Number); return new Date(y, m - 1, d); })() : null}
+      onChange={(date: Date | null) => {
+        if (!date) return;
+        setManualBooking({ ...manualBooking, startDateBase: formatLocalDate(date) });
+      }}
+      minDate={new Date()}
+    />
+  </div>
+</div>
 
-            {manualBooking.isFixed ? (
-              <div className="h-12 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white text-base flex items-center">
-                <span className="text-gray-400">Selecciona día de la semana abajo</span>
-              </div>
-            ) : (
-              <DatePickerDark
-                // 1. Convertimos el string a Date para el componente
-                selected={
-                  manualBooking.startDateBase
-                    ? (() => {
-                        const [y, m, d] = manualBooking.startDateBase.split('-').map(Number);
-                        return new Date(y, m - 1, d);
-                      })()
-                    : null // Si es null, muestra el placeholder
-                }
-                
-                // 2. Lógica de cambio y validación
-                onChange={(date: Date | null) => {
-                  if (!date) {
-                      setManualBooking({ ...manualBooking, startDateBase: '' });
-                      return;
-                  }
-                  
-                  const today = new Date();
-                  today.setHours(0, 0, 0, 0);
-                  
-                  const sel = new Date(date);
-                  sel.setHours(0, 0, 0, 0);
-
-                  if (sel < today) {
-                    // Podés usar tu toast/alert acá
-                    alert('No puedes seleccionar una fecha pasada.'); 
-                    return;
-                  }
-                  
-                  // Guardamos en tu formato string
-                  setManualBooking({ ...manualBooking, startDateBase: formatLocalDate(sel) });
-                }}
-                
-                // 3. Props adicionales (Igual que en tu cliente)
-                minDate={new Date()}
-                // maxDate={...} // Si querés limitar a futuro también en admin
-              />
-            )}
-          </div>
           <div>
-            <label className="block text-sm font-semibold text-slate-300 mb-2">Hora</label>
-            <select value={manualBooking.time} onChange={(e) => setManualBooking({ ...manualBooking, time: e.target.value })} className="w-full h-12 bg-gray-950 border border-gray-800 rounded-lg px-4 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all appearance-none" required>
-              <option value="" className="bg-gray-800">Selecciona hora</option>
+            <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Hora</label>
+            <select value={manualBooking.time} onChange={(e) => setManualBooking({ ...manualBooking, time: e.target.value })} 
+            className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black focus:outline-none shadow-sm appearance-none transition-all cursor-pointer" required>
               {CLUB_TIME_SLOTS.map(slot => (
-                <option key={slot} value={slot} className="bg-gray-800" disabled={!!(manualBooking.startDateBase && isPastTimeForDate(manualBooking.startDateBase, slot))}>{slot}</option>
+                <option key={slot} value={slot} disabled={!!(manualBooking.startDateBase && isPastTimeForDate(manualBooking.startDateBase, slot))}>{slot}</option>
               ))}
             </select>
           </div>
+
           <div>
-            <label className="block text-sm font-semibold text-slate-300 mb-2">Cancha</label>
-            <select value={manualBooking.courtId} onChange={(e) => setManualBooking({ ...manualBooking, courtId: e.target.value })} className="w-full h-12 bg-gray-950 border border-gray-800 rounded-lg px-4 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all appearance-none" required>
-              <option value="" className="bg-gray-800">Selecciona cancha</option>
-              {courts.map(c => <option key={c.id} value={c.id} className="bg-gray-800">{c.name}</option>)}
+            <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Cancha</label>
+            <select value={manualBooking.courtId} onChange={(e) => setManualBooking({ ...manualBooking, courtId: e.target.value })} 
+            className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black focus:outline-none shadow-sm appearance-none transition-all cursor-pointer" required>
+              <option value="">Selecciona cancha</option>
+              {courts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
+
           {manualBooking.isFixed && (
-            <div className="md:col-span-2">
-              <label className="block text-sm font-semibold text-slate-300 mb-2">Día de la semana</label>
-              <select value={manualBooking.dayOfWeek} onChange={(e) => setManualBooking({ ...manualBooking, dayOfWeek: e.target.value })} className="w-full h-12 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors">
-                <option value="1" className="bg-gray-800">Lunes</option><option value="2" className="bg-gray-800">Martes</option><option value="3" className="bg-gray-800">Miércoles</option><option value="4" className="bg-gray-800">Jueves</option><option value="5" className="bg-gray-800">Viernes</option><option value="6" className="bg-gray-800">Sábado</option><option value="0" className="bg-gray-800">Domingo</option>
+            <div>
+              <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Día de la semana</label>
+              <select value={manualBooking.dayOfWeek} onChange={(e) => setManualBooking({ ...manualBooking, dayOfWeek: e.target.value })} 
+              className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black focus:outline-none shadow-sm appearance-none transition-all cursor-pointer">
+                <option value="1">Lunes</option><option value="2">Martes</option><option value="3">Miércoles</option><option value="4">Jueves</option><option value="5">Viernes</option><option value="6">Sábado</option><option value="0">Domingo</option>
               </select>
             </div>
           )}
-          <div className="md:col-span-2 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-            <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
-              <input type="checkbox" checked={manualBooking.isFixed} onChange={(e) => setManualBooking({ ...manualBooking, isFixed: e.target.checked })} className="w-4 h-4 rounded border-gray-600 text-emerald-500 focus:ring-emerald-500 focus:ring-2" />
-              <span className="text-sm">¿Es un turno fijo? (se repite semanalmente)</span>
+
+          <div className="md:col-span-2 flex flex-col sm:flex-row gap-6 items-center justify-between mt-4 p-6 bg-[#347048]/5 rounded-[1.5rem] border border-[#347048]/10">
+            <label className="flex items-center gap-3 text-[#347048] font-black cursor-pointer group">
+              <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${manualBooking.isFixed ? 'bg-[#B9CF32] border-[#B9CF32]' : 'border-[#347048]/20 bg-white'}`}>
+                  {manualBooking.isFixed && <Check size={16} className="text-[#347048]" strokeWidth={4} />}
+              </div>
+              <input type="checkbox" checked={manualBooking.isFixed} onChange={(e) => setManualBooking({ ...manualBooking, isFixed: e.target.checked })} className="hidden" />
+              <span className="text-sm uppercase tracking-wide">¿Es un turno fijo?</span>
             </label>
-            <button type="submit" className="px-8 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-gray-900">
-              {manualBooking.isFixed ? '🔄 Crear Turno Fijo' : '📅 Crear Reserva'}
+
+            <button type="submit" className="w-full sm:w-auto px-10 py-4 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-2xl transition-all shadow-xl shadow-[#347048]/20 uppercase tracking-widest text-sm flex items-center justify-center gap-3 group">
+              {manualBooking.isFixed ? <RefreshCw size={18} className="group-hover:rotate-180 transition-transform duration-500" /> : <CalendarIcon size={18} />}
+              {manualBooking.isFixed ? 'Crear Serie' : 'Crear Reserva'}
             </button>
           </div>
         </form>
-        <div className="mt-6 p-4 bg-surface-80 border border-border rounded-lg">
-          <h3 className="text-sm font-semibold text-text mb-2">💡 Cómo crear reservas:</h3>
-          <ul className="text-sm text-muted space-y-1">
-            <li>• <strong>Reserva Simple:</strong> Completa nombre, apellido, fecha, hora y cancha para una reserva única.</li>
-            <li>• <strong>Turno Fijo:</strong> Marca la casilla &quot;Es un turno fijo&quot; y selecciona el día de la semana. Se creará una serie semanal automática.</li>
-            <li>• <strong>Buscador:</strong> Escribe en &quot;Nombre&quot; para buscar clientes existentes.</li>
-          </ul>
-        </div>
       </div>
 
-      <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-8 mb-8 overflow-hidden relative z-10">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-lg font-bold text-text">HORARIOS DEL DÍA</h2>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 relative z-20">
-              <label className="text-sm text-muted">Fecha:</label>
+      {/* --- TABLA DE HORARIOS (DISEÑO PREMIUM) --- */}
+      <div className="bg-[#EBE1D8] border-4 border-white/50 rounded-[2rem] p-8 mb-8 shadow-2xl shadow-[#347048]/20 overflow-hidden relative">
+        <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-6 mb-8">
+          <h2 className="text-2xl font-black text-[#347048] uppercase italic tracking-tight flex items-center gap-3">
+             <div className="w-2 h-8 bg-[#B9CF32] rounded-full"></div>
+             Agenda del Día
+          </h2>
+          <div className="flex flex-wrap items-center gap-4 bg-white/40 p-2 rounded-2xl border border-white/60">
+            <div className="flex items-center gap-2 px-3">
+              <span className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Fecha:</span>
               <DatePicker
                 selected={scheduleDate ? (() => { const [y, m, d] = scheduleDate.split('-').map(Number); return new Date(y, m - 1, d); })() : new Date()}
                 onChange={(date: Date | null) => date && setScheduleDate(formatLocalDate(date))}
-                dateFormat="yyyy-MM-dd" className="bg-surface border border-border rounded-lg px-4 py-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 transition h-10"
+                dateFormat="yyyy-MM-dd" className="bg-transparent border-none text-[#347048] font-black text-sm focus:outline-none w-28 cursor-pointer"
               />
             </div>
-            <button onClick={loadSchedule} disabled={loadingSchedule} className="btn btn-primary px-4 py-1 text-sm bg-blue-500/15 hover:bg-blue-500/25 border-blue-500/40 hover:border-blue-400/70 text-blue-200 shadow-[0_0_15px_rgba(59,130,246,0.15)] transition disabled:opacity-50">
-              {loadingSchedule ? '⏳' : '🔄'} ACTUALIZAR
+            <button onClick={loadSchedule} disabled={loadingSchedule} className="flex items-center gap-2 px-4 py-2 bg-[#347048] text-[#EBE1D8] rounded-xl text-xs font-black uppercase tracking-tighter hover:bg-[#B9CF32] hover:text-[#347048] transition-all">
+              {loadingSchedule ? '...' : 'Actualizar'}
             </button>
-            {lastUpdate && <span className="text-xs text-muted">Última: {lastUpdate.toLocaleTimeString()}</span>}
+            {lastUpdate && <span className="text-[10px] font-bold text-[#347048]/40 px-2 uppercase">{lastUpdate.toLocaleTimeString()}</span>}
           </div>
         </div>
+
         {loadingSchedule ? (
-          <div className="animate-pulse space-y-4"><div className="h-12 bg-surface-50 rounded w-full"></div><div className="h-12 bg-surface-50 rounded w-full"></div><div className="h-12 bg-surface-50 rounded w-full"></div></div>
+          <div className="space-y-4 py-10">
+              <div className="h-16 bg-[#347048]/5 animate-pulse rounded-2xl w-full"></div>
+              <div className="h-16 bg-[#347048]/5 animate-pulse rounded-2xl w-full"></div>
+          </div>
         ) : scheduleBookings.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+          <div className="overflow-x-auto -mx-8">
+            <table className="w-full text-left border-separate border-spacing-y-3 px-8">
               <thead>
-                <tr className="border-b border-border text-muted text-xs uppercase tracking-wider">
-                  <th className="p-4">Horario</th><th className="p-4">Cancha</th><th className="p-4">Estado</th><th className="p-4">Reservante</th><th className="p-4">Consumos / Extras</th><th className="p-5 text-right">Acciones</th>
+                <tr className="text-[#347048]/40 text-[10px] font-black uppercase tracking-[0.2em]">
+                  <th className="px-6 py-4">Horario</th><th className="px-6 py-4">Cancha</th><th className="px-6 py-4">Estado</th><th className="px-6 py-4">Reservante</th><th className="px-6 py-4">Extras</th><th className="px-6 py-4 text-right">Acciones</th>
                 </tr>
               </thead>
-              <tbody className="text-sm font-medium">
+              <tbody className="text-sm">
                 {scheduleBookings.map((slot, index) => (
-                  <tr key={index} className="border-b border-border/50 hover:bg-surface-70 transition-colors">
-                    <td className="p-4 font-mono text-muted">{slot.slotTime}</td>
-                    <td className="p-4 text-text font-bold">{slot.courtName}</td>
-                    <td className="p-5">
-                      {/* LÓGICA DE ESTADO CON ESTÉTICA PREMIUM */}
+                  <tr key={index} className="bg-white/60 hover:bg-white transition-all shadow-sm rounded-2xl overflow-hidden group">
+                    <td className="px-6 py-5 first:rounded-l-2xl font-black text-[#347048] text-lg">{slot.slotTime}</td>
+                    <td className="px-6 py-5 font-bold text-[#347048]/80">{slot.courtName}</td>
+                    <td className="px-6 py-5">
                       {(() => {
                         const [h, m] = slot.slotTime.split(':').map(Number);
-  
-                        let slotDate;
-                        if (scheduleDate) {
-                            const [year, month, day] = scheduleDate.split('-').map(Number);
-                            slotDate = new Date(year, month - 1, day); // Mes es 0-indexado
-                        } else {
-                            slotDate = new Date(); // Si no hay fecha, usamos hoy
-                        }
-
-                        slotDate.setHours(h, m, 0, 0);
-
-                        const now = new Date();
-                        const isPast = slotDate < now;
-
-                        let statusText = '';
-                        // Usamos un contenedor base y clases dinámicas para el color y el brillo
-                        let containerClasses = '';
-                        let dotClasses = '';
-                        let textClasses = '';
+                        const [year, month, day] = scheduleDate.split('-').map(Number);
+                        const slotDate = new Date(year, month - 1, day, h, m);
+                        const isPast = slotDate < new Date();
+                        let statusText = ''; let cClasses = ''; let dClasses = '';
 
                         if (!slot.booking) {
-                          // --- HUECO VACÍO ---
-                          if (isPast) {
-                            statusText = 'NO JUGADO';
-                            // Gris apagado, sin brillo, se funde con el fondo
-                            containerClasses = 'bg-gray-800/40 border-gray-700/50 text-gray-500';
-                            dotClasses = 'bg-gray-600';
-                          } else {
-                            statusText = 'DISPONIBLE';
-                            // Verde vibrante pero elegante. El punto tiene un "glow" intenso.
-                            containerClasses = 'bg-emerald-950/30 border-emerald-500/30 text-emerald-400';
-                            dotClasses = 'bg-emerald-400 shadow-[0_0_10px_2px_rgba(52,211,153,0.4)] animate-pulse-slow'; // animate-pulse-slow es opcional si lo tenés configurado
-                          }
+                          if (isPast) { statusText = 'NO JUGADO'; cClasses = 'bg-gray-200 text-gray-500 border-transparent'; dClasses = 'bg-gray-400'; }
+                          else { statusText = 'DISPONIBLE'; cClasses = 'bg-emerald-100 text-emerald-700 border-emerald-200'; dClasses = 'bg-emerald-500 animate-pulse'; }
                         } else {
-                          // --- HAY RESERVA ---
                           const status = slot.booking.status;
-
-                          if (isPast && (status === 'CONFIRMED' || status === 'PENDING' || status === 'COMPLETED')) {
-                            statusText = 'COMPLETADO';
-                            // Azul tecnológico, calmado
-                            containerClasses = 'bg-blue-950/30 border-blue-500/30 text-blue-400';
-                            dotClasses = 'bg-blue-400 shadow-[0_0_10px_2px_rgba(96,165,250,0.4)]';
-                          } 
-                          else if (status === 'CONFIRMED') {
-                            statusText = 'CONFIRMADO';
-                            // Rojo intenso, señal de ocupado
-                            containerClasses = 'bg-red-950/30 border-red-500/30 text-red-400';
-                            dotClasses = 'bg-red-500 shadow-[0_0_10px_2px_rgba(239,68,68,0.4)]';
-                          } 
-                          else {
-                            statusText = 'PENDIENTE';
-                            // Amarillo alerta, brillante
-                            containerClasses = 'bg-yellow-950/30 border-yellow-500/30 text-yellow-300';
-                            dotClasses = 'bg-yellow-400 shadow-[0_0_10px_2px_rgba(250,204,21,0.4)]';
-                          }
+                          if (isPast && (status === 'CONFIRMED' || status === 'PENDING' || status === 'COMPLETED')) { statusText = 'COMPLETADO'; cClasses = 'bg-blue-100 text-blue-700 border-blue-200'; dClasses = 'bg-blue-500'; } 
+                          else if (status === 'CONFIRMED') { statusText = 'CONFIRMADO'; cClasses = 'bg-red-100 text-red-700 border-red-200'; dClasses = 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'; } 
+                          else { statusText = 'PENDIENTE'; cClasses = 'bg-yellow-100 text-yellow-700 border-yellow-200'; dClasses = 'bg-yellow-500'; }
                         }
-
                         return (
-                          // El contenedor ahora es más sutil (border más fino, fondo más oscuro)
-                          <span className={`inline-flex items-center gap-2.5 text-[11px] px-3 py-1.5 rounded-full font-bold uppercase tracking-widest border transition-all duration-300 ${containerClasses}`}>
-                            {/* El puntito ahora es una "luz led" */}
-                            <span className={`w-2 h-2 rounded-full ${dotClasses}`}></span>
+                          <span className={`inline-flex items-center gap-2 text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-wider border ${cClasses}`}>
+                            <span className={`w-2 h-2 rounded-full ${dClasses}`}></span>
                             {statusText}
                           </span>
                         );
                       })()}
                     </td>
-                    <td className="p-5 text-text">
+                    <td className="px-6 py-5">
                       {slot.booking ? (
-                        <div>
-                          <div className="font-bold">{slot.booking.userName || slot.booking.guestName}</div>
-                          {(slot.booking.guestPhone || slot.booking.user?.phoneNumber) && <div className="text-xs text-emerald-400 mt-0.5 flex items-center gap-1">📞 {slot.booking.guestPhone || slot.booking.user?.phoneNumber}</div>}
-                          {slot.booking.fixedBookingId && <div className="text-xs text-muted mt-1">🔄 Turno fijo #{slot.booking.fixedBookingId}</div>}
+                        <div className="flex flex-col">
+                          <span className="font-black text-[#347048]">{slot.booking.userName || slot.booking.guestName}</span>
+                          {(slot.booking.guestPhone || slot.booking.user?.phoneNumber) && <span className="text-[11px] font-bold text-[#347048]/50">📞 {slot.booking.guestPhone || slot.booking.user?.phoneNumber}</span>}
                         </div>
-                      ) : <span className="text-muted">-</span>}
+                      ) : <span className="text-[#347048]/20 font-black">-</span>}
                     </td>
-                    <td className="p-4">
-                      {slot.booking && slot.booking.items && slot.booking.items.length > 0 ? (
+                    <td className="px-6 py-5">
+                      {slot.booking?.items?.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
                           {slot.booking.items.map((item: any, i: number) => (
-                            <span key={i} className="text-[10px] px-2 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 whitespace-nowrap">
-                              {item.quantity > 1 ? <span className="font-bold text-emerald-400">{item.quantity}x </span> : ''}
-                              {item.product?.name || 'Producto'}
+                            <span key={i} className="text-[9px] font-black px-2 py-0.5 rounded-md bg-[#926699]/10 text-[#926699] border border-[#926699]/20 uppercase">
+                              {item.quantity}x {item.product?.name}
                             </span>
                           ))}
                         </div>
-                      ) : (
-                        <span className="text-muted text-xs">-</span>
-                      )}
+                      ) : <span className="text-[#347048]/20 font-black">-</span>}
                     </td>
-                    <td className="p-5 text-right">
+                    <td className="px-6 py-5 last:rounded-r-2xl text-right">
                       {slot.booking && (
                         <div className="flex justify-end gap-2">
-                          
-                          {/* BOTÓN CARRITO - EXTRAS */}
-                          <button 
-                            onClick={() => setSelectedBooking(slot.booking)}
-                            className="p-2 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 hover:border-blue-500/50 transition-all"
-                            title="Ver detalles y consumos"
-                          >
-                            <ShoppingCart size={18} />
+                          <button onClick={() => setSelectedBooking(slot.booking)} className="p-2 rounded-xl bg-white border border-[#347048]/10 text-[#347048] hover:bg-[#347048] hover:text-[#EBE1D8] transition-all shadow-sm">
+                            <ShoppingCart size={16} strokeWidth={2.5} />
                           </button>
-
                           {slot.booking.status === 'PENDING' && (
-                            <button
-                              onClick={() => handleOpenPaymentModal(slot.booking.id)}
-                              className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 hover:border-emerald-500/50 transition-all"
-                              title="Confirmar Reserva"
-                            >
-                              <Check size={18} />
+                            <button onClick={() => handleOpenPaymentModal(slot.booking.id)} className="p-2 rounded-xl bg-[#B9CF32] text-[#347048] border border-white hover:scale-110 transition-all shadow-md">
+                              <Check size={16} strokeWidth={3} />
                             </button>
                           )}
-                                                    <button
-                            onClick={() => handleCancelBooking(slot.booking)}
-                            className={`p-2 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 hover:border-red-500/50 transition-all ${slot.booking.fixedBookingId ? 'shadow-[0_0_10px_rgba(239,68,68,0.2)]' : ''}`}
-                            title={slot.booking.fixedBookingId ? 'Dar de baja Turno Fijo' : 'Cancelar Reserva'}
-                          >
-                            <Trash2 size={18} />
+                          <button onClick={() => handleCancelBooking(slot.booking)} className="p-2 rounded-xl bg-red-50 border border-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all">
+                            <Trash2 size={16} strokeWidth={2.5} />
                           </button>
                         </div>
                       )}
@@ -748,80 +533,46 @@ export default function AdminTabBookings() {
             </table>
           </div>
         ) : (
-          <div className="text-center py-12 border border-dashed border-border rounded-xl bg-surface-70"><p className="text-muted">Sin datos cargados para esta fecha</p></div>
+          <div className="text-center py-16 border-4 border-dashed border-[#347048]/10 rounded-[2rem]"><p className="text-[#347048]/40 font-black uppercase tracking-widest">Sin datos cargados para esta fecha</p></div>
         )}
       </div>
 
-      {/* 👇👇👇 EL MODAL: AHORA SÍ ENCUENTRA EL SLUG O USA FALLBACK 👇👇👇 */}
+      {/* --- MODALES Y PORTALES --- */}
       {selectedBooking && (
         <ModalPortal onClose={() => setSelectedBooking(null)}>
           <BookingConsumption 
             bookingId={selectedBooking.id}
-            slug={getClubSlug() || ''} // <--- Función arreglada para no devolver vacío
+            slug={getClubSlug() || ''}
             courtPrice={selectedBooking.price}
             paymentStatus={selectedBooking.paymentStatus}
             onClose={() => setSelectedBooking(null)}
-            onConfirm={() => {
-                setSelectedBooking(null);
-                loadSchedule();
-            }}
+            onConfirm={() => { setSelectedBooking(null); loadSchedule(); }}
           />
         </ModalPortal>
       )}
-      {/* 👆👆👆 FIN DEL MODAL 👆👆👆 */}
 
-      {/* --- MODAL DE SELECCIÓN DE PAGO --- */}
       {showPaymentModal && (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[9999] p-4 animate-in fade-in duration-200">
-        <div className="bg-gray-900 border border-gray-700 p-6 rounded-xl shadow-2xl max-w-sm w-full relative">
-            {/* Botón X para cerrar rápido */}
-            <button 
-                onClick={() => setShowPaymentModal(false)}
-                className="absolute top-3 right-3 text-gray-500 hover:text-white"
-            >✕</button>
-
-            <h3 className="text-xl font-bold text-white mb-2 text-center">Confirmar Reserva</h3>
-            <p className="text-gray-400 text-sm mb-6 text-center">
-                Selecciona el método de cobro
-            </p>
-            
-            {/* Grilla de opciones */}
-            <div className="grid grid-cols-2 gap-3 mb-3">
-                <button
-                    onClick={() => handleConfirmBooking('CASH')}
-                    className="flex flex-col items-center justify-center p-4 bg-emerald-900/30 border border-emerald-800 hover:bg-emerald-900/50 rounded-lg text-emerald-400 transition-all hover:scale-[1.02]"
-                >
-                    <span className="text-2xl mb-1">💵</span>
-                    <span className="font-bold text-sm">Efectivo</span>
-                </button>
-
-                <button
-                    onClick={() => handleConfirmBooking('TRANSFER')}
-                    className="flex flex-col items-center justify-center p-4 bg-blue-900/30 border border-blue-800 hover:bg-blue-900/50 rounded-lg text-blue-400 transition-all hover:scale-[1.02]"
-                >
-                    <span className="text-2xl mb-1">💳</span>
-                    <span className="font-bold text-sm">Digital / MP</span>
+        <div className="fixed inset-0 bg-[#347048]/80 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 animate-in fade-in duration-200">
+            <div className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full relative text-[#347048]">
+                <button onClick={() => setShowPaymentModal(false)} className="absolute top-6 right-6 text-[#347048]/40 hover:text-[#347048] font-black">✕</button>
+                <h3 className="text-2xl font-black mb-2 text-center uppercase tracking-tight italic">Cobrar Reserva</h3>
+                <p className="text-[#347048]/60 text-xs font-bold mb-8 text-center uppercase tracking-widest">Selecciona el método de pago</p>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                    <button onClick={() => handleConfirmBooking('CASH')} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-[1.5rem] text-[#347048] transition-all shadow-sm group">
+                        <span className="text-3xl mb-2 group-hover:scale-125 transition-transform">💵</span>
+                        <span className="font-black text-xs uppercase tracking-tighter">Efectivo</span>
+                    </button>
+                    <button onClick={() => handleConfirmBooking('TRANSFER')} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-[1.5rem] text-[#347048] transition-all shadow-sm group">
+                        <span className="text-3xl mb-2 group-hover:scale-125 transition-transform">💳</span>
+                        <span className="font-black text-xs uppercase tracking-tighter">Digital</span>
+                    </button>
+                </div>
+                <button onClick={() => handleConfirmBooking('DEBT')} className="w-full py-4 flex items-center justify-center gap-2 bg-[#926699]/10 border-2 border-[#926699]/20 hover:bg-[#926699]/20 rounded-xl text-[#926699] font-black uppercase text-[10px] tracking-[0.2em] transition-all mb-4">
+                    <span>📄</span> Dejar en Cuenta (Deuda)
                 </button>
             </div>
-
-            {/* Botón Dejar en Cuenta (Ancho completo abajo) */}
-            <button
-                onClick={() => handleConfirmBooking('DEBT')}
-                className="w-full p-3 flex items-center justify-center gap-2 bg-yellow-900/20 border border-yellow-700/50 hover:bg-yellow-900/40 rounded-lg text-yellow-500 transition-all mb-4"
-            >
-                <span>📄</span>
-                <span className="font-bold text-sm">Dejar en Cuenta (Sin cobrar)</span>
-            </button>
-
-            <button 
-                onClick={() => setShowPaymentModal(false)}
-                className="w-full text-gray-500 hover:text-gray-300 text-xs hover:underline"
-            >
-                Cancelar operación
-            </button>
         </div>
-    </div>
-)}
+      )}
 
       <AppModal show={modalState.show} onClose={closeModal} onCancel={modalState.onCancel} title={modalState.title} message={modalState.message} cancelText={modalState.cancelText} confirmText={modalState.confirmText} isWarning={modalState.isWarning} onConfirm={modalState.onConfirm} closeOnBackdrop={modalState.closeOnBackdrop} closeOnEscape={modalState.closeOnEscape} />
     </>
