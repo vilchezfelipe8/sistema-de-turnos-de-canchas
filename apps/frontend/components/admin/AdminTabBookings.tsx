@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 import DatePicker from 'react-datepicker';
@@ -233,9 +233,9 @@ export default function AdminTabBookings() {
     onConfirm: wrapAction(options.onConfirm), onCancel: options.onCancel ? wrapAction(options.onCancel) : undefined
   });
 
-  const loadCourts = async () => { const data = await getCourts(); setCourts(data); };
+  const loadCourts = useCallback(async () => { const data = await getCourts(); setCourts(data); }, []);
 
-  const loadSchedule = async () => {
+  const loadSchedule = useCallback(async () => {
     try {
       setLoadingSchedule(true);
       const data = await getAdminSchedule(scheduleDate);
@@ -262,10 +262,10 @@ export default function AdminTabBookings() {
     } finally {
       setLoadingSchedule(false);
     }
-  };
+  }, [scheduleDate, courts]);
 
-  useEffect(() => { loadCourts(); }, []);
-  useEffect(() => { loadSchedule(); }, [scheduleDate, courts]);
+  useEffect(() => { loadCourts(); }, [loadCourts]);
+  useEffect(() => { loadSchedule(); }, [loadSchedule]);
 
   // --- 🔥 LOGICA DE CREACIÓN DE RESERVA CORREGIDA (DNI) 🔥 ---
   const handleCreateBooking = async (e: React.FormEvent) => {
@@ -578,7 +578,7 @@ export default function AdminTabBookings() {
           <ul className="text-sm text-muted space-y-1">
             <li>• <strong>Reserva Simple:</strong> Completa nombre, apellido, fecha, hora y cancha para una reserva única.</li>
             <li>• <strong>Turno Fijo:</strong> Marca la casilla &quot;Es un turno fijo&quot; y selecciona el día de la semana. Se creará una serie semanal automática.</li>
-            <li>• <strong>Buscador:</strong> Escribe en "Nombre" para buscar clientes existentes.</li>
+            <li>• <strong>Buscador:</strong> Escribe en &quot;Nombre&quot; para buscar clientes existentes.</li>
           </ul>
         </div>
       </div>

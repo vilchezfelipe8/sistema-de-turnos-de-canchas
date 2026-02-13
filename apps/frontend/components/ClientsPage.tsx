@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ClubAdminService } from '../services/ClubAdminService';
 import { User, Phone, DollarSign, Calendar, Users, Trophy, Search, X, CheckCircle } from 'lucide-react';
 import { useRouter } from 'next/router';
@@ -128,18 +128,18 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const [showPayMethodModal, setShowPayMethodModal] = useState(false);
   const [bookingToPayId, setBookingToPayId] = useState<number | null>(null);
 
-  useEffect(() => {
-    loadClients();
-  }, [slug]);
-
-  const loadClients = async () => {
+  const loadClients = useCallback(async () => {
     try {
       setLoading(true);
       const data = await ClubAdminService.getDebtors(slug);
       setClients(data);
     } catch (error) { console.error(error); }
     finally { setLoading(false); }
-  };
+  }, [slug]);
+
+  useEffect(() => {
+    loadClients();
+  }, [loadClients]);
 
   // Lógica de filtrado
   const filteredClients = clients.filter(client => {
@@ -315,7 +315,7 @@ const processDebtPayment = async (method: 'CASH' | 'TRANSFER') => {
                     </tr>
                     ))
                 ) : (
-                    <tr><td colSpan={5} className="p-8 text-center text-gray-500 italic">No se encontraron clientes que coincidan con "{searchTerm}".</td></tr>
+                    <tr><td colSpan={5} className="p-8 text-center text-gray-500 italic">No se encontraron clientes que coincidan con &quot;{searchTerm}&quot;.</td></tr>
                 )}
               </tbody>
             </table>

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { ClubService, Club } from '../../services/ClubService';
 import AppModal from '../AppModal';
@@ -26,7 +26,7 @@ export default function AdminTabClub() {
   const showInfo = (message: ReactNode, title = 'Información') => setModalState({ show: true, title, message, cancelText: '', confirmText: 'OK' });
   const showError = (message: ReactNode) => setModalState({ show: true, title: 'Error', message, isWarning: true, cancelText: '', confirmText: 'Aceptar' });
 
-  const loadClub = async () => {
+  const loadClub = useCallback(async () => {
     try {
       setLoadingClub(true);
       const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
@@ -61,9 +61,9 @@ export default function AdminTabClub() {
     } finally {
       setLoadingClub(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { loadClub(); }, []);
+  useEffect(() => { loadClub(); }, [loadClub]);
 
   const handleUpdateClub = async (e: React.FormEvent) => {
     e.preventDefault();

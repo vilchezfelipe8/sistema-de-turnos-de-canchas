@@ -91,52 +91,58 @@ const AdminCashDashboard = () => {
     fetchCash(); 
   };
 
-  if (loading) return <div className="text-white p-10">Cargando Billetera...</div>;
+  if (loading) return <div className="text-text p-10">Cargando Billetera...</div>;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 p-4">
-      
-      {/* HEADER DE BALANCE */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+  <div className="bg-surface-70 backdrop-blur-sm border border-border rounded-2xl p-8 mb-8 overflow-hidden">
+      <div className="mb-6">
+        <h2 className="text-lg font-bold text-text flex items-center gap-2">
+          <span>💰</span> CAJA Y MOVIMIENTOS
+        </h2>
+        <p className="text-muted text-sm mt-1">Resumen diario y registro de movimientos.</p>
+      </div>
+
+      <div className="space-y-8">
+        {/* HEADER DE BALANCE */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
         {/* TARJETA PRINCIPAL: TOTAL */}
-        <div className="...">
-        {/* ... icono ... */}
-        <h3 className="...">Balance Total (Hoy)</h3>
-        <div className="text-5xl font-mono font-bold text-white mb-4">
-            {/* 👇 AGREGÁ EL ? Y EL || 0 */}
+        <div className="bg-surface-70/50 border border-border rounded-2xl p-6 backdrop-blur-sm">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-400"><Wallet size={22} /></div>
+            <h3 className="text-text font-bold">Balance Total (Hoy)</h3>
+          </div>
+          <div className="text-4xl font-mono font-bold text-text mb-3">
             ${(balance?.total || 0).toLocaleString()}
-        </div>
-        <div className="flex gap-4 text-xs font-bold font-mono">
-            <span className="text-emerald-400 ...">
-            {/* 👇 AGREGÁ EL ? Y EL || 0 */}
-            <ArrowUpCircle size={14}/> IN: ${(balance?.income || 0).toLocaleString()}
+          </div>
+          <div className="flex gap-3 text-xs font-bold font-mono">
+            <span className="text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded flex items-center gap-1">
+              <ArrowUpCircle size={14}/> IN: ${(balance?.income || 0).toLocaleString()}
             </span>
-            <span className="text-red-400 ...">
-            {/* 👇 AGREGÁ EL ? Y EL || 0 */}
-            <ArrowDownCircle size={14}/> OUT: ${(balance?.expense || 0).toLocaleString()}
+            <span className="text-red-400 bg-red-500/10 border border-red-500/20 px-2 py-1 rounded flex items-center gap-1">
+              <ArrowDownCircle size={14}/> OUT: ${(balance?.expense || 0).toLocaleString()}
             </span>
-        </div>
+          </div>
         </div>
 
         {/* TARJETA: CAJA FÍSICA (Lo que hay en el cajón) */}
-        <div className="bg-gray-900 p-6 rounded-2xl border border-gray-800 flex flex-col justify-between">
+        <div className="bg-surface-70/50 p-6 rounded-2xl border border-border flex flex-col justify-between backdrop-blur-sm">
           <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-green-500/10 rounded-lg text-green-400"><Banknote size={24} /></div>
-            <h3 className="text-gray-300 font-bold">Efectivo en Caja</h3>
+            <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-400"><Banknote size={24} /></div>
+            <h3 className="text-text font-bold">Efectivo en Caja</h3>
           </div>
-          <p className="text-3xl font-mono text-white font-bold">${(balance?.cash || 0).toLocaleString()}</p>
-          <p className="text-xs text-gray-500 mt-2">Dinero físico disponible</p>
+          <p className="text-3xl font-mono text-text font-bold">${(balance?.cash || 0).toLocaleString()}</p>
+          <p className="text-xs text-muted mt-2">Dinero físico disponible</p>
         </div>
 
         {/* TARJETA: DIGITAL (MercadoPago/Bancos) */}
-        <div className="bg-gray-900 p-6 rounded-2xl border border-gray-800 flex flex-col justify-between">
+        <div className="bg-surface-70/50 p-6 rounded-2xl border border-border flex flex-col justify-between backdrop-blur-sm">
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 bg-blue-500/10 rounded-lg text-blue-400"><CreditCard size={24} /></div>
-            <h3 className="text-gray-300 font-bold">Banco / Digital</h3>
+            <h3 className="text-text font-bold">Banco / Digital</h3>
           </div>
-          <p className="text-3xl font-mono text-white font-bold">${(balance?.digital || 0).toLocaleString()}</p>
-          <p className="text-xs text-gray-500 mt-2">Transferencias acumuladas</p>
+          <p className="text-3xl font-mono text-text font-bold">${(balance?.digital || 0).toLocaleString()}</p>
+          <p className="text-xs text-muted mt-2">Transferencias acumuladas</p>
         </div>
       </div>
 
@@ -144,20 +150,20 @@ const AdminCashDashboard = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
         {/* COLUMNA IZQUIERDA: LISTA DE MOVIMIENTOS */}
-        <div className="lg:col-span-2 bg-gray-950 border border-gray-800 rounded-xl overflow-hidden">
-          <div className="p-5 border-b border-gray-800 bg-gray-900/50 flex justify-between items-center">
-            <h3 className="text-white font-bold">Movimientos del Día</h3>
-            <span className="text-xs text-gray-500 bg-gray-900 px-2 py-1 rounded border border-gray-800">
+        <div className="lg:col-span-2 bg-surface-70/50 border border-border rounded-xl overflow-hidden backdrop-blur-sm">
+          <div className="p-5 border-b border-border bg-surface-70 flex justify-between items-center">
+            <h3 className="text-text font-bold">Movimientos del Día</h3>
+            <span className="text-xs text-muted bg-surface px-2 py-1 rounded border border-border">
               {new Date().toLocaleDateString()}
             </span>
           </div>
           
           <div className="max-h-[400px] overflow-y-auto">
             {movements.length === 0 ? (
-              <div className="p-10 text-center text-gray-600">No hay movimientos hoy.</div>
+              <div className="p-10 text-center text-muted">No hay movimientos hoy.</div>
             ) : (
-              <table className="w-full text-left text-sm text-gray-400">
-                <thead className="bg-gray-900 text-xs uppercase font-bold text-gray-500 sticky top-0">
+              <table className="w-full text-left text-sm text-muted">
+                <thead className="bg-surface-70 text-xs uppercase font-bold text-muted sticky top-0">
                   <tr>
                     <th className="p-4">Hora</th>
                     <th className="p-4">Descripción</th>
@@ -165,18 +171,18 @@ const AdminCashDashboard = () => {
                     <th className="p-4 text-right">Monto</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-800">
+                <tbody className="divide-y divide-border/50">
                   {movements.map((m) => (
-                    <tr key={m.id} className="hover:bg-gray-900/50 transition-colors">
-                      <td className="p-4 font-mono text-xs text-gray-500">
+                    <tr key={m.id} className="hover:bg-white/5 transition-colors">
+                      <td className="p-4 font-mono text-xs text-muted">
                         {new Date(m.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                       </td>
-                      <td className="p-4 text-white font-medium">{m.description}</td>
+                      <td className="p-4 text-text font-medium">{m.description}</td>
                       <td className="p-4">
                         <span className={`text-[10px] px-2 py-1 rounded border ${
                           m.method === 'CASH' 
-                            ? 'bg-green-900/20 border-green-800 text-green-400' 
-                            : 'bg-blue-900/20 border-blue-800 text-blue-400'
+                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
+                            : 'bg-blue-500/10 border-blue-500/20 text-blue-400'
                         }`}>
                           {m.method === 'CASH' ? 'EFECTIVO' : 'DIGITAL'}
                         </span>
@@ -195,18 +201,18 @@ const AdminCashDashboard = () => {
         </div>
 
         {/* COLUMNA DERECHA: AGREGAR RÁPIDO */}
-        <div className="bg-gray-900 p-6 rounded-xl border border-gray-800 h-fit">
-          <h3 className="text-white font-bold mb-4 flex items-center gap-2">
+        <div className="bg-surface-70/50 p-6 rounded-xl border border-border h-fit backdrop-blur-sm">
+          <h3 className="text-text font-bold mb-4 flex items-center gap-2">
             <Plus size={18} className="text-emerald-500"/> Nuevo Movimiento
           </h3>
           
           <form onSubmit={handleAddMovement} className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Concepto</label>
+              <label className="block text-xs font-bold text-muted mb-1">Concepto</label>
               <input 
                 type="text" 
                 placeholder="Ej: Retiro de Efectivo, Compra Pelotas..."
-                className="w-full bg-gray-950 border border-gray-700 rounded p-3 text-white focus:border-emerald-500 focus:outline-none text-sm"
+                className="w-full bg-surface border border-border rounded p-3 text-text focus:border-emerald-500/50 focus:outline-none text-sm"
                 value={newMove.description}
                 onChange={e => setNewMove({...newMove, description: e.target.value})}
               />
@@ -214,19 +220,19 @@ const AdminCashDashboard = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Monto</label>
+                <label className="block text-xs font-bold text-muted mb-1">Monto</label>
                 <input 
                   type="number" 
                   placeholder="0.00"
-                  className="w-full bg-gray-950 border border-gray-700 rounded p-3 text-white focus:border-emerald-500 focus:outline-none text-sm font-mono"
+                  className="w-full bg-surface border border-border rounded p-3 text-text focus:border-emerald-500/50 focus:outline-none text-sm font-mono"
                   value={newMove.amount}
                   onChange={e => setNewMove({...newMove, amount: e.target.value})}
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Tipo</label>
+                <label className="block text-xs font-bold text-muted mb-1">Tipo</label>
                 <select 
-                  className="w-full bg-gray-950 border border-gray-700 rounded p-3 text-white focus:border-emerald-500 focus:outline-none text-sm"
+                  className="w-full bg-surface border border-border rounded p-3 text-text focus:border-emerald-500/50 focus:outline-none text-sm"
                   value={newMove.type}
                   onChange={e => setNewMove({...newMove, type: e.target.value})}
                 >
@@ -237,31 +243,32 @@ const AdminCashDashboard = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Método de Pago</label>
+              <label className="block text-xs font-bold text-muted mb-1">Método de Pago</label>
               <div className="grid grid-cols-2 gap-2">
                 <button 
                   type="button"
                   onClick={() => setNewMove({...newMove, method: 'CASH'})}
-                  className={`p-2 rounded text-xs font-bold border ${newMove.method === 'CASH' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-gray-800 border-gray-700 text-gray-400'}`}
+                  className={`p-2 rounded text-xs font-bold border ${newMove.method === 'CASH' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-surface border-border text-muted'}`}
                 >
                   💵 Efectivo
                 </button>
                 <button 
                   type="button"
                   onClick={() => setNewMove({...newMove, method: 'TRANSFER'})}
-                  className={`p-2 rounded text-xs font-bold border ${newMove.method === 'TRANSFER' ? 'bg-blue-500/20 border-blue-500 text-blue-400' : 'bg-gray-800 border-gray-700 text-gray-400'}`}
+                  className={`p-2 rounded text-xs font-bold border ${newMove.method === 'TRANSFER' ? 'bg-blue-500/20 border-blue-500 text-blue-400' : 'bg-surface border-border text-muted'}`}
                 >
                   💳 Digital
                 </button>
               </div>
             </div>
 
-            <button type="submit" className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded shadow-lg transition-all mt-2">
+            <button type="submit" className="w-full py-3 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 font-bold rounded border border-emerald-500/40 shadow-[0_0_18px_rgba(16,185,129,0.2)] transition-all mt-2">
               Registrar Movimiento
             </button>
           </form>
         </div>
 
+        </div>
       </div>
     </div>
   );

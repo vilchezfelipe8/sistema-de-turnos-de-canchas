@@ -217,6 +217,7 @@ export default function MyBookingsPage() {
           <div className="bg-white rounded-3xl shadow-lg border border-black/5 overflow-hidden">
             <div className="px-8 pt-8 pb-4 text-center">
               <h2 className="text-3xl font-black text-[#2b3a4a]">Mis Reservas</h2>
+              <div className="mx-auto mt-3 h-1 w-20 rounded-full bg-[#926699]" />
               <div className="mt-6 grid grid-cols-3 text-sm font-bold text-[#7c8aa0]">
                 {['ACTIVE', 'PAST', 'CANCELLED'].map((tab) => (
                   <button
@@ -263,7 +264,7 @@ export default function MyBookingsPage() {
                         onClick={() => setSelectedBooking(booking)}
                         className={`w-full text-left rounded-3xl border transition-shadow ${
                           selectedBooking?.id === booking.id
-                            ? 'border-[#0bbd49] shadow-lg'
+                            ? 'border-[#0bbd49] shadow-lg shadow-[#926699]/30'
                             : 'border-[#d7dde5] hover:shadow-md'
                         }`}
                       >
@@ -293,7 +294,7 @@ export default function MyBookingsPage() {
                               </p>
                             )}
                           </div>
-                          <div className="text-2xl text-[#2b3a4a]">→</div>
+                          <div className="text-2xl text-[#926699]">→</div>
                         </div>
 
                         {activeTab === 'ACTIVE' && (
@@ -316,7 +317,7 @@ export default function MyBookingsPage() {
                             {booking.court?.club?.slug ? (
                               <Link
                                 href={`/club/${booking.court.club.slug}`}
-                                className="px-4 py-2 rounded-full border border-[#d7dde5] hover:border-[#0bbd49] hover:text-[#0bbd49]"
+                                className="px-4 py-2 rounded-full border border-[#d7dde5] hover:border-[#926699] hover:text-[#926699]"
                                 onClick={(event) => event.stopPropagation()}
                               >
                                 Repetir
@@ -336,6 +337,7 @@ export default function MyBookingsPage() {
 
           <div className="bg-white rounded-3xl shadow-lg border border-black/5 p-8">
             <h2 className="text-2xl font-black text-[#2b3a4a] text-center">Detalle de reserva</h2>
+            <div className="mx-auto mt-3 h-1 w-16 rounded-full bg-[#926699]" />
 
             {!selectedBooking ? (
               <div className="mt-12 text-center text-[#7c8aa0]">

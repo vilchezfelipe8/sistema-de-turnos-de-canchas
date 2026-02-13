@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 import { ClubAdminService } from '../services/ClubAdminService';
@@ -41,11 +41,7 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
   const [editingProduct, setEditingProduct] = useState<any | null>(null);
   const [formData, setFormData] = useState({ name: '', price: '', stock: '', category: '' });
 
-  useEffect(() => {
-    if (slug) loadProducts();
-  }, [slug]);
-
-  const loadProducts = async () => {
+  const loadProducts = useCallback(async () => {
     try {
       const data = await ClubAdminService.getProducts(slug);
       setProducts(data);
@@ -54,7 +50,11 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
     } finally {
       setLoading(false);
     }
-  };
+  }, [slug]);
+
+  useEffect(() => {
+    if (slug) loadProducts();
+  }, [slug, loadProducts]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

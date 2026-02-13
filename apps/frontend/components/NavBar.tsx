@@ -159,6 +159,7 @@ const Navbar = () => {
   <Link href={brandHref} className="flex items-center gap-3 group">
           {club?.logoUrl ? (
             <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img 
                 src={club.logoUrl} 
                 alt={club.name} 

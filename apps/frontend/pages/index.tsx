@@ -687,6 +687,7 @@ export default function Home() {
                 <div className="h-40 w-full bg-[#dcd0c5] relative overflow-hidden border-b border-[#347048]/10">
                    <div className="absolute inset-0 bg-gradient-to-br from-[#EBE1D8] to-[#d6c7ba] flex items-center justify-center">
                       {club.logoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
                         <img src={club.logoUrl} alt={club.name} className="h-24 w-24 object-contain opacity-90 mix-blend-multiply group-hover:scale-110 transition-transform" />
                       ) : (
                         <span className="text-4xl opacity-10 text-[#347048]">🎾</span>

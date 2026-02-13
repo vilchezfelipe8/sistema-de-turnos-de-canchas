@@ -43,10 +43,10 @@ export default function ClubPage() {
 
   if (stillLoading) {
     return (
-      <main className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center p-4">
+      <main className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center p-4 bg-[#347048] text-[#D4C5B0]">
         <div className="flex flex-col items-center gap-4">
           <div className="h-10 w-10 rounded-full border-2 border-emerald-500/40 border-t-emerald-400 animate-spin" />
-          <p className="text-muted text-sm">Cargando club...</p>
+          <p className="text-[#D4C5B0]/80 text-sm">Cargando club...</p>
         </div>
       </main>
     );
@@ -54,13 +54,13 @@ export default function ClubPage() {
 
   if (error || !club) {
     return (
-      <main className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center p-4">
+      <main className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center p-4 bg-[#347048] text-[#D4C5B0]">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-text mb-4">Club no encontrado</h1>
-          <p className="text-muted mb-4">{error || 'El club solicitado no existe'}</p>
+          <h1 className="text-2xl font-bold text-[#D4C5B0] mb-4">Club no encontrado</h1>
+          <p className="text-[#D4C5B0]/80 mb-4">{error || 'El club solicitado no existe'}</p>
           <button
             onClick={() => router.push('/')}
-            className="btn btn-primary px-6 py-2"
+            className="px-6 py-2 rounded-full bg-[#D4C5B0] text-[#347048] font-bold hover:bg-[#B9CF32] transition-all"
           >
             Volver al inicio
           </button>
@@ -70,12 +70,12 @@ export default function ClubPage() {
   }
 
   return (
-    <main className="min-h-screen relative overflow-hidden flex flex-col items-center p-4">
+    <main className="min-h-screen relative overflow-hidden flex flex-col items-center p-4 bg-[#347048] text-[#D4C5B0]">
       
       {/* FONDO AMBIENTAL (Luces traseras) */}
       <div className="fixed inset-0 z-0 pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-96 h-96 rounded-full blur-[128px]" style={{ backgroundColor: 'rgba(255,255,255,0.03)' }} />
-        <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 rounded-full blur-[128px]" style={{ backgroundColor: 'rgba(255,255,255,0.02)' }} />
+        <div className="absolute top-[-10%] left-[-10%] w-96 h-96 rounded-full blur-[128px]" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }} />
+        <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 rounded-full blur-[128px]" style={{ backgroundColor: 'rgba(255,255,255,0.06)' }} />
       </div>
 
       {/* Contenido (Z-10 para que esté sobre el fondo) */}
@@ -83,6 +83,7 @@ export default function ClubPage() {
         <Navbar />
         
         <div className="w-full max-w-6xl mt-20 md:mt-20 mb-8 px-4">
+          <div className="mx-auto mb-6 h-1 w-20 rounded-full bg-[#926699]" />
           
 
           <div className="mt-8 grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-6">
@@ -92,12 +93,12 @@ export default function ClubPage() {
             {/* Info del club */}
             <div className="flex flex-col gap-6">
             {/* BLOQUE INFORMACIÓN */}
-            <div className="bg-surface-70 border border-border rounded-3xl p-5">
-              <h3 className="text-lg font-bold text-text mb-4">Información</h3>
-              <div className="space-y-3 text-sm text-muted">
+            <div className="bg-white/10 border border-white/20 rounded-3xl p-5 backdrop-blur shadow-[0_18px_40px_rgba(146,102,153,0.18)]">
+              <h3 className="text-lg font-bold text-[#D4C5B0] mb-4">Información</h3>
+              <div className="space-y-3 text-sm text-[#D4C5B0]/80">
                                 
                 {club.description && (
-                  <p className="text-text font-semibold">{club.description}</p>
+                  <p className="text-[#D4C5B0] font-semibold">{club.description}</p>
                 )}
 
                 {/* 📍 DIRECCIÓN -> GOOGLE MAPS */}
@@ -106,11 +107,11 @@ export default function ClubPage() {
                   target="_blank"
                   rel="noopener noreferrer"
                   // 👇 CAMBIO: hover:text-white (Texto blanco al pasar mouse)
-                  className="flex items-start gap-2 font-bold hover:text-white transition-colors group cursor-pointer"
+                  className="flex items-start gap-2 font-bold hover:text-[#B9CF32] transition-colors group cursor-pointer"
                 >
                   <span>📍</span>
                   {/* 👇 CAMBIO: decoration-white (Subrayado blanco) */}
-                  <span className="group-hover:underline decoration-white underline-offset-4">
+                  <span className="group-hover:underline decoration-[#B9CF32] underline-offset-4">
                     {formatClubAddress(club)}
                   </span>
                 </a>
@@ -120,11 +121,11 @@ export default function ClubPage() {
                   <a 
                     href={`tel:${club.phone.replace(/\s+/g, '')}`}
                     // 👇 CAMBIO: hover:text-white
-                    className="flex items-start gap-2 font-bold hover:text-white transition-colors group cursor-pointer"
+                    className="flex items-start gap-2 font-bold hover:text-[#B9CF32] transition-colors group cursor-pointer"
                   >
                     <span>📞</span>
                     {/* 👇 CAMBIO: decoration-white */}
-                    <span className="group-hover:underline decoration-white underline-offset-4">
+                    <span className="group-hover:underline decoration-[#B9CF32] underline-offset-4">
                       {club.phone}
                     </span>
                   </a>
@@ -138,7 +139,7 @@ export default function ClubPage() {
                       <a 
                         href={`mailto:${club.contactInfo}`}
                         // 👇 CAMBIO: hover:text-white y decoration-white
-                        className="flex items-start gap-2 font-bold hover:text-white transition-colors group cursor-pointer"
+                        className="flex items-start gap-2 font-bold hover:text-[#B9CF32] transition-colors group cursor-pointer"
                       >
                         {club.contactInfo}
                       </a>
@@ -152,15 +153,15 @@ export default function ClubPage() {
 
             {/* BLOQUE SOCIAL (Este lo dejé igual, avisame si también querés el social en blanco) */}
             {(club.instagramUrl || club.facebookUrl || club.websiteUrl) && (
-              <div className="bg-surface-70 border border-border rounded-3xl p-5">
-                <h3 className="text-lg font-bold text-text mb-4">Social</h3>
+              <div className="bg-white/10 border border-white/20 rounded-3xl p-5 backdrop-blur shadow-[0_18px_40px_rgba(146,102,153,0.18)]">
+                <h3 className="text-lg font-bold text-[#D4C5B0] mb-4">Social</h3>
                 <div className="space-y-2">
                   {club.instagramUrl && (
                     <a
                       href={club.instagramUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-start gap-2 font-bold hover:text-white transition-colors group cursor-pointer"
+                      className="flex items-start gap-2 font-bold hover:text-[#B9CF32] transition-colors group cursor-pointer"
                     >
                       <span aria-hidden="true" className="inline-flex">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -177,7 +178,7 @@ export default function ClubPage() {
                       href={club.facebookUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-sm text-muted hover:text-white hover:underline decoration-white transition-colors flex items-center gap-2"
+                      className="text-sm text-[#D4C5B0]/80 hover:text-[#B9CF32] hover:underline decoration-[#B9CF32] transition-colors flex items-center gap-2"
                     >
                       <span aria-hidden="true" className="inline-flex">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -192,7 +193,7 @@ export default function ClubPage() {
                       href={club.websiteUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-sm text-muted hover:text-white hover:underline decoration-white transition-colors flex items-center gap-2"
+                      className="text-sm text-[#D4C5B0]/80 hover:text-[#B9CF32] hover:underline decoration-[#B9CF32] transition-colors flex items-center gap-2"
                     >
                       <span aria-hidden="true" className="inline-flex">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -211,8 +212,8 @@ export default function ClubPage() {
           </div>
         </div>
 
-        <footer className="mt-16 mb-8 text-center px-4 border-t border-white/5 pt-8 w-full max-w-6xl">
-          <p className="text-xs text-muted font-medium">
+        <footer className="mt-16 mb-8 text-center px-4 border-t border-white/10 pt-8 w-full max-w-6xl">
+          <p className="text-xs text-[#D4C5B0]/70 font-medium">
             Sistema de Reservas 2026 v1.0 - Todos los derechos reservados
           </p>
         </footer>

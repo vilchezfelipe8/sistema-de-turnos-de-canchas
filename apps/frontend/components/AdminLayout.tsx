@@ -9,15 +9,15 @@ interface AdminLayoutProps {
 
 const AdminLayout = ({ children }: AdminLayoutProps) => {
   return (
-    <>
+    <div className="min-h-screen bg-[#347048] text-[#D4C5B0]">
       {/* 1. Renderizamos el Sidebar y el Navbar para que se vean */}
       <AdminSidebar />
       <NavBar />
 
       {/* Fondo ambiental */}
       <div className="fixed inset-0 z-0 pointer-events-none" aria-hidden>
-        <div className="absolute top-[-10%] left-[-10%] w-96 h-96 rounded-full blur-[128px]" style={{ backgroundColor: 'rgba(255,255,255,0.03)' }} />
-        <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 rounded-full blur-[128px]" style={{ backgroundColor: 'rgba(255,255,255,0.02)' }} />
+        <div className="absolute top-[-10%] left-[-10%] w-96 h-96 rounded-full blur-[128px]" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }} />
+  <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 rounded-full blur-[128px]" style={{ backgroundColor: 'rgba(146,102,153,0.35)' }} />
       </div>
 
       {/* Contenido principal (respetando los márgenes del sidebar y navbar) */}
@@ -26,7 +26,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
           {children}
         </div>
       </main>
-    </>
+    </div>
   );
 };
 

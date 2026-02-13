@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ClubAdminService } from '../services/ClubAdminService';
 import { Trash2, Plus, ShoppingCart, Receipt, Lock } from 'lucide-react'; // 👈 Asegurate de tener Lock
 import { BookingTicket } from './BookingTicket';
@@ -34,12 +34,7 @@ export default function BookingConsumption({ bookingId, slug, courtPrice = 0, pa
   const [selectedProductId, setSelectedProductId] = useState<string>('');
   const [quantity, setQuantity] = useState(1);
 
-  // 1. Cargar Datos
-  useEffect(() => {
-    loadData();
-  }, [bookingId]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const [productsData, currentItems] = await Promise.all([
@@ -65,7 +60,12 @@ export default function BookingConsumption({ bookingId, slug, courtPrice = 0, pa
     } finally {
       setLoading(false);
     }
-  };
+  }, [bookingId, slug]);
+
+  // 1. Cargar Datos
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleAddToDraft = () => {
     if (!selectedProductId) return;

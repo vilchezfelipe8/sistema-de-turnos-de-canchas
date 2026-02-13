@@ -41,25 +41,28 @@ const AdminSidebar = () => {
 
   return (
     <aside
-      className={`fixed left-0 top-0 h-full z-40 hidden md:flex flex-col pt-32 border-r border-gray-800 select-none ${TRANSITION} ${
-        scrolled ? '-translate-y-1 shadow-2xl bg-gray-800/95' : 'translate-y-0 bg-gray-900'
+      className={`fixed left-0 top-0 h-full z-40 hidden md:flex flex-col pt-32 border-r border-white/15 select-none ${TRANSITION} ${
+        scrolled ? '-translate-y-1 shadow-2xl bg-[#2f5f41]/95 shadow-[0_20px_40px_rgba(146,102,153,0.25)]' : 'translate-y-0 bg-[#2a553a]'
       } ${collapsed ? 'w-16 pr-2' : 'w-64'}`}
       style={{ overflowX: 'hidden', overflowY: 'auto', boxSizing: 'border-box' }}
     >
       {/* Header: título + botón toggle (botón siempre a la derecha) */}
-      <div className="flex items-center justify-between shrink-0 border-b border-gray-800/50 gap-2 px-4 py-4 min-w-0">
+    <div className="flex items-center justify-between shrink-0 border-b border-white/10 gap-2 px-4 py-4 min-w-0">
         <div
           className={`overflow-hidden whitespace-nowrap min-w-0 ${TRANSITION} ${
             collapsed ? 'max-w-0 opacity-0' : 'max-w-[11rem] opacity-100'
           }`}
         >
-          <h2 className="text-xl font-bold text-white tracking-tight">Panel Admin</h2>
-          <p className="text-gray-400 text-xs uppercase tracking-wider mt-0.5">Administración del Club</p>
+          <h2 className="text-xl font-bold text-[#D4C5B0] tracking-tight">
+            Panel Admin
+            <span className="ml-2 inline-block h-2 w-2 rounded-full bg-[#926699] align-middle" />
+          </h2>
+          <p className="text-[#D4C5B0]/60 text-xs uppercase tracking-wider mt-0.5">Administración del Club</p>
         </div>
         <button
           type="button"
           onClick={toggleCollapsed}
-          className="p-2 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white shrink-0"
+          className="p-2 rounded-lg text-[#D4C5B0]/70 hover:bg-white/10 hover:text-[#D4C5B0] shrink-0"
           title={collapsed ? 'Expandir menú' : 'Ocultar menú'}
           aria-label={collapsed ? 'Expandir menú' : 'Ocultar menú'}
         >
@@ -80,8 +83,8 @@ const AdminSidebar = () => {
                   collapsed ? 'w-fit mr-2' : 'w-full'
                 } ${
                   isActive
-                    ? 'bg-green-500/10 text-green-400 border border-green-500/20'
-                    : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+                      ? 'bg-[#926699]/20 text-[#D4C5B0] border border-[#926699]/60'
+                    : 'text-[#D4C5B0]/70 hover:bg-white/10 hover:text-[#D4C5B0]'
                 }`}
               >
                 <span
@@ -105,10 +108,10 @@ const AdminSidebar = () => {
       </nav>
 
       {/* Footer: altura fija, icono siempre en la misma posición */}
-      <div className="shrink-0 border-t border-gray-800 flex items-center min-h-[3.25rem] px-4 py-3">
-        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shrink-0" />
+        <div className="shrink-0 border-t border-white/10 flex items-center min-h-[3.25rem] px-4 py-3">
+        <div className="w-2 h-2 rounded-full bg-[#926699] animate-pulse shrink-0" />
         <span
-          className={`ml-2 text-xs text-gray-500 overflow-hidden whitespace-nowrap ${TRANSITION} ${
+          className={`ml-2 text-xs text-[#D4C5B0]/60 overflow-hidden whitespace-nowrap ${TRANSITION} ${
             collapsed ? 'max-w-0 opacity-0 min-w-0' : 'max-w-[8rem] opacity-100'
           }`}
         >
