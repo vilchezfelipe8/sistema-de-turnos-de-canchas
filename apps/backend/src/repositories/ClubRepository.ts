@@ -73,7 +73,7 @@ export class ClubRepository {
         const activities = saved.activities.map(a => new ActivityType(a.id, a.name, a.description, a.defaultDurationMinutes));
         const club = this.mapToClub(saved.club);
         
-        const newCourt = new Court(saved.id, saved.name, saved.isIndoor, saved.surface, club, saved.isUnderMaintenance);
+    const newCourt = new Court(saved.id, saved.name, saved.isIndoor, saved.surface, club, saved.isUnderMaintenance, null);
         newCourt.supportedActivities = activities;
         
         return newCourt;
@@ -90,7 +90,7 @@ export class ClubRepository {
         const activities = found.activities.map(a => new ActivityType(a.id, a.name, a.description, a.defaultDurationMinutes));
         const club = this.mapToClub(found.club);
         
-        const court = new Court(found.id, found.name, found.isIndoor, found.surface, club, found.isUnderMaintenance);
+    const court = new Court(found.id, found.name, found.isIndoor, found.surface, club, found.isUnderMaintenance, null);
         court.supportedActivities = activities;
         return court;
     }

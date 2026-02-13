@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import process from 'process';
 
 const prisma = new PrismaClient();
+const prismaAny = prisma as any;
 
 async function main() {
   console.log('🌱 Iniciando carga de datos de prueba...');
@@ -21,21 +22,45 @@ async function main() {
   });
   console.log('✅ Actividad creada: Pádel');
 
+  const tenis = await prisma.activityType.upsert({
+    where: { id: 2 },
+    update: {},
+    create: {
+      id: 2,
+      name: 'Tenis',
+      description: 'Deporte de raqueta',
+      defaultDurationMinutes: 90
+    }
+  });
+  console.log('✅ Actividad creada: Tenis');
+
+  const futbol = await prisma.activityType.upsert({
+    where: { id: 3 },
+    update: {},
+    create: {
+      id: 3,
+      name: 'Fútbol',
+      description: 'Deporte de equipo',
+      defaultDurationMinutes: 60
+    }
+  });
+  console.log('✅ Actividad creada: Fútbol');
+
   // 2. Ubicaciones
-  const locationRíoTercero = await prisma.location.upsert({
+  const locationRíoTercero = await prismaAny.location.upsert({
     where: { city_province_country: { city: 'Río Tercero', province: 'Córdoba', country: 'Argentina' } },
     update: {},
     create: { city: 'Río Tercero', province: 'Córdoba', country: 'Argentina' }
   });
 
-  const locationCaba = await prisma.location.upsert({
+  const locationCaba = await prismaAny.location.upsert({
     where: { city_province_country: { city: 'Ciudad Autónoma de Buenos Aires', province: 'Buenos Aires', country: 'Argentina' } },
     update: {},
     create: { city: 'Ciudad Autónoma de Buenos Aires', province: 'Buenos Aires', country: 'Argentina' }
   });
 
   // 3. Clubes (Múltiples clubes para demostrar funcionalidad multi-club)
-  const club1 = await prisma.club.upsert({
+  const club1 = await prismaAny.club.upsert({
     where: { slug: 'las-tejas' },
     update: {
       name: 'Las Tejas Pádel',
@@ -67,7 +92,7 @@ async function main() {
   });
   console.log(`✅ Club creado: ${club1.name} (ID: ${club1.id}, Slug: ${club1.slug})`);
 
-  const club2 = await prisma.club.upsert({
+  const club2 = await prismaAny.club.upsert({
     where: { slug: 'club-central' },
     update: {
       name: 'Club Deportivo Central',
@@ -96,38 +121,65 @@ async function main() {
   console.log(`✅ Club creado: ${club2.name} (ID: ${club2.id}, Slug: ${club2.slug})`);
 
   // 3. Canchas
-  await prisma.court.create({
+  await prismaAny.court.create({
     data: {
       name: 'Cancha 1',
       clubId: club1.id,
       isIndoor: true,
       surface: 'Sintético',
+      activityTypeId: padel.id,
       activities: { connect: { id: padel.id } }
-    },
+    } as any,
   });
   console.log('✅ Cancha creada: Cancha 1 (Las Tejas)');
 
-  await prisma.court.create({
+  await prismaAny.court.create({
     data: {
       name: 'Cancha 2',
       clubId: club1.id,
       isIndoor: false,
       surface: 'Césped',
+      activityTypeId: padel.id,
       activities: { connect: { id: padel.id } }
-    },
+    } as any,
   });
   console.log('✅ Cancha creada: Cancha 2 (Las Tejas)');
 
-  await prisma.court.create({
+  await prismaAny.court.create({
     data: {
       name: 'Cancha Central',
       clubId: club2.id,
       isIndoor: true,
       surface: 'Sintético',
+      activityTypeId: padel.id,
       activities: { connect: { id: padel.id } }
-    },
+    } as any,
   });
   console.log('✅ Cancha creada: Cancha Central (Club Central)');
+
+  await prismaAny.court.create({
+    data: {
+      name: 'Cancha Tenis 1',
+      clubId: club1.id,
+      isIndoor: false,
+      surface: 'Polvo de ladrillo',
+      activityTypeId: tenis.id,
+      activities: { connect: { id: tenis.id } }
+    } as any,
+  });
+  console.log('✅ Cancha creada: Cancha Tenis 1 (Las Tejas)');
+
+  await prismaAny.court.create({
+    data: {
+      name: 'Cancha Fútbol 5',
+      clubId: club2.id,
+      isIndoor: false,
+      surface: 'Césped sintético',
+      activityTypeId: futbol.id,
+      activities: { connect: { id: futbol.id } }
+    } as any,
+  });
+  console.log('✅ Cancha creada: Cancha Fútbol 5 (Club Central)');
 
   // 4. Usuarios (asociados a clubes)
   const hashedPassword = await bcrypt.hash('123456', 10);

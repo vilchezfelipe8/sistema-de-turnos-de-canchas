@@ -268,7 +268,15 @@ export class BookingService {
 }
 
     async getUserHistory(userId: number) {
-        const bookings = await this.bookingRepo.findByUserId(userId);
+        const bookings = await prisma.booking.findMany({
+            where: { userId },
+            include: {
+                court: { include: { club: true } },
+                activity: true,
+                items: { include: { product: true } }
+            },
+            orderBy: { startDateTime: 'desc' }
+        });
         return bookings;
     }
 
@@ -482,7 +490,8 @@ export class BookingService {
         const court = await this.courtRepo.findById(courtId);
         if (!court) throw new Error("Cancha no encontrada");
         
-        if (clubId && court.club.id !== clubId) {
+        const courtClubId = (court as any)?.club?.id;
+        if (clubId && courtClubId !== clubId) {
             throw new Error("No tienes acceso a esta cancha");
         }
 

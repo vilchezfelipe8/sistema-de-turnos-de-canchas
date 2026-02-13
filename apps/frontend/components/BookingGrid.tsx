@@ -60,6 +60,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   const [selectedDate, setSelectedDate] = useState<Date | null>(getTodayDate());
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [selectedCourt, setSelectedCourt] = useState<{ id: number; name: string } | null>(null);
+  const [selectedActivityFilter, setSelectedActivityFilter] = useState<string | 'ALL'>('ALL');
   const [isBooking, setIsBooking] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false); // Estado para el botón visual
   const [guestFirstName, setGuestFirstName] = useState('');
@@ -108,7 +109,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   const { slotsWithCourts, loading, error, refresh } = useAvailability(selectedDate, clubSlug);
   const [disabledSlots, setDisabledSlots] = useState<Record<string, boolean>>({});
   const STORAGE_PREFIX = 'disabledSlots:';
-  const [allCourts, setAllCourts] = useState<Array<{ id: number; name: string }>>([]);
+  const [allCourts, setAllCourts] = useState<Array<{ id: number; name: string; activities?: Array<{ id: number; name: string }> }>>([]);
   const [clubConfig, setClubConfig] = useState<Club | null>(null);
   const getTrimmedGuestInfo = () => {
     const trimmedPhone = guestPhone.replace(/\D/g, '');
@@ -454,53 +455,82 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
         <p className="text-muted font-medium">Elige tu día y horario ideal</p>
       </div>
 
-        <div className="mb-8">
-        <label className="block text-sm font-bold text-slate-300 mb-2 ml-1 flex items-center gap-2">
-          <span>📅</span>
-          <span>Fecha</span>
-        </label>
-        <div className="w-full" style={{ boxSizing: 'border-box' }}>
-          <DatePicker
-            selected={selectedDate}
-            onChange={(date: Date | null) => {
-              if (!date) return;
-              const today = new Date();
-              today.setHours(0, 0, 0, 0);
-              const selectedDateObj = new Date(date);
-              selectedDateObj.setHours(0, 0, 0, 0);
-              
-              // Validar que la fecha no sea pasada
-              if (selectedDateObj < today) {
-                showError('No puedes seleccionar una fecha pasada. Por favor, elige una fecha de hoy en adelante.');
-                return;
-              }
-              
-              // Validar que la fecha no sea más de un mes en adelante
-              const maxAllowedDate = getMaxDate();
-              maxAllowedDate.setHours(0, 0, 0, 0);
-              
-              if (selectedDateObj > maxAllowedDate) {
-                showError('Solo puedes reservar hasta un mes en adelante. Por favor, elige una fecha dentro del próximo mes.');
-                return;
-              }
-              
-              setSelectedDate(date);
+      <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-bold text-slate-300 mb-2 ml-1 flex items-center gap-2">
+            <span>🎾</span>
+            <span>Tipo de cancha</span>
+          </label>
+          <select
+            value={selectedActivityFilter}
+            onChange={(event) => {
+              const value = event.target.value;
+              setSelectedActivityFilter(value);
               setSelectedSlot(null);
               setSelectedCourt(null);
             }}
-            minDate={new Date()}
-            maxDate={maxDate}
-            dateFormat="dd MMM yyyy"
-            locale={es}
-            className="date-picker-custom"
-            wrapperClassName="w-full"
-            calendarClassName="date-picker-calendar"
-            popperClassName="date-picker-popper"
-            placeholderText="Selecciona una fecha"
-            showPopperArrow={false}
-            popperPlacement="bottom-start"
-            disabledKeyboardNavigation={false}
-          />
+            className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-text font-semibold focus:outline-none focus:border-white/40"
+          >
+            <option value="ALL">Todas las canchas</option>
+            {Array.from(
+              new Set(
+                allCourts.flatMap((court) => court.activities?.map((activity) => activity.name) || [])
+              )
+            ).map((activityName) => (
+              <option key={activityName} value={activityName}>
+                {activityName}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-bold text-slate-300 mb-2 ml-1 flex items-center gap-2">
+            <span>📅</span>
+            <span>Fecha</span>
+          </label>
+          <div className="w-full" style={{ boxSizing: 'border-box' }}>
+            <DatePicker
+              selected={selectedDate}
+              onChange={(date: Date | null) => {
+                if (!date) return;
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const selectedDateObj = new Date(date);
+                selectedDateObj.setHours(0, 0, 0, 0);
+                
+                // Validar que la fecha no sea pasada
+                if (selectedDateObj < today) {
+                  showError('No puedes seleccionar una fecha pasada. Por favor, elige una fecha de hoy en adelante.');
+                  return;
+                }
+                
+                // Validar que la fecha no sea más de un mes en adelante
+                const maxAllowedDate = getMaxDate();
+                maxAllowedDate.setHours(0, 0, 0, 0);
+                
+                if (selectedDateObj > maxAllowedDate) {
+                  showError('Solo puedes reservar hasta un mes en adelante. Por favor, elige una fecha dentro del próximo mes.');
+                  return;
+                }
+                
+                setSelectedDate(date);
+                setSelectedSlot(null);
+                setSelectedCourt(null);
+              }}
+              minDate={new Date()}
+              maxDate={maxDate}
+              dateFormat="dd MMM yyyy"
+              locale={es}
+              className="date-picker-custom"
+              wrapperClassName="w-full"
+              calendarClassName="date-picker-calendar"
+              popperClassName="date-picker-popper"
+              placeholderText="Selecciona una fecha"
+              showPopperArrow={false}
+              popperPlacement="bottom-start"
+              disabledKeyboardNavigation={false}
+            />
+          </div>
         </div>
       </div>
 
@@ -528,9 +558,16 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
               const dateString = selectedDate
                 ? `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`
                 : '';
-              const availableCount = slotWithCourt.availableCourts.reduce((acc, ac) => {
-                const key = `${dateString}-${slotWithCourt.slotTime}-${ac.id}`;
-                if (disabledSlots[key]) return acc;
+              const courtsToShow = (allCourts.length > 0 ? allCourts : slotWithCourt.availableCourts).filter((court) => {
+                if (selectedActivityFilter === 'ALL') return true;
+                const activities = (court as any).activities as Array<{ name: string }> | undefined;
+                return (activities || []).some((activity) => activity.name === selectedActivityFilter);
+              });
+
+              const availableCount = courtsToShow.reduce((acc, court) => {
+                const key = `${dateString}-${slotWithCourt.slotTime}-${court.id}`;
+                const isBackendAvailable = slotWithCourt.availableCourts.some((ac) => ac.id === court.id);
+                if (disabledSlots[key] || !isBackendAvailable) return acc;
                 return acc + 1;
               }, 0);
 
@@ -545,7 +582,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {(allCourts.length > 0 ? allCourts : slotWithCourt.availableCourts).map((court) => {
+                    {courtsToShow.map((court) => {
                       const slotKey = `${dateString}-${slotWithCourt.slotTime}-${court.id}`;
                       const isLocallyDisabled = !!disabledSlots[slotKey];
                       const isBackendAvailable = slotWithCourt.availableCourts.some((ac) => ac.id === court.id);

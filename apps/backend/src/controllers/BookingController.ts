@@ -272,7 +272,15 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
                     id: b.court.id,
                     name: b.court.name,
                     club: b.court.club ? { id: b.court.club.id, name: b.court.club.name, slug: b.court.club.slug } : null
-                } : null
+                } : null,
+                items: Array.isArray(b.items)
+                    ? b.items.map((item: any) => ({
+                        id: item.id,
+                        quantity: item.quantity,
+                        price: item.price,
+                        product: item.product ? { id: item.product.id, name: item.product.name } : null
+                    }))
+                    : []
             }));
             res.json(payload);
         } catch (error: any) {

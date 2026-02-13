@@ -11,7 +11,7 @@ export class CourtController {
 
     createCourt = async (req: Request, res: Response) => {
         try {
-            const { name, isIndoor, surface } = req.body;
+            const { name, isIndoor, surface, activityTypeId } = req.body;
             const clubId = (req as any).clubId; // Solo del middleware (admin de un club), nunca del body
             
             if (!name) {
@@ -22,14 +22,17 @@ export class CourtController {
                 return res.status(400).json({ error: "No se pudo determinar el club" });
             }
 
+            const data: any = {
+                name,
+                clubId,
+                isIndoor: isIndoor || false,
+                surface: surface || 'Sintético'
+            };
+            if (activityTypeId) data.activityTypeId = Number(activityTypeId);
+
             const newCourt = await prisma.court.create({
-                data: {
-                    name,
-                    clubId,
-                    isIndoor: isIndoor || false,
-                    surface: surface || 'Sintético'
-                },
-                include: { club: true, activities: true }
+                data,
+                include: { club: true, activities: true, activityType: true } as any
             });
 
             res.status(201).json(newCourt);
@@ -41,7 +44,7 @@ export class CourtController {
     updateCourt = async (req: Request, res: Response) => {
         try {
             const { id } = req.params;
-            const { isUnderMaintenance, name } = req.body;
+            const { isUnderMaintenance, name, activityTypeId } = req.body;
             const clubId = (req as any).clubId;
 
             // Si hay clubId en el request, verificar que la cancha pertenece al club
@@ -57,13 +60,16 @@ export class CourtController {
                 }
             }
 
+            const data: any = {
+                isUnderMaintenance: isUnderMaintenance,
+                name: name
+            };
+            if (activityTypeId) data.activityTypeId = Number(activityTypeId);
+
             const updatedCourt = await prisma.court.update({
                 where: { id: Number(id) },
-                data: {
-                    isUnderMaintenance: isUnderMaintenance,
-                    name: name
-                },
-                include: { club: true, activities: true }
+                data,
+                include: { club: true, activities: true, activityType: true } as any
             });
 
             res.json(updatedCourt);
@@ -108,7 +114,7 @@ export class CourtController {
                 data: {
                     isUnderMaintenance: true
                 },
-                include: { club: true, activities: true }
+                include: { club: true, activities: true, activityType: true } as any
             });
 
             res.json({ message: "Cancha suspendida exitosamente", court: suspendedCourt });

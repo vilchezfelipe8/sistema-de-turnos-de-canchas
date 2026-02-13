@@ -96,7 +96,7 @@ export class ClubService {
         const club = await this.clubRepo.findClubById(clubId);
         if (!club) throw new Error("Club no encontrado");
 
-        const court = new Court(0, name, false, surface, club);
+    const court = new Court(0, name, false, surface, club, false, null);
 
         for (const actId of activityIds) {
             const activity = await this.activityRepo.findById(actId);
