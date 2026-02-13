@@ -5,7 +5,7 @@ import { logout } from '../services/AuthService';
 import { getMyBookings } from '../services/BookingService';
 import AppModal from './AppModal';
 import { ClubService, Club } from '../services/ClubService';
-import { Menu } from 'lucide-react'; 
+import { Menu, Home, Calendar, Settings, LogOut, Phone, Mail, Check, Lock } from 'lucide-react'; 
 
 interface NavbarProps {
   onMenuClick?: () => void;
@@ -152,8 +152,6 @@ const Navbar = ({ onMenuClick }: NavbarProps) => {
     <>
       <nav
         ref={navRef}
-        // AJUSTE CLAVE: Reduje el padding vertical (py-3 en lugar de py-6)
-        // Esto hace la barra más fina aunque el logo sea grande.
         className={`absolute top-0 left-0 right-0 z-50 transition-all duration-300 border-b border-[#EBE1D8]/10 ${
           isScrolled ? 'py-2 bg-[#347048]/95 backdrop-blur-md shadow-lg' : 'py-3 bg-[#347048]'
         }`}
@@ -175,8 +173,6 @@ const Navbar = ({ onMenuClick }: NavbarProps) => {
 
             <Link href={brandHref} className="group flex items-center gap-3 select-none">
               {club?.logoUrl ? (
-                // LOGO: Tamaño h-14 (grande pero controlado)
-                // Usamos h-14 (56px) en vez de h-20 (80px) para que no empuje todo hacia abajo
                 // eslint-disable-next-line @next/next/no-img-element
                 <img 
                   src={club.logoUrl} 
@@ -187,7 +183,6 @@ const Navbar = ({ onMenuClick }: NavbarProps) => {
               ) : null}
               
               <div className="flex flex-col leading-none">
-                {/* NOMBRE: Texto grande (3xl) pero con interlineado ajustado (leading-none) */}
                 <span className="text-xl md:text-3xl font-black tracking-tighter text-[#EBE1D8] italic drop-shadow-sm leading-none mt-1">
                   {club ? club.name : 'TuCancha'}
                 </span>
@@ -197,35 +192,59 @@ const Navbar = ({ onMenuClick }: NavbarProps) => {
 
           {/* --- DERECHA: USUARIO / LOGIN --- */}
           {(user || isGuest) && (
-            <div className="flex items-center gap-1 p-1 rounded-full bg-[#EBE1D8]/10 relative">
+            <div className="flex items-center gap-2 sm:gap-4 relative">
               
-              {!isAdmin && (
-                <>
-                  <NavLink href={club ? `/club/${club.slug}` : '/'} icon="🏠" text="Inicio" active={router.asPath === '/' || (club && router.asPath === `/club/${club.slug}`)} />
-                  {user && <NavLink href="/bookings" icon="📅" text="Mis Turnos" active={isActive('/bookings')} />}
-                </>
-              )}
+              {/* 👇 Botones de Navegación 👇 */}
+              <div className="hidden sm:flex items-center gap-1 p-1 rounded-full bg-[#EBE1D8]/10">
+                
+                {/* 1. INICIO: Visible para TODOS (Admins y Clientes). Lleva a la vista pública del club */}
+                <NavLink 
+                  href={club ? `/club/${club.slug}` : '/'} 
+                  icon={<Home size={16} strokeWidth={2.5} />} 
+                  text="Inicio" 
+                  active={router.asPath === '/' || (club && router.asPath === `/club/${club.slug}`)} 
+                />
 
-              {isAdmin && !onMenuClick && (
-                <NavLink href="/admin/agenda" icon="⚙️" text="Gestión" active={router.asPath.startsWith('/admin')} />
-              )}
+                {/* 2. MIS TURNOS: Solo para clientes (NO admins) */}
+                {!isAdmin && user && (
+                  <NavLink 
+                    href="/bookings" 
+                    icon={<Calendar size={16} strokeWidth={2.5} />} 
+                    text="Mis Turnos" 
+                    active={isActive('/bookings')} 
+                  />
+                )}
 
+                {/* 3. GESTIÓN: Solo para admins cuando están AFUERA del panel admin (en la vista pública) */}
+                {isAdmin && !onMenuClick && (
+                  <NavLink 
+                    href="/admin/agenda" 
+                    icon={<Settings size={16} strokeWidth={2.5} />} 
+                    text="Gestión" 
+                    active={router.asPath.startsWith('/admin')} 
+                  />
+                )}
+              </div>
+
+              {/* Menú de Usuario (Separado y limpio) */}
               {user ? (
-                <div className="relative ml-2">
+                <div className="relative">
                   <button
                     onClick={(event) => {
                       event.stopPropagation();
                       setShowUserMenu((prev) => !prev);
                     }}
-                    className="flex items-center gap-3 px-3 py-1.5 rounded-full bg-[#EBE1D8]/10 hover:bg-[#EBE1D8]/20 transition-all"
+                    className="flex items-center gap-3 pl-1 pr-4 py-1 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 transition-all shadow-sm"
                   >
                     <div className="relative">
-                      <div className="h-9 w-9 rounded-full bg-[#347048] border-2 border-[#EBE1D8]/60 flex items-center justify-center text-[#EBE1D8] text-xs font-black">
+                      <div className="h-9 w-9 rounded-full bg-[#B9CF32] flex items-center justify-center text-[#347048] text-xs font-black shadow-inner">
                         {userInitials}
                       </div>
-                      <span className="absolute -right-1 -top-1 bg-[#B9CF32] text-[#347048] text-[10px] font-black rounded-full h-4 min-w-[16px] px-1 flex items-center justify-center shadow-sm">
-                        {activeBookingsCount}
-                      </span>
+                      {activeBookingsCount > 0 && (
+                          <span className="absolute -right-1 -top-1 bg-[#926699] text-white text-[9px] font-black rounded-full h-4 min-w-[16px] px-1 flex items-center justify-center shadow-md border-2 border-[#347048]">
+                            {activeBookingsCount}
+                          </span>
+                      )}
                     </div>
                     <span className="text-[#EBE1D8] font-bold text-sm hidden md:inline">
                       {user.firstName || user.name || 'Usuario'}
@@ -242,50 +261,50 @@ const Navbar = ({ onMenuClick }: NavbarProps) => {
                           <div className="h-20 w-20 rounded-full bg-[#347048] flex items-center justify-center text-[#EBE1D8] text-xl font-black shadow-inner">
                             {userInitials}
                           </div>
-                          <span className="absolute -right-1 -top-1 bg-[#B9CF32] text-[#347048] text-xs font-black rounded-full h-6 w-6 flex items-center justify-center border-2 border-[#EBE1D8]">✓</span>
+                          <span className="absolute -right-1 -bottom-1 bg-[#B9CF32] text-[#347048] text-xs font-black rounded-full h-7 w-7 flex items-center justify-center border-4 border-[#EBE1D8]"><Check size={14} strokeWidth={4} /></span>
                         </div>
-                        <h3 className="text-lg font-black text-[#347048]">{user.firstName || user.name || 'Usuario'}</h3>
+                        <h3 className="text-xl font-black text-[#347048] italic tracking-tight">{user.firstName || user.name || 'Usuario'}</h3>
                         <p className="text-[#347048]/60 text-xs font-bold uppercase tracking-widest mt-1">
                           {club ? club.name : 'Miembro'}
                         </p>
                       </div>
 
-                      <div className="border-t border-[#347048]/10 px-6 py-4 bg-[#347048]/5">
-                        <p className="text-[#347048] font-black text-xs uppercase tracking-wider mb-3">Mis Datos</p>
-                        <div className="space-y-3 text-[#347048] text-sm font-medium">
+                      <div className="border-t border-[#347048]/10 px-6 py-5 bg-[#347048]/5">
+                        <p className="text-[#347048]/40 font-black text-[10px] uppercase tracking-widest mb-3">Mis Datos</p>
+                        <div className="space-y-3 text-[#347048] text-sm font-bold">
                           <div className="flex items-center gap-3">
-                            <span className="text-[#B9CF32]">📱</span>
+                            <Phone size={16} className="text-[#B9CF32]" strokeWidth={2.5} />
                             <span>{user.phoneNumber || user.phone || 'Sin teléfono'}</span>
                           </div>
                           <div className="flex items-center gap-3">
-                            <span className="text-[#B9CF32]">✉️</span>
+                            <Mail size={16} className="text-[#B9CF32]" strokeWidth={2.5} />
                             <span className="truncate">{user.email || 'Sin email'}</span>
                           </div>
                         </div>
                       </div>
 
                       <div className="border-t border-[#347048]/10 px-6 py-4 space-y-2 font-bold">
-                        <Link href="/bookings" className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-lg hover:bg-[#347048]/5 transition-colors" onClick={() => setShowUserMenu(false)}>
-                          <span>📅</span> Mis Reservas
+                        <Link href="/bookings" className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors" onClick={() => setShowUserMenu(false)}>
+                          <Calendar size={18} strokeWidth={2.5} /> Mis Reservas
                         </Link>
                         
                         <button
                           type="button"
-                          className="flex items-center gap-3 text-[#926699] hover:text-[#7a5580] w-full text-left p-2 rounded-lg hover:bg-[#926699]/10 transition-colors"
+                          className="flex items-center gap-3 text-red-500 hover:text-red-600 w-full text-left p-2 rounded-xl hover:bg-red-50 transition-colors"
                           onClick={() => {
                             setShowUserMenu(false);
                             handleLogout();
                           }}
                         >
-                          <span>↪</span> Cerrar sesión
+                          <LogOut size={18} strokeWidth={2.5} /> Cerrar sesión
                         </button>
                       </div>
                     </div>
                   )}
                 </div>
               ) : (
-                <Link href={`/login?from=${encodeURIComponent(router.asPath)}`} className="flex items-center gap-1 px-4 py-2 rounded-full text-sm font-bold transition-all text-[#347048] bg-[#B9CF32] hover:bg-[#aebd2b] hover:shadow-lg ml-2">
-                  <span>🔐</span>
+                <Link href={`/login?from=${encodeURIComponent(router.asPath)}`} className="flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-black uppercase tracking-widest transition-all text-[#347048] bg-[#B9CF32] hover:bg-[#aebd2b] hover:shadow-lg shadow-[#B9CF32]/20">
+                  <Lock size={16} strokeWidth={3} />
                   <span className="hidden sm:inline">Ingresar</span>
                 </Link>
               )}
@@ -298,9 +317,10 @@ const Navbar = ({ onMenuClick }: NavbarProps) => {
         show={showLogoutModal}
         onClose={() => setShowLogoutModal(false)}
         title="Cerrar sesión"
-        message="¿Estás seguro de que quieres salir?"
+        message="¿Estás seguro de que quieres salir de tu cuenta?"
         cancelText="Cancelar"
         confirmText="Salir"
+        isWarning={true}
         onConfirm={() => {
           logout();
           window.location.href = '/';
@@ -314,14 +334,14 @@ const Navbar = ({ onMenuClick }: NavbarProps) => {
 
 const NavLink = ({ href, icon, text, active }: any) => (
   <Link href={href}
-    className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-bold transition-all border ${
+    className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest transition-all border-2 ${
       active
         ? 'bg-[#EBE1D8] text-[#347048] border-[#EBE1D8]'
-        : 'text-[#EBE1D8] border-transparent hover:bg-[#EBE1D8]/10 hover:text-[#B9CF32]'
+        : 'text-[#EBE1D8] border-transparent hover:bg-white/20 hover:text-white'
     }`}
   >
-    <span>{icon}</span>
-    <span className="hidden sm:inline">{text}</span>
+    {icon}
+    <span className="hidden sm:inline mt-[1px]">{text}</span>
   </Link>
 );
 

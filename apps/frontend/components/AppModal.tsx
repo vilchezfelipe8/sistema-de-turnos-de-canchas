@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { AlertTriangle, CheckCircle2, Info, X } from 'lucide-react';
 
 type AppModalProps = {
   show: boolean;
@@ -50,8 +51,6 @@ export default function AppModal({
   const [inputText, setInputText] = useState(inputValue);
   const [holdProgress, setHoldProgress] = useState(0);
   const [holding, setHolding] = useState(false);
-  const [confirmHover, setConfirmHover] = useState(false);
-  const [cancelHover, setCancelHover] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
   const holdRef = useRef<number | null>(null);
   const holdStartRef = useRef(0);
@@ -145,15 +144,12 @@ export default function AppModal({
   if (!show) return null;
 
   const disabled = confirmDisabled || (showInput && !inputText.trim());
-  const confirmBackground = isWarning ? '#e74c3c' : 'var(--surface)';
-  const confirmBorder = isWarning ? '#e74c3c' : 'var(--border)';
-  const confirmHoverBackground = isWarning ? '#d84335' : 'rgba(255,255,255,0.06)';
-  const confirmHoverBorder = isWarning ? '#d84335' : 'var(--border)';
 
   const modalContent = (
     <div
       role="dialog"
       aria-modal="true"
+      className="fixed inset-0 z-[99999] bg-[#347048]/90 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200"
       onMouseDown={(event) => {
         if (!closeOnBackdrop) return;
         backdropMouseDownRef.current = event.target === event.currentTarget;
@@ -173,45 +169,39 @@ export default function AppModal({
             }
           : undefined
       }
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9999,
-        background: 'rgba(0,0,0,0.6)',
-        backdropFilter: 'blur(2px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '1.5rem'
-      }}
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        style={{
-          width: '100%',
-          maxWidth: '420px',
-          background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          borderRadius: '12px',
-          boxShadow: '0 12px 40px rgba(0,0,0,0.55)',
-          color: 'var(--text)',
-          fontFamily: 'var(--font-sans)'
-        }}
+        className="w-full max-w-md bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
       >
-        <div style={{ padding: '1rem 1.25rem 0.5rem' }}>
-          <div style={{ fontSize: '1rem', fontWeight: 500 }}>{title}</div>
-        </div>
-        <div style={{ padding: '0 1.25rem 1rem' }}>
-          <div
-            style={{
-              margin: 0,
-              fontSize: '0.9rem',
-              color: 'var(--muted)',
-              marginBottom: showInput ? '1rem' : 0
-            }}
+        
+        {/* CABECERA WIMBLEDON */}
+        <div className={`p-6 border-b border-[#347048]/10 flex justify-between items-center ${isWarning ? 'bg-red-50' : 'bg-[#EBE1D8]'}`}>
+          <h3 className={`text-2xl font-black flex items-center gap-3 uppercase italic tracking-tighter ${isWarning ? 'text-red-600' : 'text-[#347048]'}`}>
+            {isWarning ? (
+                <AlertTriangle size={28} className="text-red-500" strokeWidth={2.5} />
+            ) : title.toLowerCase().includes('éxito') || title.toLowerCase().includes('listo') ? (
+                <CheckCircle2 size={28} className="text-[#B9CF32]" strokeWidth={3} />
+            ) : (
+                <Info size={28} className="text-[#926699]" strokeWidth={3} />
+            )}
+            {title}
+          </h3>
+          <button 
+            onClick={onClose} 
+            className={`bg-white p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform ${isWarning ? 'text-red-400 hover:text-red-600' : 'text-[#347048]/40 hover:text-[#347048]'}`}
           >
-            {typeof message === 'string' ? <p style={{ margin: 0 }}>{message}</p> : message}
+            <X size={20} strokeWidth={3} />
+          </button>
+        </div>
+
+        {/* CUERPO DEL MODAL */}
+        <div className="p-8 bg-white/40 flex flex-col gap-4">
+          <div className="text-[#347048] text-base font-bold leading-relaxed">
+            {typeof message === 'string' ? <p className="m-0">{message}</p> : message}
           </div>
+          
+          {/* INPUT (Si corresponde) */}
           {showInput && (
             <input
               type="text"
@@ -224,54 +214,25 @@ export default function AppModal({
                 }
               }}
               autoFocus
-              style={{
-                width: '100%',
-                padding: '0.5rem 0.75rem',
-                fontSize: '0.9rem',
-                borderRadius: '8px',
-                border: `1px solid ${inputFocused ? 'var(--accent)' : 'var(--border)'}`,
-                backgroundColor: 'rgba(255,255,255,0.02)',
-                color: 'var(--text)',
-                fontFamily: 'var(--font-sans)',
-                outline: 'none',
-                transition: 'border-color 0.2s ease',
-                boxSizing: 'border-box'
-              }}
+              className={`w-full px-4 py-3.5 text-sm font-black text-[#347048] bg-white border-2 rounded-xl outline-none shadow-sm transition-all placeholder-[#347048]/30 ${inputFocused ? 'border-[#B9CF32]' : 'border-transparent hover:border-[#B9CF32]/50'}`}
               onFocus={() => setInputFocused(true)}
               onBlur={() => setInputFocused(false)}
             />
           )}
         </div>
-        <div
-          style={{
-            borderTop: '1px solid rgba(255,255,255,0.04)',
-            padding: '0.75rem 1.25rem 1rem',
-            display: 'flex',
-            gap: '0.75rem',
-            justifyContent: 'flex-end'
-          }}
-        >
+
+        {/* PIE Y BOTONES DE ACCIÓN */}
+        <div className="p-6 border-t border-[#347048]/10 bg-[#EBE1D8] flex justify-end gap-3">
           {cancelText && (
             <button
               type="button"
               onClick={onCancel ?? onClose}
-              onMouseEnter={() => setCancelHover(true)}
-              onMouseLeave={() => setCancelHover(false)}
-              style={{
-                background: cancelHover ? 'rgba(255,255,255,0.05)' : 'transparent',
-                border: 'none',
-                color: cancelHover ? 'var(--text)' : 'var(--muted)',
-                cursor: 'pointer',
-                padding: '0.5rem 1rem',
-                fontSize: '0.875rem',
-                borderRadius: '8px',
-                transition: 'all 0.2s ease',
-                fontFamily: 'var(--font-sans)'
-              }}
+              className="px-6 py-3.5 rounded-xl text-xs font-black uppercase tracking-widest bg-white border-2 border-transparent hover:border-[#347048]/20 text-[#347048]/60 hover:text-[#347048] transition-all shadow-sm active:scale-95"
             >
               {cancelText}
             </button>
           )}
+          
           <button
             type="button"
             onClick={holdToConfirm ? undefined : handleConfirm}
@@ -280,48 +241,36 @@ export default function AppModal({
             onTouchStart={holdToConfirm ? startHold : undefined}
             onTouchEnd={holdToConfirm ? releaseHold : undefined}
             onTouchCancel={holdToConfirm ? releaseHold : undefined}
-            onMouseEnter={() => setConfirmHover(true)}
-            onMouseLeave={() => {
-              setConfirmHover(false);
-              if (holdToConfirm) releaseHold();
-            }}
+            onMouseLeave={() => { if (holdToConfirm) releaseHold(); }}
             disabled={disabled}
-            style={{
-              background: confirmHover ? confirmHoverBackground : confirmBackground,
-              border: `1px solid ${confirmHover ? confirmHoverBorder : confirmBorder}`,
-              color: isWarning ? '#fff' : 'var(--text)',
-              cursor: disabled ? 'not-allowed' : 'pointer',
-              padding: '0.5rem 1rem',
-              fontSize: '0.875rem',
-              borderRadius: '8px',
-              transition: 'all 0.2s ease',
-              fontFamily: 'var(--font-sans)',
-              fontWeight: 600,
-              opacity: disabled ? 0.5 : 1,
-              position: 'relative',
-              overflow: 'hidden'
-            }}
+            className={`relative overflow-hidden px-8 py-3.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-xl transition-all flex items-center gap-2 ${
+                disabled 
+                    ? 'opacity-40 cursor-not-allowed bg-gray-300 text-gray-500 shadow-none' 
+                    : isWarning 
+                        ? 'bg-red-600 text-white hover:bg-red-500 shadow-red-900/20 active:scale-95' 
+                        : 'bg-[#B9CF32] text-[#347048] hover:bg-[#aebd2b] shadow-[#B9CF32]/20 active:scale-95'
+            }`}
           >
+            {/* Lógica de Barra de Progreso (Hold To Confirm) mantenida intacta */}
             {holdToConfirm && (
               <span
                 aria-hidden="true"
+                className="absolute inset-0 pointer-events-none origin-left bg-white/40"
                 style={{
-                  position: 'absolute',
-                  inset: 0,
-                  background: 'rgba(255,255,255,0.12)',
-                  transformOrigin: 'left center',
                   transform: `scaleX(${holding ? holdProgress : 0})`,
-                  transition: holding ? 'none' : 'transform 0.2s ease',
-                  pointerEvents: 'none'
+                  transition: holding ? 'none' : 'transform 0.2s ease'
                 }}
               />
             )}
-            {confirmText}
+            
+            {!disabled && !holdToConfirm && (isWarning ? <AlertTriangle size={16} strokeWidth={3}/> : <CheckCircle2 size={16} strokeWidth={3}/>)}
+            <span className="relative z-10">{holdToConfirm ? `Mantener presionado (${confirmText})` : confirmText}</span>
           </button>
         </div>
       </div>
     </div>
   );
+  
   if (!mounted || typeof document === 'undefined') return null;
   return createPortal(modalContent, document.body);
 }

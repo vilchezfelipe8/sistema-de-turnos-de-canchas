@@ -393,7 +393,6 @@ export default function Home() {
                         <span className="absolute -right-1 -top-1 bg-[#0bbd49] text-white text-xs font-black rounded-full h-6 w-6 flex items-center justify-center">✓</span>
                       </div>
                       <h3 className="text-xl font-black text-[#2b3a4a]">{user.firstName || user.name || 'Usuario'}</h3>
-                      <p className="text-[#2b3a4a]/70 text-sm">Te uniste en {user.createdAt ? new Date(user.createdAt).getFullYear() : '2024'}</p>
                     </div>
                     <div className="border-t border-black/10 px-6 py-4">
                       <p className="text-[#2b3a4a] font-black text-lg mb-4">Datos proporcionados</p>

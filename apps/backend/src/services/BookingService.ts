@@ -182,45 +182,59 @@ export class BookingService {
     }
 
    async cancelBooking(bookingId: number, cancelledByUserId: number, clubId?: number) {
-    // 1. Buscamos la reserva
-    const booking = await this.bookingRepo.findById(bookingId);
-    
-    if (!booking) {
-        throw new Error("La reserva no existe.");
-    }
-    
-    // Si hay clubId, verificar que la reserva pertenece al club
-    if (clubId && booking.court.club.id !== clubId) {
-        throw new Error("No tienes acceso a esta reserva");
-    }
-
-    if (booking.status === BookingStatus.CONFIRMED) {
-        try {
-            const price = 28000;
-
-            if (price > 0) {
-                await this.cashRepository.create({
-                    date: new Date(),
-                    type: 'EXPENSE', // 🔴 Registramos un GASTO (Salida)
-                    amount: price,
-                    description: `Anulación Reserva #${bookingId} (${booking.court.name})`,
-                    method: 'CASH', // Asumimos devolución en efectivo por defecto
-                    bookingId: bookingId
-                });
-                console.log(`📉 Caja ajustada: -$${price} por cancelación de reserva #${bookingId}`);
-            }
-        } catch (error) {
-            console.error("⚠️ Error al registrar devolución en caja:", error);
-            // No detenemos la cancelación, solo avisamos.
+        // 1. Buscamos la reserva
+        const booking = await this.bookingRepo.findById(bookingId);
+        
+        if (!booking) {
+            throw new Error("La reserva no existe.");
         }
-    }
+        
+        // Si hay clubId, verificar que la reserva pertenece al club
+        if (clubId && booking.court.club.id !== clubId) {
+            throw new Error("No tienes acceso a esta reserva");
+        }
 
-    // 2. Ahora sí, procedemos a cancelar (Soft Delete o cambio de estado)
-    await this.bookingRepo.delete(bookingId, cancelledByUserId);
+        // 👇 CORRECCIÓN DEFINITIVA DE CAJA 👇
+        // Buscamos cuánto pagó REALMENTE el cliente por esta reserva en el registro de caja
+        const bookingWithPayments = await this.prisma.booking.findUnique({
+            where: { id: bookingId },
+            include: { cashMovements: true }
+        });
+
+        if (bookingWithPayments) {
+            // Sumamos todos los ingresos (INCOME) asociados a esta reserva
+            const totalPaid = bookingWithPayments.cashMovements
+                .filter(m => m.type === 'INCOME')
+                .reduce((sum, m) => sum + Number(m.amount), 0);
+
+            // Solo registramos una salida de caja si el cliente REALMENTE había pagado algo
+            if (totalPaid > 0) {
+                try {
+                    await this.cashRepository.create({
+                        date: new Date(),
+                        type: 'EXPENSE', // 🔴 Registramos un GASTO (Salida/Devolución)
+                        amount: totalPaid, // 👈 Devolvemos EXACTAMENTE lo que puso (Seña o Total)
+                        description: `Anulación Reserva #${bookingId} (${booking.court.name})`,
+                        method: 'CASH', // Asumimos devolución en efectivo por defecto
+                        bookingId: bookingId
+                    });
+                    console.log(`📉 Caja ajustada: -$${totalPaid} por cancelación de reserva #${bookingId}`);
+                } catch (error) {
+                    console.error("⚠️ Error al registrar devolución en caja:", error);
+                    // No detenemos la cancelación, solo avisamos.
+                }
+            } else {
+                console.log(`ℹ️ Reserva #${bookingId} cancelada. No se tocó la caja porque no había pagos previos.`);
+            }
+        }
+
+        // 2. Ahora sí, procedemos a cancelar (Soft Delete o cambio de estado)
+        await this.bookingRepo.delete(bookingId, cancelledByUserId);
+        
+        const updated = await this.bookingRepo.findById(bookingId);
+        return updated;
+    }
     
-    const updated = await this.bookingRepo.findById(bookingId);
-    return updated;
-}
     async confirmBooking(bookingId: number, userId: number, paymentMethod: string = 'CASH') {
     
     // 1. Buscamos la reserva

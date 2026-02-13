@@ -8,6 +8,7 @@ import DatePickerDark from './ui/DatePickerDark';
 
 import { getApiUrl } from '../utils/apiUrl';
 import { ClubService, Club } from '../services/ClubService';
+import { ChevronDown, Check, Calendar, Clock, MapPin, Zap, MousePointerClick, Hourglass, Moon, Ban, AlertCircle, Activity } from 'lucide-react';
 
 const API_URL = getApiUrl();
 const BASE_COURT_PRICE = 28000;
@@ -16,6 +17,67 @@ interface BookingGridProps {
   /** Slug del club: cuando está en /club/[slug], solo se muestran canchas y turnos de ese club */
   clubSlug?: string;
 }
+
+// --- COMPONENTE DROPDOWN CUSTOM (ESTILO WIMBLEDON LANDING) ---
+const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const selectedOption = options.find((o: any) => o.value === value);
+
+  return (
+    <div className={`relative w-full ${isOpen ? 'z-[100]' : 'z-10'}`} ref={wrapperRef}>
+      <div 
+        className={`w-full h-12 bg-white border-2 transition-all rounded-xl px-4 flex items-center justify-between shadow-sm cursor-pointer ${
+          isOpen ? 'border-[#B9CF32] ring-2 ring-[#B9CF32]/20' : 'border-transparent hover:border-[#B9CF32]/50'
+        }`}
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <span className={`font-bold text-sm ${!selectedOption ? 'text-[#347048]/40' : 'text-[#347048]'}`}>
+          {selectedOption ? selectedOption.label : placeholder}
+        </span>
+        <ChevronDown size={18} className={`transition-transform duration-300 ${isOpen ? 'rotate-180 text-[#B9CF32]' : 'text-[#347048]/40'}`} strokeWidth={3} />
+      </div>
+
+      {isOpen && (
+        <div className="absolute z-[110] w-full mt-2 bg-white border-2 border-[#347048]/10 rounded-2xl shadow-2xl max-h-48 overflow-y-auto custom-scrollbar overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+          <ul className="flex flex-col py-2">
+            {options.map((option: any) => (
+              <li 
+                key={option.value}
+                onClick={() => {
+                  if (!option.disabled) {
+                    onChange(option.value);
+                    setIsOpen(false);
+                  }
+                }}
+                className={`px-4 py-3 flex items-center justify-between transition-colors ${
+                  option.disabled 
+                    ? 'opacity-40 cursor-not-allowed bg-gray-50' 
+                    : 'cursor-pointer hover:bg-[#B9CF32]/20'
+                } ${value === option.value ? 'bg-[#347048]/5 text-[#347048]' : 'text-[#347048]'}`}
+              >
+                <span className="font-black text-xs">{option.label}</span>
+                {option.disabled && <span className="text-[9px] font-black text-red-500 uppercase tracking-widest border border-red-500/20 bg-red-50 px-2 py-0.5 rounded-md">Sin Stock</span>}
+                {!option.disabled && value === option.value && <Check size={14} className="text-[#347048]" strokeWidth={4} />}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   const formatLocalDate = (date: Date) => {
@@ -441,6 +503,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
   }, [slotsWithCourts, allCourts, selectedDate]);
 
   // --- RENDERIZADO VISUAL ---
+  // --- RENDERIZADO VISUAL ---
   return (
     <div className="w-full max-w-4xl mx-auto bg-[#EBE1D8] p-6 sm:p-8 rounded-[2rem] shadow-2xl shadow-[#347048]/50 border-4 border-[#d4c5b0]/50 relative overflow-hidden">
     
@@ -449,42 +512,40 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
         <p className="text-[#347048] font-bold text-sm tracking-wide opacity-80">Elige tu día y horario ideal</p>
       </div>
 
-      <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-xs font-black text-[#926699] mb-2 ml-1 flex items-center gap-2 uppercase tracking-wider">
-            <span className="text-[#B9CF32] text-base">🎾</span>
+      <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+        
+        {/* COLUMNA 1: Tipo de Cancha */}
+        <div className="relative focus-within:z-[100] z-20">
+          <label className="block text-[10px] font-black text-[#926699] mb-2 ml-1 flex items-center gap-2 uppercase tracking-widest">
+            <span className="text-[#B9CF32]"><Activity size={16} strokeWidth={3} /></span>
             <span>Tipo de cancha</span>
           </label>
-          <div className="relative group">
-            <select
+          <CustomSelect 
               value={selectedActivityFilter}
-              onChange={(event) => {
-                const value = event.target.value;
-                setSelectedActivityFilter(value);
-                setSelectedSlot(null);
-                setSelectedCourt(null);
+              onChange={(val: string) => {
+                  setSelectedActivityFilter(val);
+                  setSelectedSlot(null);
+                  setSelectedCourt(null);
               }}
-              className="w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 py-3 text-[#347048] font-bold focus:outline-none shadow-sm appearance-none cursor-pointer hover:bg-white/90"
-            >
-              <option value="ALL">Todas las canchas</option>
-              {Array.from(
-                new Set(
-                  allCourts.flatMap((court) => court.activities?.map((activity) => activity.name) || [])
-                )
-              ).map((activityName) => (
-                <option key={activityName} value={activityName}>
-                  {activityName}
-                </option>
-              ))}
-            </select>
-             <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-[#B9CF32]">
-              <svg className="fill-current h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
-            </div>
-          </div>
+              placeholder="Todas las canchas"
+              options={[
+                  { value: 'ALL', label: 'Todas las canchas' },
+                  ...Array.from(
+                      new Set(
+                          allCourts.flatMap((court) => court.activities?.map((activity) => activity.name) || [])
+                      )
+                  ).map(activityName => ({
+                      value: activityName,
+                      label: activityName
+                  }))
+              ]}
+          />
         </div>
-        <div>
-          <label className="block text-xs font-black text-[#926699] mb-2 ml-1 flex items-center gap-2 uppercase tracking-wider">
-            <span className="text-[#B9CF32] text-base">📅</span>
+
+        {/* COLUMNA 2: Fecha */}
+        <div className="relative focus-within:z-[90] z-10">
+          <label className="block text-[10px] font-black text-[#926699] mb-2 ml-1 flex items-center gap-2 uppercase tracking-widest">
+            <span className="text-[#B9CF32]"><Calendar size={16} strokeWidth={3} /></span>
             <span>Fecha</span>
           </label>
           <div className="w-full relative">
@@ -497,13 +558,11 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                 const selectedDateObj = new Date(date);
                 selectedDateObj.setHours(0, 0, 0, 0);
                 
-                // Validar que la fecha no sea pasada
                 if (selectedDateObj < today) {
                   showError('No puedes seleccionar una fecha pasada. Por favor, elige una fecha de hoy en adelante.');
                   return;
                 }
                 
-                // Validar que la fecha no sea más de un mes en adelante
                 const maxAllowedDate = getMaxDate();
                 maxAllowedDate.setHours(0, 0, 0, 0);
                 
@@ -520,7 +579,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
               maxDate={maxDate}
               showIcon={false}
               variant="light"
-              inputClassName="bg-white text-[#347048] font-bold border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 py-3 shadow-sm"
+              inputClassName="w-full h-12 bg-white text-[#347048] font-bold border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 shadow-sm outline-none transition-all cursor-pointer"
             />
           </div>
         </div>
@@ -533,15 +592,15 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
       )}
 
       {error && (
-        <div className="bg-red-50 text-red-800 p-4 rounded-xl border border-red-100 text-center mb-6 flex items-center justify-center gap-2 font-bold text-sm">
-           <span>⚠️</span> {error}
+        <div className="bg-red-50 text-red-600 p-4 rounded-xl border border-red-100 text-center mb-6 flex items-center justify-center gap-2 font-bold text-sm shadow-sm">
+           <AlertCircle size={18} strokeWidth={2.5} /> {error}
         </div>
       )}
 
       {!loading && filteredSlotsWithCourts.length > 0 && (
         <div className="mb-10">
           <label className="block text-xs font-black text-[#926699] mb-4 ml-1 flex items-center gap-2 uppercase tracking-wider">
-            <span className="text-[#B9CF32] text-base">⏰</span>
+            <span className="text-[#B9CF32]"><Clock size={20} strokeWidth={3} /></span>
             <span>Horarios Disponibles</span>
           </label>
 
@@ -584,7 +643,6 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                         if (!selectedDate) return;
                         if (!isBackendAvailable) return;
                         try {
-                          // Doble check de disponibilidad
                           const res = await fetch(`${API_URL}/api/bookings/availability?courtId=${court.id}&date=${dateString}&activityId=1`);
                           if (!res.ok) {
                             setDisabledSlots((prev) => ({ ...prev, [slotKey]: true }));
@@ -595,7 +653,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                           const availableSlots: string[] = data.availableSlots || [];
                           if (!availableSlots.includes(slotWithCourt.slotTime)) {
                             setDisabledSlots((prev) => ({ ...prev, [slotKey]: true }));
-                            showError('⚠️ Cancha ya no disponible.');
+                            showError('Cancha ya no disponible.');
                             return;
                           }
                           setSelectedSlot(slotWithCourt.slotTime);
@@ -606,9 +664,8 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                         }
                       };
 
-                      // Estilos
-                      const isSelected = selectedSlot === slotWithCourt.slotTime && selectedCourt?.id === court.id;
                       let btnClass = 'py-3 px-4 rounded-xl text-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 border-2 ';
+                      const isSelected = selectedSlot === slotWithCourt.slotTime && selectedCourt?.id === court.id;
                       
                       if (isDisabled) {
                         btnClass += 'bg-gray-100 text-gray-400 border-transparent cursor-not-allowed opacity-60';
@@ -620,7 +677,8 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
 
                       return (
                         <button key={court.id} onClick={handleSelectCourt} disabled={isDisabled} className={btnClass}>
-                          <span>🏓</span> {court.name}
+                          <MapPin size={16} strokeWidth={2.5} className={isSelected ? 'text-[#347048]' : 'text-[#B9CF32]'} /> 
+                          <span className="mt-[2px]">{court.name}</span>
                         </button>
                       );
                     })}
@@ -633,57 +691,55 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
       )}
 
       {!loading && filteredSlotsWithCourts.length === 0 && selectedDate && (
-        <div className="text-center py-12 bg-[#347048]/5 rounded-2xl border border-dashed border-[#347048]/20 mb-8">
-          <p className="text-[#347048]/60 font-bold">
+        <div className="text-center py-12 bg-[#347048]/5 rounded-2xl border border-dashed border-[#347048]/20 mb-8 flex items-center justify-center gap-3 text-[#347048]/60 font-bold">
             {(() => {
               const now = new Date();
               const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
               const selected = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
-              if (selected < today) return '⏳ No se puede viajar al pasado...';
-              else if (selected.getTime() === today.getTime() && slotsWithCourts.length > 0) return '🌙 Ya no quedan turnos por hoy.';
-              else return '🚫 No hay canchas disponibles para esta fecha.';
+              if (selected < today) return <><Hourglass size={20} strokeWidth={2.5} /> <span>No se puede viajar al pasado...</span></>;
+              else if (selected.getTime() === today.getTime() && slotsWithCourts.length > 0) return <><Moon size={20} strokeWidth={2.5} /> <span>Ya no quedan turnos por hoy.</span></>;
+              else return <><Ban size={20} strokeWidth={2.5} /> <span>No hay canchas disponibles para esta fecha.</span></>;
             })()}
-          </p>
         </div>
       )}
 
-      {/* BOTÓN PRINCIPAL CON LÓGICA DE LOGIN VISUAL */}
       <button
         ref={confirmButtonRef}
         onClick={handleBooking}
         disabled={isBooking || !selectedSlot || !selectedCourt}
         className={`w-full py-4 rounded-2xl font-black text-lg uppercase tracking-widest transition-all shadow-xl flex items-center justify-center gap-2
             ${(isBooking || !selectedSlot || !selectedCourt) 
-                ? 'bg-[#347048]/10 text-[#347048]/30 cursor-not-allowed border border-[#347048]/5' 
+                ? 'bg-[#347048]/10 text-[#347048]/40 cursor-not-allowed border border-[#347048]/5' 
                 : 'bg-[#347048] text-[#EBE1D8] hover:bg-[#B9CF32] hover:text-[#347048] hover:-translate-y-1 hover:shadow-[#B9CF32]/30'}`}
       >
         {isBooking ? (
           <>
             <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-current"></div>
-            <span>Procesando...</span>
+            <span className="mt-[2px]">Procesando...</span>
           </>
         ) : (isBooking || !selectedSlot || !selectedCourt) ? (
             <>
-              <span className="opacity-50">👆</span>
-              <span className="opacity-50">Selecciona Turno</span>
+              <MousePointerClick size={20} strokeWidth={2.5} className="opacity-50" />
+              <span className="opacity-50 mt-[2px]">Selecciona Turno</span>
             </>
         ) : !isAuthenticated ? (
             <>
-                <span>⚡</span>
-                <span>CONFIRMAR RESERVA</span>
+                <Zap size={20} strokeWidth={2.5} className="text-[#B9CF32] animate-pulse" />
+                <span className="mt-[2px]">CONFIRMAR RESERVA</span>
             </>
         ) : selectedSlot && selectedCourt ? (
           <>
-            <span>⚡</span>
-            <span>CONFIRMAR RESERVA</span>
+            <Zap size={20} strokeWidth={2.5} className="text-[#B9CF32] animate-pulse" />
+            <span className="mt-[2px]">CONFIRMAR RESERVA</span>
           </>
         ) : (
           <>
-            <span className="opacity-50">👆</span>
-            <span className="opacity-50">Selecciona Turno</span>
+            <MousePointerClick size={20} strokeWidth={2.5} className="opacity-50" />
+            <span className="opacity-50 mt-[2px]">Selecciona Turno</span>
           </>
         )}
       </button>
+
       {selectedSlot && selectedCourt && (
         <div className="mt-2 text-xs text-[#347048]/80 text-center font-medium">
           {priceInfo.hasLights && clubConfig ? (
@@ -703,6 +759,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
           )}
         </div>
       )}
+
       <AppModal
         show={modalState.show}
         onClose={closeModal}
@@ -714,6 +771,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
         closeOnBackdrop
         closeOnEscape
       />
+
       <AppModal
         show={guestModalOpen}
         onClose={() => setGuestModalOpen(false)}
@@ -834,8 +892,12 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                 </label>
               </div>
             </div>
+            
+            {/* 👇 ACÁ SE REEMPLAZÓ EL EMOJI DE ERROR POR EL ÍCONO ALERTCIRCLE 👇 */}
             {guestError && (
-              <p className="text-xs text-red-500 font-bold bg-red-50 p-2 rounded-lg text-center">{guestError}</p>
+              <p className="text-xs text-red-500 font-bold bg-red-50 p-2 rounded-lg text-center flex items-center justify-center gap-1">
+                 <AlertCircle size={14} strokeWidth={2.5}/> {guestError.replace('❗ ', '')}
+              </p>
             )}
           </div>
         )}

@@ -82,8 +82,7 @@ export default function ClubPage() {
       <div className="relative z-10 w-full flex flex-col items-center">
         <Navbar />
         
-        <div className="w-full max-w-6xl mt-20 md:mt-20 mb-8 px-4">
-          <div className="mx-auto mb-6 h-1 w-20 rounded-full bg-[#926699]" />
+        <div className="w-full max-w-6xl mt-24 md:mt-20 mb-8 px-4">
           
 
           <div className="mt-8 grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-6">

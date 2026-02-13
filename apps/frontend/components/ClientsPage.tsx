@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
+import type { ReactNode } from 'react';
 import { ClubAdminService } from '../services/ClubAdminService';
-import { User, Phone, DollarSign, Calendar, Users, Trophy, Search, X, CheckCircle, Receipt, Lock } from 'lucide-react';
+import { Phone, DollarSign, Calendar, Users, Trophy, Search, X, CheckCircle, Receipt, Banknote, CreditCard } from 'lucide-react';
 import { useRouter } from 'next/router';
+import AppModal from './AppModal';
 
 const formatDate = (dateInput: any) => {
   if (!dateInput) return '-';
@@ -27,74 +29,6 @@ const paymentStatusLabel: Record<string, string> = {
   PARTIAL: 'Parcial'
 };
 
-// --- COMPONENTE DEBT MODAL (DISEÑO BEIGE WIMBLEDON) ---
-const DebtModal = ({ client, onClose, onSuccess }: any) => {
-  const [loading, setLoading] = useState(false);
-  const unpaidBookings = client.bookings.filter((b: any) => b.paymentStatus === 'DEBT');
-
-  const handlePayAll = async () => {
-    if (!confirm(`¿Confirmás que ${client.name} pagó el total de $${client.totalDebt}?`)) return;
-    try {
-      setLoading(true);
-      const idsToPay = unpaidBookings.map((b: any) => b.id);
-      await ClubAdminService.markAsPaid(idsToPay); 
-      onSuccess();
-      onClose();
-    } catch (error) {
-      alert('Error al procesar el pago');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-[#347048]/80 flex items-center justify-center z-[100] p-4 backdrop-blur-sm animate-in fade-in">
-      <div className="bg-[#EBE1D8] border-4 border-white rounded-[2rem] w-full max-w-md shadow-2xl overflow-hidden">
-        <div className="bg-red-50 p-6 border-b border-red-100 flex justify-between items-start">
-           <div>
-             <h3 className="text-red-600 font-black text-lg uppercase flex items-center gap-2 italic tracking-tight">
-               <DollarSign size={20} strokeWidth={3}/> Saldar Deuda
-             </h3>
-             <p className="text-[#347048] font-black text-3xl mt-1 italic tracking-tighter">${client.totalDebt.toLocaleString()}</p>
-             <p className="text-[#347048]/60 text-xs font-bold uppercase tracking-widest mt-1">Cliente: {client.name}</p>
-           </div>
-           <button onClick={onClose} className="text-[#347048]/40 hover:text-red-600 p-2 transition-colors"><X/></button>
-        </div>
-
-        <div className="p-6 max-h-[300px] overflow-y-auto space-y-3 custom-scrollbar bg-white/40">
-           <p className="text-[10px] text-[#347048]/40 font-black uppercase tracking-[0.2em] mb-2">Detalle de lo adeudado:</p>
-           {unpaidBookings.map((booking: any) => (
-             <div key={booking.id} className="flex justify-between items-center bg-white p-4 rounded-xl border border-[#347048]/10 shadow-sm">
-                <div className="text-sm">
-                    <div className="text-[#347048] font-black flex items-center gap-2">
-                      <Calendar size={14} className="text-[#926699]"/> 
-                      {new Date(booking.date).toLocaleDateString()}
-                    </div>
-                    <div className="text-[10px] font-bold text-[#347048]/40 mt-1 uppercase tracking-widest">Reserva #{booking.id}</div>
-                </div>
-                <div className="font-black text-red-600 italic text-lg">${booking.total.toLocaleString()}</div>
-             </div>
-           ))}
-        </div>
-
-        <div className="p-6 border-t border-[#347048]/10 bg-[#EBE1D8]">
-           <button 
-             onClick={handlePayAll}
-             disabled={loading}
-             className="w-full bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black py-4 rounded-2xl shadow-xl transition-all disabled:opacity-50 flex justify-center items-center gap-2 uppercase tracking-widest text-sm"
-           >
-             {loading ? 'Procesando...' : (
-               <> <CheckCircle size={18} /> Marcar todo como pagado </>
-             )}
-           </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-
-// --- COMPONENTE PRINCIPAL ---
 interface ClientsPageProps {
   clubSlug?: string;
 }
@@ -111,6 +45,17 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const [searchTerm, setSearchTerm] = useState('');
   const [showPayMethodModal, setShowPayMethodModal] = useState(false);
   const [bookingToPayId, setBookingToPayId] = useState<number | null>(null);
+
+  // --- LÓGICA DEL APPMODAL ---
+  const [modalState, setModalState] = useState<{
+    show: boolean; title?: string; message?: ReactNode; cancelText?: string; confirmText?: string;
+    isWarning?: boolean; onConfirm?: () => Promise<void> | void; onCancel?: () => Promise<void> | void;
+    closeOnBackdrop?: boolean; closeOnEscape?: boolean;
+  }>({ show: false });
+
+  const closeModal = () => setModalState((prev) => ({ ...prev, show: false, onConfirm: undefined, onCancel: undefined }));
+  const showInfo = (message: ReactNode, title = 'Información') => setModalState({ show: true, title, message, cancelText: '', confirmText: 'OK' });
+  const showError = (message: ReactNode) => setModalState({ show: true, title: 'Error', message, isWarning: true, cancelText: '', confirmText: 'Aceptar' });
 
   const loadClients = useCallback(async () => {
     try {
@@ -160,19 +105,24 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
 
         if (newTotalDebt <= 0) {
           setSelectedDebtor(null);
-          alert(`✅ ¡Deuda saldada por completo!`);
+          // REEMPLAZO DE ALERT
+          showInfo(`La deuda ha sido saldada por completo.`, 'Éxito');
         } else {
           setSelectedDebtor({ ...selectedDebtor, bookings: updatedBookings, totalDebt: newTotalDebt });
-          alert(`✅ Cobro registrado.`);
+          // REEMPLAZO DE ALERT
+          showInfo(`El cobro fue registrado en la caja diaria.`, 'Éxito');
         }
       }
-    } catch (error) { alert("❌ Error al cobrar"); }
+    } catch (error) { 
+        // REEMPLAZO DE ALERT
+        showError("No se pudo procesar el cobro. Intentá nuevamente."); 
+    }
   };
   
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       
-      {/* TARJETAS KPI (ESTILO WIMBLEDON) */}
+      {/* TARJETAS KPI */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-white border-4 border-white p-6 rounded-[2rem] shadow-xl flex items-center justify-between">
              <div><h3 className="text-[#347048]/40 text-[10px] font-black uppercase tracking-widest mb-1">Total Clientes</h3><p className="text-4xl font-black text-[#347048] italic tracking-tighter">{totalClients}</p></div>
@@ -256,7 +206,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
         )}
       </div>
 
-      {/* MODAL DETALLE DE DEUDA (VERSIÓN PRO) */}
+      {/* MODAL DETALLE DE DEUDA */}
       {selectedDebtor && (
         <div className="fixed inset-0 bg-[#347048]/90 flex items-center justify-center z-[110] p-4 animate-in fade-in backdrop-blur-sm">
             <div className="bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -316,36 +266,68 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                         );
                     })}
                 </div>
-                <div className="p-6 border-t border-[#347048]/10 bg-[#EBE1D8] text-right"><button onClick={() => setSelectedDebtor(null)} className="text-[#347048]/60 hover:text-[#347048] text-[10px] font-black uppercase tracking-[0.2em] underline decoration-2 underline-offset-4 transition-all">Cerrar Ventana</button></div>
             </div>
         </div>
       )}
 
-      {/* MODAL MÉTODOS PAGO (WIMBLEDON LIMA) */}
+      {/* MODAL MÉTODOS PAGO */}
       {showPayMethodModal && (
-        <div className="fixed inset-0 bg-[#347048]/95 flex items-center justify-center z-[120] animate-in fade-in">
-            <div className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl w-80 relative text-[#347048]">
-                <button onClick={() => setShowPayMethodModal(false)} className="absolute top-4 right-4 text-[#347048]/40 hover:text-red-500 font-black text-xl transition-colors">✕</button>
-                <h3 className="text-xl font-black mb-6 text-center uppercase tracking-tight italic">¿Método de cobro?</h3>
+        <div className="fixed inset-0 bg-[#347048]/80 backdrop-blur-md flex items-center justify-center z-[120] p-4 animate-in fade-in duration-200">
+            <div className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full relative">
+                <button 
+                    onClick={() => setShowPayMethodModal(false)}
+                    className="absolute top-6 right-6 text-[#347048]/40 hover:text-[#347048] transition font-black"
+                >
+                    <X size={20} strokeWidth={3} />
+                </button>
+
+                <h3 className="text-2xl font-black text-[#347048] mb-2 text-center uppercase tracking-tight italic">¿Método de cobro?</h3>
+                
+                {/* Buscamos el monto exacto de la reserva que estamos saldando */}
+                {(() => {
+                    const bookingInfo = selectedDebtor?.bookings.find((b: any) => b.id === bookingToPayId);
+                    return bookingInfo ? (
+                        <p className="text-[#347048]/60 text-xs font-bold mb-8 text-center uppercase tracking-widest">
+                            A SALDAR: <span className="text-[#347048] text-lg font-black">${bookingInfo.amount.toLocaleString()}</span>
+                        </p>
+                    ) : (
+                        <p className="text-[#347048]/60 text-xs font-bold mb-8 text-center uppercase tracking-widest">
+                            Se registrará en caja diaria
+                        </p>
+                    );
+                })()}
+
                 <div className="grid grid-cols-2 gap-4 mb-6">
-                    <button onClick={() => processDebtPayment('CASH')} className="p-6 bg-white hover:bg-[#B9CF32] border-2 border-transparent rounded-[1.5rem] flex flex-col items-center transition-all hover:scale-105 shadow-sm group">
-                        <span className="text-3xl mb-2 group-hover:scale-110 transition">💵</span>
-                        <span className="text-[10px] font-black uppercase tracking-widest">Efectivo</span>
+                    <button
+                        onClick={() => processDebtPayment('CASH')}
+                        className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-3xl text-[#347048] transition-all hover:scale-[1.02] shadow-sm group"
+                    >
+                        <Banknote size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
+                        <span className="font-black text-[10px] uppercase tracking-widest">Efectivo</span>
                     </button>
-                    <button onClick={() => processDebtPayment('TRANSFER')} className="p-6 bg-white hover:bg-[#B9CF32] border-2 border-transparent rounded-[1.5rem] flex flex-col items-center transition-all hover:scale-105 shadow-sm group">
-                        <span className="text-3xl mb-2 group-hover:scale-110 transition">💳</span>
-                        <span className="text-[10px] font-black uppercase tracking-widest">Digital</span>
+                    <button
+                        onClick={() => processDebtPayment('TRANSFER')}
+                        className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-3xl text-[#347048] transition-all hover:scale-[1.02] shadow-sm group"
+                    >
+                        <CreditCard size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
+                        <span className="font-black text-[10px] uppercase tracking-widest">Digital</span>
                     </button>
                 </div>
-                <p className="text-[10px] text-center text-[#347048]/40 font-bold uppercase tracking-widest">Se registrará en la caja diaria</p>
+                
+                <button 
+                    onClick={() => setShowPayMethodModal(false)}
+                    className="w-full text-[#347048]/40 hover:text-[#347048] text-[10px] font-black uppercase tracking-widest hover:underline transition-all"
+                >
+                    Cancelar operación
+                </button>
             </div>
         </div>
       )}
 
       {/* HISTORIAL COMPLETO */}
       {selectedClientHistory && (
-        <div className="fixed inset-0 bg-[#347048]/90 flex items-center justify-center z-[110] p-4 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+        <div className="fixed inset-0 bg-[#347048]/90 flex items-center justify-center z-[110] p-4 backdrop-blur-md animate-in fade-in">
+          <div className="bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl">
             <div className="p-8 border-b border-[#347048]/10 flex items-center justify-between bg-[#EBE1D8]">
               <div>
                 <h3 className="text-2xl font-black text-[#347048] flex items-center gap-3 uppercase italic tracking-tighter">Historial: {selectedClientHistory.name}</h3>
@@ -376,9 +358,25 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                 })
               ) : <p className="text-center text-[#347048]/30 font-black py-10 uppercase italic">Sin registros</p>}
             </div>
+            
           </div>
         </div>
       )}
+
+      {/* COMPONENTE MODAL GLOBAL PARA ALERTAS */}
+      <AppModal 
+        show={modalState.show} 
+        onClose={closeModal} 
+        onCancel={modalState.onCancel} 
+        title={modalState.title} 
+        message={modalState.message}
+        cancelText={modalState.cancelText} 
+        confirmText={modalState.confirmText} 
+        isWarning={modalState.isWarning}
+        onConfirm={modalState.onConfirm} 
+        closeOnBackdrop={modalState.closeOnBackdrop} 
+        closeOnEscape={modalState.closeOnEscape} 
+      />
     </div>
   );
 }

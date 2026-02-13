@@ -1,5 +1,6 @@
 import React from 'react';
 import ClientsPage from '../ClientsPage';
+import { Users } from 'lucide-react';
 
 export default function AdminTabClients() {
   return (
@@ -10,9 +11,9 @@ export default function AdminTabClients() {
       <div className="mb-8 pb-6 border-b border-[#347048]/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-black text-[#926699] flex items-center gap-3 uppercase italic tracking-tight">
-            <span className="bg-[#926699] text-[#EBE1D8] p-2 rounded-xl text-xl shadow-lg shadow-[#926699]/20">
-              👥
-            </span>
+            <div className="bg-[#926699] text-[#EBE1D8] p-2 rounded-xl shadow-lg shadow-[#926699]/20">
+              <Users size={24} strokeWidth={3} />
+            </div>
             Gestión de Clientes
           </h2>
           <p className="text-[#347048] text-sm font-bold opacity-70 mt-2 ml-1">
@@ -22,9 +23,7 @@ export default function AdminTabClients() {
 
         {/* Badge de contador o estado (Estilo Lima para resaltar) */}
         <div className="hidden sm:block">
-           <span className="bg-[#B9CF32] text-[#347048] text-[10px] font-black px-4 py-1.5 rounded-full uppercase tracking-[0.15em] shadow-sm">
-             Base de Datos Activa
-           </span>
+           
         </div>
       </div>
 

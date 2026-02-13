@@ -1,7 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
-import DatePickerDark from '../../components/ui/DatePickerDark';
+import DatePicker from 'react-datepicker';
+import { registerLocale } from 'react-datepicker';
+import { es } from 'date-fns/locale/es';
+import 'react-datepicker/dist/react-datepicker.css';
 import { getCourts } from '../../services/CourtService';
 import {
   getAdminSchedule,
@@ -15,7 +18,10 @@ import {
 import AppModal from '../AppModal';
 import BookingConsumption from '../BookingConsumption';
 import { useParams } from 'react-router-dom';
-import { Trash2, Check, ShoppingCart, Calendar as CalendarIcon, RefreshCw } from 'lucide-react'; 
+import DatePickerDark from '../../components/ui/DatePickerDark';
+import { Trash2, Check, ShoppingCart, Calendar as CalendarIcon, RefreshCw, ChevronDown, CalendarPlus, Repeat, Banknote, CreditCard, FileText } from 'lucide-react'; 
+
+registerLocale('es', es);
 
 const CLUB_TIME_SLOTS = [
   '08:00', '09:30', '11:00', '12:30',
@@ -23,7 +29,69 @@ const CLUB_TIME_SLOTS = [
   '20:30', '22:00'
 ];
 
-// --- COMPONENTE PORTAL (VERSIÓN WIMBLEDON BEIGE) ---
+// --- COMPONENTE DROPDOWN CUSTOM (ESTILO WIMBLEDON LANDING) ---
+const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const selectedOption = options.find((o: any) => o.value === value);
+
+  return (
+    <div className={`relative w-full ${isOpen ? 'z-[100]' : 'z-10'}`} ref={wrapperRef}>
+      <div 
+        className={`w-full h-12 bg-white border-2 transition-all rounded-xl px-4 flex items-center justify-between shadow-sm cursor-pointer ${
+          isOpen ? 'border-[#B9CF32] ring-2 ring-[#B9CF32]/20' : 'border-transparent hover:border-[#B9CF32]/50'
+        }`}
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <span className={`font-bold ${!selectedOption ? 'text-[#347048]/30' : 'text-[#347048]'}`}>
+          {selectedOption ? selectedOption.label : placeholder}
+        </span>
+        <ChevronDown size={18} className={`transition-transform duration-300 ${isOpen ? 'rotate-180 text-[#B9CF32]' : 'text-[#347048]/40'}`} strokeWidth={3} />
+      </div>
+
+      {isOpen && (
+        <div className="absolute z-50 w-full mt-2 bg-white border-2 border-[#347048]/10 rounded-2xl shadow-2xl max-h-60 overflow-y-auto custom-scrollbar overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+          <ul className="flex flex-col py-2">
+            {options.map((option: any) => (
+              <li 
+                key={option.value}
+                onClick={() => {
+                  if (!option.disabled) {
+                    onChange(option.value);
+                    setIsOpen(false);
+                  }
+                }}
+                className={`px-4 py-3 flex items-center justify-between transition-colors ${
+                  option.disabled 
+                    ? 'opacity-40 cursor-not-allowed bg-gray-50' 
+                    : 'cursor-pointer hover:bg-[#B9CF32]/20'
+                } ${value === option.value ? 'bg-[#347048]/5 text-[#347048]' : 'text-[#347048]'}`}
+              >
+                <span className="font-black text-sm">{option.label}</span>
+                {option.disabled && <span className="text-[9px] font-black text-red-500 uppercase tracking-widest border border-red-500/20 bg-red-50 px-2 py-0.5 rounded-md">Pasado</span>}
+                {!option.disabled && value === option.value && <Check size={14} className="text-[#347048]" strokeWidth={4} />}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+};
+
+
+// --- COMPONENTE PORTAL ---
 const ModalPortal = ({ children, onClose }: { children: ReactNode, onClose: () => void }) => {
   if (typeof document === 'undefined') return null;
   
@@ -40,7 +108,7 @@ const ModalPortal = ({ children, onClose }: { children: ReactNode, onClose: () =
   );
 };
 
-// --- FUNCIONES AUXILIARES (SE MANTIENEN IGUAL) ---
+// --- FUNCIONES AUXILIARES ---
 const getNextDateForDay = (startDate: Date, targetDayIndex: number, timeStr: string) => {
   const resultDate = new Date(startDate);
   const currentDay = resultDate.getDay();
@@ -269,7 +337,7 @@ export default function AdminTabBookings() {
         onCancel: () => { 
           setTimeout(() => showConfirm({
             title: '¿Borrar solo hoy?',
-            message: `¿Eliminar únicamente el turno de hoy (${booking.slotTime}) y mantener los futuros?`,
+            message: `¿Eliminar únicamente el turno de hoy y mantener los futuros?`,
             confirmText: 'Sí, borrar solo hoy', cancelText: 'Cancelar',
             onConfirm: async () => { try { await cancelBooking(booking.id); showInfo('✅ Turno del día eliminado.', 'Listo'); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } },
           }), 200);
@@ -303,30 +371,30 @@ export default function AdminTabBookings() {
       {/* --- TARJETA DE CREACIÓN DE RESERVA (BEIGE WIMBLEDON) --- */}
       <div className="bg-[#EBE1D8] border-4 border-white/50 rounded-[2rem] p-8 mb-8 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
         <h2 className="text-2xl font-black text-[#926699] flex items-center gap-3 uppercase italic tracking-tight">
-          <span className="bg-[#926699] text-[#EBE1D8] p-2 rounded-xl text-xl">
-            {manualBooking.isFixed ? '🔄' : '📅'}
+          <span className="bg-[#926699] text-[#EBE1D8] p-2.5 rounded-xl shadow-lg shadow-[#926699]/20">
+            {manualBooking.isFixed ? <Repeat size={24} strokeWidth={3} /> : <CalendarPlus size={24} strokeWidth={3} />}
           </span>
           {manualBooking.isFixed ? 'Nuevo Turno Fijo' : 'Nueva Reserva Simple'}
-          <span className="ml-2 text-[10px] px-3 py-1 rounded-full bg-[#347048] text-[#EBE1D8] font-black tracking-widest not-italic">
+          <span className="ml-2 text-[10px] px-3 py-1 rounded-full bg-[#347048] text-[#EBE1D8] font-black tracking-widest not-italic shadow-sm">
             {manualBooking.isFixed ? 'SERIE' : 'SIMPLE'}
           </span>
         </h2>
 
         <form onSubmit={handleCreateBooking} className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
           
-          {/* BUSCADOR CLIENTE */}
-          <div className="relative" ref={wrapperRef}>
+          {/* BUSCADOR CLIENTE (Usa focus-within para saltar al frente al escribir) */}
+          <div className="relative focus-within:z-[100] z-20" ref={wrapperRef}>
               <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Nombre (Buscar Cliente)</label>
               <input 
                   type="text" 
                   value={manualBooking.guestFirstName} 
                   onChange={handleNameChange}
-                  className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
+                  className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all relative z-10"
                   placeholder="Escribe para buscar..." 
                   required autoComplete="off"
               />
               {showDropdown && searchResults.length > 0 && (
-                  <ul className="absolute z-50 w-full mt-2 bg-white border-2 border-[#347048]/10 rounded-xl shadow-2xl max-h-60 overflow-y-auto">
+                  <ul className="absolute z-[110] w-full mt-2 bg-white border-2 border-[#347048]/10 rounded-2xl shadow-2xl max-h-60 overflow-y-auto">
                       {searchResults.map((client) => (
                           <li key={client.id} onClick={() => selectClient(client)}
                               className="px-4 py-3 hover:bg-[#B9CF32]/20 cursor-pointer text-[#347048] border-b border-[#347048]/5 last:border-0 transition-colors">
@@ -341,71 +409,97 @@ export default function AdminTabBookings() {
               )}
           </div>
 
-          <div>
+          <div className="relative z-10">
             <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Apellido</label>
             <input type="text" value={manualBooking.guestLastName} onChange={(e) => setManualBooking({ ...manualBooking, guestLastName: e.target.value })} 
             className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all" placeholder="Ingresa el apellido" required />
           </div>
 
-          <div>
+          <div className="relative z-10">
             <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Teléfono</label>
             <input type="tel" value={manualBooking.guestPhone} onChange={(e) => setManualBooking({ ...manualBooking, guestPhone: e.target.value })} 
             className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all" placeholder="Ej: 3511234567" required/>
           </div>
 
-          <div>
+          <div className="relative z-10">
             <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">DNI</label>
             <input type="text" value={manualBooking.guestDni} onChange={(e) => setManualBooking({ ...manualBooking, guestDni: e.target.value })} 
             className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all" placeholder="Número de documento" required />
           </div>
 
-          <div className="relative z-10 w-full">
+          {/* 👇 FECHA (Usa focus-within para tapar TODO al abrirse) 👇 */}
+          <div className="relative focus-within:z-[100] z-20">
             <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Fecha</label>
-            <div>
-              <DatePickerDark
-                selected={manualBooking.startDateBase ? (() => { const [y, m, d] = manualBooking.startDateBase.split('-').map(Number); return new Date(y, m - 1, d); })() : null}
-                onChange={(date: Date | null) => {
-                  if (!date) return;
-                  setManualBooking({ ...manualBooking, startDateBase: formatLocalDate(date) });
-                }}
-                minDate={new Date()}
-                showIcon={false}
-                variant="light"
-                inputClassName="bg-white text-[#347048] font-bold border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 py-3 shadow-sm"
-              />
-            </div>
+            {manualBooking.isFixed ? (
+              <div className="h-12 bg-white/50 border-2 border-dashed border-[#347048]/20 rounded-xl px-4 flex items-center">
+                <span className="text-[#347048]/40 font-bold text-sm">Selecciona día abajo</span>
+              </div>
+            ) : (
+              <div className="wimbledon-datepicker relative z-10">
+                <DatePickerDark
+                  selected={manualBooking.startDateBase ? (() => { const [y, m, d] = manualBooking.startDateBase.split('-').map(Number); return new Date(y, m - 1, d); })() : null}
+                  onChange={(date: Date | null) => {
+                    if (!date) return;
+                    setManualBooking({ ...manualBooking, startDateBase: formatLocalDate(date) });
+                  }}
+                  minDate={new Date()}
+                />
+              </div>
+            )}
           </div>
 
-          <div>
+          {/* HORA */}
+          <div className="relative z-20">
             <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Hora</label>
-            <select value={manualBooking.time} onChange={(e) => setManualBooking({ ...manualBooking, time: e.target.value })} 
-            className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black focus:outline-none shadow-sm appearance-none transition-all cursor-pointer" required>
-              {CLUB_TIME_SLOTS.map(slot => (
-                <option key={slot} value={slot} disabled={!!(manualBooking.startDateBase && isPastTimeForDate(manualBooking.startDateBase, slot))}>{slot}</option>
-              ))}
-            </select>
+            <CustomSelect 
+              value={manualBooking.time}
+              onChange={(val: string) => setManualBooking({ ...manualBooking, time: val })}
+              placeholder="Selecciona hora"
+              options={CLUB_TIME_SLOTS.map(slot => ({
+                value: slot,
+                label: slot,
+                disabled: !!(manualBooking.startDateBase && isPastTimeForDate(manualBooking.startDateBase, slot))
+              }))}
+            />
           </div>
 
-          <div>
+          {/* CANCHA */}
+          <div className="relative z-20">
             <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Cancha</label>
-            <select value={manualBooking.courtId} onChange={(e) => setManualBooking({ ...manualBooking, courtId: e.target.value })} 
-            className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black focus:outline-none shadow-sm appearance-none transition-all cursor-pointer" required>
-              <option value="">Selecciona cancha</option>
-              {courts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <CustomSelect 
+              value={manualBooking.courtId}
+              onChange={(val: string) => setManualBooking({ ...manualBooking, courtId: val })}
+              placeholder="Selecciona cancha"
+              options={courts.map(c => ({
+                value: c.id.toString(),
+                label: c.name
+              }))}
+            />
           </div>
 
+          {/* DIA DE SEMANA */}
           {manualBooking.isFixed && (
-            <div>
+            <div className="relative z-20">
               <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Día de la semana</label>
-              <select value={manualBooking.dayOfWeek} onChange={(e) => setManualBooking({ ...manualBooking, dayOfWeek: e.target.value })} 
-              className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black focus:outline-none shadow-sm appearance-none transition-all cursor-pointer">
-                <option value="1">Lunes</option><option value="2">Martes</option><option value="3">Miércoles</option><option value="4">Jueves</option><option value="5">Viernes</option><option value="6">Sábado</option><option value="0">Domingo</option>
-              </select>
+              <CustomSelect 
+                value={manualBooking.dayOfWeek}
+                onChange={(val: string) => setManualBooking({ ...manualBooking, dayOfWeek: val })}
+                placeholder="Selecciona día"
+                options={[
+                  { value: '1', label: 'Lunes' },
+                  { value: '2', label: 'Martes' },
+                  { value: '3', label: 'Miércoles' },
+                  { value: '4', label: 'Jueves' },
+                  { value: '5', label: 'Viernes' },
+                  { value: '6', label: 'Sábado' },
+                  { value: '0', label: 'Domingo' }
+                ]}
+              />
             </div>
           )}
 
-          <div className="md:col-span-2 flex flex-col sm:flex-row gap-6 items-center justify-between mt-4 p-6 bg-[#347048]/5 rounded-[1.5rem] border border-[#347048]/10">
+          {/* BOTÓN CHECKBOX Y SUBMIT */}
+          <div className="relative z-0 md:col-span-2 flex flex-col sm:flex-row gap-6 items-center justify-between mt-4 p-6 bg-[#347048]/5 rounded-[1.5rem] border border-[#347048]/10">
             <label className="flex items-center gap-3 text-[#347048] font-black cursor-pointer group">
               <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${manualBooking.isFixed ? 'bg-[#B9CF32] border-[#B9CF32]' : 'border-[#347048]/20 bg-white'}`}>
                   {manualBooking.isFixed && <Check size={16} className="text-[#347048]" strokeWidth={4} />}
@@ -422,22 +516,20 @@ export default function AdminTabBookings() {
         </form>
       </div>
 
-      {/* --- TABLA DE HORARIOS (DISEÑO PREMIUM) --- */}
-      <div className="bg-[#EBE1D8] border-4 border-white/50 rounded-[2rem] p-8 mb-8 shadow-2xl shadow-[#347048]/20 overflow-hidden relative">
+      {/* --- TABLA DE HORARIOS --- */}
+      <div className="bg-[#EBE1D8] border-4 border-white/50 rounded-[2rem] p-8 mb-8 shadow-2xl shadow-[#347048]/20 overflow-hidden relative z-0">
         <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-6 mb-8">
           <h2 className="text-2xl font-black text-[#347048] uppercase italic tracking-tight flex items-center gap-3">
              <div className="w-2 h-8 bg-[#B9CF32] rounded-full"></div>
              Agenda del Día
           </h2>
           <div className="flex flex-wrap items-center gap-4 bg-white/40 p-2 rounded-2xl border border-white/60">
-            <div className="flex items-center gap-2 px-3">
+            <div className="flex items-center gap-2 px-3 wimbledon-datepicker">
               <span className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Fecha:</span>
-              <DatePickerDark
+              <DatePicker
                 selected={scheduleDate ? (() => { const [y, m, d] = scheduleDate.split('-').map(Number); return new Date(y, m - 1, d); })() : new Date()}
                 onChange={(date: Date | null) => date && setScheduleDate(formatLocalDate(date))}
-                showIcon={false}
-                variant="light"
-                inputClassName="bg-transparent border-none text-[#347048] font-black text-sm focus:outline-none w-28 cursor-pointer p-0 h-auto"
+                dateFormat="yyyy-MM-dd" className="bg-transparent border-none text-[#347048] font-black text-sm focus:outline-none w-28 cursor-pointer"
               />
             </div>
             <button onClick={loadSchedule} disabled={loadingSchedule} className="flex items-center gap-2 px-4 py-2 bg-[#347048] text-[#EBE1D8] rounded-xl text-xs font-black uppercase tracking-tighter hover:bg-[#B9CF32] hover:text-[#347048] transition-all">
@@ -466,29 +558,70 @@ export default function AdminTabBookings() {
                     <td className="px-6 py-5 first:rounded-l-2xl font-black text-[#347048] text-lg">{slot.slotTime}</td>
                     <td className="px-6 py-5 font-bold text-[#347048]/80">{slot.courtName}</td>
                     <td className="px-6 py-5">
-                      {(() => {
-                        const [h, m] = slot.slotTime.split(':').map(Number);
-                        const [year, month, day] = scheduleDate.split('-').map(Number);
-                        const slotDate = new Date(year, month - 1, day, h, m);
-                        const isPast = slotDate < new Date();
-                        let statusText = ''; let cClasses = ''; let dClasses = '';
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                        {(() => {
+                          const [h, m] = slot.slotTime.split(':').map(Number);
+                          const [year, month, day] = scheduleDate.split('-').map(Number);
+                          
+                          // 1. Calculamos Inicio y Fin (90 minutos después)
+                          const slotStartDate = new Date(year, month - 1, day, h, m);
+                          const slotEndDate = new Date(slotStartDate.getTime() + 90 * 60000); 
+                          const now = new Date();
+                          
+                          // 2. Evaluamos los tiempos
+                          const isPastStart = slotStartDate < now; // Ya empezó
+                          const isPastEnd = slotEndDate < now;     // Ya terminó (pasó la hora y media)
+                          const isPlaying = isPastStart && !isPastEnd; // Están jugando AHORA
 
-                        if (!slot.booking) {
-                          if (isPast) { statusText = 'NO JUGADO'; cClasses = 'bg-gray-200 text-gray-500 border-transparent'; dClasses = 'bg-gray-400'; }
-                          else { statusText = 'DISPONIBLE'; cClasses = 'bg-emerald-100 text-emerald-700 border-emerald-200'; dClasses = 'bg-emerald-500 animate-pulse'; }
-                        } else {
-                          const status = slot.booking.status;
-                          if (isPast && (status === 'CONFIRMED' || status === 'PENDING' || status === 'COMPLETED')) { statusText = 'COMPLETADO'; cClasses = 'bg-blue-100 text-blue-700 border-blue-200'; dClasses = 'bg-blue-500'; } 
-                          else if (status === 'CONFIRMED') { statusText = 'CONFIRMADO'; cClasses = 'bg-red-100 text-red-700 border-red-200'; dClasses = 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'; } 
-                          else { statusText = 'PENDIENTE'; cClasses = 'bg-yellow-100 text-yellow-700 border-yellow-200'; dClasses = 'bg-yellow-500'; }
-                        }
-                        return (
-                          <span className={`inline-flex items-center gap-2 text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-wider border ${cClasses}`}>
-                            <span className={`w-2 h-2 rounded-full ${dClasses}`}></span>
-                            {statusText}
+                          let statusText = ''; let cClasses = ''; let dClasses = '';
+
+                          if (!slot.booking) {
+                            if (isPastStart) { statusText = 'NO JUGADO'; cClasses = 'bg-gray-200 text-gray-500 border-transparent'; dClasses = 'bg-gray-400'; }
+                            else { statusText = 'DISPONIBLE'; cClasses = 'bg-emerald-100 text-emerald-700 border-emerald-200'; dClasses = 'bg-emerald-500 animate-pulse'; }
+                          } else {
+                            const status = slot.booking.status;
+                            
+                            if (isPastEnd) { 
+                                // Si ya pasó la hora y media completa
+                                statusText = 'COMPLETADO'; 
+                                cClasses = 'bg-blue-100 text-blue-700 border-blue-200'; 
+                                dClasses = 'bg-blue-500'; 
+                            } 
+                            else if (isPlaying) {
+                                // Si arrancó pero todavía no pasaron los 90 min
+                                statusText = 'EN JUEGO'; 
+                                cClasses = 'bg-[#926699]/10 text-[#926699] border-[#926699]/30'; 
+                                dClasses = 'bg-[#926699] animate-pulse'; 
+                            }
+                            else if (status === 'CONFIRMED') { 
+                                // Futuro Confirmado
+                                statusText = 'CONFIRMADO'; 
+                                cClasses = 'bg-red-100 text-red-700 border-red-200'; 
+                                dClasses = 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'; 
+                            } 
+                            else { 
+                                // Futuro Pendiente de seña/pago
+                                statusText = 'PENDIENTE'; 
+                                cClasses = 'bg-yellow-100 text-yellow-700 border-yellow-200'; 
+                                dClasses = 'bg-yellow-500'; 
+                            }
+                          }
+                          
+                          return (
+                            <span className={`inline-flex items-center gap-2 text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-wider border ${cClasses}`}>
+                              <span className={`w-2 h-2 rounded-full ${dClasses}`}></span>
+                              {statusText}
+                            </span>
+                          );
+                        })()}
+
+                        {/* 👇 ACÁ ESTÁ LA ETIQUETA DE TURNO FIJO RECUPERADA 👇 */}
+                        {slot.booking?.fixedBookingId && (
+                          <span className="bg-[#347048] text-[#B9CF32] text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest flex items-center gap-1 shadow-sm">
+                            🔄 Fijo
                           </span>
-                        );
-                      })()}
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-5">
                       {slot.booking ? (
@@ -536,7 +669,6 @@ export default function AdminTabBookings() {
         )}
       </div>
 
-      {/* --- MODALES Y PORTALES --- */}
       {selectedBooking && (
         <ModalPortal onClose={() => setSelectedBooking(null)}>
           <BookingConsumption 
@@ -558,16 +690,17 @@ export default function AdminTabBookings() {
                 <p className="text-[#347048]/60 text-xs font-bold mb-8 text-center uppercase tracking-widest">Selecciona el método de pago</p>
                 <div className="grid grid-cols-2 gap-4 mb-4">
                     <button onClick={() => handleConfirmBooking('CASH')} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-[1.5rem] text-[#347048] transition-all shadow-sm group">
-                        <span className="text-3xl mb-2 group-hover:scale-125 transition-transform">💵</span>
+                        <Banknote size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
                         <span className="font-black text-xs uppercase tracking-tighter">Efectivo</span>
                     </button>
                     <button onClick={() => handleConfirmBooking('TRANSFER')} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-[1.5rem] text-[#347048] transition-all shadow-sm group">
-                        <span className="text-3xl mb-2 group-hover:scale-125 transition-transform">💳</span>
+                        <CreditCard size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
                         <span className="font-black text-xs uppercase tracking-tighter">Digital</span>
                     </button>
                 </div>
                 <button onClick={() => handleConfirmBooking('DEBT')} className="w-full py-4 flex items-center justify-center gap-2 bg-[#926699]/10 border-2 border-[#926699]/20 hover:bg-[#926699]/20 rounded-xl text-[#926699] font-black uppercase text-[10px] tracking-[0.2em] transition-all mb-4">
-                    <span>📄</span> Dejar en Cuenta (Deuda)
+                    <FileText size={16} strokeWidth={3} />
+                    <span>Dejar en Cuenta (Deuda)</span>
                 </button>
             </div>
         </div>

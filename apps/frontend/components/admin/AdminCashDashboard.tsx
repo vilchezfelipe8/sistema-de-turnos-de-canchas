@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Wallet, ArrowUpCircle, ArrowDownCircle, Banknote, CreditCard, Plus, Receipt, History } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Wallet, ArrowUpCircle, ArrowDownCircle, Banknote, CreditCard, Plus, Receipt, History, ChevronDown, Check } from 'lucide-react';
 
 // Tipos
 interface Movement {
@@ -18,6 +18,68 @@ interface Balance {
   income: number;
   expense: number;
 }
+
+// --- COMPONENTE DROPDOWN CUSTOM (ESTILO WIMBLEDON) ---
+const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const selectedOption = options.find((o: any) => o.value === value);
+
+  return (
+    <div className={`relative w-full ${isOpen ? 'z-[100]' : 'z-10'}`} ref={wrapperRef}>
+      <div 
+        className={`w-full h-14 bg-white border-2 transition-all rounded-2xl px-4 flex items-center justify-between shadow-sm cursor-pointer ${
+          isOpen ? 'border-[#B9CF32] ring-2 ring-[#B9CF32]/20' : 'border-transparent hover:border-[#B9CF32]/50'
+        }`}
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <span className={`font-bold text-sm ${!selectedOption ? 'text-[#347048]/40' : 'text-[#347048]'}`}>
+          {selectedOption ? selectedOption.label : placeholder}
+        </span>
+        <ChevronDown size={18} className={`transition-transform duration-300 ${isOpen ? 'rotate-180 text-[#B9CF32]' : 'text-[#347048]/40'}`} strokeWidth={3} />
+      </div>
+
+      {isOpen && (
+        <div className="absolute z-[110] w-full mt-2 bg-white border-2 border-[#347048]/10 rounded-2xl shadow-2xl max-h-48 overflow-y-auto custom-scrollbar overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+          <ul className="flex flex-col py-2">
+            {options.map((option: any) => (
+              <li 
+                key={option.value}
+                onClick={() => {
+                  if (!option.disabled) {
+                    onChange(option.value);
+                    setIsOpen(false);
+                  }
+                }}
+                className={`px-4 py-3 flex items-center justify-between transition-colors ${
+                  option.disabled 
+                    ? 'opacity-40 cursor-not-allowed bg-gray-50' 
+                    : 'cursor-pointer hover:bg-[#B9CF32]/20'
+                } ${value === option.value ? 'bg-[#347048]/5 text-[#347048]' : 'text-[#347048]'}`}
+              >
+                <span className="font-black text-xs">{option.label}</span>
+                {option.disabled && <span className="text-[9px] font-black text-red-500 uppercase tracking-widest border border-red-500/20 bg-red-50 px-2 py-0.5 rounded-md">Sin Stock</span>}
+                {!option.disabled && value === option.value && <Check size={14} className="text-[#347048]" strokeWidth={4} />}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+};
+
 
 const AdminCashDashboard = () => {
   const [movements, setMovements] = useState<Movement[]>([]);
@@ -93,10 +155,12 @@ const AdminCashDashboard = () => {
       {/* TÍTULO DE SECCIÓN */}
       <div className="flex items-center justify-between mb-2">
         <div>
-            <h2 className="text-3xl font-black text-[#EBE1D8] flex items-center gap-3 uppercase italic tracking-tighter">
-            <span className="bg-[#B9CF32] text-[#347048] p-2 rounded-xl text-2xl shadow-lg shadow-[#B9CF32]/20 italic">💰</span>
-            Caja y Movimientos
-            </h2>
+           <h2 className="text-3xl font-black text-[#EBE1D8] flex items-center gap-3 uppercase italic tracking-tighter">
+          <div className="bg-[#B9CF32] text-[#347048] p-2 rounded-xl shadow-lg shadow-[#B9CF32]/20">
+            <Wallet size={28} strokeWidth={3} />
+          </div>
+          Caja y Movimientos
+        </h2>
             <p className="text-[#EBE1D8]/60 text-xs font-bold uppercase tracking-[0.2em] mt-1 ml-14">Resumen diario y control de flujo</p>
         </div>
         <div className="bg-[#347048]/40 border border-[#EBE1D8]/10 px-4 py-2 rounded-2xl backdrop-blur-sm">
@@ -153,7 +217,7 @@ const AdminCashDashboard = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
-        {/* LISTA DE MOVIMIENTOS (ESTILO TABLA BEIGE) */}
+        {/* LISTA DE MOVIMIENTOS */}
         <div className="lg:col-span-2 bg-[#EBE1D8] border-4 border-white/50 rounded-[2.5rem] overflow-hidden shadow-2xl shadow-[#347048]/20 flex flex-col min-h-[500px]">
           <div className="p-6 border-b border-[#347048]/10 flex justify-between items-center bg-[#EBE1D8]">
             <h3 className="text-xl font-black text-[#347048] flex items-center gap-3 uppercase italic tracking-tight">
@@ -185,12 +249,12 @@ const AdminCashDashboard = () => {
                             <span className="block text-sm font-black text-[#347048] uppercase tracking-tight leading-none mb-1">
                                 {m.description}
                             </span>
-                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-md border uppercase tracking-widest ${
+                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-md border uppercase tracking-widest flex items-center gap-1 w-fit ${
                                 m.method === 'CASH' 
                                     ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
                                     : 'bg-blue-50 text-blue-600 border-blue-100'
                             }`}>
-                                {m.method === 'CASH' ? '💵 Efectivo' : '💳 Digital'}
+                                {m.method === 'CASH' ? <><Banknote size={10} strokeWidth={3} /> Efectivo</> : <><CreditCard size={10} strokeWidth={3} /> Digital</>}
                             </span>
                         </div>
                     </div>
@@ -206,7 +270,7 @@ const AdminCashDashboard = () => {
           </div>
         </div>
 
-        {/* FORMULARIO AGREGAR RÁPIDO (TARJETA BEIGE SÓLIDA) */}
+        {/* FORMULARIO AGREGAR RÁPIDO */}
         <div className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl h-fit">
           <h3 className="text-xl font-black text-[#926699] mb-8 flex items-center gap-3 uppercase italic tracking-tight">
             <Plus size={24} strokeWidth={3} className="bg-[#926699] text-[#EBE1D8] rounded-lg p-1" /> Nuevo Registro
@@ -218,33 +282,34 @@ const AdminCashDashboard = () => {
               <input 
                 type="text" 
                 placeholder="Ej: Retiro, Compra Insumos..."
-                className="w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl p-4 text-[#347048] font-bold focus:outline-none shadow-sm placeholder-[#347048]/20 transition-all"
+                className="w-full h-14 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl px-4 text-[#347048] font-bold focus:outline-none shadow-sm placeholder-[#347048]/20 transition-all"
                 value={newMove.description}
                 onChange={e => setNewMove({...newMove, description: e.target.value})}
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <div>
+              <div className="relative z-10">
                 <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Monto ($)</label>
                 <input 
                   type="number" 
                   placeholder="0"
-                  className="w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl p-4 text-[#347048] font-black focus:outline-none shadow-sm transition-all"
+                  className="w-full h-14 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl px-4 text-[#347048] font-black focus:outline-none shadow-sm transition-all"
                   value={newMove.amount}
                   onChange={e => setNewMove({...newMove, amount: e.target.value})}
                 />
               </div>
-              <div>
+              <div className="relative focus-within:z-[100] z-20">
                 <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Operación</label>
-                <select 
-                  className="w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl p-4 text-[#347048] font-bold focus:outline-none shadow-sm appearance-none cursor-pointer"
-                  value={newMove.type}
-                  onChange={e => setNewMove({...newMove, type: e.target.value})}
-                >
-                  <option value="INCOME">Ingreso (+)</option>
-                  <option value="EXPENSE">Gasto (-)</option>
-                </select>
+                <CustomSelect 
+                    value={newMove.type}
+                    onChange={(val: string) => setNewMove({...newMove, type: val})}
+                    placeholder="Seleccionar..."
+                    options={[
+                        { value: 'INCOME', label: 'Ingreso (+)' },
+                        { value: 'EXPENSE', label: 'Gasto (-)' }
+                    ]}
+                />
               </div>
             </div>
 
@@ -254,27 +319,27 @@ const AdminCashDashboard = () => {
                 <button 
                   type="button"
                   onClick={() => setNewMove({...newMove, method: 'CASH'})}
-                  className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
+                  className={`py-3 flex items-center justify-center gap-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
                       newMove.method === 'CASH' 
-                        ? 'bg-[#347048] border-[#347048] text-[#B9CF32] shadow-lg' 
+                        ? 'bg-[#347048] border-[#347048] text-[#B9CF32] shadow-lg scale-105' 
                         : 'bg-white border-transparent text-[#347048]/40 hover:bg-white/80'}`}
                 >
-                  💵 Efectivo
+                  <Banknote size={16} strokeWidth={2.5} /> Efectivo
                 </button>
                 <button 
                   type="button"
                   onClick={() => setNewMove({...newMove, method: 'TRANSFER'})}
-                  className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
+                  className={`py-3 flex items-center justify-center gap-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
                       newMove.method === 'TRANSFER' 
-                        ? 'bg-[#347048] border-[#347048] text-[#B9CF32] shadow-lg' 
+                        ? 'bg-[#347048] border-[#347048] text-[#B9CF32] shadow-lg scale-105' 
                         : 'bg-white border-transparent text-[#347048]/40 hover:bg-white/80'}`}
                 >
-                  💳 Digital
+                  <CreditCard size={16} strokeWidth={2.5} /> Digital
                 </button>
               </div>
             </div>
 
-            <button type="submit" className="w-full py-4 bg-[#B9CF32] hover:bg-[#aebd2b] text-[#347048] font-black rounded-[1.5rem] shadow-xl shadow-[#B9CF32]/20 transition-all hover:-translate-y-1 uppercase tracking-widest text-sm italic mt-2">
+            <button type="submit" className="w-full py-4 bg-[#B9CF32] hover:bg-[#aebd2b] text-[#347048] font-black rounded-[1.5rem] shadow-xl shadow-[#B9CF32]/20 transition-all hover:-translate-y-1 active:scale-95 uppercase tracking-widest text-sm italic mt-2">
               Registrar Movimiento
             </button>
           </form>
