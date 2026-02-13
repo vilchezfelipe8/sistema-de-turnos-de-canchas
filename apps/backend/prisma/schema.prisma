@@ -59,6 +59,7 @@ model Club {
   contactInfo  String // Email de contacto general
   phone        String? // Teléfono del club
   logoUrl      String? // URL del logo del club
+  clubImageUrl String? // URL de la imagen/foto del club
   instagramUrl String? // URL de Instagram
   facebookUrl  String? // URL de Facebook
   websiteUrl   String? // URL del sitio web

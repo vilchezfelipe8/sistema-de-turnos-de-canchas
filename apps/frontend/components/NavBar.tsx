@@ -177,6 +177,7 @@ const Navbar = ({ onMenuClick }: NavbarProps) => {
               {club?.logoUrl ? (
                 // LOGO: Tamaño h-14 (grande pero controlado)
                 // Usamos h-14 (56px) en vez de h-20 (80px) para que no empuje todo hacia abajo
+                // eslint-disable-next-line @next/next/no-img-element
                 <img 
                   src={club.logoUrl} 
                   alt={club.name} 

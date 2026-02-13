@@ -4,13 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAvailability } from '../hooks/useAvailability';
 import { createBooking } from '../services/BookingService';
 import AppModal from './AppModal';
-import DatePicker from 'react-datepicker';
-import { registerLocale } from 'react-datepicker';
-import { es } from 'date-fns/locale/es';
-import 'react-datepicker/dist/react-datepicker.css';
-
-// Registrar locale en español
-registerLocale('es', es);
+import DatePickerDark from './ui/DatePickerDark';
 
 import { getApiUrl } from '../utils/apiUrl';
 import { ClubService, Club } from '../services/ClubService';
@@ -483,7 +477,6 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                 </option>
               ))}
             </select>
-             {/* Flecha personalizada */}
              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-[#B9CF32]">
               <svg className="fill-current h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
             </div>
@@ -495,33 +488,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
             <span>Fecha</span>
           </label>
           <div className="w-full relative">
-            <style jsx global>{`
-                .date-picker-custom {
-                    background-color: white !important;
-                    color: #347048 !important;
-                    font-weight: bold !important;
-                    border: 2px solid transparent !important;
-                    border-radius: 0.75rem !important;
-                    padding: 0.75rem 1rem !important;
-                    width: 100% !important;
-                    outline: none !important;
-                }
-                .date-picker-custom:focus { border-color: #B9CF32 !important; }
-                .react-datepicker {
-                    background-color: #347048 !important;
-                    border: none !important;
-                    border-radius: 1rem !important;
-                    font-family: inherit !important;
-                }
-                .react-datepicker__header { background-color: #2a5c3b !important; border-bottom: 1px solid rgba(255,255,255,0.1) !important; }
-                .react-datepicker__current-month, .react-datepicker__day-name { color: #EBE1D8 !important; }
-                .react-datepicker__day { color: #EBE1D8 !important; font-weight: 500 !important; }
-                .react-datepicker__day:hover, .react-datepicker__day--selected {
-                    background-color: #B9CF32 !important; color: #347048 !important; font-weight: bold !important; border-radius: 50% !important;
-                }
-                .react-datepicker__day--disabled { color: rgba(235, 225, 216, 0.3) !important; }
-            `}</style>
-            <DatePicker
+            <DatePickerDark
               selected={selectedDate}
               onChange={(date: Date | null) => {
                 if (!date) return;
@@ -551,16 +518,9 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
               }}
               minDate={new Date()}
               maxDate={maxDate}
-              dateFormat="dd MMM yyyy"
-              locale={es}
-              className="date-picker-custom shadow-sm"
-              wrapperClassName="w-full"
-              calendarClassName="date-picker-calendar"
-              popperClassName="date-picker-popper"
-              placeholderText="Selecciona una fecha"
-              showPopperArrow={false}
-              popperPlacement="bottom-start"
-              disabledKeyboardNavigation={false}
+              showIcon={false}
+              variant="light"
+              inputClassName="bg-white text-[#347048] font-bold border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 py-3 shadow-sm"
             />
           </div>
         </div>
@@ -661,7 +621,6 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                       return (
                         <button key={court.id} onClick={handleSelectCourt} disabled={isDisabled} className={btnClass}>
                           <span>🏓</span> {court.name}
-                          {!isBackendAvailable && <span className="text-[10px] ml-1 opacity-50">(X)</span>}
                         </button>
                       );
                     })}

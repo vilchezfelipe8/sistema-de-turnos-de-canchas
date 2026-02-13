@@ -151,7 +151,19 @@ export class BookingRepository {
             dbItem.court.club.city,
             dbItem.court.club.province,
             dbItem.court.club.country,
-            dbItem.court.club.contactInfo
+            dbItem.court.club.contactInfo,
+            dbItem.court.club.phone || undefined,
+            dbItem.court.club.logoUrl || undefined,
+            dbItem.court.club.clubImageUrl || undefined,
+            dbItem.court.club.instagramUrl || undefined,
+            dbItem.court.club.facebookUrl || undefined,
+            dbItem.court.club.websiteUrl || undefined,
+            dbItem.court.club.description || undefined,
+            dbItem.court.club.lightsEnabled ?? false,
+            dbItem.court.club.lightsExtraAmount ?? null,
+            dbItem.court.club.lightsFromHour ?? null,
+            dbItem.court.club.createdAt,
+            dbItem.court.club.updatedAt
         );
     const court = new Court(dbItem.court.id, dbItem.court.name, dbItem.court.isIndoor, dbItem.court.surface, club, dbItem.court.isUnderMaintenance, null);
         const activity = new ActivityType(dbItem.activity.id, dbItem.activity.name, dbItem.activity.description, dbItem.activity.defaultDurationMinutes);

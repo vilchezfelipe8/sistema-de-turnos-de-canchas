@@ -1,10 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
-import DatePicker from 'react-datepicker';
-import { registerLocale } from 'react-datepicker';
-import { es } from 'date-fns/locale/es';
-import 'react-datepicker/dist/react-datepicker.css';
+import DatePickerDark from '../../components/ui/DatePickerDark';
 import { getCourts } from '../../services/CourtService';
 import {
   getAdminSchedule,
@@ -18,10 +15,7 @@ import {
 import AppModal from '../AppModal';
 import BookingConsumption from '../BookingConsumption';
 import { useParams } from 'react-router-dom';
-import DatePickerDark from '../../components/ui/DatePickerDark';
 import { Trash2, Check, ShoppingCart, Calendar as CalendarIcon, RefreshCw } from 'lucide-react'; 
-
-registerLocale('es', es);
 
 const CLUB_TIME_SLOTS = [
   '08:00', '09:30', '11:00', '12:30',
@@ -366,18 +360,21 @@ export default function AdminTabBookings() {
           </div>
 
           <div className="relative z-10 w-full">
-  <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Fecha</label>
-  <div className="wimbledon-datepicker"> {/* Envolvemos el DatePicker */}
-    <DatePickerDark
-      selected={manualBooking.startDateBase ? (() => { const [y, m, d] = manualBooking.startDateBase.split('-').map(Number); return new Date(y, m - 1, d); })() : null}
-      onChange={(date: Date | null) => {
-        if (!date) return;
-        setManualBooking({ ...manualBooking, startDateBase: formatLocalDate(date) });
-      }}
-      minDate={new Date()}
-    />
-  </div>
-</div>
+            <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Fecha</label>
+            <div>
+              <DatePickerDark
+                selected={manualBooking.startDateBase ? (() => { const [y, m, d] = manualBooking.startDateBase.split('-').map(Number); return new Date(y, m - 1, d); })() : null}
+                onChange={(date: Date | null) => {
+                  if (!date) return;
+                  setManualBooking({ ...manualBooking, startDateBase: formatLocalDate(date) });
+                }}
+                minDate={new Date()}
+                showIcon={false}
+                variant="light"
+                inputClassName="bg-white text-[#347048] font-bold border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 py-3 shadow-sm"
+              />
+            </div>
+          </div>
 
           <div>
             <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Hora</label>
@@ -435,10 +432,12 @@ export default function AdminTabBookings() {
           <div className="flex flex-wrap items-center gap-4 bg-white/40 p-2 rounded-2xl border border-white/60">
             <div className="flex items-center gap-2 px-3">
               <span className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Fecha:</span>
-              <DatePicker
+              <DatePickerDark
                 selected={scheduleDate ? (() => { const [y, m, d] = scheduleDate.split('-').map(Number); return new Date(y, m - 1, d); })() : new Date()}
                 onChange={(date: Date | null) => date && setScheduleDate(formatLocalDate(date))}
-                dateFormat="yyyy-MM-dd" className="bg-transparent border-none text-[#347048] font-black text-sm focus:outline-none w-28 cursor-pointer"
+                showIcon={false}
+                variant="light"
+                inputClassName="bg-transparent border-none text-[#347048] font-black text-sm focus:outline-none w-28 cursor-pointer p-0 h-auto"
               />
             </div>
             <button onClick={loadSchedule} disabled={loadingSchedule} className="flex items-center gap-2 px-4 py-2 bg-[#347048] text-[#EBE1D8] rounded-xl text-xs font-black uppercase tracking-tighter hover:bg-[#B9CF32] hover:text-[#347048] transition-all">

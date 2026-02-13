@@ -22,6 +22,7 @@ export class ClubService {
         contact: string,
         phone?: string,
         logoUrl?: string,
+    clubImageUrl?: string,
         instagramUrl?: string,
         facebookUrl?: string,
         websiteUrl?: string,
@@ -40,6 +41,7 @@ export class ClubService {
             contact,
             phone,
             logoUrl,
+            clubImageUrl,
             instagramUrl,
             facebookUrl,
             websiteUrl,
@@ -78,6 +80,7 @@ export class ClubService {
             contactInfo?: string;
             phone?: string | null;
             logoUrl?: string | null;
+            clubImageUrl?: string | null;
             instagramUrl?: string | null;
             facebookUrl?: string | null;
             websiteUrl?: string | null;

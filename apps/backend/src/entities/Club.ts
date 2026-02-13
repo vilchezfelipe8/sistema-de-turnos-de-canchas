@@ -14,6 +14,7 @@ export class Club {
         public contactInfo: string,
         public phone?: string,
         public logoUrl?: string,
+    public clubImageUrl?: string,
         public instagramUrl?: string,
         public facebookUrl?: string,
         public websiteUrl?: string,

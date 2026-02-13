@@ -154,7 +154,7 @@ export default function BookingConsumption({ bookingId, slug, courtPrice = 0, pa
                 </option>
                 ))}
             </select>
-            <input 
+      <input 
                 type="number" min="1" 
                 className="w-20 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-2 text-center text-[#347048] font-black shadow-sm outline-none"
                 value={quantity} onChange={(e) => setQuantity(Number(e.target.value))}

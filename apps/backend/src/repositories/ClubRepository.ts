@@ -22,6 +22,7 @@ export class ClubRepository {
         contact: string,
         phone?: string,
         logoUrl?: string,
+    clubImageUrl?: string,
         instagramUrl?: string,
         facebookUrl?: string,
         websiteUrl?: string,
@@ -43,6 +44,7 @@ export class ClubRepository {
                 contactInfo: contact,
                 phone,
                 logoUrl,
+                clubImageUrl,
                 instagramUrl,
                 facebookUrl,
                 websiteUrl,
@@ -107,6 +109,7 @@ export class ClubRepository {
             club.contactInfo,
             club.phone,
             club.logoUrl,
+            club.clubImageUrl,
             club.instagramUrl,
             club.facebookUrl,
             club.websiteUrl,
@@ -149,6 +152,7 @@ export class ClubRepository {
         contactInfo?: string;
         phone?: string | null;
         logoUrl?: string | null;
+    clubImageUrl?: string | null;
         instagramUrl?: string | null;
         facebookUrl?: string | null;
         websiteUrl?: string | null;
@@ -180,6 +184,7 @@ export class ClubRepository {
             dbClub.contactInfo,
             dbClub.phone || undefined,
             dbClub.logoUrl || undefined,
+            dbClub.clubImageUrl || undefined,
             dbClub.instagramUrl || undefined,
             dbClub.facebookUrl || undefined,
             dbClub.websiteUrl || undefined,

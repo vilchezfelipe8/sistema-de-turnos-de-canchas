@@ -6,7 +6,7 @@ export class ClubController {
 
     createClub = async (req: Request, res: Response) => {
         try {
-            const { slug, name, addressLine, city, province, country, contact, phone, logoUrl, instagramUrl, facebookUrl, websiteUrl, description,
+            const { slug, name, addressLine, city, province, country, contact, phone, logoUrl, clubImageUrl, instagramUrl, facebookUrl, websiteUrl, description,
                 lightsEnabled, lightsExtraAmount, lightsFromHour } = req.body;
             if (!slug) {
                 return res.status(400).json({ error: 'El slug es requerido' });
@@ -21,6 +21,7 @@ export class ClubController {
                 contact,
                 phone,
                 logoUrl,
+                clubImageUrl,
                 instagramUrl,
                 facebookUrl,
                 websiteUrl,
@@ -86,6 +87,7 @@ export class ClubController {
                 contactInfo,
                 phone,
                 logoUrl,
+                clubImageUrl,
                 instagramUrl,
                 facebookUrl,
                 websiteUrl,
@@ -105,6 +107,7 @@ export class ClubController {
                 contactInfo,
                 phone: phone === '' ? null : phone,
                 logoUrl: logoUrl === '' ? null : logoUrl,
+                clubImageUrl: clubImageUrl === '' ? null : clubImageUrl,
                 instagramUrl: instagramUrl === '' ? null : instagramUrl,
                 facebookUrl: facebookUrl === '' ? null : facebookUrl,
                 websiteUrl: websiteUrl === '' ? null : websiteUrl,

@@ -68,7 +68,9 @@ if (!DATABASE_URL) {
 }
 const BOOKINGS_COMPLETION_INTERVAL_MS = Number(process.env.BOOKINGS_COMPLETION_INTERVAL_MS) || 1 * 60 * 1000;
 
-app.use(express.json());
+// Aumentamos el tamaño permitido para payloads con imágenes base64
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // 👇 ZONA DE RUTAS
 app.use('/clients', ClientRoutes); 

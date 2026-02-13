@@ -15,6 +15,7 @@ export interface Club {
   contactInfo: string;
   phone?: string;
   logoUrl?: string;
+  clubImageUrl?: string;
   instagramUrl?: string;
   facebookUrl?: string;
   websiteUrl?: string;

@@ -8,7 +8,7 @@ export default function AdminTabClub() {
   const [club, setClub] = useState<Club | null>(null);
   const [loadingClub, setLoadingClub] = useState(false);
   const [clubForm, setClubForm] = useState({
-    slug: '', name: '', addressLine: '', city: '', province: '', country: '', contactInfo: '', phone: '', logoUrl: '',
+    slug: '', name: '', addressLine: '', city: '', province: '', country: '', contactInfo: '', phone: '', logoUrl: '', clubImageUrl: '',
     instagramUrl: '', facebookUrl: '', websiteUrl: '', description: '',
     lightsEnabled: false,
     lightsExtraAmount: '',
@@ -17,6 +17,9 @@ export default function AdminTabClub() {
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [logoError, setLogoError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [clubImagePreview, setClubImagePreview] = useState<string | null>(null);
+  const [clubImageError, setClubImageError] = useState<string | null>(null);
+  const clubImageInputRef = useRef<HTMLInputElement | null>(null);
   const [modalState, setModalState] = useState<{
     show: boolean; title?: string; message?: ReactNode; cancelText?: string; confirmText?: string;
     isWarning?: boolean; onConfirm?: () => Promise<void> | void; onCancel?: () => Promise<void> | void;
@@ -48,14 +51,15 @@ export default function AdminTabClub() {
         setClubForm({
           slug: clubData.slug || '', name: clubData.name || '',
           addressLine: clubData.addressLine || '', city: clubData.city || '', province: clubData.province || '', country: clubData.country || '',
-          contactInfo: clubData.contactInfo || '', phone: clubData.phone || '', logoUrl: clubData.logoUrl || '',
+          contactInfo: clubData.contactInfo || '', phone: clubData.phone || '', logoUrl: clubData.logoUrl || '', clubImageUrl: clubData.clubImageUrl || '',
           instagramUrl: clubData.instagramUrl || '', facebookUrl: clubData.facebookUrl || '',
           websiteUrl: clubData.websiteUrl || '', description: clubData.description || '',
           lightsEnabled: clubData.lightsEnabled ?? false,
           lightsExtraAmount: clubData.lightsExtraAmount != null ? String(clubData.lightsExtraAmount) : '',
           lightsFromHour: clubData.lightsFromHour || ''
         });
-        setLogoPreview(clubData.logoUrl || null);
+  setLogoPreview(clubData.logoUrl || null);
+  setClubImagePreview(clubData.clubImageUrl || null);
       }
     } catch (error: any) {
       showError('Error al cargar información del club: ' + error.message);
@@ -105,6 +109,27 @@ export default function AdminTabClub() {
     reader.readAsDataURL(file);
   };
 
+  const handleClubImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setClubImageError('El archivo debe ser una imagen (PNG, JPG, etc).');
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      setClubImageError('La imagen no puede pesar más de 4MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      setClubForm((prev) => ({ ...prev, clubImageUrl: result }));
+      setClubImagePreview(result);
+      setClubImageError(null);
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleRemoveLogo = () => {
     setClubForm((prev) => ({ ...prev, logoUrl: '' }));
     setLogoPreview(null);
@@ -112,8 +137,27 @@ export default function AdminTabClub() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const handleRemoveClubImage = () => {
+    setClubForm((prev) => ({ ...prev, clubImageUrl: '' }));
+    setClubImagePreview(null);
+    setClubImageError(null);
+    if (clubImageInputRef.current) clubImageInputRef.current.value = '';
+  };
+
   const inputClass = "w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/20 focus:outline-none shadow-sm transition-all";
   const labelClass = "block text-[10px] font-black text-[#347048]/60 mb-1.5 uppercase tracking-widest ml-1";
+
+  const formatPhoneInput = (value: string) => {
+    const digits = value.replace(/\D/g, '').slice(0, 11);
+    let rest = digits;
+    if (rest.startsWith('54')) rest = rest.slice(2);
+    if (rest.startsWith('9')) rest = rest.slice(1);
+    const area = rest.slice(0, 3);
+    const mid = rest.slice(3, 6);
+    const end = rest.slice(6, 10);
+    const parts = [area, mid, end].filter(Boolean);
+    return `+54 9${parts.length ? ' ' : ''}${parts.join(' ')}`.trim();
+  };
 
   return (
     <>
@@ -175,7 +219,14 @@ export default function AdminTabClub() {
               <div>
                 <label className={labelClass}>Teléfono Público</label>
                 <div className="relative">
-                  <input type="text" value={clubForm.phone} onChange={(e) => setClubForm({ ...clubForm, phone: e.target.value })} className={`${inputClass} pl-11`} placeholder="+54 9 351..." />
+                  <input
+                    type="text"
+                    value={clubForm.phone}
+                    maxLength={18}
+                    onChange={(e) => setClubForm({ ...clubForm, phone: formatPhoneInput(e.target.value) })}
+                    className={`${inputClass} pl-11`}
+                    placeholder="+54 9 351..."
+                  />
                   <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-[#347048]/30" size={16} />
                 </div>
               </div>
@@ -187,6 +238,7 @@ export default function AdminTabClub() {
               <div className="flex flex-col sm:flex-row items-center gap-6 mt-2">
                 <div className="w-24 h-24 rounded-2xl overflow-hidden border-4 border-white bg-white shadow-md flex items-center justify-center relative group">
                   {logoPreview ? (
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img src={logoPreview} alt="Logo" className="w-full h-full object-contain p-1" />
                   ) : (
                     <ImageIcon size={32} className="text-[#347048]/20" />
@@ -207,6 +259,39 @@ export default function AdminTabClub() {
                   {logoError && <p className="text-xs text-red-500 font-bold italic">⚠️ {logoError}</p>}
                 </div>
                 <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoFileChange} />
+              </div>
+            </div>
+
+            {/* SECCIÓN DE IMAGEN DEL CLUB */}
+            <div className="bg-white/40 p-6 rounded-[1.5rem] border-2 border-white shadow-sm">
+              <label className={labelClass}>Imagen del Club (Portada)</label>
+              <div className="flex flex-col lg:flex-row items-start lg:items-center gap-6 mt-2">
+                <div className="w-full lg:w-64 h-36 rounded-2xl overflow-hidden border-4 border-white bg-white shadow-md flex items-center justify-center relative group">
+                  {clubImagePreview ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={clubImagePreview} alt="Imagen del club" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="flex flex-col items-center text-[#347048]/30">
+                      <ImageIcon size={32} />
+                      <span className="text-[10px] font-bold uppercase mt-2">Sin imagen</span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 space-y-3">
+                  <div className="flex gap-3 flex-wrap">
+                    <button type="button" onClick={() => clubImageInputRef.current?.click()} className="px-5 py-2.5 rounded-xl text-xs font-black bg-[#347048] text-[#EBE1D8] hover:bg-[#B9CF32] hover:text-[#347048] transition-all uppercase tracking-widest shadow-lg shadow-[#347048]/20">
+                      Subir Imagen
+                    </button>
+                    {clubImagePreview && (
+                      <button type="button" onClick={handleRemoveClubImage} className="px-5 py-2.5 rounded-xl text-xs font-black bg-red-50 text-red-600 border border-red-100 hover:bg-red-600 hover:text-white transition-all uppercase tracking-widest">
+                        Eliminar
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[10px] font-bold text-[#347048]/40 uppercase tracking-wider italic">Recomendado: 1600x900px, máx 4MB (PNG/JPG).</p>
+                  {clubImageError && <p className="text-xs text-red-500 font-bold italic">⚠️ {clubImageError}</p>}
+                </div>
+                <input ref={clubImageInputRef} type="file" accept="image/*" className="hidden" onChange={handleClubImageFileChange} />
               </div>
             </div>
 
@@ -271,8 +356,14 @@ export default function AdminTabClub() {
             {/* DESCRIPCIÓN */}
             <div className="space-y-2">
               <label className={labelClass}>Descripción del Club / Información Adicional</label>
-              <textarea value={clubForm.description} onChange={(e) => setClubForm({ ...clubForm, description: e.target.value })} 
-                className="w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-[1.5rem] p-5 text-[#347048] font-bold placeholder-[#347048]/20 focus:outline-none shadow-sm transition-all" rows={4} placeholder="Escribe aquí las reglas del club, servicios (duchas, buffet, etc) o historia..." />
+              <textarea
+                value={clubForm.description}
+                onChange={(e) => setClubForm({ ...clubForm, description: e.target.value.slice(0, 100) })}
+                maxLength={50}
+                className="w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-[1.5rem] p-5 text-[#347048] font-bold placeholder-[#347048]/20 focus:outline-none shadow-sm transition-all resize-none"
+                rows={4}
+                placeholder="Escribe aquí las reglas del club, servicios (duchas, buffet, etc) o historia..."
+              />
             </div>
 
             {/* BOTÓN FINAL */}

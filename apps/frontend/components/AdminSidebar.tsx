@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { X, Calendar, Users, Package, DollarSign, LayoutGrid, BarChart3, Settings, LogOut } from 'lucide-react';
@@ -10,10 +10,15 @@ interface AdminSidebarProps {
 
 const AdminSidebar = ({ isOpen, onClose }: AdminSidebarProps) => {
   const router = useRouter();
+  const hasMountedRef = useRef(false);
 
   // Cerrar el sidebar automáticamente cuando cambiamos de ruta
   useEffect(() => {
-    onClose();
+    if (hasMountedRef.current) {
+      onClose();
+    }
+    hasMountedRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router.asPath]);
 
   const navItems = [

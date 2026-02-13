@@ -685,14 +685,29 @@ export default function Home() {
             {displayedClubs.map((club) => (
               <Link key={club.id} href={`/club/${club.slug}`} className="group relative bg-[#EBE1D8] border border-transparent rounded-3xl overflow-hidden hover:scale-[1.02] transition-all shadow-xl hover:shadow-[#B9CF32]/20 block">
                 <div className="h-40 w-full bg-[#dcd0c5] relative overflow-hidden border-b border-[#347048]/10">
-                   <div className="absolute inset-0 bg-gradient-to-br from-[#EBE1D8] to-[#d6c7ba] flex items-center justify-center">
-                      {club.logoUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={club.logoUrl} alt={club.name} className="h-24 w-24 object-contain opacity-90 mix-blend-multiply group-hover:scale-110 transition-transform" />
-                      ) : (
-                        <span className="text-4xl opacity-10 text-[#347048]">🎾</span>
-                      )}
-                   </div>
+                   {club.clubImageUrl ? (
+                     <>
+                       <div
+                         className="absolute inset-0 bg-cover bg-center"
+                         style={{ backgroundImage: `url(${club.clubImageUrl})` }}
+                       />
+                       {club.logoUrl && (
+                         <div className="absolute top-3 left-3 bg-white/80 backdrop-blur rounded-xl p-2 shadow-sm">
+                           {/* eslint-disable-next-line @next/next/no-img-element */}
+                           <img src={club.logoUrl} alt={club.name} className="h-10 w-10 object-contain" />
+                         </div>
+                       )}
+                     </>
+                   ) : (
+                     <div className="absolute inset-0 bg-gradient-to-br from-[#EBE1D8] to-[#d6c7ba] flex items-center justify-center">
+                        {club.logoUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={club.logoUrl} alt={club.name} className="h-24 w-24 object-contain opacity-90 mix-blend-multiply group-hover:scale-110 transition-transform" />
+                        ) : (
+                          <span className="text-4xl opacity-10 text-[#347048]">🎾</span>
+                        )}
+                     </div>
+                   )}
                    <div className="absolute bottom-3 right-3 bg-[#926699] px-3 py-1 rounded-full text-xs font-bold text-[#EBE1D8] shadow-sm flex items-center gap-1">
                       <span>📍</span> {club.name || 'Club'}
                    </div>
