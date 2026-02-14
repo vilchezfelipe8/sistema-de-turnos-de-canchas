@@ -142,7 +142,17 @@ export class BookingRepository {
 
     // Helper para convertir lo que viene de DB a tu Clase Entidad
     public mapToEntity(dbItem: any): Booking {
-        const user = dbItem.user ? new User(dbItem.user.id, dbItem.user.firstName, dbItem.user.lastName, dbItem.user.email, dbItem.user.phoneNumber, dbItem.user.role as Role) : null;
+        const user = dbItem.user
+            ? new User(
+                dbItem.user.id,
+                dbItem.user.firstName,
+                dbItem.user.lastName,
+                dbItem.user.email,
+                dbItem.user.phoneNumber,
+                dbItem.user.role as Role,
+                (dbItem.user as any).isProfessor ?? false
+            )
+            : null;
         const club = new Club(
             dbItem.court.club.id,
             dbItem.court.club.slug,
@@ -161,7 +171,9 @@ export class BookingRepository {
             dbItem.court.club.description || undefined,
             dbItem.court.club.lightsEnabled ?? false,
             dbItem.court.club.lightsExtraAmount ?? null,
-            dbItem.court.club.lightsFromHour ?? null,
+                dbItem.court.club.lightsFromHour ?? null,
+                dbItem.court.club.professorDiscountEnabled ?? false,
+                dbItem.court.club.professorDiscountPercent ?? null,
             dbItem.court.club.createdAt,
             dbItem.court.club.updatedAt
         );

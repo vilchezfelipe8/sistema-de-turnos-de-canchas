@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import Navbar from '../../components/NavBar';
 import AdminLayout from '../../components/AdminLayout';
 import NotFound from '../../components/NotFound';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
@@ -21,7 +20,6 @@ export default function AdminProductsPage() {
 
   return (
     <div className="min-h-screen text-text relative overflow-hidden" style={{ backgroundColor: 'var(--bg)' }}>
-      <Navbar />
       <AdminLayout>
         <Head>
           <title>Productos & Stock | Admin Panel</title>

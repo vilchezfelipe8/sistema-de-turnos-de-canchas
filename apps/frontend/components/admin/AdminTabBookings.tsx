@@ -1,10 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
-import DatePicker from 'react-datepicker';
-import { registerLocale } from 'react-datepicker';
-import { es } from 'date-fns/locale/es';
-import 'react-datepicker/dist/react-datepicker.css';
 import { getCourts } from '../../services/CourtService';
 import {
   getAdminSchedule,
@@ -20,8 +16,6 @@ import BookingConsumption from '../BookingConsumption';
 import { useParams } from 'react-router-dom';
 import DatePickerDark from '../../components/ui/DatePickerDark';
 import { Trash2, Check, ShoppingCart, Calendar as CalendarIcon, RefreshCw, ChevronDown, CalendarPlus, Repeat, Banknote, CreditCard, FileText, X } from 'lucide-react'; 
-
-registerLocale('es', es);
 
 const CLUB_TIME_SLOTS = [
   '08:00', '09:30', '11:00', '12:30',
@@ -170,6 +164,7 @@ export default function AdminTabBookings() {
     courtId: '',
     time: '19:00',
     isFixed: false,
+    isProfessor: false,
     dayOfWeek: '1',
     startDateBase: getTodayLocalDate()
   });
@@ -227,7 +222,8 @@ export default function AdminTabBookings() {
       guestFirstName: fName,
       guestLastName: lName,
       guestPhone: rawPhone,
-      guestDni: client.dni || client.dniNumber || client.document || '' 
+      guestDni: client.dni || client.dniNumber || client.document || '',
+      isProfessor: !!client.isProfessor
     });
     setShowDropdown(false);
   };
@@ -312,17 +308,33 @@ export default function AdminTabBookings() {
             dateBase = new Date(`${manualBooking.startDateBase}T${manualBooking.time}:00`);
         }
         if (manualBooking.isFixed) {
-            await createFixedBooking(undefined, Number(manualBooking.courtId), 1, dateBase, guestName, phoneToSend || undefined, dni);
+            await createFixedBooking(
+              undefined,
+              Number(manualBooking.courtId),
+              1,
+              dateBase,
+              guestName,
+              phoneToSend || undefined,
+              dni,
+              manualBooking.isProfessor
+            );
             showInfo('Turno fijo creado', 'Listo');
         } else {
             const guestData = { name: guestName, phone: phoneToSend, dni: dni, document: dni, dniNumber: dni };
-            await createBooking(Number(manualBooking.courtId), 1, dateBase, undefined, guestData, { asGuest: true, guestIdentifier: `admin_${dni}_${Date.now()}` });
+            await createBooking(
+              Number(manualBooking.courtId),
+              1,
+              dateBase,
+              undefined,
+              guestData,
+              { asGuest: true, guestIdentifier: `admin_${dni}_${Date.now()}`, isProfessor: manualBooking.isProfessor }
+            );
             showInfo('Reserva simple creada', 'Listo');
         }
         loadSchedule();
         setManualBooking({ 
             guestFirstName: '', guestLastName: '', guestPhone: '', guestDni: '', 
-            courtId: '', time: '19:00', isFixed: false, dayOfWeek: '1', startDateBase: getTodayLocalDate() 
+      courtId: '', time: '19:00', isFixed: false, isProfessor: false, dayOfWeek: '1', startDateBase: getTodayLocalDate() 
         });
     } catch (error: any) { showError('Error al reservar: ' + error.message); }
   };
@@ -443,6 +455,9 @@ export default function AdminTabBookings() {
                     setManualBooking({ ...manualBooking, startDateBase: formatLocalDate(date) });
                   }}
                   minDate={new Date()}
+                  showIcon={false}
+                  variant="light"
+                  inputClassName="w-full h-12 bg-white text-[#347048] font-bold border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 shadow-sm outline-none transition-all cursor-pointer"
                 />
               </div>
             )}
@@ -500,13 +515,22 @@ export default function AdminTabBookings() {
 
           {/* BOTÓN CHECKBOX Y SUBMIT */}
           <div className="relative z-0 md:col-span-2 flex flex-col sm:flex-row gap-6 items-center justify-between mt-4 p-6 bg-[#347048]/5 rounded-[1.5rem] border border-[#347048]/10">
-            <label className="flex items-center gap-3 text-[#347048] font-black cursor-pointer group">
-              <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${manualBooking.isFixed ? 'bg-[#B9CF32] border-[#B9CF32]' : 'border-[#347048]/20 bg-white'}`}>
-                  {manualBooking.isFixed && <Check size={16} className="text-[#347048]" strokeWidth={4} />}
-              </div>
-              <input type="checkbox" checked={manualBooking.isFixed} onChange={(e) => setManualBooking({ ...manualBooking, isFixed: e.target.checked })} className="hidden" />
-              <span className="text-sm uppercase tracking-wide">¿Es un turno fijo?</span>
-            </label>
+            <div className="flex flex-wrap items-center gap-6">
+              <label className="flex items-center gap-3 text-[#347048] font-black cursor-pointer group">
+                <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${manualBooking.isFixed ? 'bg-[#B9CF32] border-[#B9CF32]' : 'border-[#347048]/20 bg-white'}`}>
+                    {manualBooking.isFixed && <Check size={16} className="text-[#347048]" strokeWidth={4} />}
+                </div>
+                <input type="checkbox" checked={manualBooking.isFixed} onChange={(e) => setManualBooking({ ...manualBooking, isFixed: e.target.checked })} className="hidden" />
+                <span className="text-sm uppercase tracking-wide">¿Es un turno fijo?</span>
+              </label>
+              <label className="flex items-center gap-3 text-[#347048] font-black cursor-pointer group">
+                <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${manualBooking.isProfessor ? 'bg-[#926699] border-[#926699]' : 'border-[#347048]/20 bg-white'}`}>
+                  {manualBooking.isProfessor && <Check size={16} className="text-[#347048]" strokeWidth={4} />}
+                </div>
+                <input type="checkbox" checked={manualBooking.isProfessor} onChange={(e) => setManualBooking({ ...manualBooking, isProfessor: e.target.checked })} className="hidden" />
+                <span className="text-sm uppercase tracking-wide">Profesor (aplica descuento)</span>
+              </label>
+            </div>
 
             <button type="submit" className="w-full sm:w-auto px-10 py-4 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-2xl transition-all shadow-xl shadow-[#347048]/20 uppercase tracking-widest text-sm flex items-center justify-center gap-3 group">
               {manualBooking.isFixed ? <RefreshCw size={18} className="group-hover:rotate-180 transition-transform duration-500" /> : <CalendarIcon size={18} />}
@@ -526,10 +550,12 @@ export default function AdminTabBookings() {
           <div className="flex flex-wrap items-center gap-4 bg-white/40 p-2 rounded-2xl border border-white/60">
             <div className="flex items-center gap-2 px-3 wimbledon-datepicker">
               <span className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Fecha:</span>
-              <DatePicker
+              <DatePickerDark
                 selected={scheduleDate ? (() => { const [y, m, d] = scheduleDate.split('-').map(Number); return new Date(y, m - 1, d); })() : new Date()}
                 onChange={(date: Date | null) => date && setScheduleDate(formatLocalDate(date))}
-                dateFormat="yyyy-MM-dd" className="bg-transparent border-none text-[#347048] font-black text-sm focus:outline-none w-28 cursor-pointer"
+                showIcon={false}
+                variant="light"
+                inputClassName="w-full h-12 bg-white text-[#347048] font-bold border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 shadow-sm outline-none transition-all cursor-pointer"
               />
             </div>
             <button onClick={loadSchedule} disabled={loadingSchedule} className="flex items-center gap-2 px-4 py-2 bg-[#347048] text-[#EBE1D8] rounded-xl text-xs font-black uppercase tracking-tighter hover:bg-[#B9CF32] hover:text-[#347048] transition-all">
@@ -675,6 +701,7 @@ export default function AdminTabBookings() {
             bookingId={selectedBooking.id}
             slug={getClubSlug() || ''}
             courtPrice={selectedBooking.price}
+            baseCourtPrice={selectedBooking.court?.price}
             paymentStatus={selectedBooking.paymentStatus}
             onClose={() => setSelectedBooking(null)}
             onConfirm={() => { setSelectedBooking(null); loadSchedule(); }}

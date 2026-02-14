@@ -7,6 +7,7 @@ interface Props {
   bookingId: number;
   slug: string;
   courtPrice?: number;
+  baseCourtPrice?: number | null;
   paymentStatus: string;
   onClose: () => void;
   onConfirm: () => void;
@@ -88,7 +89,7 @@ const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
 };
 
 
-export default function BookingConsumption({ bookingId, slug, courtPrice = 0, paymentStatus, onClose, onConfirm }: Props) {
+export default function BookingConsumption({ bookingId, slug, courtPrice = 0, baseCourtPrice, paymentStatus, onClose, onConfirm }: Props) {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [itemsToDelete, setItemsToDelete] = useState<number[]>([]);
   const [products, setProducts] = useState<any[]>([]);
@@ -179,8 +180,8 @@ export default function BookingConsumption({ bookingId, slug, courtPrice = 0, pa
 
   const isCourtResolved = paymentStatus === 'PAID' || paymentStatus === 'PARTIAL' || paymentStatus === 'DEBT';
   const courtPriceToPay = isCourtResolved ? 0 : (courtPrice || 0);
-  const BASE_COURT_PRICE = 28000;
-  const lightsExtra = Math.max((courtPrice || 0) - BASE_COURT_PRICE, 0);
+  const basePrice = Number(baseCourtPrice ?? 0);
+  const lightsExtra = basePrice > 0 ? Math.max((courtPrice || 0) - basePrice, 0) : 0;
 
   const consumptionTotal = cartItems
     .filter(item => item.isNew)

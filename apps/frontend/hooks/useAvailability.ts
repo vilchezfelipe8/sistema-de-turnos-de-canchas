@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getApiUrl } from '../utils/apiUrl';
 
 interface Court {
   id: number;
   name: string;
+  price?: number | null;
 }
 
 interface SlotWithCourts {
@@ -23,7 +24,7 @@ export function useAvailability(date: Date | null, clubSlug?: string) {
 
   const apiUrl = getApiUrl();
 
-  const fetchSlots = async () => {
+  const fetchSlots = useCallback(async () => {
     if (!date) return;
     setLoading(true);
     setError(null);
@@ -60,11 +61,11 @@ export function useAvailability(date: Date | null, clubSlug?: string) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [date, apiUrl, clubSlug]);
 
   useEffect(() => {
     fetchSlots();
-  }, [date, apiUrl, clubSlug]);
+  }, [fetchSlots]);
 
   return { slotsWithCourts, loading, error, refresh: fetchSlots };
 }

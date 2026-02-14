@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { getCourts, createCourt, suspendCourt, reactivateCourt } from '../../services/CourtService';
+import { getCourts, suspendCourt, reactivateCourt, updateCourtPrice } from '../../services/CourtService';
 import AppModal from '../AppModal';
 import { Plus, LayoutGrid, Activity, Power, Ban } from 'lucide-react';
 
 export default function AdminTabCourts() {
   const [courts, setCourts] = useState<any[]>([]);
-  const [newName, setNewName] = useState('');
-  const [newSport, setNewSport] = useState('TENNIS');
+  const [priceEdits, setPriceEdits] = useState<Record<number, string>>({});
   const [modalState, setModalState] = useState<{
     show: boolean; title?: string; message?: ReactNode; cancelText?: string; confirmText?: string;
     isWarning?: boolean; onConfirm?: () => Promise<void> | void; onCancel?: () => Promise<void> | void;
@@ -29,18 +28,22 @@ export default function AdminTabCourts() {
     onConfirm: wrapAction(options.onConfirm), onCancel: options.onCancel ? wrapAction(options.onCancel) : undefined
   });
 
-  const loadCourts = async () => { const data = await getCourts(); setCourts(data); };
+  const loadCourts = async () => {
+    const data = await getCourts();
+    setCourts(data);
+    setPriceEdits((prev) => {
+      const next = { ...prev };
+      data.forEach((court: any) => {
+        if (next[court.id] === undefined) {
+          next[court.id] = court.price !== undefined && court.price !== null ? String(court.price) : '';
+        }
+      });
+      return next;
+    });
+  };
   useEffect(() => { loadCourts(); }, []);
 
-  const handleCreateCourt = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await createCourt(newName, newSport);
-      showInfo('Cancha creada con éxito', 'Listo');
-      setNewName('');
-      loadCourts();
-    } catch (error: any) { showError('Error: ' + error.message); }
-  };
+  // ✅ Alta de canchas deshabilitada por seguridad: se gestiona desde base de datos.
 
   const handleSuspend = async (id: number) => {
     showConfirm({
@@ -56,50 +59,35 @@ export default function AdminTabCourts() {
     });
   };
 
+  const handlePriceSave = async (id: number) => {
+    try {
+      const raw = priceEdits[id];
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        showError('Ingresá un precio válido.');
+        return;
+      }
+      await updateCourtPrice(id, parsed);
+      showInfo('Precio actualizado', 'Listo');
+      loadCourts();
+    } catch (error: any) {
+      showError('Error: ' + error.message);
+    }
+  };
+
   return (
     <>
-      {/* --- FORMULARIO DE ALTA (TARJETA BEIGE) --- */}
-      <div className="bg-[#EBE1D8] border-4 border-white rounded-[2rem] p-8 mb-8 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
-        <h2 className="text-2xl font-black text-[#926699] mb-6 flex items-center gap-3 uppercase italic tracking-tight">
+      {/* --- ALTA DESHABILITADA (SE GESTIONA POR DB) --- */}
+      <div className="bg-[#EBE1D8] border-4 border-white rounded-[2rem] p-6 mb-8 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
+        <div className="flex items-center gap-3 text-[#926699]">
           <div className="bg-[#926699] text-[#EBE1D8] p-2 rounded-xl text-xl shadow-lg shadow-[#926699]/20">
-            <Plus size={24} strokeWidth={3} />
+            <Plus size={20} strokeWidth={3} />
           </div>
-          Nueva Cancha
-        </h2>
-        
-        <form onSubmit={handleCreateCourt} className="flex flex-col md:flex-row gap-6 items-end relative z-10">
-          <div className="flex-1 w-full">
-            <label className="block text-[10px] font-black text-[#347048]/60 mb-2 uppercase tracking-widest ml-1">Nombre / Identificador</label>
-            <input 
-              type="text" 
-              value={newName} 
-              onChange={(e) => setNewName(e.target.value)}
-              className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/20 focus:outline-none shadow-sm transition-all" 
-              placeholder="Ej: Cancha Central o Pista 1" 
-              required
-            />
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50">Alta de canchas</p>
+            <p className="text-sm font-black text-[#347048]">Deshabilitada en el panel. Para altas, comunicarse con soporte.</p>
           </div>
-          
-          <div className="w-full md:w-64">
-            <label className="block text-[10px] font-black text-[#347048]/60 mb-2 uppercase tracking-widest ml-1">Deporte / Tipo</label>
-            <select 
-              value={newSport} 
-              onChange={(e) => setNewSport(e.target.value)} 
-              className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black focus:outline-none shadow-sm appearance-none cursor-pointer"
-            >
-              <option value="TENNIS">🎾 Tenis</option>
-              <option value="PADEL">🏓 Pádel</option>
-              <option value="FUTBOL">⚽ Fútbol</option>
-            </select>
-          </div>
-
-          <button 
-            type="submit" 
-            className="w-full md:w-auto h-12 px-10 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-xl transition-all shadow-xl shadow-[#347048]/20 uppercase tracking-widest text-xs italic"
-          >
-            Crear Cancha
-          </button>
-        </form>
+        </div>
       </div>
 
       {/* --- LISTADO Y ESTADOS (DISEÑO PREMIUM) --- */}
@@ -121,6 +109,7 @@ export default function AdminTabCourts() {
                 <th className="px-6 py-2">ID</th>
                 <th className="px-6 py-2">Nombre Cancha</th>
                 <th className="px-6 py-2">Disciplina</th>
+                <th className="px-6 py-2">Precio</th>
                 <th className="px-6 py-2 text-center">Estado Operativo</th>
                 <th className="px-6 py-2 text-right">Controles</th>
               </tr>
@@ -134,6 +123,24 @@ export default function AdminTabCourts() {
                     <span className="text-[10px] font-black bg-[#926699]/10 text-[#926699] px-3 py-1 rounded-full border border-[#926699]/20 uppercase tracking-widest">
                         {c.sport || c.surface || '-'}
                     </span>
+                  </td>
+                  <td className="px-6 py-5">
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="number"
+                        min={0}
+                        className="w-28 h-10 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold focus:outline-none shadow-sm transition-all appearance-none no-spinner"
+                        value={priceEdits[c.id] ?? ''}
+                        onChange={(e) => setPriceEdits((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handlePriceSave(c.id)}
+                        className="text-[10px] font-black uppercase tracking-widest bg-[#347048] text-[#EBE1D8] px-3 py-2 rounded-xl shadow-md hover:bg-[#B9CF32] hover:text-[#347048] transition-all"
+                      >
+                        Guardar
+                      </button>
+                    </div>
                   </td>
                   <td className="px-6 py-5 text-center">
                     {c.isUnderMaintenance ? (

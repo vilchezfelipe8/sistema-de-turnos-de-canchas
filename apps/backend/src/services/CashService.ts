@@ -3,7 +3,7 @@ import { CashRepository } from '../repositories/CashRepository';
 export class CashService {
     constructor(private cashRepository: CashRepository) {}
 
-    async getDailySummary() {
+    async getDailySummary(clubId?: number) {
         // 1. Definir rango de HOY
         const start = new Date();
         start.setHours(0, 0, 0, 0);
@@ -11,7 +11,7 @@ export class CashService {
         end.setHours(23, 59, 59, 999);
 
         // 2. Pedir datos al repo
-        const movements = await this.cashRepository.findAllByDateRange(start, end);
+    const movements = await this.cashRepository.findAllByDateRange(start, end, clubId);
 
         // 3. Calcular totales (Lógica de negocio)
         let totalCash = 0;

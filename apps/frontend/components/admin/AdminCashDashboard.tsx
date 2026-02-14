@@ -19,6 +19,14 @@ interface Balance {
   expense: number;
 }
 
+interface Product {
+  id: number;
+  name: string;
+  price: number;
+  stock: number;
+  category?: string;
+}
+
 // --- COMPONENTE DROPDOWN CUSTOM (ESTILO WIMBLEDON) ---
 const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -85,9 +93,13 @@ const AdminCashDashboard = () => {
   const [movements, setMovements] = useState<Movement[]>([]);
   const [balance, setBalance] = useState<Balance>({ total: 0, cash: 0, digital: 0, income: 0, expense: 0 });
   const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [saleError, setSaleError] = useState('');
 
   // Formulario
   const [newMove, setNewMove] = useState({ description: '', amount: '', type: 'INCOME', method: 'CASH' });
+  const [productSale, setProductSale] = useState({ productId: '', quantity: '1', method: 'CASH' });
 
   const fetchCash = async () => {
     try {
@@ -122,6 +134,32 @@ const AdminCashDashboard = () => {
 
   useEffect(() => { fetchCash(); }, []);
 
+  const fetchProducts = async () => {
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const res = await fetch(`${API_URL}/api/cash/products`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!res.ok) throw new Error('Error al cargar productos');
+      const data = await res.json();
+      setProducts(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('❌ Error cargando productos:', error);
+    } finally {
+      setProductsLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchProducts(); }, []);
+
   const handleAddMovement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMove.amount || !newMove.description) return;
@@ -140,6 +178,46 @@ const AdminCashDashboard = () => {
     
     setNewMove({ description: '', amount: '', type: 'INCOME', method: 'CASH' });
     fetchCash(); 
+  };
+
+  const handleProductSale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaleError('');
+
+    const qty = Number(productSale.quantity);
+    if (!productSale.productId || !Number.isFinite(qty) || qty <= 0) {
+      setSaleError('Seleccioná un producto y cantidad válida.');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+      const res = await fetch(`${API_URL}/api/cash/product-sale`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          productId: Number(productSale.productId),
+          quantity: qty,
+          method: productSale.method
+        })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Error al registrar venta');
+      }
+
+      setProductSale({ productId: '', quantity: '1', method: productSale.method });
+      fetchCash();
+      fetchProducts();
+    } catch (error: any) {
+      setSaleError(error.message || 'Error al registrar venta');
+    }
   };
 
   if (loading) return (
@@ -270,7 +348,7 @@ const AdminCashDashboard = () => {
           </div>
         </div>
 
-        {/* FORMULARIO AGREGAR RÁPIDO */}
+  {/* FORMULARIO AGREGAR RÁPIDO */}
         <div className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl h-fit">
           <h3 className="text-xl font-black text-[#926699] mb-8 flex items-center gap-3 uppercase italic tracking-tight">
             <Plus size={24} strokeWidth={3} className="bg-[#926699] text-[#EBE1D8] rounded-lg p-1" /> Nuevo Registro
@@ -341,6 +419,86 @@ const AdminCashDashboard = () => {
 
             <button type="submit" className="w-full py-4 bg-[#B9CF32] hover:bg-[#aebd2b] text-[#347048] font-black rounded-[1.5rem] shadow-xl shadow-[#B9CF32]/20 transition-all hover:-translate-y-1 active:scale-95 uppercase tracking-widest text-sm italic mt-2">
               Registrar Movimiento
+            </button>
+          </form>
+        </div>
+
+        {/* FORMULARIO VENTA DE PRODUCTOS */}
+        <div className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl h-fit">
+          <h3 className="text-xl font-black text-[#347048] mb-8 flex items-center gap-3 uppercase italic tracking-tight">
+            <Receipt size={22} strokeWidth={3} className="text-[#B9CF32]" /> Venta de productos
+          </h3>
+
+          <form onSubmit={handleProductSale} className="space-y-6">
+            <div className="relative z-20">
+              <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Producto</label>
+              <CustomSelect
+                value={productSale.productId}
+                onChange={(val: string) => setProductSale({ ...productSale, productId: val })}
+                placeholder={productsLoading ? 'Cargando productos...' : 'Seleccionar producto'}
+                options={products.map((product) => ({
+                  value: String(product.id),
+                  label: `${product.name} (${product.stock})`,
+                  disabled: product.stock <= 0
+                }))}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Cantidad</label>
+                <input
+                  type="number"
+                  min={1}
+                  placeholder="1"
+                  className="w-full h-14 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl px-4 text-[#347048] font-black focus:outline-none shadow-sm transition-all"
+                  value={productSale.quantity}
+                  onChange={(e) => setProductSale({ ...productSale, quantity: e.target.value })}
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Medio de pago</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setProductSale({ ...productSale, method: 'CASH' })}
+                    className={`h-14 w-full px-4 flex items-center justify-center gap-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
+                      productSale.method === 'CASH'
+                        ? 'bg-[#347048] border-[#347048] text-[#B9CF32] shadow-lg scale-105'
+                        : 'bg-white border-transparent text-[#347048]/40 hover:bg-white/80'}`}
+                  >
+                    <Banknote
+                      size={16}
+                      strokeWidth={2.5}
+                      className={productSale.method === 'CASH' ? 'text-[#B9CF32]' : 'text-[#347048]/40'}
+                    />
+                    Efectivo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProductSale({ ...productSale, method: 'TRANSFER' })}
+                    className={`h-14 w-full px-4 flex items-center justify-center gap-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
+                      productSale.method === 'TRANSFER'
+                        ? 'bg-[#347048] border-[#347048] text-[#B9CF32] shadow-lg scale-105'
+                        : 'bg-white border-transparent text-[#347048]/40 hover:bg-white/80'}`}
+                  >
+                    <CreditCard
+                      size={16}
+                      strokeWidth={2.5}
+                      className={productSale.method === 'TRANSFER' ? 'text-[#B9CF32]' : 'text-[#347048]/40'}
+                    />
+                    Digital
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {saleError && (
+              <p className="text-xs font-bold text-red-500 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">{saleError}</p>
+            )}
+
+            <button type="submit" className="w-full py-4 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-[1.5rem] shadow-xl shadow-[#347048]/20 transition-all hover:-translate-y-1 active:scale-95 uppercase tracking-widest text-sm italic mt-2">
+              Registrar venta
             </button>
           </form>
         </div>

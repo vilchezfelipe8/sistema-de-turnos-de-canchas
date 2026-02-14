@@ -29,31 +29,35 @@ export class ClubRepository {
         description?: string,
         lightsEnabled: boolean = false,
         lightsExtraAmount?: number | null,
-        lightsFromHour?: string | null
+        lightsFromHour?: string | null,
+        professorDiscountEnabled: boolean = false,
+        professorDiscountPercent?: number | null
     ): Promise<Club> {
         const location = await this.ensureLocation(city, province, country);
-        const saved = await prisma.club.create({
-            data: { 
-                slug,
-                name, 
-                addressLine,
-                city,
-                province,
-                country,
-                locationId: location.id,
-                contactInfo: contact,
-                phone,
-                logoUrl,
-                clubImageUrl,
-                instagramUrl,
-                facebookUrl,
-                websiteUrl,
-                description,
-                lightsEnabled,
-                lightsExtraAmount,
-                lightsFromHour
-            }
-        });
+        const data: any = {
+            slug,
+            name,
+            addressLine,
+            city,
+            province,
+            country,
+            locationId: location.id,
+            contactInfo: contact,
+            phone,
+            logoUrl,
+            clubImageUrl,
+            instagramUrl,
+            facebookUrl,
+            websiteUrl,
+            description,
+            lightsEnabled,
+            lightsExtraAmount,
+            lightsFromHour,
+            professorDiscountEnabled,
+            professorDiscountPercent
+        };
+
+        const saved = await prisma.club.create({ data });
         return this.mapToClub(saved);
     }
 
@@ -116,7 +120,9 @@ export class ClubRepository {
             club.description,
             club.lightsEnabled,
             club.lightsExtraAmount ?? null,
-            club.lightsFromHour ?? null
+            club.lightsFromHour ?? null,
+            club.professorDiscountEnabled ?? false,
+            club.professorDiscountPercent ?? null
         );
     }
     
@@ -160,6 +166,8 @@ export class ClubRepository {
         lightsEnabled?: boolean;
         lightsExtraAmount?: number | null;
         lightsFromHour?: string | null;
+        professorDiscountEnabled?: boolean;
+        professorDiscountPercent?: number | null;
     }): Promise<Club> {
         if (data.city && data.province && data.country) {
             const location = await this.ensureLocation(data.city, data.province, data.country);
@@ -167,7 +175,7 @@ export class ClubRepository {
         }
         const updated = await prisma.club.update({
             where: { id },
-            data
+            data: data as any
         });
         return this.mapToClub(updated);
     }
@@ -192,6 +200,8 @@ export class ClubRepository {
             dbClub.lightsEnabled ?? false,
             dbClub.lightsExtraAmount ?? null,
             dbClub.lightsFromHour ?? null,
+            dbClub.professorDiscountEnabled ?? false,
+            dbClub.professorDiscountPercent ?? null,
             dbClub.createdAt,
             dbClub.updatedAt
         );

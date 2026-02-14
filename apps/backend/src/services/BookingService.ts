@@ -38,7 +38,8 @@ export class BookingService {
         courtId: number,
         startDateTime: Date,
         activityId: number,
-        allowGuestWithoutContact = false
+        allowGuestWithoutContact = false,
+        isProfessorOverride: boolean = false
     ): Promise<Booking> {
         let user: User | null = null;
         if (userId) {
@@ -77,11 +78,22 @@ export class BookingService {
 
         const endDateTime = new Date(startDateTime.getTime() + activity.defaultDurationMinutes * 60000);
 
-        // Calcular precio base y extra por luces según configuración del club
-        const BASE_PRICE = 28000; // TODO: opcionalmente mover a configuración por club
+    // Calcular precio base y extra por luces según configuración del club
+        const BASE_PRICE = Number((court as any)?.price ?? 0);
+        if (!Number.isFinite(BASE_PRICE) || BASE_PRICE <= 0) {
+            throw new Error('Precio de cancha no configurado.');
+        }
+        const clubConfig = court.club as any;
+        const isProfessor = Boolean(user?.isProfessor) || Boolean(isProfessorOverride);
         let finalPrice = BASE_PRICE;
 
-        const clubConfig = court.club as any;
+        if (isProfessor && clubConfig?.professorDiscountEnabled) {
+            const discountPercent = Number(clubConfig?.professorDiscountPercent ?? 0);
+            if (Number.isFinite(discountPercent) && discountPercent > 0) {
+                const clamped = Math.min(Math.max(discountPercent, 0), 100);
+                finalPrice = BASE_PRICE * (1 - clamped / 100);
+            }
+        }
         if (clubConfig && clubConfig.lightsEnabled && clubConfig.lightsExtraAmount && clubConfig.lightsFromHour) {
             try {
                 const [lh, lm] = String(clubConfig.lightsFromHour).split(':').map((n: string) => parseInt(n, 10));
@@ -259,7 +271,7 @@ export class BookingService {
     // 4. Lógica de CAJA (Solo entra plata si NO es deuda)
     if (paymentMethod !== 'DEBT') {
         try {
-            const price = 28000;
+            const price = Number(updated.price || 0);
             if (price > 0) {
                 await this.cashRepository.create({
                     date: new Date(),
@@ -420,6 +432,7 @@ export class BookingService {
         availableCourts: Array<{
             id: number;
             name: string;
+            price?: number | null;
         }>;
     }>> {
         const allCourts = await this.courtRepo.findAll(clubId);
@@ -454,7 +467,8 @@ export class BookingService {
                 return !overlappingBooking;
             }).map(court => ({
                 id: court.id,
-                name: court.name
+                name: court.name,
+                price: (court as any).price ?? null
             }));
 
             const courtsWithAvailability = activeCourts.map(court => {
@@ -466,6 +480,7 @@ export class BookingService {
                  return {
                     id: court.id,
                     name: court.name,
+                          price: (court as any).price ?? null,
                     isAvailable: !isBusy
                  };
             });
@@ -489,13 +504,15 @@ export class BookingService {
         guestName?: string,
         guestPhone?: string | number, // Agregado para recibir el dato del front
         guestDni?: string,
+        isProfessorOverride: boolean = false,
         clubId?: number
     ) {
         const safePhone = guestPhone ? String(guestPhone) : undefined;
 
         // 1. Validaciones básicas
+        let user: User | null = null;
         if (userId) {
-            const user = await this.userRepo.findById(userId);
+            user = await this.userRepo.findById(userId);
             if (!user) throw new Error("Usuario no encontrado");
         } else if (!guestName) {
             throw new Error("Debe proveer un nombre para reservas fijas como invitado.");
@@ -583,10 +600,24 @@ export class BookingService {
                 });
 
                 if (!hasConflict) {
+                    const basePrice = Number((court as any)?.price ?? 0);
+                    if (!Number.isFinite(basePrice) || basePrice <= 0) {
+                        throw new Error('Precio de cancha no configurado.');
+                    }
+                    const clubConfig = (court as any)?.club;
+                    const isProfessor = Boolean(user?.isProfessor) || Boolean(isProfessorOverride);
+                    let fixedPrice = basePrice;
+                    if (isProfessor && clubConfig?.professorDiscountEnabled) {
+                        const discountPercent = Number(clubConfig?.professorDiscountPercent ?? 0);
+                        if (Number.isFinite(discountPercent) && discountPercent > 0) {
+                            const clamped = Math.min(Math.max(discountPercent, 0), 100);
+                            fixedPrice = basePrice * (1 - clamped / 100);
+                        }
+                    }
                     bookingsToCreate.push({
                         startDateTime: currentStart,
                         endDateTime: currentEnd,
-                        price: 28000, 
+                        price: fixedPrice,
                         status: 'CONFIRMED',
                         ...(userId ? { userId } : {}),
                         ...(guestName ? { guestName } : {}),

@@ -12,7 +12,6 @@ import { ClubService, Club } from '../services/ClubService';
 import { ChevronDown, Check, Calendar, Clock, MapPin, Zap, MousePointerClick, Hourglass, Moon, Ban, AlertCircle, Activity } from 'lucide-react';
 
 const API_URL = getApiUrl();
-const BASE_COURT_PRICE = 28000;
 
 interface BookingGridProps {
   /** Slug del club: cuando está en /club/[slug], solo se muestran canchas y turnos de ese club */
@@ -116,7 +115,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   };
   const [selectedDate, setSelectedDate] = useState<Date | null>(getTodayDate());
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
-  const [selectedCourt, setSelectedCourt] = useState<{ id: number; name: string } | null>(null);
+  const [selectedCourt, setSelectedCourt] = useState<{ id: number; name: string; price?: number | null; activities?: Array<{ id: number; name: string }> } | null>(null);
   const [selectedActivityFilter, setSelectedActivityFilter] = useState<string | 'ALL'>('ALL');
   const [isBooking, setIsBooking] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false); // Estado para el botón visual
@@ -166,7 +165,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   const { slotsWithCourts, loading, error, refresh } = useAvailability(selectedDate, clubSlug);
   const [disabledSlots, setDisabledSlots] = useState<Record<string, boolean>>({});
   const STORAGE_PREFIX = 'disabledSlots:';
-  const [allCourts, setAllCourts] = useState<Array<{ id: number; name: string; activities?: Array<{ id: number; name: string }> }>>([]);
+  const [allCourts, setAllCourts] = useState<Array<{ id: number; name: string; price?: number | null; activities?: Array<{ id: number; name: string }> }>>([]);
   const [clubConfig, setClubConfig] = useState<Club | null>(null);
   const getTrimmedGuestInfo = () => {
     const trimmedPhone = guestPhone.replace(/\D/g, '');
@@ -259,9 +258,12 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
 
 
   const getPriceInfo = () => {
-    const base = BASE_COURT_PRICE;
+    const base = Number(selectedCourt?.price ?? 0);
     if (!selectedDate || !selectedSlot) {
       return { base, final: base, extra: 0, hasLights: false };
+    }
+    if (!Number.isFinite(base) || base <= 0) {
+      return { base: 0, final: 0, extra: 0, hasLights: false };
     }
     const cfg = clubConfig;
     if (!cfg || !cfg.lightsEnabled || !cfg.lightsExtraAmount || !cfg.lightsFromHour) {

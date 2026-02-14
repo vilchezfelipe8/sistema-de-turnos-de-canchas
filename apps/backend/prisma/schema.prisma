@@ -40,6 +40,7 @@ model User {
   lastName      String
   phoneNumber   String
   role          Role           @default(MEMBER)
+  isProfessor   Boolean        @default(false)
   clubId        Int?
   club          Club?          @relation(fields: [clubId], references: [id])
   bookings      Booking[]
@@ -68,6 +69,8 @@ model Club {
   lightsEnabled      Boolean @default(false) // Si el club cobra extra por luces
   lightsExtraAmount  Float?               // Monto extra por luces (opcional)
   lightsFromHour     String?              // Hora local a partir de la cual se cobra (ej: "20:00")
+  professorDiscountEnabled Boolean @default(false) // Si aplica descuento a profesores
+  professorDiscountPercent Float? // Porcentaje de descuento (0-100)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   courts       Court[]
@@ -94,6 +97,7 @@ model Court {
   isIndoor           Boolean
   surface            String
   isUnderMaintenance Boolean @default(false)
+  price              Float   @default(0)
 
   activityTypeId Int?
   activityType   ActivityType? @relation("CourtActivityType", fields: [activityTypeId], references: [id])

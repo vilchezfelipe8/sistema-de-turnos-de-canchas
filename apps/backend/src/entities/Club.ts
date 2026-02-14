@@ -22,6 +22,8 @@ export class Club {
         public lightsEnabled: boolean = false,
         public lightsExtraAmount?: number | null,
         public lightsFromHour?: string | null,
+        public professorDiscountEnabled: boolean = false,
+        public professorDiscountPercent?: number | null,
         public createdAt?: Date,
         public updatedAt?: Date
     ) {}

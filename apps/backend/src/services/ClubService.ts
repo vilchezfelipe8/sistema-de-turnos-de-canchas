@@ -29,7 +29,9 @@ export class ClubService {
         description?: string,
         lightsEnabled: boolean = false,
         lightsExtraAmount?: number | null,
-        lightsFromHour?: string | null
+        lightsFromHour?: string | null,
+        professorDiscountEnabled: boolean = false,
+        professorDiscountPercent?: number | null
     ) {
         return await this.clubRepo.createClub(
             slug,
@@ -48,7 +50,9 @@ export class ClubService {
             description,
             lightsEnabled,
             lightsExtraAmount,
-            lightsFromHour
+            lightsFromHour,
+            professorDiscountEnabled,
+            professorDiscountPercent
         );
     }
 
@@ -88,6 +92,8 @@ export class ClubService {
             lightsEnabled?: boolean;
             lightsExtraAmount?: number | null;
             lightsFromHour?: string | null;
+            professorDiscountEnabled?: boolean;
+            professorDiscountPercent?: number | null;
         }
     ): Promise<Club> {
         const club = await this.clubRepo.findClubById(id);
@@ -115,25 +121,25 @@ export class ClubService {
     async getClients(clubId: number) {
     
     // Buscamos todas las reservas de ese club (incluyendo CANCELLED para mantener historial)
-    const bookings = await prisma.booking.findMany({
+    const bookings: any[] = await prisma.booking.findMany({
         where: {
-            court: { clubId: clubId }, // Usamos el ID directo
+            court: { clubId: clubId },
         },
         select: {
             guestName: true,
             guestPhone: true,
             guestDni: true,
-            user: { 
+            user: {
                 select: {
                     firstName: true,
                     lastName: true,
-                    phoneNumber: true
-                    // ✅ Perfecto borrar dni de acá si User no lo tiene en tu schema
+                    phoneNumber: true,
+                    isProfessor: true
                 }
             }
         },
         orderBy: { startDateTime: 'desc' }
-    });
+    } as any);
 
     const uniqueClients = new Map();
 
@@ -155,7 +161,8 @@ export class ClubService {
                     firstName: name, // El front se encarga de separar nombre/apellido si viene junto
                     lastName: '', 
                     phoneNumber: phone, // Importante: usar 'phoneNumber' para que coincida con tu front
-                    dni: dni
+                    dni: dni,
+                    isProfessor: b.user?.isProfessor ?? false
                 });
             }
         }

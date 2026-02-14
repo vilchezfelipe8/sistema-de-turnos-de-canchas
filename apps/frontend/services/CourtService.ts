@@ -43,6 +43,17 @@ export const reactivateCourt = async (courtId: number) => {
     return res.json();
 };
 
+export const updateCourtPrice = async (courtId: number, price: number) => {
+    if (!getToken()) throw new Error('No hay token. Tenés que loguearte de nuevo.');
+    const res = await fetchWithAuth(`${API_URL}/api/courts/${courtId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ price })
+    });
+    if (!res.ok) throw new Error('Error al actualizar precio de cancha');
+    return res.json();
+};
+
 export const deleteCourt = async (courtId: number) => {
     if (!getToken()) throw new Error('No autenticado');
     const res = await fetchWithAuth(`${API_URL}/api/courts/${courtId}`, {

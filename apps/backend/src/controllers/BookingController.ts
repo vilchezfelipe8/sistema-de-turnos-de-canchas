@@ -37,7 +37,8 @@ export class BookingController {
                 z.string().email().optional()
             ),
             guestPhone: optionalTrimmedString(),
-            guestDni: optionalTrimmedString()
+            guestDni: optionalTrimmedString(),
+            isProfessor: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
         });
 
         const dataToValidate = {
@@ -50,7 +51,7 @@ export class BookingController {
             return res.status(400).json({ error: parsed.error.format() });
         }
 
-        const { courtId, startDateTime, activityId, guestIdentifier, guestName, guestEmail, guestPhone, guestDni } = parsed.data;
+    const { courtId, startDateTime, activityId, guestIdentifier, guestName, guestEmail, guestPhone, guestDni, isProfessor } = parsed.data;
         const startDate = new Date(String(startDateTime));
         const userRole = user?.role;
         const isAdmin = userRole === 'ADMIN';
@@ -59,6 +60,7 @@ export class BookingController {
         const effectiveUserId = forceGuest ? null : (userIdFromToken ? Number(userIdFromToken) : null);
         const allowGuestWithoutContact = forceGuest;
         const effectiveGuestIdentifier = forceGuest && !guestIdentifier ? `admin_${Date.now()}` : guestIdentifier;
+    const applyProfessorDiscount = isAdmin && Boolean(isProfessor);
 
         const now = new Date();
         if (startDate.getTime() < now.getTime()) {
@@ -113,7 +115,8 @@ export class BookingController {
             Number(courtId),
             startDate,
             Number(activityId),
-            allowGuestWithoutContact
+            allowGuestWithoutContact,
+            applyProfessorDiscount
         );
 
         try {
@@ -376,7 +379,7 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
     
     createFixed = async (req: Request, res: Response) => {
         try {
-            const { userId, courtId, activityId, startDateTime, guestName, guestPhone, guestDni } = req.body;
+            const { userId, courtId, activityId, startDateTime, guestName, guestPhone, guestDni, isProfessor } = req.body;
             const user = (req as any).user;
             const isAdmin = user?.role === 'ADMIN';
             const clubId = (req as any).clubId; // Agregado por middleware de verificación de club
@@ -400,6 +403,7 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
                 guestName,
                 guestPhone,
                 guestDni,
+                Boolean(isProfessor),
                 clubId
             );
             

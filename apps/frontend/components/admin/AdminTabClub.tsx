@@ -12,7 +12,9 @@ export default function AdminTabClub() {
     instagramUrl: '', facebookUrl: '', websiteUrl: '', description: '',
     lightsEnabled: false,
     lightsExtraAmount: '',
-    lightsFromHour: ''
+    lightsFromHour: '',
+    professorDiscountEnabled: false,
+    professorDiscountPercent: ''
   });
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [logoError, setLogoError] = useState<string | null>(null);
@@ -56,7 +58,9 @@ export default function AdminTabClub() {
           websiteUrl: clubData.websiteUrl || '', description: clubData.description || '',
           lightsEnabled: clubData.lightsEnabled ?? false,
           lightsExtraAmount: clubData.lightsExtraAmount != null ? String(clubData.lightsExtraAmount) : '',
-          lightsFromHour: clubData.lightsFromHour || ''
+          lightsFromHour: clubData.lightsFromHour || '',
+          professorDiscountEnabled: clubData.professorDiscountEnabled ?? false,
+          professorDiscountPercent: clubData.professorDiscountPercent != null ? String(clubData.professorDiscountPercent) : ''
         });
   setLogoPreview(clubData.logoUrl || null);
   setClubImagePreview(clubData.clubImageUrl || null);
@@ -78,7 +82,9 @@ export default function AdminTabClub() {
         ...clubForm,
         lightsEnabled: !!clubForm.lightsEnabled,
         lightsExtraAmount: clubForm.lightsExtraAmount === '' ? null : Number(clubForm.lightsExtraAmount),
-        lightsFromHour: clubForm.lightsFromHour || null
+        lightsFromHour: clubForm.lightsFromHour || null,
+        professorDiscountEnabled: !!clubForm.professorDiscountEnabled,
+        professorDiscountPercent: clubForm.professorDiscountPercent === '' ? null : Number(clubForm.professorDiscountPercent)
       };
       const updatedClub = await ClubService.updateClub(club.id, payload);
       setClub(updatedClub);
@@ -324,6 +330,42 @@ export default function AdminTabClub() {
                       {["18:00", "19:00", "20:00", "21:00", "22:00"].map(h => <option key={h} value={h}>{h}</option>)}
                     </select>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            {/* DESCUENTO A PROFESORES */}
+            <div className="bg-[#926699]/10 p-6 rounded-[1.5rem] border-2 border-[#926699]/20">
+              <div className="flex items-center gap-2 mb-4 text-[#347048]">
+                <Save size={18} strokeWidth={3} />
+                <h3 className="text-xs font-black uppercase tracking-[0.2em]">Descuento a Profesores</h3>
+              </div>
+              <div className="flex flex-col md:flex-row gap-8 items-start md:items-center">
+                <label className="flex items-center gap-3 text-[#347048] font-black cursor-pointer group">
+                  <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${clubForm.professorDiscountEnabled ? 'bg-[#926699] border-[#926699]' : 'border-[#347048]/20 bg-white'}`}>
+                    {clubForm.professorDiscountEnabled && <Save size={16} className="text-[#347048]" strokeWidth={4} />}
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={clubForm.professorDiscountEnabled}
+                    onChange={(e) => setClubForm({ ...clubForm, professorDiscountEnabled: e.target.checked })}
+                    className="hidden"
+                  />
+                  <span className="text-sm uppercase tracking-wide italic">Activar descuento para profesores</span>
+                </label>
+                <div>
+                  <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">% de descuento</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    disabled={!clubForm.professorDiscountEnabled}
+                    value={clubForm.professorDiscountPercent}
+                    onChange={(e) => setClubForm({ ...clubForm, professorDiscountPercent: e.target.value })}
+                    className="w-32 h-10 bg-white border-2 border-transparent focus:border-[#926699] rounded-xl px-3 text-[#347048] font-black text-sm disabled:opacity-30 transition-all"
+                    placeholder="10"
+                  />
                 </div>
               </div>
             </div>

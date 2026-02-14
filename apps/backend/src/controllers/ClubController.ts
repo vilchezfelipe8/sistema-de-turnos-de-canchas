@@ -7,7 +7,7 @@ export class ClubController {
     createClub = async (req: Request, res: Response) => {
         try {
             const { slug, name, addressLine, city, province, country, contact, phone, logoUrl, clubImageUrl, instagramUrl, facebookUrl, websiteUrl, description,
-                lightsEnabled, lightsExtraAmount, lightsFromHour } = req.body;
+                lightsEnabled, lightsExtraAmount, lightsFromHour, professorDiscountEnabled, professorDiscountPercent } = req.body;
             if (!slug) {
                 return res.status(400).json({ error: 'El slug es requerido' });
             }
@@ -28,7 +28,9 @@ export class ClubController {
                 description,
                 Boolean(lightsEnabled),
                 lightsExtraAmount !== undefined && lightsExtraAmount !== null ? Number(lightsExtraAmount) : null,
-                lightsFromHour || null
+                lightsFromHour || null,
+                Boolean(professorDiscountEnabled),
+                professorDiscountPercent !== undefined && professorDiscountPercent !== null ? Number(professorDiscountPercent) : null
             );
             res.status(201).json(club);
         } catch (error: any) {
@@ -94,7 +96,9 @@ export class ClubController {
                 description,
                 lightsEnabled,
                 lightsExtraAmount,
-                lightsFromHour
+                lightsFromHour,
+                professorDiscountEnabled,
+                professorDiscountPercent
             } = req.body;
 
             const club = await this.clubService.updateClub(id, {
@@ -114,7 +118,9 @@ export class ClubController {
                 description: description === '' ? null : description,
                 lightsEnabled: typeof lightsEnabled === 'boolean' ? lightsEnabled : undefined,
                 lightsExtraAmount: lightsExtraAmount === '' || lightsExtraAmount === undefined ? null : Number(lightsExtraAmount),
-                lightsFromHour: lightsFromHour === '' ? null : lightsFromHour
+                lightsFromHour: lightsFromHour === '' ? null : lightsFromHour,
+                professorDiscountEnabled: typeof professorDiscountEnabled === 'boolean' ? professorDiscountEnabled : undefined,
+                professorDiscountPercent: professorDiscountPercent === '' || professorDiscountPercent === undefined ? null : Number(professorDiscountPercent)
             });
             res.json(club);
         } catch (error: any) {

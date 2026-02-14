@@ -30,7 +30,7 @@ export const createBooking = async (
   userId?: number,
   // 👇 Aceptamos 'dni' también en el tipo para evitar errores de TS
   guestInfo?: { name?: string; email?: string; phone?: string; guestDni?: string; dni?: string },
-  options?: { asGuest?: boolean; guestIdentifier?: string }
+  options?: { asGuest?: boolean; guestIdentifier?: string; isProfessor?: boolean }
 ) => {
   const token = getToken();
   const guestId = token ? undefined : getOrCreateGuestId();
@@ -58,6 +58,7 @@ export const createBooking = async (
       ...(dniValue ? { guestDni: dniValue, dni: dniValue } : {}),
 
       ...(options?.asGuest ? { asGuest: true } : {}),
+  ...(options?.isProfessor ? { isProfessor: true } : {}),
       
       // El ID del usuario si corresponde
       ...(userId ? { userId } : {}) 
@@ -144,7 +145,8 @@ export const createFixedBooking = async (
   startDateTime: Date,
   guestName?: string,
   guestPhone?: string,
-  guestDni?: string // <--- Recibimos el dato (Argumento #7)
+  guestDni?: string, // <--- Recibimos el dato (Argumento #7)
+  isProfessor?: boolean
 ) => {
   const token = getToken();
   // Validamos token si es necesario, o dejamos que el backend decida
@@ -170,7 +172,8 @@ export const createFixedBooking = async (
         
         // 👇👇👇 AQUÍ ESTABA EL PROBLEMA 👇👇👇
         // Ahora lo enviamos con ambos nombres por seguridad
-        ...(guestDni ? { guestDni } : {}) 
+        ...(guestDni ? { guestDni } : {}),
+        ...(isProfessor ? { isProfessor: true } : {})
     })
   });
 

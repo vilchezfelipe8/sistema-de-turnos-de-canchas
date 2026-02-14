@@ -9,8 +9,8 @@ export const BookingTicket: React.FC<TicketProps> = ({ booking, currentItems }) 
   
   // 1. Precios Base
   const courtPrice = Number(booking.price) || 0;
-  const BASE_COURT_PRICE = 28000;
-  const lightsExtra = Math.max(courtPrice - BASE_COURT_PRICE, 0);
+  const baseCourtPrice = Number(booking.court?.price ?? booking.courtPrice ?? 0);
+  const lightsExtra = Math.max(courtPrice - (baseCourtPrice || courtPrice), 0);
   
   // 2. Items YA cargados en base de datos
   const savedItems = booking.items || [];

@@ -37,4 +37,22 @@ router.post(
     cashController.createMovement
 );
 
+// GET: Productos del club (para ventas directas)
+router.get(
+    '/products',
+    authMiddleware,
+    requireRole('ADMIN'),
+    setAdminClubFromUser,
+    cashController.getProducts
+);
+
+// POST: Venta directa de producto (sin reserva)
+router.post(
+    '/product-sale',
+    authMiddleware,
+    requireRole('ADMIN'),
+    setAdminClubFromUser,
+    cashController.createProductSale
+);
+
 export default router;

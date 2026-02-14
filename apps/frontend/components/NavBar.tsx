@@ -146,33 +146,34 @@ const Navbar = ({ onMenuClick }: NavbarProps) => {
     return `${first.charAt(0)}${last.charAt(0)}`.trim() || 'TU';
   }, [user]);
 
-  const brandHref = router.pathname.startsWith('/club/') && club?.slug ? `/club/${club.slug}` : '/';
+  const isAdminPage = router.pathname.startsWith('/admin');
+  const isClubPage = router.pathname.startsWith('/club/');
+  const showClubBrand = isAdminPage || isClubPage;
+  const brandHref = showClubBrand && club?.slug ? `/club/${club.slug}` : '/';
 
   return (
     <>
       <nav
         ref={navRef}
-        className={`absolute top-0 left-0 right-0 z-50 transition-all duration-300 border-b border-[#EBE1D8]/10 ${
+        className={`fixed top-0 left-0 right-0 z-[10000] transition-all duration-300 border-b border-[#EBE1D8]/10 ${
           isScrolled ? 'py-2 bg-[#347048]/95 backdrop-blur-md shadow-lg' : 'py-3 bg-[#347048]'
         }`}
       >
-        <div className="max-w-7xl mx-auto px-6 flex justify-between items-center">
+        {onMenuClick && (
+          <button
+            onClick={onMenuClick}
+            className="absolute left-4 top-1/2 -translate-y-1/2 z-30 flex-shrink-0 p-2 text-[#EBE1D8] hover:bg-[#EBE1D8]/20 rounded-full transition-all active:scale-95"
+            title="Abrir menú"
+          >
+            <Menu size={32} strokeWidth={2.5} />
+          </button>
+        )}
+        <div className={`max-w-7xl mx-auto px-6 flex justify-between items-center ${onMenuClick ? 'pl-10' : ''}`}>
           
           {/* --- IZQUIERDA: LOGO + MENÚ --- */}
-          <div className="flex items-center gap-4">
-            
-            {onMenuClick && (
-              <button 
-                onClick={onMenuClick}
-                className="p-2 -ml-2 text-[#EBE1D8] hover:bg-[#EBE1D8]/20 rounded-full transition-all active:scale-95"
-                title="Abrir menú"
-              >
-                <Menu size={32} strokeWidth={2.5} />
-              </button>
-            )}
-
-            <Link href={brandHref} className="group flex items-center gap-3 select-none">
-              {club?.logoUrl ? (
+          <div className="relative flex items-center gap-4">
+            <Link href={brandHref} className="relative z-10 group flex items-center gap-3 select-none min-w-0">
+              {showClubBrand && club?.logoUrl && !isAdminPage ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img 
                   src={club.logoUrl} 
@@ -182,9 +183,9 @@ const Navbar = ({ onMenuClick }: NavbarProps) => {
                 />
               ) : null}
               
-              <div className="flex flex-col leading-none">
-                <span className="text-xl md:text-3xl font-black tracking-tighter text-[#EBE1D8] italic drop-shadow-sm leading-none mt-1">
-                  {club ? club.name : 'TuCancha'}
+              <div className="flex flex-col leading-none min-w-0">
+                <span className="text-xl md:text-3xl font-black tracking-tighter text-[#EBE1D8] italic drop-shadow-sm leading-none mt-1 truncate max-w-[220px] md:max-w-[320px]">
+                  {showClubBrand && club ? club.name : 'TuCancha'}
                 </span>
               </div>
             </Link>

@@ -9,6 +9,7 @@ export class UserRepository {
         });
         if (!user) return null;
 
+        const isProfessor = (user as any).isProfessor ?? false;
         return new User(
             user.id,
             user.firstName,
@@ -16,6 +17,7 @@ export class UserRepository {
             user.email,
             user.phoneNumber,
             user.role as Role,
+            isProfessor,
             user.password
         );
     }
@@ -26,6 +28,7 @@ export class UserRepository {
         });
         if (!user) return null;
 
+        const isProfessor = (user as any).isProfessor ?? false;
         return new User(
             user.id,
             user.firstName,
@@ -33,6 +36,7 @@ export class UserRepository {
             user.email,
             user.phoneNumber,
             user.role as Role,
+            isProfessor,
             user.password
         );
     }
@@ -49,6 +53,7 @@ export class UserRepository {
             }
         });
 
+        const isProfessor = (saved as any).isProfessor ?? false;
         return new User(
             saved.id,
             saved.firstName,
@@ -56,6 +61,7 @@ export class UserRepository {
             saved.email,
             saved.phoneNumber,
             saved.role as Role,
+            isProfessor,
             saved.password
         );
     }

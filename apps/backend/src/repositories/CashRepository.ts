@@ -21,13 +21,14 @@ export class CashRepository {
     });
 }
 
-    async findAllByDateRange(startDate: Date, endDate: Date) {
+    async findAllByDateRange(startDate: Date, endDate: Date, clubId?: number) {
         return prisma.cashMovement.findMany({
             where: {
                 date: {
                     gte: startDate,
                     lte: endDate
-                }
+                },
+                ...(clubId ? { clubId } : {})
             },
             orderBy: { date: 'desc' }
         });

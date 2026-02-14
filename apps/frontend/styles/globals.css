@@ -1,3 +1,14 @@
+/* Hide number input spinners */
+.no-spinner::-webkit-outer-spin-button,
+.no-spinner::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.no-spinner {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -201,36 +212,36 @@
 
 /* Popper (contenedor del calendario) */
 .date-picker-popper {
-  z-index: 9999999 !important;
+  z-index: 9000 !important;
 }
 
 /* Asegurar que el calendario se renderice fuera del contenedor */
 .react-datepicker-popper {
-  z-index: 9999999 !important;
+  z-index: 9000 !important;
 }
 
 .react-datepicker {
-  z-index: 9999999 !important;
+  z-index: 9000 !important;
 }
 
 .react-datepicker__triangle {
-  z-index: 9999999 !important;
+  z-index: 9000 !important;
 }
 
 /* Asegurar que todos los elementos del calendario tengan z-index alto */
 .react-datepicker-popper[data-placement],
 .react-datepicker-popper[data-placement] > div {
-  z-index: 9999999 !important;
+  z-index: 9000 !important;
 }
 
 /* Portal del datepicker - con portalId, react-datepicker maneja todo correctamente */
 #datepicker-portal {
-  z-index: 9999999;
+  z-index: 9000;
 }
 
 /* Asegurar que el calendario esté por encima de todos los contenedores */
 .react-datepicker-popper {
-  z-index: 9999999 !important;
+  z-index: 9000 !important;
 }
 
 /* --- BOTONES DINÁMICOS (Color solo al pasar el mouse) --- */

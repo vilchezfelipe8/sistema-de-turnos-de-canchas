@@ -132,6 +132,7 @@ async function main() {
       clubId: club1.id,
       isIndoor: true,
       surface: 'Sintético',
+      price: 28000,
       activityTypeId: padel.id,
       activities: { connect: { id: padel.id } }
     } as any,
@@ -144,6 +145,7 @@ async function main() {
       clubId: club1.id,
       isIndoor: false,
       surface: 'Césped',
+      price: 28000,
       activityTypeId: padel.id,
       activities: { connect: { id: padel.id } }
     } as any,
@@ -156,6 +158,7 @@ async function main() {
       clubId: club2.id,
       isIndoor: true,
       surface: 'Sintético',
+      price: 30000,
       activityTypeId: padel.id,
       activities: { connect: { id: padel.id } }
     } as any,
@@ -168,6 +171,7 @@ async function main() {
       clubId: club1.id,
       isIndoor: false,
       surface: 'Polvo de ladrillo',
+      price: 32000,
       activityTypeId: tenis.id,
       activities: { connect: { id: tenis.id } }
     } as any,
@@ -180,6 +184,7 @@ async function main() {
       clubId: club2.id,
       isIndoor: false,
       surface: 'Césped sintético',
+      price: 35000,
       activityTypeId: futbol.id,
       activities: { connect: { id: futbol.id } }
     } as any,

@@ -23,6 +23,8 @@ export interface Club {
   lightsEnabled?: boolean;
   lightsExtraAmount?: number | null;
   lightsFromHour?: string | null;
+  professorDiscountEnabled?: boolean;
+  professorDiscountPercent?: number | null;
   createdAt?: string;
   updatedAt?: string;
 }

@@ -44,7 +44,7 @@ export class CourtController {
     updateCourt = async (req: Request, res: Response) => {
         try {
             const { id } = req.params;
-            const { isUnderMaintenance, name, activityTypeId } = req.body;
+            const { isUnderMaintenance, name, activityTypeId, price } = req.body;
             const clubId = (req as any).clubId;
 
             // Si hay clubId en el request, verificar que la cancha pertenece al club
@@ -65,6 +65,7 @@ export class CourtController {
                 name: name
             };
             if (activityTypeId) data.activityTypeId = Number(activityTypeId);
+            if (price !== undefined && price !== null && price !== '') data.price = Number(price);
 
             const updatedCourt = await prisma.court.update({
                 where: { id: Number(id) },
