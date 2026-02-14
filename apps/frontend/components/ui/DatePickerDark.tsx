@@ -65,6 +65,7 @@ const DatePickerDark = ({ className, inputClassName, showIcon = true, variant = 
           border-radius: 1rem;
           color: ${theme.text} !important;
           box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.12), 0 10px 10px -5px rgba(0, 0, 0, 0.08);
+          overflow: hidden;
         }
         
         /* El encabezado (Donde dice Febrero 2026) */
@@ -72,6 +73,8 @@ const DatePickerDark = ({ className, inputClassName, showIcon = true, variant = 
           background-color: ${variant === 'light' ? 'rgba(235, 225, 216, 0.6)' : theme.background} !important;
           border-bottom: 1px solid ${theme.border} !important;
           padding-top: 1rem;
+          border-top-left-radius: 1rem;
+          border-top-right-radius: 1rem;
         }
         
         /* Título del Mes */

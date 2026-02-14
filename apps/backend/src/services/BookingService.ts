@@ -168,6 +168,16 @@ export class BookingService {
             "08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:30", "19:00", "20:30", "22:00"
         ];
 
+        const now = new Date();
+        const upcomingSlots = possibleSlots.filter((slotTime) => {
+            try {
+                const slotDateTime = TimeHelper.localSlotToUtc(date, slotTime);
+                return slotDateTime.getTime() > now.getTime();
+            } catch {
+                return false;
+            }
+        });
+
         const duration = activity.defaultDurationMinutes; 
 
         const freeSlots = possibleSlots.filter(slotStart => {
@@ -442,16 +452,34 @@ export class BookingService {
         
         if (!activity) throw new Error("Actividad no encontrada");
 
+        const activityCourts = activeCourts.filter((court: any) =>
+            Array.isArray(court.activities) && court.activities.some((act: any) => act.id === activityId)
+        );
+
+        if (activityCourts.length === 0) {
+            return [];
+        }
+
         const possibleSlots = [
             "08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:30", "19:00", "20:30", "22:00"
         ];
 
-        const slotsWithCourts = possibleSlots.map(slotTime => {
+        const now = new Date();
+        const upcomingSlots = possibleSlots.filter((slotTime: string) => {
+            try {
+                const slotDateTime = TimeHelper.localSlotToUtc(date, slotTime);
+                return slotDateTime.getTime() > now.getTime();
+            } catch {
+                return false;
+            }
+        });
+
+        const slotsWithCourts = upcomingSlots.map((slotTime: string) => {
             const slotDateTime = TimeHelper.localSlotToUtc(date, slotTime);
             const durationMinutes = activity.defaultDurationMinutes;
             const slotEndDateTime = new Date(slotDateTime.getTime() + durationMinutes * 60000);
 
-            const availableCourts = activeCourts.filter(court => {
+            const availableCourts = activityCourts.filter(court => {
                 const overlappingBooking = bookings.find(b => {
                     if (b.court.id !== court.id) return false;
                     if (b.status === "CANCELLED") return false; 
@@ -471,7 +499,7 @@ export class BookingService {
                 price: (court as any).price ?? null
             }));
 
-            const courtsWithAvailability = activeCourts.map(court => {
+                const courtsWithAvailability = activityCourts.map(court => {
                  const isBusy = bookings.some(b => 
                     b.court.id === court.id && 
                     b.status !== "CANCELLED" &&
@@ -490,7 +518,7 @@ export class BookingService {
                 availableCourts,
                 courts: courtsWithAvailability
             };
-        }).filter(slot => slot.availableCourts.length > 0); 
+        }).filter((slot: { availableCourts: Array<unknown> }) => slot.availableCourts.length > 0); 
 
         return slotsWithCourts;
     }
