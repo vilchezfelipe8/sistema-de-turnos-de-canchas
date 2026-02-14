@@ -11,8 +11,8 @@ export default function LoginPage() {
     : null;
 
   const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState('admin@lastejas.com');
-  const [password, setPassword] = useState('admin123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -133,14 +133,14 @@ export default function LoginPage() {
                 
                 <div className="col-span-2">
                   <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Teléfono</label>
-                  <div className="relative flex items-center bg-white border-2 border-transparent focus-within:border-[#B9CF32] rounded-2xl transition-all shadow-sm overflow-hidden">
-                    <div className="pl-4 pr-3 py-3.5 flex items-center bg-[#347048]/5 text-[#347048]/60 border-r border-[#347048]/10">
+                  <div className="relative flex items-stretch bg-white border-2 border-transparent focus-within:border-[#B9CF32] rounded-2xl transition-all shadow-sm overflow-hidden min-h-[56px]">
+                    <div className="pl-4 pr-3 py-0 flex items-center bg-[#347048]/5 text-[#347048]/60 border-r border-[#347048]/10 shrink-0 self-stretch">
                       <Phone size={16} strokeWidth={3} className="mr-2 text-[#347048]/40" />
-                      <span className="font-black text-sm">+54 9</span>
+                      <span className="font-black text-sm whitespace-nowrap">+54 9</span>
                     </div>
                     <input type="tel" required maxLength={12} value={formatPhoneDigits(phoneNumber)}
                       onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ''))}
-                      className="w-full px-4 py-3.5 bg-transparent text-[#347048] font-bold focus:outline-none placeholder-[#347048]/20" placeholder="351 123 4567" />
+                      className="w-full px-4 py-3.5 bg-transparent text-[#347048] font-bold focus:outline-none placeholder-[#347048]/20 h-full" placeholder="351 123 4567" />
                   </div>
                 </div>
               </div>

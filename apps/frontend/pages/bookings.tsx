@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Navbar from '../components/NavBar';
 import { getMyBookings, cancelBooking } from '../services/BookingService';
@@ -23,6 +23,12 @@ export default function MyBookingsPage() {
     isWarning?: boolean;
     onConfirm?: () => Promise<void> | void;
   }>({ show: false });
+  const tabRefs = useRef<Record<'ACTIVE' | 'PAST' | 'CANCELLED', HTMLButtonElement | null>>({
+    ACTIVE: null,
+    PAST: null,
+    CANCELLED: null
+  });
+  const [tabIndicator, setTabIndicator] = useState({ left: 0, width: 0 });
 
   const closeModal = () => {
     setModalState((prev) => ({ ...prev, show: false, onConfirm: undefined }));
@@ -112,14 +118,21 @@ export default function MyBookingsPage() {
   }, [activeTab, activeBookings, pastBookings, cancelledBookings]);
 
   useEffect(() => {
-    if (!visibleBookings.length) {
+    const updateIndicator = () => {
+      const activeEl = tabRefs.current[activeTab];
+      if (!activeEl) return;
+      setTabIndicator({ left: activeEl.offsetLeft, width: activeEl.offsetWidth });
+    };
+    updateIndicator();
+    window.addEventListener('resize', updateIndicator);
+    return () => window.removeEventListener('resize', updateIndicator);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (selectedBooking && !bookings.some((booking) => booking.id === selectedBooking.id)) {
       setSelectedBooking(null);
-      return;
     }
-    if (!selectedBooking || !visibleBookings.some((booking) => booking.id === selectedBooking.id)) {
-      setSelectedBooking(visibleBookings[0]);
-    }
-  }, [visibleBookings, selectedBooking]);
+  }, [bookings, selectedBooking]);
 
   const formatDayLabel = (date: Date) =>
     date.toLocaleDateString('es-AR', {
@@ -218,14 +231,21 @@ export default function MyBookingsPage() {
             <div className="px-8 pt-8 pb-4 text-center">
               <h2 className="text-3xl font-black text-[#2b3a4a]">Mis Reservas</h2>
               <div className="mx-auto mt-3 h-1 w-20 rounded-full bg-[#926699]" />
-              <div className="mt-6 grid grid-cols-3 text-sm font-bold text-[#7c8aa0]">
-                {['ACTIVE', 'PAST', 'CANCELLED'].map((tab) => (
+              <div className="mt-6 grid grid-cols-3 text-sm font-bold text-[#7c8aa0] relative">
+                <span
+                  className="absolute bottom-0 h-[2px] bg-[#0bbd49] rounded-full transition-all duration-300"
+                  style={{ left: tabIndicator.left, width: tabIndicator.width }}
+                />
+                {(['ACTIVE', 'PAST', 'CANCELLED'] as const).map((tab) => (
                   <button
                     key={tab}
-                    onClick={() => setActiveTab(tab as 'ACTIVE' | 'PAST' | 'CANCELLED')}
+                    ref={(el) => {
+                      tabRefs.current[tab] = el;
+                    }}
+                    onClick={() => setActiveTab(tab)}
                     className={`pb-3 border-b-2 transition-colors ${
                       activeTab === tab
-                        ? 'text-[#0bbd49] border-[#0bbd49]'
+                        ? 'text-[#0bbd49] border-transparent'
                         : 'border-transparent hover:text-[#2b3a4a]'
                     }`}
                   >
@@ -305,7 +325,7 @@ export default function MyBookingsPage() {
                                 event.stopPropagation();
                                 handleCancel(booking.id);
                               }}
-                              className="text-[#ef4444]"
+                              className="px-4 py-2 rounded-full border border-red-200 bg-red-50 text-[#ef4444] hover:bg-red-500 hover:text-white hover:border-red-500 transition-all"
                             >
                               Cancelar reserva
                             </button>

@@ -70,7 +70,7 @@ export default function ClubPage() {
   }
 
   return (
-    <main className="min-h-screen relative overflow-hidden flex flex-col items-center p-4 bg-[#347048] text-[#D4C5B0]">
+    <main className="min-h-screen relative overflow-x-hidden flex flex-col items-center bg-[#347048] text-[#D4C5B0] selection:bg-[#B9CF32] selection:text-[#347048]">
       
       {/* FONDO AMBIENTAL (Luces traseras) */}
       <div className="fixed inset-0 z-0 pointer-events-none">
@@ -82,7 +82,7 @@ export default function ClubPage() {
       <div className="relative z-10 w-full flex flex-col items-center">
         <Navbar />
         
-        <div className="w-full max-w-6xl mt-24 md:mt-20 mb-8 px-4">
+  <div className="w-full max-w-6xl pt-28 lg:pt-32 mb-8 px-4">
           
 
           <div className="mt-8 grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-6">
@@ -108,7 +108,12 @@ export default function ClubPage() {
                   // 👇 CAMBIO: hover:text-white (Texto blanco al pasar mouse)
                   className="flex items-start gap-2 font-bold hover:text-[#B9CF32] transition-colors group cursor-pointer"
                 >
-                  <span>📍</span>
+                  <span aria-hidden="true" className="inline-flex mt-0.5">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 22s8-5.5 8-12a8 8 0 1 0-16 0c0 6.5 8 12 8 12Z" />
+                      <circle cx="12" cy="10" r="3" />
+                    </svg>
+                  </span>
                   {/* 👇 CAMBIO: decoration-white (Subrayado blanco) */}
                   <span className="group-hover:underline decoration-[#B9CF32] underline-offset-4">
                     {formatClubAddress(club)}
@@ -122,7 +127,11 @@ export default function ClubPage() {
                     // 👇 CAMBIO: hover:text-white
                     className="flex items-start gap-2 font-bold hover:text-[#B9CF32] transition-colors group cursor-pointer"
                   >
-                    <span>📞</span>
+                    <span aria-hidden="true" className="inline-flex mt-0.5">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.86 19.86 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.86 19.86 0 0 1 2.08 4.18 2 2 0 0 1 4.06 2h3a2 2 0 0 1 2 1.72 12.69 12.69 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.69 12.69 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                      </svg>
+                    </span>
                     {/* 👇 CAMBIO: decoration-white */}
                     <span className="group-hover:underline decoration-[#B9CF32] underline-offset-4">
                       {club.phone}
@@ -133,7 +142,14 @@ export default function ClubPage() {
                 {/* ✉️ CONTACTO / EMAIL */}
                 {club.contactInfo && (
                   <div className="flex items-center gap-2">
-                    <span>✉️</span>
+                    <span
+                      aria-hidden="true"
+                      className="inline-flex items-center h-4 w-4 bg-current"
+                      style={{
+                        WebkitMask: "url('/email-svgrepo-com.svg') center / contain no-repeat",
+                        mask: "url('/email-svgrepo-com.svg') center / contain no-repeat"
+                      }}
+                    />
                     {club.contactInfo.includes('@') ? (
                       <a 
                         href={`mailto:${club.contactInfo}`}
@@ -160,9 +176,9 @@ export default function ClubPage() {
                       href={club.instagramUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-start gap-2 font-bold hover:text-[#B9CF32] transition-colors group cursor-pointer"
+                      className="flex items-center gap-2 font-bold hover:text-[#B9CF32] transition-colors group cursor-pointer"
                     >
-                      <span aria-hidden="true" className="inline-flex">
+                      <span aria-hidden="true" className="inline-flex items-center">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                           <rect x="3" y="3" width="18" height="18" rx="5" />
                           <circle cx="12" cy="12" r="4" />

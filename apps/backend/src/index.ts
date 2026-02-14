@@ -15,6 +15,8 @@ import ClientRoutes from './routes/ClientRoutes';
 import { errorHandler } from './middleware/ErrorHandler'; // Movi el import aquí arriba para ordenar
 import HealthRoutes from './routes/HealthRoutes'; // Importamos las rutas de healthcheck
 import CashRoutes from './routes/CashRoutes';
+import { authMiddleware } from './middleware/AuthMiddleware';
+import { requireRole } from './middleware/RoleMiddleware';
 
 const app = express();
 
@@ -93,7 +95,7 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 // WhatsApp QR endpoint
-app.get('/whatsapp/qr', async (_req: Request, res: Response) => {
+app.get('/whatsapp/qr', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
   // Nota: Usamos require aquí para evitar cargar el servicio si no se usa la ruta, 
   // pero idealmente debería importarse arriba. Lo dejo como lo tenías.
   const { whatsappService } = require('./services/WhatsappService');

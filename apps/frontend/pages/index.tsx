@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { ClubService, Club } from '../services/ClubService';
+import { getApiUrl } from '../utils/apiUrl';
 import { LocationService, Location } from '../services/LocationService';
 import DatePickerDark from '../components/ui/DatePickerDark';
-import { Search, MapPin, Calendar, TrendingUp, ShieldCheck, ArrowRight, Menu, X, Phone, Mail, Instagram, Activity, ChevronRight, MousePointerClick, CalendarCheck, PlayCircle, Coffee, Droplets, Lightbulb, Trophy, ChevronDown } from 'lucide-react';
+import { Search, MapPin, Calendar, TrendingUp, ShieldCheck, ArrowRight, Menu, X, Phone, Mail, Instagram, Activity, ChevronRight, MousePointerClick, CalendarCheck, PlayCircle, Coffee, Droplets, Lightbulb, Trophy, ChevronDown, LogOut, Check } from 'lucide-react';
 import Link from 'next/link';
 import { logout } from '../services/AuthService';
 import { getMyBookings } from '../services/BookingService';
@@ -23,8 +24,9 @@ const RevealOnScroll = ({ children, delay = 0, className = "" }: { children: Rea
       },
       { threshold: 0.1 } // Se activa cuando el 10% del elemento es visible
     );
-    if (ref.current) observer.observe(ref.current);
-    return () => { if (ref.current) observer.unobserve(ref.current); };
+    const currentRef = ref.current;
+    if (currentRef) observer.observe(currentRef);
+    return () => { if (currentRef) observer.unobserve(currentRef); };
   }, []);
 
   return (
@@ -52,6 +54,11 @@ type LocationSuggestion = {
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
 const LOCATION_LIMIT = 6;
 const DEFAULT_RADIUS_KM = 20;
+const ACTIVITY_IDS_BY_SPORT: Record<string, number> = {
+  padel: 1,
+  tenis: 2,
+  futbol: 3
+};
 
 const normalizeText = (text: string) =>
   text
@@ -118,6 +125,7 @@ export default function Home() {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [activeBookingsCount, setActiveBookingsCount] = useState(0);
   const resultsRef = useRef<HTMLElement>(null);
+  const apiUrl = useMemo(() => getApiUrl(), []);
 
   // Estados del Buscador
   const [searchCity, setSearchCity] = useState('');
@@ -140,6 +148,7 @@ export default function Home() {
     const initials = `${first.charAt(0)}${last.charAt(0)}`.trim();
     return initials || 'TU';
   }, [user]);
+  const isAdmin = user?.role === 'ADMIN';
 
   const sportOptions = useMemo(() => ([
     {
@@ -158,10 +167,22 @@ export default function Home() {
       value: 'padel',
       label: 'Pádel',
       icon: (
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="6" y="3" width="8" height="12" rx="2" />
-          <circle cx="16.5" cy="14.5" r="2.5" />
-          <path d="M10 15v6" />
+        <svg viewBox="0 0 20 20" className="h-4 w-4" aria-hidden="true">
+          <g>
+            <circle cx="12.41" cy="3.19" r="0.62" fill="currentColor" />
+            <circle cx="14.17" cy="4.99" r="0.62" fill="currentColor" />
+            <circle cx="15.94" cy="6.8" r="0.62" fill="currentColor" />
+            <circle cx="10.61" cy="4.96" r="0.62" fill="currentColor" />
+            <circle cx="12.37" cy="6.75" r="0.62" fill="currentColor" />
+            <circle cx="14.14" cy="8.56" r="0.62" fill="currentColor" />
+            <circle cx="8.81" cy="6.72" r="0.62" fill="currentColor" />
+            <circle cx="10.56" cy="8.52" r="0.62" fill="currentColor" />
+            <circle cx="12.34" cy="10.33" r="0.62" fill="currentColor" />
+            <path
+              fill="currentColor"
+              d="M17.94,9.89a4.1,4.1,0,0,0,1.11-3.43A5.72,5.72,0,0,0,18,4l-.75-1-1-1-.15-.16A7.65,7.65,0,0,0,14.39.59,4.17,4.17,0,0,0,9.53,1,14.21,14.21,0,0,0,7.91,2.59,9.38,9.38,0,0,0,6,5.77c-.2.54-.28,1.12-.45,1.72-.42,1.36-.77,2.69-1.15,4a1.61,1.61,0,0,1-.42.74L2.77,13.47a.3.3,0,0,1-.41,0h0a.3.3,0,0,0-.43,0L.3,15.06a1,1,0,0,0,0,1.39l2.13,2.18a1,1,0,0,0,1.39,0L5.45,17a.32.32,0,0,0,0-.45h0a.29.29,0,0,1,0-.38L6.66,15a1.93,1.93,0,0,1,.78-.43l4-1,.3-.06a12.76,12.76,0,0,0,1.51-.36A11.46,11.46,0,0,0,17.94,9.89ZM3.3,17.54a.37.37,0,0,1-.52,0h0L1.4,16.12a.37.37,0,0,1,0-.52h0l.85-.84a.36.36,0,0,1,.51,0h0a.23.23,0,0,0,.29,0l1.57-1.52a.36.36,0,0,1,.51,0h0l.61.62a.37.37,0,0,1,0,.52h0L4.17,15.88a.24.24,0,0,0,0,.3h0a.37.37,0,0,1,0,.51Zm4.2-4.26A1.18,1.18,0,0,1,6.39,13L6,12.62a1.37,1.37,0,0,1-.26-1.12c.1-.38.2-.77.32-1.15A6.59,6.59,0,0,0,8.69,13ZM12.83,12a4.3,4.3,0,0,1-3.41,0A4.38,4.38,0,0,1,7.11,6.25,10.13,10.13,0,0,1,8.85,3.43c.27-.26.5-.55.75-.82A5,5,0,0,1,11,1.55a3,3,0,0,1,2.59.09,8.65,8.65,0,0,1,2.57,2.05,7.32,7.32,0,0,1,1.31,1.9A3,3,0,0,1,17,9,10.36,10.36,0,0,1,12.83,12Z"
+            />
+          </g>
         </svg>
       )
     },
@@ -181,9 +202,18 @@ export default function Home() {
       value: 'tenis',
       label: 'Tenis',
       icon: (
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="10" cy="10" r="6" />
-          <path d="M14.5 14.5L20 20" />
+        <svg viewBox="0 0 69.447 69.447" className="h-4 w-4" aria-hidden="true">
+          <g transform="translate(-1271.769 -1574.648)">
+            <path
+              d="M1341.208,1609.372a34.719,34.719,0,1,1-34.72-34.724A34.724,34.724,0,0,1,1341.208,1609.372Z"
+              fill="currentColor"
+            />
+            <path
+              d="M1311.144,1574.993a35.139,35.139,0,0,0-4.61-.344,41.069,41.069,0,0,1-34.369,29.735,34.3,34.3,0,0,0-.381,4.635l.183-.026a45.921,45.921,0,0,0,39.149-33.881Zm29.721,34.692a45.487,45.487,0,0,0-33.488,34.054l-.071.313a34.54,34.54,0,0,0,4.818-.455,41.218,41.218,0,0,1,28.686-29.194,36.059,36.059,0,0,0,.388-4.8Z"
+              fill="currentColor"
+              opacity="0.55"
+            />
+          </g>
         </svg>
       )
     }
@@ -363,7 +393,40 @@ export default function Home() {
     }
 
     filtered.sort((a, b) => a.distance - b.distance);
-    setDisplayedClubs(filtered.map(item => item.club));
+    let finalClubs = filtered.map(item => item.club);
+
+    if (searchDate) {
+      const activityIds = searchSport
+        ? [ACTIVITY_IDS_BY_SPORT[searchSport]].filter(Boolean)
+        : Object.values(ACTIVITY_IDS_BY_SPORT);
+
+      if (activityIds.length > 0) {
+        const availabilityChecks = await Promise.all(
+          finalClubs.map(async (club) => {
+            try {
+              for (const activityId of activityIds) {
+                const res = await fetch(
+                  `${apiUrl}/api/bookings/availability-with-courts?activityId=${activityId}&date=${searchDate}&clubSlug=${encodeURIComponent(club.slug)}&t=${Date.now()}`,
+                  { cache: 'no-store' }
+                );
+                if (!res.ok) continue;
+                const data = await res.json();
+                const hasSlots = Array.isArray(data?.slotsWithCourts)
+                  && data.slotsWithCourts.some((slot: any) => Array.isArray(slot.availableCourts) && slot.availableCourts.length > 0);
+                if (hasSlots) return true;
+              }
+            } catch (error) {
+              console.error('Error al validar disponibilidad:', error);
+            }
+            return false;
+          })
+        );
+
+        finalClubs = finalClubs.filter((_, index) => availabilityChecks[index]);
+      }
+    }
+
+    setDisplayedClubs(finalClubs);
     setLastSearchLabel(location.label);
 
     if (resultsRef.current) {
@@ -393,80 +456,92 @@ export default function Home() {
         </div>
         <div className="flex items-center gap-4 relative">
             {user ? (
-              <div className="relative">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowUserMenu((prev) => !prev);
-                  }}
-                  className="hidden md:flex items-center gap-3 px-3 py-2 rounded-full bg-white/10 hover:bg-white/20 transition-all"
-                >
-                  <div className="relative">
-                    <div className="h-9 w-9 rounded-full bg-black/70 border-2 border-white/60 flex items-center justify-center text-white text-xs font-black">
-                      {userInitials}
-                    </div>
-                    <span className="absolute -right-1 -top-1 bg-[#0bbd49] text-white text-[10px] font-black rounded-full h-4 min-w-[16px] px-1 flex items-center justify-center">
-                      {activeBookingsCount}
-                    </span>
-                  </div>
-                  <span className="text-[#D4C5B0] font-bold text-sm">{user.firstName || user.name || 'Usuario'}</span>
-                </button>
-
-                {showUserMenu && (
-                  <div className="absolute right-0 mt-4 w-[280px] md:w-[320px] bg-white rounded-3xl shadow-2xl border border-black/5 overflow-hidden z-[120]" onClick={(e) => e.stopPropagation()}>
-                    <div className="p-6 flex flex-col items-center text-center">
-                      <div className="relative mb-4">
-                        <div className="h-24 w-24 rounded-full bg-black flex items-center justify-center text-white text-2xl font-black">
-                          {userInitials}
-                        </div>
-                        <span className="absolute -right-1 -top-1 bg-[#0bbd49] text-white text-xs font-black rounded-full h-6 w-6 flex items-center justify-center">✓</span>
-                      </div>
-                      <h3 className="text-xl font-black text-[#2b3a4a]">{user.firstName || user.name || 'Usuario'}</h3>
-                    </div>
-                    <div className="border-t border-black/10 px-6 py-4">
-                      <p className="text-[#2b3a4a] font-black text-lg mb-4">Datos proporcionados</p>
-                      <div className="space-y-3 text-[#2b3a4a]/70">
-                        <div className="flex items-center gap-3">
-                          <span className="text-[#0bbd49]">✔</span>
-                          <span>{user.phoneNumber || user.phone || 'Sin teléfono'}</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-[#0bbd49]">✉️</span>
-                          <span>{user.email || 'Sin email'}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="border-t border-black/10 px-6 py-4 space-y-4 text-[#2b3a4a] font-semibold">
-                      <Link
-                        href="/bookings"
-                        className="flex items-center gap-3 hover:text-[#0bbd49]"
-                        onClick={() => setShowUserMenu(false)}
-                      >
-                        <span>📅</span> Mis Reservas
-                      </Link>
-                      <button
-                        type="button"
-                        className="flex items-center gap-3 hover:text-[#0bbd49] w-full text-left"
-                        onClick={() => setShowUserMenu(false)}
-                      >
-                        <span>👤</span> Mi Perfil
-                      </button>
-                      <button
-                        type="button"
-                        className="flex items-center gap-3 text-[#e66a2c] w-full text-left"
-                        onClick={() => {
-                          logout();
-                          setUser(null);
-                          setShowUserMenu(false);
-                          router.push('/');
-                        }}
-                      >
-                        <span>↪</span> Cerrar sesión
-                      </button>
-                    </div>
+              <>
+                {!isAdmin && (
+                  <div className="hidden sm:flex items-center gap-1 p-1 rounded-full bg-[#EBE1D8]/10">
+                    <Link
+                      href="/bookings"
+                      className="flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest transition-all border-2 bg-[#EBE1D8] text-[#347048] border-[#EBE1D8]"
+                      onClick={() => setShowUserMenu(false)}
+                    >
+                      <Calendar size={16} strokeWidth={2.5} />
+                      Mis Turnos
+                    </Link>
                   </div>
                 )}
-              </div>
+                <div className="relative">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowUserMenu((prev) => !prev);
+                    }}
+                    className="hidden md:flex items-center gap-3 pl-1 pr-4 py-1 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 transition-all shadow-sm"
+                  >
+                    <div className="relative">
+                      <div className="h-9 w-9 rounded-full bg-[#B9CF32] flex items-center justify-center text-[#347048] text-xs font-black shadow-inner">
+                        {userInitials}
+                      </div>
+                      {activeBookingsCount > 0 && (
+                        <span className="absolute -right-1 -top-1 bg-[#926699] text-white text-[9px] font-black rounded-full h-4 min-w-[16px] px-1 flex items-center justify-center shadow-md border-2 border-[#347048]">
+                          {activeBookingsCount}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[#D4C5B0] font-bold text-sm">{user.firstName || user.name || 'Usuario'}</span>
+                  </button>
+
+                  {showUserMenu && (
+                    <div className="absolute right-0 mt-4 w-[280px] md:w-[320px] bg-[#EBE1D8] rounded-3xl shadow-2xl shadow-[#347048]/50 border border-[#347048]/10 overflow-hidden z-[120]" onClick={(e) => e.stopPropagation()}>
+                      <div className="p-6 flex flex-col items-center text-center">
+                        <div className="relative mb-4">
+                          <div className="h-20 w-20 rounded-full bg-[#347048] flex items-center justify-center text-[#EBE1D8] text-xl font-black shadow-inner">
+                            {userInitials}
+                          </div>
+                          <span className="absolute -right-1 -bottom-1 bg-[#B9CF32] text-[#347048] text-xs font-black rounded-full h-7 w-7 flex items-center justify-center border-4 border-[#EBE1D8]">
+                            <Check size={14} strokeWidth={4} />
+                          </span>
+                        </div>
+                        <h3 className="text-xl font-black text-[#347048] italic tracking-tight">{user.firstName || user.name || 'Usuario'}</h3>
+                        <p className="text-[#347048]/60 text-xs font-bold uppercase tracking-widest mt-1">Miembro</p>
+                      </div>
+                      <div className="border-t border-[#347048]/10 px-6 py-5 bg-[#347048]/5">
+                        <p className="text-[#347048]/40 font-black text-[10px] uppercase tracking-widest mb-3">Mis Datos</p>
+                        <div className="space-y-3 text-[#347048] text-sm font-bold">
+                          <div className="flex items-center gap-3">
+                            <Phone size={16} className="text-[#B9CF32]" strokeWidth={2.5} />
+                            <span>{user.phoneNumber || user.phone || 'Sin teléfono'}</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <Mail size={16} className="text-[#B9CF32]" strokeWidth={2.5} />
+                            <span className="truncate">{user.email || 'Sin email'}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="border-t border-[#347048]/10 px-6 py-4 space-y-2 font-bold">
+                        <Link
+                          href="/bookings"
+                          className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
+                          onClick={() => setShowUserMenu(false)}
+                        >
+                          <Calendar size={18} strokeWidth={2.5} /> Mis Reservas
+                        </Link>
+                        <button
+                          type="button"
+                          className="flex items-center gap-3 text-red-500 hover:text-red-600 w-full text-left p-2 rounded-xl hover:bg-red-50 transition-colors"
+                          onClick={() => {
+                            logout();
+                            setUser(null);
+                            setShowUserMenu(false);
+                            router.push('/');
+                          }}
+                        >
+                          <LogOut size={18} strokeWidth={2.5} /> Cerrar sesión
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
             ) : (
               <button onClick={() => setShowContact(true)} className="hidden md:flex items-center gap-2 px-5 py-2 rounded-full border border-[#D4C5B0]/30 text-[#D4C5B0] font-bold text-sm hover:bg-[#D4C5B0] hover:text-[#347048] transition-all">
                   <span>Contacto</span>
@@ -505,13 +580,13 @@ export default function Home() {
         </p>
 
         {/* BARRA DE BÚSQUEDA */}
-        <div 
-            className="w-full max-w-4xl bg-[#EBE1D8] rounded-[2rem] p-2 shadow-2xl shadow-[#347048]/50 flex flex-col md:flex-row items-center divide-y md:divide-y-0 md:divide-x divide-[#347048]/10 relative z-50"
+    <div 
+      className="w-full max-w-5xl bg-[#EBE1D8] rounded-[2rem] p-2 shadow-2xl shadow-[#347048]/50 flex flex-col md:flex-row items-center divide-y md:divide-y-0 md:divide-x divide-[#347048]/10 relative z-50"
             onClick={(e) => e.stopPropagation()} 
         >
-            <div className="flex-1 md:flex-[1.4] w-full relative group">
+      <div className="flex-1 md:flex-[1.4] w-full relative group">
                 <div 
-                    className="p-2 px-4 hover:bg-[#d4c5b0]/20 rounded-xl transition-colors cursor-pointer h-full flex items-center gap-3"
+          className="p-2 px-4 hover:bg-[#d4c5b0]/20 rounded-xl transition-colors cursor-pointer h-full flex items-center gap-3 min-h-[56px]"
                     onClick={() => {
                         setShowSportDropdown(false);
                         setShowCityDropdown(true);
@@ -519,18 +594,24 @@ export default function Home() {
                     }}
                 >
                     <MapPin className="text-[#347048] group-hover:text-[#B9CF32] transition-colors shrink-0" size={20} />
-                    <div className="flex flex-col items-start text-left w-full overflow-hidden">
-                        <label className="text-[10px] font-bold text-[#347048]/60 uppercase tracking-wider">Ubicación</label>
+          <div className="flex flex-col items-start text-left w-full overflow-hidden min-h-[38px] justify-center gap-1 flex-1">
+                        <label className="text-[10px] font-bold text-[#347048]/60 uppercase tracking-wider h-3 leading-3">Ubicación</label>
                         <input 
                             id="cityInput"
                             type="text" 
                             placeholder="¿Dónde jugás?" 
-                            className="bg-transparent border-none outline-none text-[#347048] font-bold placeholder-[#347048]/40 w-full p-0 leading-tight truncate"
+              className="bg-transparent border-none outline-none text-[#347048] font-bold placeholder-[#347048]/40 w-full p-0 leading-5 truncate h-full cursor-pointer"
                             value={searchCity}
                             onChange={(e) => {
                                 setSearchCity(e.target.value);
                                 setShowCityDropdown(true);
                             }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const input = e.currentTarget;
+                input.focus();
+                input.select();
+              }}
                             onFocus={(e) => {
                                 e.target.select();
                                 setShowSportDropdown(false);
@@ -574,7 +655,7 @@ export default function Home() {
                 )}
             </div>
 
-      <div className="flex-1 w-full relative group">
+  <div className="flex-1 md:flex-none md:w-[240px] w-full relative group">
         <div
           className="p-2 px-4 hover:bg-[#d4c5b0]/20 rounded-xl transition-colors cursor-pointer h-full flex items-center gap-3"
           onClick={(e) => {
@@ -584,9 +665,9 @@ export default function Home() {
           }}
         >
           <Activity className="text-[#347048] group-hover:text-[#B9CF32] transition-colors shrink-0" size={20} />
-          <div className="flex flex-col items-start text-left w-full overflow-hidden">
-            <label className="text-[10px] font-bold text-[#347048]/60 uppercase tracking-wider">Deporte</label>
-            <div className="flex items-center gap-2 text-[#347048] font-bold text-sm uppercase truncate">
+          <div className="flex flex-col items-start text-left w-full overflow-hidden min-h-[38px] justify-center gap-1">
+            <label className="text-[10px] font-bold text-[#347048]/60 uppercase tracking-wider h-3 leading-3">Deporte</label>
+            <div className="flex items-center gap-2 text-[#347048] font-bold text-sm uppercase truncate leading-5">
               <span className="text-[#347048]">{selectedSport.icon}</span>
               <span className="truncate">{selectedSport.label}</span>
             </div>
@@ -621,35 +702,36 @@ export default function Home() {
         )}
       </div>
 
-      <div
-        className="flex-1 w-full p-2 px-4 hover:bg-[#d4c5b0]/20 rounded-xl transition-colors group"
-        onClick={() => { setShowCityDropdown(false); setShowSportDropdown(false); }}
-      >
-                <div className="flex items-center gap-3 h-full">
-                    <Calendar className="text-[#347048] group-hover:text-[#B9CF32] transition-colors shrink-0" size={20} />
-                    <div className="flex flex-col items-start text-left w-full">
-                        <label className="text-[10px] font-bold text-[#347048]/60 uppercase tracking-wider">Fecha</label>
-                        <DatePickerDark
-                            selected={
-                              searchDate
-                                ? (() => {
-                                    const [y, m, d] = searchDate.split('-').map(Number);
-                                    return new Date(y, m - 1, d);
-                                  })()
-                                : null
-                            }
-                            onChange={(date: Date | null) => {
-                              if (!date) { setSearchDate(''); return; }
-                              setSearchDate(formatLocalDate(date));
-                            }}
-                            minDate={new Date()}
-                            showIcon={false}
-                            inputClassName="bg-transparent border-none outline-none text-[#347048] font-bold text-sm w-full p-0 leading-tight uppercase cursor-pointer placeholder-[#347048]/40 h-auto px-0 py-0 focus:ring-0 focus:border-transparent"
-                            variant="light"
-                        />
-                    </div>
-                </div>
-            </div>
+  <div className="flex-1 w-full relative group">
+        <div
+          className="p-2 px-4 hover:bg-[#d4c5b0]/20 rounded-xl transition-colors cursor-pointer h-full flex items-center gap-3"
+          onClick={() => { setShowCityDropdown(false); setShowSportDropdown(false); }}
+        >
+          <Calendar className="text-[#347048] group-hover:text-[#B9CF32] transition-colors shrink-0" size={20} />
+          <div className="flex flex-col items-start text-left w-full overflow-hidden min-h-[38px] justify-center gap-1">
+            <label className="text-[10px] font-bold text-[#347048]/60 uppercase tracking-wider h-3 leading-3">Fecha</label>
+            <DatePickerDark
+              selected={
+                searchDate
+                  ? (() => {
+                      const [y, m, d] = searchDate.split('-').map(Number);
+                      return new Date(y, m - 1, d);
+                    })()
+                  : null
+              }
+              onChange={(date: Date | null) => {
+                if (!date) { setSearchDate(''); return; }
+                setSearchDate(formatLocalDate(date));
+              }}
+              minDate={new Date()}
+              showIcon={false}
+              inputSize="compact"
+              inputClassName="bg-transparent border-none outline-none text-[#347048] font-bold text-sm w-full p-0 leading-5 uppercase cursor-pointer placeholder-[#347048]/40 h-auto px-0 py-0 focus:ring-0 focus:border-transparent truncate"
+              variant="light"
+            />
+          </div>
+        </div>
+      </div>
 
             <div className="p-2 w-full md:w-auto">
                 <button 
@@ -895,7 +977,7 @@ export default function Home() {
       
       {/* SIDEBAR DE CONTACTO (OFF-CANVAS) */}
       <div 
-        className={`fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] transition-opacity duration-300 ${showContact ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+  className={`fixed inset-0 bg-black/50 backdrop-blur-[2px] z-[60] transition-opacity duration-300 ${showContact ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onClick={() => setShowContact(false)}
       />
 
@@ -913,13 +995,13 @@ export default function Home() {
                 <p className="text-[#347048]/80 font-medium leading-relaxed">
                     ¿Tenés dudas sobre el sistema o querés dar de alta tu club? Escribinos, respondemos al toque.
                 </p>
-                <a href="https://wa.me/549351000000" target="_blank" rel="noreferrer" className="flex items-center gap-4 p-4 bg-white rounded-2xl shadow-sm border border-[#347048]/5 hover:border-[#B9CF32] hover:shadow-md transition-all group">
+        <a href="https://wa.me/543513436150" target="_blank" rel="noreferrer" className="flex items-center gap-4 p-4 bg-white rounded-2xl shadow-sm border border-[#347048]/5 hover:border-[#B9CF32] hover:shadow-md transition-all group">
                     <div className="bg-[#B9CF32] h-12 w-12 rounded-full flex items-center justify-center text-[#347048] group-hover:scale-110 transition-transform">
                         <Phone size={20} fill="currentColor" className="text-[#347048]" />
                     </div>
                     <div>
                         <p className="text-[#347048]/50 text-xs font-bold uppercase tracking-wider">WhatsApp</p>
-                        <p className="text-[#347048] font-bold text-lg">+54 9 351 ...</p>
+            <p className="text-[#347048] font-bold text-lg">+54 351 343 6150</p>
                     </div>
                 </a>
                 <a href="mailto:hola@tucancha.app" className="flex items-center gap-4 p-4 bg-white rounded-2xl shadow-sm border border-[#347048]/5 hover:border-[#B9CF32] hover:shadow-md transition-all group">

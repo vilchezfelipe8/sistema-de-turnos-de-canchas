@@ -16,7 +16,7 @@ const ModalPortal = ({ children, onClose }: { children: ReactNode, onClose: () =
   if (typeof document === 'undefined') return null;
   
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#347048]/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+  <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#347048]/80 backdrop-blur-[2px] p-4 animate-in fade-in duration-200">
       <div className="absolute inset-0" onClick={onClose}></div>
       
       {/* Tarjeta Flotante Beige con bordes blancos */}

@@ -215,8 +215,8 @@ const Navbar = ({ onMenuClick }: NavbarProps) => {
                   />
                 )}
 
-                {/* 3. GESTIÓN: Solo para admins cuando están AFUERA del panel admin (en la vista pública) */}
-                {isAdmin && !onMenuClick && (
+                {/* 3. GESTIÓN: Para admins tanto en vista pública como en el panel */}
+                {isAdmin && (
                   <NavLink 
                     href="/admin/agenda" 
                     icon={<Settings size={16} strokeWidth={2.5} />} 

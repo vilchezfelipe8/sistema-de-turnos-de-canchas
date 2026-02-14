@@ -355,7 +355,7 @@ export default function BookingConsumption({ bookingId, slug, courtPrice = 0, pa
 
       {/* MODAL DE COBRO */}
       {showPaymentModal && (
-        <div className="fixed inset-0 bg-[#347048]/80 backdrop-blur-md flex items-center justify-center z-[9999] p-4 animate-in fade-in duration-200">
+  <div className="fixed inset-0 bg-[#347048]/80 backdrop-blur-[2px] flex items-center justify-center z-[9999] p-4 animate-in fade-in duration-200">
             <div className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full relative">
                 <button 
                     onClick={() => setShowPaymentModal(false)}

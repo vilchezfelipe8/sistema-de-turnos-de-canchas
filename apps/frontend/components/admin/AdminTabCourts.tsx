@@ -36,7 +36,7 @@ export default function AdminTabCourts() {
     e.preventDefault();
     try {
       await createCourt(newName, newSport);
-      showInfo('✅ Cancha creada con éxito', 'Listo');
+      showInfo('Cancha creada con éxito', 'Listo');
       setNewName('');
       loadCourts();
     } catch (error: any) { showError('Error: ' + error.message); }

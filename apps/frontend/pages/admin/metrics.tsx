@@ -27,4 +27,11 @@ const MetricsPage = () => {
   );
 };
 
+export const getServerSideProps = async () => {
+  if (process.env.NODE_ENV === 'production') {
+    return { notFound: true };
+  }
+  return { props: {} };
+};
+
 export default MetricsPage;

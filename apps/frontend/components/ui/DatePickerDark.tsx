@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import DatePicker, { registerLocale, DatePickerProps } from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
 import { es } from 'date-fns/locale/es';
@@ -9,11 +10,16 @@ type DatePickerDarkProps = DatePickerProps & {
   showIcon?: boolean;
   inputClassName?: string;
   variant?: 'dark' | 'light';
+  inputSize?: 'default' | 'compact';
 };
 
 // 👇 SOLUCIÓN: Usamos directamente DatePickerProps sin inventar interfaces nuevas.
 // Esto evita el conflicto de tipos con el 'onChange' original.
-const DatePickerDark = ({ className, inputClassName, showIcon = true, variant = 'dark', ...props }: DatePickerDarkProps) => {
+const DatePickerDark = ({ className, inputClassName, showIcon = true, variant = 'dark', inputSize = 'default', ...props }: DatePickerDarkProps) => {
+  const popperContainer = ({ children }: { children: React.ReactNode }) => {
+    if (typeof document === 'undefined') return <>{children}</>;
+    return createPortal(children, document.body);
+  };
   const theme = variant === 'light'
     ? {
         background: '#ffffff',
@@ -40,6 +46,10 @@ const DatePickerDark = ({ className, inputClassName, showIcon = true, variant = 
   const focusClass = variant === 'light'
     ? 'focus:ring-0 focus:border-transparent'
     : 'focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500';
+  const sizingClass = inputSize === 'compact'
+    ? 'w-full'
+    : 'w-full h-12 rounded-lg px-4 py-3 text-base';
+
   return (
     <div className="relative w-full group">
       {/* 🎨 ESTILOS CLONADOS DE TU DISEÑO OSCURO */}
@@ -109,6 +119,9 @@ const DatePickerDark = ({ className, inputClassName, showIcon = true, variant = 
         
         /* Ocultar triángulo feo */
         .react-datepicker__triangle { display: none; }
+
+  /* Asegurar que el popper quede visible sobre el buscador */
+  .react-datepicker-popper { z-index: 200 !important; }
         
         /* Flechas de navegación blancas */
         .react-datepicker__navigation-icon::before {
@@ -124,8 +137,10 @@ const DatePickerDark = ({ className, inputClassName, showIcon = true, variant = 
           dateFormat="dd MMM yyyy"
           showPopperArrow={false}
           popperPlacement="bottom-start"
+          popperClassName="react-datepicker-popper"
+          popperContainer={popperContainer}
           // Combinamos tus estilos con los props que vengan
-          className={`w-full h-12 rounded-lg px-4 py-3 text-base focus:outline-none transition-all ${baseInputClass} ${focusClass} ${className || ''} ${inputClassName || ''}`}
+          className={`${sizingClass} focus:outline-none transition-all ${baseInputClass} ${focusClass} ${className || ''} ${inputClassName || ''}`}
           placeholderText="Selecciona fecha"
           disabledKeyboardNavigation
         />

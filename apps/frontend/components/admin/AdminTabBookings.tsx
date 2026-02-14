@@ -19,7 +19,7 @@ import AppModal from '../AppModal';
 import BookingConsumption from '../BookingConsumption';
 import { useParams } from 'react-router-dom';
 import DatePickerDark from '../../components/ui/DatePickerDark';
-import { Trash2, Check, ShoppingCart, Calendar as CalendarIcon, RefreshCw, ChevronDown, CalendarPlus, Repeat, Banknote, CreditCard, FileText } from 'lucide-react'; 
+import { Trash2, Check, ShoppingCart, Calendar as CalendarIcon, RefreshCw, ChevronDown, CalendarPlus, Repeat, Banknote, CreditCard, FileText, X } from 'lucide-react'; 
 
 registerLocale('es', es);
 
@@ -96,7 +96,7 @@ const ModalPortal = ({ children, onClose }: { children: ReactNode, onClose: () =
   if (typeof document === 'undefined') return null;
   
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#347048]/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+  <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#347048]/80 backdrop-blur-[2px] p-4 animate-in fade-in duration-200">
       <div className="absolute inset-0" onClick={onClose}></div>
       <div className="relative z-10 w-full max-w-xl bg-[#EBE1D8] border-4 border-white rounded-[2rem] shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200 overflow-hidden text-[#347048]">
         <div className="overflow-y-auto p-8 custom-scrollbar">
@@ -313,11 +313,11 @@ export default function AdminTabBookings() {
         }
         if (manualBooking.isFixed) {
             await createFixedBooking(undefined, Number(manualBooking.courtId), 1, dateBase, guestName, phoneToSend || undefined, dni);
-            showInfo('✅ Turno fijo creado', 'Listo');
+            showInfo('Turno fijo creado', 'Listo');
         } else {
             const guestData = { name: guestName, phone: phoneToSend, dni: dni, document: dni, dniNumber: dni };
             await createBooking(Number(manualBooking.courtId), 1, dateBase, undefined, guestData, { asGuest: true, guestIdentifier: `admin_${dni}_${Date.now()}` });
-            showInfo('✅ Reserva simple creada', 'Listo');
+            showInfo('Reserva simple creada', 'Listo');
         }
         loadSchedule();
         setManualBooking({ 
@@ -333,20 +333,20 @@ export default function AdminTabBookings() {
         title: '🛑 Atención: Turno Fijo',
         message: <div><p>Este turno pertenece a una serie repetitiva.</p><p className="font-bold mt-2">¿Deseas eliminar TODA la serie futura?</p></div>,
         confirmText: 'Sí, borrar TODA la serie', cancelText: 'No, ver otras opciones',
-        onConfirm: async () => { try { await cancelFixedBooking(booking.fixedBookingId); showInfo('✅ Serie completa eliminada.', 'Éxito'); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } },
+        onConfirm: async () => { try { await cancelFixedBooking(booking.fixedBookingId); showInfo('Serie completa eliminada.', 'Éxito'); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } },
         onCancel: () => { 
           setTimeout(() => showConfirm({
             title: '¿Borrar solo hoy?',
             message: `¿Eliminar únicamente el turno de hoy y mantener los futuros?`,
             confirmText: 'Sí, borrar solo hoy', cancelText: 'Cancelar',
-            onConfirm: async () => { try { await cancelBooking(booking.id); showInfo('✅ Turno del día eliminado.', 'Listo'); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } },
+            onConfirm: async () => { try { await cancelBooking(booking.id); showInfo('Turno del día eliminado.', 'Listo'); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } },
           }), 200);
         }
       });
     } else {
       showConfirm({
         title: 'Cancelar turno', message: '⚠️ ¿Seguro que deseas cancelar esta reserva simple?',
-        confirmText: 'Sí, Cancelar', onConfirm: async () => { try { await cancelBooking(booking.id); showInfo('✅ Turno cancelado', 'Listo'); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } }
+        confirmText: 'Sí, Cancelar', onConfirm: async () => { try { await cancelBooking(booking.id); showInfo('Turno cancelado', 'Listo'); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } }
       });
     }
   };
@@ -362,7 +362,7 @@ export default function AdminTabBookings() {
         });
         setShowPaymentModal(false);
         loadSchedule(); 
-        showInfo(`✅ Cobro registrado correctamente.`, "Listo");
+        showInfo('Cobro registrado correctamente.', "Listo");
     } catch (error) { alert("❌ Error al confirmar"); }
   };
 
@@ -683,27 +683,35 @@ export default function AdminTabBookings() {
       )}
 
       {showPaymentModal && (
-        <div className="fixed inset-0 bg-[#347048]/80 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 animate-in fade-in duration-200">
-            <div className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full relative text-[#347048]">
-                <button onClick={() => setShowPaymentModal(false)} className="absolute top-6 right-6 text-[#347048]/40 hover:text-[#347048] font-black">✕</button>
-                <h3 className="text-2xl font-black mb-2 text-center uppercase tracking-tight italic">Cobrar Reserva</h3>
-                <p className="text-[#347048]/60 text-xs font-bold mb-8 text-center uppercase tracking-widest">Selecciona el método de pago</p>
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                    <button onClick={() => handleConfirmBooking('CASH')} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-[1.5rem] text-[#347048] transition-all shadow-sm group">
-                        <Banknote size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
-                        <span className="font-black text-xs uppercase tracking-tighter">Efectivo</span>
-                    </button>
-                    <button onClick={() => handleConfirmBooking('TRANSFER')} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-[1.5rem] text-[#347048] transition-all shadow-sm group">
-                        <CreditCard size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
-                        <span className="font-black text-xs uppercase tracking-tighter">Digital</span>
-                    </button>
-                </div>
-                <button onClick={() => handleConfirmBooking('DEBT')} className="w-full py-4 flex items-center justify-center gap-2 bg-[#926699]/10 border-2 border-[#926699]/20 hover:bg-[#926699]/20 rounded-xl text-[#926699] font-black uppercase text-[10px] tracking-[0.2em] transition-all mb-4">
-                    <FileText size={16} strokeWidth={3} />
-                    <span>Dejar en Cuenta (Deuda)</span>
-                </button>
+        <ModalPortal onClose={() => setShowPaymentModal(false)}>
+          <div className="relative text-[#347048]">
+            <button
+              onClick={() => setShowPaymentModal(false)}
+              className="absolute right-0 top-0 -mt-2 -mr-2 bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
+              title="Cerrar ventana"
+            >
+              <X size={20} strokeWidth={3} />
+            </button>
+            <div className="text-center mb-6">
+              <h3 className="text-2xl font-black mb-2 uppercase tracking-tight italic">Cobrar Reserva</h3>
+              <p className="text-[#347048]/60 text-xs font-bold uppercase tracking-widest">Selecciona el método de pago</p>
             </div>
-        </div>
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <button onClick={() => handleConfirmBooking('CASH')} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-[1.5rem] text-[#347048] transition-all shadow-sm group">
+                <Banknote size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
+                <span className="font-black text-xs uppercase tracking-tighter">Efectivo</span>
+              </button>
+              <button onClick={() => handleConfirmBooking('TRANSFER')} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-[1.5rem] text-[#347048] transition-all shadow-sm group">
+                <CreditCard size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
+                <span className="font-black text-xs uppercase tracking-tighter">Digital</span>
+              </button>
+            </div>
+            <button onClick={() => handleConfirmBooking('DEBT')} className="w-full py-4 flex items-center justify-center gap-2 bg-[#926699]/10 border-2 border-[#926699]/20 hover:bg-[#926699]/20 rounded-xl text-[#926699] font-black uppercase text-[10px] tracking-[0.2em] transition-all">
+              <FileText size={16} strokeWidth={3} />
+              <span>Dejar en Cuenta (Deuda)</span>
+            </button>
+          </div>
+        </ModalPortal>
       )}
 
       <AppModal show={modalState.show} onClose={closeModal} onCancel={modalState.onCancel} title={modalState.title} message={modalState.message} cancelText={modalState.cancelText} confirmText={modalState.confirmText} isWarning={modalState.isWarning} onConfirm={modalState.onConfirm} closeOnBackdrop={modalState.closeOnBackdrop} closeOnEscape={modalState.closeOnEscape} />

@@ -82,7 +82,7 @@ export default function AdminTabClub() {
       };
       const updatedClub = await ClubService.updateClub(club.id, payload);
       setClub(updatedClub);
-      showInfo('✅ Información del club actualizada correctamente', 'Éxito');
+      showInfo('Información del club actualizada correctamente', 'Éxito');
     } catch (error: any) {
       showError('Error al actualizar el club: ' + error.message);
     }

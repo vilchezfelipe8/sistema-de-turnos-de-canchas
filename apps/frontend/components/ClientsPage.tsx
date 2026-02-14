@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { ClubAdminService } from '../services/ClubAdminService';
 import { Phone, DollarSign, Calendar, Users, Trophy, Search, X, CheckCircle, Receipt, Banknote, CreditCard } from 'lucide-react';
 import { useRouter } from 'next/router';
@@ -45,6 +46,8 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const [searchTerm, setSearchTerm] = useState('');
   const [showPayMethodModal, setShowPayMethodModal] = useState(false);
   const [bookingToPayId, setBookingToPayId] = useState<number | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const [backdropMouseDown, setBackdropMouseDown] = useState(false);
 
   // --- LÓGICA DEL APPMODAL ---
   const [modalState, setModalState] = useState<{
@@ -69,6 +72,10 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   useEffect(() => {
     loadClients();
   }, [loadClients]);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const filteredClients = clients.filter(client => {
     const term = searchTerm.toLowerCase();
@@ -271,62 +278,72 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
       )}
 
       {/* MODAL MÉTODOS PAGO */}
-      {showPayMethodModal && (
-        <div className="fixed inset-0 bg-[#347048]/80 backdrop-blur-md flex items-center justify-center z-[120] p-4 animate-in fade-in duration-200">
-            <div className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full relative">
-                <button 
-                    onClick={() => setShowPayMethodModal(false)}
-                    className="absolute top-6 right-6 text-[#347048]/40 hover:text-[#347048] transition font-black"
-                >
-                    <X size={20} strokeWidth={3} />
-                </button>
+    {mounted && showPayMethodModal && createPortal(
+  <div className="fixed inset-0 bg-[#347048]/80 backdrop-blur-[2px] flex items-center justify-center z-[120] p-4 animate-in fade-in duration-200">
+      <div className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full relative">
+        <button 
+          onClick={() => setShowPayMethodModal(false)}
+          className="absolute top-6 right-6 text-[#347048]/40 hover:text-[#347048] transition font-black"
+        >
+          <X size={20} strokeWidth={3} />
+        </button>
 
-                <h3 className="text-2xl font-black text-[#347048] mb-2 text-center uppercase tracking-tight italic">¿Método de cobro?</h3>
+        <h3 className="text-2xl font-black text-[#347048] mb-2 text-center uppercase tracking-tight italic">¿Método de cobro?</h3>
                 
-                {/* Buscamos el monto exacto de la reserva que estamos saldando */}
-                {(() => {
-                    const bookingInfo = selectedDebtor?.bookings.find((b: any) => b.id === bookingToPayId);
-                    return bookingInfo ? (
-                        <p className="text-[#347048]/60 text-xs font-bold mb-8 text-center uppercase tracking-widest">
-                            A SALDAR: <span className="text-[#347048] text-lg font-black">${bookingInfo.amount.toLocaleString()}</span>
-                        </p>
-                    ) : (
-                        <p className="text-[#347048]/60 text-xs font-bold mb-8 text-center uppercase tracking-widest">
-                            Se registrará en caja diaria
-                        </p>
-                    );
-                })()}
+        {/* Buscamos el monto exacto de la reserva que estamos saldando */}
+        {(() => {
+          const bookingInfo = selectedDebtor?.bookings.find((b: any) => b.id === bookingToPayId);
+          return bookingInfo ? (
+            <p className="text-[#347048]/60 text-xs font-bold mb-8 text-center uppercase tracking-widest">
+              A SALDAR: <span className="text-[#347048] text-lg font-black">${bookingInfo.amount.toLocaleString()}</span>
+            </p>
+          ) : (
+            <p className="text-[#347048]/60 text-xs font-bold mb-8 text-center uppercase tracking-widest">
+              Se registrará en caja diaria
+            </p>
+          );
+        })()}
 
-                <div className="grid grid-cols-2 gap-4 mb-6">
-                    <button
-                        onClick={() => processDebtPayment('CASH')}
-                        className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-3xl text-[#347048] transition-all hover:scale-[1.02] shadow-sm group"
-                    >
-                        <Banknote size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
-                        <span className="font-black text-[10px] uppercase tracking-widest">Efectivo</span>
-                    </button>
-                    <button
-                        onClick={() => processDebtPayment('TRANSFER')}
-                        className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-3xl text-[#347048] transition-all hover:scale-[1.02] shadow-sm group"
-                    >
-                        <CreditCard size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
-                        <span className="font-black text-[10px] uppercase tracking-widest">Digital</span>
-                    </button>
-                </div>
-                
-                <button 
-                    onClick={() => setShowPayMethodModal(false)}
-                    className="w-full text-[#347048]/40 hover:text-[#347048] text-[10px] font-black uppercase tracking-widest hover:underline transition-all"
-                >
-                    Cancelar operación
-                </button>
-            </div>
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          <button
+            onClick={() => processDebtPayment('CASH')}
+            className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-3xl text-[#347048] transition-all hover:scale-[1.02] shadow-sm group"
+          >
+            <Banknote size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
+            <span className="font-black text-[10px] uppercase tracking-widest">Efectivo</span>
+          </button>
+          <button
+            onClick={() => processDebtPayment('TRANSFER')}
+            className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-3xl text-[#347048] transition-all hover:scale-[1.02] shadow-sm group"
+          >
+            <CreditCard size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
+            <span className="font-black text-[10px] uppercase tracking-widest">Digital</span>
+          </button>
         </div>
-      )}
+                
+        <button 
+          onClick={() => setShowPayMethodModal(false)}
+          className="w-full text-[#347048]/40 hover:text-[#347048] text-[10px] font-black uppercase tracking-widest hover:underline transition-all"
+        >
+          Cancelar operación
+        </button>
+      </div>
+    </div>,
+    document.body
+    )}
 
       {/* HISTORIAL COMPLETO */}
-      {selectedClientHistory && (
-        <div className="fixed inset-0 bg-[#347048]/90 flex items-center justify-center z-[110] p-4 backdrop-blur-md animate-in fade-in">
+      {mounted && selectedClientHistory && createPortal(
+        <div
+          className="fixed inset-0 bg-[#347048]/90 flex items-center justify-center z-[120] p-4 backdrop-blur-[2px] animate-in fade-in"
+          onMouseDown={(event) => setBackdropMouseDown(event.target === event.currentTarget)}
+          onClick={(event) => {
+            if (backdropMouseDown && event.target === event.currentTarget) {
+              setSelectedClientHistory(null);
+            }
+            setBackdropMouseDown(false);
+          }}
+        >
           <div className="bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl">
             <div className="p-8 border-b border-[#347048]/10 flex items-center justify-between bg-[#EBE1D8]">
               <div>
@@ -360,7 +377,8 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
             </div>
             
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* COMPONENTE MODAL GLOBAL PARA ALERTAS */}

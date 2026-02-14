@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
+import type { ReactNode } from 'react';
 import { useAvailability } from '../hooks/useAvailability';
 import { createBooking } from '../services/BookingService';
 import AppModal from './AppModal';
@@ -131,7 +132,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   const [modalState, setModalState] = useState<{
     show: boolean;
     title?: string;
-    message?: string;
+    message?: ReactNode;
     cancelText?: string;
     confirmText?: string;
     isWarning?: boolean;
@@ -141,7 +142,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     setModalState((prev) => ({ ...prev, show: false }));
   };
 
-  const showInfo = (message: string, title = 'Información') => {
+  const showInfo = (message: ReactNode, title = 'Información') => {
     setModalState({
       show: true,
       title,
@@ -151,7 +152,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     });
   };
 
-  const showError = (message: string) => {
+  const showError = (message: ReactNode) => {
     setModalState({
       show: true,
       title: 'Error',
@@ -344,7 +345,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
         }
       } catch (_) { /* noop */ }
 
-      showInfo('✅ ¡Reserva Confirmada! Te esperamos en la cancha ' + selectedCourt.name + '.', 'Listo');
+      showInfo(`¡Reserva Confirmada! Te esperamos en la cancha ${selectedCourt.name}.`, 'Listo');
     } catch (error: any) {
       showError('❌ Ups: ' + error.message);
     } finally {
