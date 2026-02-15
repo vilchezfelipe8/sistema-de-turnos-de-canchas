@@ -4,19 +4,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { logout } from '../services/AuthService';
 import { getMyBookings } from '../services/BookingService';
 import AppModal from './AppModal';
-import { ClubService, Club } from '../services/ClubService';
 import { Menu, Home, Calendar, Settings, LogOut, Phone, Mail, Check, Lock } from 'lucide-react'; 
 
 interface NavbarProps {
   onMenuClick?: () => void;
+  onNavClick?: () => void;
 }
 
-const Navbar = ({ onMenuClick }: NavbarProps) => {
+const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [isGuest, setIsGuest] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
-  const [club, setClub] = useState<Club | null>(null);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [activeBookingsCount, setActiveBookingsCount] = useState(0);
@@ -49,56 +48,6 @@ const Navbar = ({ onMenuClick }: NavbarProps) => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  useEffect(() => {
-    const loadClub = async () => {
-      try {
-        const path = router.asPath;
-        const isHome = router.pathname === '/';
-
-        if (isHome) {
-          const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
-          if (userStr) {
-             const u = JSON.parse(userStr);
-             if (u?.clubId) {
-                const clubData = await ClubService.getClubById(u.clubId);
-                setClub(clubData);
-                return;
-             }
-          }
-          setClub(null);
-          return;
-        }
-
-        const slugMatch = path.match(/\/club\/([^\/]+)/);
-        if (slugMatch && slugMatch[1]) {
-          const clubData = await ClubService.getClubBySlug(slugMatch[1]);
-          setClub(clubData);
-        } else {
-          const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
-          if (userStr) {
-            try {
-              const user = JSON.parse(userStr);
-              if (user?.clubId) {
-                const clubData = await ClubService.getClubById(user.clubId);
-                setClub(clubData);
-              } else {
-                setClub(null);
-              }
-            } catch {
-              setClub(null);
-            }
-          } else {
-            setClub(null);
-          }
-        }
-      } catch (error) {
-        console.error('Error al cargar información del club:', error);
-        setClub(null);
-      }
-    };
-
-    loadClub();
-  }, [router.asPath, router.pathname]);
 
   useEffect(() => {
     setShowUserMenu(false);
@@ -146,22 +95,26 @@ const Navbar = ({ onMenuClick }: NavbarProps) => {
     return `${first.charAt(0)}${last.charAt(0)}`.trim() || 'TU';
   }, [user]);
 
-  const isAdminPage = router.pathname.startsWith('/admin');
-  const isClubPage = router.pathname.startsWith('/club/');
-  const showClubBrand = isAdminPage || isClubPage;
-  const brandHref = showClubBrand && club?.slug ? `/club/${club.slug}` : '/';
 
   return (
     <>
       <nav
         ref={navRef}
+        onClick={() => {
+          if (showUserMenu) setShowUserMenu(false);
+          onNavClick?.();
+        }}
         className={`fixed top-0 left-0 right-0 z-[10000] transition-all duration-300 border-b border-[#EBE1D8]/10 ${
           isScrolled ? 'py-2 bg-[#347048]/95 backdrop-blur-md shadow-lg' : 'py-3 bg-[#347048]'
         }`}
       >
         {onMenuClick && (
           <button
-            onClick={onMenuClick}
+            onClick={(event) => {
+              event.stopPropagation();
+              setShowUserMenu(false);
+              onMenuClick();
+            }}
             className="absolute left-4 top-1/2 -translate-y-1/2 z-30 flex-shrink-0 p-2 text-[#EBE1D8] hover:bg-[#EBE1D8]/20 rounded-full transition-all active:scale-95"
             title="Abrir menú"
           >
@@ -198,10 +151,10 @@ const Navbar = ({ onMenuClick }: NavbarProps) => {
                 
                 {/* 1. INICIO: Visible para TODOS (Admins y Clientes). Lleva a la vista pública del club */}
                 <NavLink 
-                  href={club ? `/club/${club.slug}` : '/'} 
+                  href="/" 
                   icon={<Home size={16} strokeWidth={2.5} />} 
                   text="Inicio" 
-                  active={router.asPath === '/' || (club && router.asPath === `/club/${club.slug}`)} 
+                  active={router.asPath === '/'} 
                 />
 
                 {/* 2. MIS TURNOS: Solo para clientes (NO admins) */}
@@ -231,6 +184,7 @@ const Navbar = ({ onMenuClick }: NavbarProps) => {
                   <button
                     onClick={(event) => {
                       event.stopPropagation();
+                      onNavClick?.();
                       setShowUserMenu((prev) => !prev);
                     }}
                     className="flex items-center gap-3 pl-1 pr-4 py-1 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 transition-all shadow-sm"
@@ -264,7 +218,7 @@ const Navbar = ({ onMenuClick }: NavbarProps) => {
                         </div>
                         <h3 className="text-xl font-black text-[#347048] italic tracking-tight">{user.firstName || user.name || 'Usuario'}</h3>
                         <p className="text-[#347048]/60 text-xs font-bold uppercase tracking-widest mt-1">
-                          {club ? club.name : 'Miembro'}
+                          TuCancha
                         </p>
                       </div>
 

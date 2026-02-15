@@ -45,10 +45,10 @@ export default function LoginPage() {
     try {
       if (isLogin) {
         const data = await login(email, password);
-        if (returnTo) {
-          window.location.href = returnTo;
-        } else if (data?.user?.role === 'ADMIN') {
+        if (data?.user?.role === 'ADMIN') {
           window.location.href = '/admin/agenda';
+        } else if (returnTo) {
+          window.location.href = returnTo;
         } else if (data?.user?.clubId) {
           const club = await ClubService.getClubById(data.user.clubId);
           window.location.href = `/club/${club.slug}`;

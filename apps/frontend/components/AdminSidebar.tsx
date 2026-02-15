@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { X, Calendar, Users, Package, DollarSign, LayoutGrid, BarChart3, Settings, LogOut } from 'lucide-react';
+import { Calendar, Users, Package, DollarSign, LayoutGrid, BarChart3, Settings, LogOut } from 'lucide-react';
 
 interface AdminSidebarProps {
   isOpen: boolean;
@@ -41,7 +41,7 @@ const AdminSidebar = ({ isOpen, onClose }: AdminSidebarProps) => {
 
       {/* 2. EL PANEL LATERAL (Drawer) */}
       <aside
-        className={`fixed top-0 left-0 h-full w-[280px] bg-[#EBE1D8] z-[70] shadow-2xl transform transition-transform duration-300 ease-out flex flex-col border-r-4 border-[#347048]/20 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`fixed top-0 left-0 h-full w-[280px] bg-[#EBE1D8] z-[70] shadow-2xl transform transition-transform duration-300 ease-out flex flex-col border-r-4 border-[#347048]/20 pt-16 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
         
         {/* CABECERA */}
@@ -54,12 +54,6 @@ const AdminSidebar = ({ isOpen, onClose }: AdminSidebarProps) => {
                 Gestión del Club
             </p>
           </div>
-          <button 
-            onClick={onClose}
-            className="p-2 hover:bg-[#347048]/10 rounded-full text-[#347048] transition-colors"
-          >
-            <X size={24} strokeWidth={3} />
-          </button>
         </div>
 
         {/* LISTA DE NAVEGACIÓN */}

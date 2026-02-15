@@ -22,7 +22,10 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
 
       {/* Navegación */}
       <div className="relative z-50">
-        <NavBar onMenuClick={() => setIsSidebarOpen((prev) => !prev)} />
+        <NavBar
+          onMenuClick={() => setIsSidebarOpen((prev) => !prev)}
+          onNavClick={() => setIsSidebarOpen(false)}
+        />
         <AdminSidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
       </div>
 
