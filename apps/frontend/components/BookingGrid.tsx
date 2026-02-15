@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { useAvailability } from '../hooks/useAvailability';
 import { createBooking } from '../services/BookingService';
@@ -116,7 +116,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   const [selectedDate, setSelectedDate] = useState<Date | null>(getTodayDate());
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [selectedCourt, setSelectedCourt] = useState<{ id: number; name: string; price?: number | null; activities?: Array<{ id: number; name: string }> } | null>(null);
-  const [selectedActivityFilter, setSelectedActivityFilter] = useState<string | 'ALL'>('ALL');
+  const [selectedActivityFilter, setSelectedActivityFilter] = useState<string>('');
   const [isBooking, setIsBooking] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false); // Estado para el botón visual
   const [guestFirstName, setGuestFirstName] = useState('');
@@ -125,7 +125,6 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   const [guestPhone, setGuestPhone] = useState('');
   const [guestDni, setGuestDni] = useState('');
   const [guestModalOpen, setGuestModalOpen] = useState(false);
-  const [guestPhoneFocused, setGuestPhoneFocused] = useState(false);
   const [guestError, setGuestError] = useState('');
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
   const [modalState, setModalState] = useState<{
@@ -255,6 +254,40 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     }
     return slotsWithCourts;
   })();
+
+  const availableSlots = useMemo(() => {
+    if (!selectedDate) return [] as Array<{ slotTime: string; courts: Array<{ id: number; name: string; price?: number | null; activities?: Array<{ id: number; name: string }> }> }>;
+    const dateString = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(
+      selectedDate.getDate()
+    ).padStart(2, '0')}`;
+
+    return filteredSlotsWithCourts
+      .map((slot) => {
+        const courtsToShow = (allCourts.length > 0 ? allCourts : slot.availableCourts).filter((court) => {
+          if (selectedActivityFilter === 'ALL') return true;
+          const activities = (court as any).activities as Array<{ name: string }> | undefined;
+          return (activities || []).some((activity) => activity.name === selectedActivityFilter);
+        });
+
+        const availableCourts = courtsToShow.filter((court) => {
+          const key = `${dateString}-${slot.slotTime}-${court.id}`;
+          const isBackendAvailable = slot.availableCourts.some((ac) => ac.id === court.id);
+          return !disabledSlots[key] && isBackendAvailable;
+        });
+
+        return { slotTime: slot.slotTime, courts: availableCourts };
+      })
+      .filter((slot) => slot.courts.length > 0);
+  }, [filteredSlotsWithCourts, allCourts, selectedActivityFilter, disabledSlots, selectedDate]);
+
+  useEffect(() => {
+    if (!selectedSlot) return;
+    const stillAvailable = availableSlots.some((slot) => slot.slotTime === selectedSlot);
+    if (!stillAvailable) {
+      setSelectedSlot(null);
+      setSelectedCourt(null);
+    }
+  }, [availableSlots, selectedSlot]);
 
 
   const getPriceInfo = () => {
@@ -531,17 +564,14 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                   setSelectedCourt(null);
               }}
               placeholder="Todas las canchas"
-              options={[
-                  { value: 'ALL', label: 'Todas las canchas' },
-                  ...Array.from(
-                      new Set(
-                          allCourts.flatMap((court) => court.activities?.map((activity) => activity.name) || [])
-                      )
-                  ).map(activityName => ({
-                      value: activityName,
-                      label: activityName
-                  }))
-              ]}
+              options={Array.from(
+                new Set(
+                  allCourts.flatMap((court) => court.activities?.map((activity) => activity.name) || [])
+                )
+              ).map((activityName) => ({
+                value: activityName,
+                label: activityName
+              }))}
           />
         </div>
 
@@ -600,100 +630,118 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
         </div>
       )}
 
-      {!loading && filteredSlotsWithCourts.length > 0 && (
+      {!loading && availableSlots.length > 0 && (
         <div className="mb-10">
           <label className="block text-xs font-black text-[#926699] mb-4 ml-1 flex items-center gap-2 uppercase tracking-wider">
             <span className="text-[#B9CF32]"><Clock size={20} strokeWidth={3} /></span>
             <span>Horarios Disponibles</span>
           </label>
 
-          <div className="space-y-4">
-          {filteredSlotsWithCourts.map((slotWithCourt) => {
-              const dateString = selectedDate
-                ? `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`
-                : '';
-              const courtsToShow = (allCourts.length > 0 ? allCourts : slotWithCourt.availableCourts).filter((court) => {
-                if (selectedActivityFilter === 'ALL') return true;
-                const activities = (court as any).activities as Array<{ name: string }> | undefined;
-                return (activities || []).some((activity) => activity.name === selectedActivityFilter);
-              });
+          {!selectedActivityFilter ? (
+            <div className="text-center py-10 bg-[#347048]/5 rounded-2xl border border-dashed border-[#347048]/20 text-[#347048]/60 font-bold">
+              Elegí un deporte para ver los horarios disponibles.
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
+                {availableSlots.map((slot) => {
+                  const isSelected = selectedSlot === slot.slotTime;
+                  return (
+                    <button
+                      key={slot.slotTime}
+                      type="button"
+                      onClick={() => {
+                        setSelectedSlot(slot.slotTime);
+                        setSelectedCourt(null);
+                      }}
+                      className={`py-3 rounded-xl text-sm font-black transition-all duration-200 border-2 ${
+                        isSelected
+                          ? 'bg-[#B9CF32] text-[#347048] border-[#B9CF32] shadow-lg'
+                          : 'bg-white text-[#347048] border-[#347048]/10 hover:border-[#B9CF32] hover:text-[#B9CF32]'
+                      }`}
+                    >
+                      {slot.slotTime}
+                    </button>
+                  );
+                })}
+              </div>
 
-              const availableCount = courtsToShow.reduce((acc, court) => {
-                const key = `${dateString}-${slotWithCourt.slotTime}-${court.id}`;
-                const isBackendAvailable = slotWithCourt.availableCourts.some((ac) => ac.id === court.id);
-                if (disabledSlots[key] || !isBackendAvailable) return acc;
-                return acc + 1;
-              }, 0);
+              <div className="mt-5 text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">
+                Solo estás viendo horarios con turnos disponibles.
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {selectedSlot && (
+        <div className="mb-10">
+          <label className="block text-xs font-black text-[#926699] mb-4 ml-1 flex items-center gap-2 uppercase tracking-wider">
+            <span className="text-[#B9CF32]"><MapPin size={20} strokeWidth={3} /></span>
+            <span>Reservar una cancha</span>
+          </label>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {(availableSlots.find((slot) => slot.slotTime === selectedSlot)?.courts || []).map((court) => {
+              if (!selectedDate) return null;
+              const dateString = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(
+                selectedDate.getDate()
+              ).padStart(2, '0')}`;
+              const slotKey = `${dateString}-${selectedSlot}-${court.id}`;
+
+              const handleSelectCourt = async () => {
+                if (!selectedDate || !selectedSlot) return;
+                try {
+                  const res = await fetch(`${API_URL}/api/bookings/availability?courtId=${court.id}&date=${dateString}&activityId=1`);
+                  if (!res.ok) {
+                    setDisabledSlots((prev) => ({ ...prev, [slotKey]: true }));
+                    showError('No se pudo verificar disponibilidad.');
+                    return;
+                  }
+                  const data = await res.json();
+                  const availableSlotsList: string[] = data.availableSlots || [];
+                  if (!availableSlotsList.includes(selectedSlot)) {
+                    setDisabledSlots((prev) => ({ ...prev, [slotKey]: true }));
+                    showError('Cancha ya no disponible.');
+                    return;
+                  }
+                  setSelectedCourt(court);
+                } catch (err: any) {
+                  setDisabledSlots((prev) => ({ ...prev, [slotKey]: true }));
+                  showError('Error verificando disponibilidad.');
+                }
+              };
+
+              const isSelected = selectedCourt?.id === court.id;
 
               return (
-                <div key={slotWithCourt.slotTime} className="bg-white/60 p-5 rounded-2xl border border-[#926699]/10 shadow-sm hover:border-[#926699]/30 transition-colors">
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="font-black text-3xl text-[#347048] tracking-tight">{slotWithCourt.slotTime}</span>
-                    <span className="text-[10px] font-black bg-[#926699] text-[#EBE1D8] px-3 py-1 rounded-full uppercase tracking-widest flex items-center gap-2">
-                      {availableCount} {availableCount !== 1 ? 'DISPONIBLES' : 'DISPONIBLE'}
-                      {availableCount > 0 && <div className="w-2 h-2 bg-[#B9CF32] rounded-full animate-pulse shadow-[0_0_8px_#B9CF32]"></div>}
-                    </span>
+                <button
+                  key={court.id}
+                  type="button"
+                  onClick={handleSelectCourt}
+                  className={`w-full text-left p-4 rounded-2xl border-2 transition-all shadow-sm ${
+                    isSelected
+                      ? 'bg-[#B9CF32]/20 border-[#B9CF32] text-[#347048] shadow-lg'
+                      : 'bg-white border-[#347048]/10 text-[#347048] hover:border-[#B9CF32]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-black uppercase tracking-wide">{court.name}</div>
+                      <div className="text-[11px] text-[#347048]/60 font-bold">
+                        {court.price ? `$${Number(court.price).toLocaleString()} · 90 min` : 'Precio a confirmar'}
+                      </div>
+                    </div>
+                    <div className={`h-3 w-3 rounded-full ${isSelected ? 'bg-[#B9CF32]' : 'bg-[#347048]/20'}`} />
                   </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {courtsToShow.map((court) => {
-                      const slotKey = `${dateString}-${slotWithCourt.slotTime}-${court.id}`;
-                      const isLocallyDisabled = !!disabledSlots[slotKey];
-                      const isBackendAvailable = slotWithCourt.availableCourts.some((ac) => ac.id === court.id);
-                      const isDisabled = isLocallyDisabled || !isBackendAvailable;
-
-                      const handleSelectCourt = async () => {
-                        if (!selectedDate) return;
-                        if (!isBackendAvailable) return;
-                        try {
-                          const res = await fetch(`${API_URL}/api/bookings/availability?courtId=${court.id}&date=${dateString}&activityId=1`);
-                          if (!res.ok) {
-                            setDisabledSlots((prev) => ({ ...prev, [slotKey]: true }));
-                            showError('No se pudo verificar disponibilidad.');
-                            return;
-                          }
-                          const data = await res.json();
-                          const availableSlots: string[] = data.availableSlots || [];
-                          if (!availableSlots.includes(slotWithCourt.slotTime)) {
-                            setDisabledSlots((prev) => ({ ...prev, [slotKey]: true }));
-                            showError('Cancha ya no disponible.');
-                            return;
-                          }
-                          setSelectedSlot(slotWithCourt.slotTime);
-                          setSelectedCourt(court);
-                        } catch (err: any) {
-                          setDisabledSlots((prev) => ({ ...prev, [slotKey]: true }));
-                          showError('Error verificando disponibilidad.');
-                        }
-                      };
-
-                      let btnClass = 'py-3 px-4 rounded-xl text-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 border-2 ';
-                      const isSelected = selectedSlot === slotWithCourt.slotTime && selectedCourt?.id === court.id;
-                      
-                      if (isDisabled) {
-                        btnClass += 'bg-gray-100 text-gray-400 border-transparent cursor-not-allowed opacity-60';
-                      } else if (isSelected) {
-                        btnClass += 'bg-[#B9CF32] text-[#347048] border-[#B9CF32] transform scale-[1.02] shadow-lg font-black';
-                      } else {
-                        btnClass += 'bg-white text-[#347048] border-transparent hover:border-[#B9CF32] hover:text-[#B9CF32] hover:bg-[#B9CF32]/10';
-                      }
-
-                      return (
-                        <button key={court.id} onClick={handleSelectCourt} disabled={isDisabled} className={btnClass}>
-                          <MapPin size={16} strokeWidth={2.5} className={isSelected ? 'text-[#347048]' : 'text-[#B9CF32]'} /> 
-                          <span className="mt-[2px]">{court.name}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                </button>
               );
             })}
           </div>
         </div>
       )}
 
-      {!loading && filteredSlotsWithCourts.length === 0 && selectedDate && (
+      {!loading && selectedActivityFilter && availableSlots.length === 0 && selectedDate && (
         <div className="text-center py-12 bg-[#347048]/5 rounded-2xl border border-dashed border-[#347048]/20 mb-8 flex items-center justify-center gap-3 text-[#347048]/60 font-bold">
             {(() => {
               const now = new Date();
@@ -815,84 +863,56 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                   <input
                     id="guest-first-name"
                     type="text"
-                    placeholder=" "
+                    placeholder="Nombre"
                     value={guestFirstName}
                     onChange={(e) => setGuestFirstName(e.target.value)}
                     onKeyDown={handleGuestKeyDown}
-                    className="peer w-full p-3 pt-5 rounded-xl border border-[#347048]/20 bg-white text-[#347048] placeholder:text-transparent focus:outline-none focus:border-[#B9CF32] focus:ring-0 transition-colors font-bold shadow-sm"
+                    className="w-full p-3 rounded-xl border border-[#347048]/20 bg-white text-[#347048] placeholder:text-[#347048]/40 focus:outline-none focus:border-[#B9CF32] focus:ring-0 transition-colors font-bold shadow-sm"
                   />
-                  <label
-                    htmlFor="guest-first-name"
-                    className="absolute left-3 top-0 -translate-y-1/2 bg-white px-1 text-[#347048]/60 text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-white peer-focus:px-1 peer-focus:text-xs peer-focus:text-[#B9CF32] peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs font-bold"
-                  >
-                    Nombre
-                  </label>
                 </div>
                 <div className="relative">
                   <input
                     id="guest-last-name"
                     type="text"
-                    placeholder=" "
+                    placeholder="Apellido"
                     value={guestLastName}
                     onChange={(e) => setGuestLastName(e.target.value)}
                     onKeyDown={handleGuestKeyDown}
-                    className="peer w-full p-3 pt-5 rounded-xl border border-[#347048]/20 bg-white text-[#347048] placeholder:text-transparent focus:outline-none focus:border-[#B9CF32] focus:ring-0 transition-colors font-bold shadow-sm"
+                    className="w-full p-3 rounded-xl border border-[#347048]/20 bg-white text-[#347048] placeholder:text-[#347048]/40 focus:outline-none focus:border-[#B9CF32] focus:ring-0 transition-colors font-bold shadow-sm"
                   />
-                  <label
-                    htmlFor="guest-last-name"
-                    className="absolute left-3 top-0 -translate-y-1/2 bg-white px-1 text-[#347048]/60 text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-white peer-focus:px-1 peer-focus:text-xs peer-focus:text-[#B9CF32] peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs font-bold"
-                  >
-                    Apellido
-                  </label>
                 </div>
                 <div className="relative col-span-1 sm:col-span-2">
                 <input
                   id="guest-dni"
                   type="text"
-                  placeholder=" " 
+                  placeholder="DNI"
                   value={guestDni}
                   onChange={(e) => {
                     const soloNumeros = e.target.value.replace(/\D/g, '');
                     setGuestDni(soloNumeros);
                   }}
                   onKeyDown={handleGuestKeyDown}
-                  className="peer w-full p-3 pt-5 rounded-xl border border-[#347048]/20 bg-white text-[#347048] placeholder:text-transparent focus:outline-none focus:border-[#B9CF32] focus:ring-0 transition-colors font-bold shadow-sm"
+                  className="w-full p-3 rounded-xl border border-[#347048]/20 bg-white text-[#347048] placeholder:text-[#347048]/40 focus:outline-none focus:border-[#B9CF32] focus:ring-0 transition-colors font-bold shadow-sm"
                 />
-                <label
-                  htmlFor="guest-dni"
-                  className="absolute left-3 top-0 -translate-y-1/2 bg-white px-1 text-[#347048]/60 text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-white peer-focus:px-1 peer-focus:text-xs peer-focus:text-[#B9CF32] peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs font-bold"
-                >
-                  DNI 
-                </label>
               </div>
               </div>
               <div className="relative flex items-center rounded-xl border border-[#347048]/20 bg-white focus-within:border-[#B9CF32] transition-colors shadow-sm">
-                <span
-                  className={`px-3 text-[#347048]/60 font-bold whitespace-nowrap min-w-[3.25rem] text-center transition-all duration-150 leading-none ${guestPhone.length || guestPhoneFocused ? 'mt-2' : ''}`}
-                >
+                <span className="px-3 text-[#347048]/60 font-bold whitespace-nowrap min-w-[3.25rem] text-center leading-none">
                   +54&nbsp;9
                 </span>
                 <input
                   id="guest-phone"
                   type="tel"
-                  placeholder=" "
+                  placeholder="351 123 4567"
                   value={formatPhoneDigits(guestPhone)}
                   onChange={(e) => {
                     const digits = e.target.value.replace(/\D/g, '');
                     setGuestPhone(digits);
                   }}
-                  onFocus={() => setGuestPhoneFocused(true)}
-                  onBlur={() => setGuestPhoneFocused(false)}
                   onKeyDown={handleGuestKeyDown}
                   maxLength={12}
-                  className="peer w-full p-3 pt-5 rounded-xl bg-transparent text-[#347048] placeholder:text-transparent focus:outline-none transition-colors font-bold border-0 focus:border-0 leading-tight"
+                  className="w-full p-3 rounded-xl bg-transparent text-[#347048] placeholder:text-[#347048]/40 focus:outline-none transition-colors font-bold border-0 focus:border-0 leading-tight"
                 />
-                  <label
-                  htmlFor="guest-phone"
-                  className="absolute left-16 top-0 -translate-y-1/2 bg-white px-1 text-[#347048]/60 text-sm transition-all pointer-events-none peer-focus:top-0 peer-focus:bg-white peer-focus:px-1 peer-focus:text-xs peer-focus:text-[#B9CF32] peer-placeholder-shown:top-1/2 peer-placeholder-shown:bg-transparent peer-placeholder-shown:px-0 peer-placeholder-shown:text-sm peer-[&:not(:placeholder-shown)]:top-0 peer-[&:not(:placeholder-shown)]:text-xs font-bold"
-                >
-                  Teléfono
-                </label>
               </div>
             </div>
             
