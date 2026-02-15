@@ -189,6 +189,7 @@ export default function MyBookingsPage() {
       onConfirm: async () => {
         try {
           await cancelBooking(id);
+          setSelectedBooking(null);
           loadData();
         } catch (e: any) {
           showError('❌ ' + e.message);
@@ -233,7 +234,7 @@ export default function MyBookingsPage() {
           <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-8 h-full">
             
             {/* PANEL IZQUIERDO: LISTA */}
-            <div className="bg-[#EBE1D8] rounded-[2.5rem] p-6 md:p-8 shadow-2xl border-4 border-white/50 flex flex-col h-[600px] md:h-[700px] animate-in slide-in-from-left-4 duration-500 delay-100">
+            <div className="bg-[#EBE1D8] rounded-[2.5rem] p-6 md:p-8 shadow-2xl border-4 border-white/50 flex flex-col min-h-[600px] md:min-h-[700px] animate-in slide-in-from-left-4 duration-500 delay-100">
               
               {/* TABS PILDORA */}
               <div className="flex p-1 bg-[#347048]/10 rounded-2xl mb-6 relative">
@@ -256,7 +257,7 @@ export default function MyBookingsPage() {
               </div>
 
               {/* CONTENIDO LISTA */}
-              <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-4">
+              <div className={`flex-1 pr-2 space-y-4 ${!loading && !error && visibleBookings.length > 0 ? 'overflow-y-auto custom-scrollbar' : 'overflow-visible'}`}>
                 {loading ? (
                   <div className="flex flex-col items-center justify-center h-full text-[#347048]/40 gap-3">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#347048]"></div>
