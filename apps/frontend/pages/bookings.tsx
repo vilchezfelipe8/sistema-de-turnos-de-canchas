@@ -5,6 +5,7 @@ import { getMyBookings, cancelBooking } from '../services/BookingService';
 import AppModal from '../components/AppModal';
 import { useValidateAuth } from '../hooks/useValidateAuth';
 import Link from 'next/link';
+import { Calendar, Clock, MapPin, Ticket, ArrowRight, Search, XCircle, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export default function MyBookingsPage() {
   const router = useRouter();
@@ -23,6 +24,8 @@ export default function MyBookingsPage() {
     isWarning?: boolean;
     onConfirm?: () => Promise<void> | void;
   }>({ show: false });
+  
+  // Mantenemos las refs para no romper el useEffect original, aunque cambiemos el estilo visual
   const tabRefs = useRef<Record<'ACTIVE' | 'PAST' | 'CANCELLED', HTMLButtonElement | null>>({
     ACTIVE: null,
     PAST: null,
@@ -71,10 +74,8 @@ export default function MyBookingsPage() {
     if (!user) return;
     try {
       const userId = user.id;
-
       const data = await getMyBookings(userId);
       setBookings(data.sort((a:any, b:any) => new Date(b.startDateTime).getTime() - new Date(a.startDateTime).getTime()));
-
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -196,235 +197,238 @@ export default function MyBookingsPage() {
     });
   };
 
+  useEffect(() => {
+    if (selectedBooking) {
+      console.log("🔥 DATOS DEL CLUB:", selectedBooking.court?.club);
+    }
+  }, [selectedBooking]);
+
   if (!authChecked || !user) return null;
 
+  // --- RENDERIZADO VISUAL PREMIUM ---
   return (
-    <div className="min-h-screen relative overflow-x-hidden bg-[#347048] text-[#D4C5B0] selection:bg-[#B9CF32] selection:text-[#347048]">
-      <Navbar />
-      <div className="container mx-auto max-w-6xl px-4 lg:px-8 pt-28 lg:pt-32 pb-20">
-        <div className="mb-10 text-center">
-          <h1 className="text-4xl font-black text-[#D4C5B0] mb-2">Mis Reservas</h1>
-          <p className="text-[#D4C5B0]/80">Historial de partidos y próximos encuentros</p>
-        </div>
-      {loading && (
-        <div className="space-y-4">
-          {[1, 2].map((i) => (
-            <div key={i} className="h-28 bg-surface-70 rounded-2xl animate-pulse border border-border"></div>
-          ))}
-        </div>
-      )}
+    <div className="min-h-screen bg-[#347048] relative overflow-hidden text-[#D4C5B0]">
+      {/* Fondo Decorativo */}
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none opacity-20">
+        <div className="absolute top-[-10%] right-[-10%] w-[600px] h-[600px] bg-[#B9CF32] rounded-full blur-[120px]"></div>
+        <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-[#926699] rounded-full blur-[120px]"></div>
+      </div>
 
-      {error && <div className="p-4 bg-surface-70 border border-border text-muted rounded-xl">{error}</div>}
+      <div className="relative z-10 flex flex-col min-h-screen">
+        <Navbar />
 
-      {!loading && bookings.length === 0 && !error && (
-        <div className="text-center py-20 bg-surface-70 border border-dashed border-border rounded-3xl">
-          <div className="text-7xl mb-4 opacity-50">🎾</div>
-          <h3 className="text-xl font-bold text-text mb-2">Sin partidos registrados</h3>
-          <p className="text-muted mb-6">La cancha te está esperando.</p>
-          <Link href="/" className="px-6 py-3 btn btn-primary">Reservar Ahora</Link>
-        </div>
-      )}
+        <div className="flex-1 max-w-7xl mx-auto w-full px-4 py-8 md:py-12 mt-16">
+          
+          {/* Header */}
+          <div className="flex items-center gap-4 mb-8 animate-in slide-in-from-top-4 duration-500">
+            <div className="bg-[#EBE1D8] p-3 rounded-2xl text-[#347048] shadow-lg">
+              <Ticket size={32} strokeWidth={2.5} />
+            </div>
+            <div>
+              <h1 className="text-4xl font-black text-[#EBE1D8] uppercase italic tracking-tighter">Mis Reservas</h1>
+              <p className="text-[#B9CF32] font-bold text-sm tracking-widest uppercase">Historial y próximos partidos</p>
+            </div>
+          </div>
 
-      {!loading && bookings.length > 0 && (
-        <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="bg-white rounded-3xl shadow-lg border border-black/5 overflow-hidden">
-            <div className="px-8 pt-8 pb-4 text-center">
-              <h2 className="text-3xl font-black text-[#2b3a4a]">Mis Reservas</h2>
-              <div className="mx-auto mt-3 h-1 w-20 rounded-full bg-[#926699]" />
-              <div className="mt-6 grid grid-cols-3 text-sm font-bold text-[#7c8aa0] relative">
-                <span
-                  className="absolute bottom-0 h-[2px] bg-[#0bbd49] rounded-full transition-all duration-300"
-                  style={{ left: tabIndicator.left, width: tabIndicator.width }}
-                />
+          <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-8 h-full">
+            
+            {/* PANEL IZQUIERDO: LISTA */}
+            <div className="bg-[#EBE1D8] rounded-[2.5rem] p-6 md:p-8 shadow-2xl border-4 border-white/50 flex flex-col h-[600px] md:h-[700px] animate-in slide-in-from-left-4 duration-500 delay-100">
+              
+              {/* TABS PILDORA */}
+              <div className="flex p-1 bg-[#347048]/10 rounded-2xl mb-6 relative">
+                {/* Mantenemos refs funcionales pero ocultas visualmente si no se usan para el estilo pildora */}
+                {/* El indicador original lo ocultamos porque usamos botones solidos ahora */}
                 {(['ACTIVE', 'PAST', 'CANCELLED'] as const).map((tab) => (
                   <button
                     key={tab}
-                    ref={(el) => {
-                      tabRefs.current[tab] = el;
-                    }}
-                    onClick={() => setActiveTab(tab)}
-                    className={`pb-3 border-b-2 transition-colors ${
-                      activeTab === tab
-                        ? 'text-[#0bbd49] border-transparent'
-                        : 'border-transparent hover:text-[#2b3a4a]'
+                    ref={(el) => { tabRefs.current[tab] = el; }}
+                    onClick={() => { setActiveTab(tab); setSelectedBooking(null); }}
+                    className={`flex-1 py-3 text-[10px] md:text-xs font-black uppercase tracking-widest rounded-xl transition-all duration-300 relative z-10 ${
+                      activeTab === tab 
+                        ? 'bg-[#347048] text-[#B9CF32] shadow-md scale-100' 
+                        : 'text-[#347048]/50 hover:bg-[#347048]/5'
                     }`}
                   >
-                    {tab === 'ACTIVE' ? 'ACTIVAS' : tab === 'PAST' ? 'PASADAS' : 'CANCELADAS'}
+                    {tab === 'ACTIVE' ? 'Activas' : tab === 'PAST' ? 'Pasadas' : 'Canceladas'}
                   </button>
                 ))}
               </div>
-            </div>
 
-            <div className="px-6 pb-8">
-              {visibleBookings.length === 0 ? (
-                <div className="text-center py-16 text-[#2b3a4a]/70">
-                  <div className="text-6xl mb-4">📝</div>
-                  <p className="text-lg font-semibold">
-                    {activeTab === 'CANCELLED'
-                      ? 'No tienes reservas canceladas'
-                      : activeTab === 'PAST'
-                      ? 'No tienes reservas pasadas'
-                      : 'No tienes reservas activas'}
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {visibleBookings.map((booking) => {
+              {/* CONTENIDO LISTA */}
+              <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-4">
+                {loading ? (
+                  <div className="flex flex-col items-center justify-center h-full text-[#347048]/40 gap-3">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#347048]"></div>
+                    <span className="font-bold text-xs">Cargando partidos...</span>
+                  </div>
+                ) : error ? (
+                   <div className="p-4 bg-red-50 border border-red-200 text-red-600 rounded-2xl text-xs font-bold text-center">
+                      {error}
+                   </div>
+                ) : visibleBookings.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-[#347048]/40 gap-4 border-2 border-dashed border-[#347048]/10 rounded-3xl m-4">
+                    <Search size={48} strokeWidth={1.5} />
+                    <p className="font-black uppercase tracking-widest text-xs">
+                        {activeTab === 'CANCELLED' ? 'Sin cancelaciones' : activeTab === 'PAST' ? 'Sin historial' : 'No hay reservas activas'}
+                    </p>
+                    {activeTab === 'ACTIVE' && (
+                        <Link href="/" className="px-6 py-3 bg-[#347048] text-[#B9CF32] rounded-xl font-black text-xs uppercase tracking-widest hover:bg-[#2a5c3b] transition-colors">
+                            Reservar Ahora
+                        </Link>
+                    )}
+                  </div>
+                ) : (
+                  visibleBookings.map((booking) => {
                     const date = new Date(booking.startDateTime);
-                    const dayLabel = formatDayLabel(date).split(' ');
-                    const dayNumber = dayLabel[0];
-                    const monthLabel = dayLabel[1]?.toLowerCase();
+                    const dayLabel = formatDayLabel(date); // "13 feb" o similar
                     const duration = getDurationMinutes(booking);
-                    const spentTotal = Number(booking.price || 0);
-                    const consumptionTotal = getConsumptionTotal(booking);
+                    const isSelected = selectedBooking?.id === booking.id;
 
                     return (
-                      <button
+                      <div 
                         key={booking.id}
                         onClick={() => setSelectedBooking(booking)}
-                        className={`w-full text-left rounded-3xl border transition-shadow ${
-                          selectedBooking?.id === booking.id
-                            ? 'border-[#0bbd49] shadow-lg shadow-[#926699]/30'
-                            : 'border-[#d7dde5] hover:shadow-md'
+                        className={`group cursor-pointer relative p-5 rounded-2xl border-2 transition-all duration-300 hover:shadow-lg ${
+                          isSelected
+                            ? 'bg-white border-[#B9CF32] shadow-md ring-1 ring-[#B9CF32]/50' 
+                            : 'bg-white/60 border-transparent hover:border-[#347048]/20 hover:bg-white'
                         }`}
                       >
-                        <div className="flex gap-5 p-6 items-center">
-                          <div className={`min-w-[84px] rounded-2xl px-4 py-5 text-center font-bold ${
-                            activeTab === 'ACTIVE'
-                              ? 'bg-[#16a34a] text-white'
-                              : activeTab === 'CANCELLED'
-                              ? 'bg-[#ef4444] text-white'
-                              : 'bg-[#d9dde2] text-[#2b3a4a]'
-                          }`}>
-                            <div className="text-2xl font-black leading-none">{dayNumber}</div>
-                            <div className="text-sm uppercase tracking-wide">{monthLabel}</div>
-                          </div>
-                          <div className="flex-1">
-                            <h3 className="text-lg font-black text-[#2b3a4a]">{booking.court?.club?.name || 'Club'}</h3>
-                            <p className="text-[#7c8aa0]">{booking.activity?.name || 'Actividad'}</p>
-                            <p className="text-[#7c8aa0]">{formatTime(date)} - {duration} min</p>
-                            {activeTab === 'PAST' && (spentTotal > 0 || consumptionTotal > 0) && (
-                              <p className="text-sm text-[#2b3a4a]/80 mt-2">
-                                {spentTotal > 0 && (
-                                  <span className="mr-3">Gastado: <strong>{formatCurrency(spentTotal)}</strong></span>
-                                )}
-                                {consumptionTotal > 0 && (
-                                  <span>Consumido: <strong>{formatCurrency(consumptionTotal)}</strong></span>
-                                )}
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-4">
+                            {/* Fecha Cuadrada */}
+                            <div className={`h-14 w-14 rounded-xl flex flex-col items-center justify-center font-black shadow-sm border border-black/5 ${
+                                activeTab === 'ACTIVE' ? 'bg-[#347048] text-[#B9CF32]' : 
+                                activeTab === 'CANCELLED' ? 'bg-red-50 text-red-500' : 'bg-[#d4c5b0]/20 text-[#347048]/60'
+                            }`}>
+                              <span className="text-xl leading-none">{date.getDate()}</span>
+                              <span className="text-[9px] uppercase">{date.toLocaleString('es-AR', { month: 'short' }).replace('.', '')}</span>
+                            </div>
+                            
+                            {/* Info */}
+                            <div>
+                              <h3 className="font-black text-[#347048] text-base md:text-lg uppercase italic leading-none mb-1.5">
+                                {booking.court?.club?.name || 'Club'}
+                              </h3>
+                              <p className="text-xs font-bold text-[#347048]/60 uppercase flex items-center gap-2">
+                                <span className="bg-[#347048]/5 px-2 py-0.5 rounded text-[10px]">{booking.activity?.name}</span>
+                                <span className="flex items-center gap-1"><Clock size={10} /> {formatTime(date)}</span>
                               </p>
-                            )}
+                            </div>
                           </div>
-                          <div className="text-2xl text-[#926699]">→</div>
+                          
+                          <ArrowRight size={20} className={`transition-transform duration-300 ${isSelected ? 'text-[#B9CF32] translate-x-1' : 'text-[#347048]/20 group-hover:text-[#347048]/40'}`} />
                         </div>
-
-                        {activeTab === 'ACTIVE' && (
-                          <div className="flex justify-between items-center px-6 py-4 border-t border-[#e5e7eb] text-sm font-semibold">
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleCancel(booking.id);
-                              }}
-                              className="px-4 py-2 rounded-full border border-red-200 bg-red-50 text-[#ef4444] hover:bg-red-500 hover:text-white hover:border-red-500 transition-all"
-                            >
-                              Cancelar reserva
-                            </button>
-                          </div>
-                        )}
-
-                        {(activeTab === 'PAST' || activeTab === 'CANCELLED') && (
-                          <div className="flex justify-center items-center px-6 py-4 border-t border-[#e5e7eb] text-sm font-semibold text-[#2b3a4a]">
-                            {booking.court?.club?.slug ? (
-                              <Link
-                                href={`/club/${booking.court.club.slug}`}
-                                className="px-4 py-2 rounded-full border border-[#d7dde5] hover:border-[#926699] hover:text-[#926699]"
-                                onClick={(event) => event.stopPropagation()}
-                              >
-                                Repetir
-                              </Link>
-                            ) : (
-                              <span className="text-[#7c8aa0]">Repetir</span>
-                            )}
-                          </div>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-3xl shadow-lg border border-black/5 p-8">
-            <h2 className="text-2xl font-black text-[#2b3a4a] text-center">Detalle de reserva</h2>
-            <div className="mx-auto mt-3 h-1 w-16 rounded-full bg-[#926699]" />
-
-            {!selectedBooking ? (
-              <div className="mt-12 text-center text-[#7c8aa0]">
-                <div className="mx-auto mb-6 w-full max-w-[340px] rounded-3xl border-2 border-[#d7dde5] p-4">
-                  <div className="flex items-center gap-4">
-                    <div className="h-16 w-16 rounded-2xl bg-[#d9dde2]" />
-                    <div className="flex-1 space-y-3">
-                      <div className="h-3 w-3/4 rounded-full bg-[#d9dde2]" />
-                      <div className="h-3 w-1/2 rounded-full bg-[#d9dde2]" />
-                    </div>
-                  </div>
-                </div>
-                <p className="text-lg font-semibold">Selecciona una reserva para ver el detalle</p>
-              </div>
-            ) : (
-              <div className="mt-6 space-y-5">
-                <div className="rounded-2xl border border-[#e5e7eb] p-4">
-                  <p className="font-black text-[#2b3a4a]">{selectedBooking.court?.club?.name || 'Club'}</p>
-                  <p className="text-[#7c8aa0]">
-                    {[selectedBooking.court?.club?.addressLine, selectedBooking.court?.club?.city, selectedBooking.court?.club?.province]
-                      .filter(Boolean)
-                      .join(', ') || 'Dirección no disponible'}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="font-black text-[#2b3a4a] mb-2">Información de partido</p>
-                  <div className="rounded-2xl border border-[#e5e7eb] p-4 space-y-3">
-                    <div className="font-semibold text-[#2b3a4a]">
-                      {selectedBooking.court?.name || 'Cancha'} - {selectedBooking.activity?.name || 'Actividad'}
-                    </div>
-                    <div className="flex justify-between text-[#2b3a4a]/80">
-                      <span>Día:</span>
-                      <span>{formatWeekday(new Date(selectedBooking.startDateTime))}</span>
-                    </div>
-                    <div className="flex justify-between text-[#2b3a4a]/80">
-                      <span>Hora:</span>
-                      <span>{formatTime(new Date(selectedBooking.startDateTime))}hs</span>
-                    </div>
-                    <div className="flex justify-between text-[#2b3a4a]/80">
-                      <span>Duración:</span>
-                      <span>{getDurationMinutes(selectedBooking)} min</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="font-black text-[#2b3a4a] mb-2">Resumen</p>
-                  <div className="rounded-2xl border border-[#e5e7eb] p-4 space-y-2 text-[#2b3a4a]">
-                    <div className="flex justify-between">
-                      <span>Precio:</span>
-                      <span className="font-black">{formatCurrency(selectedBooking.price || 0)}</span>
-                    </div>
-                    {activeTab === 'PAST' && getConsumptionTotal(selectedBooking) > 0 && (
-                      <div className="flex justify-between">
-                        <span>Consumido:</span>
-                        <span className="font-black">{formatCurrency(getConsumptionTotal(selectedBooking))}</span>
                       </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* PANEL DERECHO: DETALLE (STICKY) */}
+            <div className="relative animate-in slide-in-from-right-4 duration-500 delay-200">
+              {selectedBooking ? (
+                <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl border-8 border-[#EBE1D8] h-fit sticky top-24">
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#347048] text-[#EBE1D8] px-6 py-2 rounded-full font-black text-xs uppercase tracking-widest shadow-lg flex items-center gap-2">
+                    <Ticket size={14} /> Ticket de Reserva
+                  </div>
+
+                  <div className="text-center mt-6 mb-8 border-b-2 border-dashed border-[#347048]/10 pb-8">
+                    <h2 className="text-2xl md:text-3xl font-black text-[#347048] italic tracking-tighter uppercase mb-2">
+                      {selectedBooking.court?.name}
+                    </h2>
+                    <span className="bg-[#B9CF32]/20 text-[#347048] px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest">
+                      {selectedBooking.activity?.name || 'Deporte'}
+                    </span>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-4">
+                      <div className="bg-[#347048]/5 p-3 rounded-xl text-[#347048]"><Calendar size={20} /></div>
+                      <div>
+                        <p className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest">Fecha</p>
+                        <p className="font-bold text-[#347048] text-base capitalize">
+                            {formatWeekday(new Date(selectedBooking.startDateTime))}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-4">
+                      <div className="bg-[#347048]/5 p-3 rounded-xl text-[#347048]"><Clock size={20} /></div>
+                      <div>
+                        <p className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest">Horario</p>
+                        <p className="font-bold text-[#347048] text-base">
+                          {formatTime(new Date(selectedBooking.startDateTime))} - {getDurationMinutes(selectedBooking)} min
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                      <div className="bg-[#347048]/5 p-3 rounded-xl text-[#347048]"><MapPin size={20} /></div>
+                      <div>
+                        <p className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest">Ubicación</p>
+                        <p className="font-bold text-[#347048] text-sm leading-tight">
+                            {[
+       // 👇 Acá probamos todas las variantes posibles por si acaso
+       selectedBooking.court?.club?.addressLine, 
+       selectedBooking.court?.club?.address,
+       selectedBooking.court?.club?.street, 
+       selectedBooking.court?.club?.city
+     ]
+     .filter(Boolean) // Esto borra los nulos
+     .join(', ') || 'Dirección no disponible'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-10 pt-6 border-t-2 border-[#347048]/10 flex flex-col gap-4">
+                    <div className="flex justify-between items-end">
+                      <span className="font-black text-[#347048]/40 text-xs uppercase tracking-widest mb-1">Total Pagado</span>
+                      <span className="font-black text-[#347048] text-3xl tracking-tight">{formatCurrency(selectedBooking.price || 0)}</span>
+                    </div>
+                    
+                    {/* Consumos Extra si es pasado */}
+                    {activeTab === 'PAST' && getConsumptionTotal(selectedBooking) > 0 && (
+                        <div className="flex justify-between items-end text-[#347048]/60">
+                            <span className="font-bold text-xs uppercase tracking-widest">Consumos Extra</span>
+                            <span className="font-bold text-lg">{formatCurrency(getConsumptionTotal(selectedBooking))}</span>
+                        </div>
+                    )}
+
+                    {activeTab === 'ACTIVE' && (
+                      <button 
+                        onClick={() => handleCancel(selectedBooking.id)}
+                        className="w-full mt-2 py-4 rounded-xl border-2 border-red-100 bg-red-50 text-red-500 font-bold text-xs uppercase tracking-widest hover:bg-red-500 hover:text-white hover:border-red-500 transition-all flex justify-center items-center gap-2"
+                      >
+                        <XCircle size={16} /> Cancelar Reserva
+                      </button>
+                    )}
+                    
+                    {(activeTab === 'PAST' || activeTab === 'CANCELLED') && selectedBooking.court?.club?.slug && (
+                        <Link 
+                            href={`/club/${selectedBooking.court.club.slug}`}
+                            className="w-full mt-2 py-4 rounded-xl bg-[#347048] text-[#EBE1D8] font-bold text-xs uppercase tracking-widest hover:bg-[#B9CF32] hover:text-[#347048] transition-all flex justify-center items-center gap-2 text-center"
+                        >
+                            <CheckCircle2 size={16} /> Volver a Reservar
+                        </Link>
                     )}
                   </div>
                 </div>
+              ) : (
+                <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-center p-8 bg-[#EBE1D8]/10 border-4 border-dashed border-[#EBE1D8]/30 rounded-[2.5rem]">
+                  <Ticket size={64} className="text-[#EBE1D8] mb-4 opacity-50" />
+                  <p className="text-[#EBE1D8] font-black uppercase tracking-widest text-sm opacity-80">Seleccioná un partido<br/>para ver el ticket</p>
+                </div>
+              )}
+            </div>
 
-              </div>
-            )}
           </div>
         </div>
-      )}
+      </div>
+
       <AppModal
         show={modalState.show}
         onClose={closeModal}
@@ -435,7 +439,6 @@ export default function MyBookingsPage() {
         isWarning={modalState.isWarning}
         onConfirm={modalState.onConfirm}
       />
-      </div>
     </div>
   );
 }
