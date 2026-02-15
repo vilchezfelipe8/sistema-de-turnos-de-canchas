@@ -172,24 +172,22 @@ const Navbar = ({ onMenuClick }: NavbarProps) => {
           
           {/* --- IZQUIERDA: LOGO + MENÚ --- */}
           <div className="relative flex items-center gap-4">
-            <Link href={brandHref} className="relative z-10 group flex items-center gap-3 select-none min-w-0">
-              {showClubBrand && club?.logoUrl && !isAdminPage ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img 
-                  src={club.logoUrl} 
-                  alt={club.name} 
-                  className="h-12 w-12 md:h-14 md:w-14 object-contain drop-shadow-md transition-transform group-hover:scale-105" 
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                />
-              ) : null}
-              
-              <div className="flex flex-col leading-none min-w-0">
-                <span className="text-xl md:text-3xl font-black tracking-tighter text-[#EBE1D8] italic drop-shadow-sm leading-none mt-1 truncate max-w-[220px] md:max-w-[320px]">
-                  {showClubBrand && club ? club.name : 'TuCancha'}
-                </span>
-              </div>
-            </Link>
-          </div>
+          <Link href="/" className="relative z-10 group flex items-center gap-3 select-none min-w-0">
+            
+            {/* 1. ISOLOGO "TC" (Cuadrado Lima) */}
+            <div className="bg-[#B9CF32] h-10 w-10 md:h-12 md:w-12 rounded-xl flex items-center justify-center text-[#347048] font-black italic text-xl md:text-2xl shadow-lg group-hover:scale-110 transition-transform shrink-0">
+              TC
+            </div>
+
+            {/* 2. TEXTO "TUCANCHA" (Siempre fijo) */}
+            <div className="flex flex-col leading-none min-w-0">
+              <span className="text-2xl md:text-3xl font-black tracking-tighter text-[#EBE1D8] italic drop-shadow-sm leading-none mt-1 truncate">
+                TuCancha<span className="text-[#B9CF32] opacity-80"></span>
+              </span>
+            </div>
+
+          </Link>
+        </div>
 
           {/* --- DERECHA: USUARIO / LOGIN --- */}
           {(user || isGuest) && (

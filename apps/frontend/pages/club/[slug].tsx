@@ -3,6 +3,18 @@ import { useRouter } from 'next/router';
 import BookingGrid from '../../components/BookingGrid';
 import Navbar from '../../components/NavBar';
 import { ClubService, Club } from '../../services/ClubService';
+import { 
+  MapPin, 
+  Calendar, 
+  Clock, 
+  ChevronRight, 
+  Search, 
+  Phone, 
+  Mail, 
+  Instagram,
+  Heart,      
+  Share2      
+} from 'lucide-react';
 
 const formatClubAddress = (club: Club) => {
   return [club.addressLine, club.city, club.province, club.country].filter(Boolean).join(', ');
@@ -70,164 +82,135 @@ export default function ClubPage() {
   }
 
   return (
-    <main className="min-h-screen relative overflow-x-hidden flex flex-col items-center bg-[#347048] text-[#D4C5B0] selection:bg-[#B9CF32] selection:text-[#347048]">
+    <main className="min-h-screen relative bg-[#347048] text-[#D4C5B0]">
+
+      {/* Contenido (Z-10 para que esté sobre el fondo) */}
+      <div className="absolute top-0 left-0 w-full z-50"> 
+        <Navbar />
+      </div>
       
-      {/* FONDO AMBIENTAL (Luces traseras) */}
+      {/* FONDO AMBIENTAL */}
       <div className="fixed inset-0 z-0 pointer-events-none">
         <div className="absolute top-[-10%] left-[-10%] w-96 h-96 rounded-full blur-[128px]" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }} />
         <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 rounded-full blur-[128px]" style={{ backgroundColor: 'rgba(255,255,255,0.06)' }} />
       </div>
 
-      {/* Contenido (Z-10 para que esté sobre el fondo) */}
-      <div className="relative z-10 w-full flex flex-col items-center">
-        <Navbar />
         
-  <div className="w-full max-w-6xl pt-28 lg:pt-32 mb-8 px-4">
-          
+      <div className="max-w-6xl mx-auto px-4 pt-20 pb-20 relative z-10">
 
-          <div className="mt-8 grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-6">
-            {/* Reservas: solo canchas y turnos de este club */}
-            <BookingGrid clubSlug={slug} />
+        {/* --- HERO SECTION TIPO TARJETA REDONDEADA --- */}
+        <header className="mb-10">
+          <div className="relative bg-[#347048] rounded-[2.5rem] overflow-hidden shadow-2xl border border-black/10">
+            
+            {/* 1. FONDO GRADIENTE INTERNO */}
+            <div className="absolute inset-0 bg-gradient-to-br from-[#347048] via-[#347048] to-[#2a2438]"></div>
+            <div className="absolute top-[-50%] right-[-20%] w-[600px] h-[600px] bg-[#B9CF32]/20 rounded-full blur-[120px] pointer-events-none"></div>
+            
 
-            {/* Info del club */}
-            <div className="flex flex-col gap-6">
+            {/* 2. CONTENIDO */}
+            <div className="relative z-10 p-8 md:p-10 flex flex-col md:flex-row items-center md:items-end gap-8 text-center md:text-left">
+              
+              {/* LOGO DEL CLUB */}
+              <div className="relative group shrink-0">
+                <div className="absolute -inset-2 bg-gradient-to-tr from-[#B9CF32] to-[#926699] rounded-[2rem] blur-md opacity-60 group-hover:opacity-100 transition duration-500"></div>
+                <div className="relative h-32 w-32 md:h-40 md:w-40 bg-white rounded-[1.8rem] p-3 shadow-xl flex items-center justify-center transform group-hover:-translate-y-1 transition-transform duration-300">
+                  {club.logoUrl ? (
+                    <img src={club.logoUrl} alt={club.name} className="w-full h-full object-contain" />
+                  ) : (
+                    <span className="text-4xl">🏆</span>
+                  )}
+                </div>
+              </div>
+
+              {/* NOMBRE E INFO */}
+              <div className="flex-1 py-2">
+                <div className="flex items-center justify-center md:justify-start gap-3 mb-3">
+                  <span className="bg-[#B9CF32] text-[#347048] px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-1">
+                    Club Verificado
+                  </span>
+                  <div className="flex items-center gap-1 text-[#EBE1D8] text-xs font-bold">
+                    <span>⭐ 4.9</span>
+                    <span className="opacity-50">(120 reseñas)</span>
+                  </div>
+                </div>
+
+                <h1 className="text-4xl md:text-5xl lg:text-6xl font-black text-[#EBE1D8] italic tracking-tighter leading-[0.9] mb-4 drop-shadow-lg">
+                  {club.name}
+                </h1>
+
+                <div className="flex flex-wrap justify-center md:justify-start gap-x-6 gap-y-3 text-[#EBE1D8]/90 text-sm font-medium">
+                  <div className="flex items-center gap-2">
+                    <MapPin size={18} className="text-[#B9CF32]" />
+                    <span>{[club.addressLine, club.city].filter(Boolean).join(', ')}</span>
+                  </div>
+                  
+                  {club.instagramUrl && (
+                    <a href={club.instagramUrl} target="_blank" className="flex items-center gap-2 hover:text-[#B9CF32] transition-colors group/insta">
+                      <Instagram size={18} className="group-hover/insta:text-[#B9CF32]"/>
+                      <span>@{club.instagramUrl.replace(/\/$/, '').split('/').pop() || 'Instagram'}</span>
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              {/* BOTONES DE ACCIÓN */}
+              <div className="flex gap-3 shrink-0">
+                <button className="h-12 w-12 rounded-2xl border-2 border-[#EBE1D8]/30 flex items-center justify-center text-[#EBE1D8] hover:bg-[#EBE1D8] hover:text-[#347048] hover:border-transparent transition-all bg-[#347048]/50 backdrop-blur-md">
+                    <Heart size={22} />
+                </button>
+                <button className="h-12 w-12 rounded-2xl border-2 border-[#EBE1D8]/30 flex items-center justify-center text-[#EBE1D8] hover:bg-[#B9CF32] hover:text-[#347048] hover:border-transparent transition-all bg-[#347048]/50 backdrop-blur-md">
+                    <Share2 size={22} />
+                </button>
+              </div>
+
+            </div> {/* Cierre Contenido */}
+          </div> {/* Cierre Tarjeta principal */}
+        </header>
+
+        {/* --- GRILLA PRINCIPAL --- */}
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-6">
+          <BookingGrid clubSlug={slug} />
+
+          <div className="flex flex-col gap-6">
             {/* BLOQUE INFORMACIÓN */}
             <div className="bg-white/10 border border-white/20 rounded-3xl p-5 backdrop-blur shadow-[0_18px_40px_rgba(146,102,153,0.18)]">
               <h3 className="text-lg font-bold text-[#D4C5B0] mb-4">Información</h3>
               <div className="space-y-3 text-sm text-[#D4C5B0]/80">
-                                
-                {club.description && (
-                  <p className="text-[#D4C5B0] font-semibold">{club.description}</p>
-                )}
-
-                {/* 📍 DIRECCIÓN -> GOOGLE MAPS */}
-                <a 
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(club.name + ' ' + formatClubAddress(club))}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  // 👇 CAMBIO: hover:text-white (Texto blanco al pasar mouse)
-                  className="flex items-start gap-2 font-bold hover:text-[#B9CF32] transition-colors group cursor-pointer"
-                >
-                  <span aria-hidden="true" className="inline-flex mt-0.5">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 22s8-5.5 8-12a8 8 0 1 0-16 0c0 6.5 8 12 8 12Z" />
-                      <circle cx="12" cy="10" r="3" />
-                    </svg>
-                  </span>
-                  {/* 👇 CAMBIO: decoration-white (Subrayado blanco) */}
-                  <span className="group-hover:underline decoration-[#B9CF32] underline-offset-4">
-                    {formatClubAddress(club)}
-                  </span>
+                {club.description && <p className="text-[#D4C5B0] font-semibold">{club.description}</p>}
+                
+                <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(club.name + ' ' + formatClubAddress(club))}`} target="_blank" rel="noopener noreferrer" className="flex items-start gap-2 font-bold hover:text-[#B9CF32] transition-colors group cursor-pointer">
+                  <MapPin size={16} />
+                  <span className="group-hover:underline decoration-[#B9CF32] underline-offset-4">{formatClubAddress(club)}</span>
                 </a>
 
-                {/* 📞 TELÉFONO -> LLAMAR */}
                 {club.phone && (
-                  <a 
-                    href={`tel:${club.phone.replace(/\s+/g, '')}`}
-                    // 👇 CAMBIO: hover:text-white
-                    className="flex items-start gap-2 font-bold hover:text-[#B9CF32] transition-colors group cursor-pointer"
-                  >
-                    <span aria-hidden="true" className="inline-flex mt-0.5">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.86 19.86 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.86 19.86 0 0 1 2.08 4.18 2 2 0 0 1 4.06 2h3a2 2 0 0 1 2 1.72 12.69 12.69 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.69 12.69 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
-                      </svg>
-                    </span>
-                    {/* 👇 CAMBIO: decoration-white */}
-                    <span className="group-hover:underline decoration-[#B9CF32] underline-offset-4">
-                      {club.phone}
-                    </span>
+                  <a href={`tel:${club.phone.replace(/\s+/g, '')}`} className="flex items-start gap-2 font-bold hover:text-[#B9CF32] transition-colors group cursor-pointer">
+                    <Phone size={16} />
+                    <span className="group-hover:underline decoration-[#B9CF32] underline-offset-4">{club.phone}</span>
                   </a>
-                )}
-
-                {/* ✉️ CONTACTO / EMAIL */}
-                {club.contactInfo && (
-                  <div className="flex items-center gap-2">
-                    <span
-                      aria-hidden="true"
-                      className="inline-flex items-center h-4 w-4 bg-current"
-                      style={{
-                        WebkitMask: "url('/email-svgrepo-com.svg') center / contain no-repeat",
-                        mask: "url('/email-svgrepo-com.svg') center / contain no-repeat"
-                      }}
-                    />
-                    {club.contactInfo.includes('@') ? (
-                      <a 
-                        href={`mailto:${club.contactInfo}`}
-                        // 👇 CAMBIO: hover:text-white y decoration-white
-                        className="flex items-start gap-2 font-bold hover:text-[#B9CF32] transition-colors group cursor-pointer"
-                      >
-                        {club.contactInfo}
-                      </a>
-                    ) : (
-                      <span>{club.contactInfo}</span>
-                    )}
-                  </div>
                 )}
               </div>
             </div>
 
-            {/* BLOQUE SOCIAL (Este lo dejé igual, avisame si también querés el social en blanco) */}
+            {/* BLOQUE SOCIAL */}
             {(club.instagramUrl || club.facebookUrl || club.websiteUrl) && (
-              <div className="bg-white/10 border border-white/20 rounded-3xl p-5 backdrop-blur shadow-[0_18px_40px_rgba(146,102,153,0.18)]">
+              <div className="bg-white/10 border border-white/20 rounded-3xl p-5 backdrop-blur">
                 <h3 className="text-lg font-bold text-[#D4C5B0] mb-4">Social</h3>
                 <div className="space-y-2">
                   {club.instagramUrl && (
-                    <a
-                      href={club.instagramUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center gap-2 font-bold hover:text-[#B9CF32] transition-colors group cursor-pointer"
-                    >
-                      <span aria-hidden="true" className="inline-flex items-center">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="3" y="3" width="18" height="18" rx="5" />
-                          <circle cx="12" cy="12" r="4" />
-                          <circle cx="17" cy="7" r="1.2" fill="currentColor" stroke="none" />
-                        </svg>
-                      </span>
+                    <a href={club.instagramUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 font-bold hover:text-[#B9CF32] transition-colors">
+                      <Instagram size={16} />
                       <span>{club.instagramUrl.replace(/^https?:\/\/(www\.)?(instagram\.com\/)?/, '@')}</span>
-                    </a>
-                  )}
-                  {club.facebookUrl && (
-                    <a
-                      href={club.facebookUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-sm text-[#D4C5B0]/80 hover:text-[#B9CF32] hover:underline decoration-[#B9CF32] transition-colors flex items-center gap-2"
-                    >
-                      <span aria-hidden="true" className="inline-flex">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-                        </svg>
-                      </span>
-                      <span>Facebook</span>
-                    </a>
-                  )}
-                  {club.websiteUrl && (
-                    <a
-                      href={club.websiteUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-sm text-[#D4C5B0]/80 hover:text-[#B9CF32] hover:underline decoration-[#B9CF32] transition-colors flex items-center gap-2"
-                    >
-                      <span aria-hidden="true" className="inline-flex">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                          <circle cx="12" cy="12" r="10"/>
-                          <line x1="2" y1="12" x2="22" y2="12"/>
-                          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-                        </svg>
-                      </span>
-                      <span>Sitio web</span>
                     </a>
                   )}
                 </div>
               </div>
             )}
           </div>
-          </div>
         </div>
 
-        <footer className="mt-16 mb-8 text-center px-4 border-t border-white/10 pt-8 w-full max-w-6xl">
+        {/* FOOTER */}
+        <footer className="mt-16 mb-8 text-center border-t border-white/10 pt-8">
           <p className="text-xs text-[#D4C5B0]/70 font-medium">
             Sistema de Reservas 2026 v1.0 - Todos los derechos reservados
           </p>
