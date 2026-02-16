@@ -139,6 +139,36 @@ const isPastTimeForDate = (dateStr: string, timeStr: string) => {
   return slotDate.getTime() < Date.now();
 };
 
+const formatBookingStatus = (status?: string) => {
+  switch (status) {
+    case 'PENDING':
+      return 'Pendiente';
+    case 'CONFIRMED':
+      return 'Confirmada';
+    case 'CANCELLED':
+      return 'Cancelada';
+    case 'COMPLETED':
+      return 'Finalizada';
+    default:
+      return status || 'Pendiente';
+  }
+};
+
+const formatPaymentStatus = (status?: string) => {
+  switch (status) {
+    case 'PENDING':
+      return 'Pendiente';
+    case 'PAID':
+      return 'Pagado';
+    case 'PARTIAL':
+      return 'Parcial';
+    case 'DEBT':
+      return 'En cuenta';
+    default:
+      return status || 'Pendiente';
+  }
+};
+
 export default function AdminTabBookings() {
   const [courts, setCourts] = useState<any[]>([]);
   const [scheduleDate, setScheduleDate] = useState(() => getTodayLocalDate());
@@ -148,6 +178,7 @@ export default function AdminTabBookings() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedBookingId, setSelectedBookingId] = useState<number | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<any>(null);
+  const [selectedBookingDetail, setSelectedBookingDetail] = useState<{ booking: any; slotTime: string; courtName?: string } | null>(null);
   const params = useParams();
   const urlSlug = params.slug;
 
@@ -284,6 +315,22 @@ export default function AdminTabBookings() {
 
   useEffect(() => { loadCourts(); }, [loadCourts]);
   useEffect(() => { loadSchedule(); }, [loadSchedule]);
+  useEffect(() => {
+    if (!selectedBookingDetail?.booking?.id) return;
+    const updatedSlot = scheduleBookings.find(
+      (slot) => slot?.booking?.id === selectedBookingDetail.booking.id
+    );
+    if (!updatedSlot?.booking) return;
+    setSelectedBookingDetail((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        booking: updatedSlot.booking,
+        slotTime: updatedSlot.slotTime ?? prev.slotTime,
+        courtName: updatedSlot.courtName ?? prev.courtName
+      };
+    });
+  }, [scheduleBookings, selectedBookingDetail?.booking?.id]);
 
   const scheduleByTime = useMemo(() => {
     const map = new Map<string, Map<number, any>>();
@@ -407,7 +454,7 @@ export default function AdminTabBookings() {
       });
     } else {
       showConfirm({
-        title: 'Cancelar turno', message: '⚠️ ¿Seguro que deseas cancelar esta reserva simple?',
+        title: 'Cancelar turno', message: '¿Seguro que deseas cancelar esta reserva simple?',
         confirmText: 'Sí, Cancelar', onConfirm: async () => { try { await cancelBooking(booking.id); showInfo('Turno cancelado', 'Listo'); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } }
       });
     }
@@ -655,7 +702,11 @@ export default function AdminTabBookings() {
                               </span>
                             )}
                             {hasBooking ? (
-                              <div className="relative h-full rounded-3xl border-l-[6px] border-[#347048] bg-white/90 p-3 shadow-[0_10px_24px_rgba(52,112,72,0.12)] ring-1 ring-white/70">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedBookingDetail({ booking: slot.booking, slotTime: time, courtName: slot.courtName })}
+                                className="relative h-full w-full rounded-3xl border-l-[6px] border-[#347048] bg-white/90 p-3 text-left shadow-[0_10px_24px_rgba(52,112,72,0.12)] ring-1 ring-white/70 transition hover:shadow-[0_14px_28px_rgba(52,112,72,0.18)]"
+                              >
                                 <div className="text-xs font-black text-[#347048] uppercase tracking-wide truncate">
                                   {bookingName}
                                 </div>
@@ -669,7 +720,10 @@ export default function AdminTabBookings() {
                                 )}
                                 <div className="absolute bottom-2 left-3 right-3 flex flex-wrap gap-1">
                                   <button
-                                    onClick={() => setSelectedBooking(slot.booking)}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setSelectedBooking(slot.booking);
+                                    }}
                                     className="p-2 rounded-xl bg-white border border-[#347048]/10 text-[#347048] hover:bg-[#347048] hover:text-[#EBE1D8] transition-all shadow-sm"
                                     title="Consumos"
                                   >
@@ -677,7 +731,10 @@ export default function AdminTabBookings() {
                                   </button>
                                   {slot.booking.status === 'PENDING' && (
                                     <button
-                                      onClick={() => handleOpenPaymentModal(slot.booking.id)}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        handleOpenPaymentModal(slot.booking.id);
+                                      }}
                                       className="p-2 rounded-xl bg-[#B9CF32] text-[#347048] border border-white hover:scale-110 transition-all shadow-md"
                                       title="Confirmar pago"
                                     >
@@ -685,14 +742,17 @@ export default function AdminTabBookings() {
                                     </button>
                                   )}
                                   <button
-                                    onClick={() => handleCancelBooking(slot.booking)}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleCancelBooking(slot.booking);
+                                    }}
                                     className="p-2 rounded-xl bg-red-50 border border-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all"
                                     title="Cancelar"
                                   >
                                     <Trash2 size={14} strokeWidth={2.5} />
                                   </button>
                                 </div>
-                              </div>
+                              </button>
                             ) : (
                               <div className="h-full min-h-[88px]" />
                             )}
@@ -721,6 +781,107 @@ export default function AdminTabBookings() {
             onClose={() => setSelectedBooking(null)}
             onConfirm={() => { setSelectedBooking(null); loadSchedule(); }}
           />
+        </ModalPortal>
+      )}
+
+      {selectedBookingDetail && (
+        <ModalPortal onClose={() => setSelectedBookingDetail(null)}>
+          <div className="relative space-y-6 text-[#347048]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-2xl font-black uppercase italic tracking-tight">Detalle de Reserva</h3>
+                <p className="text-xs font-bold uppercase tracking-widest text-[#347048]/50 mt-1">
+                  {selectedBookingDetail.courtName || selectedBookingDetail.booking.court?.name || 'Cancha'}
+                </p>
+              </div>
+              <div className="flex items-start gap-3">
+                {selectedBookingDetail.booking.fixedBookingId && (
+                  <span className="bg-[#347048] text-[#B9CF32] text-[10px] font-black px-3 py-1 rounded-md uppercase tracking-widest">
+                    Fijo
+                  </span>
+                )}
+                <button
+                  onClick={() => setSelectedBookingDetail(null)}
+                  className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
+                  title="Cerrar ventana"
+                >
+                  <X size={20} strokeWidth={3} />
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="rounded-2xl border border-[#347048]/10 bg-white p-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50">Reservante</p>
+                <p className="text-lg font-black mt-1">
+                  {selectedBookingDetail.booking.userName || selectedBookingDetail.booking.guestName || 'Sin nombre'}
+                </p>
+                {(selectedBookingDetail.booking.guestPhone || selectedBookingDetail.booking.user?.phoneNumber) && (
+                  <p className="text-xs font-bold text-[#347048]/60 mt-1">
+                    {selectedBookingDetail.booking.guestPhone || selectedBookingDetail.booking.user?.phoneNumber}
+                  </p>
+                )}
+                {selectedBookingDetail.booking.guestDni && (
+                  <p className="text-xs font-bold text-[#347048]/60 mt-1">DNI: {selectedBookingDetail.booking.guestDni}</p>
+                )}
+              </div>
+              <div className="rounded-2xl border border-[#347048]/10 bg-white p-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50">Horario</p>
+                <p className="text-lg font-black mt-1">{getBookingTimeRange(selectedBookingDetail.booking)}</p>
+                <p className="text-xs font-bold text-[#347048]/60 mt-1">Estado: {formatBookingStatus(selectedBookingDetail.booking.status)}</p>
+                {selectedBookingDetail.booking.paymentStatus && (
+                  <p className="text-xs font-bold text-[#347048]/60 mt-1">Pago: {formatPaymentStatus(selectedBookingDetail.booking.paymentStatus)}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#347048]/10 bg-white p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50">Precio</p>
+                <p className="text-xl font-black">${Number(selectedBookingDetail.booking.price || 0).toLocaleString()}</p>
+              </div>
+              {Array.isArray(selectedBookingDetail.booking.items) && selectedBookingDetail.booking.items.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {selectedBookingDetail.booking.items.map((item: any, i: number) => (
+                    <span key={i} className="text-[10px] font-black px-2 py-1 rounded-md bg-[#926699]/10 text-[#926699] border border-[#926699]/20 uppercase">
+                      {item.quantity}x {item.product?.name}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-3">
+              {selectedBookingDetail.booking.status === 'PENDING' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedBookingId(selectedBookingDetail.booking.id);
+                    setShowPaymentModal(true);
+                  }}
+                  className="px-5 py-3 rounded-xl bg-[#B9CF32] text-[#347048] font-black uppercase tracking-widest text-xs"
+                >
+                  Cobrar
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedBooking(selectedBookingDetail.booking);
+                }}
+                className="px-5 py-3 rounded-xl bg-[#347048] text-[#EBE1D8] font-black uppercase tracking-widest text-xs"
+              >
+                Ver consumos
+              </button>
+              <button
+                type="button"
+                onClick={() => handleCancelBooking(selectedBookingDetail.booking)}
+                className="px-5 py-3 rounded-xl bg-red-50 text-red-600 border border-red-100 font-black uppercase tracking-widest text-xs"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
         </ModalPortal>
       )}
 
