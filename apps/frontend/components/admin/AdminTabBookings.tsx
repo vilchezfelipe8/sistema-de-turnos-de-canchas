@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 import { getCourts } from '../../services/CourtService';
@@ -55,7 +55,7 @@ const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
       </div>
 
       {isOpen && (
-        <div className="absolute z-50 w-full mt-2 bg-white border-2 border-[#347048]/10 rounded-2xl shadow-2xl max-h-60 overflow-y-auto custom-scrollbar overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="absolute z-50 w-full mt-2 bg-white border-2 border-[#347048]/10 rounded-2xl shadow-2xl max-h-60 overflow-y-auto custom-scrollbar animate-in fade-in slide-in-from-top-2 duration-200">
           <ul className="flex flex-col py-2">
             {options.map((option: any) => (
               <li 
@@ -285,6 +285,56 @@ export default function AdminTabBookings() {
   useEffect(() => { loadCourts(); }, [loadCourts]);
   useEffect(() => { loadSchedule(); }, [loadSchedule]);
 
+  const scheduleByTime = useMemo(() => {
+    const map = new Map<string, Map<number, any>>();
+    scheduleBookings.forEach((slot) => {
+      if (!map.has(slot.slotTime)) map.set(slot.slotTime, new Map());
+      map.get(slot.slotTime)?.set(slot.courtId, slot);
+    });
+    return map;
+  }, [scheduleBookings]);
+
+  const getSlotState = (slot: any) => {
+    const [h, m] = String(slot.slotTime).split(':').map(Number);
+    const [year, month, day] = scheduleDate.split('-').map(Number);
+    const slotStartDate = new Date(year, month - 1, day, h, m, 0, 0);
+    const slotEndDate = new Date(slotStartDate.getTime() + 90 * 60000);
+    const now = new Date();
+    const isPastStart = slotStartDate < now;
+    const isPastEnd = slotEndDate < now;
+    const isPlaying = isPastStart && !isPastEnd;
+
+    if (!slot.booking) {
+      if (isPastStart) {
+        return { label: 'Cerrado', classes: 'bg-[#347048]/5 text-[#347048]/40 border-[#347048]/10' };
+      }
+      return { label: 'Disponible', classes: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+    }
+
+    if (isPastEnd) {
+      return { label: 'Completado', classes: 'bg-blue-50 text-blue-700 border-blue-200' };
+    }
+    if (isPlaying) {
+      return { label: 'En juego', classes: 'bg-[#926699]/10 text-[#926699] border-[#926699]/20' };
+    }
+    if (slot.booking.status === 'CONFIRMED') {
+      return { label: 'Confirmado', classes: 'bg-red-50 text-red-700 border-red-200' };
+    }
+    return { label: 'Pendiente', classes: 'bg-yellow-50 text-yellow-700 border-yellow-200' };
+  };
+
+  const formatTime = (date: Date) =>
+    date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+  const getBookingTimeRange = (slot: any) => {
+    const startValue = slot.booking?.startDateTime || slot.startDateTime;
+    if (!startValue) return slot.slotTime;
+    const startDate = new Date(startValue);
+    const endValue = slot.booking?.endDateTime;
+    const endDate = endValue ? new Date(endValue) : new Date(startDate.getTime() + 90 * 60000);
+    return `${formatTime(startDate)} - ${formatTime(endDate)}`;
+  };
+
   const handleCreateBooking = async (e: React.FormEvent) => {
     e.preventDefault();
     const firstName = manualBooking.guestFirstName.trim();
@@ -342,7 +392,7 @@ export default function AdminTabBookings() {
   const handleCancelBooking = async (booking: any) => {
     if (booking.fixedBookingId) {
       showConfirm({
-        title: '🛑 Atención: Turno Fijo',
+        title: 'Atención: Turno Fijo',
         message: <div><p>Este turno pertenece a una serie repetitiva.</p><p className="font-bold mt-2">¿Deseas eliminar TODA la serie futura?</p></div>,
         confirmText: 'Sí, borrar TODA la serie', cancelText: 'No, ver otras opciones',
         onConfirm: async () => { try { await cancelFixedBooking(booking.fixedBookingId); showInfo('Serie completa eliminada.', 'Éxito'); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } },
@@ -381,7 +431,7 @@ export default function AdminTabBookings() {
   return (
     <>
       {/* --- TARJETA DE CREACIÓN DE RESERVA (BEIGE WIMBLEDON) --- */}
-      <div className="bg-[#EBE1D8] border-4 border-white/50 rounded-[2rem] p-8 mb-8 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
+      <div className="bg-[#EBE1D8] border-4 border-white/50 rounded-[2rem] p-8 mb-8 shadow-2xl shadow-[#347048]/30 relative overflow-visible transition-all">
         <h2 className="text-2xl font-black text-[#926699] flex items-center gap-3 uppercase italic tracking-tight">
           <span className="bg-[#926699] text-[#EBE1D8] p-2.5 rounded-xl shadow-lg shadow-[#926699]/20">
             {manualBooking.isFixed ? <Repeat size={24} strokeWidth={3} /> : <CalendarPlus size={24} strokeWidth={3} />}
@@ -572,123 +622,88 @@ export default function AdminTabBookings() {
           </div>
         ) : scheduleBookings.length > 0 ? (
           <div className="overflow-x-auto -mx-8">
-            <table className="w-full text-left border-separate border-spacing-y-3 px-8">
-              <thead>
-                <tr className="text-[#347048]/40 text-[10px] font-black uppercase tracking-[0.2em]">
-                  <th className="px-6 py-4">Horario</th><th className="px-6 py-4">Cancha</th><th className="px-6 py-4">Estado</th><th className="px-6 py-4">Reservante</th><th className="px-6 py-4">Extras</th><th className="px-6 py-4 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="text-sm">
-                {scheduleBookings.map((slot, index) => (
-                  <tr key={index} className="bg-white/60 hover:bg-white transition-all shadow-sm rounded-2xl overflow-hidden group">
-                    <td className="px-6 py-5 first:rounded-l-2xl font-black text-[#347048] text-lg">{slot.slotTime}</td>
-                    <td className="px-6 py-5 font-bold text-[#347048]/80">{slot.courtName}</td>
-                    <td className="px-6 py-5">
-                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-                        {(() => {
-                          const [h, m] = slot.slotTime.split(':').map(Number);
-                          const [year, month, day] = scheduleDate.split('-').map(Number);
-                          
-                          // 1. Calculamos Inicio y Fin (90 minutos después)
-                          const slotStartDate = new Date(year, month - 1, day, h, m);
-                          const slotEndDate = new Date(slotStartDate.getTime() + 90 * 60000); 
-                          const now = new Date();
-                          
-                          // 2. Evaluamos los tiempos
-                          const isPastStart = slotStartDate < now; // Ya empezó
-                          const isPastEnd = slotEndDate < now;     // Ya terminó (pasó la hora y media)
-                          const isPlaying = isPastStart && !isPastEnd; // Están jugando AHORA
-
-                          let statusText = ''; let cClasses = ''; let dClasses = '';
-
-                          if (!slot.booking) {
-                            if (isPastStart) { statusText = 'NO JUGADO'; cClasses = 'bg-gray-200 text-gray-500 border-transparent'; dClasses = 'bg-gray-400'; }
-                            else { statusText = 'DISPONIBLE'; cClasses = 'bg-emerald-100 text-emerald-700 border-emerald-200'; dClasses = 'bg-emerald-500 animate-pulse'; }
-                          } else {
-                            const status = slot.booking.status;
-                            
-                            if (isPastEnd) { 
-                                // Si ya pasó la hora y media completa
-                                statusText = 'COMPLETADO'; 
-                                cClasses = 'bg-blue-100 text-blue-700 border-blue-200'; 
-                                dClasses = 'bg-blue-500'; 
-                            } 
-                            else if (isPlaying) {
-                                // Si arrancó pero todavía no pasaron los 90 min
-                                statusText = 'EN JUEGO'; 
-                                cClasses = 'bg-[#926699]/10 text-[#926699] border-[#926699]/30'; 
-                                dClasses = 'bg-[#926699] animate-pulse'; 
-                            }
-                            else if (status === 'CONFIRMED') { 
-                                // Futuro Confirmado
-                                statusText = 'CONFIRMADO'; 
-                                cClasses = 'bg-red-100 text-red-700 border-red-200'; 
-                                dClasses = 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'; 
-                            } 
-                            else { 
-                                // Futuro Pendiente de seña/pago
-                                statusText = 'PENDIENTE'; 
-                                cClasses = 'bg-yellow-100 text-yellow-700 border-yellow-200'; 
-                                dClasses = 'bg-yellow-500'; 
-                            }
-                          }
-                          
-                          return (
-                            <span className={`inline-flex items-center gap-2 text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-wider border ${cClasses}`}>
-                              <span className={`w-2 h-2 rounded-full ${dClasses}`}></span>
-                              {statusText}
-                            </span>
-                          );
-                        })()}
-
-                        {/* 👇 ACÁ ESTÁ LA ETIQUETA DE TURNO FIJO RECUPERADA 👇 */}
-                        {slot.booking?.fixedBookingId && (
-                          <span className="bg-[#347048] text-[#B9CF32] text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest flex items-center gap-1 shadow-sm">
-                            🔄 Fijo
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-5">
-                      {slot.booking ? (
-                        <div className="flex flex-col">
-                          <span className="font-black text-[#347048]">{slot.booking.userName || slot.booking.guestName}</span>
-                          {(slot.booking.guestPhone || slot.booking.user?.phoneNumber) && <span className="text-[11px] font-bold text-[#347048]/50">📞 {slot.booking.guestPhone || slot.booking.user?.phoneNumber}</span>}
-                        </div>
-                      ) : <span className="text-[#347048]/20 font-black">-</span>}
-                    </td>
-                    <td className="px-6 py-5">
-                      {slot.booking?.items?.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {slot.booking.items.map((item: any, i: number) => (
-                            <span key={i} className="text-[9px] font-black px-2 py-0.5 rounded-md bg-[#926699]/10 text-[#926699] border border-[#926699]/20 uppercase">
-                              {item.quantity}x {item.product?.name}
-                            </span>
-                          ))}
-                        </div>
-                      ) : <span className="text-[#347048]/20 font-black">-</span>}
-                    </td>
-                    <td className="px-6 py-5 last:rounded-r-2xl text-right">
-                      {slot.booking && (
-                        <div className="flex justify-end gap-2">
-                          <button onClick={() => setSelectedBooking(slot.booking)} className="p-2 rounded-xl bg-white border border-[#347048]/10 text-[#347048] hover:bg-[#347048] hover:text-[#EBE1D8] transition-all shadow-sm">
-                            <ShoppingCart size={16} strokeWidth={2.5} />
-                          </button>
-                          {slot.booking.status === 'PENDING' && (
-                            <button onClick={() => handleOpenPaymentModal(slot.booking.id)} className="p-2 rounded-xl bg-[#B9CF32] text-[#347048] border border-white hover:scale-110 transition-all shadow-md">
-                              <Check size={16} strokeWidth={3} />
-                            </button>
-                          )}
-                          <button onClick={() => handleCancelBooking(slot.booking)} className="p-2 rounded-xl bg-red-50 border border-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all">
-                            <Trash2 size={16} strokeWidth={2.5} />
-                          </button>
-                        </div>
-                      )}
-                    </td>
+            <div className="min-w-[900px] pl-16 pr-8">
+              <table className="w-full table-fixed border-collapse text-sm">
+                <thead>
+                  <tr className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]/40">
+                    {courts.map((court) => (
+                      <th
+                        key={court.id}
+                        className="px-4 py-3 border border-[#347048]/10 bg-white/80 text-left"
+                      >
+                        {court.name}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {CLUB_TIME_SLOTS.map((time) => (
+                    <tr key={`row-${time}`} className="h-[120px]">
+                      {courts.map((court, index) => {
+                        const slot = scheduleByTime.get(time)?.get(court.id);
+                        const hasBooking = !!slot?.booking;
+                        const bookingName = slot?.booking?.userName || slot?.booking?.guestName || 'Reserva';
+
+                        return (
+                          <td
+                            key={`cell-${time}-${court.id}`}
+                            className="border border-[#347048]/5 bg-white/50 align-top p-2 h-[120px] relative"
+                          >
+                            {index === 0 && (
+                              <span className="absolute -left-14 -top-3 px-2 text-[11px] font-black text-[#347048]/70">
+                                {time}
+                              </span>
+                            )}
+                            {hasBooking ? (
+                              <div className="relative h-full rounded-3xl border-l-[6px] border-[#347048] bg-white/90 p-3 shadow-[0_10px_24px_rgba(52,112,72,0.12)] ring-1 ring-white/70">
+                                <div className="text-xs font-black text-[#347048] uppercase tracking-wide truncate">
+                                  {bookingName}
+                                </div>
+                                <div className="mt-1 text-[10px] font-bold text-[#347048]/60">
+                                  {getBookingTimeRange(slot)}
+                                </div>
+                                {slot.booking?.fixedBookingId && (
+                                  <div className="absolute top-2 right-2 inline-flex items-center gap-1 bg-[#347048] text-[#B9CF32] text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest">
+                                    Fijo
+                                  </div>
+                                )}
+                                <div className="absolute bottom-2 left-3 right-3 flex flex-wrap gap-1">
+                                  <button
+                                    onClick={() => setSelectedBooking(slot.booking)}
+                                    className="p-2 rounded-xl bg-white border border-[#347048]/10 text-[#347048] hover:bg-[#347048] hover:text-[#EBE1D8] transition-all shadow-sm"
+                                    title="Consumos"
+                                  >
+                                    <ShoppingCart size={14} strokeWidth={2.5} />
+                                  </button>
+                                  {slot.booking.status === 'PENDING' && (
+                                    <button
+                                      onClick={() => handleOpenPaymentModal(slot.booking.id)}
+                                      className="p-2 rounded-xl bg-[#B9CF32] text-[#347048] border border-white hover:scale-110 transition-all shadow-md"
+                                      title="Confirmar pago"
+                                    >
+                                      <Check size={14} strokeWidth={3} />
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => handleCancelBooking(slot.booking)}
+                                    className="p-2 rounded-xl bg-red-50 border border-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                                    title="Cancelar"
+                                  >
+                                    <Trash2 size={14} strokeWidth={2.5} />
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="h-full min-h-[88px]" />
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : (
           <div className="text-center py-16 border-4 border-dashed border-[#347048]/10 rounded-[2rem]"><p className="text-[#347048]/40 font-black uppercase tracking-widest">Sin datos cargados para esta fecha</p></div>

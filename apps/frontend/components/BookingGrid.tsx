@@ -127,6 +127,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   const [guestModalOpen, setGuestModalOpen] = useState(false);
   const [guestError, setGuestError] = useState('');
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
+  const courtsSectionRef = useRef<HTMLDivElement | null>(null);
   const [modalState, setModalState] = useState<{
     show: boolean;
     title?: string;
@@ -489,6 +490,11 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
     confirmButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [selectedSlot, selectedCourt]);
 
+  useEffect(() => {
+    if (!selectedSlot) return;
+    courtsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [selectedSlot]);
+
   // --- Cargar Canchas (solo del club cuando hay clubSlug) ---
   useEffect(() => {
     const fetchCourts = async () => {
@@ -675,7 +681,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
       )}
 
       {selectedSlot && (
-        <div className="mb-10">
+        <div ref={courtsSectionRef} className="mb-10">
           <label className="block text-xs font-black text-[#926699] mb-4 ml-1 flex items-center gap-2 uppercase tracking-wider">
             <span className="text-[#B9CF32]"><MapPin size={20} strokeWidth={3} /></span>
             <span>Reservar una cancha</span>

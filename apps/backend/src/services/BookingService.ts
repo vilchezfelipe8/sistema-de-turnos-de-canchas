@@ -646,7 +646,7 @@ export class BookingService {
                         startDateTime: currentStart,
                         endDateTime: currentEnd,
                         price: fixedPrice,
-                        status: 'CONFIRMED',
+                        status: 'PENDING',
                         ...(userId ? { userId } : {}),
                         ...(guestName ? { guestName } : {}),
                         ...(safePhone ? { guestPhone: safePhone } : {}), // Guardar teléfono en cada reserva hija
@@ -666,7 +666,7 @@ export class BookingService {
             return { 
                 fixedBookingId: fixedBooking.id, 
                 generatedCount: bookingsToCreate.length,
-                msg: `Se crearon ${bookingsToCreate.length} turnos confirmados.`
+                msg: `Se crearon ${bookingsToCreate.length} turnos pendientes.`
             };
 
         }, {
