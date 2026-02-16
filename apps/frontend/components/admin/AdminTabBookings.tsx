@@ -370,6 +370,21 @@ export default function AdminTabBookings() {
     return { label: 'Pendiente', classes: 'bg-yellow-50 text-yellow-700 border-yellow-200' };
   };
 
+  const getBookingBarClass = (slot: any) => {
+    switch (slot?.booking?.status) {
+      case 'PENDING':
+        return 'border-[#B9CF32]';
+      case 'CONFIRMED':
+        return 'border-[#347048]';
+      case 'CANCELLED':
+        return 'border-[#EF4444]';
+      case 'COMPLETED':
+        return 'border-[#3B82F6]';
+      default:
+        return 'border-[#347048]';
+    }
+  };
+
   const formatTime = (date: Date) =>
     date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
 
@@ -662,6 +677,21 @@ export default function AdminTabBookings() {
           </div>
         </div>
 
+        <div className="flex flex-wrap items-center gap-4 mb-6 text-[10px] font-black uppercase tracking-widest text-[#347048]/60">
+          <span className="flex items-center gap-2">
+            <span className="w-5 h-0.5 rounded-full bg-[#B9CF32]"></span>
+            Pendiente
+          </span>
+          <span className="flex items-center gap-2">
+            <span className="w-5 h-0.5 rounded-full bg-[#347048]"></span>
+            Confirmada
+          </span>
+          <span className="flex items-center gap-2">
+            <span className="w-5 h-0.5 rounded-full bg-[#3B82F6]"></span>
+            Finalizada
+          </span>
+        </div>
+
         {loadingSchedule ? (
           <div className="space-y-4 py-10">
               <div className="h-16 bg-[#347048]/5 animate-pulse rounded-2xl w-full"></div>
@@ -705,7 +735,7 @@ export default function AdminTabBookings() {
                               <button
                                 type="button"
                                 onClick={() => setSelectedBookingDetail({ booking: slot.booking, slotTime: time, courtName: slot.courtName })}
-                                className="relative h-full w-full rounded-3xl border-l-[6px] border-[#347048] bg-white/90 p-3 text-left shadow-[0_10px_24px_rgba(52,112,72,0.12)] ring-1 ring-white/70 transition hover:shadow-[0_14px_28px_rgba(52,112,72,0.18)]"
+                                className={`relative h-full w-full rounded-3xl border-l-[6px] ${getBookingBarClass(slot)} bg-white/90 p-3 text-left shadow-[0_10px_24px_rgba(52,112,72,0.12)] ring-1 ring-white/70 transition hover:shadow-[0_14px_28px_rgba(52,112,72,0.18)] flex flex-col`}
                               >
                                 <div className="text-xs font-black text-[#347048] uppercase tracking-wide truncate">
                                   {bookingName}
@@ -718,7 +748,7 @@ export default function AdminTabBookings() {
                                     Fijo
                                   </div>
                                 )}
-                                <div className="absolute bottom-2 left-3 right-3 flex flex-wrap gap-1">
+                                <div className="mt-auto flex flex-wrap gap-1 pt-2">
                                   <button
                                     onClick={(event) => {
                                       event.stopPropagation();
