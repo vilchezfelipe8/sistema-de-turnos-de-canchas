@@ -7,13 +7,11 @@ export const getApiUrl = (): string => {
   
   // Si estamos en el cliente (navegador), detectar automáticamente
   if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    // Si no es localhost, usar el mismo hostname para el API
-    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      return `http://${hostname}:3000`;
-    }
+    const { hostname, protocol } = window.location;
+    const safeProtocol = protocol || 'http:';
+    return `${safeProtocol}//${hostname}:3000`;
   }
-  
+
   // Por defecto, localhost para desarrollo local
   return 'http://localhost:3000';
 };

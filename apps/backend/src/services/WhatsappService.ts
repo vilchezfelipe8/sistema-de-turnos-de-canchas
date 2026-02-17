@@ -16,13 +16,17 @@ class WhatsappService {
             return;
         }
 
+        const chromePath = process.env.WHATSAPP_CHROME_PATH;
+        const headlessEnv = process.env.WHATSAPP_HEADLESS;
+        const headless = headlessEnv ? ['1', 'true', 'yes'].includes(headlessEnv.toLowerCase()) : false;
+
         this.client = new Client({
     authStrategy: new LocalAuth(),
     authTimeoutMs: 60000,
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36',
     puppeteer: {
-        executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-        headless: false, 
+        ...(chromePath ? { executablePath: chromePath } : {}),
+        headless: headless, 
         args: [
             '--no-sandbox',
             // 2. Desactivamos el aislamiento de procesos (CRUCIAL para que no crashee en Windows)

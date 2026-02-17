@@ -10,7 +10,7 @@ export class BookingController {
     createBooking = async (req: Request, res: Response) => {
     try {
         const user = (req as any).user;
-        const userIdFromToken = user?.id || user?.userId || null;
+        const userIdFromToken = user?.userId || null;
 
         const optionalTrimmedString = (minLength?: number) =>
             z.preprocess(
@@ -90,19 +90,6 @@ export class BookingController {
         const effectiveGuestEmail = isGuest ? guestEmail : undefined;
         const effectiveGuestPhone = isGuest ? guestPhone : undefined;
         const effectiveGuestDni = isGuest ? guestDni : undefined;
-
-        // Verificar disponibilidad
-        const existingBooking = await prisma.booking.findFirst({
-            where: {
-                courtId: courtId,
-                startDateTime: startDate, // Asegúrate que tu DB use 'startDateTime' o 'startTime'
-                status: { not: 'CANCELLED' }
-            }
-        });
-
-        if (existingBooking) {
-            return res.status(400).json({ error: "Esta cancha ya está reservada en ese horario." });
-        }
 
         // 1. CREAR LA RESERVA (Esto sigue igual)
         const result = await this.bookingService.createBooking(
@@ -249,7 +236,10 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
     try {
         const { bookingId, paymentMethod } = req.body; 
         
-        const userId = (req as any).user.id; 
+        const userId = (req as any).user?.userId; 
+        if (!userId) {
+            return res.status(401).json({ error: 'No autorizado' });
+        }
 
 
         const result = await this.bookingService.confirmBooking(
@@ -509,6 +499,35 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
                 await prisma.booking.update({
                     where: { id: bookingId },
                     data: { paymentStatus: 'PARTIAL' } 
+                });
+            }
+        }
+
+        const bookingWithTotals = await prisma.booking.findUnique({
+            where: { id: bookingId },
+            include: { items: true, cashMovements: true }
+        });
+
+        if (bookingWithTotals) {
+            const itemsTotal = bookingWithTotals.items.reduce(
+                (sum, item) => sum + Number(item.price) * item.quantity,
+                0
+            );
+            const totalPaid = bookingWithTotals.cashMovements
+                .filter((movement) => movement.type === 'INCOME')
+                .reduce((sum, movement) => sum + Number(movement.amount), 0);
+            const total = Number(bookingWithTotals.price || 0) + itemsTotal;
+            const remaining = total - totalPaid;
+
+            let nextStatus: 'PAID' | 'DEBT' | 'PARTIAL';
+            if (remaining <= 0) nextStatus = 'PAID';
+            else if (totalPaid > 0) nextStatus = 'PARTIAL';
+            else nextStatus = 'DEBT';
+
+            if (bookingWithTotals.paymentStatus !== nextStatus) {
+                await prisma.booking.update({
+                    where: { id: bookingId },
+                    data: { paymentStatus: nextStatus }
                 });
             }
         }

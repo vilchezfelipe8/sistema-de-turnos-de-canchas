@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 import { ClubAdminService } from '../services/ClubAdminService';
@@ -14,13 +14,30 @@ interface ProductsPageProps {
 // --- ✨ COMPONENTE PORTAL (VERSIÓN BEIGE WIMBLEDON) ✨ ---
 const ModalPortal = ({ children, onClose }: { children: ReactNode, onClose: () => void }) => {
   if (typeof document === 'undefined') return null;
+  const backdropMouseDownRef = useRef(false);
   
   return createPortal(
-  <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#347048]/80 backdrop-blur-[2px] p-4 animate-in fade-in duration-200">
-      <div className="absolute inset-0" onClick={onClose}></div>
-      
+  <div
+    className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#347048]/80 backdrop-blur-[2px] p-4 animate-in fade-in duration-200"
+    onMouseDown={(event) => {
+      backdropMouseDownRef.current = event.target === event.currentTarget;
+    }}
+    onTouchStart={(event) => {
+      backdropMouseDownRef.current = event.target === event.currentTarget;
+    }}
+    onClick={(event) => {
+      const startedOnBackdrop = backdropMouseDownRef.current;
+      backdropMouseDownRef.current = false;
+      if (startedOnBackdrop && event.target === event.currentTarget) {
+        onClose();
+      }
+    }}
+  >
       {/* Tarjeta Flotante Beige con bordes blancos */}
-      <div className="relative z-10 w-full max-w-md bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200 overflow-hidden text-[#347048]">
+      <div
+        className="relative z-10 w-full max-w-md bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200 overflow-hidden text-[#347048]"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="overflow-y-auto p-8 custom-scrollbar">
             {children}
         </div>
@@ -232,7 +249,8 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
               <button
                 type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="bg-white p-3 rounded-full text-[#347048] shadow-sm hover:scale-110 transition-transform"
+                className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
+                title="Cerrar ventana"
               >
                 <X size={20} strokeWidth={3} />
               </button>

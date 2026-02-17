@@ -11,14 +11,11 @@ import { User } from '../entities/User';
 import { Club } from '../entities/Club';
 import { Court as CourtEntity } from '../entities/Court';
 import { ActivityType } from '../entities/ActivityType';
-import { PrismaClient, PaymentStatus, BookingStatus } from '@prisma/client';
+import { PaymentStatus, BookingStatus } from '@prisma/client';
 import { CashRepository } from '../repositories/CashRepository';
 import { ProductRepository } from '../repositories/ProductRepository';
 
 export class BookingService {
-
-    private prisma = new PrismaClient();
-
     constructor(
         private bookingRepo: BookingRepository,
         private courtRepo: CourtRepository,
@@ -43,31 +40,37 @@ export class BookingService {
     ): Promise<Booking> {
         let user: User | null = null;
         if (userId) {
-        user = await this.userRepo.findById(userId);
-        if (!user) throw new Error("Usuario no encontrado");
-    } else {
-        // --- VALIDACIONES ESTRICTAS PARA INVITADOS/ADMIN ---
-        
-        // 1. Nombre obligatorio
-        if (!guestName || guestName.trim().length < 2) {
-            throw new Error("El nombre es obligatorio para reservas como invitado.");
-        }
+            user = await this.userRepo.findById(userId);
+            if (!user) throw new Error("Usuario no encontrado");
+        } else {
+            if (allowGuestWithoutContact) {
+                if (!guestIdentifier) {
+                    guestIdentifier = `admin_${Date.now()}`;
+                }
+            } else {
+                // --- VALIDACIONES ESTRICTAS PARA INVITADOS/ADMIN ---
 
-        // 2. DNI obligatorio (Vital para tu lista de deudores)
-        if (!guestDni || guestDni.trim().length < 6) {
-            throw new Error("El DNI es obligatorio para identificar al cliente.");
-        }
+                // 1. Nombre obligatorio
+                if (!guestName || guestName.trim().length < 2) {
+                    throw new Error("El nombre es obligatorio para reservas como invitado.");
+                }
 
-        // 3. Teléfono obligatorio (Vital para contacto y agrupación)
-        if (!guestPhone || guestPhone.trim().length < 7) {
-            throw new Error("El número de teléfono es obligatorio.");
-        }
+                // 2. DNI obligatorio (Vital para tu lista de deudores)
+                if (!guestDni || guestDni.trim().length < 6) {
+                    throw new Error("El DNI es obligatorio para identificar al cliente.");
+                }
 
-        // 4. Aseguramos el guestIdentifier (usamos el DNI si no hay uno)
-        if (!guestIdentifier) {
-            guestIdentifier = guestDni; 
+                // 3. Teléfono obligatorio (Vital para contacto y agrupación)
+                if (!guestPhone || guestPhone.trim().length < 7) {
+                    throw new Error("El número de teléfono es obligatorio.");
+                }
+
+                // 4. Aseguramos el guestIdentifier (usamos el DNI si no hay uno)
+                if (!guestIdentifier) {
+                    guestIdentifier = guestDni;
+                }
+            }
         }
-    }
 
         const court = await this.courtRepo.findById(courtId);
         if (!court) throw new Error("Cancha no encontrada");
@@ -180,7 +183,7 @@ export class BookingService {
 
         const duration = activity.defaultDurationMinutes; 
 
-        const freeSlots = possibleSlots.filter(slotStart => {
+        const freeSlots = upcomingSlots.filter(slotStart => {
             const slotEnd = TimeHelper.addMinutes(slotStart, duration);
 
             const slotStartDate = TimeHelper.localSlotToUtc(date, slotStart);
@@ -218,7 +221,7 @@ export class BookingService {
 
         // 👇 CORRECCIÓN DEFINITIVA DE CAJA 👇
         // Buscamos cuánto pagó REALMENTE el cliente por esta reserva en el registro de caja
-        const bookingWithPayments = await this.prisma.booking.findUnique({
+        const bookingWithPayments = await prisma.booking.findUnique({
             where: { id: bookingId },
             include: { cashMovements: true }
         });
@@ -721,7 +724,7 @@ export class BookingService {
 
     // 👇 AGREGÁ ESTO PARA VER QUÉ CONSUMIERON
     async getBookingItems(bookingId: number) {
-        return await this.prisma.bookingItem.findMany({
+        return await prisma.bookingItem.findMany({
             where: { bookingId },
             include: { product: true }
         });
@@ -777,7 +780,7 @@ async addItemToBooking(bookingId: number, productId: number, quantity: number, p
 
     // 👇 (OPCIONAL) PARA BORRAR SI TE EQUIVOCASTE (Devuelve el stock)
     async removeItemFromBooking(itemId: number) {
-        return await this.prisma.$transaction(async (tx) => {
+        return await prisma.$transaction(async (tx) => {
             const item = await tx.bookingItem.findUnique({ where: { id: itemId } });
             if (!item) throw new Error("Item no encontrado");
 
@@ -795,7 +798,7 @@ async addItemToBooking(bookingId: number, productId: number, quantity: number, p
 
 async updatePaymentStatus(id: number, status: 'PAID' | 'DEBT' | 'PARTIAL') {
     // 1. Buscamos la reserva ACTUAL (antes del cambio) para saber precio y club
-    const booking = await this.prisma.booking.findUnique({
+    const booking = await prisma.booking.findUnique({
         where: { id },
         include: { court: true } // Necesitamos esto para el clubId
     });
@@ -820,7 +823,7 @@ async updatePaymentStatus(id: number, status: 'PAID' | 'DEBT' | 'PARTIAL') {
     }
 
     // 3. Finalmente actualizamos el estado en la base de datos
-    return this.prisma.booking.update({
+    return prisma.booking.update({
         where: { id },
         data: { paymentStatus: status }
     });

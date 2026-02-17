@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
 import { ClubAdminService } from '../services/ClubAdminService';
-import { Trash2, Plus, ShoppingCart, Receipt, Lock, ChevronDown, Check, X} from 'lucide-react';
+import { Trash2, Plus, ShoppingCart, Receipt, Lock, ChevronDown, Check, X, Banknote, CreditCard, FileText } from 'lucide-react';
 // import { BookingTicket } from './BookingTicket'; // Si no lo usás, podés borrar esta línea
 
 interface Props {
@@ -22,6 +22,10 @@ interface CartItem {
   price: number;
   isNew: boolean;
 }
+
+export type BookingConsumptionHandle = {
+  persistDraft: () => Promise<void>;
+};
 
 // --- COMPONENTE DROPDOWN CUSTOM (ESTILO WIMBLEDON LANDING) ---
 const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
@@ -89,13 +93,18 @@ const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
 };
 
 
-export default function BookingConsumption({ bookingId, slug, courtPrice = 0, baseCourtPrice, paymentStatus, onClose, onConfirm }: Props) {
+const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function BookingConsumption(
+  { bookingId, slug, courtPrice = 0, baseCourtPrice, paymentStatus, onClose, onConfirm },
+  ref
+) {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [itemsToDelete, setItemsToDelete] = useState<number[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const paymentBackdropMouseDownRef = useRef(false);
+  const skipDraftPersistRef = useRef(false);
 
   // Formulario
   const [selectedProductId, setSelectedProductId] = useState<string>('');
@@ -162,6 +171,7 @@ export default function BookingConsumption({ bookingId, slug, courtPrice = 0, ba
   const handleSaveChanges = async (targetBookingStatus: 'PAID' | 'DEBT' | 'PARTIAL', itemPaymentMethod: 'CASH' | 'DEBT' | 'TRANSFER') => {
     try {
       setSaving(true);
+      skipDraftPersistRef.current = true;
       await ClubAdminService.updateBookingPaymentStatus(bookingId, targetBookingStatus);
       const deletePromises = itemsToDelete.map(id => ClubAdminService.removeItemFromBooking(id));
       const newItems = cartItems.filter(i => i.isNew);
@@ -178,6 +188,26 @@ export default function BookingConsumption({ bookingId, slug, courtPrice = 0, ba
     }
   };
 
+  const persistDraft = useCallback(async () => {
+    if (skipDraftPersistRef.current || saving) return;
+    const newItems = cartItems.filter(item => item.isNew);
+    if (newItems.length === 0) return;
+    try {
+      setSaving(true);
+      await Promise.all(
+        newItems.map(item =>
+          ClubAdminService.addItemToBooking(bookingId, item.productId, item.quantity, 'DEBT')
+        )
+      );
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setSaving(false);
+    }
+  }, [bookingId, cartItems, saving]);
+
+  useImperativeHandle(ref, () => ({ persistDraft }));
+
   const isCourtResolved = paymentStatus === 'PAID' || paymentStatus === 'PARTIAL' || paymentStatus === 'DEBT';
   const courtPriceToPay = isCourtResolved ? 0 : (courtPrice || 0);
   const basePrice = Number(baseCourtPrice ?? 0);
@@ -188,6 +218,7 @@ export default function BookingConsumption({ bookingId, slug, courtPrice = 0, ba
     .reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
   const finalTotal = courtPriceToPay + consumptionTotal;
+  const hasPendingCharges = finalTotal > 0;
 
   const handlePaymentConfirm = (method: 'CASH' | 'TRANSFER') => {
       let nextStatus: 'PAID' | 'PARTIAL' | 'DEBT' = 'PAID';
@@ -339,50 +370,71 @@ export default function BookingConsumption({ bookingId, slug, courtPrice = 0, ba
               const nextStatus = (paymentStatus === 'PAID' || paymentStatus === 'PARTIAL') ? 'PARTIAL' : 'DEBT';
               handleSaveChanges(nextStatus, 'DEBT');
           }}
-          disabled={saving}
-          className="flex flex-col items-center justify-center gap-1 py-4 bg-[#EBE1D8] border-2 border-[#347048]/20 text-[#347048] font-black uppercase text-[10px] tracking-widest rounded-2xl transition-all hover:bg-white shadow-sm disabled:opacity-30"
+          disabled={saving || !hasPendingCharges}
+          className="flex flex-col items-center justify-center gap-1 py-4 bg-[#EBE1D8] border-2 border-[#347048]/20 text-[#347048] font-black uppercase text-[10px] tracking-widest rounded-2xl transition-all hover:bg-white shadow-sm disabled:opacity-30 disabled:cursor-not-allowed"
         >
-          <div className="flex items-center gap-2"><span className="text-lg">📝</span> Dejar en Cuenta</div>
+          <div className="flex items-center gap-2"><FileText size={18} strokeWidth={2.5} /> Dejar en Cuenta</div>
         </button>
         
         <button 
           onClick={() => setShowPaymentModal(true)} 
-          disabled={saving || cartItems.filter(i => i.isNew).length === 0}
+          disabled={saving || !hasPendingCharges}
           className="flex flex-col items-center justify-center gap-1 py-4 bg-[#B9CF32] text-[#347048] font-black uppercase text-[10px] tracking-widest rounded-2xl shadow-xl shadow-[#B9CF32]/20 transition-all hover:-translate-y-1 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed"
         >
-          <div className="flex items-center gap-2"><span className="text-lg">💵</span> Cobrar Total</div>
+          <div className="flex items-center gap-2"><Banknote size={18} strokeWidth={2.5} /> Cobrar Total</div>
         </button>
       </div>
 
       {/* MODAL DE COBRO */}
       {showPaymentModal && (
-  <div className="fixed inset-0 bg-[#347048]/80 backdrop-blur-[2px] flex items-center justify-center z-[9999] p-4 animate-in fade-in duration-200">
-            <div className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full relative">
+  <div
+    className="fixed inset-0 bg-[#347048]/80 backdrop-blur-[2px] flex items-center justify-center z-[9999] p-4 animate-in fade-in duration-200"
+    onMouseDown={(event) => {
+      paymentBackdropMouseDownRef.current = event.target === event.currentTarget;
+    }}
+    onTouchStart={(event) => {
+      paymentBackdropMouseDownRef.current = event.target === event.currentTarget;
+    }}
+    onClick={(event) => {
+      const startedOnBackdrop = paymentBackdropMouseDownRef.current;
+      paymentBackdropMouseDownRef.current = false;
+      if (startedOnBackdrop && event.target === event.currentTarget) {
+        setShowPaymentModal(false);
+      }
+    }}
+  >
+            <div
+              className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full relative"
+              onClick={(event) => event.stopPropagation()}
+            >
                 <button 
-                    onClick={() => setShowPaymentModal(false)}
-                    className="absolute top-6 right-6 text-[#347048]/40 hover:text-[#347048] transition font-black"
-                >✕</button>
+                  onClick={() => setShowPaymentModal(false)}
+                  className="absolute top-6 right-6 bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
+                  title="Cerrar ventana"
+                >
+                  <X size={20} strokeWidth={3} />
+                </button>
 
-                <h3 className="text-2xl font-black text-[#347048] mb-2 text-center uppercase tracking-tight italic">Cobrar Consumo</h3>
+                <h3 className="text-2xl font-black text-[#347048] mb-2 text-center uppercase tracking-tight italic">Cobrar Total</h3>
                 <p className="text-[#347048]/60 text-xs font-bold mb-8 text-center uppercase tracking-widest">
-                    Total: <span className="text-[#347048] text-lg font-black">${consumptionTotal.toLocaleString()}</span>
+                  Total: <span className="text-[#347048] text-lg font-black">${finalTotal.toLocaleString()}</span>
                 </p>
                 
                 <div className="grid grid-cols-2 gap-4 mb-6">
                     <button
-                        onClick={() => handlePaymentConfirm('CASH')}
-                        className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-3xl text-[#347048] transition-all hover:scale-[1.02] shadow-sm group"
+                      onClick={() => handlePaymentConfirm('CASH')}
+                      className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-3xl text-[#347048] transition-all hover:scale-[1.02] shadow-sm group"
                     >
-                        <span className="text-3xl mb-2 group-hover:scale-110 transition">💵</span>
-                        <span className="font-black text-[10px] uppercase tracking-widest">Efectivo</span>
+                      <Banknote size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
+                      <span className="font-black text-[10px] uppercase tracking-widest">Efectivo</span>
                     </button>
 
                     <button
-                        onClick={() => handlePaymentConfirm('TRANSFER')}
-                        className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-3xl text-[#347048] transition-all hover:scale-[1.02] shadow-sm group"
+                      onClick={() => handlePaymentConfirm('TRANSFER')}
+                      className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-3xl text-[#347048] transition-all hover:scale-[1.02] shadow-sm group"
                     >
-                        <span className="text-3xl mb-2 group-hover:scale-110 transition">💳</span>
-                        <span className="font-black text-[10px] uppercase tracking-widest">Digital</span>
+                      <CreditCard size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
+                      <span className="font-black text-[10px] uppercase tracking-widest">Digital</span>
                     </button>
                 </div>
                 
@@ -397,4 +449,6 @@ export default function BookingConsumption({ bookingId, slug, courtPrice = 0, ba
       )}
     </div>
   );
-}
+});
+
+export default BookingConsumption;

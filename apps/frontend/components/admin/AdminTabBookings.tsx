@@ -12,7 +12,7 @@ import {
   searchClients 
 } from '../../services/BookingService';
 import AppModal from '../AppModal';
-import BookingConsumption from '../BookingConsumption';
+import BookingConsumption, { type BookingConsumptionHandle } from '../BookingConsumption';
 import { useParams } from 'react-router-dom';
 import DatePickerDark from '../../components/ui/DatePickerDark';
 import { Trash2, Check, ShoppingCart, Calendar as CalendarIcon, RefreshCw, ChevronDown, CalendarPlus, Repeat, Banknote, CreditCard, FileText, X } from 'lucide-react'; 
@@ -88,11 +88,29 @@ const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
 // --- COMPONENTE PORTAL ---
 const ModalPortal = ({ children, onClose }: { children: ReactNode, onClose: () => void }) => {
   if (typeof document === 'undefined') return null;
+  const backdropMouseDownRef = useRef(false);
   
   return createPortal(
-  <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#347048]/80 backdrop-blur-[2px] p-4 animate-in fade-in duration-200">
-      <div className="absolute inset-0" onClick={onClose}></div>
-      <div className="relative z-10 w-full max-w-xl bg-[#EBE1D8] border-4 border-white rounded-[2rem] shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200 overflow-hidden text-[#347048]">
+  <div
+    className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#347048]/80 backdrop-blur-[2px] p-4 animate-in fade-in duration-200"
+    onMouseDown={(event) => {
+      backdropMouseDownRef.current = event.target === event.currentTarget;
+    }}
+    onTouchStart={(event) => {
+      backdropMouseDownRef.current = event.target === event.currentTarget;
+    }}
+    onClick={(event) => {
+      const startedOnBackdrop = backdropMouseDownRef.current;
+      backdropMouseDownRef.current = false;
+      if (startedOnBackdrop && event.target === event.currentTarget) {
+        onClose();
+      }
+    }}
+  >
+      <div
+        className="relative z-10 w-full max-w-xl bg-[#EBE1D8] border-4 border-white rounded-[2rem] shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200 overflow-hidden text-[#347048]"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="overflow-y-auto p-8 custom-scrollbar">
             {children}
         </div>
@@ -176,6 +194,7 @@ export default function AdminTabBookings() {
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const consumptionRef = useRef<BookingConsumptionHandle | null>(null);
   const [selectedBookingId, setSelectedBookingId] = useState<number | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<any>(null);
   const [selectedBookingDetail, setSelectedBookingDetail] = useState<{ booking: any; slotTime: string; courtName?: string } | null>(null);
@@ -490,6 +509,12 @@ export default function AdminTabBookings() {
     } catch (error) { alert("❌ Error al confirmar"); }
   };
 
+  const handleCloseConsumption = useCallback(async () => {
+    await consumptionRef.current?.persistDraft();
+    setSelectedBooking(null);
+    loadSchedule();
+  }, [loadSchedule]);
+
   return (
     <>
       {/* --- TARJETA DE CREACIÓN DE RESERVA (BEIGE WIMBLEDON) --- */}
@@ -801,14 +826,15 @@ export default function AdminTabBookings() {
       </div>
 
       {selectedBooking && (
-        <ModalPortal onClose={() => setSelectedBooking(null)}>
+        <ModalPortal onClose={handleCloseConsumption}>
           <BookingConsumption 
+            ref={consumptionRef}
             bookingId={selectedBooking.id}
             slug={getClubSlug() || ''}
             courtPrice={selectedBooking.price}
             baseCourtPrice={selectedBooking.court?.price}
             paymentStatus={selectedBooking.paymentStatus}
-            onClose={() => setSelectedBooking(null)}
+            onClose={handleCloseConsumption}
             onConfirm={() => { setSelectedBooking(null); loadSchedule(); }}
           />
         </ModalPortal>

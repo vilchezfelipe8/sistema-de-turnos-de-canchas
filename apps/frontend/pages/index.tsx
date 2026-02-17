@@ -1019,10 +1019,11 @@ export default function Home() {
             <div className="p-6 flex justify-between items-center border-b border-[#347048]/10">
                 <h2 className="text-2xl font-black text-[#347048]">Contacto</h2>
                 <button 
-                    onClick={() => setShowContact(false)}
-                    className="p-2 hover:bg-[#347048]/10 rounded-full text-[#347048] transition-colors"
+                  onClick={() => setShowContact(false)}
+                  className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
+                  title="Cerrar ventana"
                 >
-                    <X size={24} />
+                  <X size={20} strokeWidth={3} />
                 </button>
             </div>
             <div className="p-8 flex flex-col gap-6">

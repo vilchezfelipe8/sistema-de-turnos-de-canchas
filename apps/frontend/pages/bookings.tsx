@@ -198,12 +198,6 @@ export default function MyBookingsPage() {
     });
   };
 
-  useEffect(() => {
-    if (selectedBooking) {
-      console.log("🔥 DATOS DEL CLUB:", selectedBooking.court?.club);
-    }
-  }, [selectedBooking]);
-
   if (!authChecked || !user) return null;
 
   // --- RENDERIZADO VISUAL PREMIUM ---

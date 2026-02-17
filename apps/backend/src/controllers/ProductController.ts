@@ -45,9 +45,14 @@ export class ProductController {
     // PUT /api/clubs/:slug/products/:id
     update = async (req: Request, res: Response) => {
         try {
+            const { slug } = req.params;
             const { id } = req.params;
             const data = req.body;
-            const updatedProduct = await this.productService.updateProduct(Number(id), data);
+            const club = await this.clubRepository.findBySlug(slug as string);
+            if (!club) return res.status(404).json({ error: 'Club no encontrado' });
+
+            const updatedProduct = await this.productService.updateProductByClub(Number(id), club.id, data);
+            if (!updatedProduct) return res.status(404).json({ error: 'Producto no encontrado' });
             res.json(updatedProduct);
         } catch (error) {
             res.status(500).json({ error: 'Error al actualizar producto' });
@@ -57,8 +62,14 @@ export class ProductController {
     // DELETE /api/clubs/:slug/products/:id
     delete = async (req: Request, res: Response) => {
         try {
+            const { slug } = req.params;
             const { id } = req.params;
-            await this.productService.deleteProduct(Number(id));
+            const club = await this.clubRepository.findBySlug(slug as string);
+            if (!club) return res.status(404).json({ error: 'Club no encontrado' });
+
+            const deleted = await this.productService.deleteProductByClub(Number(id), club.id);
+            if (!deleted) return res.status(404).json({ error: 'Producto no encontrado' });
+
             res.json({ message: 'Producto eliminado' });
         } catch (error) {
             res.status(500).json({ error: 'Error al eliminar producto' });

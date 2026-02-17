@@ -1,11 +1,9 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../prisma';
 import { authMiddleware } from '../middleware/AuthMiddleware';
 import { requireRole } from '../middleware/RoleMiddleware';
 
 const router = Router();
-const prisma = new PrismaClient();
-
 /** Middleware: verifica que clubSlug en query sea el club del admin autenticado */
 const verifyClubSlugAccess = async (req: any, res: any, next: Function) => {
   try {

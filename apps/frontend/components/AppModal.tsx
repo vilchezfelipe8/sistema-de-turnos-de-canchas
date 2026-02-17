@@ -189,7 +189,8 @@ export default function AppModal({
           </h3>
           <button 
             onClick={onClose} 
-            className={`bg-white p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform ${isWarning ? 'text-red-400 hover:text-red-600' : 'text-[#347048]/40 hover:text-[#347048]'}`}
+            className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
+            title="Cerrar ventana"
           >
             <X size={20} strokeWidth={3} />
           </button>

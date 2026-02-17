@@ -1,14 +1,11 @@
 import { CashRepository } from '../repositories/CashRepository';
+import { TimeHelper } from '../utils/TimeHelper';
 
 export class CashService {
     constructor(private cashRepository: CashRepository) {}
 
     async getDailySummary(clubId?: number) {
-        // 1. Definir rango de HOY
-        const start = new Date();
-        start.setHours(0, 0, 0, 0);
-        const end = new Date();
-        end.setHours(23, 59, 59, 999);
+        const { startUtc: start, endUtc: end } = TimeHelper.getUtcRangeForLocalDate(new Date());
 
         // 2. Pedir datos al repo
     const movements = await this.cashRepository.findAllByDateRange(start, end, clubId);

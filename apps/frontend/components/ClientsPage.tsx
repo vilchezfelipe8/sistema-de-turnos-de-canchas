@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ClubAdminService } from '../services/ClubAdminService';
@@ -47,7 +47,9 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const [showPayMethodModal, setShowPayMethodModal] = useState(false);
   const [bookingToPayId, setBookingToPayId] = useState<number | null>(null);
   const [mounted, setMounted] = useState(false);
-  const [backdropMouseDown, setBackdropMouseDown] = useState(false);
+  const debtBackdropMouseDownRef = useRef(false);
+  const payMethodBackdropMouseDownRef = useRef(false);
+  const historyBackdropMouseDownRef = useRef(false);
 
   // --- LÓGICA DEL APPMODAL ---
   const [modalState, setModalState] = useState<{
@@ -65,8 +67,10 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
       setLoading(true);
       const data = await ClubAdminService.getDebtors(slug);
       setClients(data);
+      return data;
     } catch (error) { console.error(error); }
     finally { setLoading(false); }
+    return null;
   }, [slug]);
 
   useEffect(() => {
@@ -103,20 +107,16 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
       if (!response.ok) throw new Error('Error al procesar');
       setShowPayMethodModal(false);
       setBookingToPayId(null);
-      await loadClients(); 
+      const updatedClients = await loadClients();
 
-      if (selectedDebtor) {
-        const updatedBookings = selectedDebtor.bookings.filter((b: any) => b.id !== bookingToPayId);
-        const paidAmount = selectedDebtor.bookings.find((b: any) => b.id === bookingToPayId)?.total || 0;
-        const newTotalDebt = selectedDebtor.totalDebt - paidAmount;
+      if (selectedDebtor && Array.isArray(updatedClients)) {
+        const refreshed = updatedClients.find((client: any) => client.id === selectedDebtor.id);
 
-        if (newTotalDebt <= 0) {
+        if (!refreshed || refreshed.totalDebt <= 0) {
           setSelectedDebtor(null);
-          // REEMPLAZO DE ALERT
           showInfo(`La deuda ha sido saldada por completo.`, 'Éxito');
         } else {
-          setSelectedDebtor({ ...selectedDebtor, bookings: updatedBookings, totalDebt: newTotalDebt });
-          // REEMPLAZO DE ALERT
+          setSelectedDebtor(refreshed);
           showInfo(`El cobro fue registrado en la caja diaria.`, 'Éxito');
         }
       }
@@ -154,7 +154,15 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
             <div className="relative w-full md:w-80 group">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none transition-colors group-focus-within:text-[#B9CF32] text-[#347048]/40"><Search size={18} strokeWidth={2.5} /></div>
                 <input type="text" className="block w-full pl-12 pr-4 py-3 border-2 border-transparent focus:border-[#B9CF32] rounded-xl bg-white text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none transition-all shadow-sm" placeholder="Buscar por Nombre, DNI o Tel..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                {searchTerm && (<button onClick={() => setSearchTerm('')} className="absolute inset-y-0 right-0 pr-4 flex items-center text-[#347048]/40 hover:text-red-500"><X size={16} strokeWidth={3}/></button>)}
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm('')}
+                    className="absolute inset-y-0 right-2 my-auto h-8 w-8 bg-white rounded-full shadow-sm flex items-center justify-center text-[#347048]/40 hover:text-[#347048] hover:scale-110 transition-transform"
+                    aria-label="Limpiar búsqueda"
+                  >
+                    <X size={14} strokeWidth={3} />
+                  </button>
+                )}
             </div>
         </div>
         
@@ -215,14 +223,35 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
 
       {/* MODAL DETALLE DE DEUDA */}
       {selectedDebtor && (
-        <div className="fixed inset-0 bg-[#347048]/90 flex items-center justify-center z-[110] p-4 animate-in fade-in backdrop-blur-sm">
+        <div
+          className="fixed inset-0 bg-[#347048]/90 flex items-center justify-center z-[110] p-4 animate-in fade-in backdrop-blur-sm"
+          onMouseDown={(event) => {
+            debtBackdropMouseDownRef.current = event.target === event.currentTarget;
+          }}
+          onTouchStart={(event) => {
+            debtBackdropMouseDownRef.current = event.target === event.currentTarget;
+          }}
+          onClick={(event) => {
+            const startedOnBackdrop = debtBackdropMouseDownRef.current;
+            debtBackdropMouseDownRef.current = false;
+            if (startedOnBackdrop && event.target === event.currentTarget) {
+              setSelectedDebtor(null);
+            }
+          }}
+        >
             <div className="bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
                 <div className="p-8 border-b border-[#347048]/10 bg-[#EBE1D8] flex justify-between items-center">
                     <div>
                         <h3 className="text-2xl font-black text-[#347048] flex items-center gap-3 uppercase italic tracking-tighter">Deuda de {selectedDebtor.name}</h3>
                         <p className="text-[#347048]/60 text-xs font-bold mt-1 uppercase tracking-widest italic">Total Pendiente: <span className="text-red-600 font-black text-lg ml-2">${selectedDebtor.totalDebt}</span></p>
                     </div>
-                    <button onClick={() => setSelectedDebtor(null)} className="bg-white p-3 rounded-full text-[#347048] shadow-sm hover:scale-110 transition-transform"><X size={24} strokeWidth={3} /></button>
+                    <button
+                      onClick={() => setSelectedDebtor(null)}
+                      className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
+                      title="Cerrar ventana"
+                    >
+                      <X size={20} strokeWidth={3} />
+                    </button>
                 </div>
 
                 <div className="p-8 overflow-y-auto custom-scrollbar space-y-4 bg-white/40">
@@ -279,11 +308,27 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
 
       {/* MODAL MÉTODOS PAGO */}
     {mounted && showPayMethodModal && createPortal(
-  <div className="fixed inset-0 bg-[#347048]/80 backdrop-blur-[2px] flex items-center justify-center z-[120] p-4 animate-in fade-in duration-200">
+  <div
+    className="fixed inset-0 bg-[#347048]/80 backdrop-blur-[2px] flex items-center justify-center z-[120] p-4 animate-in fade-in duration-200"
+    onMouseDown={(event) => {
+      payMethodBackdropMouseDownRef.current = event.target === event.currentTarget;
+    }}
+    onTouchStart={(event) => {
+      payMethodBackdropMouseDownRef.current = event.target === event.currentTarget;
+    }}
+    onClick={(event) => {
+      const startedOnBackdrop = payMethodBackdropMouseDownRef.current;
+      payMethodBackdropMouseDownRef.current = false;
+      if (startedOnBackdrop && event.target === event.currentTarget) {
+        setShowPayMethodModal(false);
+      }
+    }}
+  >
       <div className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full relative">
         <button 
           onClick={() => setShowPayMethodModal(false)}
-          className="absolute top-6 right-6 text-[#347048]/40 hover:text-[#347048] transition font-black"
+          className="absolute top-6 right-6 bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
+          title="Cerrar ventana"
         >
           <X size={20} strokeWidth={3} />
         </button>
@@ -336,12 +381,18 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
       {mounted && selectedClientHistory && createPortal(
         <div
           className="fixed inset-0 bg-[#347048]/90 flex items-center justify-center z-[120] p-4 backdrop-blur-[2px] animate-in fade-in"
-          onMouseDown={(event) => setBackdropMouseDown(event.target === event.currentTarget)}
+          onMouseDown={(event) => {
+            historyBackdropMouseDownRef.current = event.target === event.currentTarget;
+          }}
+          onTouchStart={(event) => {
+            historyBackdropMouseDownRef.current = event.target === event.currentTarget;
+          }}
           onClick={(event) => {
-            if (backdropMouseDown && event.target === event.currentTarget) {
+            const startedOnBackdrop = historyBackdropMouseDownRef.current;
+            historyBackdropMouseDownRef.current = false;
+            if (startedOnBackdrop && event.target === event.currentTarget) {
               setSelectedClientHistory(null);
             }
-            setBackdropMouseDown(false);
           }}
         >
           <div className="bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl">
@@ -350,7 +401,13 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                 <h3 className="text-2xl font-black text-[#347048] flex items-center gap-3 uppercase italic tracking-tighter">Historial: {selectedClientHistory.name}</h3>
                 <p className="text-[10px] font-black text-[#347048]/40 mt-1 uppercase tracking-widest">DNI: {selectedClientHistory.dni || '-'} · Tel: {selectedClientHistory.phone || '-'}</p>
               </div>
-              <button onClick={() => setSelectedClientHistory(null)} className="bg-white p-3 rounded-full text-[#347048] shadow-sm hover:scale-110 transition-transform"><X size={24} strokeWidth={3} /></button>
+              <button
+                onClick={() => setSelectedClientHistory(null)}
+                className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
+                title="Cerrar ventana"
+              >
+                <X size={20} strokeWidth={3} />
+              </button>
             </div>
             <div className="p-8 overflow-y-auto space-y-4 custom-scrollbar bg-white/40">
               {selectedClientHistory.history?.length > 0 ? (
