@@ -192,7 +192,7 @@ export default function MyBookingsPage() {
           setSelectedBooking(null);
           loadData();
         } catch (e: any) {
-          showError('❌ ' + e.message);
+          showError('Error: ' + e.message);
         }
       }
     });

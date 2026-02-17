@@ -1,5 +1,6 @@
 import { useRouter } from 'next/router';
 import Link from 'next/link';
+import { Calendar, Activity, Settings } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
@@ -12,19 +13,19 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab }) => {
     {
       id: 'agenda',
       label: 'Gestión de Turnos',
-      icon: '📅',
+      icon: <Calendar size={18} strokeWidth={2.5} />,
       href: '/admin/agenda',
     },
     {
       id: 'canchas',
       label: 'Gestión de Canchas',
-      icon: '🏓',
+      icon: <Activity size={18} strokeWidth={2.5} />,
       href: '/admin/canchas',
     },
     {
       id: 'settings',
       label: 'Configuración',
-      icon: '⚙️',
+      icon: <Settings size={18} strokeWidth={2.5} />,
       href: '/admin/settings',
     },
   ];

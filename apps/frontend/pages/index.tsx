@@ -798,12 +798,12 @@ export default function Home() {
                             // eslint-disable-next-line @next/next/no-img-element
                             <img src={club.logoUrl} alt={club.name} className="h-24 w-24 object-contain opacity-90 mix-blend-multiply" />
                           ) : (
-                            <span className="text-4xl opacity-10 text-[#347048]">🎾</span>
+                            <Activity size={32} className="text-[#347048]/20" strokeWidth={2} />
                           )}
                       </div>
                     )}
                     <div className="absolute bottom-3 right-3 bg-[#926699] px-3 py-1 rounded-full text-xs font-bold text-[#EBE1D8] shadow-sm flex items-center gap-1">
-                      <span>📍</span> {club.name || 'Club'}
+                      <MapPin size={12} className="text-[#EBE1D8]" /> {club.name || 'Club'}
                     </div>
                   </div>
                   <div className="p-6 flex flex-col flex-1">

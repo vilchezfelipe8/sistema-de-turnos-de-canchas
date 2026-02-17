@@ -5,7 +5,7 @@ export class ProductService {
     // 1. Obtener todos los productos de un club
     async getProductsByClub(clubId: number) {
         return await prisma.product.findMany({
-            where: { clubId },
+            where: { clubId, isActive: true },
             orderBy: { name: 'asc' }
         });
     }
@@ -46,14 +46,18 @@ export class ProductService {
 
     // 4. Borrar producto
     async deleteProduct(id: number) {
-        return await prisma.product.delete({
-            where: { id }
+        return await prisma.product.update({
+            where: { id },
+            data: { isActive: false }
         });
     }
 
     async deleteProductByClub(id: number, clubId: number) {
         const product = await prisma.product.findFirst({ where: { id, clubId } });
         if (!product) return null;
-        return prisma.product.delete({ where: { id } });
+        return prisma.product.update({
+            where: { id },
+            data: { isActive: false }
+        });
     }
 }

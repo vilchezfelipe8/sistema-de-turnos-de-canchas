@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
 import { ClubAdminService } from '../services/ClubAdminService';
-import { Trash2, Plus, ShoppingCart, Receipt, Lock, ChevronDown, Check, X, Banknote, CreditCard, FileText } from 'lucide-react';
+import { Trash2, Plus, ShoppingCart, Receipt, Lock, ChevronDown, Check, X, Banknote, CreditCard, FileText, Star } from 'lucide-react';
 // import { BookingTicket } from './BookingTicket'; // Si no lo usás, podés borrar esta línea
 
 interface Props {
@@ -307,7 +307,9 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
                   <div className="flex flex-col">
                     <span className="text-[#347048] font-black uppercase tracking-tight leading-none mb-1">{item.productName}</span>
                     {item.isNew ? (
-                      <span className="text-[9px] text-[#B9CF32] font-black tracking-widest uppercase">✨ Pendiente de cobro</span>
+                      <span className="text-[9px] text-[#B9CF32] font-black tracking-widest uppercase flex items-center gap-1">
+                        <Star size={10} strokeWidth={2.5} /> Pendiente de cobro
+                      </span>
                     ) : (
                       <span className="flex items-center gap-1 text-[9px] text-[#347048]/40 font-black uppercase tracking-widest"><Lock size={8} /> Ya cargado en cuenta</span>
                     )}

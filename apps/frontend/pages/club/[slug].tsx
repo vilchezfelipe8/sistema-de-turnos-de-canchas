@@ -13,7 +13,9 @@ import {
   Mail, 
   Instagram,
   Heart,      
-  Share2      
+  Share2,
+  Trophy,
+  Star
 } from 'lucide-react';
 
 const formatClubAddress = (club: Club) => {
@@ -117,7 +119,7 @@ export default function ClubPage() {
                   {club.logoUrl ? (
                     <img src={club.logoUrl} alt={club.name} className="w-full h-full object-contain" />
                   ) : (
-                    <span className="text-4xl">🏆</span>
+                    <Trophy size={40} className="text-[#EBE1D8]/80" strokeWidth={2} />
                   )}
                 </div>
               </div>
@@ -129,7 +131,9 @@ export default function ClubPage() {
                     Club Verificado
                   </span>
                   <div className="flex items-center gap-1 text-[#EBE1D8] text-xs font-bold">
-                    <span>⭐ 4.9</span>
+                    <span className="flex items-center gap-1">
+                      <Star size={14} className="text-[#B9CF32]" /> 4.9
+                    </span>
                     <span className="opacity-50">(120 reseñas)</span>
                   </div>
                 </div>

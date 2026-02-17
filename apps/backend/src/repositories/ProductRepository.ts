@@ -14,6 +14,7 @@ export class ProductRepository {
   // (Para mostrar en el select de "Agregar Extras")
   async findAll() {
     return prisma.product.findMany({
+      where: { isActive: true },
       orderBy: { name: 'asc' },
     });
   }
@@ -48,8 +49,9 @@ export class ProductRepository {
 
   // 6. Eliminar producto
   async delete(id: number) {
-    return prisma.product.delete({
-      where: { id }
+    return prisma.product.update({
+      where: { id },
+      data: { isActive: false }
     });
   }
 }

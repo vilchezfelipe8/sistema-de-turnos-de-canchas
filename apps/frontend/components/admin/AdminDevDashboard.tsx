@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, Database, Server, Cpu, HardDrive, Clock } from 'lucide-react';
+import { Activity, Database, Server, Cpu, HardDrive, Clock, AlertTriangle } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -38,7 +38,7 @@ const AdminDevDashboard = () => {
   
   if (error || !metrics) return (
     <div className="p-10 bg-red-50 border-4 border-white text-red-600 rounded-[2rem] flex flex-col items-center gap-4 shadow-xl">
-      <span className="text-4xl">⚠️</span>
+      <AlertTriangle size={36} className="text-red-500" />
       <span className="font-black uppercase tracking-widest italic">Servidor fuera de línea</span>
       <button onClick={fetchMetrics} className="mt-2 text-xs font-bold underline uppercase">Reintentar conexión</button>
     </div>

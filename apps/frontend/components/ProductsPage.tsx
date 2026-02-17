@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 import { ClubAdminService } from '../services/ClubAdminService';
 import { Search, Plus, Edit, Trash2, X, Package, Tag, DollarSign, Box } from 'lucide-react';
+import AppModal from './AppModal';
 
 interface ProductsPageProps {
   slug?: string;
@@ -13,8 +14,8 @@ interface ProductsPageProps {
 
 // --- ✨ COMPONENTE PORTAL (VERSIÓN BEIGE WIMBLEDON) ✨ ---
 const ModalPortal = ({ children, onClose }: { children: ReactNode, onClose: () => void }) => {
-  if (typeof document === 'undefined') return null;
   const backdropMouseDownRef = useRef(false);
+  if (typeof document === 'undefined') return null;
   
   return createPortal(
   <div
@@ -54,6 +55,8 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [formData, setFormData] = useState({ name: '', price: '', stock: '', category: '' });
 
   const loadProducts = useCallback(async () => {
@@ -94,13 +97,21 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('¿Seguro que querés borrar este producto?')) return;
+  const handleDelete = async (product: any) => {
+    setDeleteTarget(product);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await ClubAdminService.deleteProduct(slug, id);
+      await ClubAdminService.deleteProduct(slug, deleteTarget.id);
       loadProducts();
+      setDeleteTarget(null);
     } catch (error) {
       alert('Error al borrar');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -216,9 +227,9 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleDelete(product.id)}
+                            onClick={() => handleDelete(product)}
                             className="p-2 rounded-xl bg-red-50 border border-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm"
-                            title="Eliminar"
+                            title="Dar de baja"
                           >
                             <Trash2 size={16} strokeWidth={2.5} />
                           </button>
@@ -340,6 +351,25 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
             </form>
         </ModalPortal>
       )}
+
+      <AppModal
+        show={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onCancel={() => setDeleteTarget(null)}
+        title="Dar de baja producto"
+        message={
+          deleteTarget ? (
+            <span>
+              <strong>{deleteTarget.name}</strong> no se va a borrar definitivamente. Lo vamos a dar de baja para que no aparezca en el stock ni en los consumos.
+            </span>
+          ) : null
+        }
+        cancelText="Cancelar"
+        confirmText={deleting ? 'Dando de baja...' : 'Dar de baja'}
+        isWarning
+        onConfirm={confirmDelete}
+        confirmDisabled={deleting}
+      />
     </>
   );
 }

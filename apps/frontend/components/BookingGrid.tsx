@@ -415,7 +415,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
 
       showInfo(`¡Reserva Confirmada! Te esperamos en la cancha ${selectedCourt.name}.`, 'Listo');
     } catch (error: any) {
-      showError('❌ Ups: ' + error.message);
+      showError('Ups: ' + error.message);
     } finally {
       setIsBooking(false);
     }
@@ -427,28 +427,28 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
     const lastName = guestLastName.trim();
     const dni = guestDni.trim();
     if (!firstName || !lastName) {
-      setGuestError('❗ Ingresá tu nombre y apellido para reservar como invitado.');
+      setGuestError('Ingresá tu nombre y apellido para reservar como invitado.');
       return;
     }
     if (!dni) {
-      setGuestError('❗ El DNI es obligatorio para identificar la reserva.');
+      setGuestError('El DNI es obligatorio para identificar la reserva.');
       return;
     }
     // Opcional: Validar largo mínimo (ej: que tenga al menos 7 números)
     if (dni.length < 7) {
-       setGuestError('❗ Ingresá un DNI válido (mínimo 7 números).');
+      setGuestError('Ingresá un DNI válido (mínimo 7 números).');
        return;
     }
     if (info.email && !isEmailValid(info.email)) {
-      setGuestError('❗ Ingresá un email con formato válido.');
+      setGuestError('Ingresá un email con formato válido.');
       return;
     }
     if (info.phone && !isPhoneValid(info.phone)) {
-      setGuestError('❗ Ingresá un teléfono con formato válido.');
+      setGuestError('Ingresá un teléfono con formato válido.');
       return;
     }
     if (!info.phone) {
-      setGuestError('❗ Ingresá un teléfono para poder contactarte.');
+      setGuestError('Ingresá un teléfono para poder contactarte.');
       return;
     }
     setGuestError('');
@@ -979,7 +979,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
             {/* 👇 ACÁ SE REEMPLAZÓ EL EMOJI DE ERROR POR EL ÍCONO ALERTCIRCLE 👇 */}
             {guestError && (
               <p className="text-xs text-red-500 font-bold bg-red-50 p-2 rounded-lg text-center flex items-center justify-center gap-1">
-                 <AlertCircle size={14} strokeWidth={2.5}/> {guestError.replace('❗ ', '')}
+                 <AlertCircle size={14} strokeWidth={2.5}/> {guestError}
               </p>
             )}
           </div>

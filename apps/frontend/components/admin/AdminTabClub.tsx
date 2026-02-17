@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { ClubService, Club } from '../../services/ClubService';
 import AppModal from '../AppModal';
-import { Settings, Globe, Instagram, Facebook, MapPin, Phone, Mail, Lightbulb, Image as ImageIcon, Trash2, Save } from 'lucide-react';
+import { Settings, Globe, Instagram, Facebook, MapPin, Phone, Mail, Lightbulb, Image as ImageIcon, Trash2, Save, AlertTriangle } from 'lucide-react';
 
 export default function AdminTabClub() {
   const [club, setClub] = useState<Club | null>(null);
@@ -262,7 +262,11 @@ export default function AdminTabClub() {
                     )}
                   </div>
                   <p className="text-[10px] font-bold text-[#347048]/40 uppercase tracking-wider italic">Recomendado: 512x512px, máx 2MB (PNG/JPG).</p>
-                  {logoError && <p className="text-xs text-red-500 font-bold italic">⚠️ {logoError}</p>}
+                  {logoError && (
+                    <p className="text-xs text-red-500 font-bold italic flex items-center gap-1">
+                      <AlertTriangle size={12} /> {logoError}
+                    </p>
+                  )}
                 </div>
                 <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoFileChange} />
               </div>
@@ -295,7 +299,11 @@ export default function AdminTabClub() {
                     )}
                   </div>
                   <p className="text-[10px] font-bold text-[#347048]/40 uppercase tracking-wider italic">Recomendado: 1600x900px, máx 4MB (PNG/JPG).</p>
-                  {clubImageError && <p className="text-xs text-red-500 font-bold italic">⚠️ {clubImageError}</p>}
+                  {clubImageError && (
+                    <p className="text-xs text-red-500 font-bold italic flex items-center gap-1">
+                      <AlertTriangle size={12} /> {clubImageError}
+                    </p>
+                  )}
                 </div>
                 <input ref={clubImageInputRef} type="file" accept="image/*" className="hidden" onChange={handleClubImageFileChange} />
               </div>

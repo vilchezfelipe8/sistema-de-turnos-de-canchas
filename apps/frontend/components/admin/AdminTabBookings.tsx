@@ -15,7 +15,7 @@ import AppModal from '../AppModal';
 import BookingConsumption, { type BookingConsumptionHandle } from '../BookingConsumption';
 import { useParams } from 'react-router-dom';
 import DatePickerDark from '../../components/ui/DatePickerDark';
-import { Trash2, Check, ShoppingCart, Calendar as CalendarIcon, RefreshCw, ChevronDown, CalendarPlus, Repeat, Banknote, CreditCard, FileText, X } from 'lucide-react'; 
+import { Trash2, Check, ShoppingCart, Calendar as CalendarIcon, RefreshCw, ChevronDown, CalendarPlus, Repeat, Banknote, CreditCard, FileText, X, Phone, IdCard } from 'lucide-react'; 
 
 const CLUB_TIME_SLOTS = [
   '08:00', '09:30', '11:00', '12:30',
@@ -87,8 +87,8 @@ const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
 
 // --- COMPONENTE PORTAL ---
 const ModalPortal = ({ children, onClose }: { children: ReactNode, onClose: () => void }) => {
-  if (typeof document === 'undefined') return null;
   const backdropMouseDownRef = useRef(false);
+  if (typeof document === 'undefined') return null;
   
   return createPortal(
   <div
@@ -506,7 +506,7 @@ export default function AdminTabBookings() {
         setShowPaymentModal(false);
         loadSchedule(); 
         showInfo('Cobro registrado correctamente.', "Listo");
-    } catch (error) { alert("❌ Error al confirmar"); }
+    } catch (error) { alert('Error al confirmar'); }
   };
 
   const handleCloseConsumption = useCallback(async () => {
@@ -549,8 +549,16 @@ export default function AdminTabBookings() {
                               className="px-4 py-3 hover:bg-[#B9CF32]/20 cursor-pointer text-[#347048] border-b border-[#347048]/5 last:border-0 transition-colors">
                               <div className="font-black text-sm">{client.firstName} {client.lastName}</div>
                               <div className="text-[10px] font-bold text-[#347048]/60 flex gap-3 mt-1 uppercase">
-                                  {client.phoneNumber && <span>📞 {client.phoneNumber}</span>}
-                                  {client.dni && <span>🆔 {client.dni}</span>}
+                                  {client.phoneNumber && (
+                                    <span className="flex items-center gap-1">
+                                      <Phone size={12} strokeWidth={2.5} /> {client.phoneNumber}
+                                    </span>
+                                  )}
+                                  {client.dni && (
+                                    <span className="flex items-center gap-1">
+                                      <IdCard size={12} strokeWidth={2.5} /> {client.dni}
+                                    </span>
+                                  )}
                               </div>
                           </li>
                       ))}
