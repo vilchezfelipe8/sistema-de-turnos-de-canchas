@@ -136,10 +136,11 @@ export default function Home() {
   const [displayedClubs, setDisplayedClubs] = useState<Club[]>([]);
   const [clubCoords, setClubCoords] = useState<Record<number, { lat: number; lon: number } | null>>({});
 
-  const [searchSport, setSearchSport] = useState('');
+  const [searchSport, setSearchSport] = useState('padel');
   const [showSportDropdown, setShowSportDropdown] = useState(false);
   const [searchDate, setSearchDate] = useState('');
   const [lastSearchLabel, setLastSearchLabel] = useState<string>('');
+  const [availableTimesByClub, setAvailableTimesByClub] = useState<Record<number, string[]>>({});
 
   const userInitials = useMemo(() => {
     if (!user) return 'TU';
@@ -151,18 +152,6 @@ export default function Home() {
   const isAdmin = user?.role === 'ADMIN';
 
   const sportOptions = useMemo(() => ([
-    {
-      value: '',
-      label: 'Todos',
-      icon: (
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="9" />
-          <path d="M3 12h18" />
-          <path d="M12 3a15 15 0 0 1 0 18" />
-          <path d="M12 3a15 15 0 0 0 0 18" />
-        </svg>
-      )
-    },
     {
       value: 'padel',
       label: 'Pádel',
@@ -404,6 +393,8 @@ export default function Home() {
         const availabilityChecks = await Promise.all(
           finalClubs.map(async (club) => {
             try {
+              let hasSlots = false;
+              const times: string[] = [];
               for (const activityId of activityIds) {
                 const res = await fetch(
                   `${apiUrl}/api/bookings/availability-with-courts?activityId=${activityId}&date=${searchDate}&clubSlug=${encodeURIComponent(club.slug)}&t=${Date.now()}`,
@@ -411,19 +402,40 @@ export default function Home() {
                 );
                 if (!res.ok) continue;
                 const data = await res.json();
-                const hasSlots = Array.isArray(data?.slotsWithCourts)
-                  && data.slotsWithCourts.some((slot: any) => Array.isArray(slot.availableCourts) && slot.availableCourts.length > 0);
-                if (hasSlots) return true;
+                const slots = Array.isArray(data?.slotsWithCourts)
+                  ? data.slotsWithCourts.filter((slot: any) => Array.isArray(slot.availableCourts) && slot.availableCourts.length > 0)
+                  : [];
+                if (slots.length > 0) {
+                  hasSlots = true;
+                  slots.forEach((slot: any) => {
+                    if (slot?.slotTime) times.push(String(slot.slotTime));
+                  });
+                }
               }
+              if (!hasSlots) return { hasSlots: false, times: [] };
+              const uniqueTimes = Array.from(new Set(times)).sort();
+              return { hasSlots: true, times: uniqueTimes };
             } catch (error) {
               console.error('Error al validar disponibilidad:', error);
             }
-            return false;
+            return { hasSlots: false, times: [] };
           })
         );
 
-        finalClubs = finalClubs.filter((_, index) => availabilityChecks[index]);
+        const filteredClubs: Club[] = [];
+        const timesMap: Record<number, string[]> = {};
+        availabilityChecks.forEach((result, index) => {
+          if (result.hasSlots) {
+            const club = finalClubs[index];
+            filteredClubs.push(club);
+            timesMap[club.id] = result.times;
+          }
+        });
+        finalClubs = filteredClubs;
+        setAvailableTimesByClub(timesMap);
       }
+    } else {
+      setAvailableTimesByClub({});
     }
 
     setDisplayedClubs(finalClubs);
@@ -769,10 +781,10 @@ export default function Home() {
             {displayedClubs.map((club, index) => (
               <RevealOnScroll key={club.id} delay={index * 100} className="h-full block">
                 <Link href={`/club/${club.slug}`} className="group relative h-full bg-[#EBE1D8] border border-transparent rounded-3xl overflow-hidden hover:scale-[1.02] transition-all shadow-xl hover:shadow-[#B9CF32]/20 flex flex-col">
-                  <div className="h-40 shrink-0 w-full bg-[#dcd0c5] relative overflow-hidden border-b border-[#347048]/10">
+                  <div className="h-40 shrink-0 w-full bg-[#dcd0c5] relative border-b border-[#347048]/10 rounded-t-3xl">
                     {club.clubImageUrl ? (
                       <>
-                        <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110" style={{ backgroundImage: `url(${club.clubImageUrl})` }} />
+                        <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 rounded-t-3xl" style={{ backgroundImage: `url(${club.clubImageUrl})` }} />
                         {club.logoUrl && (
                           <div className="absolute top-3 left-3 bg-white/80 backdrop-blur rounded-xl p-2 shadow-sm">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -781,7 +793,7 @@ export default function Home() {
                         )}
                       </>
                     ) : (
-                      <div className="absolute inset-0 bg-gradient-to-br from-[#EBE1D8] to-[#d6c7ba] flex items-center justify-center transition-transform duration-700 group-hover:scale-105">
+                      <div className="absolute inset-0 bg-gradient-to-br from-[#EBE1D8] to-[#d6c7ba] flex items-center justify-center transition-transform duration-700 rounded-t-3xl">
                           {club.logoUrl ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img src={club.logoUrl} alt={club.name} className="h-24 w-24 object-contain opacity-90 mix-blend-multiply" />
@@ -796,7 +808,29 @@ export default function Home() {
                   </div>
                   <div className="p-6 flex flex-col flex-1">
                     <h3 className="text-xl font-black text-[#347048] mb-1 leading-tight">{club.name}</h3>
-                    <p className="text-[#347048]/70 text-sm mb-5 font-medium line-clamp-1 flex-1">{formatClubAddress(club) || 'Ubicación no disponible'}</p>
+                    <p className="text-[#347048]/70 text-sm font-medium line-clamp-1">{formatClubAddress(club) || 'Ubicación no disponible'}</p>
+                    {searchDate && (availableTimesByClub[club.id]?.length ?? 0) > 0 && (
+                      <div className="mt-4 mb-5">
+                        <div className="flex items-center gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                          {availableTimesByClub[club.id].map((time) => (
+                            <Link
+                              key={`${club.id}-${time}`}
+                              href={{
+                                pathname: `/club/${club.slug}`,
+                                query: { date: searchDate, time, sport: searchSport }
+                              }}
+                              className="shrink-0 px-4 py-2 rounded-full border border-[#347048]/40 text-[#347048] font-black text-sm bg-white/80 hover:border-[#B9CF32] hover:text-[#B9CF32] transition-colors"
+                            >
+                              {time}
+                            </Link>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {searchDate && (availableTimesByClub[club.id]?.length ?? 0) === 0 && (
+                      <div className="mb-5" />
+                    )}
+                    {!searchDate && <div className="mb-5" />}
                     <div className="w-full bg-[#347048] group-hover:bg-[#B9CF32] py-3 rounded-xl text-center transition-colors duration-300">
                       <span className="text-xs font-black text-[#D4C5B0] group-hover:text-[#347048] uppercase tracking-widest">Reservar</span>
                     </div>

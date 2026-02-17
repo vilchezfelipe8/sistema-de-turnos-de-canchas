@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { useRouter } from 'next/router';
 import type { ReactNode } from 'react';
 import { useAvailability } from '../hooks/useAvailability';
 import { createBooking } from '../services/BookingService';
@@ -80,6 +81,7 @@ const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
 };
 
 export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
+  const router = useRouter();
   const formatLocalDate = (date: Date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -117,6 +119,9 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [selectedCourt, setSelectedCourt] = useState<{ id: number; name: string; price?: number | null; activities?: Array<{ id: number; name: string }> } | null>(null);
   const [selectedActivityFilter, setSelectedActivityFilter] = useState<string>('');
+  const [pendingSport, setPendingSport] = useState<string | null>(null);
+  const [pendingTime, setPendingTime] = useState<string | null>(null);
+  const [queryApplied, setQueryApplied] = useState(false);
   const [isBooking, setIsBooking] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false); // Estado para el botón visual
   const [guestFirstName, setGuestFirstName] = useState('');
@@ -167,6 +172,12 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   const STORAGE_PREFIX = 'disabledSlots:';
   const [allCourts, setAllCourts] = useState<Array<{ id: number; name: string; price?: number | null; activities?: Array<{ id: number; name: string }> }>>([]);
   const [clubConfig, setClubConfig] = useState<Club | null>(null);
+  const normalizeText = (value: string) =>
+    value
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim();
   const getTrimmedGuestInfo = () => {
     const trimmedPhone = guestPhone.replace(/\D/g, '');
     const firstName = guestFirstName.trim();
@@ -218,6 +229,27 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     const token = localStorage.getItem('token');
     setIsAuthenticated(!!token);
   }, []);
+
+  useEffect(() => {
+    if (!router.isReady || queryApplied) return;
+    const { date, time, sport } = router.query;
+    if (typeof date === 'string') {
+      const [y, m, d] = date.split('-').map(Number);
+      if (y && m && d) {
+        const parsedDate = new Date(y, m - 1, d);
+        if (!Number.isNaN(parsedDate.getTime())) {
+          setSelectedDate(parsedDate);
+        }
+      }
+    }
+    if (typeof time === 'string') {
+      setPendingTime(time);
+    }
+    if (typeof sport === 'string') {
+      setPendingSport(sport);
+    }
+    setQueryApplied(true);
+  }, [router.isReady, router.query, queryApplied]);
 
   // --- Cargar configuración del club (para saber si aplica extra por luces) ---
   useEffect(() => {
@@ -512,6 +544,28 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
     };
     fetchCourts();
   }, [clubSlug]);
+
+  useEffect(() => {
+    if (!pendingSport || allCourts.length === 0) return;
+    const activityNames = Array.from(
+      new Set(allCourts.flatMap((court) => court.activities?.map((activity) => activity.name) || []))
+    );
+    const normalizedTarget = normalizeText(pendingSport);
+    const matched = activityNames.find((name) => normalizeText(name) === normalizedTarget);
+    if (matched) {
+      setSelectedActivityFilter(matched);
+    }
+    setPendingSport(null);
+  }, [pendingSport, allCourts]);
+
+  useEffect(() => {
+    if (!pendingTime || availableSlots.length === 0) return;
+    const slot = availableSlots.find((item) => item.slotTime === pendingTime);
+    if (slot) {
+      setSelectedSlot(pendingTime);
+      setPendingTime(null);
+    }
+  }, [pendingTime, availableSlots]);
 
   // --- CORRECCIÓN MEMORIA ZOMBIE (Sincronizar Backend con Frontend) ---
   useEffect(() => {
