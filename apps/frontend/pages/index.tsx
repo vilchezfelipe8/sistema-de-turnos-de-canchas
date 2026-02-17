@@ -811,7 +811,7 @@ export default function Home() {
                     <p className="text-[#347048]/70 text-sm font-medium line-clamp-1">{formatClubAddress(club) || 'Ubicación no disponible'}</p>
                     {searchDate && (availableTimesByClub[club.id]?.length ?? 0) > 0 && (
                       <div className="mt-4 mb-5">
-                        <div className="flex items-center gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                        <div className="flex items-center gap-1.5 overflow-x-auto pb-4 club-times-scrollbar">
                           {availableTimesByClub[club.id].map((time) => (
                             <Link
                               key={`${club.id}-${time}`}
@@ -819,7 +819,7 @@ export default function Home() {
                                 pathname: `/club/${club.slug}`,
                                 query: { date: searchDate, time, sport: searchSport }
                               }}
-                              className="shrink-0 px-4 py-2 rounded-full border border-[#347048]/40 text-[#347048] font-black text-sm bg-white/80 hover:border-[#B9CF32] hover:text-[#B9CF32] transition-colors"
+                              className="shrink-0 px-3 py-1.5 rounded-full border border-[#347048]/40 text-[#347048] font-black text-xs bg-white/80 hover:border-[#B9CF32] hover:text-[#B9CF32] transition-colors"
                             >
                               {time}
                             </Link>
@@ -831,7 +831,7 @@ export default function Home() {
                       <div className="mb-5" />
                     )}
                     {!searchDate && <div className="mb-5" />}
-                    <div className="w-full bg-[#347048] group-hover:bg-[#B9CF32] py-3 rounded-xl text-center transition-colors duration-300">
+                    <div className="w-full -mt-1 bg-[#347048] group-hover:bg-[#B9CF32] py-3 rounded-xl text-center transition-colors duration-300">
                       <span className="text-xs font-black text-[#D4C5B0] group-hover:text-[#347048] uppercase tracking-widest">Reservar</span>
                     </div>
                   </div>

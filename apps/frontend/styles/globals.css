@@ -30,6 +30,28 @@
   .box-glow {
     box-shadow: 0 0 16px rgba(255, 255, 255, 0.04);
   }
+
+  .club-times-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(52, 112, 72, 0.35) transparent;
+  }
+
+  .club-times-scrollbar::-webkit-scrollbar {
+    height: 4px;
+  }
+
+  .club-times-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .club-times-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(52, 112, 72, 0.35);
+    border-radius: 999px;
+  }
+
+  .club-times-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(52, 112, 72, 0.35);
+  }
 }
 
 /* Paleta B/N global */
