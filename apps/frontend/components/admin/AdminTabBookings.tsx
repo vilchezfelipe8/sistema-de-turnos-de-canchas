@@ -846,102 +846,149 @@ export default function AdminTabBookings() {
               <div className="h-16 bg-[#347048]/5 animate-pulse rounded-2xl w-full"></div>
               <div className="h-16 bg-[#347048]/5 animate-pulse rounded-2xl w-full"></div>
           </div>
-        ) : scheduleBookings.length > 0 ? (
+        ) : scheduleSlots.length > 0 ? (
           <div className="overflow-x-auto -mx-8">
             <div className="min-w-[900px] pl-16 pr-8">
-              <table className="w-full table-fixed border-collapse text-sm">
-                <thead>
-                  <tr className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]/40">
-                    {courts.map((court) => (
-                      <th
-                        key={court.id}
-                        className="px-4 py-3 border border-[#347048]/10 bg-white/80 text-left"
-                      >
-                        {court.name}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {scheduleSlots.map((time) => (
-                    <tr key={`row-${time}`} className="h-[120px]">
-                      {courts.map((court, index) => {
-                        const slot = scheduleByTime.get(time)?.get(court.id);
-                        const hasBooking = !!slot?.booking;
-                        const bookingName = slot?.booking?.userName || slot?.booking?.guestName || 'Reserva';
-
-                        return (
-                          <td
-                            key={`cell-${time}-${court.id}`}
-                            className="border border-[#347048]/5 bg-white/50 align-top p-2 h-[120px] relative"
-                          >
-                            {index === 0 && (
-                              <span className="absolute -left-14 -top-3 px-2 text-[11px] font-black text-[#347048]/70">
-                                {time}
-                              </span>
-                            )}
-                            {hasBooking ? (
-                              <button
-                                type="button"
-                                onClick={() => setSelectedBookingDetail({ booking: slot.booking, slotTime: time, courtName: slot.courtName })}
-                                className={`relative h-full w-full rounded-3xl border-l-[6px] ${getBookingBarClass(slot)} bg-white/90 p-3 text-left shadow-[0_10px_24px_rgba(52,112,72,0.12)] ring-1 ring-white/70 transition hover:shadow-[0_14px_28px_rgba(52,112,72,0.18)] flex flex-col`}
-                              >
-                                <div className="text-xs font-black text-[#347048] uppercase tracking-wide truncate">
-                                  {bookingName}
-                                </div>
-                                <div className="mt-1 text-[10px] font-bold text-[#347048]/60">
-                                  {getBookingTimeRange(slot)}
-                                </div>
-                                {slot.booking?.fixedBookingId && (
-                                  <div className="absolute top-2 right-2 inline-flex items-center gap-1 bg-[#347048] text-[#B9CF32] text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest">
-                                    Fijo
-                                  </div>
-                                )}
-                                <div className="mt-auto flex flex-wrap gap-1 pt-2">
-                                  <button
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      setSelectedBooking(slot.booking);
-                                    }}
-                                    className="p-2 rounded-xl bg-white border border-[#347048]/10 text-[#347048] hover:bg-[#347048] hover:text-[#EBE1D8] transition-all shadow-sm"
-                                    title="Consumos"
-                                  >
-                                    <ShoppingCart size={14} strokeWidth={2.5} />
-                                  </button>
-                                  {slot.booking.status === 'PENDING' && (
-                                    <button
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        handleOpenPaymentModal(slot.booking.id);
-                                      }}
-                                      className="p-2 rounded-xl bg-[#B9CF32] text-[#347048] border border-white hover:scale-110 transition-all shadow-md"
-                                      title="Confirmar pago"
-                                    >
-                                      <Check size={14} strokeWidth={3} />
-                                    </button>
-                                  )}
-                                  <button
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      handleCancelBooking(slot.booking);
-                                    }}
-                                    className="p-2 rounded-xl bg-red-50 border border-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all"
-                                    title="Cancelar"
-                                  >
-                                    <Trash2 size={14} strokeWidth={2.5} />
-                                  </button>
-                                </div>
-                              </button>
-                            ) : (
-                              <div className="h-full min-h-[88px]" />
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
+              <div
+                className="relative"
+                style={{ height: scheduleSlots.length * 120 + 24, paddingTop: 12 }}
+              >
+                {/* COLUMNAS */}
+                <div className="absolute inset-0 flex">
+                  {courts.map((court) => (
+                    <div
+                      key={court.id}
+                      className="flex-1 border-r border-[#347048]/10"
+                    />
                   ))}
-                </tbody>
-              </table>
+                </div>
+
+                {/* LÍNEAS HORARIAS */}
+                {scheduleSlots.map((time, index) => (
+                  <div
+                    key={time}
+                    className="absolute left-0 right-0 border-t border-[#347048]/10"
+                    style={{ top: index * 120 + 12 }}
+                  >
+                    <span className="absolute -left-14 -top-3 px-2 text-[11px] font-black text-[#347048]/70">
+                      {time}
+                    </span>
+                  </div>
+                ))}
+
+                {/* RESERVAS */}
+                {scheduleBookings.map((slot) => {
+                  if (!slot?.booking) return null;
+
+                  const courtIndex = courts.findIndex(
+                    (c) => c.id === slot.courtId
+                  );
+
+                  const slotIndex = scheduleSlots.indexOf(slot.slotTime);
+
+                  if (courtIndex === -1 || slotIndex === -1) return null;
+
+                  const columnWidth = 100 / courts.length;
+
+                  const top = slotIndex * 120 + 12;
+                  const left = `${courtIndex * columnWidth}%`;
+                  const width = `${columnWidth}%`;
+
+                  // Calcular duración real en minutos preferentemente desde start/end
+                  let durationMinutes: number | null = null;
+                  try {
+                    const bStart = slot.booking?.startDateTime ? new Date(slot.booking.startDateTime) : slot.startDateTime ? new Date(slot.startDateTime) : null;
+                    const bEnd = slot.booking?.endDateTime ? new Date(slot.booking.endDateTime) : null;
+                    if (bStart && bEnd) {
+                      durationMinutes = Math.round((bEnd.getTime() - bStart.getTime()) / 60000);
+                    } else if (slot.booking?.durationMinutes) {
+                      durationMinutes = Number(slot.booking.durationMinutes);
+                    }
+                  } catch (e) {
+                    durationMinutes = slot.booking?.durationMinutes ?? null;
+                  }
+
+                  const pixelsPerMinute = 120 / scheduleSlotDuration;
+                  const height = Math.max((durationMinutes ?? scheduleSlotDuration) * pixelsPerMinute, 40);
+
+                  const bookingName =
+                    slot.booking?.userName ||
+                    slot.booking?.guestName ||
+                    'Reserva';
+
+                  return (
+                    <button
+                      key={slot.booking.id}
+                      type="button"
+                      onClick={() =>
+                        setSelectedBookingDetail({
+                          booking: slot.booking,
+                          slotTime: slot.slotTime,
+                          courtName: slot.courtName,
+                        })
+                      }
+                      className={`absolute rounded-3xl border-l-[6px] ${getBookingBarClass(
+                        slot
+                      )} bg-white/95 p-3 text-left shadow-xl ring-1 ring-white/70 transition hover:shadow-2xl flex flex-col`}
+                      style={{
+                        top,
+                        left,
+                        width,
+                        height,
+                        minHeight: 80,
+                      }}
+                    >
+                      <div className="text-xs font-black text-[#347048] uppercase tracking-wide truncate">
+                        {bookingName}
+                      </div>
+
+                      <div className="mt-1 text-[10px] font-bold text-[#347048]/60">
+                        {getBookingTimeRange(slot)}
+                      </div>
+
+                      {slot.booking?.fixedBookingId && (
+                        <div className="absolute top-2 right-2 bg-[#347048] text-[#B9CF32] text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest">
+                          Fijo
+                        </div>
+                      )}
+                      <div className="absolute bottom-3 right-3 flex items-center gap-2">
+                        <button
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedBooking(slot.booking);
+                          }}
+                          className="p-2 rounded-xl bg-white border border-[#347048]/10 text-[#347048] hover:bg-[#347048] hover:text-[#EBE1D8] transition-all shadow-sm"
+                          title="Consumos"
+                        >
+                          <ShoppingCart size={14} strokeWidth={2.5} />
+                        </button>
+                        {slot.booking.status === 'PENDING' && (
+                          <button
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleOpenPaymentModal(slot.booking.id);
+                            }}
+                            className="p-2 rounded-xl bg-[#B9CF32] text-[#347048] border border-white hover:scale-110 transition-all shadow-md"
+                            title="Confirmar pago"
+                          >
+                            <Check size={14} strokeWidth={3} />
+                          </button>
+                        )}
+                        <button
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleCancelBooking(slot.booking);
+                          }}
+                          className="p-2 rounded-xl bg-red-50 border border-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                          title="Cancelar"
+                        >
+                          <Trash2 size={14} strokeWidth={2.5} />
+                        </button>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
         ) : (
