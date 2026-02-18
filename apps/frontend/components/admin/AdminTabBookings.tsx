@@ -692,7 +692,7 @@ export default function AdminTabBookings() {
           </div>
 
           {/* HORA */}
-          <div className="relative z-20">
+          <div className="relative z-[120]">
             <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Hora</label>
             <CustomSelect 
               value={manualBooking.time}
@@ -707,21 +707,40 @@ export default function AdminTabBookings() {
           </div>
 
           {/* DURACIÓN */}
-          <div className="relative z-20">
+          <div className="relative z-[110]">
             <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Duración</label>
             <CustomSelect
               value={manualBooking.durationMinutes}
               onChange={(val: string) => setManualBooking({ ...manualBooking, durationMinutes: Number(val) })}
               placeholder="Duración"
-              options={scheduleDurations.map((duration) => ({
-                value: duration,
-                label: `${duration} min`
-              }))}
+              options={(() => {
+                let durations = scheduleDurations.slice();
+                // Si el club tiene horarios flexibles (RANGE)
+                if (clubConfig?.scheduleMode === 'RANGE') {
+                  if (manualBooking.isProfessor && !durations.includes(60)) {
+                    durations = [60, ...durations];
+                  }
+                  return durations.map((duration) => ({ value: duration, label: `${duration} min` }));
+                }
+                // Si el club tiene horarios fijos (FIXED)
+                if (clubConfig?.scheduleMode === 'FIXED') {
+                  // Solo la duración configurada, y si es profesor, suma 60 si no está
+                  if (manualBooking.isProfessor && !durations.includes(60)) {
+                    durations = [60, ...durations];
+                  }
+                  return durations.map((duration) => ({ value: duration, label: `${duration} min` }));
+                }
+                // Por defecto, si no hay config, solo 90 o 60 según profesor
+                if (manualBooking.isProfessor) {
+                  return [60, 90].map((duration) => ({ value: duration, label: `${duration} min` }));
+                }
+                return [{ value: 90, label: '90 min' }];
+              })()}
             />
           </div>
 
           {/* CANCHA */}
-          <div className="relative z-20">
+          <div className="relative z-[100]">
             <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Cancha</label>
             <CustomSelect 
               value={manualBooking.courtId}
