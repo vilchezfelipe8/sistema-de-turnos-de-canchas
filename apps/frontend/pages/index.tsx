@@ -4,7 +4,7 @@ import { ClubService, Club } from '../services/ClubService';
 import { getApiUrl } from '../utils/apiUrl';
 import { LocationService, Location } from '../services/LocationService';
 import DatePickerDark from '../components/ui/DatePickerDark';
-import { Search, MapPin, Calendar, TrendingUp, ShieldCheck, ArrowRight, Menu, X, Phone, Mail, Instagram, Activity, ChevronRight, MousePointerClick, CalendarCheck, PlayCircle, Coffee, Droplets, Lightbulb, Trophy, ChevronDown, LogOut, Check } from 'lucide-react';
+import { Search, MapPin, Calendar, TrendingUp, ShieldCheck, ArrowRight, Menu, X, Phone, Mail, Instagram, Activity, ChevronRight, ChevronLeft, MousePointerClick, CalendarCheck, PlayCircle, Coffee, Droplets, Lightbulb, Trophy, ChevronDown, LogOut, Check } from 'lucide-react';
 import Link from 'next/link';
 import { logout } from '../services/AuthService';
 import { getMyBookings } from '../services/BookingService';
@@ -138,7 +138,13 @@ export default function Home() {
 
   const [searchSport, setSearchSport] = useState('padel');
   const [showSportDropdown, setShowSportDropdown] = useState(false);
-  const [searchDate, setSearchDate] = useState('');
+  // Fecha seleccionada en formato YYYY-MM-DD. Por defecto, el día de hoy.
+  const getEffectiveToday = () => {
+    // Aquí podemos aplicar offsets si fuera necesario (zona horaria / reglas de negocio).
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  };
+  const [searchDate, setSearchDate] = useState(() => formatLocalDate(getEffectiveToday()));
   const [lastSearchLabel, setLastSearchLabel] = useState<string>('');
   const [availableTimesByClub, setAvailableTimesByClub] = useState<Record<number, string[]>>({});
 
@@ -318,6 +324,29 @@ export default function Home() {
 
     setClubCoords(prev => ({ ...prev, [club.id]: null }));
     return null;
+  };
+
+  const parseSearchDate = (s: string) => {
+    if (!s) return null;
+    const [y, m, d] = s.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  };
+
+  const changeDateBy = (days: number) => {
+    const current = parseSearchDate(searchDate) || getEffectiveToday();
+    const next = new Date(current);
+    next.setDate(current.getDate() + days);
+    const min = getEffectiveToday();
+    if (next < min) return; // no retroceder más que el mínimo
+    setSearchDate(formatLocalDate(next));
+  };
+
+  const canGoPrev = () => {
+    const current = parseSearchDate(searchDate) || getEffectiveToday();
+    const prev = new Date(current);
+    prev.setDate(current.getDate() - 1);
+    const min = getEffectiveToday();
+    return prev >= min;
   };
 
   const handleSearch = async () => {
@@ -747,25 +776,46 @@ export default function Home() {
           <Calendar className="text-[#347048] group-hover:text-[#B9CF32] transition-colors shrink-0" size={20} />
           <div className="flex flex-col items-start text-left w-full overflow-hidden min-h-[38px] justify-center gap-1">
             <label className="text-[10px] font-bold text-[#347048]/60 uppercase tracking-wider h-3 leading-3">Fecha</label>
-            <DatePickerDark
-              selected={
-                searchDate
-                  ? (() => {
-                      const [y, m, d] = searchDate.split('-').map(Number);
-                      return new Date(y, m - 1, d);
-                    })()
-                  : null
-              }
-              onChange={(date: Date | null) => {
-                if (!date) { setSearchDate(''); return; }
-                setSearchDate(formatLocalDate(date));
-              }}
-              minDate={new Date()}
-              showIcon={false}
-              inputSize="compact"
-              inputClassName="bg-transparent border-none outline-none text-[#347048] font-bold text-sm w-full p-0 leading-5 uppercase cursor-pointer placeholder-[#347048]/40 h-auto px-0 py-0 focus:ring-0 focus:border-transparent truncate"
-              variant="light"
-            />
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); changeDateBy(-1); }}
+                        disabled={!canGoPrev()}
+                        className={`p-2 rounded-md transition-colors ${canGoPrev() ? 'bg-white/10 hover:bg-white/20' : 'opacity-40 cursor-not-allowed'}`}
+                        aria-label="Fecha anterior"
+                      >
+                        <ChevronLeft size={16} />
+                      </button>
+
+                      <DatePickerDark
+                        selected={
+                          searchDate
+                            ? (() => {
+                                const [y, m, d] = searchDate.split('-').map(Number);
+                                return new Date(y, m - 1, d);
+                              })()
+                            : null
+                        }
+                        onChange={(date: Date | null) => {
+                          if (!date) { setSearchDate(''); return; }
+                          setSearchDate(formatLocalDate(date));
+                        }}
+                        minDate={getEffectiveToday()}
+                        showIcon={false}
+                        inputSize="compact"
+                        inputClassName="bg-transparent border-none outline-none text-[#347048] font-bold text-sm w-full p-0 leading-5 uppercase cursor-pointer placeholder-[#347048]/40 h-auto px-0 py-0 focus:ring-0 focus:border-transparent truncate"
+                        variant="light"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); changeDateBy(1); }}
+                        className="p-2 rounded-md bg-white/10 hover:bg-white/20 transition-colors"
+                        aria-label="Fecha siguiente"
+                      >
+                        <ChevronRight size={16} />
+                      </button>
+                    </div>
           </div>
         </div>
       </div>
