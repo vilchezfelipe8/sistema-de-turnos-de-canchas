@@ -615,12 +615,44 @@ export default function AdminTabBookings() {
   const formatTime = (date: Date) =>
     date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-  const getBookingTimeRange = (slot: any) => {
-    const startValue = slot.booking?.startDateTime || slot.startDateTime;
-    if (!startValue) return slot.slotTime;
+  const getBookingTimeRange = (slotOrBooking: any) => {
+    // slotOrBooking can be either a schedule slot object or a booking object
+    const booking = slotOrBooking?.booking ? slotOrBooking.booking : slotOrBooking;
+    const fallbackSlotTime = slotOrBooking?.slotTime;
+
+    const startValue = booking?.startDateTime || slotOrBooking?.startDateTime;
+    if (!startValue) return fallbackSlotTime || '';
     const startDate = new Date(startValue);
-    const endValue = slot.booking?.endDateTime;
-    const endDate = endValue ? new Date(endValue) : new Date(startDate.getTime() + scheduleSlotDuration * 60000);
+
+    let endDate: Date | null = null;
+
+    if (booking?.endDateTime) {
+      endDate = new Date(booking.endDateTime);
+    } else if (booking?.durationMinutes) {
+      endDate = new Date(startDate.getTime() + Number(booking.durationMinutes) * 60000);
+    } else if (booking?.activity?.defaultDurationMinutes) {
+      endDate = new Date(startDate.getTime() + Number(booking.activity.defaultDurationMinutes) * 60000);
+    } else if (booking?.fixedBooking && booking.fixedBooking.startTime && booking.fixedBooking.endTime) {
+      // calcular duración a partir de startTime/endTime (formato HH:MM), considerar overnight
+      try {
+        const s = booking.fixedBooking.startTime.split(':').map(Number);
+        const e = booking.fixedBooking.endTime.split(':').map(Number);
+        if (s.length === 2 && e.length === 2) {
+          const sM = s[0] * 60 + s[1];
+          let eM = e[0] * 60 + e[1];
+          if (eM <= sM) eM += 24 * 60;
+          const duration = eM - sM;
+          endDate = new Date(startDate.getTime() + duration * 60000);
+        }
+      } catch (e) {
+        endDate = null;
+      }
+    }
+
+    if (!endDate) {
+      endDate = new Date(startDate.getTime() + scheduleSlotDuration * 60000);
+    }
+
     return `${formatTime(startDate)} - ${formatTime(endDate)}`;
   };
 
@@ -1017,24 +1049,20 @@ export default function AdminTabBookings() {
             <div className="min-w-[900px] pl-16 pr-8">
               <div
                 className="relative"
-                style={{ height: gridSlots.length * 120 + 24, paddingTop: 12 }}
+                // Reservar espacio para cabecera con nombres de canchas
+                style={{ height: gridSlots.length * 120 + 64, paddingTop: 64 }}
               >
+                {/* Cabecera con nombres de canchas */}
+                <div className="absolute left-0 right-0 top-0 h-16 flex items-center pl-16 pr-8 border-b border-[#347048]/10 bg-white/90 z-20">
+                  {courts.map((court) => (
+                    <div key={court.id} className="flex-1 text-center font-black text-[#347048]">
+                      {court.name}
+                    </div>
+                  ))}
+                </div>
                 {/* GRID HORARIA FIJA: por defecto 08:00 - 22:00, filas de 1 hora. */}
                 {/** Calculamos `gridSlots` localmente para render visual sin tocar `scheduleSlots` */}
-                {(() => {
-                  const openStr = (clubConfig && clubConfig.scheduleOpenTime) || '08:00';
-                  const closeStr = (clubConfig && clubConfig.scheduleCloseTime) || '22:00';
-                  const openMinutes = toMinutes(openStr) ?? 8 * 60;
-                  const closeMinutes = toMinutes(closeStr) ?? 22 * 60;
-                  const slots: string[] = [];
-                  for (let t = openMinutes; t + 60 <= closeMinutes; t += 60) {
-                    const hh = Math.floor(t / 60);
-                    const mm = t % 60;
-                    slots.push(`${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`);
-                  }
-                  // Exponer como const para que TypeScript infiera en JSX
-                  (null as any); // no-op para mantener estructura
-                })()}
+                {/* Horario calculado inline removido (no se renderiza directamente aquí). */}
                 {/* COLUMNAS */}
                 <div className="absolute inset-0 flex">
                   {courts.map((court) => (
@@ -1050,7 +1078,7 @@ export default function AdminTabBookings() {
                   <div
                     key={time}
                     className="absolute left-0 right-0 border-t border-[#347048]/10"
-                    style={{ top: index * 120 + 12 }}
+                    style={{ top: index * 120 + 64 }}
                   >
                     <span className="absolute -left-14 -top-3 px-2 text-[11px] font-black text-[#347048]/70">
                       {time}
@@ -1083,7 +1111,7 @@ export default function AdminTabBookings() {
 
                   const columnWidth = 100 / courts.length;
 
-                  const top = slotIndexFloat * 120 + 12;
+                  const top = slotIndexFloat * 120 + 64;
                   const left = `${courtIndex * columnWidth}%`;
                   const width = `${columnWidth}%`;
 
