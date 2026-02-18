@@ -26,6 +26,12 @@ const CLUB_TIME_SLOTS = [
 
 const DEFAULT_DURATION_MINUTES = 90;
 
+// Layout constants
+const HEADER_HEIGHT = 64; // px reserved for court names header
+const ROW_HEIGHT = 120; // px per hour row
+const H_GAP_PX = 12; // horizontal gap between booking cards (px)
+const V_GAP_PX = 10; // vertical gap between booking cards (px)
+
 const normalizeDurations = (raw: unknown, fallback: number) => {
   const parsed = Array.isArray(raw)
     ? raw.map((value) => Number(value)).filter((value) => Number.isFinite(value) && value > 0)
@@ -1050,7 +1056,7 @@ export default function AdminTabBookings() {
               <div
                 className="relative"
                 // Reservar espacio para cabecera con nombres de canchas
-                style={{ height: gridSlots.length * 120 + 64, paddingTop: 64 }}
+                style={{ height: gridSlots.length * ROW_HEIGHT + HEADER_HEIGHT + V_GAP_PX, paddingTop: HEADER_HEIGHT }}
               >
                 {/* Cabecera con nombres de canchas */}
                 <div className="absolute left-0 right-0 top-0 h-16 flex items-center pl-16 pr-8 border-b border-[#347048]/10 bg-white/90 z-20">
@@ -1078,7 +1084,7 @@ export default function AdminTabBookings() {
                   <div
                     key={time}
                     className="absolute left-0 right-0 border-t border-[#347048]/10"
-                    style={{ top: index * 120 + 64 }}
+                    style={{ top: index * ROW_HEIGHT + HEADER_HEIGHT + (V_GAP_PX / 2) }}
                   >
                     <span className="absolute -left-14 -top-3 px-2 text-[11px] font-black text-[#347048]/70">
                       {time}
@@ -1111,9 +1117,9 @@ export default function AdminTabBookings() {
 
                   const columnWidth = 100 / courts.length;
 
-                  const top = slotIndexFloat * 120 + 64;
-                  const left = `${courtIndex * columnWidth}%`;
-                  const width = `${columnWidth}%`;
+                  const top = slotIndexFloat * ROW_HEIGHT + HEADER_HEIGHT + (V_GAP_PX / 2);
+                  const left = `calc(${courtIndex * columnWidth}% + ${H_GAP_PX / 2}px)`;
+                  const width = `calc(${columnWidth}% - ${H_GAP_PX}px)`;
 
                   // Calcular duración real en minutos preferentemente desde start/end
                   let durationMinutes: number | null = null;
@@ -1129,9 +1135,10 @@ export default function AdminTabBookings() {
                     durationMinutes = slot.booking?.durationMinutes ?? null;
                   }
 
-                  const rowHeight = 120; // px por 1 hora
+                  const rowHeight = ROW_HEIGHT; // px por 1 hora
                   const pixelsPerMinute = rowHeight / 60;
-                  const height = Math.max((durationMinutes ?? scheduleSlotDuration) * pixelsPerMinute, 40);
+                  const rawHeight = (durationMinutes ?? scheduleSlotDuration) * pixelsPerMinute;
+                  const height = Math.max(rawHeight - V_GAP_PX, 40);
 
                   const bookingName =
                     slot.booking?.userName ||

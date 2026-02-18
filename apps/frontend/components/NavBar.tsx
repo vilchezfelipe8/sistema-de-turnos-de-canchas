@@ -115,17 +115,17 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
               setShowUserMenu(false);
               onMenuClick();
             }}
-            className="absolute left-4 top-1/2 -translate-y-1/2 z-30 flex-shrink-0 p-2 text-[#EBE1D8] hover:bg-[#EBE1D8]/20 rounded-full transition-all active:scale-95"
+            className="absolute left-4 top-1/2 -translate-y-1/2 z-40 flex-shrink-0 p-2 text-[#EBE1D8] hover:bg-[#EBE1D8]/20 rounded-full transition-all active:scale-95"
             title="Abrir menú"
           >
             <Menu size={32} strokeWidth={2.5} />
           </button>
         )}
-        <div className={`max-w-7xl mx-auto px-6 flex justify-between items-center ${onMenuClick ? 'pl-10' : ''}`}>
+        <div className={`max-w-7xl mx-auto px-6 flex justify-between items-center ${onMenuClick ? 'pl-16' : ''}`}>
           
           {/* --- IZQUIERDA: LOGO + MENÚ --- */}
           <div className="relative flex items-center gap-4">
-          <Link href="/" className="relative z-10 group flex items-center gap-3 select-none min-w-0">
+          <Link href="/" aria-label="TuCancha - Inicio" className="relative z-20 group flex items-center gap-3 select-none min-w-0">
             
             {/* 1. ISOLOGO "TC" (Cuadrado Lima) */}
             <div className="bg-[#B9CF32] h-10 w-10 md:h-12 md:w-12 rounded-xl flex items-center justify-center text-[#347048] font-black italic text-xl md:text-2xl shadow-lg group-hover:scale-110 transition-transform shrink-0">
@@ -134,7 +134,7 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
 
             {/* 2. TEXTO "TUCANCHA" (Siempre fijo) */}
             <div className="flex flex-col leading-none min-w-0">
-              <span className="text-2xl md:text-3xl font-black tracking-tighter text-[#EBE1D8] italic drop-shadow-sm leading-none mt-1 truncate">
+              <span className="hidden md:inline text-2xl md:text-3xl font-black tracking-tighter text-[#EBE1D8] italic drop-shadow-sm leading-none mt-1 truncate">
                 TuCancha<span className="text-[#B9CF32] opacity-80"></span>
               </span>
             </div>
@@ -237,9 +237,22 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
                       </div>
 
                       <div className="border-t border-[#347048]/10 px-6 py-4 space-y-2 font-bold">
-                        <Link href="/bookings" className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors" onClick={() => setShowUserMenu(false)}>
-                          <Calendar size={18} strokeWidth={2.5} /> Mis Reservas
-                        </Link>
+                        {/* Mobile navigation links (visible only on small screens) */}
+                        <div className="block sm:hidden space-y-2">
+                          <Link href="/" className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors" onClick={() => setShowUserMenu(false)}>
+                            <Home size={18} strokeWidth={2.5} /> Inicio
+                          </Link>
+                          {!isAdmin && (
+                            <Link href="/bookings" className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors" onClick={() => setShowUserMenu(false)}>
+                              <Calendar size={18} strokeWidth={2.5} /> Mis Reservas
+                            </Link>
+                          )}
+                          {isAdmin && (
+                            <Link href="/admin/agenda" className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors" onClick={() => setShowUserMenu(false)}>
+                              <Settings size={18} strokeWidth={2.5} /> Gestión
+                            </Link>
+                          )}
+                        </div>
                         
                         <button
                           type="button"

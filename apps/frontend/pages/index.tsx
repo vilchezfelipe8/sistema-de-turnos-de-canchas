@@ -446,6 +446,25 @@ export default function Home() {
     }
   };
 
+  // Cierra el DatePicker abierto (si existe) forzando blur sobre su input
+  const closeDatepicker = () => {
+    try {
+      const el = document.querySelector('input[placeholder="Selecciona fecha"]') as HTMLInputElement | null;
+      if (el) el.blur();
+      // En algunos casos el popper queda montado en el body; lo removemos/ocultamos para asegurarnos
+      try {
+        document.querySelectorAll('.react-datepicker-popper, .react-datepicker').forEach((n) => {
+          const eln = n as HTMLElement;
+          if (eln && eln.parentNode) eln.parentNode.removeChild(eln);
+        });
+      } catch (err) {
+        // noop
+      }
+    } catch (e) {
+      // noop
+    }
+  };
+
   const selectCity = (location: LocationSuggestion) => {
     setSearchCity(location.label);
     setSelectedLocation(location);
@@ -601,6 +620,8 @@ export default function Home() {
           className="p-2 px-4 hover:bg-[#d4c5b0]/20 rounded-xl transition-colors cursor-pointer h-full flex items-center gap-3 min-h-[56px]"
                     onClick={() => {
                         setShowSportDropdown(false);
+                        // Al abrir el dropdown de ubicación cerramos el calendario si estaba abierto
+                        closeDatepicker();
                         setShowCityDropdown(true);
                         document.getElementById('cityInput')?.focus();
                     }}
@@ -625,9 +646,11 @@ export default function Home() {
                 input.select();
               }}
                             onFocus={(e) => {
-                                e.target.select();
-                                setShowSportDropdown(false);
-                                setShowCityDropdown(true);
+                              e.target.select();
+                              setShowSportDropdown(false);
+                              // Si el usuario enfoca la caja de ubicación cerramos el calendario
+                              closeDatepicker();
+                              setShowCityDropdown(true);
                             }}
                             autoComplete="off"
                         />
@@ -673,6 +696,8 @@ export default function Home() {
           onClick={(e) => {
             e.stopPropagation();
             setShowCityDropdown(false);
+            // Al abrir/cerrar el dropdown de deporte, cerramos el calendario
+            closeDatepicker();
             setShowSportDropdown((prev) => !prev);
           }}
         >
