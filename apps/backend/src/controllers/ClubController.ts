@@ -7,7 +7,8 @@ export class ClubController {
     createClub = async (req: Request, res: Response) => {
         try {
             const { slug, name, addressLine, city, province, country, contact, phone, logoUrl, clubImageUrl, instagramUrl, facebookUrl, websiteUrl, description,
-                lightsEnabled, lightsExtraAmount, lightsFromHour, professorDiscountEnabled, professorDiscountPercent } = req.body;
+                lightsEnabled, lightsExtraAmount, lightsFromHour, professorDiscountEnabled, professorDiscountPercent,
+                scheduleMode, scheduleOpenTime, scheduleCloseTime, scheduleIntervalMinutes, scheduleDurations, scheduleFixedSlots } = req.body;
             if (!slug) {
                 return res.status(400).json({ error: 'El slug es requerido' });
             }
@@ -30,7 +31,13 @@ export class ClubController {
                 lightsExtraAmount !== undefined && lightsExtraAmount !== null ? Number(lightsExtraAmount) : null,
                 lightsFromHour || null,
                 Boolean(professorDiscountEnabled),
-                professorDiscountPercent !== undefined && professorDiscountPercent !== null ? Number(professorDiscountPercent) : null
+                professorDiscountPercent !== undefined && professorDiscountPercent !== null ? Number(professorDiscountPercent) : null,
+                scheduleMode,
+                scheduleOpenTime || null,
+                scheduleCloseTime || null,
+                scheduleIntervalMinutes !== undefined && scheduleIntervalMinutes !== null ? Number(scheduleIntervalMinutes) : null,
+                Array.isArray(scheduleDurations) ? scheduleDurations : null,
+                Array.isArray(scheduleFixedSlots) ? scheduleFixedSlots : null
             );
             res.status(201).json(club);
         } catch (error: any) {
@@ -98,7 +105,13 @@ export class ClubController {
                 lightsExtraAmount,
                 lightsFromHour,
                 professorDiscountEnabled,
-                professorDiscountPercent
+                professorDiscountPercent,
+                scheduleMode,
+                scheduleOpenTime,
+                scheduleCloseTime,
+                scheduleIntervalMinutes,
+                scheduleDurations,
+                scheduleFixedSlots
             } = req.body;
 
             const club = await this.clubService.updateClub(id, {
@@ -120,7 +133,13 @@ export class ClubController {
                 lightsExtraAmount: lightsExtraAmount === '' || lightsExtraAmount === undefined ? null : Number(lightsExtraAmount),
                 lightsFromHour: lightsFromHour === '' ? null : lightsFromHour,
                 professorDiscountEnabled: typeof professorDiscountEnabled === 'boolean' ? professorDiscountEnabled : undefined,
-                professorDiscountPercent: professorDiscountPercent === '' || professorDiscountPercent === undefined ? null : Number(professorDiscountPercent)
+                professorDiscountPercent: professorDiscountPercent === '' || professorDiscountPercent === undefined ? null : Number(professorDiscountPercent),
+                scheduleMode: scheduleMode || undefined,
+                scheduleOpenTime: scheduleOpenTime === '' ? null : scheduleOpenTime,
+                scheduleCloseTime: scheduleCloseTime === '' ? null : scheduleCloseTime,
+                scheduleIntervalMinutes: scheduleIntervalMinutes === '' || scheduleIntervalMinutes === undefined ? null : Number(scheduleIntervalMinutes),
+                scheduleDurations: Array.isArray(scheduleDurations) ? scheduleDurations : undefined,
+                scheduleFixedSlots: Array.isArray(scheduleFixedSlots) ? scheduleFixedSlots : undefined
             });
             res.json(club);
         } catch (error: any) {

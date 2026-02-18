@@ -30,6 +30,11 @@ enum PaymentStatus {
   DEBT // Quedó debiendo (Fiado/Cuenta Corriente)
 }
 
+enum ScheduleMode {
+  FIXED
+  RANGE
+}
+
 // --- MODELOS ---
 
 model User {
@@ -71,6 +76,13 @@ model Club {
   lightsFromHour     String?              // Hora local a partir de la cual se cobra (ej: "20:00")
   professorDiscountEnabled Boolean @default(false) // Si aplica descuento a profesores
   professorDiscountPercent Float? // Porcentaje de descuento (0-100)
+  // Configuracion de turnos
+  scheduleMode           ScheduleMode @default(FIXED)
+  scheduleOpenTime       String?
+  scheduleCloseTime      String?
+  scheduleIntervalMinutes Int?
+  scheduleDurations      Json?
+  scheduleFixedSlots     Json?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   courts       Court[]

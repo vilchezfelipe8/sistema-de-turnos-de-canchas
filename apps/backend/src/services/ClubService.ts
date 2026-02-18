@@ -31,7 +31,13 @@ export class ClubService {
         lightsExtraAmount?: number | null,
         lightsFromHour?: string | null,
         professorDiscountEnabled: boolean = false,
-        professorDiscountPercent?: number | null
+        professorDiscountPercent?: number | null,
+        scheduleMode?: string,
+        scheduleOpenTime?: string | null,
+        scheduleCloseTime?: string | null,
+        scheduleIntervalMinutes?: number | null,
+        scheduleDurations?: number[] | null,
+        scheduleFixedSlots?: string[] | null
     ) {
         return await this.clubRepo.createClub(
             slug,
@@ -52,7 +58,13 @@ export class ClubService {
             lightsExtraAmount,
             lightsFromHour,
             professorDiscountEnabled,
-            professorDiscountPercent
+            professorDiscountPercent,
+            scheduleMode,
+            scheduleOpenTime,
+            scheduleCloseTime,
+            scheduleIntervalMinutes,
+            scheduleDurations,
+            scheduleFixedSlots
         );
     }
 
@@ -94,6 +106,12 @@ export class ClubService {
             lightsFromHour?: string | null;
             professorDiscountEnabled?: boolean;
             professorDiscountPercent?: number | null;
+            scheduleMode?: string;
+            scheduleOpenTime?: string | null;
+            scheduleCloseTime?: string | null;
+            scheduleIntervalMinutes?: number | null;
+            scheduleDurations?: number[] | null;
+            scheduleFixedSlots?: string[] | null;
         }
     ): Promise<Club> {
         const club = await this.clubRepo.findClubById(id);

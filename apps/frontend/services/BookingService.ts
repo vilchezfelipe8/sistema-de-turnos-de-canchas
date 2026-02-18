@@ -30,7 +30,7 @@ export const createBooking = async (
   userId?: number,
   // 👇 Aceptamos 'dni' también en el tipo para evitar errores de TS
   guestInfo?: { name?: string; email?: string; phone?: string; guestDni?: string; dni?: string },
-  options?: { asGuest?: boolean; guestIdentifier?: string; isProfessor?: boolean }
+  options?: { asGuest?: boolean; guestIdentifier?: string; isProfessor?: boolean; durationMinutes?: number }
 ) => {
   const token = getToken();
   const guestId = token ? undefined : getOrCreateGuestId();
@@ -58,7 +58,8 @@ export const createBooking = async (
       ...(dniValue ? { guestDni: dniValue, dni: dniValue } : {}),
 
       ...(options?.asGuest ? { asGuest: true } : {}),
-  ...(options?.isProfessor ? { isProfessor: true } : {}),
+        ...(options?.isProfessor ? { isProfessor: true } : {}),
+        ...(Number.isFinite(options?.durationMinutes) ? { durationMinutes: options?.durationMinutes } : {}),
       
       // El ID del usuario si corresponde
       ...(userId ? { userId } : {}) 

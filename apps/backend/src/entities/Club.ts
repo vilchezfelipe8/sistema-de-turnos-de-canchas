@@ -24,6 +24,12 @@ export class Club {
         public lightsFromHour?: string | null,
         public professorDiscountEnabled: boolean = false,
         public professorDiscountPercent?: number | null,
+        public scheduleMode?: string,
+        public scheduleOpenTime?: string | null,
+        public scheduleCloseTime?: string | null,
+        public scheduleIntervalMinutes?: number | null,
+        public scheduleDurations?: number[] | null,
+        public scheduleFixedSlots?: string[] | null,
         public createdAt?: Date,
         public updatedAt?: Date
     ) {}

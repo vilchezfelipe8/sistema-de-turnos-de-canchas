@@ -24,7 +24,13 @@ export class ClubRepository {
         lightsExtraAmount?: number | null,
         lightsFromHour?: string | null,
         professorDiscountEnabled: boolean = false,
-        professorDiscountPercent?: number | null
+        professorDiscountPercent?: number | null,
+        scheduleMode?: string,
+        scheduleOpenTime?: string | null,
+        scheduleCloseTime?: string | null,
+        scheduleIntervalMinutes?: number | null,
+        scheduleDurations?: number[] | null,
+        scheduleFixedSlots?: string[] | null
     ): Promise<Club> {
         const location = await this.ensureLocation(city, province, country);
         const data: any = {
@@ -47,7 +53,13 @@ export class ClubRepository {
             lightsExtraAmount,
             lightsFromHour,
             professorDiscountEnabled,
-            professorDiscountPercent
+            professorDiscountPercent,
+            scheduleMode,
+            scheduleOpenTime,
+            scheduleCloseTime,
+            scheduleIntervalMinutes,
+            scheduleDurations,
+            scheduleFixedSlots
         };
 
         const saved = await prisma.club.create({ data });
@@ -115,7 +127,13 @@ export class ClubRepository {
             club.lightsExtraAmount ?? null,
             club.lightsFromHour ?? null,
             club.professorDiscountEnabled ?? false,
-            club.professorDiscountPercent ?? null
+            club.professorDiscountPercent ?? null,
+            club.scheduleMode,
+            club.scheduleOpenTime ?? null,
+            club.scheduleCloseTime ?? null,
+            club.scheduleIntervalMinutes ?? null,
+            club.scheduleDurations ?? null,
+            club.scheduleFixedSlots ?? null
         );
     }
     
@@ -161,6 +179,12 @@ export class ClubRepository {
         lightsFromHour?: string | null;
         professorDiscountEnabled?: boolean;
         professorDiscountPercent?: number | null;
+        scheduleMode?: string;
+        scheduleOpenTime?: string | null;
+        scheduleCloseTime?: string | null;
+        scheduleIntervalMinutes?: number | null;
+        scheduleDurations?: number[] | null;
+        scheduleFixedSlots?: string[] | null;
     }): Promise<Club> {
         if (data.city && data.province && data.country) {
             const location = await this.ensureLocation(data.city, data.province, data.country);
@@ -195,6 +219,12 @@ export class ClubRepository {
             dbClub.lightsFromHour ?? null,
             dbClub.professorDiscountEnabled ?? false,
             dbClub.professorDiscountPercent ?? null,
+            dbClub.scheduleMode ?? undefined,
+            dbClub.scheduleOpenTime ?? null,
+            dbClub.scheduleCloseTime ?? null,
+            dbClub.scheduleIntervalMinutes ?? null,
+            Array.isArray(dbClub.scheduleDurations) ? dbClub.scheduleDurations : null,
+            Array.isArray(dbClub.scheduleFixedSlots) ? dbClub.scheduleFixedSlots : null,
             dbClub.createdAt,
             dbClub.updatedAt
         );

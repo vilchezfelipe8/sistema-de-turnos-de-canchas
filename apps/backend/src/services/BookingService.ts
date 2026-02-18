@@ -25,6 +25,59 @@ export class BookingService {
         private productRepository: ProductRepository
     ) {}
 
+    private defaultFixedSlots = [
+        "08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:30", "19:00", "20:30", "22:00"
+    ];
+
+    private toMinutes(time: string | null | undefined) {
+        if (!time) return null;
+        const [hh, mm] = String(time).split(':').map((n) => Number(n));
+        if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+        return hh * 60 + mm;
+    }
+
+    private fromMinutes(total: number) {
+        const hh = Math.floor(total / 60);
+        const mm = total % 60;
+        return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+    }
+
+    private normalizeDurations(raw: any, fallback: number) {
+        const parsed = Array.isArray(raw)
+            ? raw.map((v) => Number(v)).filter((v) => Number.isFinite(v) && v > 0)
+            : [];
+        return parsed.length > 0 ? parsed : [fallback];
+    }
+
+    private normalizeFixedSlots(raw: any) {
+        const parsed = Array.isArray(raw)
+            ? raw.map((v) => String(v)).filter((v) => /^\d{2}:\d{2}$/.test(v))
+            : [];
+        return parsed.length > 0 ? parsed : this.defaultFixedSlots;
+    }
+
+    private buildRangeSlots(openTime: string, closeTime: string, intervalMinutes: number, durationMinutes: number) {
+        const openMinutes = this.toMinutes(openTime);
+        const closeMinutes = this.toMinutes(closeTime);
+        if (openMinutes === null || closeMinutes === null) return [];
+        const slots: string[] = [];
+        for (let t = openMinutes; t + durationMinutes <= closeMinutes; t += intervalMinutes) {
+            slots.push(this.fromMinutes(t));
+        }
+        return slots;
+    }
+
+    private resolveScheduleSlots(club: any, durationMinutes: number) {
+        const mode = club?.scheduleMode || 'FIXED';
+        if (mode === 'RANGE') {
+            const openTime = club?.scheduleOpenTime || '08:00';
+            const closeTime = club?.scheduleCloseTime || '22:00';
+            const intervalMinutes = Number(club?.scheduleIntervalMinutes || 30);
+            return this.buildRangeSlots(openTime, closeTime, intervalMinutes, durationMinutes);
+        }
+        return this.normalizeFixedSlots(club?.scheduleFixedSlots);
+    }
+
     async createBooking(
         userId: number | null,
         guestIdentifier: string | undefined,
@@ -36,7 +89,8 @@ export class BookingService {
         startDateTime: Date,
         activityId: number,
         allowGuestWithoutContact = false,
-        isProfessorOverride: boolean = false
+        isProfessorOverride: boolean = false,
+        durationMinutes?: number
     ): Promise<Booking> {
         let user: User | null = null;
         if (userId) {
@@ -78,35 +132,47 @@ export class BookingService {
 
         const activity = await this.activityRepo.findById(activityId);
         if (!activity) throw new Error("Actividad no existe");
+        const clubConfig = (court as any)?.club;
+        const allowedDurations = this.normalizeDurations(clubConfig?.scheduleDurations, activity.defaultDurationMinutes);
+        const effectiveDuration = durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
+        if (!allowedDurations.includes(effectiveDuration)) {
+            throw new Error("Duración no permitida por el club");
+        }
 
-        const endDateTime = new Date(startDateTime.getTime() + activity.defaultDurationMinutes * 60000);
+        const slotTime = `${String(startDateTime.getHours()).padStart(2, '0')}:${String(startDateTime.getMinutes()).padStart(2, '0')}`;
+        const possibleSlots = this.resolveScheduleSlots(clubConfig, effectiveDuration);
+        if (!possibleSlots.includes(slotTime)) {
+            throw new Error("Horario no permitido por el club");
+        }
+
+        const endDateTime = new Date(startDateTime.getTime() + effectiveDuration * 60000);
 
     // Calcular precio base y extra por luces según configuración del club
         const BASE_PRICE = Number((court as any)?.price ?? 0);
         if (!Number.isFinite(BASE_PRICE) || BASE_PRICE <= 0) {
             throw new Error('Precio de cancha no configurado.');
         }
-        const clubConfig = court.club as any;
+        const clubPricingConfig = court.club as any;
         const isProfessor = Boolean(user?.isProfessor) || Boolean(isProfessorOverride);
         let finalPrice = BASE_PRICE;
 
-        if (isProfessor && clubConfig?.professorDiscountEnabled) {
-            const discountPercent = Number(clubConfig?.professorDiscountPercent ?? 0);
+        if (isProfessor && clubPricingConfig?.professorDiscountEnabled) {
+            const discountPercent = Number(clubPricingConfig?.professorDiscountPercent ?? 0);
             if (Number.isFinite(discountPercent) && discountPercent > 0) {
                 const clamped = Math.min(Math.max(discountPercent, 0), 100);
                 finalPrice = BASE_PRICE * (1 - clamped / 100);
             }
         }
-        if (clubConfig && clubConfig.lightsEnabled && clubConfig.lightsExtraAmount && clubConfig.lightsFromHour) {
+        if (clubPricingConfig && clubPricingConfig.lightsEnabled && clubPricingConfig.lightsExtraAmount && clubPricingConfig.lightsFromHour) {
             try {
-                const [lh, lm] = String(clubConfig.lightsFromHour).split(':').map((n: string) => parseInt(n, 10));
+                const [lh, lm] = String(clubPricingConfig.lightsFromHour).split(':').map((n: string) => parseInt(n, 10));
                 if (!Number.isNaN(lh) && !Number.isNaN(lm)) {
                     const bookingHour = startDateTime.getHours();
                     const bookingMinutes = startDateTime.getMinutes();
                     const bookingTotalMinutes = bookingHour * 60 + bookingMinutes;
                     const lightsTotalMinutes = lh * 60 + lm;
                     if (bookingTotalMinutes >= lightsTotalMinutes) {
-                        finalPrice += Number(clubConfig.lightsExtraAmount);
+                        finalPrice += Number(clubPricingConfig.lightsExtraAmount);
                     }
                 }
             } catch {
@@ -156,7 +222,7 @@ export class BookingService {
         return this.bookingRepo.mapToEntity(created);
     }
 
-    async getAvailableSlots(courtId: number, date: Date, activityId: number): Promise<string[]> {
+    async getAvailableSlots(courtId: number, date: Date, activityId: number, durationMinutes?: number): Promise<string[]> {
         const court = await this.courtRepo.findById(courtId);
         if (!court) throw new Error("Cancha no encontrada");
 
@@ -167,9 +233,13 @@ export class BookingService {
 
         const existingBookings = await this.bookingRepo.findByCourtAndDateRange(courtId, startOfDay, endOfDay);
 
-        const possibleSlots = [
-            "08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:30", "19:00", "20:30", "22:00"
-        ];
+        const allowedDurations = this.normalizeDurations((court as any)?.club?.scheduleDurations, activity.defaultDurationMinutes);
+        const effectiveDuration = durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
+        if (!allowedDurations.includes(effectiveDuration)) {
+            throw new Error("Duración no permitida por el club");
+        }
+
+        const possibleSlots = this.resolveScheduleSlots((court as any)?.club, effectiveDuration);
 
         const now = new Date();
         const upcomingSlots = possibleSlots.filter((slotTime) => {
@@ -181,7 +251,7 @@ export class BookingService {
             }
         });
 
-        const duration = activity.defaultDurationMinutes; 
+        const duration = effectiveDuration;
 
         const freeSlots = upcomingSlots.filter(slotStart => {
             const slotEnd = TimeHelper.addMinutes(slotStart, duration);
@@ -361,9 +431,11 @@ export class BookingService {
     }
 });
 
-        const possibleSlots = [
-            "08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:30", "19:00", "20:30", "22:00"
-        ];
+        const clubConfig = clubId ? await prisma.club.findUnique({ where: { id: clubId } }) : null;
+        const defaultDuration = 90;
+        const durations = this.normalizeDurations(clubConfig?.scheduleDurations, defaultDuration);
+        const effectiveDuration = durations[0] ?? defaultDuration;
+        const possibleSlots = this.resolveScheduleSlots(clubConfig, effectiveDuration);
 
         const schedule = [];
 
@@ -407,14 +479,21 @@ export class BookingService {
         return schedule;
     }
 
-    async getAllAvailableSlots(date: Date, activityId: number): Promise<string[]> {
+    async getAllAvailableSlots(date: Date, activityId: number, durationMinutes?: number): Promise<string[]> {
         const allCourts = await this.courtRepo.findAll();
         const activeCourts = allCourts.filter(court => !court.isUnderMaintenance);
         const bookings = await this.bookingRepo.findAllByDate(date);
 
-        const possibleSlots = [
-            "08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:30", "19:00", "20:30", "22:00"
-        ];
+        const activity = await this.activityRepo.findById(activityId);
+        if (!activity) throw new Error("Actividad no encontrada");
+
+        const allowedDurations = this.normalizeDurations(null, activity.defaultDurationMinutes);
+        const effectiveDuration = durationMinutes ?? activity.defaultDurationMinutes;
+        if (!allowedDurations.includes(effectiveDuration)) {
+            throw new Error("Duración no permitida por el club");
+        }
+
+        const possibleSlots = this.resolveScheduleSlots(null, effectiveDuration);
 
         const availableSlots = possibleSlots.filter(slotTime => {
             const slotDateTime = TimeHelper.localSlotToUtc(date, slotTime);
@@ -440,7 +519,7 @@ export class BookingService {
         return availableSlots;
     }
 
-    async getAvailableSlotsWithCourts(date: Date, activityId: number, clubId?: number): Promise<Array<{
+    async getAvailableSlotsWithCourts(date: Date, activityId: number, clubId?: number, durationMinutes?: number): Promise<Array<{
         slotTime: string;
         availableCourts: Array<{
             id: number;
@@ -463,9 +542,14 @@ export class BookingService {
             return [];
         }
 
-        const possibleSlots = [
-            "08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:30", "19:00", "20:30", "22:00"
-        ];
+        const clubConfig = clubId ? await prisma.club.findUnique({ where: { id: clubId } }) : null;
+        const allowedDurations = this.normalizeDurations(clubConfig?.scheduleDurations, activity.defaultDurationMinutes);
+        const effectiveDuration = durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
+        if (!allowedDurations.includes(effectiveDuration)) {
+            throw new Error("Duración no permitida por el club");
+        }
+
+        const possibleSlots = this.resolveScheduleSlots(clubConfig, effectiveDuration);
 
         const now = new Date();
         const upcomingSlots = possibleSlots.filter((slotTime: string) => {
@@ -479,8 +563,7 @@ export class BookingService {
 
         const slotsWithCourts = upcomingSlots.map((slotTime: string) => {
             const slotDateTime = TimeHelper.localSlotToUtc(date, slotTime);
-            const durationMinutes = activity.defaultDurationMinutes;
-            const slotEndDateTime = new Date(slotDateTime.getTime() + durationMinutes * 60000);
+            const slotEndDateTime = new Date(slotDateTime.getTime() + effectiveDuration * 60000);
 
             const availableCourts = activityCourts.filter(court => {
                 const overlappingBooking = bookings.find(b => {

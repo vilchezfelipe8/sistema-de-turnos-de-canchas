@@ -19,6 +19,15 @@ interface BookingGridProps {
   clubSlug?: string;
 }
 
+const DEFAULT_DURATION_MINUTES = 90;
+
+const normalizeDurations = (raw: unknown, fallback: number) => {
+  const parsed = Array.isArray(raw)
+    ? raw.map((value) => Number(value)).filter((value) => Number.isFinite(value) && value > 0)
+    : [];
+  return parsed.length > 0 ? parsed : [fallback];
+};
+
 // --- COMPONENTE DROPDOWN CUSTOM (ESTILO WIMBLEDON LANDING) ---
 const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -118,7 +127,12 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   const [selectedDate, setSelectedDate] = useState<Date | null>(getTodayDate());
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [selectedCourt, setSelectedCourt] = useState<{ id: number; name: string; price?: number | null; activities?: Array<{ id: number; name: string }> } | null>(null);
+
   const [selectedActivityFilter, setSelectedActivityFilter] = useState<string>('');
+  // ...existing code...
+    // ...existing code...
+    // ...existing code...
+  const [selectedDuration, setSelectedDuration] = useState<number>(DEFAULT_DURATION_MINUTES);
   const [pendingSport, setPendingSport] = useState<string | null>(null);
   const [pendingTime, setPendingTime] = useState<string | null>(null);
   const [queryApplied, setQueryApplied] = useState(false);
@@ -167,11 +181,18 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     });
   };
 
-  const { slotsWithCourts, loading, error, refresh } = useAvailability(selectedDate, clubSlug);
+  const { slotsWithCourts, loading, error, refresh } = useAvailability(selectedDate, clubSlug, selectedDuration);
   const [disabledSlots, setDisabledSlots] = useState<Record<string, boolean>>({});
   const STORAGE_PREFIX = 'disabledSlots:';
+
   const [allCourts, setAllCourts] = useState<Array<{ id: number; name: string; price?: number | null; activities?: Array<{ id: number; name: string }> }>>([]);
+
+  // ...existing code...
   const [clubConfig, setClubConfig] = useState<Club | null>(null);
+  const scheduleDurations = useMemo(
+    () => normalizeDurations(clubConfig?.scheduleDurations, DEFAULT_DURATION_MINUTES),
+    [clubConfig?.scheduleDurations]
+  );
   const normalizeText = (value: string) =>
     value
       .toLowerCase()
@@ -268,6 +289,14 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     };
     fetchClub();
   }, [clubSlug]);
+
+  useEffect(() => {
+    if (!scheduleDurations.includes(selectedDuration)) {
+      setSelectedDuration(scheduleDurations[0]);
+      setSelectedSlot(null);
+      setSelectedCourt(null);
+    }
+  }, [scheduleDurations, selectedDuration]);
 
   // --- LÓGICA DE FILTRADO (Sin cambios) ---
   const filteredSlotsWithCourts = (() => {
@@ -384,7 +413,8 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
         1,
         bookingDateTime,
         undefined,
-        !isAuthenticated ? guestInfo : undefined// 
+        !isAuthenticated ? guestInfo : undefined,
+        { durationMinutes: selectedDuration }
       );
 
       // Guardar bloqueo temporal localmente (Optimistic UI)
@@ -510,7 +540,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
     if (!selectedDate || !selectedSlot) return null;
     const [hours, minutes] = selectedSlot.split(':').map(Number);
     const start = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), hours, minutes, 0, 0);
-    const end = new Date(start.getTime() + 90 * 60000);
+    const end = new Date(start.getTime() + selectedDuration * 60000);
     return {
       startLabel: formatDateTime(start),
       endLabel: formatDateTime(end)
@@ -608,7 +638,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
         <p className="text-[#347048] font-bold text-sm tracking-wide opacity-80">Elige tu día y horario ideal</p>
       </div>
 
-      <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="mb-8 grid grid-cols-1 md:grid-cols-3 gap-6">
         
         {/* COLUMNA 1: Tipo de Cancha */}
         <div className="relative focus-within:z-[100] z-20">
@@ -619,11 +649,11 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
           <CustomSelect 
               value={selectedActivityFilter}
               onChange={(val: string) => {
-                  setSelectedActivityFilter(val);
-                  setSelectedSlot(null);
-                  setSelectedCourt(null);
+                setSelectedActivityFilter(val);
+                setSelectedSlot(null);
+                setSelectedCourt(null);
               }}
-              placeholder="Todas las canchas"
+              placeholder="Seleccioná un deporte"
               options={Array.from(
                 new Set(
                   allCourts.flatMap((court) => court.activities?.map((activity) => activity.name) || [])
@@ -675,6 +705,28 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
               inputClassName="w-full h-12 bg-white text-[#347048] font-bold border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 shadow-sm outline-none transition-all cursor-pointer"
             />
           </div>
+        </div>
+
+        {/* COLUMNA 3: Duración */}
+        <div className="relative focus-within:z-[80] z-10">
+          <label className="block text-[10px] font-black text-[#926699] mb-2 ml-1 flex items-center gap-2 uppercase tracking-widest">
+            <span className="text-[#B9CF32]"><Clock size={16} strokeWidth={3} /></span>
+            <span>Duración</span>
+          </label>
+          <CustomSelect
+            value={selectedDuration}
+            onChange={(val: number) => {
+              const nextDuration = Number(val);
+              setSelectedDuration(nextDuration);
+              setSelectedSlot(null);
+              setSelectedCourt(null);
+            }}
+            placeholder="Duración"
+            options={scheduleDurations.map((duration) => ({
+              value: duration,
+              label: `${duration} min`
+            }))}
+          />
         </div>
       </div>
 
@@ -752,7 +804,9 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
               const handleSelectCourt = async () => {
                 if (!selectedDate || !selectedSlot) return;
                 try {
-                  const res = await fetch(`${API_URL}/api/bookings/availability?courtId=${court.id}&date=${dateString}&activityId=1`);
+                  const res = await fetch(
+                    `${API_URL}/api/bookings/availability?courtId=${court.id}&date=${dateString}&activityId=1&durationMinutes=${selectedDuration}`
+                  );
                   if (!res.ok) {
                     setDisabledSlots((prev) => ({ ...prev, [slotKey]: true }));
                     showError('No se pudo verificar disponibilidad.');
@@ -789,7 +843,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                     <div>
                       <div className="text-sm font-black uppercase tracking-wide">{court.name}</div>
                       <div className="text-[11px] text-[#347048]/60 font-bold">
-                        {court.price ? `$${Number(court.price).toLocaleString()} · 90 min` : 'Precio a confirmar'}
+                        {court.price ? `$${Number(court.price).toLocaleString()} · ${selectedDuration} min` : 'Precio a confirmar'}
                       </div>
                     </div>
                     <div className={`h-3 w-3 rounded-full ${isSelected ? 'bg-[#B9CF32]' : 'bg-[#347048]/20'}`} />

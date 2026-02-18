@@ -26,6 +26,7 @@ export class BookingController {
             courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
             startDateTime: z.string().refine((s) => !Number.isNaN(Date.parse(s)), { message: 'Invalid ISO datetime' }),
             activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
+            durationMinutes: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
             guestIdentifier: optionalTrimmedString(),
             guestName: optionalTrimmedString(2),
             guestEmail: z.preprocess(
@@ -51,7 +52,7 @@ export class BookingController {
             return res.status(400).json({ error: parsed.error.format() });
         }
 
-    const { courtId, startDateTime, activityId, guestIdentifier, guestName, guestEmail, guestPhone, guestDni, isProfessor } = parsed.data;
+    const { courtId, startDateTime, activityId, durationMinutes, guestIdentifier, guestName, guestEmail, guestPhone, guestDni, isProfessor } = parsed.data;
         const startDate = new Date(String(startDateTime));
         const userRole = user?.role;
         const isAdmin = userRole === 'ADMIN';
@@ -103,7 +104,8 @@ export class BookingController {
             startDate,
             Number(activityId),
             allowGuestWithoutContact,
-            applyProfessorDiscount
+            applyProfessorDiscount,
+            durationMinutes
         );
 
         try {
@@ -195,7 +197,11 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
         const querySchema = z.object({
             courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
             date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: "Formato inválido. Use YYYY-MM-DD (ej: 2026-01-06)" }),
-            activityId: z.preprocess((v) => Number(v), z.number().int().positive())
+            activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
+            durationMinutes: z.preprocess(
+                (v) => (v === undefined ? undefined : Number(v)),
+                z.number().int().positive().optional()
+            )
         });
 
         const parsed = querySchema.safeParse(req.query); 
@@ -204,14 +210,15 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
             return res.status(400).json({ error: parsed.error.format() });
         }
 
-        const { courtId, date, activityId } = parsed.data;
+        const { courtId, date, activityId, durationMinutes } = parsed.data;
 
         const searchDate = new Date(date);
 
         const slots = await this.bookingService.getAvailableSlots(
             Number(courtId),
-            searchDate, 
-            Number(activityId)
+            searchDate,
+            Number(activityId),
+            durationMinutes
         );
 
         res.json({ date: date, availableSlots: slots });
@@ -285,7 +292,11 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
         try {
             const querySchema = z.object({
                 date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: "Formato inválido. Use YYYY-MM-DD (ej: 2026-01-06)" }),
-                activityId: z.preprocess((v) => Number(v), z.number().int().positive())
+                activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                durationMinutes: z.preprocess(
+                    (v) => (v === undefined ? undefined : Number(v)),
+                    z.number().int().positive().optional()
+                )
             });
 
             const parsed = querySchema.safeParse(req.query);
@@ -294,13 +305,14 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
                 return res.status(400).json({ error: parsed.error.format() });
             }
 
-            const { date, activityId } = parsed.data;
+            const { date, activityId, durationMinutes } = parsed.data;
 
             const searchDate = new Date(date);
 
             const slots = await this.bookingService.getAllAvailableSlots(
                 searchDate,
-                Number(activityId)
+                Number(activityId),
+                durationMinutes
             );
 
             res.json({ date: date, availableSlots: slots });
@@ -314,7 +326,11 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
             const querySchema = z.object({
                 date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: "Formato inválido. Use YYYY-MM-DD (ej: 2026-01-06)" }),
                 activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
-                clubSlug: z.string().optional()
+                clubSlug: z.string().optional(),
+                durationMinutes: z.preprocess(
+                    (v) => (v === undefined ? undefined : Number(v)),
+                    z.number().int().positive().optional()
+                )
             });
 
             const parsed = querySchema.safeParse(req.query);
@@ -323,7 +339,7 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
                 return res.status(400).json({ error: parsed.error.format() });
             }
 
-            const { date, activityId, clubSlug } = parsed.data;
+            const { date, activityId, clubSlug, durationMinutes } = parsed.data;
 
             const searchDate = new Date(date);
 
@@ -336,7 +352,8 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
             const slotsWithCourts = await this.bookingService.getAvailableSlotsWithCourts(
                 searchDate,
                 Number(activityId),
-                clubId
+                clubId,
+                durationMinutes
             );
 
             res.json({ date: date, slotsWithCourts });

@@ -25,6 +25,12 @@ export interface Club {
   lightsFromHour?: string | null;
   professorDiscountEnabled?: boolean;
   professorDiscountPercent?: number | null;
+  scheduleMode?: 'FIXED' | 'RANGE';
+  scheduleOpenTime?: string | null;
+  scheduleCloseTime?: string | null;
+  scheduleIntervalMinutes?: number | null;
+  scheduleDurations?: number[] | null;
+  scheduleFixedSlots?: string[] | null;
   createdAt?: string;
   updatedAt?: string;
 }

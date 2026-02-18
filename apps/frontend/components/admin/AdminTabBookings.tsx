@@ -16,12 +16,63 @@ import BookingConsumption, { type BookingConsumptionHandle } from '../BookingCon
 import { useParams } from 'react-router-dom';
 import DatePickerDark from '../../components/ui/DatePickerDark';
 import { Trash2, Check, ShoppingCart, Calendar as CalendarIcon, RefreshCw, ChevronDown, CalendarPlus, Repeat, Banknote, CreditCard, FileText, X, Phone, IdCard } from 'lucide-react'; 
+import { ClubService, Club } from '../../services/ClubService';
 
 const CLUB_TIME_SLOTS = [
   '08:00', '09:30', '11:00', '12:30',
   '14:00', '15:30', '17:30', '19:00',
   '20:30', '22:00'
 ];
+
+const DEFAULT_DURATION_MINUTES = 90;
+
+const normalizeDurations = (raw: unknown, fallback: number) => {
+  const parsed = Array.isArray(raw)
+    ? raw.map((value) => Number(value)).filter((value) => Number.isFinite(value) && value > 0)
+    : [];
+  return parsed.length > 0 ? parsed : [fallback];
+};
+
+const normalizeFixedSlots = (raw: unknown) => {
+  const parsed = Array.isArray(raw)
+    ? raw.map((value) => String(value)).filter((value) => /^\d{2}:\d{2}$/.test(value))
+    : [];
+  return parsed.length > 0 ? parsed : CLUB_TIME_SLOTS;
+};
+
+const toMinutes = (timeValue?: string | null) => {
+  if (!timeValue) return null;
+  const [hh, mm] = String(timeValue).split(':').map((value) => Number(value));
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  return hh * 60 + mm;
+};
+
+const fromMinutes = (total: number) => {
+  const hh = Math.floor(total / 60);
+  const mm = total % 60;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+};
+
+const buildRangeSlots = (openTime: string, closeTime: string, intervalMinutes: number, durationMinutes: number) => {
+  const openMinutes = toMinutes(openTime);
+  const closeMinutes = toMinutes(closeTime);
+  if (openMinutes === null || closeMinutes === null) return [];
+  const slots: string[] = [];
+  for (let t = openMinutes; t + durationMinutes <= closeMinutes; t += intervalMinutes) {
+    slots.push(fromMinutes(t));
+  }
+  return slots;
+};
+
+const resolveScheduleSlots = (club: Club | null, durationMinutes: number) => {
+  if (club?.scheduleMode === 'RANGE') {
+    const openTime = club.scheduleOpenTime || '08:00';
+    const closeTime = club.scheduleCloseTime || '22:00';
+    const intervalMinutes = Number(club.scheduleIntervalMinutes || 30);
+    return buildRangeSlots(openTime, closeTime, intervalMinutes, durationMinutes);
+  }
+  return normalizeFixedSlots(club?.scheduleFixedSlots);
+};
 
 // --- COMPONENTE DROPDOWN CUSTOM (ESTILO WIMBLEDON LANDING) ---
 const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
@@ -193,6 +244,7 @@ export default function AdminTabBookings() {
   const [scheduleBookings, setScheduleBookings] = useState<any[]>([]);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [clubConfig, setClubConfig] = useState<Club | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const consumptionRef = useRef<BookingConsumptionHandle | null>(null);
   const [selectedBookingId, setSelectedBookingId] = useState<number | null>(null);
@@ -213,6 +265,7 @@ export default function AdminTabBookings() {
     guestDni: '',
     courtId: '',
     time: '19:00',
+    durationMinutes: DEFAULT_DURATION_MINUTES,
     isFixed: false,
     isProfessor: false,
     dayOfWeek: '1',
@@ -224,7 +277,21 @@ export default function AdminTabBookings() {
   const searchTimeoutRef = useRef<any>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  const getClubSlug = () => {
+  const scheduleDurations = useMemo(
+    () => normalizeDurations(clubConfig?.scheduleDurations, DEFAULT_DURATION_MINUTES),
+    [clubConfig?.scheduleDurations]
+  );
+
+  const scheduleSlotDuration = scheduleDurations[0] ?? DEFAULT_DURATION_MINUTES;
+
+  const scheduleSlots = useMemo(() => {
+    const uniqueSlots = Array.from(new Set(scheduleBookings.map((slot) => slot.slotTime))).sort();
+    if (uniqueSlots.length > 0) return uniqueSlots;
+    if (clubConfig) return resolveScheduleSlots(clubConfig, scheduleSlotDuration);
+    return CLUB_TIME_SLOTS;
+  }, [scheduleBookings, clubConfig, scheduleSlotDuration]);
+
+  const getClubSlug = useCallback(() => {
     if (urlSlug) return urlSlug;
     try {
       const userStored = localStorage.getItem('user');
@@ -238,9 +305,32 @@ export default function AdminTabBookings() {
       }
     } catch (e) { console.error(e); }
     return ''; 
-  };
+  }, [urlSlug]);
 
-  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    const loadClub = async () => {
+      const slug = getClubSlug();
+      if (!slug) return;
+      try {
+        const data = await ClubService.getClubBySlug(slug);
+        setClubConfig(data);
+      } catch (error) {
+        console.error('Error loading club config', error);
+        setClubConfig(null);
+      }
+    };
+    loadClub();
+  }, [getClubSlug]);
+
+  useEffect(() => {
+    setManualBooking((prev) => {
+      if (scheduleDurations.includes(prev.durationMinutes)) return prev;
+      return { ...prev, durationMinutes: scheduleDurations[0] };
+    });
+  }, [scheduleDurations]);
+
+  // --- HANDLER PARA CAMBIO DE NOMBRE DEL INVITADO Y BÚSQUEDA DE CLIENTES ---
+  const handleGuestFirstNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setManualBooking({ ...manualBooking, guestFirstName: value });
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
@@ -315,19 +405,7 @@ export default function AdminTabBookings() {
     try {
       setLoadingSchedule(true);
       const data = await getAdminSchedule(scheduleDate);
-      let mergedSlots = data;
-      if (courts && courts.length > 0) {
-        const slotMap = new Map();
-        (data || []).forEach((s: any) => slotMap.set(`${s.slotTime}::${s.courtId}`, s));
-        mergedSlots = [];
-        for (const time of CLUB_TIME_SLOTS) {
-          for (const c of courts) {
-            const key = `${time}::${c.id}`;
-            mergedSlots.push(slotMap.get(key) || { slotTime: time, courtId: c.id, courtName: c.name, isAvailable: true });
-          }
-        }
-      }
-      setScheduleBookings(mergedSlots);
+      setScheduleBookings(data || []);
       setLastUpdate(new Date());
     } catch (error: any) { showError('Error: ' + error.message); } finally { setLoadingSchedule(false); }
   }, [scheduleDate, courts]);
@@ -364,7 +442,7 @@ export default function AdminTabBookings() {
     const [h, m] = String(slot.slotTime).split(':').map(Number);
     const [year, month, day] = scheduleDate.split('-').map(Number);
     const slotStartDate = new Date(year, month - 1, day, h, m, 0, 0);
-    const slotEndDate = new Date(slotStartDate.getTime() + 90 * 60000);
+    const slotEndDate = new Date(slotStartDate.getTime() + scheduleSlotDuration * 60000);
     const now = new Date();
     const isPastStart = slotStartDate < now;
     const isPastEnd = slotEndDate < now;
@@ -412,7 +490,7 @@ export default function AdminTabBookings() {
     if (!startValue) return slot.slotTime;
     const startDate = new Date(startValue);
     const endValue = slot.booking?.endDateTime;
-    const endDate = endValue ? new Date(endValue) : new Date(startDate.getTime() + 90 * 60000);
+    const endDate = endValue ? new Date(endValue) : new Date(startDate.getTime() + scheduleSlotDuration * 60000);
     return `${formatTime(startDate)} - ${formatTime(endDate)}`;
   };
 
@@ -458,14 +536,19 @@ export default function AdminTabBookings() {
               dateBase,
               undefined,
               guestData,
-              { asGuest: true, guestIdentifier: `admin_${dni}_${Date.now()}`, isProfessor: manualBooking.isProfessor }
+              {
+                asGuest: true,
+                guestIdentifier: `admin_${dni}_${Date.now()}`,
+                isProfessor: manualBooking.isProfessor,
+                durationMinutes: manualBooking.durationMinutes
+              }
             );
             showInfo('Reserva simple creada', 'Listo');
         }
         loadSchedule();
         setManualBooking({ 
             guestFirstName: '', guestLastName: '', guestPhone: '', guestDni: '', 
-      courtId: '', time: '19:00', isFixed: false, isProfessor: false, dayOfWeek: '1', startDateBase: getTodayLocalDate() 
+      courtId: '', time: '19:00', durationMinutes: scheduleDurations[0] ?? DEFAULT_DURATION_MINUTES, isFixed: false, isProfessor: false, dayOfWeek: '1', startDateBase: getTodayLocalDate() 
         });
     } catch (error: any) { showError('Error al reservar: ' + error.message); }
   };
@@ -537,7 +620,7 @@ export default function AdminTabBookings() {
               <input 
                   type="text" 
                   value={manualBooking.guestFirstName} 
-                  onChange={handleNameChange}
+                  onChange={handleGuestFirstNameChange}
                   className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all relative z-10"
                   placeholder="Escribe para buscar..." 
                   required autoComplete="off"
@@ -615,10 +698,24 @@ export default function AdminTabBookings() {
               value={manualBooking.time}
               onChange={(val: string) => setManualBooking({ ...manualBooking, time: val })}
               placeholder="Selecciona hora"
-              options={CLUB_TIME_SLOTS.map(slot => ({
+              options={scheduleSlots.map(slot => ({
                 value: slot,
                 label: slot,
                 disabled: !!(manualBooking.startDateBase && isPastTimeForDate(manualBooking.startDateBase, slot))
+              }))}
+            />
+          </div>
+
+          {/* DURACIÓN */}
+          <div className="relative z-20">
+            <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Duración</label>
+            <CustomSelect
+              value={manualBooking.durationMinutes}
+              onChange={(val: string) => setManualBooking({ ...manualBooking, durationMinutes: Number(val) })}
+              placeholder="Duración"
+              options={scheduleDurations.map((duration) => ({
+                value: duration,
+                label: `${duration} min`
               }))}
             />
           </div>
@@ -747,7 +844,7 @@ export default function AdminTabBookings() {
                   </tr>
                 </thead>
                 <tbody>
-                  {CLUB_TIME_SLOTS.map((time) => (
+                  {scheduleSlots.map((time) => (
                     <tr key={`row-${time}`} className="h-[120px]">
                       {courts.map((court, index) => {
                         const slot = scheduleByTime.get(time)?.get(court.id);
