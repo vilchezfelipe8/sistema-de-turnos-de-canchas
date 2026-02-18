@@ -291,6 +291,23 @@ export default function AdminTabBookings() {
     return CLUB_TIME_SLOTS;
   }, [scheduleBookings, clubConfig, scheduleSlotDuration]);
 
+  // Grilla visual fija: filas cada 1 hora entre apertura y cierre (por defecto 08:00-22:00)
+  const gridSlots = useMemo(() => {
+    const openStr = (clubConfig && clubConfig.scheduleOpenTime) || '08:00';
+    const closeStr = (clubConfig && clubConfig.scheduleCloseTime) || '22:00';
+    const openMinutesRaw = toMinutes(openStr) ?? 8 * 60;
+    const closeMinutesRaw = toMinutes(closeStr) ?? 22 * 60;
+    // Si el cierre es menor o igual que la apertura, asumimos que cierra al día siguiente
+    const closeMinutes = closeMinutesRaw <= openMinutesRaw ? closeMinutesRaw + 24 * 60 : closeMinutesRaw;
+    const slots: string[] = [];
+    for (let t = openMinutesRaw; t + 60 <= closeMinutes; t += 60) {
+      const hh = Math.floor((t % (24 * 60)) / 60);
+      const mm = (t % 60);
+      slots.push(`${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`);
+    }
+    return slots;
+  }, [clubConfig]);
+
   const getClubSlug = useCallback(() => {
     if (urlSlug) return urlSlug;
     try {
@@ -846,13 +863,29 @@ export default function AdminTabBookings() {
               <div className="h-16 bg-[#347048]/5 animate-pulse rounded-2xl w-full"></div>
               <div className="h-16 bg-[#347048]/5 animate-pulse rounded-2xl w-full"></div>
           </div>
-        ) : scheduleSlots.length > 0 ? (
+        ) : gridSlots.length > 0 ? (
           <div className="overflow-x-auto -mx-8">
             <div className="min-w-[900px] pl-16 pr-8">
               <div
                 className="relative"
-                style={{ height: scheduleSlots.length * 120 + 24, paddingTop: 12 }}
+                style={{ height: gridSlots.length * 120 + 24, paddingTop: 12 }}
               >
+                {/* GRID HORARIA FIJA: por defecto 08:00 - 22:00, filas de 1 hora. */}
+                {/** Calculamos `gridSlots` localmente para render visual sin tocar `scheduleSlots` */}
+                {(() => {
+                  const openStr = (clubConfig && clubConfig.scheduleOpenTime) || '08:00';
+                  const closeStr = (clubConfig && clubConfig.scheduleCloseTime) || '22:00';
+                  const openMinutes = toMinutes(openStr) ?? 8 * 60;
+                  const closeMinutes = toMinutes(closeStr) ?? 22 * 60;
+                  const slots: string[] = [];
+                  for (let t = openMinutes; t + 60 <= closeMinutes; t += 60) {
+                    const hh = Math.floor(t / 60);
+                    const mm = t % 60;
+                    slots.push(`${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`);
+                  }
+                  // Exponer como const para que TypeScript infiera en JSX
+                  (null as any); // no-op para mantener estructura
+                })()}
                 {/* COLUMNAS */}
                 <div className="absolute inset-0 flex">
                   {courts.map((court) => (
@@ -863,8 +896,8 @@ export default function AdminTabBookings() {
                   ))}
                 </div>
 
-                {/* LÍNEAS HORARIAS */}
-                {scheduleSlots.map((time, index) => (
+                {/* LÍNEAS HORARIAS (fila por hora en gridSlots) */}
+                {gridSlots.map((time, index) => (
                   <div
                     key={time}
                     className="absolute left-0 right-0 border-t border-[#347048]/10"
@@ -884,13 +917,27 @@ export default function AdminTabBookings() {
                     (c) => c.id === slot.courtId
                   );
 
-                  const slotIndex = scheduleSlots.indexOf(slot.slotTime);
+                  // calcular posición vertical relativa a gridSlots/openMinutes (puede ser horario con minutos)
+                  const openStr = (clubConfig && clubConfig.scheduleOpenTime) || '08:00';
+                  const closeStr = (clubConfig && clubConfig.scheduleCloseTime) || '22:00';
+                  const openMinutesRaw = toMinutes(openStr) ?? 8 * 60;
+                  const closeMinutesRaw = toMinutes(closeStr) ?? 22 * 60;
+                  const closeMinutes = closeMinutesRaw <= openMinutesRaw ? closeMinutesRaw + 24 * 60 : closeMinutesRaw;
+                  const openMinutes = openMinutesRaw;
 
-                  if (courtIndex === -1 || slotIndex === -1) return null;
+                  let startMinutes = toMinutes(slot.slotTime) ?? null;
+                  if (courtIndex === -1 || startMinutes === null) return null;
+                  // Si el slot es antes de la apertura y la grilla se extiende pasada la medianoche,
+                  // lo interpretamos como horario del día siguiente (sumamos 24h)
+                  if (startMinutes < openMinutes && closeMinutes > 24 * 60) {
+                    startMinutes += 24 * 60;
+                  }
+                  const slotIndexFloat = (startMinutes - openMinutes) / 60;
+                  if (slotIndexFloat < 0) return null; // fuera de rango
 
                   const columnWidth = 100 / courts.length;
 
-                  const top = slotIndex * 120 + 12;
+                  const top = slotIndexFloat * 120 + 12;
                   const left = `${courtIndex * columnWidth}%`;
                   const width = `${columnWidth}%`;
 
@@ -908,7 +955,8 @@ export default function AdminTabBookings() {
                     durationMinutes = slot.booking?.durationMinutes ?? null;
                   }
 
-                  const pixelsPerMinute = 120 / scheduleSlotDuration;
+                  const rowHeight = 120; // px por 1 hora
+                  const pixelsPerMinute = rowHeight / 60;
                   const height = Math.max((durationMinutes ?? scheduleSlotDuration) * pixelsPerMinute, 40);
 
                   const bookingName =
