@@ -28,6 +28,19 @@ const normalizeDurations = (raw: unknown, fallback: number) => {
   return parsed.length > 0 ? parsed : [fallback];
 };
 
+const toMinutes = (timeValue?: string | null) => {
+  if (!timeValue) return null;
+  const [hh, mm] = String(timeValue).split(':').map((value) => Number(value));
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  return hh * 60 + mm;
+};
+
+const fromMinutes = (total: number) => {
+  const hh = Math.floor(total / 60);
+  const mm = total % 60;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+};
+
 // --- COMPONENTE DROPDOWN CUSTOM (ESTILO WIMBLEDON LANDING) ---
 const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -307,11 +320,12 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
 
     if (selected < today) return [];
     if (selected.getTime() === today.getTime()) {
+      // Backend ya retorna `slotsWithCourts` anclados a `selectedDate`.
+      // Solo filtrar los que ya pasaron respecto a `now` sin reinterpretar horas.
       return slotsWithCourts.filter((slotWithCourt) => {
         const [hours, minutes] = slotWithCourt.slotTime.split(':').map(Number);
-        const slotTime = new Date();
-        slotTime.setHours(hours, minutes, 0, 0);
-        return slotTime > now;
+        const slotDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), hours, minutes, 0, 0);
+        return slotDate.getTime() > now.getTime();
       });
     }
     return slotsWithCourts;

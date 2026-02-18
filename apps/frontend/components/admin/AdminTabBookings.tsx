@@ -55,11 +55,15 @@ const fromMinutes = (total: number) => {
 
 const buildRangeSlots = (openTime: string, closeTime: string, intervalMinutes: number, durationMinutes: number) => {
   const openMinutes = toMinutes(openTime);
-  const closeMinutes = toMinutes(closeTime);
-  if (openMinutes === null || closeMinutes === null) return [];
-  const slots: string[] = [];
+  const closeMinutesRaw = toMinutes(closeTime);
+  if (openMinutes === null || closeMinutesRaw === null) return [] as Array<{ slotTime: string; dayOffset: number }>;
+  // soportar cierre pasada la medianoche
+  const closeMinutes = closeMinutesRaw <= openMinutes ? closeMinutesRaw + 24 * 60 : closeMinutesRaw;
+  const slots: Array<{ slotTime: string; dayOffset: number }> = [];
   for (let t = openMinutes; t + durationMinutes <= closeMinutes; t += intervalMinutes) {
-    slots.push(fromMinutes(t));
+    const displayTotal = t % (24 * 60);
+    const dayOffset = t >= 24 * 60 ? 1 : 0;
+    slots.push({ slotTime: fromMinutes(displayTotal), dayOffset });
   }
   return slots;
 };
@@ -71,7 +75,8 @@ const resolveScheduleSlots = (club: Club | null, durationMinutes: number) => {
     const intervalMinutes = Number(club.scheduleIntervalMinutes || 30);
     return buildRangeSlots(openTime, closeTime, intervalMinutes, durationMinutes);
   }
-  return normalizeFixedSlots(club?.scheduleFixedSlots);
+  // Fixed slots as objects with dayOffset 0
+  return normalizeFixedSlots(club?.scheduleFixedSlots).map((s) => ({ slotTime: s, dayOffset: 0 }));
 };
 
 // --- COMPONENTE DROPDOWN CUSTOM (ESTILO WIMBLEDON LANDING) ---
@@ -199,12 +204,36 @@ const getTodayLocalDate = () => {
   return formatLocalDate(new Date(now.getFullYear(), now.getMonth(), now.getDate()));
 };
 
-const isPastTimeForDate = (dateStr: string, timeStr: string) => {
+const isPastTimeForDate = (
+  dateStr: string,
+  timeStr: string,
+  openTimeStr?: string,
+  closeTimeStr?: string,
+  alreadyAnchored: boolean = false
+) => {
   const [year, month, day] = dateStr.split('-').map(Number);
   if (!year || !month || !day) return false;
   const [hours, minutes] = timeStr.split(':').map(Number);
   if (Number.isNaN(hours) || Number.isNaN(minutes)) return false;
+
   const slotDate = new Date(year, month - 1, day, hours, minutes, 0, 0);
+
+  // Si se pasaron horarios de apertura/cierre, considerar overnight
+  try {
+    if (!alreadyAnchored && openTimeStr && closeTimeStr) {
+      const openM = toMinutes(openTimeStr) ?? 0;
+      const closeMRaw = toMinutes(closeTimeStr) ?? 0;
+      const closeM = closeMRaw <= openM ? closeMRaw + 24 * 60 : closeMRaw;
+      const slotM = (hours * 60) + minutes;
+      if (slotM < openM && closeM > 24 * 60) {
+        // Interpretar como hora del día siguiente
+        slotDate.setDate(slotDate.getDate() + 1);
+      }
+    }
+  } catch {
+    // noop
+  }
+
   return slotDate.getTime() < Date.now();
 };
 
@@ -287,26 +316,110 @@ export default function AdminTabBookings() {
   const scheduleSlots = useMemo(() => {
     const uniqueSlots = Array.from(new Set(scheduleBookings.map((slot) => slot.slotTime))).sort();
     if (uniqueSlots.length > 0) return uniqueSlots;
-    if (clubConfig) return resolveScheduleSlots(clubConfig, scheduleSlotDuration);
+    if (clubConfig) {
+      // Construir slots anclados a la fecha seleccionada (incluye overnight desde día anterior)
+      try {
+        const [y, m, d] = scheduleDate.split('-').map(Number);
+        const selected = new Date(y, m - 1, d);
+        const anchors = [
+          (() => { const dd = new Date(selected); dd.setDate(dd.getDate() - 1); return dd; })(),
+          new Date(selected)
+        ];
+
+        const possible = resolveScheduleSlots(clubConfig, scheduleSlotDuration) as Array<{ slotTime: string; dayOffset: number }>;
+        const seen = new Set<string>();
+        const list: string[] = [];
+
+        for (const anchor of anchors) {
+          for (const slotObj of possible) {
+            const candidate = new Date(anchor);
+            candidate.setDate(candidate.getDate() + (slotObj.dayOffset || 0));
+            if (
+              candidate.getFullYear() === selected.getFullYear() &&
+              candidate.getMonth() === selected.getMonth() &&
+              candidate.getDate() === selected.getDate()
+            ) {
+              if (!seen.has(slotObj.slotTime)) {
+                seen.add(slotObj.slotTime);
+                list.push(slotObj.slotTime);
+              }
+            }
+          }
+        }
+
+        return list.length > 0 ? list.sort() : CLUB_TIME_SLOTS;
+      } catch (e) {
+        return CLUB_TIME_SLOTS;
+      }
+    }
     return CLUB_TIME_SLOTS;
-  }, [scheduleBookings, clubConfig, scheduleSlotDuration]);
+  }, [scheduleBookings, clubConfig, scheduleSlotDuration, scheduleDate]);
 
   // Grilla visual fija: filas cada 1 hora entre apertura y cierre (por defecto 08:00-22:00)
   const gridSlots = useMemo(() => {
-    const openStr = (clubConfig && clubConfig.scheduleOpenTime) || '08:00';
-    const closeStr = (clubConfig && clubConfig.scheduleCloseTime) || '22:00';
-    const openMinutesRaw = toMinutes(openStr) ?? 8 * 60;
-    const closeMinutesRaw = toMinutes(closeStr) ?? 22 * 60;
-    // Si el cierre es menor o igual que la apertura, asumimos que cierra al día siguiente
-    const closeMinutes = closeMinutesRaw <= openMinutesRaw ? closeMinutesRaw + 24 * 60 : closeMinutesRaw;
-    const slots: string[] = [];
-    for (let t = openMinutesRaw; t + 60 <= closeMinutes; t += 60) {
-      const hh = Math.floor((t % (24 * 60)) / 60);
-      const mm = (t % 60);
-      slots.push(`${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`);
+    // Construir filas horarias ancladas a la fecha seleccionada
+    try {
+      const [y, m, d] = scheduleDate.split('-').map(Number);
+      const selected = new Date(y, m - 1, d);
+
+      if (!clubConfig) return ([] as string[]);
+
+      const possible = resolveScheduleSlots(clubConfig, scheduleSlotDuration) as Array<{ slotTime: string; dayOffset: number }>;
+      const anchors = [
+        (() => { const dd = new Date(selected); dd.setDate(dd.getDate() - 1); return dd; })(),
+        new Date(selected)
+      ];
+
+      const minutesSet: number[] = [];
+      for (const anchor of anchors) {
+        for (const slotObj of possible) {
+          const candidate = new Date(anchor);
+          candidate.setDate(candidate.getDate() + (slotObj.dayOffset || 0));
+          if (
+            candidate.getFullYear() === selected.getFullYear() &&
+            candidate.getMonth() === selected.getMonth() &&
+            candidate.getDate() === selected.getDate()
+          ) {
+            const mm = toMinutes(slotObj.slotTime) ?? 0;
+            if (!minutesSet.includes(mm)) minutesSet.push(mm);
+          }
+        }
+      }
+
+      if (minutesSet.length === 0) {
+        // fallback a apertura/cierre simple
+        const openStr = (clubConfig && clubConfig.scheduleOpenTime) || '08:00';
+        const closeStr = (clubConfig && clubConfig.scheduleCloseTime) || '22:00';
+        const openMinutesRaw = toMinutes(openStr) ?? 8 * 60;
+        const closeMinutesRaw = toMinutes(closeStr) ?? 22 * 60;
+        const closeMinutes = closeMinutesRaw <= openMinutesRaw ? closeMinutesRaw + 24 * 60 : closeMinutesRaw;
+        const mins: number[] = [];
+        for (let t = openMinutesRaw; t + 60 <= closeMinutes; t += 60) {
+          mins.push(t % (24 * 60));
+        }
+        mins.sort((a, b) => a - b);
+        return mins.map((total) => {
+          const hh = Math.floor(total / 60);
+          const mm = total % 60;
+          return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+        });
+      }
+
+      // Generar filas horarias entre el mínimo y el máximo minuto, ordenadas ascendente (00:00 arriba)
+      const minM = Math.min(...minutesSet);
+      const maxM = Math.max(...minutesSet);
+      const startHour = Math.floor(minM / 60) * 60;
+      const endHour = Math.ceil((maxM + 1) / 60) * 60;
+      const rowsSet = new Set<number>();
+      for (let t = startHour; t < endHour; t += 60) {
+        rowsSet.add(t % (24 * 60));
+      }
+      const rows = Array.from(rowsSet).sort((a, b) => a - b);
+      return rows.map((total) => `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`);
+    } catch (e) {
+      return [];
     }
-    return slots;
-  }, [clubConfig]);
+  }, [clubConfig, scheduleDate, scheduleSlotDuration]);
 
   const getClubSlug = useCallback(() => {
     if (urlSlug) return urlSlug;
@@ -531,19 +644,52 @@ export default function AdminTabBookings() {
             const nextDateInfo = getNextDateForDay(base, parseInt(manualBooking.dayOfWeek), manualBooking.time);
             dateBase = nextDateInfo.date; 
         } else {
-            dateBase = new Date(`${manualBooking.startDateBase}T${manualBooking.time}:00`);
+          dateBase = new Date(`${manualBooking.startDateBase}T${manualBooking.time}:00`);
+          try {
+            // Si el club tiene horario overnight y la hora seleccionada es antes de la apertura,
+            // interpretarla como hora del día siguiente
+            const openStr = (clubConfig && clubConfig.scheduleOpenTime) || '08:00';
+            const closeStr = (clubConfig && clubConfig.scheduleCloseTime) || '22:00';
+            const openM = toMinutes(openStr) ?? 8 * 60;
+            const closeMRaw = toMinutes(closeStr) ?? 22 * 60;
+            const closeM = closeMRaw <= openM ? closeMRaw + 24 * 60 : closeMRaw;
+            const [sh, sm] = manualBooking.time.split(':').map(Number);
+            const slotM = (sh * 60) + sm;
+            if (slotM < openM && closeM > 24 * 60) {
+              dateBase.setDate(dateBase.getDate() + 1);
+            }
+          } catch {
+            // noop
+          }
         }
         if (manualBooking.isFixed) {
-            await createFixedBooking(
-              undefined,
-              Number(manualBooking.courtId),
-              1,
-              dateBase,
-              guestName,
-              phoneToSend || undefined,
-              dni,
-              manualBooking.isProfessor
-            );
+          // Si la hora del turno fijo cae en la madrugada y pertenece al día siguiente según la config,
+          // ajustamos la fecha hacia adelante.
+          try {
+            const openStr = (clubConfig && clubConfig.scheduleOpenTime) || '08:00';
+            const closeStr = (clubConfig && clubConfig.scheduleCloseTime) || '22:00';
+            const openM = toMinutes(openStr) ?? 8 * 60;
+            const closeMRaw = toMinutes(closeStr) ?? 22 * 60;
+            const closeM = closeMRaw <= openM ? closeMRaw + 24 * 60 : closeMRaw;
+            const [sh, sm] = manualBooking.time.split(':').map(Number);
+            const slotM = (sh * 60) + sm;
+            if (slotM < openM && closeM > 24 * 60) {
+              dateBase.setDate(dateBase.getDate() + 1);
+            }
+          } catch {
+            // noop
+          }
+
+          await createFixedBooking(
+            undefined,
+            Number(manualBooking.courtId),
+            1,
+            dateBase,
+            guestName,
+            phoneToSend || undefined,
+            dni,
+            manualBooking.isProfessor
+          );
             showInfo('Turno fijo creado', 'Listo');
         } else {
             const guestData = { name: guestName, phone: phoneToSend, dni: dni, document: dni, dniNumber: dni };
@@ -711,14 +857,17 @@ export default function AdminTabBookings() {
           {/* HORA */}
           <div className="relative z-[120]">
             <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Hora</label>
-            <CustomSelect 
+              <CustomSelect 
               value={manualBooking.time}
               onChange={(val: string) => setManualBooking({ ...manualBooking, time: val })}
               placeholder="Selecciona hora"
               options={scheduleSlots.map(slot => ({
                 value: slot,
                 label: slot,
-                disabled: !!(manualBooking.startDateBase && isPastTimeForDate(manualBooking.startDateBase, slot))
+                // Para turnos fijos no deshabilitamos horarios (deben mostrarse todos)
+                disabled: manualBooking.isFixed
+                  ? false
+                  : !!(manualBooking.startDateBase && isPastTimeForDate(manualBooking.startDateBase, slot, clubConfig?.scheduleOpenTime, clubConfig?.scheduleCloseTime, true))
               }))}
             />
           </div>
@@ -918,21 +1067,18 @@ export default function AdminTabBookings() {
                   );
 
                   // calcular posición vertical relativa a gridSlots/openMinutes (puede ser horario con minutos)
-                  const openStr = (clubConfig && clubConfig.scheduleOpenTime) || '08:00';
-                  const closeStr = (clubConfig && clubConfig.scheduleCloseTime) || '22:00';
-                  const openMinutesRaw = toMinutes(openStr) ?? 8 * 60;
-                  const closeMinutesRaw = toMinutes(closeStr) ?? 22 * 60;
-                  const closeMinutes = closeMinutesRaw <= openMinutesRaw ? closeMinutesRaw + 24 * 60 : closeMinutesRaw;
-                  const openMinutes = openMinutesRaw;
+                  // Calcular posición vertical relativa a la primera fila de `gridSlots`
+                  const firstGridMinutes = (gridSlots.length > 0 ? toMinutes(gridSlots[0]) : null) ?? toMinutes((clubConfig && clubConfig.scheduleOpenTime) || '08:00') ?? 8 * 60;
 
                   let startMinutes = toMinutes(slot.slotTime) ?? null;
                   if (courtIndex === -1 || startMinutes === null) return null;
-                  // Si el slot es antes de la apertura y la grilla se extiende pasada la medianoche,
-                  // lo interpretamos como horario del día siguiente (sumamos 24h)
-                  if (startMinutes < openMinutes && closeMinutes > 24 * 60) {
-                    startMinutes += 24 * 60;
+                  // Si la grilla incluye horas nocturnas que puedan requerir ajustar +24h, manejamos el caso
+                  if (startMinutes < firstGridMinutes && gridSlots.length > 0 && firstGridMinutes > startMinutes) {
+                    // si el primer grid es mayor (por ejemplo 08:00) y el slot es temprano (00:00),
+                    // asumimos que el slot pertenece a la misma fecha y no sumar 24h.
+                    // En la mayoría de casos, startMinutes >= firstGridMinutes.
                   }
-                  const slotIndexFloat = (startMinutes - openMinutes) / 60;
+                  const slotIndexFloat = (startMinutes - firstGridMinutes) / 60;
                   if (slotIndexFloat < 0) return null; // fuera de rango
 
                   const columnWidth = 100 / courts.length;
@@ -1103,6 +1249,21 @@ export default function AdminTabBookings() {
               <div className="rounded-2xl border border-[#347048]/10 bg-white p-4">
                 <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50">Horario</p>
                 <p className="text-lg font-black mt-1">{getBookingTimeRange(selectedBookingDetail.booking)}</p>
+                {(() => {
+                  let dateObj: Date | null = null;
+                  if (selectedBookingDetail.booking?.startDateTime) {
+                    dateObj = new Date(selectedBookingDetail.booking.startDateTime);
+                  } else if (scheduleDate && selectedBookingDetail.slotTime) {
+                    try {
+                      const [y, m, d] = scheduleDate.split('-').map(Number);
+                      const [hh, mm] = selectedBookingDetail.slotTime.split(':').map(Number);
+                      dateObj = new Date(y, m - 1, d, hh, mm, 0, 0);
+                    } catch { dateObj = null; }
+                  }
+                  return dateObj ? (
+                    <p className="text-xs font-bold text-[#347048]/60 mt-1">Fecha: {formatLocalDate(dateObj)}</p>
+                  ) : null;
+                })()}
                 <p className="text-xs font-bold text-[#347048]/60 mt-1">Estado: {formatBookingStatus(selectedBookingDetail.booking.status)}</p>
                 {selectedBookingDetail.booking.paymentStatus && (
                   <p className="text-xs font-bold text-[#347048]/60 mt-1">Pago: {formatPaymentStatus(selectedBookingDetail.booking.paymentStatus)}</p>

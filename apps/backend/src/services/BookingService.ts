@@ -58,11 +58,14 @@ export class BookingService {
 
     private buildRangeSlots(openTime: string, closeTime: string, intervalMinutes: number, durationMinutes: number) {
         const openMinutes = this.toMinutes(openTime);
-        const closeMinutes = this.toMinutes(closeTime);
-        if (openMinutes === null || closeMinutes === null) return [];
-        const slots: string[] = [];
+        const closeMinutesRaw = this.toMinutes(closeTime);
+        if (openMinutes === null || closeMinutesRaw === null) return [];
+        const closeMinutes = closeMinutesRaw <= openMinutes ? closeMinutesRaw + 24 * 60 : closeMinutesRaw;
+        const slots: Array<{ slotTime: string; dayOffset: number }> = [];
         for (let t = openMinutes; t + durationMinutes <= closeMinutes; t += intervalMinutes) {
-            slots.push(this.fromMinutes(t));
+            const displayTotal = t % (24 * 60);
+            const dayOffset = t >= 24 * 60 ? 1 : 0;
+            slots.push({ slotTime: this.fromMinutes(displayTotal), dayOffset });
         }
         return slots;
     }
@@ -75,7 +78,8 @@ export class BookingService {
             const intervalMinutes = Number(club?.scheduleIntervalMinutes || 30);
             return this.buildRangeSlots(openTime, closeTime, intervalMinutes, durationMinutes);
         }
-        return this.normalizeFixedSlots(club?.scheduleFixedSlots);
+        // For FIXED mode, return objects with dayOffset 0
+        return this.normalizeFixedSlots(club?.scheduleFixedSlots).map((s: string) => ({ slotTime: s, dayOffset: 0 }));
     }
 
     async createBooking(
@@ -135,13 +139,17 @@ export class BookingService {
         const clubConfig = (court as any)?.club;
         const allowedDurations = this.normalizeDurations(clubConfig?.scheduleDurations, activity.defaultDurationMinutes);
         const effectiveDuration = durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
+        // Permitir override para profesores: si se indica isProfessorOverride y se solicita 60, permitir aunque no esté en allowedDurations
         if (!allowedDurations.includes(effectiveDuration)) {
-            throw new Error("Duración no permitida por el club");
+            if (!(isProfessorOverride && effectiveDuration === 60)) {
+                throw new Error("Duración no permitida por el club");
+            }
         }
 
         const slotTime = `${String(startDateTime.getHours()).padStart(2, '0')}:${String(startDateTime.getMinutes()).padStart(2, '0')}`;
-        const possibleSlots = this.resolveScheduleSlots(clubConfig, effectiveDuration);
-        if (!possibleSlots.includes(slotTime)) {
+        const possibleSlots = this.resolveScheduleSlots(clubConfig, effectiveDuration) as Array<{ slotTime: string; dayOffset: number }>;
+        const possibleSlotTimes = possibleSlots.map(s => s.slotTime);
+        if (!possibleSlotTimes.includes(slotTime)) {
             throw new Error("Horario no permitido por el club");
         }
 
@@ -239,41 +247,56 @@ export class BookingService {
             throw new Error("Duración no permitida por el club");
         }
 
-        const possibleSlots = this.resolveScheduleSlots((court as any)?.club, effectiveDuration);
+        const possibleSlots = this.resolveScheduleSlots((court as any)?.club, effectiveDuration) as Array<{ slotTime: string; dayOffset: number }>;
+
+        const anchors = [
+            (() => { const d = new Date(date); d.setDate(d.getDate() - 1); return d; })(),
+            new Date(date)
+        ];
 
         const now = new Date();
-        const upcomingSlots = possibleSlots.filter((slotTime) => {
-            try {
-                const slotDateTime = TimeHelper.localSlotToUtc(date, slotTime);
-                return slotDateTime.getTime() > now.getTime();
-            } catch {
-                return false;
-            }
-        });
-
         const duration = effectiveDuration;
+        const seen = new Set<string>();
+        const freeSlotsResult: string[] = [];
 
-        const freeSlots = upcomingSlots.filter(slotStart => {
-            const slotEnd = TimeHelper.addMinutes(slotStart, duration);
+        for (const anchor of anchors) {
+            for (const slotObj of possibleSlots) {
+                const slotDateCandidate = new Date(anchor);
+                slotDateCandidate.setDate(slotDateCandidate.getDate() + (slotObj.dayOffset || 0));
+                if (
+                    slotDateCandidate.getFullYear() !== date.getFullYear() ||
+                    slotDateCandidate.getMonth() !== date.getMonth() ||
+                    slotDateCandidate.getDate() !== date.getDate()
+                ) continue;
 
-            const slotStartDate = TimeHelper.localSlotToUtc(date, slotStart);
-            const slotEndDate = TimeHelper.localSlotToUtc(date, slotEnd);
+                let slotStartDate: Date;
+                try {
+                    slotStartDate = TimeHelper.localSlotToUtc(slotDateCandidate, slotObj.slotTime);
+                } catch {
+                    continue;
+                }
+                if (slotStartDate.getTime() <= now.getTime()) continue;
 
-            const isOccupied = existingBookings.some(booking => {
-                if (booking.status === "CANCELLED") return false; 
+                const slotEndDate = new Date(slotStartDate.getTime() + duration * 60000);
 
-                return TimeHelper.isOverlappingDates(
-                    slotStartDate, 
-                    slotEndDate, 
-                    booking.startDateTime, 
-                    booking.endDateTime
-                );
-            });
+                const isOccupied = existingBookings.some(booking => {
+                    if (booking.status === "CANCELLED") return false;
+                    return TimeHelper.isOverlappingDates(
+                        slotStartDate,
+                        slotEndDate,
+                        booking.startDateTime,
+                        booking.endDateTime
+                    );
+                });
 
-            return !isOccupied;
-        });
+                if (!isOccupied && !seen.has(slotObj.slotTime)) {
+                    seen.add(slotObj.slotTime);
+                    freeSlotsResult.push(slotObj.slotTime);
+                }
+            }
+        }
 
-        return freeSlots;
+        return freeSlotsResult;
     }
 
    async cancelBooking(bookingId: number, cancelledByUserId: number, clubId?: number) {
@@ -439,32 +462,53 @@ export class BookingService {
 
         const schedule = [];
 
+        // Consider slots coming from anchor = date and anchor = date - 1
+        const anchors = [
+            (() => { const d = new Date(date); d.setDate(d.getDate() - 1); return d; })(),
+            new Date(date)
+        ];
+
         for (const court of activeCourts) {
-            for (const slotTime of possibleSlots) {
-                const slotDateTime = TimeHelper.localSlotToUtc(date, slotTime);
+            const seen = new Set<string>();
+            for (const anchor of anchors) {
+                for (const slotObj of possibleSlots as Array<{ slotTime: string; dayOffset: number }>) {
+                    const slotDateCandidate = new Date(anchor);
+                    slotDateCandidate.setDate(slotDateCandidate.getDate() + (slotObj.dayOffset || 0));
+                    if (
+                        slotDateCandidate.getFullYear() !== date.getFullYear() ||
+                        slotDateCandidate.getMonth() !== date.getMonth() ||
+                        slotDateCandidate.getDate() !== date.getDate()
+                    ) continue;
 
-                const booking = bookings.find(b => {
-                    const courtMatch = b.court.id === court.id;
-                    const bookingUTCTime = Date.UTC(
-                        b.startDateTime.getUTCFullYear(),
-                        b.startDateTime.getUTCMonth(),
-                        b.startDateTime.getUTCDate(),
-                        b.startDateTime.getUTCHours(),
-                        b.startDateTime.getUTCMinutes()
-                    );
-                    const slotUTCTime = slotDateTime.getTime();
-                    const timeMatch = bookingUTCTime === slotUTCTime;
-                    return courtMatch && timeMatch;
-                });
+                    const slotDateTime = TimeHelper.localSlotToUtc(slotDateCandidate, slotObj.slotTime);
 
-                schedule.push({
-                    courtId: court.id,
-                    courtName: court.name,
-                    slotTime: slotTime,
-                    startDateTime: slotDateTime.toISOString(),
-                    isAvailable: !booking,
-                    booking: booking || null
-                });
+                    const booking = bookings.find(b => {
+                        const courtMatch = b.court.id === court.id;
+                        const bookingUTCTime = Date.UTC(
+                            b.startDateTime.getUTCFullYear(),
+                            b.startDateTime.getUTCMonth(),
+                            b.startDateTime.getUTCDate(),
+                            b.startDateTime.getUTCHours(),
+                            b.startDateTime.getUTCMinutes()
+                        );
+                        const slotUTCTime = slotDateTime.getTime();
+                        const timeMatch = bookingUTCTime === slotUTCTime;
+                        return courtMatch && timeMatch;
+                    });
+
+                    const key = `${slotObj.slotTime}`;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+
+                    schedule.push({
+                        courtId: court.id,
+                        courtName: court.name,
+                        slotTime: slotObj.slotTime,
+                        startDateTime: slotDateTime.toISOString(),
+                        isAvailable: !booking,
+                        booking: booking || null
+                    });
+                }
             }
         }
 
@@ -493,30 +537,53 @@ export class BookingService {
             throw new Error("Duración no permitida por el club");
         }
 
-        const possibleSlots = this.resolveScheduleSlots(null, effectiveDuration);
+        const possibleSlots = this.resolveScheduleSlots(null, effectiveDuration) as Array<{ slotTime: string; dayOffset: number }>;
 
-        const availableSlots = possibleSlots.filter(slotTime => {
-            const slotDateTime = TimeHelper.localSlotToUtc(date, slotTime);
-            const hasAvailableCourt = activeCourts.some(court => {
-                const booking = bookings.find(b => {
-                    const courtMatch = b.court.id === court.id;
-                    const bookingUTCTime = Date.UTC(
-                        b.startDateTime.getUTCFullYear(),
-                        b.startDateTime.getUTCMonth(),
-                        b.startDateTime.getUTCDate(),
-                        b.startDateTime.getUTCHours(),
-                        b.startDateTime.getUTCMinutes()
-                    );
-                    const slotUTCTime = slotDateTime.getTime();
-                    const timeMatch = bookingUTCTime === slotUTCTime;
-                    return courtMatch && timeMatch;
+        const anchors = [
+            (() => { const d = new Date(date); d.setDate(d.getDate() - 1); return d; })(),
+            new Date(date)
+        ];
+
+        const seen = new Set<string>();
+        const result: string[] = [];
+
+        for (const anchor of anchors) {
+            for (const slotObj of possibleSlots) {
+                const slotDateCandidate = new Date(anchor);
+                slotDateCandidate.setDate(slotDateCandidate.getDate() + (slotObj.dayOffset || 0));
+                if (
+                    slotDateCandidate.getFullYear() !== date.getFullYear() ||
+                    slotDateCandidate.getMonth() !== date.getMonth() ||
+                    slotDateCandidate.getDate() !== date.getDate()
+                ) continue;
+
+                const slotDateTime = TimeHelper.localSlotToUtc(slotDateCandidate, slotObj.slotTime);
+
+                const hasAvailableCourt = activeCourts.some(court => {
+                    const booking = bookings.find(b => {
+                        const courtMatch = b.court.id === court.id;
+                        const bookingUTCTime = Date.UTC(
+                            b.startDateTime.getUTCFullYear(),
+                            b.startDateTime.getUTCMonth(),
+                            b.startDateTime.getUTCDate(),
+                            b.startDateTime.getUTCHours(),
+                            b.startDateTime.getUTCMinutes()
+                        );
+                        const slotUTCTime = slotDateTime.getTime();
+                        const timeMatch = bookingUTCTime === slotUTCTime;
+                        return courtMatch && timeMatch;
+                    });
+                    return !booking;
                 });
-                return !booking; 
-            });
-            return hasAvailableCourt;
-        });
 
-        return availableSlots;
+                if (hasAvailableCourt && !seen.has(slotObj.slotTime)) {
+                    seen.add(slotObj.slotTime);
+                    result.push(slotObj.slotTime);
+                }
+            }
+        }
+
+        return result;
     }
 
     async getAvailableSlotsWithCourts(date: Date, activityId: number, clubId?: number, durationMinutes?: number): Promise<Array<{
@@ -549,27 +616,48 @@ export class BookingService {
             throw new Error("Duración no permitida por el club");
         }
 
-        const possibleSlots = this.resolveScheduleSlots(clubConfig, effectiveDuration);
+        const possibleSlots = this.resolveScheduleSlots(clubConfig, effectiveDuration) as Array<{ slotTime: string; dayOffset: number }>;
 
         const now = new Date();
-        const upcomingSlots = possibleSlots.filter((slotTime: string) => {
-            try {
-                const slotDateTime = TimeHelper.localSlotToUtc(date, slotTime);
-                return slotDateTime.getTime() > now.getTime();
-            } catch {
-                return false;
-            }
-        });
 
-        const slotsWithCourts = upcomingSlots.map((slotTime: string) => {
-            const slotDateTime = TimeHelper.localSlotToUtc(date, slotTime);
+        const anchors = [
+            (() => { const d = new Date(date); d.setDate(d.getDate() - 1); return d; })(),
+            new Date(date)
+        ];
+
+        const slotsMap = new Map<string, { slotTime: string; slotDateTime: Date }>();
+
+        for (const anchor of anchors) {
+            for (const slotObj of possibleSlots) {
+                const slotDateCandidate = new Date(anchor);
+                slotDateCandidate.setDate(slotDateCandidate.getDate() + (slotObj.dayOffset || 0));
+                if (
+                    slotDateCandidate.getFullYear() !== date.getFullYear() ||
+                    slotDateCandidate.getMonth() !== date.getMonth() ||
+                    slotDateCandidate.getDate() !== date.getDate()
+                ) continue;
+
+                try {
+                    const slotDateTime = TimeHelper.localSlotToUtc(slotDateCandidate, slotObj.slotTime);
+                    if (slotDateTime.getTime() <= now.getTime()) continue;
+                    if (!slotsMap.has(slotObj.slotTime)) {
+                        slotsMap.set(slotObj.slotTime, { slotTime: slotObj.slotTime, slotDateTime });
+                    }
+                } catch {
+                    // noop
+                }
+            }
+        }
+
+        const slotsWithCourts: Array<any> = [];
+
+        for (const { slotTime, slotDateTime } of slotsMap.values()) {
             const slotEndDateTime = new Date(slotDateTime.getTime() + effectiveDuration * 60000);
 
             const availableCourts = activityCourts.filter(court => {
                 const overlappingBooking = bookings.find(b => {
                     if (b.court.id !== court.id) return false;
-                    if (b.status === "CANCELLED") return false; 
-                    
+                    if (b.status === "CANCELLED") return false;
                     return TimeHelper.isOverlappingDates(
                         slotDateTime,
                         slotEndDateTime,
@@ -577,7 +665,6 @@ export class BookingService {
                         b.endDateTime
                     );
                 });
-                
                 return !overlappingBooking;
             }).map(court => ({
                 id: court.id,
@@ -585,26 +672,24 @@ export class BookingService {
                 price: (court as any).price ?? null
             }));
 
-                const courtsWithAvailability = activityCourts.map(court => {
-                 const isBusy = bookings.some(b => 
-                    b.court.id === court.id && 
-                    b.status !== "CANCELLED" &&
-                    TimeHelper.isOverlappingDates(slotDateTime, slotEndDateTime, b.startDateTime, b.endDateTime)
-                 );
-                 return {
-                    id: court.id,
-                    name: court.name,
-                          price: (court as any).price ?? null,
-                    isAvailable: !isBusy
-                 };
-            });
+            const courtsWithAvailability = activityCourts.map(court => {
+                const isBusy = bookings.some(b => 
+                   b.court.id === court.id && 
+                   b.status !== "CANCELLED" &&
+                   TimeHelper.isOverlappingDates(slotDateTime, slotEndDateTime, b.startDateTime, b.endDateTime)
+                );
+                return {
+                   id: court.id,
+                   name: court.name,
+                   price: (court as any).price ?? null,
+                   isAvailable: !isBusy
+                };
+           });
 
-            return {
-                slotTime,
-                availableCourts,
-                courts: courtsWithAvailability
-            };
-        }).filter((slot: { availableCourts: Array<unknown> }) => slot.availableCourts.length > 0); 
+            if (availableCourts.length > 0) {
+                slotsWithCourts.push({ slotTime, availableCourts, courts: courtsWithAvailability });
+            }
+        }
 
         return slotsWithCourts;
     }
@@ -641,7 +726,8 @@ export class BookingService {
         }
 
         const activity = await this.activityRepo.findById(activityId);
-        const duration = activity ? activity.defaultDurationMinutes : 60; 
+        // Si el admin indica isProfessorOverride, usar 60 minutos para profesores
+        const duration = isProfessorOverride ? 60 : (activity ? activity.defaultDurationMinutes : 60);
 
         const startTime = `${startDateTime.getHours().toString().padStart(2, '0')}:${startDateTime.getMinutes().toString().padStart(2, '0')}`;
         const endTime = `${new Date(startDateTime.getTime() + duration * 60000).getHours().toString().padStart(2, '0')}:${new Date(startDateTime.getTime() + duration * 60000).getMinutes().toString().padStart(2, '0')}`;
