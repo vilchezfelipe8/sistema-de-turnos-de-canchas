@@ -3,14 +3,27 @@ import { prisma } from '../prisma';
 export class CourtRepository {
 
     async findById(id: number) {
+        const include = { club: true, activities: true, activityType: true } as any;
         const court = await prisma.court.findUnique({
-            where: { id: id }
+            where: { id: id },
+            include
         });
         return court;
     }
 
-    async findAll() {
-        const courts = await prisma.court.findMany();
+    async findAll(clubId?: number) {
+        if (clubId) {
+            const include = { club: true, activities: true, activityType: true } as any;
+            const courts = await prisma.court.findMany({
+                where: { clubId },
+                include
+            });
+            return courts;
+        }
+        const include = { club: true, activities: true, activityType: true } as any;
+        const courts = await prisma.court.findMany({
+            include
+        });
         return courts;
     }
 

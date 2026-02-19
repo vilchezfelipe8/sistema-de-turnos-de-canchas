@@ -2,7 +2,8 @@
 
 // Si tienes el AuthService en otra carpeta, ajusta esta línea "../services/AuthService"
 // Si no lo encuentras, puedes borrar el import y usar localStorage.getItem('token') directo.
-import { getToken } from './AuthService'; 
+import { getToken } from './AuthService';
+import { fetchWithAuth } from '../utils/apiClient';
 
 const GUEST_KEY = 'guestId';
 function getOrCreateGuestId() {
@@ -17,24 +18,51 @@ function getOrCreateGuestId() {
   }
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+import { getApiUrl } from '../utils/apiUrl';
+
+const API_URL = getApiUrl();
 
 // --- 1. CREAR UNA RESERVA ---
-export const createBooking = async (courtId: number, activityId: number, date: Date) => {
+export const createBooking = async (
+  courtId: number,
+  activityId: number,
+  date: Date,
+  userId?: number,
+  // 👇 Aceptamos 'dni' también en el tipo para evitar errores de TS
+  guestInfo?: { name?: string; email?: string; phone?: string; guestDni?: string; dni?: string },
+  options?: { asGuest?: boolean; guestIdentifier?: string; isProfessor?: boolean; durationMinutes?: number }
+) => {
   const token = getToken();
   const guestId = token ? undefined : getOrCreateGuestId();
+  const guestIdentifier = options?.guestIdentifier ?? guestId;
 
-  const headers: any = { 'Content-Type': 'application/json' };
+  // 👇 Truco: Unificamos el valor del DNI venga como venga
+  const dniValue = guestInfo?.guestDni || guestInfo?.dni;
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const response = await fetch(`${API_URL}/api/bookings`, {
+  const response = await fetchWithAuth(`${API_URL}/api/bookings`, {
     method: 'POST',
     headers,
     body: JSON.stringify({
       courtId,
       activityId,
-      startDateTime: date.toISOString(), // Enviamos fecha ISO, el back resta las 3hs
-      ...(guestId ? { guestIdentifier: guestId } : {})
+      startDateTime: date.toISOString(),
+      ...(guestIdentifier ? { guestIdentifier } : {}),
+      ...(guestInfo?.name ? { guestName: guestInfo.name } : {}),
+      ...(guestInfo?.email ? { guestEmail: guestInfo.email } : {}),
+      ...(guestInfo?.phone ? { guestPhone: guestInfo.phone } : {}),
+      
+      // 👇 ENVÍO ROBUSTO DEL DNI (Lo mandamos con ambos nombres por seguridad)
+      ...(dniValue ? { guestDni: dniValue, dni: dniValue } : {}),
+
+      ...(options?.asGuest ? { asGuest: true } : {}),
+        ...(options?.isProfessor ? { isProfessor: true } : {}),
+        ...(Number.isFinite(options?.durationMinutes) ? { durationMinutes: options?.durationMinutes } : {}),
+      
+      // El ID del usuario si corresponde
+      ...(userId ? { userId } : {}) 
     }),
   });
 
@@ -48,15 +76,11 @@ export const createBooking = async (courtId: number, activityId: number, date: D
 
 // --- 2. OBTENER MIS RESERVAS (HISTORIAL) ---
 export const getMyBookings = async (userId: number) => {
-    const token = getToken();
-    if (!token) throw new Error("Debes iniciar sesión.");
+    if (!getToken()) throw new Error("Debes iniciar sesión.");
 
-    const res = await fetch(`${API_URL}/api/bookings/history/${userId}`, {
+    const res = await fetchWithAuth(`${API_URL}/api/bookings/history/${userId}`, {
         method: 'GET',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Content-Type': 'application/json' }
     });
 
     if (!res.ok) {
@@ -67,15 +91,11 @@ export const getMyBookings = async (userId: number) => {
 
 // --- 3. CANCELAR UNA RESERVA ---
 export const cancelBooking = async (bookingId: number) => {
-    const token = getToken();
-    if (!token) throw new Error("Debes iniciar sesión.");
+    if (!getToken()) throw new Error("Debes iniciar sesión.");
 
-    const res = await fetch(`${API_URL}/api/bookings/cancel`, {
+    const res = await fetchWithAuth(`${API_URL}/api/bookings/cancel`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bookingId })
     });
 
@@ -86,17 +106,29 @@ export const cancelBooking = async (bookingId: number) => {
     return res.json();
 };
 
+export const confirmBooking = async (bookingId: number) => {
+    if (!getToken()) throw new Error("Debes iniciar sesión como administrador.");
+
+    const res = await fetchWithAuth(`${API_URL}/api/bookings/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingId })
+    });
+
+    if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || error.message || 'No se pudo confirmar el turno');
+    }
+    return res.json();
+};
+
 // --- 4. OBTENER SCHEDULE COMPLETO DEL DÍA (ADMIN) ---
 export const getAdminSchedule = async (date: string) => {
-    const token = getToken();
-    if (!token) throw new Error("Debes iniciar sesión como administrador.");
+    if (!getToken()) throw new Error("Debes iniciar sesión como administrador.");
 
-    const res = await fetch(`${API_URL}/api/bookings/admin/schedule?date=${date}`, {
+    const res = await fetchWithAuth(`${API_URL}/api/bookings/admin/schedule?date=${date}`, {
         method: 'GET',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Content-Type': 'application/json' }
     });
 
     if (!res.ok) {
@@ -105,3 +137,82 @@ export const getAdminSchedule = async (date: string) => {
     }
     return res.json();
 };
+
+// --- 5. CREAR TURNO FIJO ---
+export const createFixedBooking = async (
+  userId: number | undefined,
+  courtId: number,
+  activityId: number,
+  startDateTime: Date,
+  guestName?: string,
+  guestPhone?: string,
+  guestDni?: string, // <--- Recibimos el dato (Argumento #7)
+  isProfessor?: boolean
+) => {
+  const token = getToken();
+  // Validamos token si es necesario, o dejamos que el backend decida
+  if (!token) throw new Error("Debes iniciar sesión como administrador.");
+
+  const res = await fetchWithAuth(`${API_URL}/api/bookings/fixed`, {
+    method: 'POST',
+    headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({
+        courtId,
+        activityId,
+        startDateTime: startDateTime.toISOString(),
+        
+        // Si hay ID de usuario (cliente registrado)
+        ...(userId ? { userId } : {}),
+        
+        // Si es invitado (cliente manual)
+        ...(guestName ? { guestName } : {}),
+        ...(guestPhone ? { guestPhone } : {}),
+        
+        // 👇👇👇 AQUÍ ESTABA EL PROBLEMA 👇👇👇
+        // Ahora lo enviamos con ambos nombres por seguridad
+        ...(guestDni ? { guestDni } : {}),
+        ...(isProfessor ? { isProfessor: true } : {})
+    })
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || error.message || 'Error al crear turno fijo');
+  }
+  return res.json();
+};
+
+// --- 6. CANCELAR TURNO FIJO (NUEVO - Corregido para usar fetch) ---
+export const cancelFixedBooking = async (fixedBookingId: number) => {
+  if (!getToken()) throw new Error("Debes iniciar sesión como administrador.");
+
+  const res = await fetchWithAuth(`${API_URL}/api/bookings/fixed/${fixedBookingId}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' }
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.message || 'Error al cancelar turno fijo');
+  }
+  return res.json();
+};
+
+export const searchClients = async (slug: string, query: string) => {
+    if (!getToken()) throw new Error("Debes iniciar sesión.");
+
+    const res = await fetchWithAuth(`${API_URL}/api/clubs/${slug}/admin/clients-list?q=${encodeURIComponent(query)}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+    });
+
+    if (!res.ok) {
+        return [];
+    }
+
+    return res.json();
+};
+

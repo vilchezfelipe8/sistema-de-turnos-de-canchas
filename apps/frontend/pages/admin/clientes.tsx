@@ -1,0 +1,23 @@
+import AdminLayout from '../../components/AdminLayout';
+import NotFound from '../../components/NotFound';
+import { useValidateAuth } from '../../hooks/useValidateAuth';
+import AdminTabClients from '../../components/admin/AdminTabClients';
+import Head from 'next/dist/shared/lib/head';
+
+export default function AdminClientesPage() {
+  const { authChecked, user } = useValidateAuth({ requireAdmin: true });
+
+  if (!authChecked || !user) return null;
+  if (user.role !== 'ADMIN') return <NotFound message="No tenés permiso para acceder al panel de administración." />;
+
+  return (
+    <div className="min-h-screen text-text relative overflow-hidden" style={{ backgroundColor: 'var(--bg)' }}>
+      <AdminLayout>
+        <Head>
+          <title>Clientes | Admin Panel</title>
+        </Head>
+        <AdminTabClients />
+      </AdminLayout>
+    </div>
+  );
+}

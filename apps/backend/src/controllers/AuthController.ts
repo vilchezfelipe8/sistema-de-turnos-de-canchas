@@ -21,7 +21,6 @@ export class AuthController {
             return res.status(400).json({ error: parsed.error.format() });
         }
         const { firstName, lastName, email, password, phoneNumber, role } = parsed.data;
-        console.log('Datos recibidos para registro:', { firstName, lastName, email, phoneNumber, role });
         try {
             const existingUser = await prisma.user.findUnique({ where: { email } });
             if (existingUser) {
@@ -37,8 +36,6 @@ export class AuthController {
                     role
                 }
             });
-            console.log('Usuario creado:', newUser);
-
             res.status(201).json({ message: "Usuario creado", userId: newUser.id });
         } catch (error: any) {
             res.status(500).json({ error: error.message });
@@ -69,17 +66,52 @@ export class AuthController {
             const token = jwt.sign(
                 { userId: user.id, role: user.role },
                 JWT_SECRET,
-                { expiresIn: '24h' }
+                { expiresIn: '6h' }
             );
 
-            res.json({ message: "Login exitoso", token,
-    user: {
-        id: user.id,
-        email: user.email,
-        role: user.role 
-    } });
+            res.json({ 
+                message: "Login exitoso", 
+                token,
+                user: {
+                    id: user.id,
+                    firstName: user.firstName,
+                    lastName: user.lastName,
+                    email: user.email,
+                    phoneNumber: user.phoneNumber,
+                    role: user.role,
+                    clubId: user.clubId
+                } 
+            });
         } catch (error: any) {
             res.status(500).json({ error: error.message });
         }
     }
+
+    /** GET /me: valida el token y devuelve el usuario actual (para rutas protegidas). */
+    getMe = async (req: Request, res: Response) => {
+        const payload = (req as any).user;
+        if (!payload?.userId) {
+            return res.status(401).json({ error: 'No autorizado' });
+        }
+        try {
+            const user = await prisma.user.findUnique({
+                where: { id: payload.userId },
+                select: { id: true, firstName: true, lastName: true, email: true, phoneNumber: true, role: true, clubId: true }
+            });
+            if (!user) {
+                return res.status(401).json({ error: 'Usuario no encontrado' });
+            }
+            res.json({
+                id: user.id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                phoneNumber: user.phoneNumber,
+                role: user.role,
+                clubId: user.clubId
+            });
+        } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    };
 }   

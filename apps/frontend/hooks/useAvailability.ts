@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { getApiUrl } from '../utils/apiUrl';
 
 interface Court {
   id: number;
   name: string;
+  price?: number | null;
 }
 
 interface SlotWithCourts {
@@ -15,14 +17,14 @@ interface AvailabilityResponse {
   slotsWithCourts: SlotWithCourts[];
 }
 
-export function useAvailability(date: Date | null) {
+export function useAvailability(date: Date | null, clubSlug?: string, durationMinutes?: number) {
   const [slotsWithCourts, setSlotsWithCourts] = useState<SlotWithCourts[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL; 
+  const apiUrl = getApiUrl();
 
-  const fetchSlots = async () => {
+  const fetchSlots = useCallback(async () => {
     if (!date) return;
     setLoading(true);
     setError(null);
@@ -35,9 +37,13 @@ export function useAvailability(date: Date | null) {
       const dateString = `${year}-${month}-${day}`;
 
       const timestamp = new Date().getTime();
+      const clubParam = clubSlug ? `&clubSlug=${encodeURIComponent(clubSlug)}` : '';
+      const durationParam = Number.isFinite(durationMinutes)
+        ? `&durationMinutes=${durationMinutes}`
+        : '';
 
       const res = await fetch(
-        `${apiUrl}/api/bookings/availability-with-courts?activityId=1&date=${dateString}&t=${timestamp}`, 
+        `${apiUrl}/api/bookings/availability-with-courts?activityId=1&date=${dateString}&t=${timestamp}${clubParam}${durationParam}`,
         {
             cache: 'no-store',
             headers: {
@@ -58,11 +64,11 @@ export function useAvailability(date: Date | null) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [date, apiUrl, clubSlug, durationMinutes]);
 
   useEffect(() => {
     fetchSlots();
-  }, [date, apiUrl]);
+  }, [fetchSlots]);
 
   return { slotsWithCourts, loading, error, refresh: fetchSlots };
 }

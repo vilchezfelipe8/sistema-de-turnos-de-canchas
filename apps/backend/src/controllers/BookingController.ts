@@ -10,13 +10,36 @@ export class BookingController {
     createBooking = async (req: Request, res: Response) => {
     try {
         const user = (req as any).user;
-        const userIdFromToken = user?.id || user?.userId || null;
+        const userIdFromToken = user?.userId || null;
+
+        const optionalTrimmedString = (minLength?: number) =>
+            z.preprocess(
+                (v) => {
+                    if (typeof v !== 'string') return v;
+                    const trimmed = v.trim();
+                    return trimmed.length === 0 ? undefined : trimmed;
+                },
+                minLength ? z.string().min(minLength).optional() : z.string().optional()
+            );
 
         const createSchema = z.object({
             courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
             startDateTime: z.string().refine((s) => !Number.isNaN(Date.parse(s)), { message: 'Invalid ISO datetime' }),
             activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
-            guestIdentifier: z.string().optional()
+            durationMinutes: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
+            guestIdentifier: optionalTrimmedString(),
+            guestName: optionalTrimmedString(2),
+            guestEmail: z.preprocess(
+                (v) => {
+                    if (typeof v !== 'string') return v;
+                    const trimmed = v.trim();
+                    return trimmed.length === 0 ? undefined : trimmed;
+                },
+                z.string().email().optional()
+            ),
+            guestPhone: optionalTrimmedString(),
+            guestDni: optionalTrimmedString(),
+            isProfessor: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
         });
 
         const dataToValidate = {
@@ -29,80 +52,130 @@ export class BookingController {
             return res.status(400).json({ error: parsed.error.format() });
         }
 
-        const { courtId, startDateTime, activityId, guestIdentifier } = parsed.data;
+    const { courtId, startDateTime, activityId, durationMinutes, guestIdentifier, guestName, guestEmail, guestPhone, guestDni, isProfessor } = parsed.data;
         const startDate = new Date(String(startDateTime));
+        const userRole = user?.role;
+        const isAdmin = userRole === 'ADMIN';
+        const asGuest = Boolean((req.body as any)?.asGuest);
+        const forceGuest = isAdmin && asGuest;
+        const effectiveUserId = forceGuest ? null : (userIdFromToken ? Number(userIdFromToken) : null);
+        const allowGuestWithoutContact = forceGuest;
+        const effectiveGuestIdentifier = forceGuest && !guestIdentifier ? `admin_${Date.now()}` : guestIdentifier;
+    const applyProfessorDiscount = isAdmin && Boolean(isProfessor);
 
-        if (!userIdFromToken && !guestIdentifier) {
+        const now = new Date();
+        if (startDate.getTime() < now.getTime()) {
+            return res.status(400).json({ error: "No se pueden reservar turnos en el pasado." });
+        }
+
+        if (userRole !== 'ADMIN') {
+            const maxDate = new Date(now);
+            maxDate.setMonth(now.getMonth() + 1);
+            if (startDate.getTime() > maxDate.getTime()) {
+                return res.status(400).json({ error: "Solo se pueden reservar turnos hasta 1 mes desde hoy." });
+            }
+        }
+
+        if (!effectiveUserId && !forceGuest && !effectiveGuestIdentifier) {
             return res.status(400).json({ error: "Debe enviar guestIdentifier o autenticarse para reservar." });
         }
-
-        // Verificar disponibilidad
-        const existingBooking = await prisma.booking.findFirst({
-            where: {
-                courtId: courtId,
-                startDateTime: startDate, // Asegúrate que tu DB use 'startDateTime' o 'startTime'
-                status: { not: 'CANCELLED' }
-            }
-        });
-
-        if (existingBooking) {
-            return res.status(400).json({ error: "Esta cancha ya está reservada en ese horario." });
+        if (!effectiveUserId && !guestName) {
+            return res.status(400).json({ error: "Debe enviar un nombre para reservar como invitado." });
+        }
+        if (!effectiveUserId && !forceGuest && !guestPhone) {
+            return res.status(400).json({ error: "Debe enviar un teléfono para reservar como invitado." });
         }
 
-        // 1. CREAR LA RESERVA
+        const isGuest = !effectiveUserId;
+        const effectiveGuestName = isGuest ? guestName : undefined;
+        const effectiveGuestEmail = isGuest ? guestEmail : undefined;
+        const effectiveGuestPhone = isGuest ? guestPhone : undefined;
+        const effectiveGuestDni = isGuest ? guestDni : undefined;
+
+        // 1. CREAR LA RESERVA (Esto sigue igual)
         const result = await this.bookingService.createBooking(
-            userIdFromToken ? Number(userIdFromToken) : null,
-            guestIdentifier,
+            effectiveUserId,
+            effectiveGuestIdentifier,
+            effectiveGuestName,
+            effectiveGuestEmail,
+            effectiveGuestPhone,
+            effectiveGuestDni,
             Number(courtId),
             startDate,
-            Number(activityId)
+            Number(activityId),
+            allowGuestWithoutContact,
+            applyProfessorDiscount,
+            durationMinutes
         );
 
         try {
-            // Buscamos al usuario completo para obtener su número y nombre
-            const fullUser = userIdFromToken ? await prisma.user.findUnique({ where: { id: Number(userIdFromToken) } }) : null;
+            let phoneToSend: string | null = null;
+            let nameToSend: string = 'Jugador';
 
-            if (fullUser && fullUser.phoneNumber) {
-                const options: Intl.DateTimeFormatOptions = {timeZone: 'UTC', // 👈 La clave mágica
-                };
+            // CASO A: Usuario Registrado
+            if (userIdFromToken) {
+                const fullUser = await prisma.user.findUnique({ where: { id: Number(userIdFromToken) } });
+                if (fullUser) {
+                    phoneToSend = fullUser.phoneNumber;
+                    nameToSend = fullUser.firstName || 'Jugador';
+                }
+            } 
+            // CASO B: Usuario Invitado (Guest)
+            else {
+                // Usamos directamente lo que vino del formulario
+                phoneToSend = effectiveGuestPhone || null;
+                nameToSend = effectiveGuestName || 'Jugador';
+            }
 
-                const dateStr = startDate.toLocaleDateString('es-AR', { 
-                    ...options, 
-                    day: '2-digit', month: '2-digit', year: 'numeric' 
-                });
+            // Si conseguimos un teléfono (sea de User o de Guest), mandamos el mensaje
+            if (phoneToSend) {
+                
+                // Formateo de fecha (Tu lógica original)
+                const options: Intl.DateTimeFormatOptions = { 
+                    timeZone: 'America/Argentina/Cordoba', 
+                    };                
 
-                const timeStr = startDate.toLocaleTimeString('es-AR', { 
-                    ...options, 
-                    hour: '2-digit', minute: '2-digit', hour12: false // false para formato 24hs
-                });
-                // Link de pago ficticio (luego lo cambias por MercadoPago real)
-                const paymentLink = `https://tu-club.com/pagar/${result.id}`;
+                const argOffset = 3 * 60 * 60 * 1000;
+                const argDate = new Date(startDate.getTime() - argOffset);
+
+                // Formateamos "a mano" para no depender de locales
+                const dia = String(argDate.getUTCDate()).padStart(2, '0');
+                const mes = String(argDate.getUTCMonth() + 1).padStart(2, '0');
+                const anio = argDate.getUTCFullYear();
+                const horas = String(argDate.getUTCHours()).padStart(2, '0');
+                const minutos = String(argDate.getUTCMinutes()).padStart(2, '0');
+
+                const dateStr = `${dia}/${mes}/${anio}`;
+                const timeStr = `${horas}:${minutos}`;
+
 
                 const message = `
 🎾 *¡Reserva Confirmada!* 🎾
 
-Hola *${fullUser.firstName || 'Jugador'}*, tu turno ha sido agendado.
+Hola *${nameToSend}*, tu turno ha sido agendado.
 
 📅 *Fecha:* ${dateStr}
 ⏰ *Hora:* ${timeStr}
-💰 *Precio:* $${result.price || 1500}
+💰 *Precio:* $${result.price || 28000}
 
 ⚠️ *PAGO PENDIENTE:*
-Para confirmar tu asistencia, por favor abona el turno en el siguiente link:
-👉 ${paymentLink}
-
-O transfiere al Alias: *CLUB.PADEL.2025* y envía el comprobante por acá.
+Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.2025* y envía el comprobante por acá.
 
 ¡Te esperamos!
                 `.trim();
 
-                // Enviamos el mensaje (sin await para no bloquear la respuesta al front)
-                whatsappService.sendMessage(fullUser.phoneNumber, message);
+                // Enviamos el mensaje al teléfono detectado
+                // (Agrego una limpieza simple por si el guest puso guiones o espacios)
+                const cleanPhone = phoneToSend.replace(/\D/g, ''); 
+                await whatsappService.sendMessage(cleanPhone, message);
             }
+
         } catch (waError) {
-            // Solo lo logueamos en consola, no queremos que rompa el flujo principal
             console.error("❌ Error enviando WhatsApp:", waError);
         }
+        // 👆 FIN DEL CAMBIO 👆
+
+// ... (El resto de tu respuesta JSON sigue igual) ...
     
         // Preparar respuesta para el frontend
         const year = startDate.getUTCFullYear();
@@ -124,7 +197,11 @@ O transfiere al Alias: *CLUB.PADEL.2025* y envía el comprobante por acá.
         const querySchema = z.object({
             courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
             date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: "Formato inválido. Use YYYY-MM-DD (ej: 2026-01-06)" }),
-            activityId: z.preprocess((v) => Number(v), z.number().int().positive())
+            activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
+            durationMinutes: z.preprocess(
+                (v) => (v === undefined ? undefined : Number(v)),
+                z.number().int().positive().optional()
+            )
         });
 
         const parsed = querySchema.safeParse(req.query); 
@@ -133,14 +210,15 @@ O transfiere al Alias: *CLUB.PADEL.2025* y envía el comprobante por acá.
             return res.status(400).json({ error: parsed.error.format() });
         }
 
-        const { courtId, date, activityId } = parsed.data;
+        const { courtId, date, activityId, durationMinutes } = parsed.data;
 
         const searchDate = new Date(date);
 
         const slots = await this.bookingService.getAvailableSlots(
             Number(courtId),
-            searchDate, 
-            Number(activityId)
+            searchDate,
+            Number(activityId),
+            durationMinutes
         );
 
         res.json({ date: date, availableSlots: slots });
@@ -153,18 +231,58 @@ O transfiere al Alias: *CLUB.PADEL.2025* y envía el comprobante por acá.
         try {
             const { bookingId } = req.body;
             const user = (req as any).user;
-            const result = await this.bookingService.cancelBooking(Number(bookingId), user?.userId);
+            const clubId = (req as any).clubId; // Agregado por middleware de verificación de club
+            const result = await this.bookingService.cancelBooking(Number(bookingId), user?.userId, clubId);
             res.json({ message: "Reserva cancelada", booking: result });
         } catch (error: any) {
             res.status(400).json({ error: error.message });
         }
     }
 
+    confirmBooking = async (req: Request, res: Response) => {
+    try {
+        const { bookingId, paymentMethod } = req.body; 
+        
+        const userId = (req as any).user?.userId; 
+        if (!userId) {
+            return res.status(401).json({ error: 'No autorizado' });
+        }
+
+
+        const result = await this.bookingService.confirmBooking(
+            bookingId, 
+            userId, 
+            paymentMethod 
+        );
+
+        res.json(result);
+    } catch (error: any) {
+        console.error("Error en confirmBooking:", error);
+        res.status(400).json({ error: error.message });
+    }
+};
+
     getHistory = async (req: Request, res: Response) => {
         try {
             const userId = Number(req.params.userId);
             const history = await this.bookingService.getUserHistory(userId);
-            res.json(history);
+            const payload = history.map((b: any) => ({
+                ...b,
+                court: b.court ? {
+                    id: b.court.id,
+                    name: b.court.name,
+                    club: b.court.club ? { id: b.court.club.id, name: b.court.club.name, slug: b.court.club.slug } : null
+                } : null,
+                items: Array.isArray(b.items)
+                    ? b.items.map((item: any) => ({
+                        id: item.id,
+                        quantity: item.quantity,
+                        price: item.price,
+                        product: item.product ? { id: item.product.id, name: item.product.name } : null
+                    }))
+                    : []
+            }));
+            res.json(payload);
         } catch (error: any) {
             res.status(400).json({ error: error.message });
         }
@@ -174,7 +292,11 @@ O transfiere al Alias: *CLUB.PADEL.2025* y envía el comprobante por acá.
         try {
             const querySchema = z.object({
                 date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: "Formato inválido. Use YYYY-MM-DD (ej: 2026-01-06)" }),
-                activityId: z.preprocess((v) => Number(v), z.number().int().positive())
+                activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                durationMinutes: z.preprocess(
+                    (v) => (v === undefined ? undefined : Number(v)),
+                    z.number().int().positive().optional()
+                )
             });
 
             const parsed = querySchema.safeParse(req.query);
@@ -183,13 +305,14 @@ O transfiere al Alias: *CLUB.PADEL.2025* y envía el comprobante por acá.
                 return res.status(400).json({ error: parsed.error.format() });
             }
 
-            const { date, activityId } = parsed.data;
+            const { date, activityId, durationMinutes } = parsed.data;
 
             const searchDate = new Date(date);
 
             const slots = await this.bookingService.getAllAvailableSlots(
                 searchDate,
-                Number(activityId)
+                Number(activityId),
+                durationMinutes
             );
 
             res.json({ date: date, availableSlots: slots });
@@ -202,7 +325,12 @@ O transfiere al Alias: *CLUB.PADEL.2025* y envía el comprobante por acá.
         try {
             const querySchema = z.object({
                 date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: "Formato inválido. Use YYYY-MM-DD (ej: 2026-01-06)" }),
-                activityId: z.preprocess((v) => Number(v), z.number().int().positive())
+                activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                clubSlug: z.string().optional(),
+                durationMinutes: z.preprocess(
+                    (v) => (v === undefined ? undefined : Number(v)),
+                    z.number().int().positive().optional()
+                )
             });
 
             const parsed = querySchema.safeParse(req.query);
@@ -211,13 +339,21 @@ O transfiere al Alias: *CLUB.PADEL.2025* y envía el comprobante por acá.
                 return res.status(400).json({ error: parsed.error.format() });
             }
 
-            const { date, activityId } = parsed.data;
+            const { date, activityId, clubSlug, durationMinutes } = parsed.data;
 
             const searchDate = new Date(date);
 
+            let clubId: number | undefined;
+            if (clubSlug && typeof clubSlug === 'string' && clubSlug.trim()) {
+                const club = await prisma.club.findUnique({ where: { slug: clubSlug.trim() } });
+                if (club) clubId = club.id;
+            }
+
             const slotsWithCourts = await this.bookingService.getAvailableSlotsWithCourts(
                 searchDate,
-                Number(activityId)
+                Number(activityId),
+                clubId,
+                durationMinutes
             );
 
             res.json({ date: date, slotsWithCourts });
@@ -237,13 +373,235 @@ O transfiere al Alias: *CLUB.PADEL.2025* y envía el comprobante por acá.
             const [year, month, day] = String(date).split('-').map(Number);
             const searchDate = new Date(year, month - 1, day);
 
-            console.log('Buscando reservas para fecha:', searchDate.toISOString());
+            // Obtener clubId del request (agregado por middleware de verificación de club)
+            const clubId = (req as any).clubId;
 
-            const bookings = await this.bookingService.getDaySchedule(searchDate);
+            const bookings = await this.bookingService.getDaySchedule(searchDate, clubId);
             res.json(bookings);
         } catch (error: any) {
             console.error('Error en getAdminSchedule:', error);
             res.status(500).json({ error: error.message });
+        }
+    }
+    
+    createFixed = async (req: Request, res: Response) => {
+        try {
+            const { userId, courtId, activityId, startDateTime, guestName, guestPhone, guestDni, isProfessor } = req.body;
+            const user = (req as any).user;
+            const isAdmin = user?.role === 'ADMIN';
+            const clubId = (req as any).clubId; // Agregado por middleware de verificación de club
+
+            if (!userId && !isAdmin) {
+                return res.status(403).json({ error: "Solo un administrador puede crear turnos fijos sin usuario." });
+            }
+            if (!userId && !guestName) {
+                return res.status(400).json({ error: "Debe enviar un nombre para el turno fijo." });
+            }
+            
+            // Convertimos string a Date
+            const startDate = new Date(startDateTime);
+
+            const result = await this.bookingService.createFixedBooking(
+                userId ? Number(userId) : null, 
+                courtId, 
+                activityId, 
+                startDate,
+                undefined,
+                guestName,
+                guestPhone,
+                guestDni,
+                Boolean(isProfessor),
+                clubId
+            );
+            
+            res.status(201).json(result);
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    }
+
+    cancelFixed = async (req: Request, res: Response) => {
+        try {
+            const id = parseInt(req.params.id as string);
+            const clubId = (req as any).clubId; // Agregado por middleware de verificación de club
+            const result = await this.bookingService.cancelFixedBooking(id, clubId);
+            res.json(result);
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    }
+
+    // OBTENER CONSUMOS (GET)
+    getItems = async (req: Request, res: Response) => {
+        try {
+            const { id } = req.params; // El ID de la reserva viene en la URL
+            
+            // Llamamos al servicio (asegurate que tu servicio tenga este método)
+            const items = await this.bookingService.getBookingItems(Number(id));
+            
+            res.json(items);
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ error: 'Error al obtener los consumos' });
+        }
+    }
+
+    //  AGREGAR CONSUMO (POST)
+   async addItem(req: Request, res: Response) {
+    try {
+
+        // 1. 👇 LÓGICA DE SEGURIDAD PARA EL ID
+        // Buscamos el ID en la URL (params) O en el cuerpo (body)
+        const paramId = req.params.id || req.params.bookingId;
+        const bodyId = req.body.bookingId;
+        const rawBookingId = paramId || bodyId;
+
+        // Recuperamos el resto de datos
+        const { productId, quantity, paymentMethod } = req.body;
+
+        // Si después de buscar en los dos lados no hay ID, cortamos acá
+        if (!rawBookingId) {
+            return res.status(400).json({ error: "Falta el ID de la reserva (bookingId no encontrado en URL ni Body)" });
+        }
+
+        const bookingId = Number(rawBookingId); // Convertimos a número seguro
+
+        // Validaciones básicas...
+        const booking = await prisma.booking.findUnique({ 
+            where: { id: bookingId }, // Usamos el ID seguro
+            include: { court: true }
+        });
+        if (!booking) return res.status(404).json({ error: "Reserva no encontrada" });
+
+        const product = await prisma.product.findUnique({ where: { id: Number(productId) } });
+        if (!product) return res.status(404).json({ error: "Producto no encontrado" });
+
+        if (product.stock < quantity) {
+            return res.status(400).json({ error: "No hay suficiente stock" });
+        }
+
+        // 2. Agregamos el Item a la Reserva
+        const newItem = await prisma.bookingItem.create({
+            data: {
+                bookingId: bookingId,
+                productId: Number(productId),
+                quantity: Number(quantity),
+                price: Number(product.price) // Convertimos Decimal a Number
+            }
+        });
+
+        // 3. Descontamos Stock
+        await prisma.product.update({
+            where: { id: Number(productId) },
+            data: { stock: { decrement: Number(quantity) } }
+        });
+
+        // 4. Lógica de Caja (CashMovement)
+        if (paymentMethod !== 'DEBT') {
+            await prisma.cashMovement.create({
+                data: {
+                    date: new Date(),
+                    type: 'INCOME',
+                    amount: Number(product.price) * Number(quantity),
+                    description: `Venta Extra: ${quantity}x ${product.name} (Reserva #${bookingId})`,
+                    method: paymentMethod || 'CASH', // CASH o TRANSFER
+                    bookingId: bookingId,
+                    clubId: booking.court.clubId
+                }
+            });
+        } 
+        else {
+            // Si es 'DEBT', actualizamos estado si estaba todo pago
+            if (booking.paymentStatus === 'PAID') {
+                await prisma.booking.update({
+                    where: { id: bookingId },
+                    data: { paymentStatus: 'PARTIAL' } 
+                });
+            }
+        }
+
+        const bookingWithTotals = await prisma.booking.findUnique({
+            where: { id: bookingId },
+            include: { items: true, cashMovements: true }
+        });
+
+        if (bookingWithTotals) {
+            const itemsTotal = bookingWithTotals.items.reduce(
+                (sum, item) => sum + Number(item.price) * item.quantity,
+                0
+            );
+            const totalPaid = bookingWithTotals.cashMovements
+                .filter((movement) => movement.type === 'INCOME')
+                .reduce((sum, movement) => sum + Number(movement.amount), 0);
+            const total = Number(bookingWithTotals.price || 0) + itemsTotal;
+            const remaining = total - totalPaid;
+
+            let nextStatus: 'PAID' | 'DEBT' | 'PARTIAL';
+            if (remaining <= 0) nextStatus = 'PAID';
+            else if (totalPaid > 0) nextStatus = 'PARTIAL';
+            else nextStatus = 'DEBT';
+
+            if (bookingWithTotals.paymentStatus !== nextStatus) {
+                await prisma.booking.update({
+                    where: { id: bookingId },
+                    data: { paymentStatus: nextStatus }
+                });
+            }
+        }
+
+        return res.json(newItem);
+
+    } catch (error: any) { // 👇 Le ponemos 'any' para poder leer el mensaje
+        console.error("❌ Error en addItem:", error);
+        // Devolvemos el error real para verlo en el frontend
+        return res.status(500).json({ 
+            error: "Error al agregar item: " + (error.message || "Desconocido") 
+        });
+    }
+}
+
+    //  ELIMINAR CONSUMO (DELETE)
+    removeItem = async (req: Request, res: Response) => {
+        try {
+            const { itemId } = req.params; // OJO: Acá esperamos el ID del item, no de la reserva
+
+            await this.bookingService.removeItemFromBooking(Number(itemId));
+            
+            res.json({ message: 'Consumo eliminado y stock devuelto' });
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ error: 'Error al eliminar el consumo' });
+        }
+    }
+
+    updateStatus = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { paymentStatus } = req.body; // 'PAID' o 'DEBT'
+    await this.bookingService.updatePaymentStatus(Number(id), paymentStatus);
+    res.json({ success: true });
+}
+
+    getDebtors = async (req: Request, res: Response) => {
+        try {
+            const clubId = (req as any).clubId;
+            const data = await this.bookingService.getClubDebtors(clubId);
+            res.json(data);
+        } catch (error) {
+            res.status(500).json({ error: 'Error al obtener clientes con deuda' });
+        }
+    }
+
+  payDebt = async (req: Request, res: Response) => {
+        try {
+            const { bookingId, paymentMethod } = req.body; // 'CASH' o 'TRANSFER'
+            
+            // 👇 ACÁ ESTÁ LA MAGIA: Llamamos al servicio que tiene los logs y la cuenta arreglada
+            const result = await this.bookingService.payBookingDebt(Number(bookingId), paymentMethod);
+            
+            res.json({ message: "Deuda cobrada exitosamente", result });
+        } catch (error: any) {
+            console.error("Error en payDebt Controller:", error);
+            res.status(400).json({ error: error.message || "Error al cobrar deuda" });
         }
     }
 }

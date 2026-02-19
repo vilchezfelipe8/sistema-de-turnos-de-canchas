@@ -5,6 +5,7 @@ import { Court } from '../entities/Court';
 import { Club } from '../entities/Club';
 import { ActivityType } from '../entities/ActivityType';
 import { BookingStatus, Role } from '../entities/Enums';
+import { TimeHelper } from '../utils/TimeHelper';
 
 export class BookingRepository {
 
@@ -17,6 +18,9 @@ export class BookingRepository {
             // user puede ser null para reservas de invitado
             userId: booking.user ? booking.user.id : undefined,
             guestIdentifier: booking.guestIdentifier,
+            guestName: booking.guestName,
+            guestEmail: booking.guestEmail,
+            guestPhone: booking.guestPhone,
             courtId: booking.court.id,
             activityId: booking.activity.id
         };
@@ -29,20 +33,12 @@ export class BookingRepository {
     }
 
     async findByCourtAndDate(courtId: number, date: Date): Promise<Booking[]> {
-        // Normalizar a UTC para evitar inconsistencias entre creación y lectura de bookings
-        const year = date.getUTCFullYear();
-        const month = date.getUTCMonth();
-        const day = date.getUTCDate();
-
-        const startOfDay = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
-        const endOfDay = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
-
-        console.log('Buscando bookings para cancha', courtId, 'entre:', startOfDay.toISOString(), 'y', endOfDay.toISOString());
+        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date);
 
         const found = await prisma.booking.findMany({
             where: {
                 courtId: courtId,
-                startDateTime: { gte: startOfDay, lte: endOfDay }
+                startDateTime: { gte: startUtc, lte: endUtc }
             },
             include: { user: true, court: { include: { club: true } }, activity: true }
         });
@@ -100,19 +96,11 @@ export class BookingRepository {
     }
 
     async findAllByDate(date: Date) {
-        // Normalizar a UTC para que todas las consultas de día usen el mismo rango
-        const year = date.getUTCFullYear();
-        const month = date.getUTCMonth();
-        const day = date.getUTCDate();
-
-        const startOfDay = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
-        const endOfDay = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
-
-        console.log('Buscando bookings entre:', startOfDay.toISOString(), 'y', endOfDay.toISOString());
+        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date);
 
         const bookings = await prisma.booking.findMany({
             where: {
-                startDateTime: { gte: startOfDay, lte: endOfDay },
+                startDateTime: { gte: startUtc, lte: endUtc },
                 status: { not: 'CANCELLED' }
             },
             include: {
@@ -125,27 +113,71 @@ export class BookingRepository {
             }
         });
 
-        console.log('Encontradas', bookings.length, 'reservas');
+        return bookings.map((b: any) => this.mapToEntity(b));
+    }
 
-        // 👇👇👇 AGREGA ESTO JUSTO AQUÍ 👇👇👇
-        if (bookings.length > 0) {
-            console.log("--------------------------------------------------");
-            console.log("🕵️ DETALLE DE RESERVAS ENCONTRADAS:");
-            bookings.forEach((b: any) => {
-                console.log(`👉 ID: ${b.id} | Cancha: ${b.courtId} | Hora: ${b.startDateTime.toISOString()} | Status: ${b.status}`);
-            });
-            console.log("--------------------------------------------------");
-        }
-        // 👆👆👆 ----------------------------- 👆👆👆
+    async findAllByDateAndClub(date: Date, clubId: number) {
+        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date);
+
+        const bookings = await prisma.booking.findMany({
+            where: {
+                startDateTime: { gte: startUtc, lte: endUtc },
+                status: { not: 'CANCELLED' },
+                court: {
+                    clubId: clubId
+                }
+            },
+            include: {
+                user: true,
+                court: { include: { club: true } },
+                activity: true
+            },
+            orderBy: {
+                startDateTime: 'asc'
+            }
+        });
 
         return bookings.map((b: any) => this.mapToEntity(b));
     }
 
     // Helper para convertir lo que viene de DB a tu Clase Entidad
     public mapToEntity(dbItem: any): Booking {
-        const user = dbItem.user ? new User(dbItem.user.id, dbItem.user.firstName, dbItem.user.lastName, dbItem.user.email, dbItem.user.phoneNumber, dbItem.user.role as Role) : null;
-        const club = new Club(dbItem.court.club.id, dbItem.court.club.name, dbItem.court.club.address, dbItem.court.club.contactInfo);
-        const court = new Court(dbItem.court.id, dbItem.court.name, dbItem.court.isIndoor, dbItem.court.surface, club, dbItem.court.isUnderMaintenance);
+        const user = dbItem.user
+            ? new User(
+                dbItem.user.id,
+                dbItem.user.firstName,
+                dbItem.user.lastName,
+                dbItem.user.email,
+                dbItem.user.phoneNumber,
+                dbItem.user.role as Role,
+                (dbItem.user as any).isProfessor ?? false
+            )
+            : null;
+        const club = new Club(
+            dbItem.court.club.id,
+            dbItem.court.club.slug,
+            dbItem.court.club.name,
+            dbItem.court.club.addressLine,
+            dbItem.court.club.city,
+            dbItem.court.club.province,
+            dbItem.court.club.country,
+            dbItem.court.club.contactInfo,
+            dbItem.court.club.phone || undefined,
+            dbItem.court.club.logoUrl || undefined,
+            dbItem.court.club.clubImageUrl || undefined,
+            dbItem.court.club.instagramUrl || undefined,
+            dbItem.court.club.facebookUrl || undefined,
+            dbItem.court.club.websiteUrl || undefined,
+            dbItem.court.club.description || undefined,
+            dbItem.court.club.lightsEnabled ?? false,
+            dbItem.court.club.lightsExtraAmount ?? null,
+                dbItem.court.club.lightsFromHour ?? null,
+                dbItem.court.club.professorDiscountEnabled ?? false,
+                dbItem.court.club.professorDiscountPercent ?? null,
+            dbItem.court.club.createdAt,
+            dbItem.court.club.updatedAt
+        );
+    const court = new Court(dbItem.court.id, dbItem.court.name, dbItem.court.isIndoor, dbItem.court.surface, club, dbItem.court.isUnderMaintenance, null);
         const activity = new ActivityType(dbItem.activity.id, dbItem.activity.name, dbItem.activity.description, dbItem.activity.defaultDurationMinutes);
 
         const booking = new Booking(
@@ -153,7 +185,15 @@ export class BookingRepository {
             dbItem.startDateTime,
             dbItem.endDateTime,
             dbItem.price,
-            user, court, activity, dbItem.status as BookingStatus, dbItem.guestIdentifier
+            user,
+            court,
+            activity,
+            dbItem.status as BookingStatus,
+            dbItem.guestIdentifier,
+            dbItem.guestName,
+            dbItem.guestEmail,
+            dbItem.guestPhone,
+            dbItem.fixedBookingId || null 
         );
         if (dbItem.cancelledBy) booking.cancelledBy = dbItem.cancelledBy;
         if (dbItem.cancelledAt) booking.cancelledAt = dbItem.cancelledAt;

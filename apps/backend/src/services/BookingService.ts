@@ -3,7 +3,7 @@ import { ClubRepository } from '../repositories/ClubRepository';
 import { UserRepository } from '../repositories/UserRepository';
 import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
 import { Booking } from '../entities/Booking';
-import { BookingStatus } from '../entities/Enums';
+//import { BookingStatus } from '../entities/Enums';
 import { TimeHelper } from '../utils/TimeHelper';
 import { CourtRepository } from '../repositories/CourtRepository';
 import { prisma } from '../prisma';
@@ -11,23 +11,123 @@ import { User } from '../entities/User';
 import { Club } from '../entities/Club';
 import { Court as CourtEntity } from '../entities/Court';
 import { ActivityType } from '../entities/ActivityType';
+import { PaymentStatus, BookingStatus } from '@prisma/client';
+import { CashRepository } from '../repositories/CashRepository';
+import { ProductRepository } from '../repositories/ProductRepository';
 
 export class BookingService {
     constructor(
         private bookingRepo: BookingRepository,
         private courtRepo: CourtRepository,
         private userRepo: UserRepository,
-        private activityRepo: ActivityTypeRepository
+        private activityRepo: ActivityTypeRepository,
+        private cashRepository: CashRepository,
+        private productRepository: ProductRepository
     ) {}
 
-    async createBooking(userId: number | null, guestIdentifier: string | undefined, courtId: number, startDateTime: Date, activityId: number): Promise<Booking> {
+    private defaultFixedSlots = [
+        "08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:30", "19:00", "20:30", "22:00"
+    ];
+
+    private toMinutes(time: string | null | undefined) {
+        if (!time) return null;
+        const [hh, mm] = String(time).split(':').map((n) => Number(n));
+        if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+        return hh * 60 + mm;
+    }
+
+    private fromMinutes(total: number) {
+        const hh = Math.floor(total / 60);
+        const mm = total % 60;
+        return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+    }
+
+    private normalizeDurations(raw: any, fallback: number) {
+        const parsed = Array.isArray(raw)
+            ? raw.map((v) => Number(v)).filter((v) => Number.isFinite(v) && v > 0)
+            : [];
+        return parsed.length > 0 ? parsed : [fallback];
+    }
+
+    private normalizeFixedSlots(raw: any) {
+        const parsed = Array.isArray(raw)
+            ? raw.map((v) => String(v)).filter((v) => /^\d{2}:\d{2}$/.test(v))
+            : [];
+        return parsed.length > 0 ? parsed : this.defaultFixedSlots;
+    }
+
+    private buildRangeSlots(openTime: string, closeTime: string, intervalMinutes: number, durationMinutes: number) {
+        const openMinutes = this.toMinutes(openTime);
+        const closeMinutesRaw = this.toMinutes(closeTime);
+        if (openMinutes === null || closeMinutesRaw === null) return [];
+        const closeMinutes = closeMinutesRaw <= openMinutes ? closeMinutesRaw + 24 * 60 : closeMinutesRaw;
+        const slots: Array<{ slotTime: string; dayOffset: number }> = [];
+        for (let t = openMinutes; t + durationMinutes <= closeMinutes; t += intervalMinutes) {
+            const displayTotal = t % (24 * 60);
+            const dayOffset = t >= 24 * 60 ? 1 : 0;
+            slots.push({ slotTime: this.fromMinutes(displayTotal), dayOffset });
+        }
+        return slots;
+    }
+
+    private resolveScheduleSlots(club: any, durationMinutes: number) {
+        const mode = club?.scheduleMode || 'FIXED';
+        if (mode === 'RANGE') {
+            const openTime = club?.scheduleOpenTime || '08:00';
+            const closeTime = club?.scheduleCloseTime || '22:00';
+            const intervalMinutes = Number(club?.scheduleIntervalMinutes || 30);
+            return this.buildRangeSlots(openTime, closeTime, intervalMinutes, durationMinutes);
+        }
+        // For FIXED mode, return objects with dayOffset 0
+        return this.normalizeFixedSlots(club?.scheduleFixedSlots).map((s: string) => ({ slotTime: s, dayOffset: 0 }));
+    }
+
+    async createBooking(
+        userId: number | null,
+        guestIdentifier: string | undefined,
+        guestName: string | undefined,
+        guestEmail: string | undefined,
+        guestPhone: string | undefined,
+        guestDni: string | undefined,
+        courtId: number,
+        startDateTime: Date,
+        activityId: number,
+        allowGuestWithoutContact = false,
+        isProfessorOverride: boolean = false,
+        durationMinutes?: number
+    ): Promise<Booking> {
         let user: User | null = null;
         if (userId) {
             user = await this.userRepo.findById(userId);
             if (!user) throw new Error("Usuario no encontrado");
         } else {
-            // Si no hay userId, requerimos guestIdentifier
-            if (!guestIdentifier) throw new Error("Debe proveer guestIdentifier para reservas como invitado.");
+            if (allowGuestWithoutContact) {
+                if (!guestIdentifier) {
+                    guestIdentifier = `admin_${Date.now()}`;
+                }
+            } else {
+                // --- VALIDACIONES ESTRICTAS PARA INVITADOS/ADMIN ---
+
+                // 1. Nombre obligatorio
+                if (!guestName || guestName.trim().length < 2) {
+                    throw new Error("El nombre es obligatorio para reservas como invitado.");
+                }
+
+                // 2. DNI obligatorio (Vital para tu lista de deudores)
+                if (!guestDni || guestDni.trim().length < 6) {
+                    throw new Error("El DNI es obligatorio para identificar al cliente.");
+                }
+
+                // 3. Teléfono obligatorio (Vital para contacto y agrupación)
+                if (!guestPhone || guestPhone.trim().length < 7) {
+                    throw new Error("El número de teléfono es obligatorio.");
+                }
+
+                // 4. Aseguramos el guestIdentifier (usamos el DNI si no hay uno)
+                if (!guestIdentifier) {
+                    guestIdentifier = guestDni;
+                }
+            }
         }
 
         const court = await this.courtRepo.findById(courtId);
@@ -36,8 +136,57 @@ export class BookingService {
 
         const activity = await this.activityRepo.findById(activityId);
         if (!activity) throw new Error("Actividad no existe");
+        const clubConfig = (court as any)?.club;
+        const allowedDurations = this.normalizeDurations(clubConfig?.scheduleDurations, activity.defaultDurationMinutes);
+        const effectiveDuration = durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
+        // Permitir override para profesores: si se indica isProfessorOverride y se solicita 60, permitir aunque no esté en allowedDurations
+        if (!allowedDurations.includes(effectiveDuration)) {
+            if (!(isProfessorOverride && effectiveDuration === 60)) {
+                throw new Error("Duración no permitida por el club");
+            }
+        }
 
-        const endDateTime = new Date(startDateTime.getTime() + activity.defaultDurationMinutes * 60000);
+        const slotTime = `${String(startDateTime.getHours()).padStart(2, '0')}:${String(startDateTime.getMinutes()).padStart(2, '0')}`;
+        const possibleSlots = this.resolveScheduleSlots(clubConfig, effectiveDuration) as Array<{ slotTime: string; dayOffset: number }>;
+        const possibleSlotTimes = possibleSlots.map(s => s.slotTime);
+        if (!possibleSlotTimes.includes(slotTime)) {
+            throw new Error("Horario no permitido por el club");
+        }
+
+        const endDateTime = new Date(startDateTime.getTime() + effectiveDuration * 60000);
+
+    // Calcular precio base y extra por luces según configuración del club
+        const BASE_PRICE = Number((court as any)?.price ?? 0);
+        if (!Number.isFinite(BASE_PRICE) || BASE_PRICE <= 0) {
+            throw new Error('Precio de cancha no configurado.');
+        }
+        const clubPricingConfig = court.club as any;
+        const isProfessor = Boolean(user?.isProfessor) || Boolean(isProfessorOverride);
+        let finalPrice = BASE_PRICE;
+
+        if (isProfessor && clubPricingConfig?.professorDiscountEnabled) {
+            const discountPercent = Number(clubPricingConfig?.professorDiscountPercent ?? 0);
+            if (Number.isFinite(discountPercent) && discountPercent > 0) {
+                const clamped = Math.min(Math.max(discountPercent, 0), 100);
+                finalPrice = BASE_PRICE * (1 - clamped / 100);
+            }
+        }
+        if (clubPricingConfig && clubPricingConfig.lightsEnabled && clubPricingConfig.lightsExtraAmount && clubPricingConfig.lightsFromHour) {
+            try {
+                const [lh, lm] = String(clubPricingConfig.lightsFromHour).split(':').map((n: string) => parseInt(n, 10));
+                if (!Number.isNaN(lh) && !Number.isNaN(lm)) {
+                    const bookingHour = startDateTime.getHours();
+                    const bookingMinutes = startDateTime.getMinutes();
+                    const bookingTotalMinutes = bookingHour * 60 + bookingMinutes;
+                    const lightsTotalMinutes = lh * 60 + lm;
+                    if (bookingTotalMinutes >= lightsTotalMinutes) {
+                        finalPrice += Number(clubPricingConfig.lightsExtraAmount);
+                    }
+                }
+            } catch {
+                // Si algo falla en el parseo, seguimos cobrando solo el precio base
+            }
+        }
 
         const created = await prisma.$transaction(async (tx: any) => {
             const overlapping = await tx.booking.findMany({
@@ -53,18 +202,22 @@ export class BookingService {
             });
 
             if (overlapping.length > 0) {
-                throw new Error(`El turno ${startDateTime.toISOString()} ya está ocupado.`);
+                throw new Error(`El turno ${startDateTime.toISOString()} ya está confirmado.`);
             }
 
             const saved = await tx.booking.create({
                 data: {
                     startDateTime,
                     endDateTime,
-                    price: 1500,
+                    price: finalPrice,
                     status: BookingStatus.PENDING,
                     // userId puede ser null para invitado
                     userId: user ? user.id : undefined,
                     guestIdentifier: guestIdentifier,
+                    guestName: guestName,
+                    guestEmail: guestEmail,
+                    guestPhone: guestPhone,
+                    guestDni: guestDni,
                     courtId: courtId,
                     activityId: activityId
                 },
@@ -77,178 +230,291 @@ export class BookingService {
         return this.bookingRepo.mapToEntity(created);
     }
 
-async getAvailableSlots(courtId: number, date: Date, activityId: number): Promise<string[]> {
-    
-    
-    const court = await this.courtRepo.findById(courtId);
-    if (!court) throw new Error("Cancha no encontrada");
+    async getAvailableSlots(courtId: number, date: Date, activityId: number, durationMinutes?: number): Promise<string[]> {
+        const court = await this.courtRepo.findById(courtId);
+        if (!court) throw new Error("Cancha no encontrada");
 
-    const activity = await this.activityRepo.findById(activityId);
-    if (!activity) throw new Error("Actividad no encontrada");
+        const activity = await this.activityRepo.findById(activityId);
+        if (!activity) throw new Error("Actividad no encontrada");
 
-    const year = date.getUTCFullYear();
-    const month = date.getUTCMonth();
-    const day = date.getUTCDate();
+        const { startUtc: startOfDay, endUtc: endOfDay } = TimeHelper.getUtcRangeForLocalDate(date);
 
-    const startOfDay = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
-    const endOfDay = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
+        const existingBookings = await this.bookingRepo.findByCourtAndDateRange(courtId, startOfDay, endOfDay);
 
-    // --- AGREGAR ESTOS LOGS ---
-    console.log("---------------- DEBUG DISPONIBILIDAD ----------------");
-    console.log("📅 Buscando para fecha (UTC):", startOfDay.toISOString());
-    
-    const existingBookings = await this.bookingRepo.findByCourtAndDateRange(courtId, startOfDay, endOfDay);
-    
-    
-    console.log(`🔎 Encontradas ${existingBookings.length} reservas en total.`);
-    existingBookings.forEach(b => {
-        console.log(`   - ID: ${b.id} | Start: ${b.startDateTime.toISOString()} | Status: ${b.status}`);
-    });
-    console.log("------------------------------------------------------");
-    // --------------------------    
-
-
-    const possibleSlots = [
-        "08:00", 
-        "09:30", 
-        "11:00", 
-        "12:30", 
-        "14:00", 
-        "15:30", 
-        // "17:00" -> SALTADO (Descanso de 17:00 a 17:30) ☕
-        "17:30", 
-        "19:00", 
-        "20:30",
-        "22:00"
-    ];
-
-    const duration = activity.defaultDurationMinutes; 
-
-    const freeSlots = possibleSlots.filter(slotStart => {
-        const slotEnd = TimeHelper.addMinutes(slotStart, duration);
-
-        const [sh, sm] = slotStart.split(':').map(Number);
-        const [eh, em] = slotEnd.split(':').map(Number);
-
-        const slotStartDate = new Date(Date.UTC(year, month, day, sh, sm, 0));
-        const slotEndDate = new Date(Date.UTC(year, month, day, eh, em, 0));
-
-        const isOccupied = existingBookings.some(booking => {
-            if (booking.status === "CANCELLED") return false; 
-
-            return TimeHelper.isOverlappingDates(
-                slotStartDate, 
-                slotEndDate, 
-                booking.startDateTime, 
-                booking.endDateTime
-            );
-        });
-        
-
-        return !isOccupied;
-    });
-
-    return freeSlots;
-}
-
-    async cancelBooking(bookingId: number, cancelledByUserId: number) {
-        const booking = await this.bookingRepo.findById(bookingId);
-        if (!booking) {
-            throw new Error("La reserva no existe.");
+        const allowedDurations = this.normalizeDurations((court as any)?.club?.scheduleDurations, activity.defaultDurationMinutes);
+        const effectiveDuration = durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
+        if (!allowedDurations.includes(effectiveDuration)) {
+            throw new Error("Duración no permitida por el club");
         }
-        await this.bookingRepo.delete(bookingId, cancelledByUserId);
-        const updated = await this.bookingRepo.findById(bookingId);
-        return updated;
-    }
 
-    async getUserHistory(userId: number) {
-    const bookings = await this.bookingRepo.findByUserId(userId);
-    const now = new Date();
+        const possibleSlots = this.resolveScheduleSlots((court as any)?.club, effectiveDuration) as Array<{ slotTime: string; dayOffset: number }>;
 
-    for (const booking of bookings) {
-        const durationMinutes = 90; 
-        
-        const endTime = new Date(booking.startDateTime.getTime() + (durationMinutes * 60000));
-
-        if (booking.status !== 'CANCELLED' && booking.status !== 'COMPLETED' && endTime < now) {
-            
-            // Actualizar en BD
-            await prisma.booking.update({
-                where: { id: booking.id },
-                data: { status: BookingStatus.COMPLETED }
-            });
-
-            // Actualizar en memoria para que el usuario lo vea bien ya mismo
-            booking.status = BookingStatus.COMPLETED;
-        }
-    }
-
-    return bookings;
-}
-
-    async getDaySchedule(date: Date) {
-        // Obtener todas las canchas activas (no en mantenimiento)
-        const allCourts = await this.courtRepo.findAll();
-        const activeCourts = allCourts.filter(court => !court.isUnderMaintenance);
-
-        // Obtener todas las bookings del día
-        const bookings = await this.bookingRepo.findAllByDate(date);
-
-        // Slots posibles del día
-        const possibleSlots = [
-            "08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:30", "19:00", "20:30", "22:00"
+        const anchors = [
+            (() => { const d = new Date(date); d.setDate(d.getDate() - 1); return d; })(),
+            new Date(date)
         ];
 
-        // Crear grilla completa
-        const schedule = [];
+        const now = new Date();
+        const duration = effectiveDuration;
+        const seen = new Set<string>();
+        const freeSlotsResult: string[] = [];
 
-        console.log('Creando grilla para', activeCourts.length, 'canchas activas');
+        for (const anchor of anchors) {
+            for (const slotObj of possibleSlots) {
+                const slotDateCandidate = new Date(anchor);
+                slotDateCandidate.setDate(slotDateCandidate.getDate() + (slotObj.dayOffset || 0));
+                if (
+                    slotDateCandidate.getFullYear() !== date.getFullYear() ||
+                    slotDateCandidate.getMonth() !== date.getMonth() ||
+                    slotDateCandidate.getDate() !== date.getDate()
+                ) continue;
 
-        for (const court of activeCourts) {
-            for (const slotTime of possibleSlots) {
-                // Parsear el slot time - crear fecha en UTC
-                const [hours, minutes] = slotTime.split(':').map(Number);
-                const slotDateTime = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes, 0));
+                let slotStartDate: Date;
+                try {
+                    slotStartDate = TimeHelper.localSlotToUtc(slotDateCandidate, slotObj.slotTime);
+                } catch {
+                    continue;
+                }
+                if (slotStartDate.getTime() <= now.getTime()) continue;
 
-                // Buscar si hay una booking para esta cancha y hora
-                // Comparar en UTC para evitar problemas de zona horaria
-                const booking = bookings.find(b => {
-                    const courtMatch = b.court.id === court.id;
-                    const bookingUTCTime = Date.UTC(
-                        b.startDateTime.getUTCFullYear(),
-                        b.startDateTime.getUTCMonth(),
-                        b.startDateTime.getUTCDate(),
-                        b.startDateTime.getUTCHours(),
-                        b.startDateTime.getUTCMinutes()
+                const slotEndDate = new Date(slotStartDate.getTime() + duration * 60000);
+
+                const isOccupied = existingBookings.some(booking => {
+                    if (booking.status === "CANCELLED") return false;
+                    return TimeHelper.isOverlappingDates(
+                        slotStartDate,
+                        slotEndDate,
+                        booking.startDateTime,
+                        booking.endDateTime
                     );
-                    const slotUTCTime = slotDateTime.getTime();
-                    const timeMatch = bookingUTCTime === slotUTCTime;
-                    
-                    if (courtMatch) {
-                        console.log(`Cancha ${court.id} - Booking UTC: ${new Date(bookingUTCTime).toISOString()}, Slot UTC: ${slotDateTime.toISOString()}`);
-                        console.log(`Time match: ${timeMatch}`);
-                    }
-                    
-                    return courtMatch && timeMatch;
                 });
 
-                schedule.push({
-                    courtId: court.id,
-                    courtName: court.name,
-                    slotTime: slotTime,
-                    startDateTime: slotDateTime.toISOString(),
-                    isAvailable: !booking,
-                    booking: booking || null
-                });
+                if (!isOccupied && !seen.has(slotObj.slotTime)) {
+                    seen.add(slotObj.slotTime);
+                    freeSlotsResult.push(slotObj.slotTime);
+                }
             }
         }
 
-        // Ordenar por hora (slotTime) primero, luego por nombre de cancha
+        return freeSlotsResult;
+    }
+
+   async cancelBooking(bookingId: number, cancelledByUserId: number, clubId?: number) {
+        // 1. Buscamos la reserva
+        const booking = await this.bookingRepo.findById(bookingId);
+        
+        if (!booking) {
+            throw new Error("La reserva no existe.");
+        }
+        
+        // Si hay clubId, verificar que la reserva pertenece al club
+        if (clubId && booking.court.club.id !== clubId) {
+            throw new Error("No tienes acceso a esta reserva");
+        }
+
+        // 👇 CORRECCIÓN DEFINITIVA DE CAJA 👇
+        // Buscamos cuánto pagó REALMENTE el cliente por esta reserva en el registro de caja
+        const bookingWithPayments = await prisma.booking.findUnique({
+            where: { id: bookingId },
+            include: { cashMovements: true }
+        });
+
+        if (bookingWithPayments) {
+            // Sumamos todos los ingresos (INCOME) asociados a esta reserva
+            const totalPaid = bookingWithPayments.cashMovements
+                .filter(m => m.type === 'INCOME')
+                .reduce((sum, m) => sum + Number(m.amount), 0);
+
+            // Solo registramos una salida de caja si el cliente REALMENTE había pagado algo
+            if (totalPaid > 0) {
+                try {
+                    await this.cashRepository.create({
+                        date: new Date(),
+                        type: 'EXPENSE', // 🔴 Registramos un GASTO (Salida/Devolución)
+                        amount: totalPaid, // 👈 Devolvemos EXACTAMENTE lo que puso (Seña o Total)
+                        description: `Anulación Reserva #${bookingId} (${booking.court.name})`,
+                        method: 'CASH', // Asumimos devolución en efectivo por defecto
+                        bookingId: bookingId
+                    });
+                    console.log(`📉 Caja ajustada: -$${totalPaid} por cancelación de reserva #${bookingId}`);
+                } catch (error) {
+                    console.error("⚠️ Error al registrar devolución en caja:", error);
+                    // No detenemos la cancelación, solo avisamos.
+                }
+            } else {
+                console.log(`ℹ️ Reserva #${bookingId} cancelada. No se tocó la caja porque no había pagos previos.`);
+            }
+        }
+
+        // 2. Ahora sí, procedemos a cancelar (Soft Delete o cambio de estado)
+        await this.bookingRepo.delete(bookingId, cancelledByUserId);
+        
+        const updated = await this.bookingRepo.findById(bookingId);
+        return updated;
+    }
+    
+    async confirmBooking(bookingId: number, userId: number, paymentMethod: string = 'CASH') {
+    
+    // 1. Buscamos la reserva
+    const booking = await this.bookingRepo.findById(bookingId);
+    if (!booking) throw new Error("La reserva no existe.");
+
+    const paymentStatus = paymentMethod === 'DEBT' 
+    ? PaymentStatus.DEBT
+    : PaymentStatus.PAID;
+
+    const updated = await prisma.booking.update({
+        where: { id: bookingId },
+        data: { 
+            status: BookingStatus.CONFIRMED, // La cancha está ocupada
+            paymentStatus: paymentStatus,    // <--- ACÁ SE GENERA LA DEUDA O EL PAGO
+            // Opcional: Si tenés una columna para guardar el método en la reserva:
+            // paymentMethod: paymentMethod 
+        },
+        include: { user: true, court: { include: { club: true } }, activity: true }
+    });
+
+    // 4. Lógica de CAJA (Solo entra plata si NO es deuda)
+    if (paymentMethod !== 'DEBT') {
+        try {
+            const price = Number(updated.price || 0);
+            if (price > 0) {
+                await this.cashRepository.create({
+                    date: new Date(),
+                    type: 'INCOME',
+                    amount: price,
+                    description: `Cobro Turno #${updated.id} - ${updated.court.name}`,
+                    method: paymentMethod, 
+                    bookingId: updated.id
+                });
+            }
+        } catch (error) {
+            console.error("⚠️ Error caja:", error);
+        }
+    } else {
+        // Log para control
+        console.log(`📝 Deuda registrada al cliente ${updated.guestName} por Reserva #${updated.id}`);
+    }
+
+    return this.bookingRepo.mapToEntity(updated);
+}
+
+    async getUserHistory(userId: number) {
+        const bookings = await prisma.booking.findMany({
+            where: { userId },
+            include: {
+                court: { include: { club: true } },
+                activity: true,
+                items: { include: { product: true } }
+            },
+            orderBy: { startDateTime: 'desc' }
+        });
+        return bookings;
+    }
+
+    async getDaySchedule(date: Date, clubId?: number) {
+        // Obtener canchas activas (no en mantenimiento)
+        let allCourts;
+        if (clubId) {
+            allCourts = await prisma.court.findMany({
+                where: { clubId, isUnderMaintenance: false },
+                include: { club: true, activities: true }
+            });
+        } else {
+            allCourts = await this.courtRepo.findAll();
+        }
+        const activeCourts = allCourts.filter(court => !court.isUnderMaintenance);
+
+        const startOfDay = new Date(date);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(date);
+        endOfDay.setHours(23, 59, 59, 999);
+
+        // 2. Buscamos directo con Prisma para incluir los PRODUCTOS
+       const bookings = await prisma.booking.findMany({
+    where: {
+        startDateTime: {
+            gte: startOfDay,
+            lte: endOfDay
+        },
+        // Si hay clubId, filtramos por ese club
+        ...(clubId ? { court: { clubId: clubId } } : {}),
+        status: { not: 'CANCELLED' }
+    },
+    include: {
+        court: true,
+        user: true, 
+        
+        // 👇 AQUÍ ESTÁ LA CLAVE: Traemos los items y sus productos
+        items: { 
+            include: {
+                product: true
+            }
+        }
+    }
+});
+
+        const clubConfig = clubId ? await prisma.club.findUnique({ where: { id: clubId } }) : null;
+        const defaultDuration = 90;
+        const durations = this.normalizeDurations(clubConfig?.scheduleDurations, defaultDuration);
+        const effectiveDuration = durations[0] ?? defaultDuration;
+        const possibleSlots = this.resolveScheduleSlots(clubConfig, effectiveDuration);
+
+        const schedule = [];
+
+        // Consider slots coming from anchor = date and anchor = date - 1
+        const anchors = [
+            (() => { const d = new Date(date); d.setDate(d.getDate() - 1); return d; })(),
+            new Date(date)
+        ];
+
+        for (const court of activeCourts) {
+            const seen = new Set<string>();
+            for (const anchor of anchors) {
+                for (const slotObj of possibleSlots as Array<{ slotTime: string; dayOffset: number }>) {
+                    const slotDateCandidate = new Date(anchor);
+                    slotDateCandidate.setDate(slotDateCandidate.getDate() + (slotObj.dayOffset || 0));
+                    if (
+                        slotDateCandidate.getFullYear() !== date.getFullYear() ||
+                        slotDateCandidate.getMonth() !== date.getMonth() ||
+                        slotDateCandidate.getDate() !== date.getDate()
+                    ) continue;
+
+                    const slotDateTime = TimeHelper.localSlotToUtc(slotDateCandidate, slotObj.slotTime);
+
+                    const booking = bookings.find(b => {
+                        const courtMatch = b.court.id === court.id;
+                        const bookingUTCTime = Date.UTC(
+                            b.startDateTime.getUTCFullYear(),
+                            b.startDateTime.getUTCMonth(),
+                            b.startDateTime.getUTCDate(),
+                            b.startDateTime.getUTCHours(),
+                            b.startDateTime.getUTCMinutes()
+                        );
+                        const slotUTCTime = slotDateTime.getTime();
+                        const timeMatch = bookingUTCTime === slotUTCTime;
+                        return courtMatch && timeMatch;
+                    });
+
+                    const key = `${slotObj.slotTime}`;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+
+                    schedule.push({
+                        courtId: court.id,
+                        courtName: court.name,
+                        slotTime: slotObj.slotTime,
+                        startDateTime: slotDateTime.toISOString(),
+                        isAvailable: !booking,
+                        booking: booking || null
+                    });
+                }
+            }
+        }
+
         schedule.sort((a, b) => {
-            // Primero comparar por slotTime
             if (a.slotTime < b.slotTime) return -1;
             if (a.slotTime > b.slotTime) return 1;
-            // Si son iguales, comparar por courtName
             if (a.courtName < b.courtName) return -1;
             if (a.courtName > b.courtName) return 1;
             return 0;
@@ -257,100 +523,141 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
         return schedule;
     }
 
-    async getAllAvailableSlots(date: Date, activityId: number): Promise<string[]> {
-        // Obtener todas las canchas activas
+    async getAllAvailableSlots(date: Date, activityId: number, durationMinutes?: number): Promise<string[]> {
         const allCourts = await this.courtRepo.findAll();
         const activeCourts = allCourts.filter(court => !court.isUnderMaintenance);
-
-        // Obtener todas las bookings del día
         const bookings = await this.bookingRepo.findAllByDate(date);
 
-        // Slots posibles del día
-        const possibleSlots = [
-            "08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:30", "19:00", "20:30", "22:00"
+        const activity = await this.activityRepo.findById(activityId);
+        if (!activity) throw new Error("Actividad no encontrada");
+
+        const allowedDurations = this.normalizeDurations(null, activity.defaultDurationMinutes);
+        const effectiveDuration = durationMinutes ?? activity.defaultDurationMinutes;
+        if (!allowedDurations.includes(effectiveDuration)) {
+            throw new Error("Duración no permitida por el club");
+        }
+
+        const possibleSlots = this.resolveScheduleSlots(null, effectiveDuration) as Array<{ slotTime: string; dayOffset: number }>;
+
+        const anchors = [
+            (() => { const d = new Date(date); d.setDate(d.getDate() - 1); return d; })(),
+            new Date(date)
         ];
 
-        // Encontrar slots donde al menos una cancha está disponible
-        const availableSlots = possibleSlots.filter(slotTime => {
-            // Parsear el slot time - crear fecha en UTC
-            const [hours, minutes] = slotTime.split(':').map(Number);
-            const slotDateTime = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes, 0));
+        const seen = new Set<string>();
+        const result: string[] = [];
 
-            // Verificar si al menos una cancha está disponible en este slot
-            const hasAvailableCourt = activeCourts.some(court => {
-                const booking = bookings.find(b => {
-                    const courtMatch = b.court.id === court.id;
-                    const bookingUTCTime = Date.UTC(
-                        b.startDateTime.getUTCFullYear(),
-                        b.startDateTime.getUTCMonth(),
-                        b.startDateTime.getUTCDate(),
-                        b.startDateTime.getUTCHours(),
-                        b.startDateTime.getUTCMinutes()
-                    );
-                    const slotUTCTime = slotDateTime.getTime();
-                    const timeMatch = bookingUTCTime === slotUTCTime;
-                    
-                    return courtMatch && timeMatch;
+        for (const anchor of anchors) {
+            for (const slotObj of possibleSlots) {
+                const slotDateCandidate = new Date(anchor);
+                slotDateCandidate.setDate(slotDateCandidate.getDate() + (slotObj.dayOffset || 0));
+                if (
+                    slotDateCandidate.getFullYear() !== date.getFullYear() ||
+                    slotDateCandidate.getMonth() !== date.getMonth() ||
+                    slotDateCandidate.getDate() !== date.getDate()
+                ) continue;
+
+                const slotDateTime = TimeHelper.localSlotToUtc(slotDateCandidate, slotObj.slotTime);
+
+                const hasAvailableCourt = activeCourts.some(court => {
+                    const booking = bookings.find(b => {
+                        const courtMatch = b.court.id === court.id;
+                        const bookingUTCTime = Date.UTC(
+                            b.startDateTime.getUTCFullYear(),
+                            b.startDateTime.getUTCMonth(),
+                            b.startDateTime.getUTCDate(),
+                            b.startDateTime.getUTCHours(),
+                            b.startDateTime.getUTCMinutes()
+                        );
+                        const slotUTCTime = slotDateTime.getTime();
+                        const timeMatch = bookingUTCTime === slotUTCTime;
+                        return courtMatch && timeMatch;
+                    });
+                    return !booking;
                 });
-                return !booking; // Disponible si no hay booking
-            });
 
-            return hasAvailableCourt;
-        });
+                if (hasAvailableCourt && !seen.has(slotObj.slotTime)) {
+                    seen.add(slotObj.slotTime);
+                    result.push(slotObj.slotTime);
+                }
+            }
+        }
 
-        return availableSlots;
+        return result;
     }
 
-    async getAvailableSlotsWithCourts(date: Date, activityId: number): Promise<Array<{
+    async getAvailableSlotsWithCourts(date: Date, activityId: number, clubId?: number, durationMinutes?: number): Promise<Array<{
         slotTime: string;
         availableCourts: Array<{
             id: number;
             name: string;
+            price?: number | null;
         }>;
     }>> {
-        // 1. Logs para ver qué está pasando realmente (Detector de Mentiras)
-        console.log("---------------- GRID DEBUG ----------------");
-        console.log("📅 Fecha solicitada (UTC):", date.toISOString());
-        
-        // Obtener canchas y actividad
-        const allCourts = await this.courtRepo.findAll();
+        const allCourts = await this.courtRepo.findAll(clubId);
         const activeCourts = allCourts.filter(court => !court.isUnderMaintenance);
         const bookings = await this.bookingRepo.findAllByDate(date);
         const activity = await this.activityRepo.findById(activityId);
         
         if (!activity) throw new Error("Actividad no encontrada");
 
-        console.log(`🔎 Encontradas ${bookings.length} reservas para filtrar en la grilla.`);
+        const activityCourts = activeCourts.filter((court: any) =>
+            Array.isArray(court.activities) && court.activities.some((act: any) => act.id === activityId)
+        );
 
-        const possibleSlots = [
-            "08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:30", "19:00", "20:30", "22:00"
+        if (activityCourts.length === 0) {
+            return [];
+        }
+
+        const clubConfig = clubId ? await prisma.club.findUnique({ where: { id: clubId } }) : null;
+        const allowedDurations = this.normalizeDurations(clubConfig?.scheduleDurations, activity.defaultDurationMinutes);
+        const effectiveDuration = durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
+        if (!allowedDurations.includes(effectiveDuration)) {
+            throw new Error("Duración no permitida por el club");
+        }
+
+        const possibleSlots = this.resolveScheduleSlots(clubConfig, effectiveDuration) as Array<{ slotTime: string; dayOffset: number }>;
+
+        const now = new Date();
+
+        const anchors = [
+            (() => { const d = new Date(date); d.setDate(d.getDate() - 1); return d; })(),
+            new Date(date)
         ];
 
-        // 🔥 CORRECCIÓN CLAVE: Usamos getUTC para evitar el error de "día anterior"
-        const year = date.getUTCFullYear();
-        const month = date.getUTCMonth();
-        const day = date.getUTCDate();
+        const slotsMap = new Map<string, { slotTime: string; slotDateTime: Date }>();
 
-        const slotsWithCourts = possibleSlots.map(slotTime => {
-            const [hours, minutes] = slotTime.split(':').map(Number);
-            
-            // Construimos la fecha del slot usando SOLO partes UTC
-            const slotDateTime = new Date(Date.UTC(year, month, day, hours, minutes, 0));
-            const durationMinutes = activity.defaultDurationMinutes;
-            const slotEndDateTime = new Date(slotDateTime.getTime() + durationMinutes * 60000);
+        for (const anchor of anchors) {
+            for (const slotObj of possibleSlots) {
+                const slotDateCandidate = new Date(anchor);
+                slotDateCandidate.setDate(slotDateCandidate.getDate() + (slotObj.dayOffset || 0));
+                if (
+                    slotDateCandidate.getFullYear() !== date.getFullYear() ||
+                    slotDateCandidate.getMonth() !== date.getMonth() ||
+                    slotDateCandidate.getDate() !== date.getDate()
+                ) continue;
 
-            // Filtrar canchas disponibles
-            const availableCourts = activeCourts.filter(court => {
+                try {
+                    const slotDateTime = TimeHelper.localSlotToUtc(slotDateCandidate, slotObj.slotTime);
+                    if (slotDateTime.getTime() <= now.getTime()) continue;
+                    if (!slotsMap.has(slotObj.slotTime)) {
+                        slotsMap.set(slotObj.slotTime, { slotTime: slotObj.slotTime, slotDateTime });
+                    }
+                } catch {
+                    // noop
+                }
+            }
+        }
+
+        const slotsWithCourts: Array<any> = [];
+
+        for (const { slotTime, slotDateTime } of slotsMap.values()) {
+            const slotEndDateTime = new Date(slotDateTime.getTime() + effectiveDuration * 60000);
+
+            const availableCourts = activityCourts.filter(court => {
                 const overlappingBooking = bookings.find(b => {
-                    // Mismo ID de cancha
                     if (b.court.id !== court.id) return false;
-                    
-                    // Ignorar cancelados
-                    if (b.status === "CANCELLED") return false; 
-                    
-                    // Aquí NO ignoramos COMPLETED porque si recien reservaste, 
-                    // la fecha puede estar en el pasado inmediato y ser válida.
-
+                    if (b.status === "CANCELLED") return false;
                     return TimeHelper.isOverlappingDates(
                         slotDateTime,
                         slotEndDateTime,
@@ -358,37 +665,568 @@ async getAvailableSlots(courtId: number, date: Date, activityId: number): Promis
                         b.endDateTime
                     );
                 });
-                
-                // Si encontramos superposición, la cancha NO está disponible
                 return !overlappingBooking;
             }).map(court => ({
                 id: court.id,
-                name: court.name
+                name: court.name,
+                price: (court as any).price ?? null
             }));
 
-            // Lógica extra para devolver "courts" completos (si tu front lo usa)
-            const courtsWithAvailability = activeCourts.map(court => {
-                 const isBusy = bookings.some(b => 
-                    b.court.id === court.id && 
-                    b.status !== "CANCELLED" &&
-                    TimeHelper.isOverlappingDates(slotDateTime, slotEndDateTime, b.startDateTime, b.endDateTime)
-                 );
-                 return {
-                    id: court.id,
-                    name: court.name,
-                    isAvailable: !isBusy
-                 };
-            });
+            const courtsWithAvailability = activityCourts.map(court => {
+                const isBusy = bookings.some(b => 
+                   b.court.id === court.id && 
+                   b.status !== "CANCELLED" &&
+                   TimeHelper.isOverlappingDates(slotDateTime, slotEndDateTime, b.startDateTime, b.endDateTime)
+                );
+                return {
+                   id: court.id,
+                   name: court.name,
+                   price: (court as any).price ?? null,
+                   isAvailable: !isBusy
+                };
+           });
 
-            return {
-                slotTime,
-                availableCourts,
-                courts: courtsWithAvailability
-            };
-        }).filter(slot => slot.availableCourts.length > 0); // Opcional: Filtra si no hay canchas
+            if (availableCourts.length > 0) {
+                slotsWithCourts.push({ slotTime, availableCourts, courts: courtsWithAvailability });
+            }
+        }
 
-        console.log("--------------------------------------------");
         return slotsWithCourts;
     }
+
+    async createFixedBooking(
+        userId: number | null,
+        courtId: number,
+        activityId: number,
+        startDateTime: Date,
+        weeksToGenerate: number = 24,
+        guestName?: string,
+        guestPhone?: string | number, // Agregado para recibir el dato del front
+        guestDni?: string,
+        isProfessorOverride: boolean = false,
+        clubId?: number
+    ) {
+        const safePhone = guestPhone ? String(guestPhone) : undefined;
+
+        // 1. Validaciones básicas
+        let user: User | null = null;
+        if (userId) {
+            user = await this.userRepo.findById(userId);
+            if (!user) throw new Error("Usuario no encontrado");
+        } else if (!guestName) {
+            throw new Error("Debe proveer un nombre para reservas fijas como invitado.");
+        }
+
+        const court = await this.courtRepo.findById(courtId);
+        if (!court) throw new Error("Cancha no encontrada");
+        
+        const courtClubId = (court as any)?.club?.id;
+        if (clubId && courtClubId !== clubId) {
+            throw new Error("No tienes acceso a esta cancha");
+        }
+
+        const activity = await this.activityRepo.findById(activityId);
+        // Si el admin indica isProfessorOverride, usar 60 minutos para profesores
+        const duration = isProfessorOverride ? 60 : (activity ? activity.defaultDurationMinutes : 60);
+
+        const startTime = `${startDateTime.getHours().toString().padStart(2, '0')}:${startDateTime.getMinutes().toString().padStart(2, '0')}`;
+        const endTime = `${new Date(startDateTime.getTime() + duration * 60000).getHours().toString().padStart(2, '0')}:${new Date(startDateTime.getTime() + duration * 60000).getMinutes().toString().padStart(2, '0')}`;
+        const dayOfWeek = startDateTime.getDay();
+
+        // 👇 CORRECCIÓN 1: FILTRAR SOLO LOS ACTIVOS (NO CANCELADOS)
+        const existingFixed = await prisma.fixedBooking.findMany({
+            where: {
+                courtId,
+                dayOfWeek,
+                status: { not: 'CANCELLED' } // Importante: Ignora los dados de baja
+            }
+        });
+
+        const overlapsFixed = existingFixed.some((fixed) =>
+            TimeHelper.isOverlapping(startTime, endTime, fixed.startTime, fixed.endTime)
+        );
+
+        if (overlapsFixed) {
+            throw new Error("Ya existe un turno fijo en ese horario para esta cancha.");
+        }
+
+        // 2. Preparar fechas límites
+        const firstStart = new Date(startDateTime);
+        const lastStart = new Date(firstStart);
+        lastStart.setDate(firstStart.getDate() + (weeksToGenerate * 7));
+        const lastEnd = new Date(lastStart.getTime() + duration * 60000);
+
+        return await prisma.$transaction(async (tx: any) => {
+            
+            // A. Crear el "Padre" (Turno Fijo)
+            const fixedBooking = await tx.fixedBooking.create({
+                data: {
+                    ...(userId ? { userId } : {}),
+                    ...(guestName ? { guestName } : {}),
+                    ...(safePhone ? { guestPhone: safePhone } : {}),
+                    ...(guestDni ? { guestDni } : {}),
+
+                    courtId,
+                    activityId,
+                    startDate: firstStart,
+                    dayOfWeek,
+                    startTime,
+                    endTime,
+                    status: 'ACTIVE' // Asegurar estado activo al crear
+                }
+            });
+
+            // B. Conflictos existentes
+            const existingBookings = await tx.booking.findMany({
+                where: {
+                    courtId,
+                    status: { not: 'CANCELLED' },
+                    startDateTime: { gte: firstStart },
+                    endDateTime: { lte: lastEnd }
+                }
+            });
+
+            const bookingsToCreate = [];
+
+            // C. Procesar en memoria
+            for (let i = 0; i < weeksToGenerate; i++) {
+                const currentStart = new Date(startDateTime);
+                currentStart.setDate(startDateTime.getDate() + (i * 7));
+                
+                const currentEnd = new Date(currentStart.getTime() + duration * 60000);
+
+                const hasConflict = existingBookings.some((existing: any) => {
+                    return (existing.startDateTime < currentEnd && existing.endDateTime > currentStart);
+                });
+
+                if (!hasConflict) {
+                    const basePrice = Number((court as any)?.price ?? 0);
+                    if (!Number.isFinite(basePrice) || basePrice <= 0) {
+                        throw new Error('Precio de cancha no configurado.');
+                    }
+                    const clubConfig = (court as any)?.club;
+                    const isProfessor = Boolean(user?.isProfessor) || Boolean(isProfessorOverride);
+                    let fixedPrice = basePrice;
+                    if (isProfessor && clubConfig?.professorDiscountEnabled) {
+                        const discountPercent = Number(clubConfig?.professorDiscountPercent ?? 0);
+                        if (Number.isFinite(discountPercent) && discountPercent > 0) {
+                            const clamped = Math.min(Math.max(discountPercent, 0), 100);
+                            fixedPrice = basePrice * (1 - clamped / 100);
+                        }
+                    }
+                    bookingsToCreate.push({
+                        startDateTime: currentStart,
+                        endDateTime: currentEnd,
+                        price: fixedPrice,
+                        status: 'PENDING',
+                        ...(userId ? { userId } : {}),
+                        ...(guestName ? { guestName } : {}),
+                        ...(safePhone ? { guestPhone: safePhone } : {}), // Guardar teléfono en cada reserva hija
+                        ...(guestDni ? { guestDni } : {}), // Guardar DNI en cada reserva hija
+                        courtId,
+                        activityId,
+                        fixedBookingId: fixedBooking.id
+                    });
+                }
+            }
+
+            // D. Guardar hijos
+            if (bookingsToCreate.length > 0) {
+                await Promise.all(bookingsToCreate.map((data) => tx.booking.create({ data })));
+            }
+
+            return { 
+                fixedBookingId: fixedBooking.id, 
+                generatedCount: bookingsToCreate.length,
+                msg: `Se crearon ${bookingsToCreate.length} turnos pendientes.`
+            };
+
+        }, {
+            maxWait: 5000,
+            timeout: 20000 
+        });
+    }
+
+    async cancelFixedBooking(fixedBookingId: number, clubId?: number) {
+        // Si hay clubId, verificar que el turno fijo pertenece al club
+        if (clubId) {
+            const fixedBooking = await prisma.fixedBooking.findUnique({
+                where: { id: fixedBookingId },
+                include: { court: { include: { club: true } } }
+            });
+            if (!fixedBooking) {
+                throw new Error("Turno fijo no encontrado");
+            }
+            if (fixedBooking.court.club.id !== clubId) {
+                throw new Error("No tienes acceso a este turno fijo");
+            }
+        }
+        
+        const today = new Date();
+        
+        // 👇 CORRECCIÓN 3: MARCAR EL PADRE COMO CANCELADO
+        // Esto evita que "createFixedBooking" detecte conflicto en el futuro
+        await prisma.fixedBooking.update({
+            where: { id: fixedBookingId },
+            data: { status: 'CANCELLED' }
+        });
+
+        // Actualizamos todas las reservas futuras vinculadas a ese ID a "CANCELLED"
+        await prisma.booking.updateMany({
+            where: {
+                fixedBookingId: fixedBookingId,
+                startDateTime: { gte: today }, // Solo las futuras
+                status: { not: 'CANCELLED' },
+                ...(clubId ? {
+                    court: {
+                        clubId: clubId
+                    }
+                } : {})
+            },
+            data: {
+                status: 'CANCELLED'
+            }
+        });
+        
+        return { message: "Turno fijo cancelado de hoy en adelante" };
+    }
+
+    // 👇 AGREGÁ ESTO PARA VER QUÉ CONSUMIERON
+    async getBookingItems(bookingId: number) {
+        return await prisma.bookingItem.findMany({
+            where: { bookingId },
+            include: { product: true }
+        });
+    }
+
+   // En BookingService.ts -> addItemToBooking
+
+// 👇 Agregamos el parámetro con un valor por defecto
+async addItemToBooking(bookingId: number, productId: number, quantity: number, paymentMethod: string = 'CASH') {
+    
+    // 1. Buscamos reserva y producto
+    const booking = await prisma.booking.findUnique({
+        where: { id: bookingId },
+        include: { court: { include: { club: true } } }
+    });
+    const product = await prisma.product.findUnique({ where: { id: productId } });
+
+    if (!booking || !product) throw new Error("Datos no encontrados");
+
+    // 2. Creamos el Item (Siempre se crea)
+    const item = await prisma.bookingItem.create({
+        data: {
+            bookingId,
+            productId,
+            quantity,
+            price: Number(product.price),
+        }
+    });
+
+    // 3. 👇 DECISIÓN FINAL DE CAJA 👇
+    console.log(`🛒 Agregando Item. Método ordenado: ${paymentMethod}`);
+
+    if (paymentMethod === 'DEBT') {
+        // A. SI ES DEUDA: NO HACEMOS NADA EN LA CAJA.
+        // Al crearse el item (paso 2) y no entrar plata, la deuda aumenta sola.
+        console.log("📝 Fiado. No entra plata.");
+    } 
+    else {
+        // B. SI ES CASH (O CUALQUIER OTRO): COBRAMOS.
+        await this.cashRepository.create({
+            date: new Date(),
+            type: 'INCOME',
+            amount: Number(product.price) * quantity,
+            description: `Venta Extra: ${quantity}x ${product.name} (Reserva #${bookingId})`,
+            method: 'CASH', 
+            bookingId: booking.id,
+            clubId: booking.court.clubId
+        });
+    }
+
+    return item;
 }
 
+    // 👇 (OPCIONAL) PARA BORRAR SI TE EQUIVOCASTE (Devuelve el stock)
+    async removeItemFromBooking(itemId: number) {
+        return await prisma.$transaction(async (tx) => {
+            const item = await tx.bookingItem.findUnique({ where: { id: itemId } });
+            if (!item) throw new Error("Item no encontrado");
+
+            // Devolvemos el stock
+            await tx.product.update({
+                where: { id: item.productId },
+                data: { stock: { increment: item.quantity } }
+            });
+
+            // Borramos el item
+            return await tx.bookingItem.delete({ where: { id: itemId } });
+        });
+    }
+
+
+async updatePaymentStatus(id: number, status: 'PAID' | 'DEBT' | 'PARTIAL') {
+    // 1. Buscamos la reserva ACTUAL (antes del cambio) para saber precio y club
+    const booking = await prisma.booking.findUnique({
+        where: { id },
+        include: { court: true } // Necesitamos esto para el clubId
+    });
+
+    if (!booking) throw new Error("Reserva no encontrada");
+
+    // 2. LÓGICA DE CAJA AUTOMÁTICA 💰
+    // Si el nuevo estado es PAGADO y antes NO lo era... ¡Cobramos la cancha!
+    if (status === 'PAID' && booking.paymentStatus !== 'PAID') {
+        
+        console.log(`💰 Cobrando Alquiler de Cancha automáticamente: $${booking.price}`);
+
+        await this.cashRepository.create({
+            date: new Date(),
+            type: 'INCOME',
+            amount: Number(booking.price), // El precio del alquiler base
+            description: `Alquiler Cancha: ${booking.court.name} (Reserva #${booking.id})`,
+            method: 'CASH', // Asumimos efectivo al cerrar por caja
+            bookingId: booking.id,
+            clubId: booking.court.clubId
+        });
+    }
+
+    // 3. Finalmente actualizamos el estado en la base de datos
+    return prisma.booking.update({
+        where: { id },
+        data: { paymentStatus: status }
+    });
+}
+
+    // En BookingService.ts
+
+async getClientStats(clubId: number, userId: number) {
+    // 1. Buscamos SOLO los turnos que realmente generan deuda (DEBT o PARTIAL)
+    // EXCLUIMOS 'PENDING' para que las reservas web no sumen deuda automáticamente.
+    const debtBookings = await prisma.booking.findMany({
+      where: {
+        court: {
+            clubId: clubId
+        },
+        userId,
+        paymentStatus: {
+          in: ['DEBT', 'PARTIAL'] // 👈 CLAVE: Solo estos estados suman deuda
+        },
+        status: { not: 'CANCELLED' }
+      },
+      include: {
+        items: true,
+        cashMovements: true // Necesitamos ver si hubo señas
+      }
+    });
+
+    // 2. Calculamos la deuda real
+    let totalDebt = 0;
+
+    for (const booking of debtBookings) {
+      // Precio cancha
+      const courtPrice = Number(booking.price);
+      
+      // Precio productos/items extras
+      const itemsPrice = booking.items.reduce((sum, item) => sum + (Number(item.price) * item.quantity), 0);
+      
+      // Total que debería haber pagado
+      const grandTotal = courtPrice + itemsPrice;
+
+      // Total que YA pagó (señas o pagos parciales)
+      const totalPaid = booking.cashMovements.reduce((sum, mov) => sum + Number(mov.amount), 0);
+
+      // La deuda es la diferencia
+      totalDebt += (grandTotal - totalPaid);
+    }
+
+    // 3. Contamos partidos jugados (Histórico)
+    const totalBookings = await prisma.booking.count({
+      where: {
+        court: {
+            clubId: clubId
+        },
+        userId,
+        status: 'COMPLETED'
+      }
+    });
+
+    return {
+      totalBookings,
+      totalDebt: totalDebt > 0 ? totalDebt : 0 // Devolvemos 0 si no hay deuda
+    };
+}
+
+    // apps/backend/src/services/BookingService.ts
+
+async payBookingDebt(bookingId: number, paymentMethod: string) {
+
+    // 1. Buscamos la reserva
+    const booking = await prisma.booking.findUnique({
+        where: { id: bookingId },
+        include: { cashMovements: true, items: true } 
+    });
+
+    if (!booking) throw new Error("Reserva no encontrada");
+
+    // 2. DIAGNÓSTICO: Ver qué trae la base de datos
+    const dbPrice = Number(booking.price);
+
+    // 3. Calcular Pagos (Sumamos solo movimientos positivos tipo INCOME)
+    const totalPaid = booking.cashMovements
+        .filter(m => m.type === 'INCOME') // Aseguramos no restar devoluciones si las hubiera
+        .reduce((acc, mov) => acc + Number(mov.amount), 0);
+    
+    // 4. Calcular Items
+    const itemsTotal = booking.items.reduce((acc, item) => acc + (Number(item.price) * item.quantity), 0);
+
+    // 5. Calcular GRAN TOTAL
+    // IMPORTANTE: Asumimos que booking.price es SOLO la cancha.
+    const grandTotal = dbPrice + itemsTotal; 
+
+    // 6. Calcular DEUDA REAL
+    let debtAmount = grandTotal - totalPaid;
+
+
+    
+    if (debtAmount <= 0) {
+        console.log("Error: La deuda es 0 o negativa.");
+        throw new Error("Esta reserva ya figura como pagada.");
+    }
+
+    // 7. Guardar Movimiento
+    
+    const movement = await prisma.cashMovement.create({
+        data: {
+            amount: debtAmount,
+            type: 'INCOME',
+            description: `Saldo final reserva #${booking.id} (Cancha + Consumos)`, 
+            method: paymentMethod,
+            bookingId: booking.id,
+            date: new Date()
+        }
+    });
+
+    // 8. Actualizar Reserva a PAGADO
+    await prisma.booking.update({
+        where: { id: bookingId },
+        data: { paymentStatus: 'PAID' } // No tocamos el campo 'paid' porque no existe
+    });
+
+    return movement;
+}
+
+
+async getClubDebtors(clubId: number) {
+    // 1. Traemos TODAS las reservas del club (incluyendo CANCELLED para conservar historial)
+    const bookings = await prisma.booking.findMany({
+      where: {
+        court: { clubId: clubId }
+      },
+      include: {
+        user: true, 
+        items: {
+            include: {
+                product: true // 👈 ESTO TRAE EL NOMBRE (Coca, Gatorade, etc.)
+            }
+        },
+        cashMovements: true, // Esto es vital para que veas los pagos anteriores
+        court: true
+      }
+    });
+
+    // 2. Mapa para agrupar clientes
+    const clientsMap = new Map();
+
+    for (const booking of bookings) {
+      
+      // --- LÓGICA DE AGRUPACIÓN (DNI > Teléfono > Nombre) ---
+      let uniqueKey = "";
+      let displayName = "";
+      let displayPhone = "";
+      let displayEmail = "";
+      let displayDni = "";
+
+      if (booking.userId && booking.user) {
+        uniqueKey = `USER_${booking.userId}`;
+        displayName = `${booking.user.firstName || ''} ${booking.user.lastName || ''}`.trim();
+        displayPhone = booking.user.phoneNumber || "";
+        displayEmail = booking.user.email || "";
+      } else {
+        const guestDni = booking.guestDni?.trim();
+        const guestPhone = booking.guestPhone?.trim();
+        const guestName = booking.guestName?.trim();
+
+        if (guestDni) uniqueKey = `GUEST_DNI_${guestDni}`;
+        else if (guestPhone) uniqueKey = `GUEST_PHONE_${guestPhone}`;
+        else if (guestName) uniqueKey = `GUEST_NAME_${guestName.toLowerCase()}`;
+        else uniqueKey = `ANON_${booking.id}`;
+
+        displayName = guestName || "Invitado";
+        displayPhone = guestPhone || "";
+        displayEmail = booking.guestEmail || "";
+        displayDni = guestDni || "";
+      }
+
+      // --- INICIALIZAR EN EL MAPA ---
+      if (!clientsMap.has(uniqueKey)) {
+        clientsMap.set(uniqueKey, {
+          // Datos básicos del cliente
+          id: booking.userId || parseInt(uniqueKey.replace(/\D/g, '').substring(0, 8)) || Date.now(),
+          name: displayName || "Sin Nombre",
+          phone: displayPhone, 
+          email: displayEmail,
+          dni: displayDni,
+          
+          // Contadores
+          totalDebt: 0,
+          totalBookings: 0, 
+          bookings: [], // Lista de reservas con deuda (compatibilidad hacia el front actual)
+          history: []   // Historial completo de reservas (incluye CANCELLED, PAID, etc.)
+        });
+      }
+
+      const client = clientsMap.get(uniqueKey);
+      client.totalBookings++; // Sumamos al historial (aunque no deba nada)
+
+      // --- CÁLCULOS DE DINERO ---
+      const courtPrice = Number(booking.price);
+      const itemsPrice = booking.items.reduce((acc, item) => acc + (Number(item.price) * item.quantity), 0);
+      const total = courtPrice + itemsPrice;
+      const paid = booking.cashMovements.reduce((acc, mov) => acc + Number(mov.amount), 0);
+      const debt = total - paid;
+      
+      // Verificamos si es una deuda real (DEBT/PARTIAL y > 0)
+      const isDebtStatus = ['DEBT', 'PARTIAL'].includes(booking.paymentStatus);
+      const hasPendingDebt = isDebtStatus && debt > 0;
+
+      const fechaObj = new Date(booking.startDateTime);
+      const bookingView = {
+        ...booking, // 👈 Manda cashMovements, items, etc.
+
+        // Sobreescribimos/Agregamos los campos calculados que necesita el frontend visualmente
+        date: fechaObj.toISOString().split('T')[0],
+        time: fechaObj.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }),
+        
+        courtName: booking.court.name, // Helper visual
+        
+        // Valores calculados
+        price: total,       // Total original (Cancha + Items)
+        amount: debt,       // Lo que falta pagar (Deuda)
+        paid: paid          // Lo que ya se pagó
+      };
+
+      // Siempre agregamos al historial completo
+      client.history.push(bookingView);
+
+      // Si hay deuda, también lo agregamos a la lista de "A pagar"
+      if (hasPendingDebt) {
+          client.totalDebt += debt;
+          client.bookings.push(bookingView);
+      }
+    }
+
+    return Array.from(clientsMap.values());
+}
+
+}

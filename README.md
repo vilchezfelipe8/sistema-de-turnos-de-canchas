@@ -1,4 +1,4 @@
-# 🎾 Sistema de Gestión de Turnos de Padel
+# 🎾 Sistema de Gestión de Turnos de Pádel
 
 Backend desarrollado para la gestión de reservas de canchas deportivas. Implementa una arquitectura en capas (**Controller, Service, Repository**), manejo de base de datos con **Prisma ORM**, y seguridad mediante autenticación **JWT**.
 

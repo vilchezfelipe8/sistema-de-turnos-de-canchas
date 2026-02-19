@@ -1,21 +1,471 @@
+/* Hide number input spinners */
+.no-spinner::-webkit-outer-spin-button,
+.no-spinner::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.no-spinner {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   body {
-    /* Fondo super oscuro y texto claro por defecto */
-    @apply antialiased bg-slate-950 text-slate-100;
+    @apply antialiased;
+    background-color: #347048; /* Forzamos el verde aquí también */
+    color: var(--text);
   }
 }
 
 @layer utilities {
   /* Clases para efectos de brillo (Glow) */
   .text-glow {
-    text-shadow: 0 0 10px rgba(163, 230, 53, 0.5);
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.08);
   }
   
   .box-glow {
-    box-shadow: 0 0 20px rgba(163, 230, 53, 0.15);
+    box-shadow: 0 0 16px rgba(255, 255, 255, 0.04);
   }
+
+  .club-times-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(52, 112, 72, 0.35) transparent;
+  }
+
+  .club-times-scrollbar::-webkit-scrollbar {
+    height: 4px;
+  }
+
+  .club-times-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .club-times-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(52, 112, 72, 0.35);
+    border-radius: 999px;
+  }
+
+  .club-times-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(52, 112, 72, 0.35);
+  }
+}
+
+/* Paleta B/N global */
+:root {
+  --bg: #347048;        /* CAMBIO: Ahora el fondo base es el Verde */
+  --bg-base: #2a5c3b;   /* Un verde más profundo */
+  --surface: #EBE1D8;   /* CAMBIO: Surface ahora es el Beige */
+  --muted: #347048;     /* Texto verde sobre el beige */
+  --text: #EBE1D8;      /* Texto beige sobre el verde */
+  --muted-2: #d4c5b0;
+  --border: rgba(235, 225, 216, 0.1);
+  --accent: #B9CF32;    /* Lima */
+}
+
+/* Botones y utilidades globales B/N */
+.btn {
+  @apply inline-flex items-center justify-center font-bold rounded-xl px-4 py-2 transition-all;
+  background-color: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.btn:hover {
+  background-color: rgba(255, 255, 255, 0.03);
+  filter: brightness(1.05);
+}
+.btn-primary {
+  background-color: transparent;
+  color: var(--text);
+  border: 1px solid var(--text);
+}
+.btn-danger {
+  background-color: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.6);
+}
+.btn-danger:hover {
+  background-color: rgba(239, 68, 68, 0.18);
+}
+.btn-selected {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+}
+.btn-primary:hover {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+.btn-disabled {
+  background-color: transparent;
+  color: var(--muted-2);
+  border: 1px solid rgba(255,255,255,0.03);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.badge {
+  @apply inline-block px-3 py-1 rounded-full text-xs font-mono;
+  background-color: transparent;
+  color: var(--muted);
+  border: 1px solid rgba(255,255,255,0.03);
+}
+
+/* Si algún componente necesita fondo transparente, añadir la clase `no-bg` para excluirlo. */
+.no-bg {
+  background-color: transparent !important;
+}
+
+/* Utility classes mapped to CSS variables for easier usage */
+.bg-surface { background-color: var(--surface) !important; }
+.bg-surface-70 { background-color: rgba(11,11,11,0.7) !important; }
+.text-text { color: var(--text) !important; }
+.text-muted { color: var(--muted) !important; }
+.text-muted-2 { color: var(--muted-2) !important; }
+.border-border { border-color: var(--border) !important; }
+.border-soft { border: 1px solid rgba(255,255,255,0.03) !important; }
+.shadow-soft { box-shadow: 0 8px 30px rgba(0,0,0,0.6) !important; }
+
+/* Superposición de gradiente para secciones principales */
+.bg-surface-gradient {
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)), var(--surface);
+  /* sutil brillo radial centrado */
+  background-blend-mode: overlay;
+}
+
+/* Estilos personalizados para react-datepicker - Tema oscuro */
+.date-picker-custom {
+  box-sizing: border-box !important;
+  max-width: 100% !important;
+  width: 100% !important;
+  background-color: var(--surface) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 0.75rem !important;
+  padding: 1rem !important;
+  padding-right: 3rem !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' stroke='%23fff' stroke-width='1.8' viewBox='0 0 24 24'%3E%3Crect x='3' y='4' width='18' height='18' rx='2'/%3E%3Cpath d='M16 2v4M8 2v4M3 10h18'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 0.75rem center !important;
+  background-size: 1rem 1rem !important;
+}
+
+.date-picker-custom:focus {
+  outline: none !important;
+  border-color: var(--border) !important;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Calendario popup */
+.date-picker-calendar {
+  background-color: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 0.75rem !important;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6) !important;
+  padding: 1rem !important;
+}
+
+.date-picker-calendar .react-datepicker__header {
+  background-color: var(--surface) !important;
+  border-bottom: 1px solid var(--border) !important;
+  padding-top: 0.75rem !important;
+}
+
+.date-picker-calendar .react-datepicker__current-month {
+  color: var(--text) !important;
+  font-weight: bold !important;
+  font-size: 0.875rem !important;
+}
+
+.date-picker-calendar .react-datepicker__day-name {
+  color: var(--muted) !important;
+  font-weight: 600 !important;
+  font-size: 0.75rem !important;
+}
+
+.date-picker-calendar .react-datepicker__day {
+  color: var(--text) !important;
+  border-radius: 0.5rem !important;
+  margin: 0.125rem !important;
+}
+
+.date-picker-calendar .react-datepicker__day:hover {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  color: var(--text) !important;
+}
+
+.date-picker-calendar .react-datepicker__day--selected,
+.date-picker-calendar .react-datepicker__day--keyboard-selected {
+  background-color: rgba(255, 255, 255, 0.2) !important;
+  color: var(--text) !important;
+  font-weight: bold !important;
+}
+
+.date-picker-calendar .react-datepicker__day--disabled {
+  color: var(--muted-2) !important;
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+}
+
+.date-picker-calendar .react-datepicker__day--disabled:hover {
+  background-color: transparent !important;
+}
+
+.date-picker-calendar .react-datepicker__day--outside-month {
+  color: var(--muted-2) !important;
+  opacity: 0.5 !important;
+}
+
+.date-picker-calendar .react-datepicker__navigation {
+  top: 0.75rem !important;
+}
+
+.date-picker-calendar .react-datepicker__navigation-icon::before {
+  border-color: var(--text) !important;
+}
+
+.date-picker-calendar .react-datepicker__navigation:hover *::before {
+  border-color: var(--text) !important;
+}
+
+/* Popper (contenedor del calendario) */
+.date-picker-popper {
+  z-index: 9000 !important;
+}
+
+/* Asegurar que el calendario se renderice fuera del contenedor */
+.react-datepicker-popper {
+  z-index: 9000 !important;
+}
+
+.react-datepicker {
+  z-index: 9000 !important;
+}
+
+.react-datepicker__triangle {
+  z-index: 9000 !important;
+}
+
+/* Asegurar que todos los elementos del calendario tengan z-index alto */
+.react-datepicker-popper[data-placement],
+.react-datepicker-popper[data-placement] > div {
+  z-index: 9000 !important;
+}
+
+/* Portal del datepicker - con portalId, react-datepicker maneja todo correctamente */
+#datepicker-portal {
+  z-index: 9000;
+}
+
+/* Asegurar que el calendario esté por encima de todos los contenedores */
+.react-datepicker-popper {
+  z-index: 9000 !important;
+}
+
+/* --- BOTONES DINÁMICOS (Color solo al pasar el mouse) --- */
+
+/* 1. Botón VERDE (Confirmar / Reactivar) */
+.btn-success {
+  background-color: transparent;      /* Fondo transparente por defecto */
+  color: var(--text);                 /* Texto blanco/gris */
+  border: 1px solid var(--border);    /* Borde gris sutil */
+  transition: all 0.3s ease;          /* Transición suave */
+  opacity: 0.8;
+}
+
+.btn-success:hover {
+  background-color: rgba(16, 185, 129, 0.2); /* Fondo verde al 20% */
+  color: #10b981;                            /* Texto Verde Emerald */
+  border-color: #10b981;                     /* Borde Verde */
+  opacity: 1;
+  transform: translateY(-1px);               /* Pequeño efecto de elevación */
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.3); /* Brillo (Glow) verde */
+}
+
+/* 2. Botón ROJO (Cancelar / Suspender) */
+.btn-danger {
+  background-color: transparent;      /* Fondo transparente */
+  color: var(--text);                 /* Texto blanco/gris */
+  border: 1px solid var(--border);    /* Borde gris */
+  transition: all 0.3s ease;
+  opacity: 0.8;
+}
+
+.btn-danger:hover {
+  background-color: rgba(239, 68, 68, 0.2);  /* Fondo rojo al 20% */
+  color: #ef4444;                            /* Texto Rojo */
+  border-color: #ef4444;                     /* Borde Rojo */
+  opacity: 1;
+  transform: translateY(-1px);
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.3); /* Brillo (Glow) rojo */
+}
+
+/* --- BADGES (Etiquetas de estado: Operativo/Mantenimiento) --- */
+/* Estos sí conviene dejarlos con color fijo para leer rápido el estado, 
+   pero los hacemos sutiles */
+
+.badge-success {
+  background-color: rgba(16, 185, 129, 0.05);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.badge-danger {
+  background-color: rgba(239, 68, 68, 0.05);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.badge-warning {
+  background-color: rgba(234, 179, 8, 0.05);
+  color: #eab308;
+  border: 1px solid rgba(234, 179, 8, 0.2);
+}
+
+/* Badge AZUL para Turnos Fijos */
+.badge-info {
+  background-color: rgba(59, 130, 246, 0.15); /* Azul Blue-500 transparente */
+  color: #60a5fa;                             /* Texto Azul claro */
+  border: 1px solid rgba(59, 130, 246, 0.4);  /* Borde Azul */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px; /* Espacio entre icono y texto */
+}
+
+/* --- ESTILOS PARA EL CALENDARIO WIMBLEDON --- */
+
+/* Contenedor principal del calendario */
+.wimbledon-datepicker .react-datepicker {
+  background-color: #347048 !important; /* Fondo Verde */
+  border: 4px solid #EBE1D8 !important; /* Borde Beige */
+  border-radius: 1.5rem !important;
+  font-family: inherit !important;
+  overflow: hidden;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Encabezado (Mes y flechas) */
+.wimbledon-datepicker .react-datepicker__header {
+  background-color: #2a5c3b !important; /* Un verde un pelín más oscuro */
+  border-bottom: 1px solid rgba(235, 225, 216, 0.1) !important;
+  padding-top: 1rem !important;
+}
+
+/* Texto de mes y días de la semana */
+.wimbledon-datepicker .react-datepicker__current-month,
+.wimbledon-datepicker .react-datepicker__day-name {
+  color: #EBE1D8 !important; /* Texto Beige */
+  font-weight: 800 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Los días del mes */
+.wimbledon-datepicker .react-datepicker__day {
+  color: #EBE1D8 !important;
+  font-weight: 600 !important;
+  border-radius: 0.5rem !important;
+  transition: all 0.2s ease;
+}
+
+/* Hover sobre los días */
+.wimbledon-datepicker .react-datepicker__day:hover {
+  background-color: #B9CF32 !important; /* Fondo Lima */
+  color: #347048 !important; /* Texto Verde */
+}
+
+/* Día seleccionado */
+.wimbledon-datepicker .react-datepicker__day--selected,
+.wimbledon-datepicker .react-datepicker__day--keyboard-selected {
+  background-color: #B9CF32 !important; /* Fondo Lima */
+  color: #347048 !important; /* Texto Verde */
+  font-weight: 900 !important;
+}
+
+/* Días de otros meses (fuera de foco) */
+.wimbledon-datepicker .react-datepicker__day--outside-month {
+  color: rgba(235, 225, 216, 0.2) !important;
+}
+
+/* Flechas de navegación */
+.wimbledon-datepicker .react-datepicker__navigation-icon::before {
+  border-color: #B9CF32 !important; /* Flechas Lima */
+}
+
+/* El input donde se ve la fecha elegida */
+.wimbledon-datepicker input {
+  background-color: white !important;
+  color: #347048 !important;
+  font-weight: 700 !important;
+  border-radius: 0.75rem !important;
+  padding: 0.75rem 1rem !important;
+  border: 2px solid transparent !important;
+  width: 100% !important;
+}
+
+.wimbledon-datepicker input:focus {
+  border-color: #B9CF32 !important; /* Borde Lima al hacer clic */
+  outline: none !important;
+}
+
+/* globals.css */
+
+@layer utilities {
+  /* Ancho de la barra */
+  .scrollbar-padel::-webkit-scrollbar {
+    width: 6px;       /* Ancho vertical */
+    height: 6px;      /* Alto horizontal */
+  }
+
+  /* El fondo (riel) por donde corre */
+  .scrollbar-padel::-webkit-scrollbar-track {
+    background: transparent; /* O podés ponerle #EBE1D8 si querés que se note el riel */
+  }
+
+  /* La "pastilla" que se mueve */
+  .scrollbar-padel::-webkit-scrollbar-thumb {
+    background-color: #347048; /* Tu verde corporativo */
+    border-radius: 20px;       /* Bien redondeado */
+    border: 2px solid transparent; /* Truco para dar aire si usaras fondo */
+  }
+
+  /* Efecto al pasar el mouse por encima */
+  .scrollbar-padel::-webkit-scrollbar-thumb:hover {
+    background-color: #2a5a3a; /* Un verde un pelín más oscuro */
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+.scrollbar-hide {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+}
+
+@layer base {
+  /* ESTILO PARA LA BARRA DE TODA LA PÁGINA */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #EBE1D8; /* El beige de tu fondo */
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: #347048; /* Tu verde padel */
+    border-radius: 10px;
+    border: 2px solid #EBE1D8; /* Borde beige para que parezca una pastilla flotante */
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: #B9CF32; /* Verde limón al pasar el mouse (opcional, queda genial) */
+  }
+}
+
 }
