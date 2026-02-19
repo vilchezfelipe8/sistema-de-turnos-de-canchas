@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import QRCode from 'qrcode';
+import { whatsappService } from './services/WhatsappService';
 
 import { prisma } from './prisma';
 import { BookingStatus } from './entities/Enums';
@@ -23,13 +24,38 @@ import { requireRole } from './middleware/RoleMiddleware';
 const app = express();
 
 /* =====================================================
-   CORS — versión limpia para usar con nginx proxy
+   CORS
 ===================================================== */
 
+const allowedOrigins = [
+  'http://localhost:3000',
+
+  // Dominio producción
+  'https://tucancha.app',
+  'https://www.tucancha.app',
+
+  // IP pública
+  'http://187.77.48.97',
+  'https://187.77.48.97'
+];
+
 app.use(cors({
-  origin: true,
-  credentials: true
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log('❌ CORS bloqueado para:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization']
 }));
+
+app.options('*', cors());
 
 /* =====================================================
    CONFIG
@@ -88,7 +114,7 @@ app.get(
   authMiddleware,
   requireRole('ADMIN'),
   async (_req: Request, res: Response) => {
-    const { whatsappService } = require('./services/WhatsappService');
+
     const status = whatsappService.getStatus();
 
     if (status.disabled) {
@@ -129,7 +155,6 @@ app.get(
 );
 
 app.get('/whatsapp/status', (_req: Request, res: Response) => {
-  const { whatsappService } = require('./services/WhatsappService');
   res.json(whatsappService.getStatus());
 });
 
@@ -169,10 +194,12 @@ const startServer = async () => {
     };
 
     await completePastBookings();
+
     const interval = setInterval(
       completePastBookings,
       BOOKINGS_COMPLETION_INTERVAL_MS
     );
+
     interval.unref?.();
 
     app.listen(PORT, '0.0.0.0', () => {
