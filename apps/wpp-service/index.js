@@ -2,7 +2,6 @@ const express = require('express');
 const fs = require('fs');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
-const puppeteer = require('puppeteer-core');
 
 const app = express();
 app.use(express.json());
@@ -20,7 +19,6 @@ const client = new Client({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
   },
-  puppeteer: puppeteer
 });
 
 client.on('qr', (qr) => {
