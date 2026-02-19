@@ -1105,11 +1105,13 @@ export default function AdminTabBookings() {
                 className="relative"
                 // Reservar espacio para cabecera con nombres de canchas
                 style={{ height: gridSlots.length * ROW_HEIGHT + HEADER_HEIGHT + V_GAP_PX, paddingTop: HEADER_HEIGHT }}
-              >
-                {/* Cabecera con nombres de canchas */}
-                <div className="absolute left-0 right-0 top-0 h-16 flex items-center pl-16 pr-8 border-b border-[#347048]/10 bg-white/90 z-20">
+              >{/* Cabecera con nombres de canchas (Bordes exteriores redondeados) */}
+                <div 
+                  className="absolute left-0 right-0 top-0 flex items-center border-b border-[#347048]/10 bg-white/90 z-20 rounded-t-[1.5rem]"
+                  style={{ height: HEADER_HEIGHT }} 
+                >
                   {courts.map((court) => (
-                    <div key={court.id} className="flex-1 text-center font-black text-[#347048]">
+                    <div key={court.id} className="flex-1 text-center font-black text-[#347048] uppercase tracking-widest text-sm">
                       {court.name}
                     </div>
                   ))}

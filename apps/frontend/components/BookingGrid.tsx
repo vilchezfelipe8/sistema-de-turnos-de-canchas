@@ -10,7 +10,7 @@ import DatePickerDark from './ui/DatePickerDark';
 
 import { getApiUrl } from '../utils/apiUrl';
 import { ClubService, Club } from '../services/ClubService';
-import { ChevronDown, Check, Calendar, Clock, MapPin, Zap, MousePointerClick, Hourglass, Moon, Ban, AlertCircle, Activity } from 'lucide-react';
+import { ChevronDown, Check, Calendar, Clock, MapPin, Zap, MousePointerClick, Hourglass, Moon, Ban, AlertCircle, Activity, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const API_URL = getApiUrl();
 
@@ -642,6 +642,40 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
     });
   }, [slotsWithCourts, allCourts, selectedDate]);
 
+  // 1. Evitar ir al pasado
+  const isPrevDisabled = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const current = new Date(selectedDate);
+    current.setHours(0, 0, 0, 0);
+    return current <= today;
+  };
+
+  // 2. Retroceder un día
+  const handlePrevDay = () => {
+    if (isPrevDisabled()) return; // Por seguridad
+    const prev = new Date(selectedDate);
+    prev.setDate(prev.getDate() - 1);
+    setSelectedDate(prev);
+  };
+
+  // 3. Avanzar un día
+  const handleNextDay = () => {
+    const next = new Date(selectedDate);
+    next.setDate(next.getDate() + 1);
+    setSelectedDate(next);
+  };
+
+  // 4. Formatear la fecha para que se vea como "18 FEB 2026"
+  // Reemplazá el formattedDate anterior por esto:
+  const getFormattedDate = (date: Date) => {
+    const day = date.getDate().toString().padStart(2, '0');
+    const monthNames = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
+    const month = monthNames[date.getMonth()];
+    const year = date.getFullYear();
+    return `${day} ${month} ${year}`;
+  };
+
   // --- RENDERIZADO VISUAL ---
   // --- RENDERIZADO VISUAL ---
   return (
@@ -679,45 +713,42 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
           />
         </div>
 
-        {/* COLUMNA 2: Fecha */}
-        <div className="relative focus-within:z-[90] z-10">
-          <label className="block text-[10px] font-black text-[#926699] mb-2 ml-1 flex items-center gap-2 uppercase tracking-widest">
-            <span className="text-[#B9CF32]"><Calendar size={16} strokeWidth={3} /></span>
-            <span>Fecha</span>
+        {/* CONTENEDOR DE FECHA (Formato Input Blanco) */}
+        <div className="flex flex-col gap-2 w-full">
+          
+          {/* ETIQUETA SUPERIOR (Igual a los otros campos) */}
+          <label className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-[#8A5B96]">
+            <Calendar className="w-4 h-4 text-[#B9CF32]" strokeWidth={2.5} />
+            Fecha
           </label>
-          <div className="w-full relative">
-            <DatePickerDark
-              selected={selectedDate}
-              onChange={(date: Date | null) => {
-                if (!date) return;
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                const selectedDateObj = new Date(date);
-                selectedDateObj.setHours(0, 0, 0, 0);
-                
-                if (selectedDateObj < today) {
-                  showError('No puedes seleccionar una fecha pasada. Por favor, elige una fecha de hoy en adelante.');
-                  return;
-                }
-                
-                const maxAllowedDate = getMaxDate();
-                maxAllowedDate.setHours(0, 0, 0, 0);
-                
-                if (selectedDateObj > maxAllowedDate) {
-                  showError('Solo puedes reservar hasta un mes en adelante. Por favor, elige una fecha dentro del próximo mes.');
-                  return;
-                }
-                
-                setSelectedDate(date);
-                setSelectedSlot(null);
-                setSelectedCourt(null);
-              }}
-              minDate={new Date()}
-              maxDate={maxDate}
-              showIcon={false}
-              variant="light"
-              inputClassName="w-full h-12 bg-white text-[#347048] font-bold border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 shadow-sm outline-none transition-all cursor-pointer"
-            />
+
+          {/* CAJA BLANCA (El "Input" interactivo) */}
+          <div className="flex items-center justify-between bg-white rounded-xl px-2 py-2.5 border border-transparent shadow-sm h-[46px]">
+            
+            {/* Botón Atrás */}
+            <button
+              type="button"
+              onClick={handlePrevDay}
+              disabled={isPrevDisabled()}
+              className="p-1 rounded-lg text-[#347048] disabled:opacity-20 hover:bg-[#347048]/10 transition-colors"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+
+            {/* Texto de Fecha Fijo */}
+            <span className="text-[15px] font-bold text-[#347048] min-w-[100px] text-center whitespace-nowrap">
+              {getFormattedDate(selectedDate)}
+            </span>
+
+            {/* Botón Adelante */}
+            <button
+              type="button"
+              onClick={handleNextDay}
+              className="p-1 rounded-lg text-[#347048] hover:bg-[#347048]/10 transition-colors"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+
           </div>
         </div>
 

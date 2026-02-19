@@ -411,3 +411,61 @@
   border-color: #B9CF32 !important; /* Borde Lima al hacer clic */
   outline: none !important;
 }
+
+/* globals.css */
+
+@layer utilities {
+  /* Ancho de la barra */
+  .scrollbar-padel::-webkit-scrollbar {
+    width: 6px;       /* Ancho vertical */
+    height: 6px;      /* Alto horizontal */
+  }
+
+  /* El fondo (riel) por donde corre */
+  .scrollbar-padel::-webkit-scrollbar-track {
+    background: transparent; /* O podés ponerle #EBE1D8 si querés que se note el riel */
+  }
+
+  /* La "pastilla" que se mueve */
+  .scrollbar-padel::-webkit-scrollbar-thumb {
+    background-color: #347048; /* Tu verde corporativo */
+    border-radius: 20px;       /* Bien redondeado */
+    border: 2px solid transparent; /* Truco para dar aire si usaras fondo */
+  }
+
+  /* Efecto al pasar el mouse por encima */
+  .scrollbar-padel::-webkit-scrollbar-thumb:hover {
+    background-color: #2a5a3a; /* Un verde un pelín más oscuro */
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+.scrollbar-hide {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+}
+
+@layer base {
+  /* ESTILO PARA LA BARRA DE TODA LA PÁGINA */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #EBE1D8; /* El beige de tu fondo */
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: #347048; /* Tu verde padel */
+    border-radius: 10px;
+    border: 2px solid #EBE1D8; /* Borde beige para que parezca una pastilla flotante */
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: #B9CF32; /* Verde limón al pasar el mouse (opcional, queda genial) */
+  }
+}
+
+}
