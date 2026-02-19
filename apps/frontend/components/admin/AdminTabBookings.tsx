@@ -311,6 +311,7 @@ export default function AdminTabBookings() {
   const [showDropdown, setShowDropdown] = useState(false);
   const searchTimeoutRef = useRef<any>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const gridScrollRef = useRef<HTMLDivElement | null>(null);
 
   const scheduleDurations = useMemo(
     () => normalizeDurations(clubConfig?.scheduleDurations, DEFAULT_DURATION_MINUTES),
@@ -360,6 +361,8 @@ export default function AdminTabBookings() {
     }
     return CLUB_TIME_SLOTS;
   }, [scheduleBookings, clubConfig, scheduleSlotDuration, scheduleDate]);
+
+  
 
   // Grilla visual fija: filas cada 1 hora entre apertura y cierre (por defecto 08:00-22:00)
   const gridSlots = useMemo(() => {
@@ -426,6 +429,51 @@ export default function AdminTabBookings() {
       return [];
     }
   }, [clubConfig, scheduleDate, scheduleSlotDuration]);
+
+  // Al abrir la pantalla, scrollear a la fila correspondiente a la hora actual (si la fecha es hoy)
+  useEffect(() => {
+    // Ejecutar solo después de que se hayan cargado los bookings y la grilla tenga tamaño
+    const run = () => {
+      try {
+        const container = gridScrollRef.current;
+        if (!container || !gridSlots || gridSlots.length === 0) return;
+        // Solo si la fecha seleccionada es hoy
+        const [y, m, d] = scheduleDate.split('-').map(Number);
+        const selectedDate = new Date(y, m - 1, d);
+        const today = new Date();
+        if (
+          selectedDate.getFullYear() !== today.getFullYear() ||
+          selectedDate.getMonth() !== today.getMonth() ||
+          selectedDate.getDate() !== today.getDate()
+        ) return;
+
+        const nowMinutes = today.getHours() * 60 + today.getMinutes();
+        const slotMinutes = gridSlots.map((s) => {
+          const parts = String(s).split(':').map(Number);
+          return (parts[0] || 0) * 60 + (parts[1] || 0);
+        });
+        let idx = slotMinutes.findIndex((m) => m >= nowMinutes);
+        if (idx === -1) idx = slotMinutes.length - 1;
+        if (idx < 0) idx = 0;
+
+        const top = idx * ROW_HEIGHT + HEADER_HEIGHT + (V_GAP_PX / 2);
+        const desired = Math.max(0, Math.min(Math.floor(top - container.clientHeight / 2 + ROW_HEIGHT / 2), container.scrollHeight - container.clientHeight));
+
+        // esperar layout y luego animar
+        requestAnimationFrame(() => {
+          // una pasada extra por si el layout cambia
+          requestAnimationFrame(() => {
+            container.scrollTo({ top: desired, behavior: 'smooth' });
+          });
+        });
+      } catch (e) {
+        // noop
+      }
+    };
+
+    // Ejecutar cuando carguen los bookings o cambie la fecha
+    run();
+  }, [gridSlots, scheduleDate, scheduleBookings.length, lastUpdate]);
 
   const getClubSlug = useCallback(() => {
     if (urlSlug) return urlSlug;
@@ -1052,7 +1100,7 @@ export default function AdminTabBookings() {
           </div>
         ) : gridSlots.length > 0 ? (
           <div className="overflow-x-auto -mx-8">
-            <div className="min-w-[900px] pl-16 pr-8">
+            <div ref={gridScrollRef} className="min-w-[900px] pl-16 pr-8 max-h-[65vh] overflow-y-auto">
               <div
                 className="relative"
                 // Reservar espacio para cabecera con nombres de canchas
