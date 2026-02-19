@@ -42,7 +42,7 @@ export function useValidateAuth(options: UseValidateAuthOptions = {}): { authChe
 
     (async () => {
       try {
-        const res = await fetchWithAuth(`${API_URL}/api/auth/me`, { method: 'GET' });
+        const res = await fetchWithAuth(`${API_URL}/auth/me`, { method: 'GET' });
         if (!res.ok) return;
         const data: AuthUser = await res.json();
         if (typeof window !== 'undefined') {

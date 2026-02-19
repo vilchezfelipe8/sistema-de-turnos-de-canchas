@@ -99,7 +99,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
     if (!bookingToPayId) return;
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/bookings/pay-debt`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/bookings/pay-debt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ bookingId: bookingToPayId, paymentMethod: method })

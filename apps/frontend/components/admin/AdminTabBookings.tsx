@@ -830,7 +830,7 @@ export default function AdminTabBookings() {
     if (!selectedBookingId) return;
     try {
         const token = localStorage.getItem('token');
-        await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/bookings/confirm`, {
+        await fetch(`${process.env.NEXT_PUBLIC_API_URL}/bookings/confirm`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({ bookingId: selectedBookingId, paymentMethod: method })

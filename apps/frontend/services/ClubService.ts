@@ -37,7 +37,7 @@ export interface Club {
 
 export class ClubService {
   static async getClubById(id: number): Promise<Club> {
-    const response = await fetch(`${API_URL}/api/clubs/${id}`);
+    const response = await fetch(`${API_URL}/clubs/${id}`);
     if (!response.ok) {
       throw new Error('Error al obtener el club');
     }
@@ -45,7 +45,7 @@ export class ClubService {
   }
 
   static async getClubBySlug(slug: string): Promise<Club> {
-    const response = await fetch(`${API_URL}/api/clubs/slug/${slug}`);
+    const response = await fetch(`${API_URL}/clubs/slug/${slug}`);
     if (!response.ok) {
       throw new Error('Error al obtener el club');
     }
@@ -53,7 +53,7 @@ export class ClubService {
   }
 
   static async getAllClubs(): Promise<Club[]> {
-    const response = await fetch(`${API_URL}/api/clubs`);
+    const response = await fetch(`${API_URL}/clubs`);
     if (!response.ok) {
       throw new Error('Error al obtener los clubes');
     }
@@ -63,7 +63,7 @@ export class ClubService {
   static async updateClub(id: number, data: Partial<Club>): Promise<Club> {
     if (!getToken()) throw new Error('No autenticado');
 
-    const response = await fetchWithAuth(`${API_URL}/api/clubs/${id}`, {
+    const response = await fetchWithAuth(`${API_URL}/clubs/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -80,7 +80,7 @@ export class ClubService {
   static async createClub(data: Partial<Club>): Promise<Club> {
     if (!getToken()) throw new Error('No autenticado');
 
-    const response = await fetchWithAuth(`${API_URL}/api/clubs`, {
+    const response = await fetchWithAuth(`${API_URL}/clubs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)

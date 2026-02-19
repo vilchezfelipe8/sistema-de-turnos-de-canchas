@@ -10,7 +10,7 @@ const AdminDevDashboard = () => {
 
   const fetchMetrics = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/health`);
+      const res = await fetch(`${API_URL}/health`);
       if (!res.ok) throw new Error('Error fetching health');
       const data = await res.json();
       setMetrics(data);

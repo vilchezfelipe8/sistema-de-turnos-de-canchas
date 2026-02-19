@@ -576,8 +576,8 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
     const fetchCourts = async () => {
       try {
         const url = clubSlug
-          ? `${API_URL}/api/courts?clubSlug=${encodeURIComponent(clubSlug)}`
-          : `${API_URL}/api/courts`;
+          ? `${API_URL}/courts?clubSlug=${encodeURIComponent(clubSlug)}`
+          : `${API_URL}/courts`;
         const res = await fetch(url);
         if (!res.ok) return;
         const data = await res.json();
@@ -850,7 +850,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                 if (!selectedDate || !selectedSlot) return;
                 try {
                   const res = await fetch(
-                    `${API_URL}/api/bookings/availability?courtId=${court.id}&date=${dateString}&activityId=1&durationMinutes=${selectedDuration}`
+                    `${API_URL}/bookings/availability?courtId=${court.id}&date=${dateString}&activityId=1&durationMinutes=${selectedDuration}`
                   );
                   if (!res.ok) {
                     setDisabledSlots((prev) => ({ ...prev, [slotKey]: true }));

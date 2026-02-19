@@ -42,7 +42,7 @@ export const createBooking = async (
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const response = await fetchWithAuth(`${API_URL}/api/bookings`, {
+  const response = await fetchWithAuth(`${API_URL}/bookings`, {
     method: 'POST',
     headers,
     body: JSON.stringify({
@@ -78,7 +78,7 @@ export const createBooking = async (
 export const getMyBookings = async (userId: number) => {
     if (!getToken()) throw new Error("Debes iniciar sesión.");
 
-    const res = await fetchWithAuth(`${API_URL}/api/bookings/history/${userId}`, {
+    const res = await fetchWithAuth(`${API_URL}/bookings/history/${userId}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' }
     });
@@ -93,7 +93,7 @@ export const getMyBookings = async (userId: number) => {
 export const cancelBooking = async (bookingId: number) => {
     if (!getToken()) throw new Error("Debes iniciar sesión.");
 
-    const res = await fetchWithAuth(`${API_URL}/api/bookings/cancel`, {
+    const res = await fetchWithAuth(`${API_URL}/bookings/cancel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bookingId })
@@ -109,7 +109,7 @@ export const cancelBooking = async (bookingId: number) => {
 export const confirmBooking = async (bookingId: number) => {
     if (!getToken()) throw new Error("Debes iniciar sesión como administrador.");
 
-    const res = await fetchWithAuth(`${API_URL}/api/bookings/confirm`, {
+    const res = await fetchWithAuth(`${API_URL}/bookings/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bookingId })
@@ -126,7 +126,7 @@ export const confirmBooking = async (bookingId: number) => {
 export const getAdminSchedule = async (date: string) => {
     if (!getToken()) throw new Error("Debes iniciar sesión como administrador.");
 
-    const res = await fetchWithAuth(`${API_URL}/api/bookings/admin/schedule?date=${date}`, {
+    const res = await fetchWithAuth(`${API_URL}/bookings/admin/schedule?date=${date}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' }
     });
@@ -153,7 +153,7 @@ export const createFixedBooking = async (
   // Validamos token si es necesario, o dejamos que el backend decida
   if (!token) throw new Error("Debes iniciar sesión como administrador.");
 
-  const res = await fetchWithAuth(`${API_URL}/api/bookings/fixed`, {
+  const res = await fetchWithAuth(`${API_URL}/bookings/fixed`, {
     method: 'POST',
     headers: { 
         'Content-Type': 'application/json',
@@ -189,7 +189,7 @@ export const createFixedBooking = async (
 export const cancelFixedBooking = async (fixedBookingId: number) => {
   if (!getToken()) throw new Error("Debes iniciar sesión como administrador.");
 
-  const res = await fetchWithAuth(`${API_URL}/api/bookings/fixed/${fixedBookingId}`, {
+  const res = await fetchWithAuth(`${API_URL}/bookings/fixed/${fixedBookingId}`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' }
   });
@@ -204,7 +204,7 @@ export const cancelFixedBooking = async (fixedBookingId: number) => {
 export const searchClients = async (slug: string, query: string) => {
     if (!getToken()) throw new Error("Debes iniciar sesión.");
 
-    const res = await fetchWithAuth(`${API_URL}/api/clubs/${slug}/admin/clients-list?q=${encodeURIComponent(query)}`, {
+    const res = await fetchWithAuth(`${API_URL}/clubs/${slug}/admin/clients-list?q=${encodeURIComponent(query)}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' }
     });

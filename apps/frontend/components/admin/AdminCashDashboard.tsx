@@ -108,7 +108,7 @@ const AdminCashDashboard = () => {
 
       if (!token) return;
 
-      const res = await fetch(`${API_URL}/api/cash`, {
+      const res = await fetch(`${API_URL}/cash`, {
          method: 'GET',
          headers: {
            'Content-Type': 'application/json',
@@ -140,7 +140,7 @@ const AdminCashDashboard = () => {
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      const res = await fetch(`${API_URL}/api/cash/products`, {
+      const res = await fetch(`${API_URL}/cash/products`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -167,7 +167,7 @@ const AdminCashDashboard = () => {
     const token = localStorage.getItem('token');
     const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-    await fetch(`${API_URL}/api/cash`, {
+    await fetch(`${API_URL}/cash`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
@@ -194,7 +194,7 @@ const AdminCashDashboard = () => {
       const token = localStorage.getItem('token');
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-      const res = await fetch(`${API_URL}/api/cash/product-sale`, {
+      const res = await fetch(`${API_URL}/cash/product-sale`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

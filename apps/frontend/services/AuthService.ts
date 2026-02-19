@@ -5,7 +5,7 @@ import { getApiUrl } from '../utils/apiUrl';
 const API_URL = getApiUrl();
 
 export const login = async (email: string, password: string) => {
-  const response = await fetch(`${API_URL}/api/auth/login`, { // Asegúrate que esta sea tu ruta real en el back
+  const response = await fetch(`${API_URL}/auth/login`, { // Asegúrate que esta sea tu ruta real en el back
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -35,7 +35,7 @@ export const login = async (email: string, password: string) => {
 };
 
 export const register = async (firstName: string, lastName: string, email: string, password: string, phoneNumber: string, role: string) => {
-  const response = await fetch(`${API_URL}/api/auth/register`, {
+  const response = await fetch(`${API_URL}/auth/register`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

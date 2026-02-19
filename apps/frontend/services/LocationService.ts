@@ -11,7 +11,7 @@ export interface Location {
 
 export class LocationService {
   static async getAllLocations(): Promise<Location[]> {
-    const response = await fetch(`${API_URL}/api/locations`);
+    const response = await fetch(`${API_URL}/locations`);
     if (!response.ok) {
       throw new Error('Error al obtener las ubicaciones');
     }
