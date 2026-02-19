@@ -16,6 +16,7 @@ services:
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/sistema
       PORT: 3001
+    command: sh -c "npx prisma migrate deploy && node dist/index.js"
     depends_on:
       - postgres
     ports:

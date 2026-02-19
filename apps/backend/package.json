@@ -12,7 +12,6 @@
     "build": "npx prisma generate && tsc -p tsconfig.json",
     "lint": "eslint \"src/**/*.ts\"",
     "start": "node dist/index.js",
-    "postbuild": "npx prisma migrate deploy || npx prisma db push",
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:seed": "ts-node prisma/seed.ts",
