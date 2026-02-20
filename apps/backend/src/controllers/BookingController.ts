@@ -68,7 +68,7 @@ export class BookingController {
             // Need club timezone: fetch court->club to get timeZone
             try {
                 const court = await prisma.court.findUnique({ where: { id: Number(courtId) }, include: { club: true } });
-                const tz = court?.club?.timeZone || TimeHelper.getDefaultTimeZone();
+                const tz = (court?.club as any)?.timeZone || TimeHelper.getDefaultTimeZone();
                 startDate = TimeHelper.localSlotToUtc(dateStr, slotTime, tz);
             } catch (e) {
                 return res.status(400).json({ error: 'Invalid date/slot combination or club timezone missing' });
