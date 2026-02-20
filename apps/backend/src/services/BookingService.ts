@@ -242,10 +242,24 @@ export class BookingService {
         const activity = await this.activityRepo.findById(activityId);
         if (!activity) throw new Error("Actividad no encontrada");
 
-        const { startUtc: startOfDay, endUtc: endOfDay } = TimeHelper.getUtcRangeForLocalDate(date);
+       // --- NUEVO CÓDIGO BLINDADO ---
+        // 1. Calculamos el rango del día de forma manual y segura
+        const startOfDay = new Date(date);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(date);
+        endOfDay.setHours(23, 59, 59, 999);
 
-        const existingBookings = await this.bookingRepo.findByCourtAndDateRange(courtId, startOfDay, endOfDay);
-
+        // 2. Buscamos las reservas usando este rango exacto
+        const existingBookings = await prisma.booking.findMany({
+            where: {
+                courtId: courtId,
+                startDateTime: {
+                    gte: startOfDay,
+                    lte: endOfDay
+                },
+                status: { not: 'CANCELLED' }
+            }
+        });
         const allowedDurations = this.normalizeDurations((court as any)?.club?.scheduleDurations, activity.defaultDurationMinutes);
         const effectiveDuration = durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
         if (!allowedDurations.includes(effectiveDuration)) {
