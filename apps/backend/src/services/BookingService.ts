@@ -487,18 +487,19 @@ export class BookingService {
                     const slotDateTime = TimeHelper.localSlotToUtc(slotDateCandidate, slotObj.slotTime);
 
                     const booking = bookings.find(b => {
-                        const courtMatch = b.court.id === court.id;
-                        const bookingUTCTime = Date.UTC(
-                            b.startDateTime.getUTCFullYear(),
-                            b.startDateTime.getUTCMonth(),
-                            b.startDateTime.getUTCDate(),
-                            b.startDateTime.getUTCHours(),
-                            b.startDateTime.getUTCMinutes()
-                        );
-                        const slotUTCTime = slotDateTime.getTime();
-                        const timeMatch = bookingUTCTime === slotUTCTime;
-                        return courtMatch && timeMatch;
-                    });
+                    const courtMatch = b.court.id === court.id;
+                    
+                    // Blindaje matemático: Agarramos el UTC de la BD y le restamos 3 horas exactas
+                    const localDate = new Date(b.startDateTime.getTime() - (3 * 60 * 60 * 1000));
+                    const localHours = String(localDate.getUTCHours()).padStart(2, '0');
+                    const localMinutes = String(localDate.getUTCMinutes()).padStart(2, '0');
+                    const bookingLocalTimeStr = `${localHours}:${localMinutes}`;
+                    
+                    // Comparamos los textos directamente (ej: "08:00" === "08:00")
+                    const timeMatch = bookingLocalTimeStr === slotObj.slotTime;
+                    
+                    return courtMatch && timeMatch;
+                });
 
                     const key = `${slotObj.slotTime}`;
                     if (seen.has(key)) continue;
@@ -522,9 +523,9 @@ export class BookingService {
             
             if (!isAlreadyInSchedule) {
             // Convertimos UTC almacenado a fecha local usando TimeHelper
-            const localDate = new Date(booking.startDateTime);
-            const localHours = String(localDate.getHours()).padStart(2, '0');
-            const localMinutes = String(localDate.getMinutes()).padStart(2, '0');
+            const localDate = new Date(booking.startDateTime.getTime() - (3 * 60 * 60 * 1000));
+            const localHours = String(localDate.getUTCHours()).padStart(2, '0');
+            const localMinutes = String(localDate.getUTCMinutes()).padStart(2, '0');
             const slotTimeStr = `${localHours}:${localMinutes}`;
 
                 schedule.push({
