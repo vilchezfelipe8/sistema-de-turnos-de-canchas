@@ -1129,8 +1129,8 @@ export default function AdminTabBookings() {
                   ))}
                 </div>
 
-                {/* LÍNEAS HORARIAS (fila por hora en gridSlots) */}
-                {gridSlots.map((time, index) => (
+                {/* LÍNEAS HORARIAS (fijas cada 1 hora, de 08:00 a 23:00) */}
+                {Array.from({ length: 16 }, (_, i) => `${String(8 + i).padStart(2, '0')}:00`).map((time, index) => (
                   <div
                     key={time}
                     className="absolute left-0 right-0 border-t border-[#347048]/10"

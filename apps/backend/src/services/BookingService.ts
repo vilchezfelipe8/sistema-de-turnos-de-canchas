@@ -517,6 +517,29 @@ export class BookingService {
             }
         }
 
+        for (const booking of bookings) {
+            // Buscamos si esta reserva ya está en nuestra lista de 'schedule'
+            const isAlreadyInSchedule = schedule.some(s => s.booking && s.booking.id === booking.id);
+            
+            if (!isAlreadyInSchedule) {
+                // Ajuste de zona horaria (UTC-3 para Argentina)
+                const localDate = new Date(booking.startDateTime.getTime() - (3 * 60 * 60 * 1000));
+                
+                const localHours = String(localDate.getUTCHours()).padStart(2, '0');
+                const localMinutes = String(localDate.getUTCMinutes()).padStart(2, '0');
+                const slotTimeStr = `${localHours}:${localMinutes}`;
+
+                schedule.push({
+                    courtId: booking.court.id,
+                    courtName: booking.court.name,
+                    slotTime: slotTimeStr,
+                    startDateTime: booking.startDateTime.toISOString(),
+                    isAvailable: false, // Como es un turno huérfano, obvio que no está disponible
+                    booking: booking
+                });
+            }
+        }
+
         schedule.sort((a, b) => {
             if (a.slotTime < b.slotTime) return -1;
             if (a.slotTime > b.slotTime) return 1;
