@@ -43,7 +43,7 @@ export function useAvailability(date: Date | null, clubSlug?: string, durationMi
         : '';
 
       const res = await fetch(
-        `${apiUrl}/api/bookings/availability-with-courts?activityId=1&date=${dateString}&t=${timestamp}${clubParam}${durationParam}`,
+        `${apiUrl}/bookings/availability-with-courts?activityId=1&date=${dateString}&t=${timestamp}${clubParam}${durationParam}`,
         {
             cache: 'no-store',
             headers: {

@@ -426,7 +426,7 @@ export default function Home() {
               const times: string[] = [];
               for (const activityId of activityIds) {
                 const res = await fetch(
-                  `${apiUrl}/api/bookings/availability-with-courts?activityId=${activityId}&date=${searchDate}&clubSlug=${encodeURIComponent(club.slug)}&t=${Date.now()}`,
+                  `${apiUrl}/bookings/availability-with-courts?activityId=${activityId}&date=${searchDate}&clubSlug=${encodeURIComponent(club.slug)}&t=${Date.now()}`,
                   { cache: 'no-store' }
                 );
                 if (!res.ok) continue;
