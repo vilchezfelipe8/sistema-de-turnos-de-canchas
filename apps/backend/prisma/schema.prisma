@@ -74,6 +74,8 @@ model Club {
   lightsEnabled      Boolean @default(false) // Si el club cobra extra por luces
   lightsExtraAmount  Float?               // Monto extra por luces (opcional)
   lightsFromHour     String?              // Hora local a partir de la cual se cobra (ej: "20:00")
+  // Zona horaria IANA del club (ej: "America/Argentina/Cordoba"). Recomendable setear.
+  timeZone           String?              
   professorDiscountEnabled Boolean @default(false) // Si aplica descuento a profesores
   professorDiscountPercent Float? // Porcentaje de descuento (0-100)
   // Configuracion de turnos

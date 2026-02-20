@@ -2,6 +2,7 @@ import { ClubRepository } from '../repositories/ClubRepository';
 import { BookingRepository } from '../repositories/BookingRepository';
 import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
 import { BookingStatus } from '../entities/Enums';
+import { TimeHelper } from '../utils/TimeHelper';
 
 export class AdminService {
     constructor(
@@ -43,9 +44,10 @@ export class AdminService {
     const conteo: Record<string, number> = {};
 
     bookings.forEach(b => {
-        const hours = b.startDateTime.getHours().toString().padStart(2, '0');
-        const minutes = b.startDateTime.getMinutes().toString().padStart(2, '0');
-        
+        const local = TimeHelper.utcToLocal(b.startDateTime);
+        const hours = local.getUTCHours().toString().padStart(2, '0');
+        const minutes = local.getUTCMinutes().toString().padStart(2, '0');
+
         const timeKey = `${hours}:${minutes}`;
 
         if (conteo[timeKey]) {

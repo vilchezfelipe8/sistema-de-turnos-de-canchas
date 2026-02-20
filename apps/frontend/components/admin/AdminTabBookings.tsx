@@ -783,6 +783,7 @@ export default function AdminTabBookings() {
               Number(manualBooking.courtId),
               1,
               dateBase,
+              manualBooking.time,
               undefined,
               guestData,
               {
