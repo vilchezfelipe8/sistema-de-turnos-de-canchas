@@ -27,8 +27,12 @@ export class BookingController {
             courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
             // Accept either an ISO `startDateTime` or a `date` + `slotTime` pair (local)
             startDateTime: z.string().optional().refine((s) => s === undefined || !Number.isNaN(Date.parse(s)), { message: 'Invalid ISO datetime' }),
-            date: z.string().optional().regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'Invalid date format. Use YYYY-MM-DD' }),
-            slotTime: z.string().optional().regex(/^\d{2}:\d{2}$/, { message: 'Invalid slotTime format. Use HH:mm' }),
+            date: z.string()
+                .regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'Invalid date format. Use YYYY-MM-DD' })
+                .optional(),
+            slotTime: z.string()
+                .regex(/^\d{2}:\d{2}$/, { message: 'Invalid slotTime format. Use HH:mm' })
+                .optional(),
             activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
             durationMinutes: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
             guestIdentifier: optionalTrimmedString(),
