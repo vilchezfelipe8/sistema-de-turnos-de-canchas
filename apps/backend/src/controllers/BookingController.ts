@@ -389,7 +389,9 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
 
             const { date, activityId, clubSlug, durationMinutes } = parsed.data;
 
-            const searchDate = new Date(date);
+            // Blindaje matemático para que la fecha no se atrase un día por el UTC
+            const [year, month, day] = String(date).split('-').map(Number);
+            const searchDate = new Date(year, month - 1, day);
 
             let clubId: number | undefined;
             if (clubSlug && typeof clubSlug === 'string' && clubSlug.trim()) {
