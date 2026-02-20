@@ -522,9 +522,9 @@ export class BookingService {
             
             if (!isAlreadyInSchedule) {
             // Convertimos UTC almacenado a fecha local usando TimeHelper
-            const localDate = TimeHelper.utcToLocal(booking.startDateTime);
-            const localHours = String(localDate.getUTCHours()).padStart(2, '0');
-            const localMinutes = String(localDate.getUTCMinutes()).padStart(2, '0');
+            const localDate = new Date(booking.startDateTime);
+            const localHours = String(localDate.getHours()).padStart(2, '0');
+            const localMinutes = String(localDate.getMinutes()).padStart(2, '0');
             const slotTimeStr = `${localHours}:${localMinutes}`;
 
                 schedule.push({
