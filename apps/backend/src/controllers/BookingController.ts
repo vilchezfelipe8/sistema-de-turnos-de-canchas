@@ -260,7 +260,9 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
 
         const { courtId, date, activityId, durationMinutes } = parsed.data;
 
-        const searchDate = new Date(date);
+        // En lugar de new Date(date), separamos los componentes para que sea "Día Puro"
+        const [year, month, day] = String(date).split('-').map(Number);
+        const searchDate = new Date(year, month - 1, day);
 
         const slots = await this.bookingService.getAvailableSlots(
             Number(courtId),
