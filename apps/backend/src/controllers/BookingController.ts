@@ -167,7 +167,30 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
                 // Enviamos el mensaje al teléfono detectado
                 // (Agrego una limpieza simple por si el guest puso guiones o espacios)
                 const cleanPhone = phoneToSend.replace(/\D/g, ''); 
-                await whatsappService.sendMessage(cleanPhone, message);
+
+                // Si el backend tiene DISABLE_WHATSAPP activo, delegamos el envío
+                // al servicio externo `wpp-service` (ej. en Docker: http://wpp-service:3002/send)
+                if (process.env.DISABLE_WHATSAPP === 'true' || process.env.DISABLE_WHATSAPP === '1') {
+                    try {
+                        const fetchFn = (globalThis as any).fetch;
+                        if (typeof fetchFn !== 'function') throw new Error('fetch no disponible en el runtime');
+                        const resp = await fetchFn('http://wpp-service:3002/send', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ number: cleanPhone, message })
+                        });
+                        if (!resp.ok) {
+                            const text = await resp.text();
+                            console.error('❌ Error desde wpp-service:', resp.status, text);
+                        } else {
+                            console.log('✅ Mensaje enviado vía wpp-service a', cleanPhone);
+                        }
+                    } catch (e) {
+                        console.error('❌ Error llamando wpp-service:', e);
+                    }
+                } else {
+                    await whatsappService.sendMessage(cleanPhone, message);
+                }
             }
 
         } catch (waError) {
