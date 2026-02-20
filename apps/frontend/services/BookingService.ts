@@ -27,6 +27,7 @@ export const createBooking = async (
   courtId: number,
   activityId: number,
   date: Date,
+  slotTime?: string,
   userId?: number,
   // 👇 Aceptamos 'dni' también en el tipo para evitar errores de TS
   guestInfo?: { name?: string; email?: string; phone?: string; guestDni?: string; dni?: string },
@@ -48,7 +49,10 @@ export const createBooking = async (
     body: JSON.stringify({
       courtId,
       activityId,
-      startDateTime: date.toISOString(),
+      ...(slotTime ? {
+        date: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+        slotTime
+      } : { startDateTime: date.toISOString() }),
       ...(guestIdentifier ? { guestIdentifier } : {}),
       ...(guestInfo?.name ? { guestName: guestInfo.name } : {}),
       ...(guestInfo?.email ? { guestEmail: guestInfo.email } : {}),

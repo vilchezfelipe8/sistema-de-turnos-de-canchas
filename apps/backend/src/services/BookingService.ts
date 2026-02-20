@@ -146,12 +146,10 @@ export class BookingService {
             }
         }
 
-                // Calcular el horario local según el offset configurado en TimeHelper
-        // (evita discrepancias si el contenedor/servidor corre en otra zona horaria).
-        const offsetMinutes = TimeHelper.getLocalOffsetMinutes();
-        const localMs = startDateTime.getTime() - offsetMinutes * 60000;
-        const localDateForSlot = new Date(localMs);
-        const slotTime = `${String(localDateForSlot.getUTCHours()).padStart(2, '0')}:${String(localDateForSlot.getUTCMinutes()).padStart(2, '0')}`;
+                // Determinar slotTime en la zona horaria del club
+                const clubTimeZone = (clubConfig && clubConfig.timeZone) ? clubConfig.timeZone : TimeHelper.getDefaultTimeZone();
+                const localForSlot = TimeHelper.utcToLocal(startDateTime, clubTimeZone);
+                const slotTime = `${String(localForSlot.getUTCHours()).padStart(2, '0')}:${String(localForSlot.getUTCMinutes()).padStart(2, '0')}`;
         const possibleSlots = this.resolveScheduleSlots(clubConfig, effectiveDuration) as Array<{ slotTime: string; dayOffset: number }>;
         const possibleSlotTimes = possibleSlots.map(s => s.slotTime);
         if (!possibleSlotTimes.includes(slotTime)) {
@@ -177,18 +175,19 @@ export class BookingService {
             }
         }
         if (clubPricingConfig && clubPricingConfig.lightsEnabled && clubPricingConfig.lightsExtraAmount && clubPricingConfig.lightsFromHour) {
-            try {
-                const [lh, lm] = String(clubPricingConfig.lightsFromHour).split(':').map((n: string) => parseInt(n, 10));
-                if (!Number.isNaN(lh) && !Number.isNaN(lm)) {
-                    const bookingHour = startDateTime.getHours();
-                    const bookingMinutes = startDateTime.getMinutes();
-                    const bookingTotalMinutes = bookingHour * 60 + bookingMinutes;
-                    const lightsTotalMinutes = lh * 60 + lm;
-                    if (bookingTotalMinutes >= lightsTotalMinutes) {
-                        finalPrice += Number(clubPricingConfig.lightsExtraAmount);
+                try {
+                    const [lh, lm] = String(clubPricingConfig.lightsFromHour).split(':').map((n: string) => parseInt(n, 10));
+                    if (!Number.isNaN(lh) && !Number.isNaN(lm)) {
+                            const localStart = TimeHelper.utcToLocal(startDateTime, clubTimeZone);
+                            const bookingHour = localStart.getUTCHours();
+                            const bookingMinutes = localStart.getUTCMinutes();
+                        const bookingTotalMinutes = bookingHour * 60 + bookingMinutes;
+                        const lightsTotalMinutes = lh * 60 + lm;
+                        if (bookingTotalMinutes >= lightsTotalMinutes) {
+                            finalPrice += Number(clubPricingConfig.lightsExtraAmount);
+                        }
                     }
-                }
-            } catch {
+                } catch {
                 // Si algo falla en el parseo, seguimos cobrando solo el precio base
             }
         }
@@ -522,12 +521,11 @@ export class BookingService {
             const isAlreadyInSchedule = schedule.some(s => s.booking && s.booking.id === booking.id);
             
             if (!isAlreadyInSchedule) {
-                // Ajuste de zona horaria (UTC-3 para Argentina)
-                const localDate = new Date(booking.startDateTime.getTime() - (3 * 60 * 60 * 1000));
-                
-                const localHours = String(localDate.getUTCHours()).padStart(2, '0');
-                const localMinutes = String(localDate.getUTCMinutes()).padStart(2, '0');
-                const slotTimeStr = `${localHours}:${localMinutes}`;
+            // Convertimos UTC almacenado a fecha local usando TimeHelper
+            const localDate = TimeHelper.utcToLocal(booking.startDateTime);
+            const localHours = String(localDate.getUTCHours()).padStart(2, '0');
+            const localMinutes = String(localDate.getUTCMinutes()).padStart(2, '0');
+            const slotTimeStr = `${localHours}:${localMinutes}`;
 
                 schedule.push({
                     courtId: booking.court.id,
@@ -757,8 +755,10 @@ export class BookingService {
         // Si el admin indica isProfessorOverride, usar 60 minutos para profesores
         const duration = isProfessorOverride ? 60 : (activity ? activity.defaultDurationMinutes : 60);
 
-        const startTime = `${startDateTime.getHours().toString().padStart(2, '0')}:${startDateTime.getMinutes().toString().padStart(2, '0')}`;
-        const endTime = `${new Date(startDateTime.getTime() + duration * 60000).getHours().toString().padStart(2, '0')}:${new Date(startDateTime.getTime() + duration * 60000).getMinutes().toString().padStart(2, '0')}`;
+        const localStart = TimeHelper.utcToLocal(startDateTime);
+        const localEnd = TimeHelper.utcToLocal(new Date(startDateTime.getTime() + duration * 60000));
+        const startTime = `${localStart.getUTCHours().toString().padStart(2, '0')}:${localStart.getUTCMinutes().toString().padStart(2, '0')}`;
+        const endTime = `${localEnd.getUTCHours().toString().padStart(2, '0')}:${localEnd.getUTCMinutes().toString().padStart(2, '0')}`;
         const dayOfWeek = startDateTime.getDay();
 
         // 👇 CORRECCIÓN 1: FILTRAR SOLO LOS ACTIVOS (NO CANCELADOS)
@@ -1092,7 +1092,7 @@ async payBookingDebt(bookingId: number, paymentMethod: string) {
     // 1. Buscamos la reserva
     const booking = await prisma.booking.findUnique({
         where: { id: bookingId },
-        include: { cashMovements: true, items: true } 
+        include: { cashMovements: true, items: true, court: { include: { club: true } } } 
     });
 
     if (!booking) throw new Error("Reserva no encontrada");
@@ -1124,6 +1124,12 @@ async payBookingDebt(bookingId: number, paymentMethod: string) {
 
     // 7. Guardar Movimiento
     
+    // Determinar clubId para no violar la FK; si no existe, lanzar error
+    const clubIdForMovement = booking.court?.club?.id ?? null;
+    if (!clubIdForMovement) {
+        throw new Error('No se pudo determinar el club asociado a la reserva (clubId faltante)');
+    }
+
     const movement = await prisma.cashMovement.create({
         data: {
             amount: debtAmount,
@@ -1131,6 +1137,7 @@ async payBookingDebt(bookingId: number, paymentMethod: string) {
             description: `Saldo final reserva #${booking.id} (Cancha + Consumos)`, 
             method: paymentMethod,
             bookingId: booking.id,
+            clubId: clubIdForMovement,
             date: new Date()
         }
     });

@@ -49,7 +49,7 @@ class WhatsappService {
 });
 
         // Guardar el QR
-        this.client.on('qr', (qr) => {
+        this.client.on('qr', (qr: any) => {
             this.currentQR = qr;
             console.log('📱 Nuevo QR generado. Accede a /whatsapp/qr para verlo en el navegador');
         });
@@ -62,14 +62,14 @@ class WhatsappService {
         });
 
         // Manejo de desconexión para evitar procesos zombies
-        this.client.on('disconnected', (reason) => {
+           this.client.on('disconnected', (reason: any) => {
              this.isReady = false;
              this.currentQR = null;
              console.warn('⚠️ WhatsApp desconectado:', reason);
         });
 
         // Manejar errores de autenticación
-        this.client.on('auth_failure', (msg) => {
+        this.client.on('auth_failure', (msg: any) => {
             console.error('❌ Error de autenticación de WhatsApp:', msg);
             this.isReady = false;
         });

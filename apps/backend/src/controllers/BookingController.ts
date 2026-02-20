@@ -3,6 +3,7 @@ import { BookingService } from '../services/BookingService';
 import { z } from 'zod';
 import { prisma } from '../prisma';
 import { whatsappService } from '../services/WhatsappService';
+import { TimeHelper } from '../utils/TimeHelper';
 
 export class BookingController {
     constructor(private bookingService: BookingService) {}
@@ -24,7 +25,10 @@ export class BookingController {
 
         const createSchema = z.object({
             courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
-            startDateTime: z.string().refine((s) => !Number.isNaN(Date.parse(s)), { message: 'Invalid ISO datetime' }),
+            // Accept either an ISO `startDateTime` or a `date` + `slotTime` pair (local)
+            startDateTime: z.string().optional().refine((s) => s === undefined || !Number.isNaN(Date.parse(s)), { message: 'Invalid ISO datetime' }),
+            date: z.string().optional().regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'Invalid date format. Use YYYY-MM-DD' }),
+            slotTime: z.string().optional().regex(/^\d{2}:\d{2}$/, { message: 'Invalid slotTime format. Use HH:mm' }),
             activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
             durationMinutes: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
             guestIdentifier: optionalTrimmedString(),
@@ -52,8 +56,25 @@ export class BookingController {
             return res.status(400).json({ error: parsed.error.format() });
         }
 
-    const { courtId, startDateTime, activityId, durationMinutes, guestIdentifier, guestName, guestEmail, guestPhone, guestDni, isProfessor } = parsed.data;
-        const startDate = new Date(String(startDateTime));
+        const { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, guestIdentifier, guestName, guestEmail, guestPhone, guestDni, isProfessor } = parsed.data;
+
+        // Resolve startDate: prefer date+slotTime (local) if provided, otherwise use startDateTime ISO
+        let startDate: Date;
+        if (dateStr && slotTime) {
+            // Need club timezone: fetch court->club to get timeZone
+            try {
+                const court = await prisma.court.findUnique({ where: { id: Number(courtId) }, include: { club: true } });
+                const tz = court?.club?.timeZone || TimeHelper.getDefaultTimeZone();
+                startDate = TimeHelper.localSlotToUtc(dateStr, slotTime, tz);
+            } catch (e) {
+                return res.status(400).json({ error: 'Invalid date/slot combination or club timezone missing' });
+            }
+        } else if (startDateTime) {
+            startDate = new Date(String(startDateTime));
+            if (Number.isNaN(startDate.getTime())) return res.status(400).json({ error: 'Invalid startDateTime' });
+        } else {
+            return res.status(400).json({ error: 'Debe enviar startDateTime o (date y slotTime)' });
+        }
         const userRole = user?.role;
         const isAdmin = userRole === 'ADMIN';
         const asGuest = Boolean((req.body as any)?.asGuest);

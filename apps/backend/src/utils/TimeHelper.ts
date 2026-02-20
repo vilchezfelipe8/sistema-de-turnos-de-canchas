@@ -1,39 +1,36 @@
+import { zonedTimeToUtc, utcToZonedTime, format } from 'date-fns-tz';
+
 export class TimeHelper {
     private static TIME_RE = /^\d{2}:\d{2}$/;
     private static MINUTES_IN_DAY = 24 * 60;
 
-    static getLocalOffsetMinutes(): number {
-        const raw = process.env.LOCAL_TZ_OFFSET_MINUTES;
-        if (!raw) return 180;
-        const parsed = Number(raw);
-        return Number.isNaN(parsed) ? 180 : parsed;
+    static getDefaultTimeZone(): string {
+        return process.env.DEFAULT_TIMEZONE || 'UTC';
     }
 
-    static getUtcRangeForLocalDate(date: Date, offsetMinutes = TimeHelper.getLocalOffsetMinutes()) {
-        const year = date.getUTCFullYear();
-        const month = date.getUTCMonth();
-        const day = date.getUTCDate();
-        const offsetMs = offsetMinutes * 60000;
-        const startUtc = new Date(Date.UTC(year, month, day, 0, 0, 0, 0) + offsetMs);
-        const endUtc = new Date(Date.UTC(year, month, day, 23, 59, 59, 999) + offsetMs);
+    static getUtcRangeForLocalDate(date: Date, timeZone = TimeHelper.getDefaultTimeZone()) {
+        // date may be a Date representing the local day; build ISO date string
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const startLocalIso = `${year}-${month}-${day}T00:00:00`;
+        const endLocalIso = `${year}-${month}-${day}T23:59:59.999`;
+        const startUtc = zonedTimeToUtc(startLocalIso, timeZone);
+        const endUtc = zonedTimeToUtc(endLocalIso, timeZone);
         return { startUtc, endUtc };
     }
 
-    static localSlotToUtc(date: Date, time: string, offsetMinutes = TimeHelper.getLocalOffsetMinutes()): Date {
+    static localSlotToUtc(date: Date | string, time: string, timeZone = TimeHelper.getDefaultTimeZone()): Date {
         if (!this.TIME_RE.test(time)) {
             throw new Error(`Invalid time format: ${time}. Expected HH:mm`);
         }
-        const [hoursStr, minutesStr] = time.split(':');
-        const hours = Number(hoursStr);
-        const minutes = Number(minutesStr);
-        if (Number.isNaN(hours) || Number.isNaN(minutes)) {
-            throw new Error(`Invalid time numbers in: ${time}`);
-        }
-        const year = date.getUTCFullYear();
-        const month = date.getUTCMonth();
-        const day = date.getUTCDate();
-        const offsetMs = offsetMinutes * 60000;
-        return new Date(Date.UTC(year, month, day, hours, minutes, 0) + offsetMs);
+        const dt = typeof date === 'string' ? date : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        const isoLocal = `${dt}T${time}:00`;
+        return zonedTimeToUtc(isoLocal, timeZone);
+    }
+
+    static utcToLocal(date: Date, timeZone = TimeHelper.getDefaultTimeZone()): Date {
+        return utcToZonedTime(date, timeZone);
     }
 
     static timeToMinutes(time: string): number {

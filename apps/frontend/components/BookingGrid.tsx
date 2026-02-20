@@ -425,7 +425,8 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
       const createResult = await createBooking(
         selectedCourt.id,
         1,
-        bookingDateTime,
+        selectedDate,
+        selectedSlot,
         undefined,
         !isAuthenticated ? guestInfo : undefined,
         { durationMinutes: selectedDuration }
