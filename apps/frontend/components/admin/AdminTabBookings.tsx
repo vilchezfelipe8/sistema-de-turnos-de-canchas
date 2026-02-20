@@ -321,46 +321,34 @@ export default function AdminTabBookings() {
   const scheduleSlotDuration = scheduleDurations[0] ?? DEFAULT_DURATION_MINUTES;
 
   const scheduleSlots = useMemo(() => {
-    const uniqueSlots = Array.from(new Set(scheduleBookings.map((slot) => slot.slotTime))).sort();
-    if (uniqueSlots.length > 0) return uniqueSlots;
-    if (clubConfig) {
-      // Construir slots anclados a la fecha seleccionada (incluye overnight desde día anterior)
-      try {
-        const [y, m, d] = scheduleDate.split('-').map(Number);
-        const selected = new Date(y, m - 1, d);
-        const anchors = [
-          (() => { const dd = new Date(selected); dd.setDate(dd.getDate() - 1); return dd; })(),
-          new Date(selected)
-        ];
+  if (clubConfig) {
+    try {
+      const [y, m, d] = scheduleDate.split('-').map(Number);
+      const selected = new Date(y, m - 1, d);
+      
+      // Obtenemos los slots teóricos basados en la duración (90 min)
+      const possible = resolveScheduleSlots(clubConfig, scheduleSlotDuration) as Array<{ slotTime: string; dayOffset: number }>;
+      
+      const seen = new Set<string>();
+      const list: string[] = [];
 
-        const possible = resolveScheduleSlots(clubConfig, scheduleSlotDuration) as Array<{ slotTime: string; dayOffset: number }>;
-        const seen = new Set<string>();
-        const list: string[] = [];
-
-        for (const anchor of anchors) {
-          for (const slotObj of possible) {
-            const candidate = new Date(anchor);
-            candidate.setDate(candidate.getDate() + (slotObj.dayOffset || 0));
-            if (
-              candidate.getFullYear() === selected.getFullYear() &&
-              candidate.getMonth() === selected.getMonth() &&
-              candidate.getDate() === selected.getDate()
-            ) {
-              if (!seen.has(slotObj.slotTime)) {
-                seen.add(slotObj.slotTime);
-                list.push(slotObj.slotTime);
-              }
-            }
-          }
+      // Solo generamos los slots que corresponden al día seleccionado
+      // Ignoramos los 'scheduleBookings' para que no se cuelen horarios de 60 min
+      for (const slotObj of possible) {
+        if (!seen.has(slotObj.slotTime)) {
+          seen.add(slotObj.slotTime);
+          list.push(slotObj.slotTime);
         }
-
-        return list.length > 0 ? list.sort() : CLUB_TIME_SLOTS;
-      } catch (e) {
-        return CLUB_TIME_SLOTS;
       }
+
+      return list.length > 0 ? list.sort() : CLUB_TIME_SLOTS;
+    } catch (e) {
+      return CLUB_TIME_SLOTS;
     }
-    return CLUB_TIME_SLOTS;
-  }, [scheduleBookings, clubConfig, scheduleSlotDuration, scheduleDate]);
+  }
+  return CLUB_TIME_SLOTS;
+}, [clubConfig, scheduleSlotDuration, scheduleDate]); 
+// ✅ Quitamos 'scheduleBookings' de las dependencias para que no se ensucie
 
   
 
