@@ -146,7 +146,12 @@ export class BookingService {
             }
         }
 
-        const slotTime = `${String(startDateTime.getHours()).padStart(2, '0')}:${String(startDateTime.getMinutes()).padStart(2, '0')}`;
+                // Calcular el horario local según el offset configurado en TimeHelper
+        // (evita discrepancias si el contenedor/servidor corre en otra zona horaria).
+        const offsetMinutes = TimeHelper.getLocalOffsetMinutes();
+        const localMs = startDateTime.getTime() - offsetMinutes * 60000;
+        const localDateForSlot = new Date(localMs);
+        const slotTime = `${String(localDateForSlot.getUTCHours()).padStart(2, '0')}:${String(localDateForSlot.getUTCMinutes()).padStart(2, '0')}`;
         const possibleSlots = this.resolveScheduleSlots(clubConfig, effectiveDuration) as Array<{ slotTime: string; dayOffset: number }>;
         const possibleSlotTimes = possibleSlots.map(s => s.slotTime);
         if (!possibleSlotTimes.includes(slotTime)) {
