@@ -38,5 +38,5 @@ COPY . .
 
 VOLUME ["/usr/src/app/session"]
 ENV NODE_ENV=production
-ENV CHROME_PATH=/usr/bin/chromium-browser
+ENV CHROME_PATH=/usr/bin/chromium
 CMD ["node", "index.js"]

@@ -146,7 +146,12 @@ export class BookingService {
             }
         }
 
-        const slotTime = `${String(startDateTime.getHours()).padStart(2, '0')}:${String(startDateTime.getMinutes()).padStart(2, '0')}`;
+                // Calcular el horario local según el offset configurado en TimeHelper
+        // (evita discrepancias si el contenedor/servidor corre en otra zona horaria).
+        const offsetMinutes = TimeHelper.getLocalOffsetMinutes();
+        const localMs = startDateTime.getTime() - offsetMinutes * 60000;
+        const localDateForSlot = new Date(localMs);
+        const slotTime = `${String(localDateForSlot.getUTCHours()).padStart(2, '0')}:${String(localDateForSlot.getUTCMinutes()).padStart(2, '0')}`;
         const possibleSlots = this.resolveScheduleSlots(clubConfig, effectiveDuration) as Array<{ slotTime: string; dayOffset: number }>;
         const possibleSlotTimes = possibleSlots.map(s => s.slotTime);
         if (!possibleSlotTimes.includes(slotTime)) {
@@ -509,6 +514,29 @@ export class BookingService {
                         booking: booking || null
                     });
                 }
+            }
+        }
+
+        for (const booking of bookings) {
+            // Buscamos si esta reserva ya está en nuestra lista de 'schedule'
+            const isAlreadyInSchedule = schedule.some(s => s.booking && s.booking.id === booking.id);
+            
+            if (!isAlreadyInSchedule) {
+                // Ajuste de zona horaria (UTC-3 para Argentina)
+                const localDate = new Date(booking.startDateTime.getTime() - (3 * 60 * 60 * 1000));
+                
+                const localHours = String(localDate.getUTCHours()).padStart(2, '0');
+                const localMinutes = String(localDate.getUTCMinutes()).padStart(2, '0');
+                const slotTimeStr = `${localHours}:${localMinutes}`;
+
+                schedule.push({
+                    courtId: booking.court.id,
+                    courtName: booking.court.name,
+                    slotTime: slotTimeStr,
+                    startDateTime: booking.startDateTime.toISOString(),
+                    isAvailable: false, // Como es un turno huérfano, obvio que no está disponible
+                    booking: booking
+                });
             }
         }
 

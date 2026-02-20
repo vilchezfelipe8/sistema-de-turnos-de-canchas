@@ -29,6 +29,7 @@ const app = express();
 
 const allowedOrigins = [
   'http://localhost:3000',
+  'http://localhost:3001',
 
   // Dominio producción
   'https://tucancha.app',
@@ -52,7 +53,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
-  allowedHeaders: ['Content-Type','Authorization']
+  allowedHeaders: ['Content-Type','Authorization', 'Cache-Control', 'Pragma', 'Expires']
 }));
 
 /* =====================================================
