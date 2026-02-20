@@ -1064,7 +1064,7 @@ async payBookingDebt(bookingId: number, paymentMethod: string) {
     // 1. Buscamos la reserva
     const booking = await prisma.booking.findUnique({
         where: { id: bookingId },
-        include: { cashMovements: true, items: true } 
+        include: { cashMovements: true, items: true, court: { include: { club: true } } } 
     });
 
     if (!booking) throw new Error("Reserva no encontrada");
@@ -1096,6 +1096,12 @@ async payBookingDebt(bookingId: number, paymentMethod: string) {
 
     // 7. Guardar Movimiento
     
+    // Determinar clubId para no violar la FK; si no existe, lanzar error
+    const clubIdForMovement = booking.court?.club?.id ?? null;
+    if (!clubIdForMovement) {
+        throw new Error('No se pudo determinar el club asociado a la reserva (clubId faltante)');
+    }
+
     const movement = await prisma.cashMovement.create({
         data: {
             amount: debtAmount,
@@ -1103,6 +1109,7 @@ async payBookingDebt(bookingId: number, paymentMethod: string) {
             description: `Saldo final reserva #${booking.id} (Cancha + Consumos)`, 
             method: paymentMethod,
             bookingId: booking.id,
+            clubId: clubIdForMovement,
             date: new Date()
         }
     });
