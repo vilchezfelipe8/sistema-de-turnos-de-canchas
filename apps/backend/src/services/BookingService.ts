@@ -149,7 +149,8 @@ export class BookingService {
                 // Determinar slotTime en la zona horaria del club
                 const clubTimeZone = (clubConfig && clubConfig.timeZone) ? clubConfig.timeZone : TimeHelper.getDefaultTimeZone();
                 const localForSlot = TimeHelper.utcToLocal(startDateTime, clubTimeZone);
-                const slotTime = `${String(localForSlot.getUTCHours()).padStart(2, '0')}:${String(localForSlot.getUTCMinutes()).padStart(2, '0')}`;
+                const localDate = new Date(startDateTime.getTime() - (3 * 60 * 60 * 1000));
+                const slotTime = `${String(localDate.getUTCHours()).padStart(2, '0')}:${String(localDate.getUTCMinutes()).padStart(2, '0')}`;
         const possibleSlots = this.resolveScheduleSlots(clubConfig, effectiveDuration) as Array<{ slotTime: string; dayOffset: number }>;
         const possibleSlotTimes = possibleSlots.map(s => s.slotTime);
         if (!possibleSlotTimes.includes(slotTime)) {
@@ -178,7 +179,7 @@ export class BookingService {
                 try {
                     const [lh, lm] = String(clubPricingConfig.lightsFromHour).split(':').map((n: string) => parseInt(n, 10));
                     if (!Number.isNaN(lh) && !Number.isNaN(lm)) {
-                            const localStart = TimeHelper.utcToLocal(startDateTime, clubTimeZone);
+                            const localStart = new Date(startDateTime.getTime() - (3 * 60 * 60 * 1000));
                             const bookingHour = localStart.getUTCHours();
                             const bookingMinutes = localStart.getUTCMinutes();
                         const bookingTotalMinutes = bookingHour * 60 + bookingMinutes;
