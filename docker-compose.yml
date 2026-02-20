@@ -17,6 +17,8 @@ services:
       dockerfile: Dockerfile
     env_file:
       - ./apps/backend/.env
+    environment:
+      - TZ=America/Argentina/Buenos_Aires
     command: sh -c "npx prisma migrate deploy && node dist/index.js"
     depends_on:
       - postgres
