@@ -695,36 +695,21 @@ export class BookingService {
 
         for (const { slotTime, slotDateTime } of slotsMap.values()) {
             const slotEndDateTime = new Date(slotDateTime.getTime() + effectiveDuration * 60000);
-            
-            // --- NUEVA LÓGICA DE FILTRADO BLINDADA ---
-            const availableCourts = activityCourts.filter(court => {
-                const overlappingBooking = bookings.find(b => {
-                    if (b.court.id !== court.id) return false;
-                    if (b.status === "CANCELLED") return false;
 
-                    // Comparamos milisegundos puros (UTC vs UTC)
+            // 1. Mapeamos TODAS las canchas calculando su disponibilidad real por milisegundos
+            const courtsWithStatus = activityCourts.map(court => {
+                const isBusy = bookings.some(b => {
+                    if (b.court.id !== court.id || b.status === "CANCELLED") return false;
+                    
                     const bStart = b.startDateTime.getTime();
                     const bEnd = b.endDateTime.getTime();
                     const sStart = slotDateTime.getTime();
                     const sEnd = slotEndDateTime.getTime();
 
-                    // Hay solapamiento si (InicioA < FinB) y (FinA > InicioB)
+                    // Si se solapan, la cancha está ocupada
                     return sStart < bEnd && sEnd > bStart;
                 });
-                return !overlappingBooking;
-            }).map(court => ({
-                id: court.id,
-                name: court.name,
-                price: (court as any).price ?? null
-            }));
 
-            // (Opcional) Actualizamos también esta lista para consistencia
-            const courtsWithAvailability = activityCourts.map(court => {
-                const isBusy = bookings.some(b => {
-                    if (b.court.id !== court.id || b.status === "CANCELLED") return false;
-                    return slotDateTime.getTime() < b.endDateTime.getTime() && 
-                           slotEndDateTime.getTime() > b.startDateTime.getTime();
-                });
                 return {
                     id: court.id,
                     name: court.name,
@@ -733,8 +718,18 @@ export class BookingService {
                 };
             });
 
-            if (availableCourts.length > 0) {
-                slotsWithCourts.push({ slotTime, availableCourts, courts: courtsWithAvailability });
+            // 2. Filtramos para la lista de "disponibles" solo las que NO están ocupadas
+            const availableOnly = courtsWithStatus
+                .filter(c => c.isAvailable)
+                .map(({ isAvailable, ...rest }) => rest); // Quitamos el flag para el frontend
+
+            // 3. SOLO agregamos el horario al schedule si realmente hay canchas libres
+            if (availableOnly.length > 0) {
+                slotsWithCourts.push({ 
+                    slotTime, 
+                    availableCourts: availableOnly, 
+                    courts: courtsWithStatus 
+                });
             }
         }
 
