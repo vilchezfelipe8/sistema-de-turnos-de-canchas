@@ -374,13 +374,15 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
     getAvailableSlotsWithCourts = async (req: Request, res: Response) => {
         try {
             const querySchema = z.object({
-                date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: "Formato inválido. Use YYYY-MM-DD (ej: 2026-01-06)" }),
-                activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
-                clubSlug: z.string().optional(),
-                durationMinutes: z.preprocess(
-                    (v) => (v === undefined ? undefined : Number(v)),
-                    z.number().int().positive().optional()
-                )
+            // Aceptamos cualquier string de fecha y después la procesamos nosotros
+            date: z.string(), 
+            activityId: z.preprocess((v) => Number(v), z.number()),
+            clubSlug: z.string().optional(),
+            durationMinutes: z.preprocess(
+                (v) => (v === undefined || v === '' ? undefined : Number(v)),
+                z.number().optional()
+            )
+
             });
 
             const parsed = querySchema.safeParse(req.query);
