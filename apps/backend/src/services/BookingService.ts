@@ -1202,15 +1202,20 @@ async getClubDebtors(clubId: number) {
           select: { firstName: true, lastName: true, phoneNumber: true, email: true }
         },
         items: {
-          // 👈 ELIMINAMOS name: true de acá (solo lo pedimos adentro de product)
+          // Acá mantenemos la corrección del producto
           select: { price: true, quantity: true, product: { select: { name: true } } }
         },
         cashMovements: {
           select: { amount: true }
         },
         court: {
-          // 👈 ELIMINAMOS el club porque no tiene timeZone en la DB
-          select: { name: true } 
+          // 🌎 ACÁ VOLVEMOS A PEDIR EL TIMEZONE DEL CLUB
+          select: { 
+            name: true, 
+            club: { 
+              select: { timeZone: true } 
+            } 
+          } 
         }
       }
     });
@@ -1276,7 +1281,8 @@ async getClubDebtors(clubId: number) {
       const hasPendingDebt = isDebtStatus && debt > 0;
 
       // Usamos el TimeZone por defecto ya que no existe en la DB
-      const clubTimeZone = 'America/Argentina/Buenos_Aires';
+      // 🌎 Lógica internacional lista para escalar
+      const clubTimeZone = (booking.court as any)?.club?.timeZone ?? 'America/Argentina/Buenos_Aires';
       const localStart = TimeHelper.utcToLocal(booking.startDateTime, clubTimeZone);
       const dateStr = `${localStart.getFullYear()}-${String(localStart.getMonth() + 1).padStart(2, '0')}-${String(localStart.getDate()).padStart(2, '0')}`;
       const timeStr = `${String(localStart.getHours()).padStart(2, '0')}:${String(localStart.getMinutes()).padStart(2, '0')}`;
