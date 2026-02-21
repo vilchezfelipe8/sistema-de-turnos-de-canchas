@@ -638,7 +638,25 @@ export class BookingService {
     }>> {
         const allCourts = await this.courtRepo.findAll(clubId);
         const activeCourts = allCourts.filter(court => !court.isUnderMaintenance);
-        const bookings = await this.bookingRepo.findAllByDate(date);
+        // 1. Definimos el rango exacto del día (desde las 00:00:00 hasta las 23:59:59)
+        const startOfDay = new Date(date);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(date);
+        endOfDay.setHours(23, 59, 59, 999);
+
+        // 2. Buscamos las reservas con Prisma directo para asegurar que traiga TODO lo del día
+        const bookings = await prisma.booking.findMany({
+            where: {
+                startDateTime: {
+                    gte: startOfDay,
+                    lte: endOfDay
+                },
+                status: { not: 'CANCELLED' },
+                // Si el clubId existe, filtramos por club
+                ...(clubId ? { court: { clubId: clubId } } : {})
+            },
+            include: { court: true }
+        });
         const activity = await this.activityRepo.findById(activityId);
         
         if (!activity) throw new Error("Actividad no encontrada");
