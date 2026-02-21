@@ -319,7 +319,18 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
                 court: b.court ? {
                     id: b.court.id,
                     name: b.court.name,
-                    club: b.court.club ? { id: b.court.club.id, name: b.court.club.name, slug: b.court.club.slug } : null
+                    club: b.court.club ? {
+                        id: b.court.club.id,
+                        name: b.court.club.name,
+                        slug: b.court.club.slug,
+                        // Exponer datos de ubicación para el frontend
+                        addressLine: b.court.club.addressLine || null,
+                        address: b.court.club.addressLine || null,
+                        street: b.court.club.addressLine || null,
+                        city: b.court.club.city || null,
+                        province: b.court.club.province || null,
+                        phone: b.court.club.phone || null
+                    } : null
                 } : null,
                 items: Array.isArray(b.items)
                     ? b.items.map((item: any) => ({
