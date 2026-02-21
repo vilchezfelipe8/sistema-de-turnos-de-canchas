@@ -1,17 +1,17 @@
 services:
-postgres:
-  image: postgres:15
-  command: postgres -c timezone=UTC
-  environment:
-    POSTGRES_USER: ${POSTGRES_USER:-postgres}
-    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-    POSTGRES_DB: ${POSTGRES_DB:-sistema}
-        volumes:
+  postgres:
+    image: postgres:15
+    command: postgres -c timezone=UTC
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-sistema}
+      TZ: UTC
+    volumes:
       - db-data:/var/lib/postgresql/data
     ports:
-      - "5432:5432" 
+      - "5432:5432"
     restart: always
-    TZ: UTC
 
   backend:
     build:
