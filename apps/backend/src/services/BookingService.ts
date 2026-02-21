@@ -1182,24 +1182,39 @@ async payBookingDebt(bookingId: number, paymentMethod: string) {
 
 
 async getClubDebtors(clubId: number) {
-    // 1. Traemos TODAS las reservas del club (incluyendo CANCELLED para conservar historial)
+    // 1. Prisma SELECT - Solo pedimos los datos que el Frontend necesita, ni un byte más.
     const bookings = await prisma.booking.findMany({
       where: {
         court: { clubId: clubId }
       },
-      include: {
-        user: true,
-        items: {
-          include: {
-            product: true
-          }
+      select: {
+        id: true,
+        userId: true,
+        guestName: true,
+        guestPhone: true,
+        guestDni: true,
+        guestEmail: true,
+        price: true,
+        status: true,
+        paymentStatus: true,
+        startDateTime: true,
+        user: {
+          select: { firstName: true, lastName: true, phoneNumber: true, email: true }
         },
-        cashMovements: true,
-        court: { include: { club: true } }
+        items: {
+          // 👈 ELIMINAMOS name: true de acá (solo lo pedimos adentro de product)
+          select: { price: true, quantity: true, product: { select: { name: true } } }
+        },
+        cashMovements: {
+          select: { amount: true }
+        },
+        court: {
+          // 👈 ELIMINAMOS el club porque no tiene timeZone en la DB
+          select: { name: true } 
+        }
       }
     });
 
-    // 2. Mapa para agrupar clientes
     const clientsMap = new Map();
 
     for (const booking of bookings) {
@@ -1235,61 +1250,61 @@ async getClubDebtors(clubId: number) {
       // --- INICIALIZAR EN EL MAPA ---
       if (!clientsMap.has(uniqueKey)) {
         clientsMap.set(uniqueKey, {
-          // Datos básicos del cliente
           id: booking.userId || parseInt(uniqueKey.replace(/\D/g, '').substring(0, 8)) || Date.now(),
           name: displayName || "Sin Nombre",
           phone: displayPhone, 
           email: displayEmail,
           dni: displayDni,
-          
-          // Contadores
           totalDebt: 0,
           totalBookings: 0, 
-          bookings: [], // Lista de reservas con deuda (compatibilidad hacia el front actual)
-          history: []   // Historial completo de reservas (incluye CANCELLED, PAID, etc.)
+          bookings: [], 
+          history: []   
         });
       }
 
       const client = clientsMap.get(uniqueKey);
-      client.totalBookings++; // Sumamos al historial (aunque no deba nada)
+      client.totalBookings++;
 
       // --- CÁLCULOS DE DINERO ---
-      const courtPrice = Number(booking.price);
+      const courtPrice = Number(booking.price || 0);
       const itemsPrice = booking.items.reduce((acc, item) => acc + (Number(item.price) * item.quantity), 0);
       const total = courtPrice + itemsPrice;
       const paid = booking.cashMovements.reduce((acc, mov) => acc + Number(mov.amount), 0);
       const debt = total - paid;
       
-      // Verificamos si es una deuda real (DEBT/PARTIAL y > 0)
       const isDebtStatus = ['DEBT', 'PARTIAL'].includes(booking.paymentStatus);
       const hasPendingDebt = isDebtStatus && debt > 0;
 
-      const clubTimeZone = (booking.court as any)?.club?.timeZone ?? 'America/Argentina/Buenos_Aires';
+      // Usamos el TimeZone por defecto ya que no existe en la DB
+      const clubTimeZone = 'America/Argentina/Buenos_Aires';
       const localStart = TimeHelper.utcToLocal(booking.startDateTime, clubTimeZone);
       const dateStr = `${localStart.getFullYear()}-${String(localStart.getMonth() + 1).padStart(2, '0')}-${String(localStart.getDate()).padStart(2, '0')}`;
       const timeStr = `${String(localStart.getHours()).padStart(2, '0')}:${String(localStart.getMinutes()).padStart(2, '0')}`;
 
-      const bookingView = {
-        ...booking,
-
+      // Armamos un objeto chiquito y perfecto
+      const leanBookingView = {
+        id: booking.id,
         date: dateStr,
         time: timeStr,
-        
-        courtName: booking.court.name, // Helper visual
-        
-        // Valores calculados
-        price: total,       // Total original (Cancha + Items)
-        amount: debt,       // Lo que falta pagar (Deuda)
-        paid: paid          // Lo que ya se pagó
+        status: booking.status,
+        paymentStatus: booking.paymentStatus,
+        courtName: booking.court.name,
+        price: total,
+        amount: debt,
+        paid: paid,
+        items: booking.items.map(i => ({
+            name: i.product?.name || 'Producto sin nombre', // 👈 Ajustado acá
+            price: Number(i.price),
+            quantity: i.quantity
+        }))
       };
 
-      // Siempre agregamos al historial completo
-      client.history.push(bookingView);
+      // Guardamos la versión mini en el historial
+      client.history.push(leanBookingView);
 
-      // Si hay deuda, también lo agregamos a la lista de "A pagar"
       if (hasPendingDebt) {
           client.totalDebt += debt;
-          client.bookings.push(bookingView);
+          client.bookings.push(leanBookingView);
       }
     }
 
