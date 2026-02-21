@@ -1,15 +1,17 @@
 services:
-  postgres:
-    image: postgres:15
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-sistema}
-    volumes:
+postgres:
+  image: postgres:15
+  command: postgres -c timezone=UTC
+  environment:
+    POSTGRES_USER: ${POSTGRES_USER:-postgres}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    POSTGRES_DB: ${POSTGRES_DB:-sistema}
+        volumes:
       - db-data:/var/lib/postgresql/data
     ports:
       - "5432:5432" 
     restart: always
+    TZ: UTC
 
   backend:
     build:
@@ -18,7 +20,7 @@ services:
     env_file:
       - ./apps/backend/.env
     environment:
-      - TZ=America/Argentina/Buenos_Aires
+      - TZ=UTC
     command: sh -c "npx prisma migrate deploy && node dist/index.js"
     depends_on:
       - postgres
@@ -28,6 +30,8 @@ services:
     build:
       context: ./apps/frontend
       dockerfile: Dockerfile
+    environment:
+      - TZ=UTC
     depends_on:
       - backend
     restart: always
@@ -38,6 +42,8 @@ services:
       dockerfile: Dockerfile
     env_file:
       - ./apps/wpp-service/.env
+    environment:
+      - TZ=UTC
     volumes:
       - wpp-session:/usr/src/app/session
     depends_on:
@@ -49,6 +55,8 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      - TZ=UTC
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt
