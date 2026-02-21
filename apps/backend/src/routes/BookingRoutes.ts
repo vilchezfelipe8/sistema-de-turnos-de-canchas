@@ -37,9 +37,9 @@ router.get('/availability', (req, res) => bookingController.getAvailability(req,
 router.get('/all-availability', (req, res) => bookingController.getAllAvailableSlots(req, res));
 router.get('/availability-with-courts', (req, res) => bookingController.getAvailableSlotsWithCourts(req, res));
 
-router.post('/confirm', authMiddleware, (req, res) => bookingController.confirmBooking(req, res));
+router.post('/confirm', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, (req, res) => bookingController.confirmBooking(req, res));
 
-// Cancelación
+// Cancelación: usuario puede cancelar la propia; admin con clubId valida que sea de su club
 router.post('/cancel', authMiddleware, (req, res) => bookingController.cancelBooking(req, res));
 
 // Rutas de Admin (Schedule, Fixed, Debtors)

@@ -22,7 +22,7 @@ export function useAvailability(date: Date | null, clubSlug?: string, durationMi
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const apiUrl = getApiUrl();
+  const apiBase = `${getApiUrl()}/api`;
 
   const fetchSlots = useCallback(async () => {
     if (!date) return;
@@ -43,7 +43,7 @@ export function useAvailability(date: Date | null, clubSlug?: string, durationMi
         : '';
 
       const res = await fetch(
-        `${apiUrl}/bookings/availability-with-courts?activityId=1&date=${dateString}&t=${timestamp}${clubParam}${durationParam}`,
+        `${apiBase}/bookings/availability-with-courts?activityId=1&date=${dateString}&t=${timestamp}${clubParam}${durationParam}`,
         {
             cache: 'no-store',
             headers: {
@@ -64,7 +64,7 @@ export function useAvailability(date: Date | null, clubSlug?: string, durationMi
     } finally {
       setLoading(false);
     }
-  }, [date, apiUrl, clubSlug, durationMinutes]);
+  }, [date, apiBase, clubSlug, durationMinutes]);
 
   useEffect(() => {
     fetchSlots();

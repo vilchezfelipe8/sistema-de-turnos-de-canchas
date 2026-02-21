@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { CourtRepository } from '../repositories/CourtRepository';
 import { prisma } from '../prisma';
+import { z } from 'zod';
 
 export class CourtController {
     private courtRepo: CourtRepository;
@@ -11,24 +12,28 @@ export class CourtController {
 
     createCourt = async (req: Request, res: Response) => {
         try {
-            const { name, isIndoor, surface, activityTypeId } = req.body;
-            const clubId = (req as any).clubId; // Solo del middleware (admin de un club), nunca del body
-            
-            if (!name) {
-                return res.status(400).json({ error: "Falta el nombre de la cancha" });
+            const createCourtSchema = z.object({
+                name: z.string().min(1),
+                isIndoor: z.boolean().optional(),
+                surface: z.string().optional(),
+                activityTypeId: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional())
+            });
+            const parsed = createCourtSchema.safeParse(req.body);
+            if (!parsed.success) {
+                return res.status(400).json({ error: parsed.error.format() });
             }
-            
+            const { name, isIndoor, surface, activityTypeId } = parsed.data;
+            const clubId = (req as any).clubId;
             if (!clubId) {
                 return res.status(400).json({ error: "No se pudo determinar el club" });
             }
-
             const data: any = {
                 name,
                 clubId,
-                isIndoor: isIndoor || false,
-                surface: surface || 'Sintético'
+                isIndoor: isIndoor ?? false,
+                surface: surface ?? 'Sintético'
             };
-            if (activityTypeId) data.activityTypeId = Number(activityTypeId);
+            if (activityTypeId != null) data.activityTypeId = activityTypeId;
 
             const newCourt = await prisma.court.create({
                 data,
@@ -43,11 +48,25 @@ export class CourtController {
 
     updateCourt = async (req: Request, res: Response) => {
         try {
-            const { id } = req.params;
-            const { isUnderMaintenance, name, activityTypeId, price } = req.body;
+            const paramsSchema = z.object({ id: z.preprocess((v) => Number(v), z.number().int().positive()) });
+            const bodySchema = z.object({
+                isUnderMaintenance: z.boolean().optional(),
+                name: z.string().optional(),
+                activityTypeId: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
+                price: z.union([z.number(), z.string()]).optional().nullable().transform((v) => (v === '' || v === undefined || v === null ? undefined : Number(v)))
+            });
+            const paramsParsed = paramsSchema.safeParse(req.params);
+            const bodyParsed = bodySchema.safeParse(req.body);
+            if (!paramsParsed.success) {
+                return res.status(400).json({ error: paramsParsed.error.format() });
+            }
+            if (!bodyParsed.success) {
+                return res.status(400).json({ error: bodyParsed.error.format() });
+            }
+            const { id } = paramsParsed.data;
+            const { isUnderMaintenance, name, activityTypeId, price } = bodyParsed.data;
             const clubId = (req as any).clubId;
 
-            // Si hay clubId en el request, verificar que la cancha pertenece al club
             if (clubId) {
                 const court = await prisma.court.findUnique({
                     where: { id: Number(id) }
@@ -65,7 +84,7 @@ export class CourtController {
                 name: name
             };
             if (activityTypeId) data.activityTypeId = Number(activityTypeId);
-            if (price !== undefined && price !== null && price !== '') data.price = Number(price);
+            if (price !== undefined && price !== null && Number.isFinite(Number(price))) data.price = Number(price);
 
             const updatedCourt = await prisma.court.update({
                 where: { id: Number(id) },

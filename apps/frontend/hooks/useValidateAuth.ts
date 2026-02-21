@@ -14,7 +14,7 @@ export interface AuthUser {
   clubId: number | null;
 }
 
-const API_URL = getApiUrl();
+const apiBase = () => `${getApiUrl()}/api`;
 
 export interface UseValidateAuthOptions {
   /** Si es true, solo permite acceso a usuarios con role ADMIN; si no, redirige a / */
@@ -42,7 +42,7 @@ export function useValidateAuth(options: UseValidateAuthOptions = {}): { authChe
 
     (async () => {
       try {
-        const res = await fetchWithAuth(`${API_URL}/auth/me`, { method: 'GET' });
+        const res = await fetchWithAuth(`${apiBase()}/auth/me`, { method: 'GET' });
         if (!res.ok) return;
         const data: AuthUser = await res.json();
         if (typeof window !== 'undefined') {

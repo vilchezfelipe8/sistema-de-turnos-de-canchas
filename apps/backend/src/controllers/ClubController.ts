@@ -1,41 +1,70 @@
 import { Request, Response } from 'express';
 import { ClubService } from '../services/ClubService';
+import { z } from 'zod';
 
 export class ClubController {
     constructor(private clubService: ClubService) {}
 
     createClub = async (req: Request, res: Response) => {
         try {
+            const createClubSchema = z.object({
+                slug: z.string().min(1),
+                name: z.string().min(1),
+                addressLine: z.string().min(1),
+                city: z.string().min(1),
+                province: z.string().min(1),
+                country: z.string().min(1),
+                contact: z.string().min(1),
+                phone: z.string().optional().nullable(),
+                logoUrl: z.string().optional().nullable(),
+                clubImageUrl: z.string().optional().nullable(),
+                instagramUrl: z.string().optional().nullable(),
+                facebookUrl: z.string().optional().nullable(),
+                websiteUrl: z.string().optional().nullable(),
+                description: z.string().optional().nullable(),
+                lightsEnabled: z.boolean().optional(),
+                lightsExtraAmount: z.union([z.number(), z.string()]).optional().nullable().transform((v) => (v === '' || v === undefined || v === null ? null : Number(v))),
+                lightsFromHour: z.string().optional().nullable(),
+                professorDiscountEnabled: z.boolean().optional(),
+                professorDiscountPercent: z.union([z.number(), z.string()]).optional().nullable().transform((v) => (v === '' || v === undefined || v === null ? null : Number(v))),
+                scheduleMode: z.string().optional().nullable(),
+                scheduleOpenTime: z.string().optional().nullable(),
+                scheduleCloseTime: z.string().optional().nullable(),
+                scheduleIntervalMinutes: z.union([z.number(), z.string()]).optional().nullable().transform((v) => (v === '' || v === undefined || v === null ? null : Number(v))),
+                scheduleDurations: z.array(z.number()).optional().nullable(),
+                scheduleFixedSlots: z.array(z.string()).optional().nullable()
+            });
+            const parsed = createClubSchema.safeParse(req.body);
+            if (!parsed.success) {
+                return res.status(400).json({ error: parsed.error.format() });
+            }
             const { slug, name, addressLine, city, province, country, contact, phone, logoUrl, clubImageUrl, instagramUrl, facebookUrl, websiteUrl, description,
                 lightsEnabled, lightsExtraAmount, lightsFromHour, professorDiscountEnabled, professorDiscountPercent,
-                scheduleMode, scheduleOpenTime, scheduleCloseTime, scheduleIntervalMinutes, scheduleDurations, scheduleFixedSlots } = req.body;
-            if (!slug) {
-                return res.status(400).json({ error: 'El slug es requerido' });
-            }
+                scheduleMode, scheduleOpenTime, scheduleCloseTime, scheduleIntervalMinutes, scheduleDurations, scheduleFixedSlots } = parsed.data;
             const club = await this.clubService.createClub(
                 slug,
-                name, 
+                name,
                 addressLine,
                 city,
                 province,
                 country,
                 contact,
-                phone,
-                logoUrl,
-                clubImageUrl,
-                instagramUrl,
-                facebookUrl,
-                websiteUrl,
-                description,
+                phone ?? undefined,
+                logoUrl ?? undefined,
+                clubImageUrl ?? undefined,
+                instagramUrl ?? undefined,
+                facebookUrl ?? undefined,
+                websiteUrl ?? undefined,
+                description ?? undefined,
                 Boolean(lightsEnabled),
-                lightsExtraAmount !== undefined && lightsExtraAmount !== null ? Number(lightsExtraAmount) : null,
-                lightsFromHour || null,
+                lightsExtraAmount ?? null,
+                lightsFromHour ?? null,
                 Boolean(professorDiscountEnabled),
-                professorDiscountPercent !== undefined && professorDiscountPercent !== null ? Number(professorDiscountPercent) : null,
-                scheduleMode,
-                scheduleOpenTime || null,
-                scheduleCloseTime || null,
-                scheduleIntervalMinutes !== undefined && scheduleIntervalMinutes !== null ? Number(scheduleIntervalMinutes) : null,
+                professorDiscountPercent ?? null,
+                scheduleMode ?? undefined,
+                scheduleOpenTime ?? null,
+                scheduleCloseTime ?? null,
+                scheduleIntervalMinutes ?? null,
                 Array.isArray(scheduleDurations) ? scheduleDurations : null,
                 Array.isArray(scheduleFixedSlots) ? scheduleFixedSlots : null
             );
@@ -82,9 +111,42 @@ export class ClubController {
 
     updateClub = async (req: Request, res: Response) => {
         try {
-            const id = parseInt(req.params.id as string);
-            if (isNaN(id)) {
+            const idSchema = z.preprocess((v) => Number(v), z.number().int().positive());
+            const idParsed = idSchema.safeParse(req.params.id);
+            if (!idParsed.success) {
                 return res.status(400).json({ error: 'ID de club inválido' });
+            }
+            const id = idParsed.data;
+            const updateClubSchema = z.object({
+                slug: z.string().optional(),
+                name: z.string().optional(),
+                addressLine: z.string().optional(),
+                city: z.string().optional(),
+                province: z.string().optional(),
+                country: z.string().optional(),
+                contactInfo: z.string().optional(),
+                phone: z.string().optional().nullable(),
+                logoUrl: z.string().optional().nullable(),
+                clubImageUrl: z.string().optional().nullable(),
+                instagramUrl: z.string().optional().nullable(),
+                facebookUrl: z.string().optional().nullable(),
+                websiteUrl: z.string().optional().nullable(),
+                description: z.string().optional().nullable(),
+                lightsEnabled: z.boolean().optional(),
+                lightsExtraAmount: z.union([z.number(), z.string()]).optional().nullable().transform((v) => (v === '' || v === undefined || v === null ? undefined : Number(v))),
+                lightsFromHour: z.string().optional().nullable(),
+                professorDiscountEnabled: z.boolean().optional(),
+                professorDiscountPercent: z.union([z.number(), z.string()]).optional().nullable().transform((v) => (v === '' || v === undefined || v === null ? undefined : Number(v))),
+                scheduleMode: z.string().optional(),
+                scheduleOpenTime: z.string().optional().nullable(),
+                scheduleCloseTime: z.string().optional().nullable(),
+                scheduleIntervalMinutes: z.union([z.number(), z.string()]).optional().nullable().transform((v) => (v === '' || v === undefined || v === null ? undefined : Number(v))),
+                scheduleDurations: z.array(z.number()).optional(),
+                scheduleFixedSlots: z.array(z.string()).optional()
+            });
+            const parsed = updateClubSchema.safeParse(req.body);
+            if (!parsed.success) {
+                return res.status(400).json({ error: parsed.error.format() });
             }
             const {
                 slug,
@@ -112,7 +174,7 @@ export class ClubController {
                 scheduleIntervalMinutes,
                 scheduleDurations,
                 scheduleFixedSlots
-            } = req.body;
+            } = parsed.data;
 
             const club = await this.clubService.updateClub(id, {
                 slug,
@@ -130,14 +192,14 @@ export class ClubController {
                 websiteUrl: websiteUrl === '' ? null : websiteUrl,
                 description: description === '' ? null : description,
                 lightsEnabled: typeof lightsEnabled === 'boolean' ? lightsEnabled : undefined,
-                lightsExtraAmount: lightsExtraAmount === '' || lightsExtraAmount === undefined ? null : Number(lightsExtraAmount),
-                lightsFromHour: lightsFromHour === '' ? null : lightsFromHour,
+                lightsExtraAmount: lightsExtraAmount ?? null,
+                lightsFromHour: (lightsFromHour === '' || lightsFromHour == null) ? null : lightsFromHour,
                 professorDiscountEnabled: typeof professorDiscountEnabled === 'boolean' ? professorDiscountEnabled : undefined,
-                professorDiscountPercent: professorDiscountPercent === '' || professorDiscountPercent === undefined ? null : Number(professorDiscountPercent),
+                professorDiscountPercent: professorDiscountPercent ?? null,
                 scheduleMode: scheduleMode || undefined,
-                scheduleOpenTime: scheduleOpenTime === '' ? null : scheduleOpenTime,
-                scheduleCloseTime: scheduleCloseTime === '' ? null : scheduleCloseTime,
-                scheduleIntervalMinutes: scheduleIntervalMinutes === '' || scheduleIntervalMinutes === undefined ? null : Number(scheduleIntervalMinutes),
+                scheduleOpenTime: (scheduleOpenTime === '' || scheduleOpenTime == null) ? null : scheduleOpenTime,
+                scheduleCloseTime: (scheduleCloseTime === '' || scheduleCloseTime == null) ? null : scheduleCloseTime,
+                scheduleIntervalMinutes: scheduleIntervalMinutes ?? null,
                 scheduleDurations: Array.isArray(scheduleDurations) ? scheduleDurations : undefined,
                 scheduleFixedSlots: Array.isArray(scheduleFixedSlots) ? scheduleFixedSlots : undefined
             });

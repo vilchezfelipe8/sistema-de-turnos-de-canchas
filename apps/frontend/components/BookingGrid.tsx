@@ -12,7 +12,7 @@ import { getApiUrl } from '../utils/apiUrl';
 import { ClubService, Club } from '../services/ClubService';
 import { ChevronDown, Check, Calendar, Clock, MapPin, Zap, MousePointerClick, Hourglass, Moon, Ban, AlertCircle, Activity, ChevronLeft, ChevronRight } from 'lucide-react';
 
-const API_URL = getApiUrl();
+const apiBase = () => `${getApiUrl()}/api`;
 
 interface BookingGridProps {
   /** Slug del club: cuando está en /club/[slug], solo se muestran canchas y turnos de ese club */
@@ -577,8 +577,8 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
     const fetchCourts = async () => {
       try {
         const url = clubSlug
-          ? `${API_URL}/courts?clubSlug=${encodeURIComponent(clubSlug)}`
-          : `${API_URL}/courts`;
+          ? `${apiBase()}/courts?clubSlug=${encodeURIComponent(clubSlug)}`
+          : `${apiBase()}/courts`;
         const res = await fetch(url);
         if (!res.ok) return;
         const data = await res.json();
@@ -851,7 +851,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                 if (!selectedDate || !selectedSlot) return;
                 try {
                   const res = await fetch(
-                    `${API_URL}/bookings/availability?courtId=${court.id}&date=${dateString}&activityId=1&durationMinutes=${selectedDuration}`
+                    `${apiBase()}/bookings/availability?courtId=${court.id}&date=${dateString}&activityId=1&durationMinutes=${selectedDuration}`
                   );
                   if (!res.ok) {
                     setDisabledSlots((prev) => ({ ...prev, [slotKey]: true }));

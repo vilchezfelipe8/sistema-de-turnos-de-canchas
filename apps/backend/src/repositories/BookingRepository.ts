@@ -32,8 +32,8 @@ export class BookingRepository {
         return this.mapToEntity(saved);
     }
 
-    async findByCourtAndDate(courtId: number, date: Date): Promise<Booking[]> {
-        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date);
+    async findByCourtAndDate(courtId: number, date: Date, timeZone: string): Promise<Booking[]> {
+        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date, timeZone);
 
         const found = await prisma.booking.findMany({
             where: {
@@ -95,8 +95,8 @@ export class BookingRepository {
         });
     }
 
-    async findAllByDate(date: Date) {
-        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date);
+    async findAllByDate(date: Date, timeZone: string) {
+        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date, timeZone);
 
         const bookings = await prisma.booking.findMany({
             where: {
@@ -116,8 +116,8 @@ export class BookingRepository {
         return bookings.map((b: any) => this.mapToEntity(b));
     }
 
-    async findAllByDateAndClub(date: Date, clubId: number) {
-        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date);
+    async findAllByDateAndClub(date: Date, clubId: number, timeZone: string) {
+        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date, timeZone);
 
         const bookings = await prisma.booking.findMany({
             where: {
@@ -193,10 +193,13 @@ export class BookingRepository {
             dbItem.guestName,
             dbItem.guestEmail,
             dbItem.guestPhone,
-            dbItem.fixedBookingId || null 
+            dbItem.fixedBookingId || null,
+            dbItem.guestDni,
+            dbItem.paymentStatus
         );
         if (dbItem.cancelledBy) booking.cancelledBy = dbItem.cancelledBy;
         if (dbItem.cancelledAt) booking.cancelledAt = dbItem.cancelledAt;
+        if (dbItem.createdAt) booking.createdAt = dbItem.createdAt;
 
         return booking;
     }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Wallet, ArrowUpCircle, ArrowDownCircle, Banknote, CreditCard, Plus, Receipt, History, ChevronDown, Check } from 'lucide-react';
+import { getApiUrl } from '../../utils/apiUrl';
 
 // Tipos
 interface Movement {
@@ -103,12 +104,12 @@ const AdminCashDashboard = () => {
 
   const fetchCash = async () => {
     try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-      const token = localStorage.getItem('token'); 
+      const apiBase = `${getApiUrl()}/api`;
+      const token = localStorage.getItem('token');
 
       if (!token) return;
 
-      const res = await fetch(`${API_URL}/cash`, {
+      const res = await fetch(`${apiBase}/cash`, {
          method: 'GET',
          headers: {
            'Content-Type': 'application/json',
@@ -136,11 +137,11 @@ const AdminCashDashboard = () => {
 
   const fetchProducts = async () => {
     try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const apiBase = `${getApiUrl()}/api`;
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      const res = await fetch(`${API_URL}/cash/products`, {
+      const res = await fetch(`${apiBase}/cash/products`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -165,9 +166,9 @@ const AdminCashDashboard = () => {
     if (!newMove.amount || !newMove.description) return;
     
     const token = localStorage.getItem('token');
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+    const apiBase = `${getApiUrl()}/api`;
 
-    await fetch(`${API_URL}/cash`, {
+    await fetch(`${apiBase}/cash`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
@@ -192,9 +193,9 @@ const AdminCashDashboard = () => {
 
     try {
       const token = localStorage.getItem('token');
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const apiBase = `${getApiUrl()}/api`;
 
-      const res = await fetch(`${API_URL}/cash/product-sale`, {
+      const res = await fetch(`${apiBase}/cash/product-sale`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

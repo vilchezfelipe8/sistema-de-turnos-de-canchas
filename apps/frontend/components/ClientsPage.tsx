@@ -5,6 +5,7 @@ import { ClubAdminService } from '../services/ClubAdminService';
 import { Phone, DollarSign, Calendar, Users, Trophy, Search, X, CheckCircle, Receipt, Banknote, CreditCard } from 'lucide-react';
 import { useRouter } from 'next/router';
 import AppModal from './AppModal';
+import { getApiUrl } from '../utils/apiUrl';
 
 const formatDate = (dateInput: any) => {
   if (!dateInput) return '-';
@@ -99,7 +100,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
     if (!bookingToPayId) return;
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/bookings/pay-debt`, {
+      const response = await fetch(`${getApiUrl()}/api/bookings/pay-debt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ bookingId: bookingToPayId, paymentMethod: method })

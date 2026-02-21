@@ -1,14 +1,17 @@
 import { CashRepository } from '../repositories/CashRepository';
 import { TimeHelper } from '../utils/TimeHelper';
+import { prisma } from '../prisma';
 
 export class CashService {
     constructor(private cashRepository: CashRepository) {}
 
     async getDailySummary(clubId?: number) {
-        const { startUtc: start, endUtc: end } = TimeHelper.getUtcRangeForLocalDate(new Date());
+        const timeZone = clubId
+            ? ((await prisma.club.findUnique({ where: { id: clubId }, select: { timeZone: true } }))?.timeZone ?? 'America/Argentina/Buenos_Aires')
+            : 'America/Argentina/Buenos_Aires';
+        const { startUtc: start, endUtc: end } = TimeHelper.getUtcRangeForLocalDate(new Date(), timeZone);
 
-        // 2. Pedir datos al repo
-    const movements = await this.cashRepository.findAllByDateRange(start, end, clubId);
+        const movements = await this.cashRepository.findAllByDateRange(start, end, clubId);
 
         // 3. Calcular totales (Lógica de negocio)
         let totalCash = 0;

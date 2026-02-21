@@ -1,6 +1,6 @@
 import { getApiUrl } from '../utils/apiUrl';
 
-const API_URL = getApiUrl();
+const apiBase = () => `${getApiUrl()}/api`;
 
 export interface Location {
   id: number;
@@ -11,7 +11,7 @@ export interface Location {
 
 export class LocationService {
   static async getAllLocations(): Promise<Location[]> {
-    const response = await fetch(`${API_URL}/locations`);
+    const response = await fetch(`${apiBase()}/locations`);
     if (!response.ok) {
       throw new Error('Error al obtener las ubicaciones');
     }

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { CashService } from '../services/CashService';
 import { prisma } from '../prisma';
+import { z } from 'zod';
 
 export class CashController {
     private cashService: CashService;
@@ -22,30 +23,29 @@ export class CashController {
 
     createMovement = async (req: Request, res: Response) => {
         try {
-            const { amount, description, type, method } = req.body;
-            const clubId = (req as any).clubId;
-
-            const numericAmount = parseFloat(amount);
-
-            if (isNaN(numericAmount)) {
-                return res.status(400).json({ error: "El monto debe ser un número válido" });
+            const createMovementSchema = z.object({
+                amount: z.union([z.number(), z.string()]).transform((v) => (typeof v === 'string' ? parseFloat(v) : v)).pipe(z.number().finite()),
+                description: z.string().min(1),
+                type: z.enum(['INCOME', 'EXPENSE']),
+                method: z.enum(['CASH', 'TRANSFER'])
+            });
+            const parsed = createMovementSchema.safeParse(req.body);
+            if (!parsed.success) {
+                return res.status(400).json({ error: parsed.error.format() });
             }
-
-            // 👇 2. ARMAMOS EL OBJETO LIMPIO
+            const clubId = (req as any).clubId;
             const cleanData = {
-                amount: numericAmount, 
-                description: description,
-                type: type,   // 'INCOME' o 'EXPENSE'
-                method: method, // 'CASH' o 'TRANSFER'
-                date: new Date(), // Aseguramos que tenga fecha
+                amount: parsed.data.amount,
+                description: parsed.data.description,
+                type: parsed.data.type,
+                method: parsed.data.method,
+                date: new Date(),
                 clubId
             };
-
             const movement = await this.cashService.addMovement(cleanData);
             res.json(movement);
-
         } catch (error) {
-            console.error("❌ Error en createMovement:", error); 
+            console.error("❌ Error en createMovement:", error);
             res.status(500).json({ error: 'Error al crear movimiento' });
         }
     }
@@ -70,14 +70,18 @@ export class CashController {
     // POST /api/cash/product-sale: registrar venta de producto sin reserva
     createProductSale = async (req: Request, res: Response) => {
         try {
-            const clubId = (req as any).clubId;
-            const { productId, quantity, method } = req.body;
-
-            if (!clubId) return res.status(400).json({ error: 'No se pudo determinar el club' });
-            const qty = Number(quantity);
-            if (!productId || !Number.isFinite(qty) || qty <= 0) {
-                return res.status(400).json({ error: 'Producto o cantidad inválida' });
+            const productSaleSchema = z.object({
+                productId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                quantity: z.preprocess((v) => Number(v), z.number().int().positive()),
+                method: z.enum(['CASH', 'TRANSFER']).optional()
+            });
+            const parsed = productSaleSchema.safeParse(req.body);
+            if (!parsed.success) {
+                return res.status(400).json({ error: parsed.error.format() });
             }
+            const clubId = (req as any).clubId;
+            if (!clubId) return res.status(400).json({ error: 'No se pudo determinar el club' });
+            const { productId, quantity: qty, method } = parsed.data;
 
             const product = await prisma.product.findFirst({
                 where: { id: Number(productId), clubId }
@@ -99,7 +103,7 @@ export class CashController {
                         type: 'INCOME',
                         amount,
                         description: `Venta: ${qty}x ${product.name}`,
-                        method: method || 'CASH',
+                        method: method ?? 'CASH',
                         clubId
                     }
                 });

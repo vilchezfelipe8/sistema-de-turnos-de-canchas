@@ -125,7 +125,7 @@ export default function Home() {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [activeBookingsCount, setActiveBookingsCount] = useState(0);
   const resultsRef = useRef<HTMLElement>(null);
-  const apiUrl = useMemo(() => getApiUrl(), []);
+  const apiBase = useMemo(() => `${getApiUrl()}/api`, []);
 
   // Estados del Buscador
   const [searchCity, setSearchCity] = useState('');
@@ -426,7 +426,7 @@ export default function Home() {
               const times: string[] = [];
               for (const activityId of activityIds) {
                 const res = await fetch(
-                  `${apiUrl}/bookings/availability-with-courts?activityId=${activityId}&date=${searchDate}&clubSlug=${encodeURIComponent(club.slug)}&t=${Date.now()}`,
+                  `${apiBase}/bookings/availability-with-courts?activityId=${activityId}&date=${searchDate}&clubSlug=${encodeURIComponent(club.slug)}&t=${Date.now()}`,
                   { cache: 'no-store' }
                 );
                 if (!res.ok) continue;

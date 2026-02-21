@@ -68,7 +68,7 @@ export class BookingController {
             // Need club timezone: fetch court->club to get timeZone
             try {
                 const court = await prisma.court.findUnique({ where: { id: Number(courtId) }, include: { club: true } });
-                const tz = (court?.club as any)?.timeZone || TimeHelper.getDefaultTimeZone();
+                const tz = (court?.club as any)?.timeZone ?? 'America/Argentina/Buenos_Aires';
                 startDate = TimeHelper.localSlotToUtc(dateStr, slotTime, tz);
             } catch (e) {
                 return res.status(400).json({ error: 'Invalid date/slot combination or club timezone missing' });
@@ -133,43 +133,31 @@ export class BookingController {
             durationMinutes
         );
 
+        const courtWithClub = await prisma.court.findUnique({ where: { id: Number(courtId) }, include: { club: true } });
+        const clubTimeZone = (courtWithClub?.club as any)?.timeZone ?? 'America/Argentina/Buenos_Aires';
+
         try {
             let phoneToSend: string | null = null;
             let nameToSend: string = 'Jugador';
 
-            // CASO A: Usuario Registrado
             if (userIdFromToken) {
                 const fullUser = await prisma.user.findUnique({ where: { id: Number(userIdFromToken) } });
                 if (fullUser) {
                     phoneToSend = fullUser.phoneNumber;
                     nameToSend = fullUser.firstName || 'Jugador';
                 }
-            } 
-            // CASO B: Usuario Invitado (Guest)
-            else {
-                // Usamos directamente lo que vino del formulario
+            } else {
                 phoneToSend = effectiveGuestPhone || null;
                 nameToSend = effectiveGuestName || 'Jugador';
             }
 
-            // Si conseguimos un teléfono (sea de User o de Guest), mandamos el mensaje
             if (phoneToSend) {
-                
-                // Formateo de fecha (Tu lógica original)
-                const options: Intl.DateTimeFormatOptions = { 
-                    timeZone: 'America/Argentina/Cordoba', 
-                    };                
-
-                const argOffset = 3 * 60 * 60 * 1000;
-                const argDate = new Date(startDate.getTime() - argOffset);
-
-                // Formateamos "a mano" para no depender de locales
-                const dia = String(argDate.getUTCDate()).padStart(2, '0');
-                const mes = String(argDate.getUTCMonth() + 1).padStart(2, '0');
-                const anio = argDate.getUTCFullYear();
-                const horas = String(argDate.getUTCHours()).padStart(2, '0');
-                const minutos = String(argDate.getUTCMinutes()).padStart(2, '0');
-
+                const localForWhatsApp = TimeHelper.utcToLocal(startDate, clubTimeZone);
+                const dia = String(localForWhatsApp.getDate()).padStart(2, '0');
+                const mes = String(localForWhatsApp.getMonth() + 1).padStart(2, '0');
+                const anio = localForWhatsApp.getFullYear();
+                const horas = String(localForWhatsApp.getHours()).padStart(2, '0');
+                const minutos = String(localForWhatsApp.getMinutes()).padStart(2, '0');
                 const dateStr = `${dia}/${mes}/${anio}`;
                 const timeStr = `${horas}:${minutos}`;
 
@@ -225,11 +213,8 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
 
 // ... (El resto de tu respuesta JSON sigue igual) ...
     
-        // Preparar respuesta para el frontend
-        const year = startDate.getUTCFullYear();
-        const month = String(startDate.getUTCMonth() + 1).padStart(2, '0');
-        const day = String(startDate.getUTCDate()).padStart(2, '0');
-        const refreshDate = `${year}-${month}-${day}`;
+        const localForRefresh = TimeHelper.utcToLocal(startDate, clubTimeZone);
+        const refreshDate = `${localForRefresh.getFullYear()}-${String(localForRefresh.getMonth() + 1).padStart(2, '0')}-${String(localForRefresh.getDate()).padStart(2, '0')}`;
 
         const payload = { ...result, refresh: true, refreshDate };
         res.status(201).json(payload);
@@ -279,43 +264,75 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
 
     cancelBooking = async (req: Request, res: Response) => {
         try {
-            const { bookingId } = req.body;
+            const cancelSchema = z.object({
+                bookingId: z.preprocess((v) => Number(v), z.number().int().positive())
+            });
+            const parsed = cancelSchema.safeParse(req.body);
+            if (!parsed.success) {
+                return res.status(400).json({ error: parsed.error.format() });
+            }
+            const { bookingId } = parsed.data;
             const user = (req as any).user;
-            const clubId = (req as any).clubId; // Agregado por middleware de verificación de club
+            const clubId = (req as any).clubId;
             const result = await this.bookingService.cancelBooking(Number(bookingId), user?.userId, clubId);
             res.json({ message: "Reserva cancelada", booking: result });
         } catch (error: any) {
+            if (error.message === "No tienes acceso a esta reserva") {
+                return res.status(403).json({ error: error.message });
+            }
             res.status(400).json({ error: error.message });
         }
     }
 
     confirmBooking = async (req: Request, res: Response) => {
-    try {
-        const { bookingId, paymentMethod } = req.body; 
-        
-        const userId = (req as any).user?.userId; 
-        if (!userId) {
-            return res.status(401).json({ error: 'No autorizado' });
+        try {
+            const confirmSchema = z.object({
+                bookingId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                paymentMethod: z.enum(['CASH', 'TRANSFER', 'DEBT']).optional()
+            });
+            const parsed = confirmSchema.safeParse(req.body);
+            if (!parsed.success) {
+                return res.status(400).json({ error: parsed.error.format() });
+            }
+            const { bookingId, paymentMethod } = parsed.data;
+            const userId = (req as any).user?.userId;
+            if (!userId) {
+                return res.status(401).json({ error: 'No autorizado' });
+            }
+            const clubId = (req as any).clubId as number | undefined;
+            const result = await this.bookingService.confirmBooking(
+                bookingId,
+                userId,
+                paymentMethod ?? 'CASH',
+                clubId
+            );
+            res.json(result);
+        } catch (error: any) {
+            console.error("Error en confirmBooking:", error);
+            if (error.message === "No tienes acceso a esta reserva") {
+                return res.status(403).json({ error: error.message });
+            }
+            res.status(400).json({ error: error.message });
         }
-
-
-        const result = await this.bookingService.confirmBooking(
-            bookingId, 
-            userId, 
-            paymentMethod 
-        );
-
-        res.json(result);
-    } catch (error: any) {
-        console.error("Error en confirmBooking:", error);
-        res.status(400).json({ error: error.message });
-    }
-};
+    };
 
     getHistory = async (req: Request, res: Response) => {
         try {
             const userId = Number(req.params.userId);
-            const history = await this.bookingService.getUserHistory(userId);
+            if (!Number.isInteger(userId) || userId < 1) {
+                return res.status(400).json({ error: 'userId inválido' });
+            }
+            const user = (req as any).user;
+            if (!user?.userId) {
+                return res.status(401).json({ error: 'No autorizado' });
+            }
+            const fullUser = await prisma.user.findUnique({ where: { id: user.userId }, select: { clubId: true } });
+            const requestUser = {
+                userId: user.userId,
+                role: user.role ?? 'MEMBER',
+                clubId: fullUser?.clubId ?? null
+            };
+            const history = await this.bookingService.getUserHistory(userId, requestUser);
             const payload = history.map((b: any) => ({
                 ...b,
                 court: b.court ? {
@@ -345,6 +362,9 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
             }));
             res.json(payload);
         } catch (error: any) {
+            if (error.message === "No tienes permiso para ver el historial de otro usuario") {
+                return res.status(403).json({ error: error.message });
+            }
             res.status(400).json({ error: error.message });
         }
     }
@@ -451,10 +471,24 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
     
     createFixed = async (req: Request, res: Response) => {
         try {
-            const { userId, courtId, activityId, startDateTime, guestName, guestPhone, guestDni, isProfessor } = req.body;
+            const createFixedSchema = z.object({
+                userId: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
+                courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                startDateTime: z.string().refine((s) => !Number.isNaN(Date.parse(s)), { message: 'startDateTime debe ser una fecha ISO válida' }),
+                guestName: z.string().optional(),
+                guestPhone: z.union([z.string(), z.number()]).optional(),
+                guestDni: z.string().optional(),
+                isProfessor: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
+            });
+            const parsed = createFixedSchema.safeParse(req.body);
+            if (!parsed.success) {
+                return res.status(400).json({ error: parsed.error.format() });
+            }
+            const { userId, courtId, activityId, startDateTime, guestName, guestPhone, guestDni, isProfessor } = parsed.data;
             const user = (req as any).user;
             const isAdmin = user?.role === 'ADMIN';
-            const clubId = (req as any).clubId; // Agregado por middleware de verificación de club
+            const clubId = (req as any).clubId;
 
             if (!userId && !isAdmin) {
                 return res.status(403).json({ error: "Solo un administrador puede crear turnos fijos sin usuario." });
@@ -462,8 +496,7 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
             if (!userId && !guestName) {
                 return res.status(400).json({ error: "Debe enviar un nombre para el turno fijo." });
             }
-            
-            // Convertimos string a Date
+
             const startDate = new Date(startDateTime);
 
             const result = await this.bookingService.createFixedBooking(
@@ -512,24 +545,28 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
     }
 
     //  AGREGAR CONSUMO (POST)
-   async addItem(req: Request, res: Response) {
-    try {
-
-        // 1. 👇 LÓGICA DE SEGURIDAD PARA EL ID
-        // Buscamos el ID en la URL (params) O en el cuerpo (body)
-        const paramId = req.params.id || req.params.bookingId;
-        const bodyId = req.body.bookingId;
-        const rawBookingId = paramId || bodyId;
-
-        // Recuperamos el resto de datos
-        const { productId, quantity, paymentMethod } = req.body;
-
-        // Si después de buscar en los dos lados no hay ID, cortamos acá
-        if (!rawBookingId) {
-            return res.status(400).json({ error: "Falta el ID de la reserva (bookingId no encontrado en URL ni Body)" });
-        }
-
-        const bookingId = Number(rawBookingId); // Convertimos a número seguro
+    async addItem(req: Request, res: Response) {
+        try {
+            const addItemSchema = z.object({
+                bookingId: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
+                productId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                quantity: z.preprocess((v) => Number(v), z.number().int().positive()),
+                paymentMethod: z.enum(['CASH', 'TRANSFER', 'DEBT']).optional()
+            });
+            const paramId = req.params.id || req.params.bookingId;
+            const bodyParsed = addItemSchema.safeParse(req.body);
+            if (!bodyParsed.success) {
+                return res.status(400).json({ error: bodyParsed.error.format() });
+            }
+            const { productId, quantity, paymentMethod } = bodyParsed.data;
+            const rawBookingId = paramId ?? bodyParsed.data.bookingId;
+            if (rawBookingId === undefined || rawBookingId === null) {
+                return res.status(400).json({ error: "Falta el ID de la reserva (bookingId en URL o body)" });
+            }
+            const bookingId = Number(rawBookingId);
+            if (!Number.isInteger(bookingId) || bookingId < 1) {
+                return res.status(400).json({ error: "bookingId inválido" });
+            }
 
         // Validaciones básicas...
         const booking = await prisma.booking.findUnique({ 
@@ -640,11 +677,25 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
     }
 
     updateStatus = async (req: Request, res: Response) => {
-    const { id } = req.params;
-    const { paymentStatus } = req.body; // 'PAID' o 'DEBT'
-    await this.bookingService.updatePaymentStatus(Number(id), paymentStatus);
-    res.json({ success: true });
-}
+        const updateStatusSchema = z.object({
+            id: z.preprocess((v) => Number(v), z.number().int().positive())
+        });
+        const bodySchema = z.object({
+            paymentStatus: z.enum(['PAID', 'DEBT', 'PARTIAL'])
+        });
+        const paramsParsed = updateStatusSchema.safeParse(req.params);
+        const bodyParsed = bodySchema.safeParse(req.body);
+        if (!paramsParsed.success) {
+            return res.status(400).json({ error: paramsParsed.error.format() });
+        }
+        if (!bodyParsed.success) {
+            return res.status(400).json({ error: bodyParsed.error.format() });
+        }
+        const { id } = paramsParsed.data;
+        const { paymentStatus } = bodyParsed.data;
+        await this.bookingService.updatePaymentStatus(id, paymentStatus);
+        res.json({ success: true });
+    }
 
     getDebtors = async (req: Request, res: Response) => {
         try {
@@ -656,13 +707,18 @@ Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.202
         }
     }
 
-  payDebt = async (req: Request, res: Response) => {
+    payDebt = async (req: Request, res: Response) => {
         try {
-            const { bookingId, paymentMethod } = req.body; // 'CASH' o 'TRANSFER'
-            
-            // 👇 ACÁ ESTÁ LA MAGIA: Llamamos al servicio que tiene los logs y la cuenta arreglada
-            const result = await this.bookingService.payBookingDebt(Number(bookingId), paymentMethod);
-            
+            const payDebtSchema = z.object({
+                bookingId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                paymentMethod: z.enum(['CASH', 'TRANSFER']).optional()
+            });
+            const parsed = payDebtSchema.safeParse(req.body);
+            if (!parsed.success) {
+                return res.status(400).json({ error: parsed.error.format() });
+            }
+            const { bookingId, paymentMethod } = parsed.data;
+            const result = await this.bookingService.payBookingDebt(bookingId, paymentMethod ?? 'CASH');
             res.json({ message: "Deuda cobrada exitosamente", result });
         } catch (error: any) {
             console.error("Error en payDebt Controller:", error);

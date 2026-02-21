@@ -13,7 +13,6 @@ export class Booking {
     cancelledBy?: number;
     cancelledAt?: Date;
 
-    // Relaciones
     user?: User | null;
     court: Court;
     activity: ActivityType;
@@ -21,6 +20,8 @@ export class Booking {
     guestName?: string;
     guestEmail?: string;
     guestPhone?: string;
+    guestDni?: string;
+    paymentStatus?: string;
 
     constructor(
         id: number,
@@ -35,7 +36,9 @@ export class Booking {
         guestName?: string,
         guestEmail?: string,
         guestPhone?: string,
-        public fixedBookingId?: number | null
+        public fixedBookingId?: number | null,
+        guestDni?: string,
+        paymentStatus?: string
     ) {
         this.id = id;
         this.startDateTime = startDateTime;
@@ -50,6 +53,8 @@ export class Booking {
         if (guestName) this.guestName = guestName;
         if (guestEmail) this.guestEmail = guestEmail;
         if (guestPhone) this.guestPhone = guestPhone;
+        if (guestDni) this.guestDni = guestDni;
+        if (paymentStatus) this.paymentStatus = paymentStatus;
     }
 }
 

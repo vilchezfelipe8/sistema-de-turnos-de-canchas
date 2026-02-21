@@ -17,6 +17,7 @@ import { useParams } from 'react-router-dom';
 import DatePickerDark from '../../components/ui/DatePickerDark';
 import { Trash2, Check, ShoppingCart, Calendar as CalendarIcon, RefreshCw, ChevronDown, CalendarPlus, Repeat, Banknote, CreditCard, FileText, X, Phone, IdCard } from 'lucide-react'; 
 import { ClubService, Club } from '../../services/ClubService';
+import { getApiUrl } from '../../utils/apiUrl';
 
 const CLUB_TIME_SLOTS = [
   '08:00', '09:30', '11:00', '12:30',
@@ -819,7 +820,7 @@ export default function AdminTabBookings() {
     if (!selectedBookingId) return;
     try {
         const token = localStorage.getItem('token');
-        await fetch(`${process.env.NEXT_PUBLIC_API_URL}/bookings/confirm`, {
+        await fetch(`${getApiUrl()}/api/bookings/confirm`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({ bookingId: selectedBookingId, paymentMethod: method })

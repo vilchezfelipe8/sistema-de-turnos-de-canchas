@@ -2,7 +2,7 @@ import { getToken } from './AuthService';
 import { fetchWithAuth } from '../utils/apiClient';
 import { getApiUrl } from '../utils/apiUrl';
 
-const API_URL = getApiUrl();
+const apiBase = () => `${getApiUrl()}/api`;
 
 export class ClubAdminService {
   /**
@@ -11,7 +11,7 @@ export class ClubAdminService {
   static async getAdminSchedule(clubSlug: string, date: string) {
     if (!getToken()) throw new Error('No autenticado');
 
-    const res = await fetchWithAuth(`${API_URL}/clubs/${clubSlug}/admin/schedule?date=${date}`, {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/schedule?date=${date}`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -29,7 +29,7 @@ export class ClubAdminService {
   static async getCourts(clubSlug: string) {
     if (!getToken()) throw new Error('No autenticado');
 
-    const res = await fetchWithAuth(`${API_URL}/clubs/${clubSlug}/admin/courts`, {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/courts`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -47,7 +47,7 @@ export class ClubAdminService {
   static async createCourt(clubSlug: string, name: string, surface: string) {
     if (!getToken()) throw new Error('No autenticado');
 
-    const res = await fetchWithAuth(`${API_URL}/clubs/${clubSlug}/admin/courts`, {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/courts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, surface })
@@ -66,7 +66,7 @@ export class ClubAdminService {
   static async suspendCourt(clubSlug: string, courtId: number) {
     if (!getToken()) throw new Error('No autenticado');
 
-    const res = await fetchWithAuth(`${API_URL}/clubs/${clubSlug}/admin/courts/${courtId}/suspend`, {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/courts/${courtId}/suspend`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -84,7 +84,7 @@ export class ClubAdminService {
   static async reactivateCourt(clubSlug: string, courtId: number) {
     if (!getToken()) throw new Error('No autenticado');
 
-    const res = await fetchWithAuth(`${API_URL}/clubs/${clubSlug}/admin/courts/${courtId}/reactivate`, {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/courts/${courtId}/reactivate`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -102,7 +102,7 @@ export class ClubAdminService {
   static async getClubInfo(clubSlug: string) {
     if (!getToken()) throw new Error('No autenticado');
 
-    const res = await fetchWithAuth(`${API_URL}/clubs/${clubSlug}/admin/info`, {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/info`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -120,7 +120,7 @@ export class ClubAdminService {
   static async updateClubInfo(clubSlug: string, data: any) {
     if (!getToken()) throw new Error('No autenticado');
 
-    const res = await fetchWithAuth(`${API_URL}/clubs/${clubSlug}/admin/info`, {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/info`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -139,7 +139,7 @@ export class ClubAdminService {
   static async confirmBooking(clubSlug: string, bookingId: number) {
     if (!getToken()) throw new Error('No autenticado');
 
-    const res = await fetchWithAuth(`${API_URL}/clubs/${clubSlug}/admin/bookings/confirm`, {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/bookings/confirm`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ bookingId })
@@ -158,7 +158,7 @@ export class ClubAdminService {
   static async cancelBooking(clubSlug: string, bookingId: number) {
     if (!getToken()) throw new Error('No autenticado');
 
-    const res = await fetchWithAuth(`${API_URL}/clubs/${clubSlug}/admin/bookings/cancel`, {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/bookings/cancel`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ bookingId })
@@ -177,7 +177,7 @@ export class ClubAdminService {
   static async createFixedBooking(clubSlug: string, data: any) {
     if (!getToken()) throw new Error('No autenticado');
 
-    const res = await fetchWithAuth(`${API_URL}/clubs/${clubSlug}/admin/bookings/fixed`, {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/bookings/fixed`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -196,7 +196,7 @@ export class ClubAdminService {
   static async cancelFixedBooking(clubSlug: string, fixedBookingId: number) {
     if (!getToken()) throw new Error('No autenticado');
 
-    const res = await fetchWithAuth(`${API_URL}/clubs/${clubSlug}/admin/bookings/fixed/${fixedBookingId}`, {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/bookings/fixed/${fixedBookingId}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -210,7 +210,7 @@ export class ClubAdminService {
 
   static async getProducts(slug: string) {
     if (!getToken()) throw new Error('No autenticado');
-    const res = await fetchWithAuth(`${API_URL}/clubs/${slug}/admin/products`, {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/products`, {
       headers: { 'Content-Type': 'application/json' }
     });
     if (!res.ok) throw new Error('Error al cargar productos');
@@ -219,7 +219,7 @@ export class ClubAdminService {
 
   static async createProduct(slug: string, data: any) {
     if (!getToken()) throw new Error('No autenticado');
-    const res = await fetchWithAuth(`${API_URL}/clubs/${slug}/admin/products`, {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/products`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -230,7 +230,7 @@ export class ClubAdminService {
 
   static async updateProduct(slug: string, id: number, data: any) {
     if (!getToken()) throw new Error('No autenticado');
-    const res = await fetchWithAuth(`${API_URL}/clubs/${slug}/admin/products/${id}`, {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/products/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -241,7 +241,7 @@ export class ClubAdminService {
 
   static async deleteProduct(slug: string, id: number) {
     if (!getToken()) throw new Error('No autenticado');
-    const res = await fetchWithAuth(`${API_URL}/clubs/${slug}/admin/products/${id}`, {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/products/${id}`, {
       method: 'DELETE'
     });
     if (!res.ok) throw new Error('Error al eliminar producto');
@@ -250,7 +250,7 @@ export class ClubAdminService {
 
   static async getBookingItems(bookingId: number) {
     if (!getToken()) throw new Error('No autenticado');
-    const res = await fetchWithAuth(`${API_URL}/bookings/${bookingId}/items`);
+    const res = await fetchWithAuth(`${apiBase()}/bookings/${bookingId}/items`);
     if (!res.ok) throw new Error('Error al cargar consumos');
     return res.json();
   }
@@ -264,7 +264,7 @@ export class ClubAdminService {
     if (!getToken()) throw new Error('No autenticado');
     
     // La URL está bien...
-    const res = await fetchWithAuth(`${API_URL}/bookings/${bookingId}/items`, {
+    const res = await fetchWithAuth(`${apiBase()}/bookings/${bookingId}/items`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
@@ -284,7 +284,7 @@ export class ClubAdminService {
 
   static async removeItemFromBooking(itemId: number) {
     if (!getToken()) throw new Error('No autenticado');
-    const res = await fetchWithAuth(`${API_URL}/bookings/items/${itemId}`, {
+    const res = await fetchWithAuth(`${apiBase()}/bookings/items/${itemId}`, {
       method: 'DELETE'
     });
     if (!res.ok) throw new Error('Error al eliminar consumo');
@@ -293,7 +293,7 @@ export class ClubAdminService {
 
   static async updateBookingPaymentStatus(bookingId: number, status: 'PAID' | 'DEBT' | 'PARTIAL') {
     if (!getToken()) throw new Error('No autenticado');
-    const res = await fetchWithAuth(`${API_URL}/bookings/${bookingId}/payment-status`, {
+    const res = await fetchWithAuth(`${apiBase()}/bookings/${bookingId}/payment-status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ paymentStatus: status })
@@ -305,7 +305,7 @@ export class ClubAdminService {
   /** Lista de deudores: sin slug usa el club del token (admin unificado). */
   static async getDebtors(slug?: string) {
     if (!getToken()) throw new Error('No autenticado');
-    const res = await fetchWithAuth(`${API_URL}/bookings/debtors/list`);
+    const res = await fetchWithAuth(`${apiBase()}/bookings/debtors/list`);
     if (!res.ok) throw new Error('Error cargando deudores');
     return res.json();
   }
@@ -313,7 +313,7 @@ export class ClubAdminService {
   static async markAsPaid(bookingIds: number[]) {
     if (!getToken()) throw new Error('No autenticado');
     const promises = bookingIds.map(id =>
-      fetchWithAuth(`${API_URL}/bookings/${id}/payment-status`, {
+      fetchWithAuth(`${apiBase()}/bookings/${id}/payment-status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paymentStatus: 'PAID' })
@@ -325,7 +325,7 @@ export class ClubAdminService {
 
   static async getClients(slug: string) {
     if (!getToken()) throw new Error('No autenticado');
-    const response = await fetchWithAuth(`${API_URL}/clubs/${slug}/admin/clients-list`, {
+    const response = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/clients-list`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' }
     });

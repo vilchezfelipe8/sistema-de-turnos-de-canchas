@@ -147,10 +147,9 @@ export class BookingService {
         }
 
                 // Determinar slotTime en la zona horaria del club
-                const clubTimeZone = (clubConfig && clubConfig.timeZone) ? clubConfig.timeZone : TimeHelper.getDefaultTimeZone();
+                const clubTimeZone = (clubConfig && clubConfig.timeZone) ? clubConfig.timeZone : 'America/Argentina/Buenos_Aires';
                 const localForSlot = TimeHelper.utcToLocal(startDateTime, clubTimeZone);
-                const localDate = new Date(startDateTime.getTime() - (3 * 60 * 60 * 1000));
-                const slotTime = `${String(localDate.getUTCHours()).padStart(2, '0')}:${String(localDate.getUTCMinutes()).padStart(2, '0')}`;
+                const slotTime = `${String(localForSlot.getHours()).padStart(2, '0')}:${String(localForSlot.getMinutes()).padStart(2, '0')}`;
         const possibleSlots = this.resolveScheduleSlots(clubConfig, effectiveDuration) as Array<{ slotTime: string; dayOffset: number }>;
         const possibleSlotTimes = possibleSlots.map(s => s.slotTime);
         if (!possibleSlotTimes.includes(slotTime)) {
@@ -179,9 +178,9 @@ export class BookingService {
                 try {
                     const [lh, lm] = String(clubPricingConfig.lightsFromHour).split(':').map((n: string) => parseInt(n, 10));
                     if (!Number.isNaN(lh) && !Number.isNaN(lm)) {
-                            const localStart = new Date(startDateTime.getTime() - (3 * 60 * 60 * 1000));
-                            const bookingHour = localStart.getUTCHours();
-                            const bookingMinutes = localStart.getUTCMinutes();
+                            const localStart = TimeHelper.utcToLocal(startDateTime, clubTimeZone);
+                            const bookingHour = localStart.getHours();
+                            const bookingMinutes = localStart.getMinutes();
                         const bookingTotalMinutes = bookingHour * 60 + bookingMinutes;
                         const lightsTotalMinutes = lh * 60 + lm;
                         if (bookingTotalMinutes >= lightsTotalMinutes) {
@@ -242,20 +241,15 @@ export class BookingService {
         const activity = await this.activityRepo.findById(activityId);
         if (!activity) throw new Error("Actividad no encontrada");
 
-       // --- NUEVO CÓDIGO BLINDADO ---
-        // 1. Calculamos el rango del día de forma manual y segura
-        const startOfDay = new Date(date);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(date);
-        endOfDay.setHours(23, 59, 59, 999);
+        const clubTimeZone = (court as any)?.club?.timeZone ?? 'America/Argentina/Buenos_Aires';
+        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date, clubTimeZone);
 
-        // 2. Buscamos las reservas usando este rango exacto
         const existingBookings = await prisma.booking.findMany({
             where: {
                 courtId: courtId,
                 startDateTime: {
-                    gte: startOfDay,
-                    lte: endOfDay
+                    gte: startUtc,
+                    lte: endUtc
                 },
                 status: { not: 'CANCELLED' }
             }
@@ -290,7 +284,7 @@ export class BookingService {
 
                 let slotStartDate: Date;
                 try {
-                    slotStartDate = TimeHelper.localSlotToUtc(slotDateCandidate, slotObj.slotTime);
+                    slotStartDate = TimeHelper.localSlotToUtc(slotDateCandidate, slotObj.slotTime, clubTimeZone);
                 } catch {
                     continue;
                 }
@@ -319,16 +313,18 @@ export class BookingService {
     }
 
    async cancelBooking(bookingId: number, cancelledByUserId: number, clubId?: number) {
-        // 1. Buscamos la reserva
         const booking = await this.bookingRepo.findById(bookingId);
-        
         if (!booking) {
             throw new Error("La reserva no existe.");
         }
-        
-        // Si hay clubId, verificar que la reserva pertenece al club
-        if (clubId && booking.court.club.id !== clubId) {
-            throw new Error("No tienes acceso a esta reserva");
+        if (clubId != null) {
+            if (booking.court.club.id !== clubId) {
+                throw new Error("No tienes acceso a esta reserva");
+            }
+        } else {
+            if (!booking.user || booking.user.id !== cancelledByUserId) {
+                throw new Error("No tienes acceso a esta reserva");
+            }
         }
 
         // 👇 CORRECCIÓN DEFINITIVA DE CAJA 👇
@@ -372,11 +368,13 @@ export class BookingService {
         return updated;
     }
     
-    async confirmBooking(bookingId: number, userId: number, paymentMethod: string = 'CASH') {
-    
-    // 1. Buscamos la reserva
+    async confirmBooking(bookingId: number, userId: number, paymentMethod: string = 'CASH', clubId?: number) {
     const booking = await this.bookingRepo.findById(bookingId);
     if (!booking) throw new Error("La reserva no existe.");
+
+    if (clubId != null && booking.court.club.id !== clubId) {
+        throw new Error("No tienes acceso a esta reserva");
+    }
 
     const paymentStatus = paymentMethod === 'DEBT' 
     ? PaymentStatus.DEBT
@@ -418,9 +416,24 @@ export class BookingService {
     return this.bookingRepo.mapToEntity(updated);
 }
 
-    async getUserHistory(userId: number) {
+    async getUserHistory(
+        requestedUserId: number,
+        requestUser: { userId: number; role: string; clubId: number | null }
+    ) {
+        if (requestedUserId !== requestUser.userId) {
+            if (requestUser.role !== 'ADMIN' || requestUser.clubId == null) {
+                throw new Error("No tienes permiso para ver el historial de otro usuario");
+            }
+            const requestedUser = await prisma.user.findUnique({
+                where: { id: requestedUserId },
+                select: { clubId: true }
+            });
+            if (!requestedUser || requestedUser.clubId !== requestUser.clubId) {
+                throw new Error("No tienes permiso para ver el historial de otro usuario");
+            }
+        }
         const bookings = await prisma.booking.findMany({
-            where: { userId },
+            where: { userId: requestedUserId },
             include: {
                 court: { include: { club: true } },
                 activity: true,
@@ -432,7 +445,6 @@ export class BookingService {
     }
 
     async getDaySchedule(date: Date, clubId?: number) {
-        // Obtener canchas activas (no en mantenimiento)
         let allCourts;
         if (clubId) {
             allCourts = await prisma.court.findMany({
@@ -444,19 +456,16 @@ export class BookingService {
         }
         const activeCourts = allCourts.filter(court => !court.isUnderMaintenance);
 
-        const startOfDay = new Date(date);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(date);
-        endOfDay.setHours(23, 59, 59, 999);
+        const clubConfig = clubId ? await prisma.club.findUnique({ where: { id: clubId }, select: { timeZone: true } }) : null;
+        const timeZone = clubConfig?.timeZone ?? 'America/Argentina/Buenos_Aires';
+        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date, timeZone);
 
-        // 2. Buscamos directo con Prisma para incluir los PRODUCTOS
-       const bookings = await prisma.booking.findMany({
+        const bookings = await prisma.booking.findMany({
     where: {
         startDateTime: {
-            gte: startOfDay,
-            lte: endOfDay
+            gte: startUtc,
+            lte: endUtc
         },
-        // Si hay clubId, filtramos por ese club
         ...(clubId ? { court: { clubId: clubId } } : {}),
         status: { not: 'CANCELLED' }
     },
@@ -473,11 +482,11 @@ export class BookingService {
     }
 });
 
-        const clubConfig = clubId ? await prisma.club.findUnique({ where: { id: clubId } }) : null;
+        const clubConfigForSlots = clubId ? await prisma.club.findUnique({ where: { id: clubId } }) : null;
         const defaultDuration = 90;
-        const durations = this.normalizeDurations(clubConfig?.scheduleDurations, defaultDuration);
+        const durations = this.normalizeDurations(clubConfigForSlots?.scheduleDurations, defaultDuration);
         const effectiveDuration = durations[0] ?? defaultDuration;
-        const possibleSlots = this.resolveScheduleSlots(clubConfig, effectiveDuration);
+        const possibleSlots = this.resolveScheduleSlots(clubConfigForSlots, effectiveDuration);
 
         const schedule = [];
 
@@ -499,20 +508,13 @@ export class BookingService {
                         slotDateCandidate.getDate() !== date.getDate()
                     ) continue;
 
-                    const slotDateTime = TimeHelper.localSlotToUtc(slotDateCandidate, slotObj.slotTime);
+                    const slotDateTime = TimeHelper.localSlotToUtc(slotDateCandidate, slotObj.slotTime, timeZone);
 
                     const booking = bookings.find(b => {
                     const courtMatch = b.court.id === court.id;
-                    
-                    // Blindaje matemático: Agarramos el UTC de la BD y le restamos 3 horas exactas
-                    const localDate = new Date(b.startDateTime.getTime() - (3 * 60 * 60 * 1000));
-                    const localHours = String(localDate.getUTCHours()).padStart(2, '0');
-                    const localMinutes = String(localDate.getUTCMinutes()).padStart(2, '0');
-                    const bookingLocalTimeStr = `${localHours}:${localMinutes}`;
-                    
-                    // Comparamos los textos directamente (ej: "08:00" === "08:00")
+                    const localDate = TimeHelper.utcToLocal(b.startDateTime, timeZone);
+                    const bookingLocalTimeStr = `${String(localDate.getHours()).padStart(2, '0')}:${String(localDate.getMinutes()).padStart(2, '0')}`;
                     const timeMatch = bookingLocalTimeStr === slotObj.slotTime;
-                    
                     return courtMatch && timeMatch;
                 });
 
@@ -537,11 +539,8 @@ export class BookingService {
             const isAlreadyInSchedule = schedule.some(s => s.booking && s.booking.id === booking.id);
             
             if (!isAlreadyInSchedule) {
-            // Convertimos UTC almacenado a fecha local usando TimeHelper
-            const localDate = new Date(booking.startDateTime.getTime() - (3 * 60 * 60 * 1000));
-            const localHours = String(localDate.getUTCHours()).padStart(2, '0');
-            const localMinutes = String(localDate.getUTCMinutes()).padStart(2, '0');
-            const slotTimeStr = `${localHours}:${localMinutes}`;
+            const localDate = TimeHelper.utcToLocal(booking.startDateTime, timeZone);
+            const slotTimeStr = `${String(localDate.getHours()).padStart(2, '0')}:${String(localDate.getMinutes()).padStart(2, '0')}`;
 
                 schedule.push({
                     courtId: booking.court.id,
@@ -566,9 +565,11 @@ export class BookingService {
     }
 
     async getAllAvailableSlots(date: Date, activityId: number, durationMinutes?: number): Promise<string[]> {
+        const firstClub = await prisma.club.findFirst({ select: { timeZone: true } });
+        const timeZone = firstClub?.timeZone ?? 'America/Argentina/Buenos_Aires';
         const allCourts = await this.courtRepo.findAll();
         const activeCourts = allCourts.filter(court => !court.isUnderMaintenance);
-        const bookings = await this.bookingRepo.findAllByDate(date);
+        const bookings = await this.bookingRepo.findAllByDate(date, timeZone);
 
         const activity = await this.activityRepo.findById(activityId);
         if (!activity) throw new Error("Actividad no encontrada");
@@ -599,7 +600,7 @@ export class BookingService {
                     slotDateCandidate.getDate() !== date.getDate()
                 ) continue;
 
-                const slotDateTime = TimeHelper.localSlotToUtc(slotDateCandidate, slotObj.slotTime);
+                const slotDateTime = TimeHelper.localSlotToUtc(slotDateCandidate, slotObj.slotTime, timeZone);
 
                 const hasAvailableCourt = activeCourts.some(court => {
                     const booking = bookings.find(b => {
@@ -638,27 +639,23 @@ export class BookingService {
     }>> {
         const allCourts = await this.courtRepo.findAll(clubId);
         const activeCourts = allCourts.filter(court => !court.isUnderMaintenance);
-        // 1. Definimos el rango exacto del día (desde las 00:00:00 hasta las 23:59:59)
-        const startOfDay = new Date(date);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(date);
-        endOfDay.setHours(23, 59, 59, 999);
 
-        // 2. Buscamos las reservas con Prisma directo para asegurar que traiga TODO lo del día
+        const clubConfig = clubId ? await prisma.club.findUnique({ where: { id: clubId } }) : null;
+        const timeZone = clubConfig?.timeZone ?? 'America/Argentina/Buenos_Aires';
+        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date, timeZone);
+
         const bookings = await prisma.booking.findMany({
             where: {
                 startDateTime: {
-                    gte: startOfDay,
-                    lte: endOfDay
+                    gte: startUtc,
+                    lte: endUtc
                 },
                 status: { not: 'CANCELLED' },
-                // Si el clubId existe, filtramos por club
                 ...(clubId ? { court: { clubId: clubId } } : {})
             },
             include: { court: true }
         });
         const activity = await this.activityRepo.findById(activityId);
-        
         if (!activity) throw new Error("Actividad no encontrada");
 
         const activityCourts = activeCourts.filter((court: any) =>
@@ -668,8 +665,6 @@ export class BookingService {
         if (activityCourts.length === 0) {
             return [];
         }
-
-        const clubConfig = clubId ? await prisma.club.findUnique({ where: { id: clubId } }) : null;
         const allowedDurations = this.normalizeDurations(clubConfig?.scheduleDurations, activity.defaultDurationMinutes);
         const effectiveDuration = durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
         if (!allowedDurations.includes(effectiveDuration)) {
@@ -698,7 +693,7 @@ export class BookingService {
                 ) continue;
 
                 try {
-                    const slotDateTime = TimeHelper.localSlotToUtc(slotDateCandidate, slotObj.slotTime);
+                    const slotDateTime = TimeHelper.localSlotToUtc(slotDateCandidate, slotObj.slotTime, timeZone);
                     if (slotDateTime.getTime() <= now.getTime()) continue;
                     if (!slotsMap.has(slotObj.slotTime)) {
                         slotsMap.set(slotObj.slotTime, { slotTime: slotObj.slotTime, slotDateTime });
@@ -786,14 +781,14 @@ export class BookingService {
         }
 
         const activity = await this.activityRepo.findById(activityId);
-        // Si el admin indica isProfessorOverride, usar 60 minutos para profesores
         const duration = isProfessorOverride ? 60 : (activity ? activity.defaultDurationMinutes : 60);
 
-        const localStart = TimeHelper.utcToLocal(startDateTime);
-        const localEnd = TimeHelper.utcToLocal(new Date(startDateTime.getTime() + duration * 60000));
-        const startTime = `${localStart.getUTCHours().toString().padStart(2, '0')}:${localStart.getUTCMinutes().toString().padStart(2, '0')}`;
-        const endTime = `${localEnd.getUTCHours().toString().padStart(2, '0')}:${localEnd.getUTCMinutes().toString().padStart(2, '0')}`;
-        const dayOfWeek = startDateTime.getDay();
+        const clubTimeZone = (court as any)?.club?.timeZone ?? 'America/Argentina/Buenos_Aires';
+        const localStart = TimeHelper.utcToLocal(startDateTime, clubTimeZone);
+        const localEnd = TimeHelper.utcToLocal(new Date(startDateTime.getTime() + duration * 60000), clubTimeZone);
+        const startTime = `${String(localStart.getHours()).padStart(2, '0')}:${String(localStart.getMinutes()).padStart(2, '0')}`;
+        const endTime = `${String(localEnd.getHours()).padStart(2, '0')}:${String(localEnd.getMinutes()).padStart(2, '0')}`;
+        const dayOfWeek = localStart.getDay();
 
         // 👇 CORRECCIÓN 1: FILTRAR SOLO LOS ACTIVOS (NO CANCELADOS)
         const existingFixed = await prisma.fixedBooking.findMany({
