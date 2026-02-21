@@ -9,6 +9,11 @@ import { getApiUrl } from '../utils/apiUrl';
 
 const formatDate = (dateInput: any) => {
   if (!dateInput) return '-';
+  // Si viene YYYY-MM-DD (fecha local del club desde el backend), formatear sin timezone
+  if (typeof dateInput === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
+    const [y, m, d] = dateInput.split('-');
+    return `${d}/${m}/${y}`;
+  }
   const date = new Date(dateInput);
   return date.toLocaleDateString('es-AR', {
     day: '2-digit',

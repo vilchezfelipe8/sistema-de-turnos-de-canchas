@@ -1188,14 +1188,14 @@ async getClubDebtors(clubId: number) {
         court: { clubId: clubId }
       },
       include: {
-        user: true, 
+        user: true,
         items: {
-            include: {
-                product: true // 👈 ESTO TRAE EL NOMBRE (Coca, Gatorade, etc.)
-            }
+          include: {
+            product: true
+          }
         },
-        cashMovements: true, // Esto es vital para que veas los pagos anteriores
-        court: true
+        cashMovements: true,
+        court: { include: { club: true } }
       }
     });
 
@@ -1264,13 +1264,16 @@ async getClubDebtors(clubId: number) {
       const isDebtStatus = ['DEBT', 'PARTIAL'].includes(booking.paymentStatus);
       const hasPendingDebt = isDebtStatus && debt > 0;
 
-      const fechaObj = new Date(booking.startDateTime);
-      const bookingView = {
-        ...booking, // 👈 Manda cashMovements, items, etc.
+      const clubTimeZone = (booking.court as any)?.club?.timeZone ?? 'America/Argentina/Buenos_Aires';
+      const localStart = TimeHelper.utcToLocal(booking.startDateTime, clubTimeZone);
+      const dateStr = `${localStart.getFullYear()}-${String(localStart.getMonth() + 1).padStart(2, '0')}-${String(localStart.getDate()).padStart(2, '0')}`;
+      const timeStr = `${String(localStart.getHours()).padStart(2, '0')}:${String(localStart.getMinutes()).padStart(2, '0')}`;
 
-        // Sobreescribimos/Agregamos los campos calculados que necesita el frontend visualmente
-        date: fechaObj.toISOString().split('T')[0],
-        time: fechaObj.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }),
+      const bookingView = {
+        ...booking,
+
+        date: dateStr,
+        time: timeStr,
         
         courtName: booking.court.name, // Helper visual
         
