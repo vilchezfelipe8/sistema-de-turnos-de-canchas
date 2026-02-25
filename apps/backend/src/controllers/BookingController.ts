@@ -193,7 +193,7 @@ Hola *${clientName}*, tu turno ha sido agendado a través de TuCancha.
 
 ⚠️ *INFORMACIÓN IMPORTANTE:*
 Para confirmar tu asistencia, coordinar el pago de la seña o por cualquier consulta, por favor comunicate directamente con la administración del club:
-📱 *WhatsApp del Club:* ${cleanClubPhone ? `wa.me/${cleanClubPhone}` : 'No disponible'}
+📱 *WhatsApp del Club:* ${cleanClubPhone ? `https://wa.me/${cleanClubPhone}` : 'No disponible'}
 
 ¡Gracias por usar nuestro sistema!
                 `.trim();
@@ -202,7 +202,7 @@ Para confirmar tu asistencia, coordinar el pago de la seña o por cualquier cons
 
 Ingresó un nuevo turno web en *${clubName}*.
 
-👤 *Cliente:* ${clientName}
+👤 *Cliente:* ${clientName} 
 📞 *Tel:* ${cleanClientPhone ? `wa.me/${cleanClientPhone}` : 'No registrado'}
 📅 *Fecha:* ${dateStr}
 ⏰ *Hora:* ${timeStr}
