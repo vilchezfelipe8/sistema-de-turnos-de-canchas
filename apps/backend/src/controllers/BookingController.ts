@@ -9,149 +9,152 @@ export class BookingController {
     constructor(private bookingService: BookingService) {}
 
     createBooking = async (req: Request, res: Response) => {
-    try {
-        const user = (req as any).user;
-        const userIdFromToken = user?.userId || null;
+        try {
+            const user = (req as any).user;
+            const userIdFromToken = user?.userId || null;
 
-        const optionalTrimmedString = (minLength?: number) =>
-            z.preprocess(
-                (v) => {
-                    if (typeof v !== 'string') return v;
-                    const trimmed = v.trim();
-                    return trimmed.length === 0 ? undefined : trimmed;
-                },
-                minLength ? z.string().min(minLength).optional() : z.string().optional()
+            const optionalTrimmedString = (minLength?: number) =>
+                z.preprocess(
+                    (v) => {
+                        if (typeof v !== 'string') return v;
+                        const trimmed = v.trim();
+                        return trimmed.length === 0 ? undefined : trimmed;
+                    },
+                    minLength ? z.string().min(minLength).optional() : z.string().optional()
+                );
+
+            const createSchema = z.object({
+                courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                // Accept either an ISO `startDateTime` or a `date` + `slotTime` pair (local)
+                startDateTime: z.string().optional().refine((s) => s === undefined || !Number.isNaN(Date.parse(s)), { message: 'Invalid ISO datetime' }),
+                date: z.string()
+                    .regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'Invalid date format. Use YYYY-MM-DD' })
+                    .optional(),
+                slotTime: z.string()
+                    .regex(/^\d{2}:\d{2}$/, { message: 'Invalid slotTime format. Use HH:mm' })
+                    .optional(),
+                activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                durationMinutes: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
+                guestIdentifier: optionalTrimmedString(),
+                guestName: optionalTrimmedString(2),
+                guestEmail: z.preprocess(
+                    (v) => {
+                        if (typeof v !== 'string') return v;
+                        const trimmed = v.trim();
+                        return trimmed.length === 0 ? undefined : trimmed;
+                    },
+                    z.string().email().optional()
+                ),
+                guestPhone: optionalTrimmedString(),
+                guestDni: optionalTrimmedString(),
+                isProfessor: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
+            });
+
+            const dataToValidate = {
+                ...req.body
+            };
+
+            const parsed = createSchema.safeParse(dataToValidate);
+
+            if (!parsed.success) {
+                return res.status(400).json({ error: parsed.error.format() });
+            }
+
+            const { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, guestIdentifier, guestName, guestEmail, guestPhone, guestDni, isProfessor } = parsed.data;
+
+            // Resolve startDate: prefer date+slotTime (local) if provided, otherwise use startDateTime ISO
+            let startDate: Date;
+            if (dateStr && slotTime) {
+                // Need club timezone: fetch court->club to get timeZone
+                try {
+                    const court = await prisma.court.findUnique({ where: { id: Number(courtId) }, include: { club: true } });
+                    const tz = (court?.club as any)?.timeZone ?? 'America/Argentina/Buenos_Aires';
+                    startDate = TimeHelper.localSlotToUtc(dateStr, slotTime, tz);
+                } catch (e) {
+                    return res.status(400).json({ error: 'Invalid date/slot combination or club timezone missing' });
+                }
+            } else if (startDateTime) {
+                startDate = new Date(String(startDateTime));
+                if (Number.isNaN(startDate.getTime())) return res.status(400).json({ error: 'Invalid startDateTime' });
+            } else {
+                return res.status(400).json({ error: 'Debe enviar startDateTime o (date y slotTime)' });
+            }
+            
+            const userRole = user?.role;
+            const isAdmin = userRole === 'ADMIN';
+            const asGuest = Boolean((req.body as any)?.asGuest);
+            const forceGuest = isAdmin && asGuest;
+            const effectiveUserId = forceGuest ? null : (userIdFromToken ? Number(userIdFromToken) : null);
+            const allowGuestWithoutContact = forceGuest;
+            const effectiveGuestIdentifier = forceGuest && !guestIdentifier ? `admin_${Date.now()}` : guestIdentifier;
+            const applyProfessorDiscount = isAdmin && Boolean(isProfessor);
+
+            const now = new Date();
+            if (startDate.getTime() < now.getTime()) {
+                return res.status(400).json({ error: "No se pueden reservar turnos en el pasado." });
+            }
+
+            if (userRole !== 'ADMIN') {
+                const maxDate = new Date(now);
+                maxDate.setMonth(now.getMonth() + 1);
+                if (startDate.getTime() > maxDate.getTime()) {
+                    return res.status(400).json({ error: "Solo se pueden reservar turnos hasta 1 mes desde hoy." });
+                }
+            }
+
+            if (!effectiveUserId && !forceGuest && !effectiveGuestIdentifier) {
+                return res.status(400).json({ error: "Debe enviar guestIdentifier o autenticarse para reservar." });
+            }
+            if (!effectiveUserId && !guestName) {
+                return res.status(400).json({ error: "Debe enviar un nombre para reservar como invitado." });
+            }
+            if (!effectiveUserId && !forceGuest && !guestPhone) {
+                return res.status(400).json({ error: "Debe enviar un teléfono para reservar como invitado." });
+            }
+
+            const isGuest = !effectiveUserId;
+            const effectiveGuestName = isGuest ? guestName : undefined;
+            const effectiveGuestEmail = isGuest ? guestEmail : undefined;
+            const effectiveGuestPhone = isGuest ? guestPhone : undefined;
+            const effectiveGuestDni = isGuest ? guestDni : undefined;
+
+            // 1. CREAR LA RESERVA
+            const result = await this.bookingService.createBooking(
+                effectiveUserId,
+                effectiveGuestIdentifier,
+                effectiveGuestName,
+                effectiveGuestEmail,
+                effectiveGuestPhone,
+                effectiveGuestDni,
+                Number(courtId),
+                startDate,
+                Number(activityId),
+                allowGuestWithoutContact,
+                applyProfessorDiscount,
+                durationMinutes
             );
 
-        const createSchema = z.object({
-            courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
-            // Accept either an ISO `startDateTime` or a `date` + `slotTime` pair (local)
-            startDateTime: z.string().optional().refine((s) => s === undefined || !Number.isNaN(Date.parse(s)), { message: 'Invalid ISO datetime' }),
-            date: z.string()
-                .regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'Invalid date format. Use YYYY-MM-DD' })
-                .optional(),
-            slotTime: z.string()
-                .regex(/^\d{2}:\d{2}$/, { message: 'Invalid slotTime format. Use HH:mm' })
-                .optional(),
-            activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
-            durationMinutes: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
-            guestIdentifier: optionalTrimmedString(),
-            guestName: optionalTrimmedString(2),
-            guestEmail: z.preprocess(
-                (v) => {
-                    if (typeof v !== 'string') return v;
-                    const trimmed = v.trim();
-                    return trimmed.length === 0 ? undefined : trimmed;
-                },
-                z.string().email().optional()
-            ),
-            guestPhone: optionalTrimmedString(),
-            guestDni: optionalTrimmedString(),
-            isProfessor: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
-        });
+            const courtWithClub = await prisma.court.findUnique({ where: { id: Number(courtId) }, include: { club: true } });
+            const clubTimeZone = (courtWithClub?.club as any)?.timeZone ?? 'America/Argentina/Buenos_Aires';
 
-        const dataToValidate = {
-            ...req.body
-        };
-
-        const parsed = createSchema.safeParse(dataToValidate);
-
-        if (!parsed.success) {
-            return res.status(400).json({ error: parsed.error.format() });
-        }
-
-        const { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, guestIdentifier, guestName, guestEmail, guestPhone, guestDni, isProfessor } = parsed.data;
-
-        // Resolve startDate: prefer date+slotTime (local) if provided, otherwise use startDateTime ISO
-        let startDate: Date;
-        if (dateStr && slotTime) {
-            // Need club timezone: fetch court->club to get timeZone
+            // 👇👇👇 INICIO BLOQUE WHATSAPP MEJORADO 👇👇👇
             try {
-                const court = await prisma.court.findUnique({ where: { id: Number(courtId) }, include: { club: true } });
-                const tz = (court?.club as any)?.timeZone ?? 'America/Argentina/Buenos_Aires';
-                startDate = TimeHelper.localSlotToUtc(dateStr, slotTime, tz);
-            } catch (e) {
-                return res.status(400).json({ error: 'Invalid date/slot combination or club timezone missing' });
-            }
-        } else if (startDateTime) {
-            startDate = new Date(String(startDateTime));
-            if (Number.isNaN(startDate.getTime())) return res.status(400).json({ error: 'Invalid startDateTime' });
-        } else {
-            return res.status(400).json({ error: 'Debe enviar startDateTime o (date y slotTime)' });
-        }
-        const userRole = user?.role;
-        const isAdmin = userRole === 'ADMIN';
-        const asGuest = Boolean((req.body as any)?.asGuest);
-        const forceGuest = isAdmin && asGuest;
-        const effectiveUserId = forceGuest ? null : (userIdFromToken ? Number(userIdFromToken) : null);
-        const allowGuestWithoutContact = forceGuest;
-        const effectiveGuestIdentifier = forceGuest && !guestIdentifier ? `admin_${Date.now()}` : guestIdentifier;
-    const applyProfessorDiscount = isAdmin && Boolean(isProfessor);
+                let clientPhone: string | null = null;
+                let clientName: string = 'Jugador';
 
-        const now = new Date();
-        if (startDate.getTime() < now.getTime()) {
-            return res.status(400).json({ error: "No se pueden reservar turnos en el pasado." });
-        }
-
-        if (userRole !== 'ADMIN') {
-            const maxDate = new Date(now);
-            maxDate.setMonth(now.getMonth() + 1);
-            if (startDate.getTime() > maxDate.getTime()) {
-                return res.status(400).json({ error: "Solo se pueden reservar turnos hasta 1 mes desde hoy." });
-            }
-        }
-
-        if (!effectiveUserId && !forceGuest && !effectiveGuestIdentifier) {
-            return res.status(400).json({ error: "Debe enviar guestIdentifier o autenticarse para reservar." });
-        }
-        if (!effectiveUserId && !guestName) {
-            return res.status(400).json({ error: "Debe enviar un nombre para reservar como invitado." });
-        }
-        if (!effectiveUserId && !forceGuest && !guestPhone) {
-            return res.status(400).json({ error: "Debe enviar un teléfono para reservar como invitado." });
-        }
-
-        const isGuest = !effectiveUserId;
-        const effectiveGuestName = isGuest ? guestName : undefined;
-        const effectiveGuestEmail = isGuest ? guestEmail : undefined;
-        const effectiveGuestPhone = isGuest ? guestPhone : undefined;
-        const effectiveGuestDni = isGuest ? guestDni : undefined;
-
-        // 1. CREAR LA RESERVA (Esto sigue igual)
-        const result = await this.bookingService.createBooking(
-            effectiveUserId,
-            effectiveGuestIdentifier,
-            effectiveGuestName,
-            effectiveGuestEmail,
-            effectiveGuestPhone,
-            effectiveGuestDni,
-            Number(courtId),
-            startDate,
-            Number(activityId),
-            allowGuestWithoutContact,
-            applyProfessorDiscount,
-            durationMinutes
-        );
-
-        const courtWithClub = await prisma.court.findUnique({ where: { id: Number(courtId) }, include: { club: true } });
-        const clubTimeZone = (courtWithClub?.club as any)?.timeZone ?? 'America/Argentina/Buenos_Aires';
-
-        try {
-            let phoneToSend: string | null = null;
-            let nameToSend: string = 'Jugador';
-
-            if (userIdFromToken) {
-                const fullUser = await prisma.user.findUnique({ where: { id: Number(userIdFromToken) } });
-                if (fullUser) {
-                    phoneToSend = fullUser.phoneNumber;
-                    nameToSend = fullUser.firstName || 'Jugador';
+                // 1. Datos del Cliente
+                if (userIdFromToken) {
+                    const fullUser = await prisma.user.findUnique({ where: { id: Number(userIdFromToken) } });
+                    if (fullUser) {
+                        clientPhone = fullUser.phoneNumber;
+                        clientName = fullUser.firstName || 'Jugador';
+                    }
+                } else {
+                    clientPhone = effectiveGuestPhone || null;
+                    clientName = effectiveGuestName || 'Jugador';
                 }
-            } else {
-                phoneToSend = effectiveGuestPhone || null;
-                nameToSend = effectiveGuestName || 'Jugador';
-            }
 
-            if (phoneToSend) {
+                // 2. Datos de Fecha y Hora local
                 const localForWhatsApp = TimeHelper.utcToLocal(startDate, clubTimeZone);
                 const dia = String(localForWhatsApp.getDate()).padStart(2, '0');
                 const mes = String(localForWhatsApp.getMonth() + 1).padStart(2, '0');
@@ -161,69 +164,100 @@ export class BookingController {
                 const dateStr = `${dia}/${mes}/${anio}`;
                 const timeStr = `${horas}:${minutos}`;
 
+                // 3. Datos del Club (Evitando errores de tipado de TypeScript con "any")
+                const clubData = courtWithClub?.club as any;
+                const clubName = clubData?.name || 'el complejo';
+                const courtName = courtWithClub?.name || 'Cancha';
+                const clubPhoneRaw = clubData?.phone || clubData?.phoneNumber;
+                
+                // Limpieza de números (sacar guiones, espacios, el + del principio)
+                const cleanClientPhone = clientPhone ? clientPhone.replace(/\D/g, '') : null;
+                const cleanClubPhone = clubPhoneRaw ? clubPhoneRaw.replace(/\D/g, '') : null;
 
-                const message = `
-🎾 *¡Reserva Confirmada!* 🎾
+                // 4. Armado de Textos
+                const clientMessage = `
+🎾 *¡Reserva Registrada en ${clubName}!* 🎾
 
-Hola *${nameToSend}*, tu turno ha sido agendado.
+Hola *${clientName}*, tu turno ha sido agendado a través de TuCancha.
 
 📅 *Fecha:* ${dateStr}
 ⏰ *Hora:* ${timeStr}
-💰 *Precio:* $${result.price || 28000}
+📍 *Cancha:* ${courtName}
+💰 *Monto del turno:* $${result.price || 0}
 
-⚠️ *PAGO PENDIENTE:*
-Para confirmar tu asistencia, por favor abona el turno al Alias: *CLUB.PADEL.2025* y envía el comprobante por acá.
+⚠️ *INFORMACIÓN IMPORTANTE:*
+Para confirmar tu asistencia, coordinar el pago de la seña o por cualquier consulta, por favor comunicate directamente con la administración del club:
+📱 *WhatsApp del Club:* ${cleanClubPhone ? `wa.me/${cleanClubPhone}` : 'No disponible'}
 
-¡Te esperamos!
+¡Gracias por usar nuestro sistema!
+                `.trim();
+                const clubMessage = `
+🔔 *¡Nueva Reserva!* 🔔
+
+Ingresó un nuevo turno web en *${clubName}*.
+
+👤 *Cliente:* ${clientName}
+📞 *Tel:* ${cleanClientPhone || 'No registrado'}
+📅 *Fecha:* ${dateStr}
+⏰ *Hora:* ${timeStr}
+📍 *Cancha:* ${courtName}
+💰 *Monto:* $${result.price || 28000}
                 `.trim();
 
-                // Enviamos el mensaje al teléfono detectado
-                // (Agrego una limpieza simple por si el guest puso guiones o espacios)
-                const cleanPhone = phoneToSend.replace(/\D/g, ''); 
+                // 5. Lista de envíos
+                const notifications = [];
+                if (cleanClientPhone) notifications.push({ target: 'Cliente', phone: cleanClientPhone, message: clientMessage });
+                if (cleanClubPhone) notifications.push({ target: 'Club', phone: cleanClubPhone, message: clubMessage });
 
-                // Si el backend tiene DISABLE_WHATSAPP activo, delegamos el envío
-                // al servicio externo `wpp-service` (ej. en Docker: http://wpp-service:3002/send)
-                if (process.env.DISABLE_WHATSAPP === 'true' || process.env.DISABLE_WHATSAPP === '1') {
-                    try {
-                        const fetchFn = (globalThis as any).fetch;
-                        if (typeof fetchFn !== 'function') throw new Error('fetch no disponible en el runtime');
-                        const resp = await fetchFn('http://wpp-service:3002/send', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ number: cleanPhone, message })
-                        });
-                        if (!resp.ok) {
-                            const text = await resp.text();
-                            console.error('❌ Error desde wpp-service:', resp.status, text);
-                        } else {
-                            console.log('✅ Mensaje enviado vía wpp-service a', cleanPhone);
+            
+                // 6. Loop de despacho con la instancia unificada
+                for (const notif of notifications) {
+                    if (process.env.DISABLE_WHATSAPP === 'true' || process.env.DISABLE_WHATSAPP === '1') {
+                        try {
+                            const fetchFn = (globalThis as any).fetch;
+                            if (typeof fetchFn !== 'function') throw new Error('fetch no disponible en el runtime');
+                            const resp = await fetchFn('http://localhost:3002/send', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ number: notif.phone, message: notif.message })
+                            });
+                            if (!resp.ok) {
+                                const text = await resp.text();
+                                console.error(`❌ Error wpp-service (${notif.target}):`, resp.status, text);
+                            } else {
+                                console.log(`✅ Mensaje enviado vía wpp-service a ${notif.target} (${notif.phone})`);
+                            }
+                        } catch (e) {
+                            console.error(`❌ Error llamando wpp-service para ${notif.target}:`, e);
                         }
-                    } catch (e) {
-                        console.error('❌ Error llamando wpp-service:', e);
+                    } else {
+                        try {
+                            // Tu servicio nativo de whatsapp
+                            await whatsappService.sendMessage(notif.phone, notif.message);
+                            console.log(`✅ Mensaje directo enviado a ${notif.target} (${notif.phone})`);
+                        } catch (err) {
+                            console.error(`❌ Falló envío directo a ${notif.target}:`, err);
+                        }
                     }
-                } else {
-                    await whatsappService.sendMessage(cleanPhone, message);
                 }
+
+            } catch (waError) {
+                console.error("❌ Error general procesando notificaciones de WhatsApp:", waError);
             }
+            // 👆👆👆 FIN BLOQUE WHATSAPP MEJORADO 👆👆👆
 
-        } catch (waError) {
-            console.error("❌ Error enviando WhatsApp:", waError);
+            // Retornamos la respuesta al cliente
+            const localForRefresh = TimeHelper.utcToLocal(startDate, clubTimeZone);
+            const refreshDate = `${localForRefresh.getFullYear()}-${String(localForRefresh.getMonth() + 1).padStart(2, '0')}-${String(localForRefresh.getDate()).padStart(2, '0')}`;
+
+            const payload = { ...result, refresh: true, refreshDate };
+            res.status(201).json(payload);
+
+        } catch (error: any) {
+            console.error(error);
+            res.status(400).json({ error: error.message || "Error desconocido" });
         }
-        // 👆 FIN DEL CAMBIO 👆
-
-// ... (El resto de tu respuesta JSON sigue igual) ...
-    
-        const localForRefresh = TimeHelper.utcToLocal(startDate, clubTimeZone);
-        const refreshDate = `${localForRefresh.getFullYear()}-${String(localForRefresh.getMonth() + 1).padStart(2, '0')}-${String(localForRefresh.getDate()).padStart(2, '0')}`;
-
-        const payload = { ...result, refresh: true, refreshDate };
-        res.status(201).json(payload);
-
-    } catch (error: any) {
-        console.error(error);
-        res.status(400).json({ error: error.message || "Error desconocido" });
     }
-}
 
     getAvailability = async (req: Request, res: Response) => {
     try {
