@@ -360,20 +360,17 @@ export default function MyBookingsPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-4">
+                   <div className="flex items-center gap-4">
                       <div className="bg-[#347048]/5 p-3 rounded-xl text-[#347048]"><MapPin size={20} /></div>
                       <div>
                         <p className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest">Ubicación</p>
                         <p className="font-bold text-[#347048] text-sm leading-tight">
-                            {[
-       // 👇 Acá probamos todas las variantes posibles por si acaso
-       selectedBooking.court?.club?.addressLine, 
-       selectedBooking.court?.club?.address,
-       selectedBooking.court?.club?.street, 
-       selectedBooking.court?.club?.city
-     ]
-     .filter(Boolean) // Esto borra los nulos
-     .join(', ') || 'Dirección no disponible'}
+                          {Array.from(new Set([
+                            selectedBooking.court?.club?.addressLine, 
+                            selectedBooking.court?.club?.address,
+                            selectedBooking.court?.club?.street, 
+                            selectedBooking.court?.club?.city
+                          ].filter(Boolean))).join(', ') || 'Dirección no disponible'}
                         </p>
                       </div>
                     </div>

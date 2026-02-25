@@ -12,10 +12,10 @@ import {
   Phone, 
   Mail, 
   Instagram,
-  Heart,      
   Share2,
   Trophy,
-  Star
+  Star,
+  Check // 👉 Agregamos Check y sacamos Heart
 } from 'lucide-react';
 
 const formatClubAddress = (club: Club) => {
@@ -28,6 +28,9 @@ export default function ClubPage() {
   const [club, setClub] = useState<Club | null>(null);
   const [loadingClub, setLoadingClub] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // 👉 1. Estado para el botón de compartir
+  const [isCopied, setIsCopied] = useState(false);
 
   useEffect(() => {
     const loadClub = async () => {
@@ -51,6 +54,19 @@ export default function ClubPage() {
 
     loadClub();
   }, [slug]);
+
+  // 👉 2. Función que copia la URL
+  const handleShare = async () => {
+    if (typeof window !== 'undefined') {
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        setIsCopied(true);
+        setTimeout(() => setIsCopied(false), 2000);
+      } catch (err) {
+        console.error('Error al copiar el enlace', err);
+      }
+    }
+  };
 
   const slugReady = router.isReady && slug && typeof slug === 'string';
   const stillLoading = !slugReady || loadingClub;
@@ -157,13 +173,25 @@ export default function ClubPage() {
                 </div>
               </div>
 
-              {/* BOTONES DE ACCIÓN */}
-              <div className="flex gap-3 shrink-0">
-                <button className="h-12 w-12 rounded-2xl border-2 border-[#EBE1D8]/30 flex items-center justify-center text-[#EBE1D8] hover:bg-[#EBE1D8] hover:text-[#347048] hover:border-transparent transition-all bg-[#347048]/50 backdrop-blur-md">
-                    <Heart size={22} />
-                </button>
-                <button className="h-12 w-12 rounded-2xl border-2 border-[#EBE1D8]/30 flex items-center justify-center text-[#EBE1D8] hover:bg-[#B9CF32] hover:text-[#347048] hover:border-transparent transition-all bg-[#347048]/50 backdrop-blur-md">
-                    <Share2 size={22} />
+              {/* 👉 3. BOTONES DE ACCIÓN (Corregidos) */}
+              <div className="flex gap-3 shrink-0 relative">
+                <button 
+                  onClick={handleShare}
+                  className={`relative h-12 w-12 rounded-2xl border-2 flex items-center justify-center transition-all backdrop-blur-md ${
+                    isCopied 
+                      ? 'bg-[#B9CF32] text-[#347048] border-transparent scale-105' 
+                      : 'border-[#EBE1D8]/30 text-[#EBE1D8] bg-[#347048]/50 hover:bg-[#B9CF32] hover:text-[#347048] hover:border-transparent'
+                  }`}
+                  title="Copiar enlace"
+                >
+                    {isCopied ? <Check size={22} strokeWidth={3} className="animate-in zoom-in" /> : <Share2 size={22} />}
+                    
+                    {/* Cartelito flotante de copiado */}
+                    {isCopied && (
+                      <span className="absolute -top-10 bg-[#B9CF32] text-[#347048] text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg shadow-xl animate-in fade-in slide-in-from-bottom-2 whitespace-nowrap">
+                        ¡Copiado!
+                      </span>
+                    )}
                 </button>
               </div>
 
