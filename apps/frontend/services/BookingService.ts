@@ -19,6 +19,8 @@ function getOrCreateGuestId() {
 }
 
 import { getApiUrl } from '../utils/apiUrl';
+import { ClubService } from './ClubService';
+import { ClubAdminService } from './ClubAdminService';
 
 const apiBase = () => `${getApiUrl()}/api`;
 
@@ -97,11 +99,27 @@ export const getMyBookings = async (userId: number) => {
 export const cancelBooking = async (bookingId: number) => {
     if (!getToken()) throw new Error("Debes iniciar sesión.");
 
-    const res = await fetchWithAuth(`${apiBase()}/bookings/cancel`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bookingId })
-    });
+  // Si es un admin vinculado a un club, usar la ruta /clubs/:slug/admin/... para que
+  // el backend reciba el clubId vía middleware y valide correctamente la pertenencia.
+  try {
+    const rawUser = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+    if (rawUser) {
+      const parsed = JSON.parse(rawUser || '{}');
+      if (parsed?.role === 'ADMIN' && parsed?.clubId) {
+        // Obtener slug y llamar al servicio admin
+        const club = await ClubService.getClubById(Number(parsed.clubId));
+        return await ClubAdminService.cancelBooking(club.slug, bookingId);
+      }
+    }
+  } catch (e) {
+    // si falla obtener el slug, caemos al endpoint genérico
+  }
+
+  const res = await fetchWithAuth(`${apiBase()}/bookings/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bookingId })
+  });
 
     if (!res.ok) {
         const error = await res.json();
