@@ -303,6 +303,15 @@ export default function Home() {
     const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
     if (userStr) { try { setUser(JSON.parse(userStr)); } catch {} }
 
+    // Listen for logout events to update UI without reload
+    const onLogout = () => {
+      setUser(null);
+      const guestId = typeof window !== 'undefined' ? localStorage.getItem('guestId') : null;
+      setIsGuest(!!guestId);
+      setShowUserMenu(false);
+    };
+    window.addEventListener('tucancha:logout', onLogout);
+
     const loadClubs = async () => {
       try {
         const allClubs = await ClubService.getAllClubs();
@@ -325,6 +334,10 @@ export default function Home() {
     };
     loadClubs();
     loadLocations();
+
+    return () => {
+      window.removeEventListener('tucancha:logout', onLogout);
+    };
   }, []);
 
   useEffect(() => {

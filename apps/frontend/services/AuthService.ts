@@ -57,6 +57,12 @@ export const logout = () => {
   // No navegamos aquí: la navegación la debe decidir el lugar que llama a `logout()`.
   localStorage.removeItem('token');
   localStorage.removeItem('user');
+  // Emitir un evento para avisar a la app en esta pestaña
+  try {
+    window.dispatchEvent(new Event('tucancha:logout'));
+  } catch (e) {
+    // noop
+  }
 };
 
 export const getToken = () => {

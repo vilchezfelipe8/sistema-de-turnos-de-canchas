@@ -48,6 +48,17 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // Escuchar logout global para actualizar UI sin recargar
+  useEffect(() => {
+    const onLogout = () => {
+      setUser(null);
+      const guestId = typeof window !== 'undefined' ? localStorage.getItem('guestId') : null;
+      setIsGuest(!!guestId);
+    };
+    window.addEventListener('tucancha:logout', onLogout);
+    return () => window.removeEventListener('tucancha:logout', onLogout);
+  }, []);
+
 
   useEffect(() => {
     setShowUserMenu(false);
