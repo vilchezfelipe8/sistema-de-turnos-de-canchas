@@ -141,8 +141,8 @@ export class ClubController {
                 scheduleOpenTime: z.string().optional().nullable(),
                 scheduleCloseTime: z.string().optional().nullable(),
                 scheduleIntervalMinutes: z.union([z.number(), z.string()]).optional().nullable().transform((v) => (v === '' || v === undefined || v === null ? undefined : Number(v))),
-                scheduleDurations: z.array(z.number()).optional(),
-                scheduleFixedSlots: z.array(z.string()).optional()
+                scheduleDurations: z.array(z.number()).optional().nullable(),
+                scheduleFixedSlots: z.array(z.string()).optional().nullable()
             });
             const parsed = updateClubSchema.safeParse(req.body);
             if (!parsed.success) {

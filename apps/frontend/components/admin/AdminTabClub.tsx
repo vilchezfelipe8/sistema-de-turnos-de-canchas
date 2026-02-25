@@ -105,7 +105,7 @@ export default function AdminTabClub() {
       const durations = parseDurationList(clubForm.scheduleDurations);
       const fixedSlots = parseSlotList(clubForm.scheduleFixedSlots);
       const scheduleMode = clubForm.scheduleMode || 'FIXED';
-      const payload: any = {
+        const payload: any = {
         ...clubForm,
         lightsEnabled: !!clubForm.lightsEnabled,
         lightsExtraAmount: clubForm.lightsExtraAmount === '' ? null : Number(clubForm.lightsExtraAmount),
@@ -118,8 +118,9 @@ export default function AdminTabClub() {
         scheduleIntervalMinutes: scheduleMode === 'RANGE'
           ? (clubForm.scheduleIntervalMinutes === '' ? null : Number(clubForm.scheduleIntervalMinutes))
           : null,
-        scheduleDurations: durations.length > 0 ? durations : null,
-        scheduleFixedSlots: scheduleMode === 'FIXED' && fixedSlots.length > 0 ? fixedSlots : null
+        // Siempre enviar arrays (aunque vacíos) para evitar validaciones que rechacen `null`.
+        scheduleDurations: durations.length > 0 ? durations : [],
+        scheduleFixedSlots: scheduleMode === 'FIXED' ? (fixedSlots.length > 0 ? fixedSlots : []) : []
       };
       const updatedClub = await ClubService.updateClub(club.id, payload);
       setClub(updatedClub);
