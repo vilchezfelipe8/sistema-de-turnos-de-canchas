@@ -28,15 +28,17 @@ RUN apt-get update && apt-get install -y \
   libxfixes3 \
   libxrender1 \
   chromium \
-  chromium-driver \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/src/app
+
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
+
 COPY . .
 
-VOLUME ["/usr/src/app/session"]
 ENV NODE_ENV=production
 ENV CHROME_PATH=/usr/bin/chromium
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
 CMD ["node", "index.js"]

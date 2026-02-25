@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/router';
 import { login, register } from '../services/AuthService';
 import { ClubService } from '../services/ClubService';
-import { Mail, Lock, User, Phone, UserPlus, LogIn, AlertCircle, Loader2, IdCard, CheckCircle } from 'lucide-react'; // Agregamos IdCard
+import { Mail, Lock, User, Phone, UserPlus, LogIn, AlertCircle, Loader2, IdCard, CheckCircle, Eye, EyeOff } from 'lucide-react'; // Agregamos IdCard y Eye
 
 export default function LoginPage() {
   const router = useRouter();
@@ -20,6 +20,7 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const isPhoneValid = (phone: string) => {
     if (!phone) return false;
@@ -208,8 +209,13 @@ export default function LoginPage() {
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-[#347048]/40">
                   <Lock size={16} strokeWidth={3} />
                 </div>
-                <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3.5 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl text-[#347048] font-bold focus:outline-none transition-all shadow-sm placeholder-[#347048]/20" placeholder="••••••••" />
+                <input type={showPassword ? 'text' : 'password'} required value={password} onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-11 pr-14 py-3.5 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl text-[#347048] font-bold focus:outline-none transition-all shadow-sm placeholder-[#347048]/20" placeholder="••••••••" />
+
+                <button type="button" aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'} onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-3 flex items-center text-[#347048]/60 hover:text-[#347048] transition-colors">
+                  {showPassword ? <EyeOff size={18} strokeWidth={2.5} /> : <Eye size={18} strokeWidth={2.5} />}
+                </button>
               </div>
             </div>
 

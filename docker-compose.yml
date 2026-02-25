@@ -44,8 +44,6 @@ services:
       - ./apps/wpp-service/.env
     environment:
       - TZ=UTC
-    volumes:
-      - wpp-session:/usr/src/app/session
     depends_on:
       - backend
     restart: always
@@ -69,4 +67,3 @@ services:
 
 volumes:
   db-data:
-  wpp-session:
