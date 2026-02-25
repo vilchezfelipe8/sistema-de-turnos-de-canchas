@@ -24,9 +24,9 @@ apps/*/.env
 apps/*/.env.local
 
 # Prisma generated / migrations
-**/prisma/migrations/
-**/prisma/migration_lock.toml
-**/generated/
+# **/prisma/migrations/
+# **/prisma/migration_lock.toml
+# **/generated/
 
 # IDEs and OS
 .idea/
