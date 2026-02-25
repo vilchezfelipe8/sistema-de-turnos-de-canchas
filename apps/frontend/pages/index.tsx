@@ -4,7 +4,7 @@ import { ClubService, Club } from '../services/ClubService';
 import { getApiUrl } from '../utils/apiUrl';
 import { LocationService, Location } from '../services/LocationService';
 import DatePickerDark from '../components/ui/DatePickerDark';
-import { Search, MapPin, Calendar, TrendingUp, ShieldCheck, ArrowRight, Menu, X, Phone, Mail, Instagram, Activity, ChevronRight, ChevronLeft, MousePointerClick, CalendarCheck, PlayCircle, Coffee, Droplets, Lightbulb, Trophy, ChevronDown, LogOut, Check } from 'lucide-react';
+import { Search, MapPin, Calendar, TrendingUp, ShieldCheck, ArrowRight, Menu, X, Phone, Mail, Instagram, Activity, ChevronRight, ChevronLeft, MousePointerClick, CalendarCheck, PlayCircle, Coffee, Droplets, Lightbulb, Trophy, ChevronDown, LogOut, Check, MessageSquare, Calculator, Users } from 'lucide-react';
 import Link from 'next/link';
 import { logout } from '../services/AuthService';
 import { getMyBookings } from '../services/BookingService';
@@ -124,6 +124,22 @@ export default function Home() {
   const [showContact, setShowContact] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [activeBookingsCount, setActiveBookingsCount] = useState(0);
+  // track which FAQ item is currently open (null if none)
+  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
+  const faqRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // close open FAQ when clicking outside the open item's box
+  useEffect(() => {
+    const handler = (evt: MouseEvent) => {
+      if (openFaqIndex === null) return;
+      const currentRef = faqRefs.current[openFaqIndex];
+      if (currentRef && !currentRef.contains(evt.target as Node)) {
+        setOpenFaqIndex(null);
+      }
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [openFaqIndex]);
   const resultsRef = useRef<HTMLElement>(null);
   const apiBase = useMemo(() => `${getApiUrl()}/api`, []);
 
@@ -983,18 +999,45 @@ export default function Home() {
             <div className="absolute bottom-0 left-0 w-96 h-96 bg-[#926699]/10 rounded-full blur-[100px] pointer-events-none" />
             
             <div className="relative z-10">
-              <div className="text-center mb-16">
-                <h2 className="text-4xl md:text-5xl font-black text-[#347048] italic tracking-tighter mb-4 uppercase">Más que una cancha</h2>
-                <p className="text-[#347048]/70 font-bold max-w-2xl mx-auto uppercase tracking-widest text-sm">Disfrutá de instalaciones de primer nivel diseñadas para brindarte la mejor experiencia.</p>
-              </div>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-                <RevealOnScroll delay={100}><div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white"><div className="bg-[#926699]/10 text-[#926699] p-4 rounded-2xl mb-4"><Coffee size={32} strokeWidth={2} /></div><h4 className="text-[#347048] font-black text-lg mb-2">El 3er Tiempo</h4><p className="text-[#347048]/70 text-sm font-medium">Buffet completo con bebidas frías, snacks y el mejor ambiente post-partido.</p></div></RevealOnScroll>
-                <RevealOnScroll delay={200}><div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white"><div className="bg-[#347048]/10 text-[#347048] p-4 rounded-2xl mb-4"><Trophy size={32} strokeWidth={2} /></div><h4 className="text-[#347048] font-black text-lg mb-2">Pistas de Blindex</h4><p className="text-[#347048]/70 text-sm font-medium">Césped sintético profesional de última generación y medidas reglamentarias.</p></div></RevealOnScroll>
-                <RevealOnScroll delay={300}><div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white"><div className="bg-[#B9CF32]/20 text-[#347048] p-4 rounded-2xl mb-4"><Lightbulb size={32} strokeWidth={2} /></div><h4 className="text-[#347048] font-black text-lg mb-2">Iluminación Pro</h4><p className="text-[#347048]/70 text-sm font-medium">Focos LED de alta potencia para que juegues de noche sin puntos ciegos.</p></div></RevealOnScroll>
-                <RevealOnScroll delay={400}><div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white"><div className="bg-blue-50 text-blue-500 p-4 rounded-2xl mb-4"><Droplets size={32} strokeWidth={2} /></div><h4 className="text-[#347048] font-black text-lg mb-2">Vestuarios Premium</h4><p className="text-[#347048]/70 text-sm font-medium">Duchas amplias con agua caliente garantizada y lockers de seguridad.</p></div></RevealOnScroll>
-              </div>
+            <div className="text-center mb-16">
+              <h2 className="text-4xl md:text-5xl font-black text-[#347048] italic tracking-tighter mb-4 uppercase">Gestión inteligente</h2>
+              <p className="text-[#347048]/70 font-bold max-w-2xl mx-auto uppercase tracking-widest text-sm">La herramienta definitiva diseñada para potenciar la administración de tu complejo.</p>
             </div>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+              <RevealOnScroll delay={100}>
+                <div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white">
+                  <div className="bg-[#926699]/10 text-[#926699] p-4 rounded-2xl mb-4"><MessageSquare size={32} strokeWidth={2} /></div>
+                  <h4 className="text-[#347048] font-black text-lg mb-2">WhatsApp Bot</h4>
+                  <p className="text-[#347048]/70 text-sm font-medium">Notificaciones automáticas para confirmar reservas y reducir ausencias de clientes.</p>
+                </div>
+              </RevealOnScroll>
+
+              <RevealOnScroll delay={200}>
+                <div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white">
+                  <div className="bg-[#347048]/10 text-[#347048] p-4 rounded-2xl mb-4"><Calendar size={32} strokeWidth={2} /></div>
+                  <h4 className="text-[#347048] font-black text-lg mb-2">Reserva Online</h4>
+                  <p className="text-[#347048]/70 text-sm font-medium">Sistema de turnos disponible las 24 horas para que tus clientes reserven en segundos.</p>
+                </div>
+              </RevealOnScroll>
+
+              <RevealOnScroll delay={300}>
+                <div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white">
+                  <div className="bg-[#B9CF32]/20 text-[#347048] p-4 rounded-2xl mb-4"><Calculator size={32} strokeWidth={2} /></div>
+                  <h4 className="text-[#347048] font-black text-lg mb-2">Caja y Stock</h4>
+                  <p className="text-[#347048]/70 text-sm font-medium">Control total de ingresos, ventas de buffet y stock de productos en tiempo real.</p>
+                </div>
+              </RevealOnScroll>
+
+              <RevealOnScroll delay={400}>
+                <div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white">
+                  <div className="bg-blue-50 text-blue-500 p-4 rounded-2xl mb-4"><Users size={32} strokeWidth={2} /></div>
+                  <h4 className="text-[#347048] font-black text-lg mb-2">Panel Admin</h4>
+                  <p className="text-[#347048]/70 text-sm font-medium">Gestioná canchas, precios y base de datos de usuarios desde cualquier dispositivo.</p>
+                </div>
+              </RevealOnScroll>
+            </div>
+          </div>
           </div>
         </RevealOnScroll>
       </section>
@@ -1064,7 +1107,7 @@ export default function Home() {
       </section>
 
       {/* SECCIÓN: PREGUNTAS FRECUENTES (FAQ) */}
-      <section className="py-20 px-4 max-w-3xl mx-auto relative z-10 pb-32 overflow-hidden">
+      <section onClick={() => setOpenFaqIndex(null)} className="py-20 px-4 max-w-3xl mx-auto relative z-10 pb-32 overflow-hidden">
         <RevealOnScroll delay={0}>
           <div className="text-center mb-12">
             <span className="text-[#B9CF32] font-black tracking-wider uppercase text-sm mb-3 block">Dudas Comunes</span>
@@ -1072,10 +1115,25 @@ export default function Home() {
           </div>
         </RevealOnScroll>
         <div className="space-y-4">
-           <RevealOnScroll delay={100}><FAQItem question="¿Con cuánto tiempo de anticipación puedo reservar?" answer="Podés reservar tu cancha hasta con 30 días de anticipación utilizando nuestro calendario interactivo. Te recomendamos asegurar tu lugar temprano, ¡especialmente en horarios pico (18:00 a 22:00)!" /></RevealOnScroll>
-           <RevealOnScroll delay={200}><FAQItem question="¿Puedo cancelar o reprogramar mi turno?" answer="Sí, podés cancelar tu turno desde tu panel de usuario o comunicándote con el club. El sistema devuelve automáticamente tu dinero en la caja si la cancelación se realiza dentro del margen de tiempo permitido por cada club." /></RevealOnScroll>
-           <RevealOnScroll delay={300}><FAQItem question="¿Cuáles son los medios de pago aceptados?" answer="Aceptamos transferencias bancarias, Mercado Pago y efectivo directamente en el club. Al momento de confirmar la reserva, podrás ver todas las opciones disponibles." /></RevealOnScroll>
-           <RevealOnScroll delay={400}><FAQItem question="¿Tienen servicio de alquiler de paletas o pelotas?" answer="¡Por supuesto! En la recepción del club vas a poder alquilar paletas de primera calidad y comprar pelotas nuevas para que no te falte nada a la hora de jugar." /></RevealOnScroll>
+           {[
+             { q: "¿Con cuánto tiempo de anticipación puedo reservar?", a: "Podés reservar tu cancha hasta con 30 días de anticipación utilizando nuestro calendario interactivo. Te recomendamos asegurar tu lugar temprano, ¡especialmente en horarios pico (18:00 a 22:00)!" },
+             { q: "¿Puedo cancelar o reprogramar mi turno?", a: "Sí, podés cancelar tu turno desde tu panel de usuario o comunicándote con el club. El sistema devuelve automáticamente tu dinero en la caja si la cancelación se realiza dentro del margen de tiempo permitido por cada club." },
+             { q: "¿Cómo recibo los avisos de nuevas reservas?", a: "El sistema envía una notificación automática e instantánea a través de WhatsApp tanto al dueño del complejo como al cliente, asegurando que el turno quede confirmado sin esfuerzo manual." },
+             { q: "¿Puedo gestionar más de una cancha y diferentes deportes?", a: "Sí, la plataforma es totalmente flexible. Podés configurar múltiples canchas, definir horarios diferenciados por día y establecer precios específicos para cada actividad deportiva." },
+             { q: "¿El sistema me ayuda a controlar las ventas del buffet?", a: "¡Exacto! Contamos con un módulo de Caja y Stock integrado donde podés registrar cada venta de productos, gestionar tu inventario en tiempo real y tener un cierre de caja diario preciso." },
+             { q: "¿Es necesario instalar algún programa en mi computadora?", a: "No, nuestra solución es 100% basada en la nube. Podés acceder a tu panel de administración desde cualquier dispositivo (celular, tablet o PC) con conexión a internet, en cualquier momento y lugar." }
+           ].map((item, idx) => (
+             <RevealOnScroll delay={100 * (idx + 1)} key={idx}>
+               <div ref={(el) => (faqRefs.current[idx] = el)}>
+                 <FAQItem
+                   question={item.q}
+                   answer={item.a}
+                   isOpen={openFaqIndex === idx}
+                   onToggle={() => setOpenFaqIndex(openFaqIndex === idx ? null : idx)}
+                 />
+               </div>
+             </RevealOnScroll>
+           ))}
         </div>
       </section>
 
@@ -1146,11 +1204,27 @@ const FeatureItem = ({ icon, text }: { icon: React.ReactNode; text: string }) =>
   </li>
 );
 
-const FAQItem = ({ question, answer }: { question: string, answer: string }) => {
-  const [isOpen, setIsOpen] = useState(false);
+// FAQ item now controlled by parent via props
+const FAQItem = ({
+  question,
+  answer,
+  isOpen,
+  onToggle
+}: {
+  question: string;
+  answer: string;
+  isOpen: boolean;
+  onToggle: () => void;
+}) => {
   return (
     <div className="bg-[#D4C5B0]/5 border border-[#D4C5B0]/10 rounded-2xl overflow-hidden transition-all duration-300 hover:bg-[#D4C5B0]/10">
-      <button onClick={() => setIsOpen(!isOpen)} className="w-full px-6 py-5 text-left flex justify-between items-center focus:outline-none">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+        className="w-full px-6 py-5 text-left flex justify-between items-center focus:outline-none"
+      >
         <span className="font-bold text-[#EBE1D8] pr-4">{question}</span>
         <ChevronDown className={`text-[#B9CF32] shrink-0 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
@@ -1158,5 +1232,5 @@ const FAQItem = ({ question, answer }: { question: string, answer: string }) => 
         <p className="text-[#EBE1D8]/70 text-sm leading-relaxed">{answer}</p>
       </div>
     </div>
-  )
+  );
 };
