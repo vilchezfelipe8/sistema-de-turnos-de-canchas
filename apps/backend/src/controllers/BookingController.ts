@@ -143,13 +143,19 @@ export class BookingController {
                 let clientName: string = 'Jugador';
 
                 // 1. Datos del Cliente
-                if (userIdFromToken) {
+                if (guestPhone) {
+                    // Si escribiste un teléfono en el formulario (caso Admin cargando a otro), usamos ese
+                    clientPhone = guestPhone;
+                    clientName = guestName || 'Jugador';
+                } else if (userIdFromToken) {
+                    // Si NO hay teléfono manual pero hay token (usuario reservando desde su propia cuenta)
                     const fullUser = await prisma.user.findUnique({ where: { id: Number(userIdFromToken) } });
                     if (fullUser) {
                         clientPhone = fullUser.phoneNumber;
                         clientName = fullUser.firstName || 'Jugador';
                     }
                 } else {
+                    // Caso de invitado desde la web
                     clientPhone = effectiveGuestPhone || null;
                     clientName = effectiveGuestName || 'Jugador';
                 }
@@ -197,18 +203,26 @@ Para confirmar tu asistencia, coordinar el pago de la seña o por cualquier cons
 Ingresó un nuevo turno web en *${clubName}*.
 
 👤 *Cliente:* ${clientName}
-📞 *Tel:* ${cleanClientPhone || 'No registrado'}
+📞 *Tel:* ${cleanClientPhone ? `wa.me/${cleanClientPhone}` : 'No registrado'}
 📅 *Fecha:* ${dateStr}
 ⏰ *Hora:* ${timeStr}
 📍 *Cancha:* ${courtName}
 💰 *Monto:* $${result.price || 28000}
                 `.trim();
 
-                // 5. Lista de envíos
-                const notifications = [];
-                if (cleanClientPhone) notifications.push({ target: 'Cliente', phone: cleanClientPhone, message: clientMessage });
-                if (cleanClubPhone) notifications.push({ target: 'Club', phone: cleanClubPhone, message: clubMessage });
+               // 5. Lista de envíos
+            const notifications = [];
 
+            // 1. Siempre intentamos mandarle al cliente
+            if (cleanClientPhone) {
+                notifications.push({ target: 'Cliente', phone: cleanClientPhone, message: clientMessage });
+            }
+
+            // 2. AL CLUB SOLO LE MANDAMOS SI NO ES EL ADMIN EL QUE ESTÁ CREANDO EL TURNO
+            // Si vos (Admin) cargás el turno, no necesitás que el bot te mande un mensaje a vos mismo.
+            if (cleanClubPhone && !isAdmin) { 
+                notifications.push({ target: 'Club', phone: cleanClubPhone, message: clubMessage });
+            }
             
                 // 6. Loop de despacho con la instancia unificada
                 for (const notif of notifications) {
