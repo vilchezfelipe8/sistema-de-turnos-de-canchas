@@ -30,7 +30,8 @@ export class ClubRepository {
         scheduleCloseTime?: string | null,
         scheduleIntervalMinutes?: number | null,
         scheduleDurations?: number[] | null,
-        scheduleFixedSlots?: string[] | null
+        scheduleFixedSlots?: string[] | null,
+        openingDays?: number[] | null
     ): Promise<Club> {
         const location = await this.ensureLocation(city, province, country);
         const data: any = {
@@ -52,6 +53,7 @@ export class ClubRepository {
             lightsEnabled,
             lightsExtraAmount,
             lightsFromHour,
+            openingDays,
             professorDiscountEnabled,
             professorDiscountPercent,
             scheduleMode,
@@ -133,7 +135,8 @@ export class ClubRepository {
             club.scheduleCloseTime ?? null,
             club.scheduleIntervalMinutes ?? null,
             club.scheduleDurations ?? null,
-            club.scheduleFixedSlots ?? null
+            club.scheduleFixedSlots ?? null,
+            club.openingDays ?? null
         );
     }
     
@@ -185,6 +188,7 @@ export class ClubRepository {
         scheduleIntervalMinutes?: number | null;
         scheduleDurations?: number[] | null;
         scheduleFixedSlots?: string[] | null;
+        openingDays?: number[] | null;
     }): Promise<Club> {
         if (data.city && data.province && data.country) {
             const location = await this.ensureLocation(data.city, data.province, data.country);
@@ -225,6 +229,7 @@ export class ClubRepository {
             dbClub.scheduleIntervalMinutes ?? null,
             Array.isArray(dbClub.scheduleDurations) ? dbClub.scheduleDurations : null,
             Array.isArray(dbClub.scheduleFixedSlots) ? dbClub.scheduleFixedSlots : null,
+            Array.isArray(dbClub.openingDays) ? dbClub.openingDays : null,
             dbClub.createdAt,
             dbClub.updatedAt
         );

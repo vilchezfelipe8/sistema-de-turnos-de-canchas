@@ -38,6 +38,8 @@ export class ClubService {
         scheduleIntervalMinutes?: number | null,
         scheduleDurations?: number[] | null,
         scheduleFixedSlots?: string[] | null
+        ,
+        openingDays?: number[] | null
     ) {
         return await this.clubRepo.createClub(
             slug,
@@ -65,6 +67,8 @@ export class ClubService {
             scheduleIntervalMinutes,
             scheduleDurations,
             scheduleFixedSlots
+            ,
+            openingDays
         );
     }
 
@@ -112,6 +116,7 @@ export class ClubService {
             scheduleIntervalMinutes?: number | null;
             scheduleDurations?: number[] | null;
             scheduleFixedSlots?: string[] | null;
+            openingDays?: number[] | null;
         }
     ): Promise<Club> {
         const club = await this.clubRepo.findClubById(id);

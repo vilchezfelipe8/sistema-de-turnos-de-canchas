@@ -9,6 +9,8 @@ import Link from 'next/link';
 import { logout } from '../services/AuthService';
 import { getMyBookings } from '../services/BookingService';
 
+// ReactDOM portal removed: menu will be rendered inside the sidebar to keep positioning stable under zoom
+
 // --- COMPONENTE DE ANIMACIÓN AL SCROLLEAR ---
 const RevealOnScroll = ({ children, delay = 0, className = "" }: { children: React.ReactNode, delay?: number, className?: string }) => {
   const [isVisible, setIsVisible] = useState(false);
@@ -141,6 +143,7 @@ export default function Home() {
     return () => document.removeEventListener('click', handler);
   }, [openFaqIndex]);
   const resultsRef = useRef<HTMLElement>(null);
+  const sidebarRef = useRef<HTMLDivElement | null>(null);
   const apiBase = useMemo(() => `${getApiUrl()}/api`, []);
 
   // Estados del Buscador
@@ -198,8 +201,14 @@ export default function Home() {
     e.preventDefault();
     const target = e.currentTarget as HTMLElement;
     const rect = target.getBoundingClientRect();
-    const top = rect.bottom + 8; // 8px gap
-    const left = rect.left;
+    // If the sidebar ref exists, position the menu relative to the sidebar container
+    let top = rect.bottom + 8;
+    let left = rect.left;
+    if (sidebarRef.current) {
+      const sidebarRect = sidebarRef.current.getBoundingClientRect();
+      top = rect.bottom - sidebarRect.top + 8; // relative to sidebar
+      left = rect.left - sidebarRect.left;
+    }
     let href = '#';
     let copyText = '';
     if (type === 'whatsapp') {
@@ -497,6 +506,17 @@ export default function Home() {
     let finalClubs = filtered.map(item => item.club);
 
     if (searchDate) {
+      try {
+        const parsed = new Date(searchDate);
+        if (!isNaN(parsed.getTime())) {
+          const dayOfWeek = parsed.getDay(); // 0 (Dom) .. 6 (Sab)
+          finalClubs = finalClubs.filter((club) => {
+            if (!Array.isArray(club.openingDays) || club.openingDays.length === 0) return true; // no config => open all days
+            return club.openingDays.includes(dayOfWeek);
+          });
+        }
+      } catch (e) { /* noop */ }
+
       const activityIds = searchSport
         ? [ACTIVITY_IDS_BY_SPORT[searchSport]].filter(Boolean)
         : Object.values(ACTIVITY_IDS_BY_SPORT);
@@ -1215,7 +1235,7 @@ export default function Home() {
         onClick={() => setShowContact(false)}
       />
 
-      <div className={`fixed top-0 right-0 h-full w-full max-w-sm bg-[#EBE1D8] z-[70] shadow-2xl transform transition-transform duration-300 ease-out ${showContact ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div ref={sidebarRef} className={`fixed top-0 right-0 h-full w-full max-w-sm bg-[#EBE1D8] z-[70] shadow-2xl transform transition-transform duration-300 ease-out ${showContact ? 'translate-x-0' : 'translate-x-full'}`}>
             <div className="p-6 flex justify-between items-center border-b border-[#347048]/10">
                 <h2 className="text-2xl font-black text-[#347048]">Contacto</h2>
                 <button 
@@ -1258,19 +1278,25 @@ export default function Home() {
                     </div>
                 </div>
             </div>
+        {contactMenu && (
+          <div
+            ref={menuRef}
+            role="dialog"
+            aria-label="Acciones de contacto"
+            style={{ position: 'absolute', top: contactMenu.top, left: contactMenu.left }}
+            className="z-[90] bg-white rounded-lg shadow-lg border p-2 w-52"
+          >
+            <button
+              onClick={() => handleOpenHref(contactMenu.href)}
+              className="w-full text-left px-3 py-3 hover:bg-[#f3f4f6] rounded text-sm text-[#111827] font-medium"
+            >Abrir</button>
+            <button
+              onClick={() => handleCopy(contactMenu.copyText)}
+              className="w-full text-left px-3 py-3 hover:bg-[#f3f4f6] rounded text-sm text-[#111827] font-medium"
+            >{copied ? 'Copiado!' : 'Copiar'}</button>
+          </div>
+        )}
       </div>
-      {contactMenu && (
-        <div
-          ref={menuRef}
-          role="dialog"
-          aria-label="Acciones de contacto"
-          style={{ position: 'fixed', top: contactMenu.top, left: contactMenu.left }}
-          className="z-[90] bg-white rounded-lg shadow-lg border p-2 w-44"
-        >
-          <button onClick={() => handleOpenHref(contactMenu.href)} className="w-full text-left px-3 py-2 hover:bg-[#f3f4f6] rounded">Abrir</button>
-          <button onClick={() => handleCopy(contactMenu.copyText)} className="w-full text-left px-3 py-2 hover:bg-[#f3f4f6] rounded">{copied ? 'Copiado!' : 'Copiar'}</button>
-        </div>
-      )}
     </div>
   );
 }

@@ -32,8 +32,10 @@ export default function AdminTabClub() {
     scheduleCloseTime: '',
     scheduleIntervalMinutes: '',
     scheduleDurations: '',
-    scheduleFixedSlots: ''
+       scheduleFixedSlots: '',
+       openingDays: ''
   });
+     const [openingDaysSet, setOpeningDaysSet] = useState<number[]>([]);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [logoError, setLogoError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -76,6 +78,7 @@ export default function AdminTabClub() {
           websiteUrl: clubData.websiteUrl || '', description: clubData.description || '',
           lightsEnabled: clubData.lightsEnabled ?? false,
           lightsExtraAmount: clubData.lightsExtraAmount != null ? String(clubData.lightsExtraAmount) : '',
+           setOpeningDaysSet(Array.isArray(clubData.openingDays) ? clubData.openingDays : []);
           lightsFromHour: clubData.lightsFromHour || '',
           professorDiscountEnabled: clubData.professorDiscountEnabled ?? false,
           professorDiscountPercent: clubData.professorDiscountPercent != null ? String(clubData.professorDiscountPercent) : '',
@@ -122,6 +125,8 @@ export default function AdminTabClub() {
         // Siempre enviar arrays (aunque vacíos) para evitar validaciones que rechacen `null`.
         scheduleDurations: durations.length > 0 ? durations : [],
         scheduleFixedSlots: scheduleMode === 'FIXED' ? (fixedSlots.length > 0 ? fixedSlots : []) : []
+             ,
+             openingDays: openingDaysSet
       };
       const updatedClub = await ClubService.updateClub(club.id, payload);
       setClub(updatedClub);
@@ -185,6 +190,13 @@ export default function AdminTabClub() {
     setClubImagePreview(null);
     setClubImageError(null);
     if (clubImageInputRef.current) clubImageInputRef.current.value = '';
+  };
+
+  const toggleOpeningDay = (day: number) => {
+    setOpeningDaysSet((prev) => {
+      if (prev.includes(day)) return prev.filter((d) => d !== day);
+      return [...prev, day].sort((a, b) => a - b);
+    });
   };
 
 
@@ -253,6 +265,23 @@ export default function AdminTabClub() {
                   <input type="text" value={clubForm.province} onChange={(e) => setClubForm({ ...clubForm, province: e.target.value })} className={inputClass} required />
                 </div>
               </div>
+
+                {/* DIAS DE APERTURA */}
+                <div className="bg-white/10 p-6 rounded-[1.5rem] border-2 border-white/10">
+                  <h3 className="text-xs font-black uppercase tracking-[0.2em] text-[#347048] mb-3">Días de apertura</h3>
+                  <p className="text-[12px] text-[#347048]/70 mb-3">Seleccioná los días en los que el club está abierto (si no se selecciona ninguno, se entiende "abre todos los días").</p>
+                  <div className="flex gap-2 flex-wrap">
+                    {['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'].map((label, idx) => {
+                      const day = idx % 7; // 0..6
+                      const active = openingDaysSet.includes(day);
+                      return (
+                        <button key={label} type="button" onClick={() => toggleOpeningDay(day)} className={`px-3 py-2 rounded-lg font-bold text-sm transition-all ${active ? 'bg-[#B9CF32] text-[#347048]' : 'bg-white text-[#347048]/90 border border-white/10'}`}>
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
               <div>
                 <label className={labelClass}>Email Administrativo</label>

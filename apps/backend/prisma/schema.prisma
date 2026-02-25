@@ -86,6 +86,9 @@ model Club {
   lightsExtraAmount      Float?
   lightsFromHour         String?
 
+  // Días de apertura: array de enteros (0 Domingo .. 6 Sábado)
+  openingDays            Json?
+
   professorDiscountEnabled Boolean @default(false)
   professorDiscountPercent Float?
 

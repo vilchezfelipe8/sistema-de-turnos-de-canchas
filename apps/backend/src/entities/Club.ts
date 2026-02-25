@@ -30,6 +30,7 @@ export class Club {
         public scheduleIntervalMinutes?: number | null,
         public scheduleDurations?: number[] | null,
         public scheduleFixedSlots?: string[] | null,
+        public openingDays?: number[] | null,
         public createdAt?: Date,
         public updatedAt?: Date
     ) {}

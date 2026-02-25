@@ -229,6 +229,18 @@ export default function ClubPage() {
                     </span>
                   </div>
                 )}
+                {Array.isArray(club.openingDays) && club.openingDays.length > 0 && (
+                  <div className="flex items-center gap-2 font-bold mt-2 text-sm text-[#D4C5B0]/90">
+                    <Calendar size={16} />
+                    <div className="flex gap-2">
+                      {['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'].map((label, idx) => (
+                        club.openingDays!.includes(idx) ? (
+                          <span key={label} className="px-2 py-1 bg-[#B9CF32] text-[#347048] rounded-md text-xs font-black">{label}</span>
+                        ) : null
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

@@ -31,6 +31,7 @@ export interface Club {
   scheduleIntervalMinutes?: number | null;
   scheduleDurations?: number[] | null;
   scheduleFixedSlots?: string[] | null;
+  openingDays?: number[] | null;
   createdAt?: string;
   updatedAt?: string;
 }
