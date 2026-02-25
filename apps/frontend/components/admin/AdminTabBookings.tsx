@@ -798,20 +798,20 @@ export default function AdminTabBookings() {
         title: 'Atención: Turno Fijo',
         message: <div><p>Este turno pertenece a una serie repetitiva.</p><p className="font-bold mt-2">¿Deseas eliminar TODA la serie futura?</p></div>,
         confirmText: 'Sí, borrar TODA la serie', cancelText: 'No, ver otras opciones',
-        onConfirm: async () => { try { await cancelFixedBooking(booking.fixedBookingId); showInfo('Serie completa eliminada.', 'Éxito'); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } },
+        onConfirm: async () => { try { await cancelFixedBooking(booking.fixedBookingId); showInfo('Serie completa eliminada.', 'Éxito'); setSelectedBookingDetail(null); setSelectedBooking(null); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } },
         onCancel: () => { 
           setTimeout(() => showConfirm({
             title: '¿Borrar solo hoy?',
             message: `¿Eliminar únicamente el turno de hoy y mantener los futuros?`,
             confirmText: 'Sí, borrar solo hoy', cancelText: 'Cancelar',
-            onConfirm: async () => { try { await cancelBooking(booking.id); showInfo('Turno del día eliminado.', 'Listo'); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } },
+            onConfirm: async () => { try { await cancelBooking(booking.id); showInfo('Turno del día eliminado.', 'Listo'); setSelectedBookingDetail(null); setSelectedBooking(null); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } },
           }), 200);
         }
       });
     } else {
       showConfirm({
         title: 'Cancelar turno', message: '¿Seguro que deseas cancelar esta reserva simple?',
-        confirmText: 'Sí, Cancelar', onConfirm: async () => { try { await cancelBooking(booking.id); showInfo('Turno cancelado', 'Listo'); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } }
+        confirmText: 'Sí, Cancelar', onConfirm: async () => { try { await cancelBooking(booking.id); showInfo('Turno cancelado', 'Listo'); setSelectedBookingDetail(null); setSelectedBooking(null); loadSchedule(); } catch (e: any) { showError('Error: ' + e.message); } }
       });
     }
   };

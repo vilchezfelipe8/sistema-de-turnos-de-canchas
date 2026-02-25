@@ -569,7 +569,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
 
   useEffect(() => {
     if (!selectedSlot) return;
-    courtsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    courtsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [selectedSlot]);
 
   // --- Cargar Canchas (solo del club cuando hay clubSlug) ---
