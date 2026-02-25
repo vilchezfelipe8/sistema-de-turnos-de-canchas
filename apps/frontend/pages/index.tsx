@@ -1106,18 +1106,18 @@ export default function Home() {
                     ¿Tenés dudas sobre el sistema o querés dar de alta tu club? Escribinos, respondemos al toque.
                 </p>
         <a href="https://wa.me/5493513436163" target="_blank" rel="noreferrer" className="flex items-center gap-4 p-4 bg-white rounded-2xl shadow-sm border border-[#347048]/5 hover:border-[#B9CF32] hover:shadow-md transition-all group">
-                    <div className="bg-[#B9CF32] h-12 w-12 rounded-full flex items-center justify-center text-[#347048] group-hover:scale-110 transition-transform">
+              <div className="bg-[#B9CF32] h-12 w-12 rounded-full flex items-center justify-center text-[#347048] group-hover:scale-110 transition-transform shrink-0">
                         <Phone size={20} fill="currentColor" className="text-[#347048]" />
                     </div>
                     <div>
                         <p className="text-[#347048]/50 text-xs font-bold uppercase tracking-wider">WhatsApp</p>
-            <p className="text-[#347048] font-bold text-lg">+54 351 343 6150</p>
+            <p className="text-[#347048] font-bold text-lg">+54 351 343 6163</p>
                     </div>
                 </a>
                 <a href="mailto:soporte.tucancha@gmail.com" className="flex items-center gap-4 p-4 bg-white rounded-2xl shadow-sm border border-[#347048]/5 hover:border-[#B9CF32] hover:shadow-md transition-all group">
-                    <div className="bg-[#347048] h-12 w-12 rounded-full flex items-center justify-center text-[#EBE1D8] group-hover:scale-110 transition-transform">
-                        <Mail size={20} />
-                    </div>
+                  <div className="bg-[#347048] h-12 w-12 rounded-full flex items-center justify-center text-[#EBE1D8] group-hover:scale-110 transition-transform shrink-0">
+                    <Mail size={20} />
+                  </div>
                     <div>
                         <p className="text-[#347048]/50 text-xs font-bold uppercase tracking-wider">Email</p>
                         <p className="text-[#347048] font-bold text-lg">soporte.tucancha@gmail.com</p>
@@ -1126,9 +1126,10 @@ export default function Home() {
                 <div className="mt-8 pt-8 border-t border-[#347048]/10">
                     <p className="text-[#347048]/60 text-sm font-bold mb-4 text-center">Seguinos en redes</p>
                     <div className="flex justify-center gap-4">
-                        <a href="#" className="p-3 bg-[#347048] text-[#EBE1D8] rounded-full hover:bg-[#B9CF32] hover:text-[#347048] transition-colors">
-                            <Instagram size={20} />
-                        </a>
+                      <a href="https://www.instagram.com/tucancha.app_/" target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 bg-[#347048] text-[#EBE1D8] rounded-full hover:bg-[#B9CF32] hover:text-[#347048] transition-colors">
+                        <Instagram size={20} />
+                        <span className="hidden sm:inline text-[#EBE1D8] font-bold">@tucancha.app_</span>
+                      </a>
                     </div>
                 </div>
             </div>
