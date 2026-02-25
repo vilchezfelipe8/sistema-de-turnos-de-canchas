@@ -5,9 +5,9 @@
 .env
 
 # Prisma client / generated
-prisma/migrations/
-prisma/migration_lock.toml
-generated/
+# prisma/migrations/
+# prisma/migration_lock.toml
+# generated/
 
 # Build output
 dist/
