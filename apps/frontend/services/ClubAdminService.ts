@@ -136,8 +136,9 @@ export class ClubAdminService {
   /**
    * Confirmar reserva
    */
-  static async confirmBooking(clubSlug: string, bookingId: number) {
+  static async confirmBooking(clubSlug: string, bookingId: string | number) {
     if (!getToken()) throw new Error('No autenticado');
+    bookingId = typeof bookingId === 'string' ? Number(bookingId) : bookingId;
 
     const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/bookings/confirm`, {
       method: 'POST',
@@ -155,8 +156,9 @@ export class ClubAdminService {
   /**
    * Cancelar reserva
    */
-  static async cancelBooking(clubSlug: string, bookingId: number) {
+  static async cancelBooking(clubSlug: string, bookingId: string | number) {
     if (!getToken()) throw new Error('No autenticado');
+    bookingId = typeof bookingId === 'string' ? Number(bookingId) : bookingId;
 
     const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/bookings/cancel`, {
       method: 'POST',
@@ -193,8 +195,9 @@ export class ClubAdminService {
   /**
    * Cancelar reserva fija
    */
-  static async cancelFixedBooking(clubSlug: string, fixedBookingId: number) {
+  static async cancelFixedBooking(clubSlug: string, fixedBookingId: string | number) {
     if (!getToken()) throw new Error('No autenticado');
+    fixedBookingId = typeof fixedBookingId === 'string' ? Number(fixedBookingId) : fixedBookingId;
 
     const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/bookings/fixed/${fixedBookingId}`, {
       method: 'DELETE',
@@ -248,19 +251,21 @@ export class ClubAdminService {
     return res.json();
   }
 
-  static async getBookingItems(bookingId: number) {
+  static async getBookingItems(bookingId: string | number) {
     if (!getToken()) throw new Error('No autenticado');
+    bookingId = typeof bookingId === 'string' ? Number(bookingId) : bookingId;
     const res = await fetchWithAuth(`${apiBase()}/bookings/${bookingId}/items`);
     if (!res.ok) throw new Error('Error al cargar consumos');
     return res.json();
   }
 
   static async addItemToBooking(
-    bookingId: number, 
+    bookingId: string | number, 
     productId: number, 
     quantity: number, 
     paymentMethod: 'CASH' | 'DEBT' | 'TRANSFER'
   ) {
+    bookingId = typeof bookingId === 'string' ? Number(bookingId) : bookingId;
     if (!getToken()) throw new Error('No autenticado');
     
     // La URL está bien...
@@ -282,8 +287,9 @@ export class ClubAdminService {
     return res.json();
   }
 
-  static async removeItemFromBooking(itemId: number) {
+  static async removeItemFromBooking(itemId: string | number) {
     if (!getToken()) throw new Error('No autenticado');
+    itemId = typeof itemId === 'string' ? Number(itemId) : itemId;
     const res = await fetchWithAuth(`${apiBase()}/bookings/items/${itemId}`, {
       method: 'DELETE'
     });
@@ -291,8 +297,9 @@ export class ClubAdminService {
     return res.json();
   }
 
-  static async updateBookingPaymentStatus(bookingId: number, status: 'PAID' | 'DEBT' | 'PARTIAL') {
+  static async updateBookingPaymentStatus(bookingId: string | number, status: 'PAID' | 'DEBT' | 'PARTIAL') {
     if (!getToken()) throw new Error('No autenticado');
+    bookingId = typeof bookingId === 'string' ? Number(bookingId) : bookingId;
     const res = await fetchWithAuth(`${apiBase()}/bookings/${bookingId}/payment-status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },

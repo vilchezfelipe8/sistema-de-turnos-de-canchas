@@ -377,7 +377,11 @@ export class BookingService {
         return freeSlotsResult;
     }
 
-    async cancelBooking(bookingId: number, cancelledByUserId: number, clubId?: number) {
+    async cancelBooking(bookingId: string | number, cancelledByUserId: number, clubId?: number) {
+        const id = typeof bookingId === 'string' ? Number(bookingId) : bookingId;
+        // ensure numeric
+        bookingId = id;
+
         const booking = await this.bookingRepo.findById(bookingId);
         if (!booking) {
             throw new Error("La reserva no existe.");
@@ -428,12 +432,17 @@ export class BookingService {
 
         // 2. Ahora sí, procedemos a cancelar (Soft Delete o cambio de estado)
         await this.bookingRepo.delete(bookingId, cancelledByUserId);
+
+        
         
         const updated = await this.bookingRepo.findById(bookingId);
         return updated;
     }
     
-    async confirmBooking(bookingId: number, userId: number, paymentMethod: string = 'CASH', clubId?: number) {
+    async confirmBooking(bookingId: string | number, userId: number, paymentMethod: string = 'CASH', clubId?: number) {
+        const id = typeof bookingId === 'string' ? Number(bookingId) : bookingId;
+        bookingId = id;
+
     const booking = await this.bookingRepo.findById(bookingId);
     if (!booking) throw new Error("La reserva no existe.");
 
@@ -475,7 +484,8 @@ export class BookingService {
                     amount: price,
                     description: `Cobro Turno #${updated.id} - ${updated.court.name}`,
                     method: paymentMethod, 
-                    bookingId: updated.id
+                    bookingId: updated.id,
+                    clubId: updated.court.club.id // 👈 ACÁ ESTÁ LA CLAVE: Le pasamos el ID del club
                 });
             }
         } catch (error) {
@@ -487,7 +497,7 @@ export class BookingService {
     }
 
     return this.bookingRepo.mapToEntity(updated);
-}
+    }
 
     async getUserHistory(
         requestedUserId: number,
@@ -607,7 +617,7 @@ export class BookingService {
             }
         }
 
-        for (const booking of bookings) {
+        for (const booking of bookings as any) {
             // Buscamos si esta reserva ya está en nuestra lista de 'schedule'
             const isAlreadyInSchedule = schedule.some(s => s.booking && s.booking.id === booking.id);
             
@@ -1038,9 +1048,10 @@ export class BookingService {
     }
 
     // 👇 AGREGÁ ESTO PARA VER QUÉ CONSUMIERON
-    async getBookingItems(bookingId: number) {
+    async getBookingItems(bookingId: string | number) {
+        const id = typeof bookingId === 'string' ? Number(bookingId) : bookingId;
         return await prisma.bookingItem.findMany({
-            where: { bookingId },
+            where: { bookingId: id },
             include: { product: true }
         });
     }
@@ -1048,8 +1059,10 @@ export class BookingService {
    // En BookingService.ts -> addItemToBooking
 
 // 👇 Agregamos el parámetro con un valor por defecto
-async addItemToBooking(bookingId: number, productId: number, quantity: number, paymentMethod: string = 'CASH') {
-    
+async addItemToBooking(bookingId: string | number, productId: number, quantity: number) {
+    const id = typeof bookingId === 'string' ? Number(bookingId) : bookingId;
+    bookingId = id;
+
     // 1. Buscamos reserva y producto
     const booking = await prisma.booking.findUnique({
         where: { id: bookingId },
@@ -1059,37 +1072,20 @@ async addItemToBooking(bookingId: number, productId: number, quantity: number, p
 
     if (!booking || !product) throw new Error("Datos no encontrados");
 
-    // 2. Creamos el Item (Siempre se crea)
+    // 2. Creamos el Item (Se agrega a la cuenta/deuda de la reserva)
     const item = await prisma.bookingItem.create({
         data: {
             bookingId,
             productId,
             quantity,
             price: Number(product.price),
+            isPaid: false // Por defecto arranca sin pagar
         }
     });
 
-    // 3. 👇 DECISIÓN FINAL DE CAJA 👇
-    console.log(`🛒 Agregando Item. Método ordenado: ${paymentMethod}`);
+    console.log(`🛒 Item agregado a la cuenta: ${quantity}x ${product.name}`);
 
-    if (paymentMethod === 'DEBT') {
-        // A. SI ES DEUDA: NO HACEMOS NADA EN LA CAJA.
-        // Al crearse el item (paso 2) y no entrar plata, la deuda aumenta sola.
-        console.log("📝 Fiado. No entra plata.");
-    } 
-    else {
-        // B. SI ES CASH (O CUALQUIER OTRO): COBRAMOS.
-        await this.cashRepository.create({
-            date: new Date(),
-            type: 'INCOME',
-            amount: Number(product.price) * quantity,
-            description: `Venta Extra: ${quantity}x ${product.name} (Reserva #${bookingId})`,
-            method: 'CASH', 
-            bookingId: booking.id,
-            clubId: booking.court.clubId
-        });
-    }
-
+    // ¡LISTO! No tocamos la caja. La plata entrará cuando el admin use el modal de cobro.
     return item;
 }
 
@@ -1216,7 +1212,9 @@ async getClientStats(clubId: number, userId: number) {
 
     // apps/backend/src/services/BookingService.ts
 
-async payBookingDebt(bookingId: number, paymentMethod: string) {
+async payBookingDebt(bookingId: string | number, paymentMethod: string) {
+    const id = typeof bookingId === 'string' ? Number(bookingId) : bookingId;
+    bookingId = id;
 
     // 1. Buscamos la reserva
     const booking = await prisma.booking.findUnique({
@@ -1226,65 +1224,57 @@ async payBookingDebt(bookingId: number, paymentMethod: string) {
 
     if (!booking) throw new Error("Reserva no encontrada");
 
-    // No permitir cobrar deuda de reservas canceladas
     if (booking.status === 'CANCELLED') {
         throw new Error("No se puede cobrar la deuda de una reserva cancelada");
     }
 
-    // 2. DIAGNÓSTICO: Ver qué trae la base de datos
+    // 2. Cálculos
     const dbPrice = Number(booking.price);
-
-    // 3. Calcular Pagos (Sumamos solo movimientos positivos tipo INCOME)
     const totalPaid = booking.cashMovements
-        .filter(m => m.type === 'INCOME') // Aseguramos no restar devoluciones si las hubiera
+        .filter(m => m.type === 'INCOME')
         .reduce((acc, mov) => acc + Number(mov.amount), 0);
     
-    // 4. Calcular Items
     const itemsTotal = booking.items.reduce((acc, item) => acc + (Number(item.price) * item.quantity), 0);
-
-    // 5. Calcular GRAN TOTAL
-    // IMPORTANTE: Asumimos que booking.price es SOLO la cancha.
     const grandTotal = dbPrice + itemsTotal; 
-
-    // 6. Calcular DEUDA REAL
-    let debtAmount = grandTotal - totalPaid;
-
-
+    const debtAmount = grandTotal - totalPaid;
     
     if (debtAmount <= 0) {
-        console.log("Error: La deuda es 0 o negativa.");
         throw new Error("Esta reserva ya figura como pagada.");
     }
 
-    // 7. Guardar Movimiento
-    
-    // Determinar clubId para no violar la FK; si no existe, lanzar error
     const clubIdForMovement = booking.court?.club?.id ?? null;
     if (!clubIdForMovement) {
-        throw new Error('No se pudo determinar el club asociado a la reserva (clubId faltante)');
+        throw new Error('No se pudo determinar el club asociado a la reserva');
     }
 
-    const movement = await prisma.cashMovement.create({
-        data: {
-            amount: debtAmount,
-            type: 'INCOME',
-            description: `Saldo final reserva #${booking.id} (Cancha + Consumos)`, 
-            method: paymentMethod,
-            bookingId: booking.id,
-            clubId: clubIdForMovement,
-            date: new Date()
-        }
-    });
+    // 3. 🔥 TRANSACCIÓN ATÓMICA: Todo pasa junto o no pasa nada
+    const result = await prisma.$transaction([
+        // A. Guardar Movimiento
+        prisma.cashMovement.create({
+            data: {
+                amount: debtAmount,
+                type: 'INCOME',
+                description: `Saldo final reserva #${booking.id} (Cancha + Consumos)`, 
+                method: paymentMethod,
+                bookingId: booking.id,
+                clubId: clubIdForMovement,
+                date: new Date()
+            }
+        }),
+        // B. MARCAR TODOS LOS ÍTEMS COMO PAGADOS (La clave para el Frontend)
+        prisma.bookingItem.updateMany({
+            where: { bookingId: bookingId },
+            data: { isPaid: true }
+        }),
+        // C. Actualizar Reserva a PAGADO
+        prisma.booking.update({
+            where: { id: bookingId },
+            data: { paymentStatus: 'PAID' }
+        })
+    ]);
 
-    // 8. Actualizar Reserva a PAGADO
-    await prisma.booking.update({
-        where: { id: bookingId },
-        data: { paymentStatus: 'PAID' } // No tocamos el campo 'paid' porque no existe
-    });
-
-    return movement;
+    return result[0]; // Retornamos el movimiento creado
 }
-
 
 async getClubDebtors(clubId: number) {
     // 1. Prisma SELECT - Solo pedimos los datos que el Frontend necesita, ni un byte más.
@@ -1307,8 +1297,8 @@ async getClubDebtors(clubId: number) {
           select: { firstName: true, lastName: true, phoneNumber: true, email: true, dni: true}
         },
         items: {
-          // Acá mantenemos la corrección del producto
-          select: { price: true, quantity: true, product: { select: { name: true } } }
+          // include all fields (incluye isPaid) y cargamos nombre de producto
+          include: { product: { select: { name: true } } }
         },
         cashMovements: {
           select: { amount: true }
@@ -1327,7 +1317,7 @@ async getClubDebtors(clubId: number) {
 
     const clientsMap = new Map();
 
-    for (const booking of bookings) {
+    for (const booking of bookings as any) {
       
       // --- LÓGICA DE AGRUPACIÓN (DNI > Teléfono > Nombre) ---
       let uniqueKey = "";
@@ -1388,9 +1378,14 @@ async getClubDebtors(clubId: number) {
 
       // --- CÁLCULOS DE DINERO ---
       const courtPrice = Number(booking.price || 0);
-      const itemsPrice = booking.items.reduce((acc, item) => acc + (Number(item.price) * item.quantity), 0);
+      const itemsPrice = (booking.items as any[]).reduce((acc: number, item: any) => acc + (Number(item.price) * item.quantity), 0);
       const total = courtPrice + itemsPrice;
-      const paid = booking.cashMovements.reduce((acc, mov) => acc + Number(mov.amount), 0);
+      // normal paid amount from cash movements
+      let paid = (booking.cashMovements as any[]).reduce((acc: number, mov: any) => acc + Number(mov.amount), 0);
+      // si el estado fue marcado como DEBT ignoramos los pagos anteriores
+      if (booking.paymentStatus === 'DEBT') {
+        paid = 0;
+      }
       const debt = total - paid;
       
       const isDebtStatus = ['DEBT', 'PARTIAL'].includes(booking.paymentStatus);
@@ -1414,7 +1409,7 @@ async getClubDebtors(clubId: number) {
         price: total,
         amount: debt,
         paid: paid,
-        items: booking.items.map(i => ({
+        items: (booking.items as any[]).map((i: any) => ({
             name: i.product?.name || 'Producto sin nombre', // 👈 Ajustado acá
             price: Number(i.price),
             quantity: i.quantity
@@ -1432,5 +1427,106 @@ async getClubDebtors(clubId: number) {
 
     return Array.from(clientsMap.values());
 }
+
+public async processPartialPayment(bookingId: string | number, paymentMethod: string, amount: number, totalBookingCost: number, paidItemIds: number[] = []) {
+    const id = typeof bookingId === 'string' ? Number(bookingId) : bookingId;
+    bookingId = id;
+
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: {
+        items: true,
+        court: { select: { clubId: true } }
+      }
+    });
+
+    if (!booking) throw new Error("Reserva no encontrada");
+
+    // --- CAMBIO AQUÍ: Solo registramos en caja si NO es deuda ---
+    if (paymentMethod !== 'DEBT') {
+        await prisma.cashMovement.create({
+          data: {
+            type: 'INCOME',
+            amount: amount,
+            description: `Pago en mostrador reserva #${bookingId}`,
+            method: paymentMethod,
+            bookingId: bookingId,
+            clubId: booking.court.clubId
+          }
+        });
+    }
+
+    // Calculamos lo que ya se pagó (Ignoramos los movimientos si fuera DEBT, 
+    // pero como no creamos el movimiento, el totalPaidSoFar ya queda correcto en 0 para deuda)
+    const allMovements = await prisma.cashMovement.findMany({
+      where: { 
+        bookingId: bookingId,
+        type: 'INCOME' 
+      }
+    });
+    const totalPaidSoFar = allMovements.reduce((sum, mov) => sum + Number(mov.amount), 0);
+
+    // Procesamos los items (Esto marca los productos como pagados aunque sean fiados)
+    if (paidItemIds.length > 0) {
+        const uniqueIds = Array.from(new Set(paidItemIds));
+        const items = await prisma.bookingItem.findMany({
+            where: { id: { in: uniqueIds }, bookingId: bookingId }
+        });
+
+        let remaining = amount;
+        const idsToMark: number[] = [];
+        for (const item of items) {
+            const itemTotal = Number(item.price) * Number(item.quantity || 1);
+            if (remaining >= itemTotal && !item.isPaid) {
+                idsToMark.push(item.id);
+                remaining -= itemTotal;
+            }
+        }
+
+        if (idsToMark.length > 0) {
+            await prisma.bookingItem.updateMany({
+                where: {
+                    id: { in: idsToMark },
+                    bookingId: bookingId,
+                    isPaid: false
+                } as any,
+                data: { isPaid: true }
+            });
+        }
+    }
+
+    // Actualización de estado
+    const itemsTotal = booking.items.reduce((sum, item) => sum + (Number(item.price) * item.quantity), 0);
+    const totalCost = Number(booking.price) + itemsTotal;
+
+    // Si es DEBT, forzamos el estado a PARTIAL (o el que quieras) para que siga apareciendo como pendiente
+    // porque el cliente aún debe esa plata históricamente
+    const isFullyPaid = paymentMethod !== 'DEBT' && Math.round(totalPaidSoFar) >= Math.round(totalCost);
+    const newPaymentStatus = isFullyPaid ? 'PAID' : 'PARTIAL';
+    const newBookingStatus = booking.status === 'PENDING' ? 'CONFIRMED' : booking.status;
+
+    await prisma.booking.update({
+      where: { id: bookingId },
+      data: {
+        paymentStatus: newPaymentStatus,
+        status: newBookingStatus
+      }
+    });
+
+    return { 
+      message: paymentMethod === 'DEBT' ? "Productos anotados a cuenta" : "Pago registrado correctamente",
+      newPaymentStatus,
+      totalPaidSoFar
+    };
+  }
+  public async getPaidAmount(bookingId: string | number) {
+        const id = typeof bookingId === 'string' ? Number(bookingId) : bookingId;
+        bookingId = id;
+      const allMovements = await prisma.cashMovement.findMany({
+          where: { bookingId: bookingId, type: 'INCOME' }
+      });
+      const paidAmount = allMovements.reduce((sum, mov) => sum + Number(mov.amount), 0);
+      return { paidAmount };
+  }
 
 }
