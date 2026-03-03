@@ -274,6 +274,7 @@ model BookingItem {
 
   quantity Int
   price    Float
+  paymentMethod String?
 }
 
 model CashMovement {

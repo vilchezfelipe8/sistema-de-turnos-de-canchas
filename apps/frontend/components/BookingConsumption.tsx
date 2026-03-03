@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { ClubAdminService } from '../services/ClubAdminService';
-import { confirmBooking as confirmBookingService, registerBookingPartialPayment } from '../services/BookingService';
+import { confirmBooking as confirmBookingService, getBookingFinancialSummary, registerBookingPartialPayment } from '../services/BookingService';
 import { Trash2, Plus, ShoppingCart, Receipt, Lock, ChevronDown, Check, X, Banknote, FileText, Star } from 'lucide-react';
 import PaymentCalculator, { type PaymentCalculatorResult } from './PaymentCalculator';
 // import { BookingTicket } from './BookingTicket'; // Si no lo usás, podés borrar esta línea
@@ -14,6 +14,7 @@ interface Props {
   paymentStatus: string;
   onClose: () => void;
   onConfirm: () => void;
+  onPaymentModalStateChange?: (open: boolean) => void;
 }
 
 interface CartItem {
@@ -23,12 +24,23 @@ interface CartItem {
   productName: string;
   quantity: number;
   price: number;
+  paymentMethod?: 'CASH' | 'TRANSFER' | 'DEBT' | null;
   isNew: boolean;
 }
 
-export type BookingConsumptionHandle = {
-  persistDraft: () => Promise<void>;
-};
+interface BookingFinancialSummary {
+  bookingId: number;
+  courtTotal: number;
+  courtPaid: number;
+  courtDebt: number;
+  itemsTotal: number;
+  itemsPaid: number;
+  itemsDebt: number;
+  total: number;
+  totalPaid: number;
+  remaining: number;
+  paymentStatus: 'PAID' | 'DEBT' | 'PARTIAL';
+}
 
 // --- COMPONENTE DROPDOWN CUSTOM (ESTILO WIMBLEDON LANDING) ---
 const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
@@ -96,9 +108,8 @@ const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
 };
 
 
-const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function BookingConsumption(
-  { bookingId, slug, courtPrice = 0, baseCourtPrice, bookingStatus, paymentStatus, onClose, onConfirm },
-  ref
+export default function BookingConsumption(
+  { bookingId, slug, courtPrice = 0, baseCourtPrice, bookingStatus, paymentStatus, onClose, onConfirm, onPaymentModalStateChange }: Props
 ) {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [itemsToDelete, setItemsToDelete] = useState<number[]>([]);
@@ -106,7 +117,8 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const skipDraftPersistRef = useRef(false);
+  const [financialSummary, setFinancialSummary] = useState<BookingFinancialSummary | null>(null);
+  const [bookingIsPendingLocal, setBookingIsPendingLocal] = useState(bookingStatus === 'PENDING');
 
   // Formulario
   const [selectedProductId, setSelectedProductId] = useState<string>('');
@@ -115,9 +127,10 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [productsData, currentItems] = await Promise.all([
+      const [productsData, currentItems, summary] = await Promise.all([
         ClubAdminService.getProducts(slug),
-        ClubAdminService.getBookingItems(bookingId)
+        ClubAdminService.getBookingItems(bookingId),
+        getBookingFinancialSummary(bookingId)
       ]);
 
       setProducts(productsData || []);
@@ -128,10 +141,12 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
         productName: item.product.name,
         quantity: item.quantity,
         price: item.price,
+        paymentMethod: item.paymentMethod ?? null,
         isNew: false
       }));
       
       setCartItems(formattedItems);
+      setFinancialSummary(summary || null);
       setItemsToDelete([]); 
     } catch (error) {
       console.error(error);
@@ -143,6 +158,14 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    setBookingIsPendingLocal(bookingStatus === 'PENDING');
+  }, [bookingStatus]);
+
+  useEffect(() => {
+    onPaymentModalStateChange?.(showPaymentModal);
+  }, [onPaymentModalStateChange, showPaymentModal]);
 
   const handleAddToDraft = () => {
     if (!selectedProductId) return;
@@ -173,7 +196,6 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
   const handleSaveChanges = async (targetBookingStatus: 'PAID' | 'DEBT' | 'PARTIAL', itemPaymentMethod: 'CASH' | 'DEBT' | 'TRANSFER') => {
     try {
       setSaving(true);
-      skipDraftPersistRef.current = true;
       if (bookingStatus === 'PENDING') {
         await confirmBookingService(bookingId, itemPaymentMethod);
       } else {
@@ -194,32 +216,16 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
     }
   };
 
-  const persistDraft = useCallback(async () => {
-    if (skipDraftPersistRef.current || saving) return;
-    const newItems = cartItems.filter(item => item.isNew);
-    if (newItems.length === 0) return;
-    try {
-      setSaving(true);
-      await Promise.all(
-        newItems.map(item =>
-          ClubAdminService.addItemToBooking(bookingId, item.productId, item.quantity, 'DEBT')
-        )
-      );
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setSaving(false);
-    }
-  }, [bookingId, cartItems, saving]);
-
-  useImperativeHandle(ref, () => ({ persistDraft }));
-
   const isCancelled = bookingStatus === 'CANCELLED';
 
-  const isCourtResolved = paymentStatus === 'PAID' || paymentStatus === 'PARTIAL' || paymentStatus === 'DEBT';
-  const courtPriceToPay = isCourtResolved ? 0 : (courtPrice || 0);
+  const fallbackCourtTotal = Number(courtPrice || 0);
+  const courtTotal = Number(financialSummary?.courtTotal ?? fallbackCourtTotal);
+  const courtPaid = Number(financialSummary?.courtPaid ?? (paymentStatus === 'PAID' ? fallbackCourtTotal : 0));
+  const courtPriceToPay = Math.max(0, Number(financialSummary?.courtDebt ?? (courtTotal - courtPaid)));
+  const isCourtFullyPaid = courtPriceToPay <= 0.01;
+  const isCourtPartial = !isCourtFullyPaid && courtPaid > 0.01;
   const basePrice = Number(baseCourtPrice ?? 0);
-  const lightsExtra = basePrice > 0 ? Math.max((courtPrice || 0) - basePrice, 0) : 0;
+  const lightsExtra = basePrice > 0 ? Math.max(courtTotal - basePrice, 0) : 0;
 
   const consumptionTotal = cartItems
     .filter(item => item.isNew)
@@ -231,40 +237,56 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
   const handleCalculatedPaymentConfirm = async (result: PaymentCalculatorResult) => {
     try {
       setSaving(true);
-      skipDraftPersistRef.current = true;
 
-      if (bookingStatus === 'PENDING') {
+      if (bookingIsPendingLocal && result.method === 'DEBT') {
         await confirmBookingService(bookingId, 'DEBT');
+        setBookingIsPendingLocal(false);
       }
 
       const deletePromises = itemsToDelete.map((id) => ClubAdminService.removeItemFromBooking(id));
       const newItems = cartItems.filter((item) => item.isNew);
-      const selectedKeys = new Set(result.selectedItemKeys);
-      const paidItems = result.method === 'DEBT'
-        ? []
-        : newItems.filter((item) => selectedKeys.has(item.tempId || item.id || ''));
-      const debtItems = newItems.filter((item) => !paidItems.includes(item));
+      const selectedKeys = new Set(result.selectedItemKeys.map((key) => String(key)));
+      const selectedItems = newItems.filter((item) => selectedKeys.has(String(item.tempId || item.id || '')));
 
-      const paidItemsPromises = paidItems.map((item) =>
-        ClubAdminService.addItemToBooking(bookingId, item.productId, item.quantity, result.method)
-      );
-      const debtItemsPromises = debtItems.map((item) =>
-        ClubAdminService.addItemToBooking(bookingId, item.productId, item.quantity, 'DEBT')
-      );
+      await Promise.all(deletePromises);
+      setItemsToDelete([]);
 
-      await Promise.all([...deletePromises, ...paidItemsPromises, ...debtItemsPromises]);
+      const persistedSelectedItems: CartItem[] = [];
+
+      for (const item of selectedItems) {
+        const created = await ClubAdminService.addItemToBooking(bookingId, item.productId, item.quantity, result.method);
+        persistedSelectedItems.push({
+          id: created?.id,
+          productId: item.productId,
+          productName: item.productName,
+          quantity: item.quantity,
+          price: item.price,
+          paymentMethod: result.method,
+          isNew: false
+        });
+      }
 
       if (result.method !== 'DEBT') {
-        const paidItemsAmount = paidItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-        const courtOrDebtPortion = Math.max(0, result.amount - paidItemsAmount);
+        const paidItemsAmount = selectedItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+        const courtOrDebtPortion = Math.max(0, Number(result.courtAmount || 0));
+        const expectedAmount = paidItemsAmount + courtOrDebtPortion;
+        if (Math.abs(expectedAmount - result.amount) > 0.01) {
+          throw new Error('El monto registrado no coincide con los conceptos seleccionados. Reintentá.');
+        }
         if (courtOrDebtPortion > 0.01) {
           await registerBookingPartialPayment(bookingId, courtOrDebtPortion, result.method);
+          setBookingIsPendingLocal(false);
         }
       }
 
-      setShowPaymentModal(false);
-      onConfirm();
-      onClose();
+      const selectedTempKeys = new Set(selectedItems.map((item) => String(item.tempId || item.id || '')));
+      setCartItems((prev) => {
+        const remaining = prev.filter((item) => !item.isNew || !selectedTempKeys.has(String(item.tempId || item.id || '')));
+        return [...remaining, ...persistedSelectedItems];
+      });
+
+      const updatedSummary = await getBookingFinancialSummary(bookingId);
+      setFinancialSummary(updatedSummary || null);
     } catch (error: any) {
       alert('Error: ' + (error.message || 'No se pudo registrar el pago'));
     } finally {
@@ -351,7 +373,24 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
                         <Star size={10} strokeWidth={2.5} /> Pendiente de cobro
                       </span>
                     ) : (
-                      <span className="flex items-center gap-1 text-[9px] text-[#347048]/40 font-black uppercase tracking-widest"><Lock size={8} /> Ya cargado en cuenta</span>
+                      <span className={`flex items-center gap-1 text-[9px] font-black uppercase tracking-widest ${
+                        item.paymentMethod === 'DEBT'
+                          ? 'text-yellow-700'
+                          : item.paymentMethod === 'TRANSFER'
+                            ? 'text-blue-700'
+                            : item.paymentMethod === 'CASH'
+                              ? 'text-emerald-700'
+                              : 'text-[#347048]/40'
+                      }`}>
+                        <Lock size={8} />
+                        {item.paymentMethod === 'DEBT'
+                          ? 'En cuenta'
+                          : item.paymentMethod === 'TRANSFER'
+                            ? 'Pagado digital'
+                            : item.paymentMethod === 'CASH'
+                              ? 'Pagado efectivo'
+                              : 'Estado no disponible'}
+                      </span>
                     )}
                   </div>
                 </div>
@@ -373,15 +412,23 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
           <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest opacity-60">
             <span>Alquiler Cancha</span>
             <div className="flex items-center gap-3">
-                {isCourtResolved && (
-                    <span className={`px-2 py-0.5 rounded-md font-black border ${paymentStatus === 'DEBT' ? 'bg-yellow-100 text-yellow-700 border-yellow-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
-                        {paymentStatus === 'DEBT' ? 'EN CUENTA' : 'PAGADO'}
-                    </span>
-                )}
-                <span className={isCourtResolved ? "line-through opacity-50" : ""}>
-                    ${(courtPrice || 0).toLocaleString()}
-                </span>
+              {isCourtFullyPaid ? (
+                <span className="px-2 py-0.5 rounded-md font-black border bg-emerald-100 text-emerald-700 border-emerald-200">PAGADO</span>
+              ) : isCourtPartial ? (
+                <span className="px-2 py-0.5 rounded-md font-black border bg-blue-100 text-blue-700 border-blue-200">PARCIAL</span>
+              ) : paymentStatus === 'PENDING' ? (
+                <span className="px-2 py-0.5 rounded-md font-black border bg-slate-100 text-slate-700 border-slate-200">PENDIENTE</span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-md font-black border bg-yellow-100 text-yellow-700 border-yellow-200">EN CUENTA</span>
+              )}
+              <span className={isCourtFullyPaid ? "line-through opacity-50" : ""}>
+                ${courtTotal.toLocaleString()}
+              </span>
             </div>
+          </div>
+          <div className="flex justify-between text-[10px] font-black text-[#347048]/70 uppercase tracking-widest">
+            <span>Cancha pagado / deuda</span>
+            <span>${courtPaid.toLocaleString()} / ${courtPriceToPay.toLocaleString()}</span>
           </div>
           
           {lightsExtra > 0 && (
@@ -398,7 +445,7 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
         </div>
 
         <div className="flex justify-between items-end pt-4 border-t-2 border-dashed border-[#347048]/10">
-          <span className="text-[#347048]/50 font-black text-[10px] uppercase tracking-[0.2em] mb-1">Total a Cobrar</span>
+          <span className="text-[#347048]/50 font-black text-[10px] uppercase tracking-[0.2em] mb-1">Total a registrar</span>
           <span className="text-5xl font-black text-[#347048] tracking-tighter leading-none italic">
             ${finalTotal.toLocaleString()}
           </span>
@@ -415,7 +462,7 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
           disabled={saving || !hasPendingCharges || isCancelled}
           className="flex flex-col items-center justify-center gap-1 py-4 bg-[#EBE1D8] border-2 border-[#347048]/20 text-[#347048] font-black uppercase text-[10px] tracking-widest rounded-2xl transition-all hover:bg-white shadow-sm disabled:opacity-30 disabled:cursor-not-allowed"
         >
-          <div className="flex items-center gap-2"><FileText size={18} strokeWidth={2.5} /> Dejar en Cuenta</div>
+          <div className="flex items-center gap-2"><FileText size={18} strokeWidth={2.5} /> Registrar en cuenta</div>
         </button>
         
         <button 
@@ -425,7 +472,7 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
           disabled={saving || !hasPendingCharges || isCancelled}
           className="flex flex-col items-center justify-center gap-1 py-4 bg-[#B9CF32] text-[#347048] font-black uppercase text-[10px] tracking-widest rounded-2xl shadow-xl shadow-[#B9CF32]/20 transition-all hover:-translate-y-1 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed"
         >
-          <div className="flex items-center gap-2"><Banknote size={18} strokeWidth={2.5} /> Cobrar Total</div>
+          <div className="flex items-center gap-2"><Banknote size={18} strokeWidth={2.5} /> Registrar pago</div>
         </button>
       </div>
 
@@ -448,6 +495,4 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
       )}
     </div>
   );
-});
-
-export default BookingConsumption;
+}

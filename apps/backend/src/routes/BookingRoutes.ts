@@ -57,6 +57,7 @@ router.post('/pay-debt', authMiddleware, (req, res) => bookingController.payDebt
 
 // Items y Productos
 router.get('/:id/items', authMiddleware, (req, res) => bookingController.getItems(req, res));
+router.get('/:id/financial-summary', authMiddleware, (req, res) => bookingController.getFinancialSummary(req, res));
 router.post('/:id/items', authMiddleware, (req, res) => bookingController.addItem(req, res));
 router.delete('/items/:itemId', authMiddleware, (req, res) => bookingController.removeItem(req, res));
 

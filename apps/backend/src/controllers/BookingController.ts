@@ -744,6 +744,8 @@ Un cliente acaba de cancelar su reserva desde la web en *${clubName}*.
                 return res.status(400).json({ error: "bookingId inválido" });
             }
 
+            const resolvedPaymentMethod: 'CASH' | 'TRANSFER' | 'DEBT' = paymentMethod ?? 'CASH';
+
         // Validaciones básicas...
         const booking = await prisma.booking.findUnique({ 
             where: { id: bookingId }, // Usamos el ID seguro
@@ -766,18 +768,19 @@ Un cliente acaba de cancelar su reserva desde la web en *${clubName}*.
                     bookingId: bookingId,
                     productId: Number(productId),
                     quantity: Number(quantity),
-                    price: Number(product.price)
+                        price: Number(product.price),
+                        paymentMethod: resolvedPaymentMethod
                 }
             });
 
-            if (paymentMethod !== 'DEBT') {
+            if (resolvedPaymentMethod !== 'DEBT') {
                 await tx.cashMovement.create({
                     data: {
                         date: new Date(),
                         type: 'INCOME',
                         amount: Number(product.price) * Number(quantity),
                         description: `Venta Extra: ${quantity}x ${product.name} (Reserva #${bookingId})`,
-                        method: paymentMethod || 'CASH',
+                        method: resolvedPaymentMethod,
                         bookingId: bookingId,
                         clubId: booking.court.clubId
                     }
@@ -947,6 +950,24 @@ Un cliente acaba de cancelar su reserva desde la web en *${clubName}*.
         } catch (error: any) {
             console.error('❌ Error en partialPayment:', error);
             return res.status(400).json({ error: error.message || 'Error al registrar pago parcial' });
+        }
+    }
+
+    getFinancialSummary = async (req: Request, res: Response) => {
+        try {
+            const paramsSchema = z.object({
+                id: z.preprocess((v) => Number(v), z.number().int().positive())
+            });
+            const paramsParsed = paramsSchema.safeParse(req.params);
+            if (!paramsParsed.success) {
+                return res.status(400).json({ error: paramsParsed.error.format() });
+            }
+
+            const summary = await this.bookingService.getBookingFinancialSummary(paramsParsed.data.id);
+            return res.json(summary);
+        } catch (error: any) {
+            console.error('❌ Error en getFinancialSummary:', error);
+            return res.status(400).json({ error: error.message || 'Error al obtener el resumen financiero' });
         }
     }
 

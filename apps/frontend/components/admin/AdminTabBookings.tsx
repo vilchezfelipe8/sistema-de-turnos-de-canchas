@@ -13,7 +13,7 @@ import {
   searchClients 
 } from '../../services/BookingService';
 import AppModal from '../AppModal';
-import BookingConsumption, { type BookingConsumptionHandle } from '../BookingConsumption';
+import BookingConsumption from '../BookingConsumption';
 import { useParams } from 'react-router-dom';
 import DatePickerDark from '../../components/ui/DatePickerDark';
 import { Trash2, Check, ShoppingCart, Calendar as CalendarIcon, RefreshCw, ChevronDown, CalendarPlus, Repeat, Banknote, CreditCard, FileText, X, Phone, IdCard } from 'lucide-react'; 
@@ -290,9 +290,9 @@ export default function AdminTabBookings() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentMode, setPaymentMode] = useState<'single' | 'split'>('single');
   const [splitPayments, setSplitPayments] = useState<SplitPaymentDraft[]>([{ method: 'CASH', amount: '' }]);
-  const consumptionRef = useRef<BookingConsumptionHandle | null>(null);
   const [selectedBookingId, setSelectedBookingId] = useState<number | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<any>(null);
+  const [isConsumptionPaymentOpen, setIsConsumptionPaymentOpen] = useState(false);
   const [selectedBookingDetail, setSelectedBookingDetail] = useState<{ booking: any; slotTime: string; courtName?: string } | null>(null);
   const params = useParams();
   const urlSlug = params.slug;
@@ -310,7 +310,7 @@ export default function AdminTabBookings() {
     guestPhone: '',
     guestDni: '',
     courtId: '',
-    time: '19:00',
+    time: '',
     durationMinutes: DEFAULT_DURATION_MINUTES,
     isFixed: false,
     isProfessor: false,
@@ -797,7 +797,7 @@ export default function AdminTabBookings() {
         loadSchedule();
         setManualBooking({ 
             guestFirstName: '', guestLastName: '', guestPhone: '', guestDni: '', 
-      courtId: '', time: '19:00', durationMinutes: scheduleDurations[0] ?? DEFAULT_DURATION_MINUTES, isFixed: false, isProfessor: false, dayOfWeek: '1', startDateBase: getTodayLocalDate() 
+      courtId: '', time: '', durationMinutes: scheduleDurations[0] ?? DEFAULT_DURATION_MINUTES, isFixed: false, isProfessor: false, dayOfWeek: '1', startDateBase: getTodayLocalDate() 
         });
     } catch (error: any) { showError('Error al reservar: ' + error.message); }
   };
@@ -887,10 +887,10 @@ export default function AdminTabBookings() {
   };
 
   const handleCloseConsumption = useCallback(async () => {
-    await consumptionRef.current?.persistDraft();
+    if (isConsumptionPaymentOpen) return;
     setSelectedBooking(null);
     loadSchedule();
-  }, [loadSchedule]);
+  }, [isConsumptionPaymentOpen, loadSchedule]);
 
   return (
     <>
@@ -1333,7 +1333,6 @@ export default function AdminTabBookings() {
       {selectedBooking && (
         <ModalPortal onClose={handleCloseConsumption}>
           <BookingConsumption 
-            ref={consumptionRef}
             bookingId={selectedBooking.id}
             slug={getClubSlug() || ''}
             courtPrice={selectedBooking.price}
@@ -1341,7 +1340,8 @@ export default function AdminTabBookings() {
             bookingStatus={selectedBooking.status}
             paymentStatus={selectedBooking.paymentStatus}
             onClose={handleCloseConsumption}
-            onConfirm={() => { setSelectedBooking(null); loadSchedule(); }}
+            onConfirm={() => { loadSchedule(); }}
+            onPaymentModalStateChange={setIsConsumptionPaymentOpen}
           />
         </ModalPortal>
       )}

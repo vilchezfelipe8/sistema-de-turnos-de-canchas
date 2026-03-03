@@ -23,7 +23,7 @@ export interface UseValidateAuthOptions {
 
 /**
  * Valida el token con el backend (GET /api/auth/me).
- * - Sin token o token inválido: redirige a /login (ruta protegida).
+ * - Sin token o token inválido: redirige a / (home).
  * - Con requireAdmin y usuario no ADMIN: no redirige; la página debe mostrar 404.
  */
 export function useValidateAuth(options: UseValidateAuthOptions = {}): { authChecked: boolean; user: AuthUser | null } {
@@ -35,8 +35,7 @@ export function useValidateAuth(options: UseValidateAuthOptions = {}): { authChe
   useEffect(() => {
     const token = typeof window !== 'undefined' ? getToken() : null;
     if (!token) {
-      const from = typeof router.asPath === 'string' && router.asPath && router.asPath !== '/' ? router.asPath : undefined;
-      router.replace(from ? { pathname: '/login', query: { from } } : '/login');
+      router.replace('/');
       return;
     }
 
@@ -51,7 +50,7 @@ export function useValidateAuth(options: UseValidateAuthOptions = {}): { authChe
         setUser(data);
         setAuthChecked(true);
       } catch {
-        // 401/403: fetchWithAuth hace logout; el redirect a /login lo maneja la app
+        // 401/403: fetchWithAuth hace logout; el redirect al home lo maneja la app
       }
     })();
   }, [router, requireAdmin]);

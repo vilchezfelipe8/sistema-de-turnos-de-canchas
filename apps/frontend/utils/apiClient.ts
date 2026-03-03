@@ -5,6 +5,21 @@
  */
 import { getToken, logout } from '../services/AuthService';
 
+async function extractErrorMessage(res: Response): Promise<string> {
+  try {
+    const data = await res.clone().json();
+    if (typeof data?.error === 'string') return data.error;
+    if (typeof data?.message === 'string') return data.message;
+    return '';
+  } catch {
+    try {
+      return (await res.clone().text()) || '';
+    } catch {
+      return '';
+    }
+  }
+}
+
 export async function fetchWithAuth(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
   const token = getToken();
@@ -21,7 +36,19 @@ export async function fetchWithAuth(input: RequestInfo | URL, init?: RequestInit
   }
 
   if (res.status === 403) {
-    // 403: usuario autenticado pero sin permisos -> no cerrar sesión
+    const errorMessage = (await extractErrorMessage(res)).toLowerCase();
+    const isExpiredToken =
+      errorMessage.includes('token inválido') ||
+      errorMessage.includes('token invalido') ||
+      errorMessage.includes('token expirado') ||
+      errorMessage.includes('expirado');
+
+    if (isExpiredToken) {
+      logout();
+      throw new Error('Sesión expirada. Volvé a iniciar sesión.');
+    }
+
+    // 403 real de permisos: no cerrar sesión
     throw new Error('No autorizado');
   }
 

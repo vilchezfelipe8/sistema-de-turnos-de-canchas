@@ -188,6 +188,22 @@ export const registerBookingPartialPayment = async (
   return res.json();
 };
 
+export const getBookingFinancialSummary = async (bookingId: number) => {
+  if (!getToken()) throw new Error('Debes iniciar sesión como administrador.');
+
+  const res = await fetchWithAuth(`${apiBase()}/bookings/${bookingId}/financial-summary`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' }
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || error.message || 'No se pudo obtener el resumen financiero');
+  }
+
+  return res.json();
+};
+
 // --- 4. OBTENER SCHEDULE COMPLETO DEL DÍA (ADMIN) ---
 export const getAdminSchedule = async (date: string) => {
     if (!getToken()) throw new Error("Debes iniciar sesión como administrador.");

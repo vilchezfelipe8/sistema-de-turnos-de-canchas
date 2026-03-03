@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { logout } from '../services/AuthService';
+import { getToken, logout } from '../services/AuthService';
 import { getMyBookings } from '../services/BookingService';
 import AppModal from './AppModal';
 import { Menu, Home, Calendar, Settings, LogOut, Phone, Mail, Check, Lock } from 'lucide-react'; 
@@ -22,10 +22,20 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
   const navRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
+    const token = getToken();
     const userStr = localStorage.getItem('user');
-    if (userStr) {
-      setUser(JSON.parse(userStr));
+
+    if (token && userStr) {
+      try {
+        setUser(JSON.parse(userStr));
+      } catch {
+        localStorage.removeItem('user');
+        setUser(null);
+      }
     } else {
+      if (!token && userStr) {
+        localStorage.removeItem('user');
+      }
       let guestId = localStorage.getItem('guestId');
       if (!guestId) {
         try {

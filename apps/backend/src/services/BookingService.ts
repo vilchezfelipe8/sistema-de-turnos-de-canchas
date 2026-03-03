@@ -132,6 +132,56 @@ export class BookingService {
         return { courtPrice, itemsTotal, totalPaid, total, remaining };
     }
 
+    async getBookingFinancialSummary(bookingId: number) {
+        const booking = await prisma.booking.findUnique({
+            where: { id: bookingId },
+            include: {
+                items: true,
+                cashMovements: true
+            }
+        });
+
+        if (!booking) {
+            throw new Error('Reserva no encontrada');
+        }
+
+        const courtTotal = Number(booking.price || 0);
+        const itemsTotal = booking.items.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0), 0);
+        const total = courtTotal + itemsTotal;
+
+        const totalPaid = booking.cashMovements
+            .filter((movement) => movement.type === 'INCOME')
+            .reduce((sum, movement) => sum + Number(movement.amount || 0), 0);
+
+        const itemsPaid = booking.items
+            .filter((item) => item.paymentMethod && item.paymentMethod !== 'DEBT')
+            .reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0), 0);
+
+        const itemsDebt = Math.max(0, itemsTotal - itemsPaid);
+        const paidAvailableForCourt = Math.max(0, totalPaid - itemsPaid);
+        const courtPaid = Math.min(courtTotal, paidAvailableForCourt);
+        const courtDebt = Math.max(0, courtTotal - courtPaid);
+        const remaining = Math.max(0, total - totalPaid);
+
+        let paymentStatus: PaymentStatus = PaymentStatus.DEBT;
+        if (remaining <= 0.01) paymentStatus = PaymentStatus.PAID;
+        else if (totalPaid > 0.01) paymentStatus = PaymentStatus.PARTIAL;
+
+        return {
+            bookingId,
+            courtTotal,
+            courtPaid,
+            courtDebt,
+            itemsTotal,
+            itemsPaid,
+            itemsDebt,
+            total,
+            totalPaid,
+            remaining,
+            paymentStatus
+        };
+    }
+
     async createBooking(
         userId: number | null,
         guestIdentifier: string | undefined,
