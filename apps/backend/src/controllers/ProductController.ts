@@ -29,12 +29,19 @@ export class ProductController {
     create = async (req: Request, res: Response) => {
         try {
             const { slug } = req.params;
-            const { name, price, stock, category } = req.body;
+            const { name, price, stock, category, isCombo, components } = req.body;
             
             const club = await this.clubRepository.findBySlug(slug as string);
             if (!club) return res.status(404).json({ error: 'Club no encontrado' });
 
-            const newProduct = await this.productService.createProduct(club.id, { name, price, stock, category });
+            // Normalize numeric fields
+            const p = Number(price ?? 0);
+            const s = Number(stock ?? 0);
+
+            const payload: any = { name, price: p, stock: s, category, isCombo: !!isCombo };
+            if (Array.isArray(components)) payload.components = components.map((c: any) => ({ componentId: Number(c.componentId), quantity: Number(c.quantity) }));
+
+            const newProduct = await this.productService.createProduct(club.id, payload);
             res.status(201).json(newProduct);
         } catch (error) {
             console.error(error);

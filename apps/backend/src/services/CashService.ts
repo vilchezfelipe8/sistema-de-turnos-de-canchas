@@ -21,12 +21,13 @@ export class CashService {
 
         movements.forEach(m => {
             const val = m.type === 'INCOME' ? m.amount : -m.amount;
-            
+
             if (m.type === 'INCOME') totalIncome += m.amount;
             else totalExpense += m.amount;
 
+            // Ignorar movimientos "ON_ACCOUNT" de los totales diarios porque no representan cobro efectivo
             if (m.method === 'CASH') totalCash += val;
-            else totalDigital += val;
+            else if (m.method === 'TRANSFER') totalDigital += val;
         });
 
         return {

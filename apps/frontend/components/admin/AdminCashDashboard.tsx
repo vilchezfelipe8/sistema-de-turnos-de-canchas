@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Wallet, ArrowUpCircle, ArrowDownCircle, Banknote, CreditCard, Plus, Receipt, History, ChevronDown, Check } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Wallet, ArrowUpCircle, ArrowDownCircle, Banknote, CreditCard, Plus, Receipt, History, ChevronDown, Check, Phone, IdCard } from 'lucide-react';
+import { searchClients } from '../../services/BookingService';
 import { getApiUrl } from '../../utils/apiUrl';
 
 // Tipos
@@ -99,8 +100,39 @@ const AdminCashDashboard = () => {
   const [saleError, setSaleError] = useState('');
 
   // Formulario
-  const [newMove, setNewMove] = useState({ description: '', amount: '', type: 'INCOME', method: 'CASH' });
-  const [productSale, setProductSale] = useState({ productId: '', quantity: '1', method: 'CASH' });
+  const [newMove, setNewMove] = useState({ description: '', amount: '', type: 'INCOME', method: 'CASH', clientPhone: '', onAccount: false });
+  const [productSale, setProductSale] = useState({ productId: '', quantity: '1', method: 'CASH', clientPhone: '', onAccount: false });
+
+  // Autocomplete clientes (nuevo)
+  const [moveClientQuery, setMoveClientQuery] = useState('');
+  const [moveClientResults, setMoveClientResults] = useState<any[]>([]);
+  const [moveSelectedClient, setMoveSelectedClient] = useState<any | null>(null);
+    const [moveShowDropdown, setMoveShowDropdown] = useState(false);
+    const moveWrapperRef = useRef<HTMLDivElement | null>(null);
+
+  const [saleClientQuery, setSaleClientQuery] = useState('');
+  const [saleClientResults, setSaleClientResults] = useState<any[]>([]);
+  const [saleSelectedClient, setSaleSelectedClient] = useState<any | null>(null);
+    const [saleShowDropdown, setSaleShowDropdown] = useState(false);
+    const saleWrapperRef = useRef<HTMLDivElement | null>(null);
+
+  const moveDebounceRef = useRef<any>(null);
+  const saleDebounceRef = useRef<any>(null);
+
+  const getClubSlug = useCallback(() => {
+    try {
+      const userStored = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+      if (userStored) {
+        const user = JSON.parse(userStored as string);
+        const foundSlug = user.slug || user.clubSlug || (user.club && user.club.slug);
+        if (foundSlug) return foundSlug;
+        if (user.lastName && user.lastName.toLowerCase() !== 'admin') {
+          return user.lastName.toLowerCase().trim().replace(/\s+/g, '-');
+        }
+      }
+    } catch (e) { console.error(e); }
+    return '';
+  }, []);
 
   const fetchCash = async () => {
     try {
@@ -161,6 +193,47 @@ const AdminCashDashboard = () => {
 
   useEffect(() => { fetchProducts(); }, []);
 
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (moveWrapperRef.current && !moveWrapperRef.current.contains(event.target as Node)) {
+        setMoveShowDropdown(false);
+      }
+      if (saleWrapperRef.current && !saleWrapperRef.current.contains(event.target as Node)) {
+        setSaleShowDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const searchMoveClients = async (q: string) => {
+    try {
+      const slug = getClubSlug();
+      if (!slug) return setMoveClientResults([]);
+      const results = await searchClients(slug, q);
+      setMoveClientResults(results || []);
+      setMoveShowDropdown(true);
+    } catch (error) {
+      console.error('Error buscando clientes (move):', error);
+      setMoveClientResults([]);
+      setMoveShowDropdown(false);
+    }
+  };
+
+  const searchSaleClients = async (q: string) => {
+    try {
+      const slug = getClubSlug();
+      if (!slug) return setSaleClientResults([]);
+      const results = await searchClients(slug, q);
+      setSaleClientResults(results || []);
+      setSaleShowDropdown(true);
+    } catch (error) {
+      console.error('Error buscando clientes (sale):', error);
+      setSaleClientResults([]);
+      setSaleShowDropdown(false);
+    }
+  };
+
   const handleAddMovement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMove.amount || !newMove.description) return;
@@ -174,10 +247,21 @@ const AdminCashDashboard = () => {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify(newMove)
+      body: JSON.stringify({
+        amount: Number(newMove.amount),
+        description: newMove.description,
+        type: newMove.type,
+        method: newMove.onAccount ? undefined : newMove.method,
+        userId: moveSelectedClient?.userId || undefined,
+        userPhone: moveSelectedClient?.phoneNumber || newMove.clientPhone || undefined,
+        onAccount: !!newMove.onAccount
+      })
     });
     
-    setNewMove({ description: '', amount: '', type: 'INCOME', method: 'CASH' });
+    setNewMove({ description: '', amount: '', type: 'INCOME', method: 'CASH', clientPhone: '', onAccount: false });
+    setMoveClientQuery('');
+    setMoveClientResults([]);
+    setMoveSelectedClient(null);
     fetchCash(); 
   };
 
@@ -204,7 +288,10 @@ const AdminCashDashboard = () => {
         body: JSON.stringify({
           productId: Number(productSale.productId),
           quantity: qty,
-          method: productSale.method
+          method: productSale.onAccount ? undefined : productSale.method,
+          userId: saleSelectedClient?.userId || undefined,
+          userPhone: saleSelectedClient?.phoneNumber || (productSale as any).clientPhone || undefined,
+          onAccount: !!(productSale as any).onAccount
         })
       });
 
@@ -213,7 +300,10 @@ const AdminCashDashboard = () => {
         throw new Error(errorData.error || 'Error al registrar venta');
       }
 
-      setProductSale({ productId: '', quantity: '1', method: productSale.method });
+      setProductSale({ productId: '', quantity: '1', method: productSale.method, clientPhone: '', onAccount: false });
+      setSaleClientQuery('');
+      setSaleClientResults([]);
+      setSaleSelectedClient(null);
       fetchCash();
       fetchProducts();
     } catch (error: any) {
@@ -329,11 +419,11 @@ const AdminCashDashboard = () => {
                                 {m.description}
                             </span>
                             <span className={`text-[9px] font-black px-2 py-0.5 rounded-md border uppercase tracking-widest flex items-center gap-1 w-fit ${
-                                m.method === 'CASH' 
-                                    ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
-                                    : 'bg-blue-50 text-blue-600 border-blue-100'
+                              m.method === 'CASH' 
+                                ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
+                                : m.method === 'ON_ACCOUNT' ? 'bg-yellow-50 text-yellow-700 border-yellow-100' : 'bg-blue-50 text-blue-600 border-blue-100'
                             }`}>
-                                {m.method === 'CASH' ? <><Banknote size={10} strokeWidth={3} /> Efectivo</> : <><CreditCard size={10} strokeWidth={3} /> Digital</>}
+                              {m.method === 'CASH' ? <><Banknote size={10} strokeWidth={3} /> Efectivo</> : m.method === 'ON_ACCOUNT' ? 'Cuenta' : <><CreditCard size={10} strokeWidth={3} /> Digital</>}
                             </span>
                         </div>
                     </div>
@@ -349,7 +439,133 @@ const AdminCashDashboard = () => {
           </div>
         </div>
 
-  {/* FORMULARIO AGREGAR RÁPIDO */}
+        {/* FORMULARIO VENTA DE PRODUCTOS */}
+        <div className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl h-fit">
+          <h3 className="text-xl font-black text-[#347048] mb-8 flex items-center gap-3 uppercase italic tracking-tight">
+            <Receipt size={22} strokeWidth={3} className="text-[#B9CF32]" /> Venta de productos
+          </h3>
+
+          <form onSubmit={handleProductSale} className="space-y-6">
+            <div className="relative z-20">
+              <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Producto</label>
+              <CustomSelect
+                value={productSale.productId}
+                onChange={(val: string) => setProductSale({ ...productSale, productId: val })}
+                placeholder={productsLoading ? 'Cargando productos...' : 'Seleccionar producto'}
+                options={products.map((product) => ({
+                  value: String(product.id),
+                  label: `${product.name} (${product.stock})`,
+                  disabled: product.stock <= 0
+                }))}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Cantidad</label>
+                <input
+                  type="number"
+                  min={1}
+                  placeholder="1"
+                  className="w-full h-14 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl px-4 text-[#347048] font-black focus:outline-none shadow-sm transition-all"
+                  value={productSale.quantity}
+                  onChange={(e) => setProductSale({ ...productSale, quantity: e.target.value })}
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Cliente</label>
+                <div className="relative" ref={saleWrapperRef}>
+                  <input
+                    type="text"
+                    placeholder="Buscar cliente por nombre o teléfono"
+                    className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl px-4 text-[#347048] font-bold focus:outline-none shadow-sm placeholder-[#347048]/20 transition-all"
+                    value={saleSelectedClient ? `${(saleSelectedClient.name || `${saleSelectedClient.firstName || ''} ${saleSelectedClient.lastName || ''}`).trim()}${saleSelectedClient.phoneNumber ? ` - ${saleSelectedClient.phoneNumber}` : ''}` : saleClientQuery}
+                    onChange={(e) => {
+                      setSaleSelectedClient(null);
+                      setSaleClientQuery(e.target.value);
+                      if (saleDebounceRef.current) clearTimeout(saleDebounceRef.current);
+                      saleDebounceRef.current = setTimeout(() => {
+                        if (e.target.value && e.target.value.length >= 2) searchSaleClients(e.target.value);
+                      }, 300);
+                    }}
+                  />
+                  {saleShowDropdown && saleClientResults.length > 0 && !saleSelectedClient && (
+                    <ul className="absolute z-[110] w-full mt-2 bg-white border-2 border-[#347048]/10 rounded-2xl shadow-2xl max-h-60 overflow-y-auto">
+                      {saleClientResults.map((client) => (
+                        <li key={`${client.userId || client.id || client.firstName}`} onClick={() => { setSaleSelectedClient(client); setSaleClientResults([]); setSaleClientQuery(''); setSaleShowDropdown(false); }}
+                          className="px-4 py-3 hover:bg-[#B9CF32]/20 cursor-pointer text-[#347048] border-b border-[#347048]/5 last:border-0 transition-colors">
+                          <div className="font-black text-sm">{(client.name || `${client.firstName || ''} ${client.lastName || ''}`).trim()}</div>
+                          <div className="text-[10px] font-bold text-[#347048]/60 flex gap-3 mt-1 uppercase">
+                              {client.phoneNumber && (
+                                <span className="flex items-center gap-1">
+                                  <Phone size={12} strokeWidth={2.5} /> {client.phoneNumber}
+                                </span>
+                              )}
+                              {client.dni && (
+                                <span className="flex items-center gap-1">
+                                  <IdCard size={12} strokeWidth={2.5} /> {client.dni}
+                                </span>
+                              )}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+
+              <div className="col-span-2 flex items-center gap-3">
+                <input id="product-on-account" type="checkbox" checked={(productSale as any).onAccount || false} onChange={(e) => setProductSale({ ...productSale, onAccount: e.target.checked })} />
+                <label htmlFor="product-on-account" className="text-[12px] font-bold text-[#347048]">Dejar en cuenta (no cobrar ahora)</label>
+              </div>
+              <div className="col-span-2">
+                <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Medio de pago</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setProductSale({ ...productSale, method: 'CASH' })}
+                    className={`h-14 w-full px-4 flex items-center justify-center gap-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
+                      productSale.method === 'CASH'
+                        ? 'bg-[#347048] border-[#347048] text-[#B9CF32] shadow-lg scale-105'
+                        : 'bg-white border-transparent text-[#347048]/40 hover:bg-white/80'}`}
+                  >
+                    <Banknote
+                      size={16}
+                      strokeWidth={2.5}
+                      className={productSale.method === 'CASH' ? 'text-[#B9CF32]' : 'text-[#347048]/40'}
+                    />
+                    Efectivo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProductSale({ ...productSale, method: 'TRANSFER' })}
+                    className={`h-14 w-full px-4 flex items-center justify-center gap-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
+                      productSale.method === 'TRANSFER'
+                        ? 'bg-[#347048] border-[#347048] text-[#B9CF32] shadow-lg scale-105'
+                        : 'bg-white border-transparent text-[#347048]/40 hover:bg-white/80'}`}
+                  >
+                    <CreditCard
+                      size={16}
+                      strokeWidth={2.5}
+                      className={productSale.method === 'TRANSFER' ? 'text-[#B9CF32]' : 'text-[#347048]/40'}
+                    />
+                    Digital
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {saleError && (
+              <p className="text-xs font-bold text-red-500 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">{saleError}</p>
+            )}
+
+            <button type="submit" className="w-full py-4 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-[1.5rem] shadow-xl shadow-[#347048]/20 transition-all hover:-translate-y-1 active:scale-95 uppercase tracking-widest text-sm italic mt-2">
+              Registrar venta
+            </button>
+          </form>
+        </div>
+
+        {/* FORMULARIO AGREGAR RÁPIDO */}
         <div className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl h-fit">
           <h3 className="text-xl font-black text-[#926699] mb-8 flex items-center gap-3 uppercase italic tracking-tight">
             <Plus size={24} strokeWidth={3} className="bg-[#926699] text-[#EBE1D8] rounded-lg p-1" /> Nuevo Registro
@@ -365,6 +581,53 @@ const AdminCashDashboard = () => {
                 value={newMove.description}
                 onChange={e => setNewMove({...newMove, description: e.target.value})}
               />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Cliente</label>
+              <div className="relative" ref={moveWrapperRef}>
+                <input
+                  type="text"
+                  placeholder="Buscar cliente por nombre o teléfono"
+                  className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl px-4 text-[#347048] font-bold focus:outline-none shadow-sm placeholder-[#347048]/20 transition-all"
+                  value={moveSelectedClient ? `${(moveSelectedClient.name || `${moveSelectedClient.firstName || ''} ${moveSelectedClient.lastName || ''}`).trim()}${moveSelectedClient.phoneNumber ? ` - ${moveSelectedClient.phoneNumber}` : ''}` : moveClientQuery}
+                  onChange={(e) => {
+                    setMoveSelectedClient(null);
+                    setMoveClientQuery(e.target.value);
+                    if (moveDebounceRef.current) clearTimeout(moveDebounceRef.current);
+                    moveDebounceRef.current = setTimeout(() => {
+                      if (e.target.value && e.target.value.length >= 2) searchMoveClients(e.target.value);
+                    }, 300);
+                  }}
+                />
+                {moveShowDropdown && moveClientResults.length > 0 && !moveSelectedClient && (
+                  <ul className="absolute z-[110] w-full mt-2 bg-white border-2 border-[#347048]/10 rounded-2xl shadow-2xl max-h-60 overflow-y-auto">
+                    {moveClientResults.map((client) => (
+                      <li key={`${client.userId || client.id || client.firstName}`} onClick={() => { setMoveSelectedClient(client); setMoveClientResults([]); setMoveClientQuery(''); setMoveShowDropdown(false); }}
+                        className="px-4 py-3 hover:bg-[#B9CF32]/20 cursor-pointer text-[#347048] border-b border-[#347048]/5 last:border-0 transition-colors">
+                        <div className="font-black text-sm">{(client.name || `${client.firstName || ''} ${client.lastName || ''}`).trim()}</div>
+                        <div className="text-[10px] font-bold text-[#347048]/60 flex gap-3 mt-1 uppercase">
+                            {client.phoneNumber && (
+                              <span className="flex items-center gap-1">
+                                <Phone size={12} strokeWidth={2.5} /> {client.phoneNumber}
+                              </span>
+                            )}
+                            {client.dni && (
+                              <span className="flex items-center gap-1">
+                                <IdCard size={12} strokeWidth={2.5} /> {client.dni}
+                              </span>
+                            )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <input id="move-on-account" type="checkbox" checked={newMove.onAccount} onChange={(e) => setNewMove({...newMove, onAccount: e.target.checked})} />
+              <label htmlFor="move-on-account" className="text-[12px] font-bold text-[#347048]">Dejar en cuenta (no cobrar ahora)</label>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -420,86 +683,6 @@ const AdminCashDashboard = () => {
 
             <button type="submit" className="w-full py-4 bg-[#B9CF32] hover:bg-[#aebd2b] text-[#347048] font-black rounded-[1.5rem] shadow-xl shadow-[#B9CF32]/20 transition-all hover:-translate-y-1 active:scale-95 uppercase tracking-widest text-sm italic mt-2">
               Registrar Movimiento
-            </button>
-          </form>
-        </div>
-
-        {/* FORMULARIO VENTA DE PRODUCTOS */}
-        <div className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl h-fit">
-          <h3 className="text-xl font-black text-[#347048] mb-8 flex items-center gap-3 uppercase italic tracking-tight">
-            <Receipt size={22} strokeWidth={3} className="text-[#B9CF32]" /> Venta de productos
-          </h3>
-
-          <form onSubmit={handleProductSale} className="space-y-6">
-            <div className="relative z-20">
-              <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Producto</label>
-              <CustomSelect
-                value={productSale.productId}
-                onChange={(val: string) => setProductSale({ ...productSale, productId: val })}
-                placeholder={productsLoading ? 'Cargando productos...' : 'Seleccionar producto'}
-                options={products.map((product) => ({
-                  value: String(product.id),
-                  label: `${product.name} (${product.stock})`,
-                  disabled: product.stock <= 0
-                }))}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Cantidad</label>
-                <input
-                  type="number"
-                  min={1}
-                  placeholder="1"
-                  className="w-full h-14 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl px-4 text-[#347048] font-black focus:outline-none shadow-sm transition-all"
-                  value={productSale.quantity}
-                  onChange={(e) => setProductSale({ ...productSale, quantity: e.target.value })}
-                />
-              </div>
-              <div className="col-span-2">
-                <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Medio de pago</label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setProductSale({ ...productSale, method: 'CASH' })}
-                    className={`h-14 w-full px-4 flex items-center justify-center gap-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
-                      productSale.method === 'CASH'
-                        ? 'bg-[#347048] border-[#347048] text-[#B9CF32] shadow-lg scale-105'
-                        : 'bg-white border-transparent text-[#347048]/40 hover:bg-white/80'}`}
-                  >
-                    <Banknote
-                      size={16}
-                      strokeWidth={2.5}
-                      className={productSale.method === 'CASH' ? 'text-[#B9CF32]' : 'text-[#347048]/40'}
-                    />
-                    Efectivo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setProductSale({ ...productSale, method: 'TRANSFER' })}
-                    className={`h-14 w-full px-4 flex items-center justify-center gap-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
-                      productSale.method === 'TRANSFER'
-                        ? 'bg-[#347048] border-[#347048] text-[#B9CF32] shadow-lg scale-105'
-                        : 'bg-white border-transparent text-[#347048]/40 hover:bg-white/80'}`}
-                  >
-                    <CreditCard
-                      size={16}
-                      strokeWidth={2.5}
-                      className={productSale.method === 'TRANSFER' ? 'text-[#B9CF32]' : 'text-[#347048]/40'}
-                    />
-                    Digital
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {saleError && (
-              <p className="text-xs font-bold text-red-500 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">{saleError}</p>
-            )}
-
-            <button type="submit" className="w-full py-4 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-[1.5rem] shadow-xl shadow-[#347048]/20 transition-all hover:-translate-y-1 active:scale-95 uppercase tracking-widest text-sm italic mt-2">
-              Registrar venta
             </button>
           </form>
         </div>

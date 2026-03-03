@@ -54,6 +54,13 @@ model User {
   clubId        Int?
   club          Club?          @relation(fields: [clubId], references: [id])
 
+  // Saldo pendiente en cuenta (fiado)
+  // Movimientos asociados al usuario (ventas / cobros en su cuenta)
+  cashMovements CashMovement[]
+  
+  // Saldo pendiente en cuenta (fiado)
+  pendingBalance Float @default(0)
+
   bookings      Booking[]
   fixedBookings FixedBooking[]
 }
@@ -230,6 +237,7 @@ model Product {
   price    Decimal @db.Decimal(10, 2)
   stock    Int     @default(0)
   minStock Int     @default(5)
+  isCombo  Boolean @default(false)
   isActive Boolean @default(true)
 
   clubId Int
@@ -239,8 +247,22 @@ model Product {
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   bookingItems BookingItem[]
+  components ProductComponent[] @relation("ProductComponents")
+  componentOf ProductComponent[] @relation("ProductComponentOf")
 
   @@index([clubId])
+}
+
+model ProductComponent {
+  id          Int     @id @default(autoincrement())
+  parentId    Int
+  parent      Product @relation("ProductComponents", fields: [parentId], references: [id], onDelete: Cascade)
+  componentId Int
+  component   Product @relation("ProductComponentOf", fields: [componentId], references: [id])
+  quantity    Int     @default(1)
+
+  @@index([parentId])
+  @@index([componentId])
 }
 
 model BookingItem {
@@ -267,6 +289,9 @@ model CashMovement {
 
   bookingId Int?
   booking   Booking? @relation(fields: [bookingId], references: [id])
+
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id])
 
   clubId Int
   club   Club @relation(fields: [clubId], references: [id])

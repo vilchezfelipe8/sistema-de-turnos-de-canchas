@@ -58,6 +58,9 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [formData, setFormData] = useState({ name: '', price: '', stock: '', category: '' });
+  const [isCombo, setIsCombo] = useState(false);
+  const [componentsList, setComponentsList] = useState<{ componentId?: number; quantity: number }[]>([]);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const loadProducts = useCallback(async () => {
     try {
@@ -77,12 +80,29 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const payload = {
+      setFormError(null);
+      const payload: any = {
         name: formData.name,
         price: Number(formData.price),
         stock: Number(formData.stock),
-        category: formData.category
+        category: formData.category,
+        isCombo: !!isCombo
       };
+
+      if (isCombo) {
+        payload.components = componentsList
+          .filter((c) => c.componentId)
+          .map((c) => ({ componentId: Number(c.componentId), quantity: Number(c.quantity) }));
+
+        // Validación: no permitir componentes duplicados
+        const ids = payload.components.map((c: any) => Number(c.componentId));
+        const dup = ids.filter((v: number, i: number) => ids.indexOf(v) !== i);
+        if (dup.length > 0) {
+          setFormError('No se puede repetir el mismo producto como componente.');
+          return;
+        }
+      }
+
       if (editingProduct) {
         await ClubAdminService.updateProduct(slug, editingProduct.id, payload);
       } else {
@@ -91,6 +111,9 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
       setIsModalOpen(false);
       setFormData({ name: '', price: '', stock: '', category: '' });
       setEditingProduct(null);
+      setIsCombo(false);
+      setComponentsList([]);
+      setFormError(null);
       loadProducts();
     } catch (error) {
       alert('Error al guardar');
@@ -123,12 +146,16 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
       stock: String(product.stock),
       category: product.category || ''
     });
+    setIsCombo(!!product.isCombo);
+    setComponentsList((product.components || []).map((c: any) => ({ componentId: c.componentId ?? c.component?.id, quantity: c.quantity ?? 1 })));
     setIsModalOpen(true);
   };
 
   const openNew = () => {
     setEditingProduct(null);
     setFormData({ name: '', price: '', stock: '', category: '' });
+    setIsCombo(false);
+    setComponentsList([]);
     setIsModalOpen(true);
   };
 
@@ -338,6 +365,61 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
                     </div>
                 </div>
               </div>
+
+              {/* ES COMBO */}
+              <div className="space-y-1.5">
+                <label className={labelClass}>Tipo</label>
+                <div className="flex items-center gap-3">
+                  <label className="inline-flex items-center gap-2">
+                    <input type="checkbox" checked={isCombo} onChange={(e) => setIsCombo(e.target.checked)} />
+                    <span className="text-sm font-black text-[#347048]">Es combo</span>
+                  </label>
+                </div>
+              </div>
+
+              {isCombo && (
+                <div className="space-y-3">
+                  <label className={labelClass}>Componentes</label>
+                  {componentsList.map((c, idx) => (
+                    <div key={idx} className="flex items-center gap-3">
+                      <select
+                        className="flex-1 h-12 rounded-xl px-3 border-2 border-transparent focus:border-[#B9CF32]"
+                        value={c.componentId ?? ''}
+                        onChange={(e) => {
+                          setFormError(null);
+                          setComponentsList((s) => s.map((it, i) => (i === idx ? { ...it, componentId: Number(e.target.value) } : it)));
+                        }}
+                      >
+                        <option value="">Seleccionar producto</option>
+                        {products
+                          .filter((p) => p.id !== editingProduct?.id)
+                          .map((p) => {
+                            const otherSelected = new Set(
+                              componentsList.filter((_, i) => i !== idx).map((it) => Number(it.componentId)).filter(Boolean)
+                            );
+                            return (
+                              <option key={p.id} value={p.id} disabled={otherSelected.has(p.id)}>
+                                {p.name} — ${p.price}
+                              </option>
+                            );
+                          })}
+                      </select>
+                      <input
+                        type="number"
+                        min={1}
+                        value={c.quantity}
+                        onChange={(e) => setComponentsList((s) => s.map((it, i) => (i === idx ? { ...it, quantity: Number(e.target.value) } : it)))}
+                        className="w-20 h-12 rounded-xl px-3 border-2 border-transparent focus:border-[#B9CF32]"
+                      />
+                      <button type="button" onClick={() => setComponentsList((s) => s.filter((_, i) => i !== idx))} className="text-red-500 px-3 py-2 rounded-xl bg-red-50 border border-red-100">Quitar</button>
+                    </div>
+                  ))}
+                  {formError && <div className="text-red-600 font-bold mt-2">{formError}</div>}
+                  <div>
+                    <button type="button" onClick={() => setComponentsList((s) => [...s, { quantity: 1 }])} className="px-4 py-2 bg-[#347048] text-white rounded-xl">Agregar componente</button>
+                  </div>
+                </div>
+              )}
 
               {/* BOTÓN DE GUARDADO */}
               <div className="pt-4">

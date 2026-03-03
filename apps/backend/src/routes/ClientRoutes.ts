@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../prisma';
 import { authMiddleware } from '../middleware/AuthMiddleware';
 import { requireRole } from '../middleware/RoleMiddleware';
+import { setAdminClubFromUser } from '../middleware/ClubMiddleware';
 
 const router = Router();
 /** Middleware: verifica que clubSlug en query sea el club del admin autenticado */
@@ -95,6 +96,85 @@ router.get('/', authMiddleware, requireRole('ADMIN'), verifyClubSlugAccess, asyn
   } catch (error) {
     console.error('Error getting clients:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// GET /clients/me?q=... — busca clientes del club del admin (usa req.clubId)
+router.get('/me', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, async (req: any, res: any) => {
+  try {
+    const clubId = req.clubId;
+    if (!clubId) return res.status(400).json({ error: 'No se pudo determinar el club' });
+
+    const query = String(req.query.q || '').toLowerCase().trim();
+
+    const bookings = await prisma.booking.findMany({
+      where: { court: { clubId } },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        guestName: true,
+        guestPhone: true,
+        guestEmail: true,
+        guestDni: true,
+        user: { select: { id: true, firstName: true, lastName: true, phoneNumber: true, email: true, dni: true } }
+      }
+    });
+
+    const clientsMap = new Map();
+
+    bookings.forEach((booking) => {
+      const phone = booking.user?.phoneNumber || booking.guestPhone || '';
+      const rawName = booking.user ? `${booking.user.firstName} ${booking.user.lastName}` : booking.guestName;
+      const email = booking.user?.email || booking.guestEmail || '';
+      const dni = booking.user?.dni || booking.guestDni || '';
+
+      const uniqueKey = phone && phone.length > 4 ? phone.trim() : (dni ? `dni_${dni}` : (rawName ? rawName.trim() : null));
+      if (!uniqueKey) return;
+
+      if (!clientsMap.has(uniqueKey)) {
+        clientsMap.set(uniqueKey, {
+          id: booking.user?.id || booking.id,
+          userId: booking.user?.id || null,
+          name: rawName || 'Sin Nombre',
+          email,
+          phoneNumber: phone,
+          dni,
+          totalBookings: 0
+        });
+      }
+
+      const client = clientsMap.get(uniqueKey);
+      client.totalBookings += 1;
+      if (!client.phoneNumber && phone) client.phoneNumber = phone;
+      if (!client.email && email) client.email = email;
+    });
+
+    let clientsArray = Array.from(clientsMap.values());
+    if (query) {
+      const isNumeric = /^\d+$/.test(query);
+      if (isNumeric) {
+        // Si la búsqueda es numérica, priorizamos DNI
+        clientsArray = clientsArray.filter((c: any) => {
+          const dni = (c.dni || '').toLowerCase();
+          return dni.includes(query);
+        });
+      } else {
+        // Búsqueda por nombre/telefono/dni cuando no es numérica
+        clientsArray = clientsArray.filter((c: any) => {
+          const fullName = (c.name || '').toLowerCase();
+          const phone = (c.phoneNumber || '').toLowerCase();
+          const dni = (c.dni || '').toLowerCase();
+          return fullName.includes(query) || phone.includes(query) || dni.includes(query);
+        });
+      }
+    } else {
+      clientsArray = [];
+    }
+
+    res.json(clientsArray);
+  } catch (error) {
+    console.error('Error en /clients/me:', error);
+    res.status(500).json({ error: 'Error interno' });
   }
 });
 
