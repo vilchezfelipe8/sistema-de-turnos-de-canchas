@@ -36,6 +36,21 @@ const paymentStatusLabel: Record<string, string> = {
   PARTIAL: 'Parcial'
 };
 
+const formatSaleDescription = (raw?: string) => {
+  const value = (raw || '').trim();
+  if (!value) return 'Venta registrada en caja';
+  return value.replace(/^venta\s*:\s*/i, '').trim() || 'Venta registrada en caja';
+};
+
+const sortByCreationDesc = (a: any, b: any) => {
+  const createdA = new Date(a?.createdAt || `${a?.date || ''}T${a?.time || '00:00'}:00`).getTime();
+  const createdB = new Date(b?.createdAt || `${b?.date || ''}T${b?.time || '00:00'}:00`).getTime();
+  if (Number.isFinite(createdA) && Number.isFinite(createdB) && createdA !== createdB) {
+    return createdB - createdA;
+  }
+  return Number(b?.id || 0) - Number(a?.id || 0);
+};
+
 interface ClientsPageProps {
   clubSlug?: string;
 }
@@ -51,7 +66,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const [selectedClientHistory, setSelectedClientHistory] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [showPayMethodModal, setShowPayMethodModal] = useState(false);
-  const [bookingToPayId, setBookingToPayId] = useState<number | null>(null);
+  const [debtTarget, setDebtTarget] = useState<{ type: 'BOOKING' | 'SALE'; id: number } | null>(null);
   const [mounted, setMounted] = useState(false);
   const debtBackdropMouseDownRef = useRef(false);
   const payMethodBackdropMouseDownRef = useRef(false);
@@ -96,23 +111,28 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const totalClients = clients.length;
   const topClient = clients.reduce((prev, current) => (prev.totalBookings > current.totalBookings) ? prev : current, {name: '-', totalBookings: 0});
 
-  const handleOpenPayModal = (bookingId: number) => {
-    setBookingToPayId(bookingId);
+  const handleOpenPayModal = (target: { type: 'BOOKING' | 'SALE'; id: number }) => {
+    setDebtTarget(target);
     setShowPayMethodModal(true);
   };
 
   const processDebtPayment = async (method: 'CASH' | 'TRANSFER') => {
-    if (!bookingToPayId) return;
+    if (!debtTarget) return;
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${getApiUrl()}/api/bookings/pay-debt`, {
+      const endpoint = debtTarget.type === 'BOOKING' ? '/api/bookings/pay-debt' : '/api/cash/sale-debt/pay';
+      const payload = debtTarget.type === 'BOOKING'
+        ? { bookingId: debtTarget.id, paymentMethod: method }
+        : { movementId: debtTarget.id, paymentMethod: method };
+
+      const response = await fetch(`${getApiUrl()}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ bookingId: bookingToPayId, paymentMethod: method })
+        body: JSON.stringify(payload)
       });
       if (!response.ok) throw new Error('Error al procesar');
       setShowPayMethodModal(false);
-      setBookingToPayId(null);
+      setDebtTarget(null);
       const updatedClients = await loadClients();
 
       if (selectedDebtor && Array.isArray(updatedClients)) {
@@ -285,9 +305,12 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                 </div>
 
                 <div className="p-8 overflow-y-auto custom-scrollbar space-y-4 bg-white/40">
-                    {selectedDebtor.bookings
-                    .filter((b: any) => ['DEBT', 'PARTIAL', 'PENDING'].includes(b.paymentStatus))
+                  {selectedDebtor.bookings
+                  .slice()
+                  .sort(sortByCreationDesc)
+                  .filter((b: any) => ['DEBT', 'PARTIAL', 'PENDING'].includes(b.paymentStatus))
                     .map((booking: any) => {
+                      const isSale = booking.sourceType === 'SALE';
                         const itemsTotal = (booking.items || []).reduce((sum: any, item: any) => sum + (Number(item.price) * item.quantity), 0);
                         const courtPrice = Number(booking.price) - itemsTotal; 
                         const totalPaid = Number(booking.paid);
@@ -309,24 +332,30 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                                     <span className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest">{formatDate(booking.date)}</span>
                                 </div>
                                 <div className={`text-sm font-black uppercase tracking-tight flex justify-between mb-2 pr-10 ${isCourtPaid ? 'text-[#347048]/20 line-through' : 'text-[#347048]'}`}>
-                                    <span>Cancha: {booking.courtName || booking.court?.name}</span>
-                                    <span className="text-xs opacity-60 font-mono">${courtPrice}</span>
+                                    <span>{isSale ? 'Venta extra' : `Cancha: ${booking.courtName || booking.court?.name}`}</span>
+                                    <span className="text-xs opacity-60 font-mono">${(isSale ? Number(booking.price || 0) : courtPrice)}</span>
                                 </div>
-                                <div className="space-y-1.5 pl-3 border-l-4 border-[#347048]/5">
-                                    {itemsWithStatus.map((item: any, idx: number) => (
-                                      <div key={idx} className={`flex justify-between items-center text-[11px] font-bold uppercase tracking-wide pr-10 ${item.isPaid ? 'text-[#347048]/20 line-through' : 'text-[#347048]/60'}`}>
-                                          <span className="flex items-center gap-2"><span className={`px-1.5 py-0.5 rounded-md ${item.isPaid ? 'bg-gray-100 text-gray-400' : 'bg-[#926699] text-white'}`}>{item.quantity}x</span>{item.name || item.product?.name}</span>
-                                          <span className="font-mono">${Number(item.price) * item.quantity}</span>
-                                      </div>
-                                    ))}
-                                </div>
+                                {isSale ? (
+                                  <div className="text-[11px] font-bold text-[#347048]/70 uppercase tracking-wide pr-10">
+                                    {formatSaleDescription(booking.description)}
+                                  </div>
+                                ) : (
+                                  <div className="space-y-1.5 pl-3 border-l-4 border-[#347048]/5">
+                                      {itemsWithStatus.map((item: any, idx: number) => (
+                                        <div key={idx} className={`flex justify-between items-center text-[11px] font-bold uppercase tracking-wide pr-10 ${item.isPaid ? 'text-[#347048]/20 line-through' : 'text-[#347048]/60'}`}>
+                                            <span className="flex items-center gap-2"><span className={`px-1.5 py-0.5 rounded-md ${item.isPaid ? 'bg-gray-100 text-gray-400' : 'bg-[#926699] text-white'}`}>{item.quantity}x</span>{item.name || item.product?.name}</span>
+                                            <span className="font-mono">${Number(item.price) * item.quantity}</span>
+                                        </div>
+                                      ))}
+                                  </div>
+                                )}
                             </div>
                             <div className="flex items-center gap-6 pl-8 border-l-2 border-dashed border-[#347048]/10">
                                 <div className="text-right">
                                     <div className="text-2xl font-black text-red-600 font-mono italic tracking-tighter">${booking.amount}</div>
                                     <div className="text-[9px] text-[#347048]/40 uppercase font-black tracking-widest">Adeudado</div>
                                 </div>
-                                <button onClick={() => handleOpenPayModal(booking.id)} className="bg-[#B9CF32] hover:bg-[#aebd2b] text-[#347048] h-12 w-12 flex items-center justify-center rounded-2xl shadow-lg transition-all active:scale-95"><DollarSign size={24} strokeWidth={3} /></button>
+                                <button onClick={() => handleOpenPayModal({ type: booking.sourceType === 'SALE' ? 'SALE' : 'BOOKING', id: booking.sourceType === 'SALE' ? booking.movementId : booking.id })} className="bg-[#B9CF32] hover:bg-[#aebd2b] text-[#347048] h-12 w-12 flex items-center justify-center rounded-2xl shadow-lg transition-all active:scale-95"><DollarSign size={24} strokeWidth={3} /></button>
                             </div>
                         </div>
                         );
@@ -367,7 +396,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                 
         {/* Buscamos el monto exacto de la reserva que estamos saldando */}
         {(() => {
-          const bookingInfo = selectedDebtor?.bookings.find((b: any) => b.id === bookingToPayId);
+          const bookingInfo = selectedDebtor?.bookings.find((b: any) => (debtTarget?.type === 'SALE' ? b.movementId : b.id) === debtTarget?.id);
           return bookingInfo ? (
             <p className="text-[#347048]/60 text-xs font-bold mb-8 text-center uppercase tracking-widest">
               A SALDAR: <span className="text-[#347048] text-lg font-black">${bookingInfo.amount.toLocaleString()}</span>
@@ -441,7 +470,11 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
             </div>
             <div className="p-8 overflow-y-auto space-y-4 custom-scrollbar bg-white/40">
               {selectedClientHistory.history?.length > 0 ? (
-                selectedClientHistory.history.slice().sort((a: any, b: any) => new Date(b.startDateTime).getTime() - new Date(a.startDateTime).getTime()).map((booking: any) => {
+                selectedClientHistory.history
+                  .slice()
+                  .sort(sortByCreationDesc)
+                  .map((booking: any, index: number) => {
+                    const isSale = booking.sourceType === 'SALE';
                     const status = booking.status;
                     const pStatus = booking.paymentStatus;
                     const itemsTotal = (booking.items || []).reduce((sum: number, item: any) => sum + Number(item.price) * item.quantity, 0);
@@ -449,8 +482,8 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                     return (
                       <div key={booking.id} className="bg-white p-5 rounded-[1.5rem] border border-[#347048]/5 flex justify-between items-center shadow-sm">
                         <div className="flex flex-col gap-2 flex-1">
-                          <div className="flex items-center gap-3"><span className="font-black text-[#347048] text-sm italic">#{booking.id}</span><span className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest">{formatDate(booking.date)} · {booking.time}</span></div>
-                          <div className="text-xs font-black text-[#347048] uppercase tracking-tight">Cancha: {booking.courtName || booking.court?.name} <span className="opacity-40 ml-2 font-mono">${courtPrice.toLocaleString()}</span></div>
+                          <div className="flex items-center gap-3"><span className="font-black text-[#347048] text-sm italic">#{index + 1}</span><span className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest">{formatDate(booking.date)} · {booking.time}</span></div>
+                          <div className="text-xs font-black text-[#347048] uppercase tracking-tight">{isSale ? `Venta extra: ${formatSaleDescription(booking.description)}` : `Cancha: ${booking.courtName || booking.court?.name}`} <span className="opacity-40 ml-2 font-mono">${(isSale ? Number(booking.price || 0) : courtPrice).toLocaleString()}</span></div>
                           <div className="flex flex-wrap gap-2 mt-1">
                             <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${status === 'CANCELLED' ? 'bg-gray-50 text-gray-400 border-gray-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>{bookingStatusLabel[status] ?? status}</span>
                             <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${['DEBT', 'PARTIAL'].includes(pStatus) ? 'bg-red-50 text-red-500 border-red-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>{paymentStatusLabel[pStatus] ?? pStatus}</span>

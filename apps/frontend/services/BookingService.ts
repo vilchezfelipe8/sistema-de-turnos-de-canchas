@@ -128,13 +128,16 @@ export const cancelBooking = async (bookingId: number) => {
     return res.json();
 };
 
-export const confirmBooking = async (bookingId: number) => {
+export const confirmBooking = async (
+  bookingId: number,
+  paymentMethod?: 'CASH' | 'TRANSFER' | 'DEBT'
+) => {
     if (!getToken()) throw new Error("Debes iniciar sesión como administrador.");
 
     const res = await fetchWithAuth(`${apiBase()}/bookings/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bookingId })
+        body: JSON.stringify({ bookingId, ...(paymentMethod ? { paymentMethod } : {}) })
     });
 
     if (!res.ok) {

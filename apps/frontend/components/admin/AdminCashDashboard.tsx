@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Wallet, ArrowUpCircle, ArrowDownCircle, Banknote, CreditCard, Plus, Receipt, History, ChevronDown, Check } from 'lucide-react';
+import { Wallet, ArrowUpCircle, ArrowDownCircle, Banknote, CreditCard, Plus, Receipt, History, ChevronDown, Check, FileText, Phone, IdCard } from 'lucide-react';
 import { getApiUrl } from '../../utils/apiUrl';
+import { searchClients } from '../../services/BookingService';
+import { ClubService } from '../../services/ClubService';
 
 // Tipos
 interface Movement {
@@ -9,7 +11,7 @@ interface Movement {
   type: 'INCOME' | 'EXPENSE';
   amount: number;
   description: string;
-  method: 'CASH' | 'TRANSFER';
+  method: 'CASH' | 'TRANSFER' | 'DEBT';
 }
 
 interface Balance {
@@ -97,10 +99,56 @@ const AdminCashDashboard = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [productsLoading, setProductsLoading] = useState(true);
   const [saleError, setSaleError] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [selectedClient, setSelectedClient] = useState<any | null>(null);
+  const [searchClubSlug, setSearchClubSlug] = useState('');
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clientWrapperRef = useRef<HTMLDivElement | null>(null);
 
   // Formulario
   const [newMove, setNewMove] = useState({ description: '', amount: '', type: 'INCOME', method: 'CASH' });
-  const [productSale, setProductSale] = useState({ productId: '', quantity: '1', method: 'CASH' });
+  const [productSale, setProductSale] = useState({ productId: '', quantity: '1', method: 'CASH' as 'CASH' | 'TRANSFER' | 'DEBT', clientQuery: '' });
+
+  const getClubSlug = () => {
+    try {
+      const path = typeof window !== 'undefined' ? window.location.pathname : '';
+      const parts = path.split('/').filter(Boolean);
+      const idx = parts.findIndex((p) => p === 'club');
+      if (idx !== -1 && parts[idx + 1]) return parts[idx + 1];
+
+      const userStored = localStorage.getItem('user');
+      if (userStored) {
+        const user = JSON.parse(userStored);
+        const foundSlug = user.slug || user.clubSlug || (user.club && user.club.slug);
+        if (foundSlug) return foundSlug;
+      }
+    } catch (e) { console.error(e); }
+    return '';
+  };
+
+  const resolveClubSlug = async () => {
+    const directSlug = getClubSlug();
+    if (directSlug) {
+      setSearchClubSlug(directSlug);
+      return directSlug;
+    }
+
+    try {
+      const userStored = localStorage.getItem('user');
+      if (!userStored) return '';
+      const user = JSON.parse(userStored);
+      const clubId = Number(user.clubId || user.club?.id);
+      if (!Number.isFinite(clubId) || clubId <= 0) return '';
+      const club = await ClubService.getClubById(clubId);
+      const resolvedSlug = club?.slug || '';
+      if (resolvedSlug) setSearchClubSlug(resolvedSlug);
+      return resolvedSlug;
+    } catch (error) {
+      console.error('Error resolviendo slug de club para búsqueda de clientes:', error);
+      return '';
+    }
+  };
 
   const fetchCash = async () => {
     try {
@@ -161,6 +209,52 @@ const AdminCashDashboard = () => {
 
   useEffect(() => { fetchProducts(); }, []);
 
+  useEffect(() => {
+    resolveClubSlug();
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (clientWrapperRef.current && !clientWrapperRef.current.contains(event.target as Node)) {
+        setShowDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleClientSearchChange = (value: string) => {
+    setProductSale((prev) => ({ ...prev, clientQuery: value }));
+    setSelectedClient(null);
+
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+
+    if (value.length < 2) {
+      setShowDropdown(false);
+      setSearchResults([]);
+      return;
+    }
+
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const slug = searchClubSlug || await resolveClubSlug();
+        if (!slug) return;
+        const results = await searchClients(slug, value);
+        setSearchResults(results || []);
+        setShowDropdown(true);
+      } catch (error) {
+        console.error(error);
+      }
+    }, 300);
+  };
+
+  const selectClient = (client: any) => {
+    const fullName = `${client.firstName || ''} ${client.lastName || ''}`.trim();
+    setSelectedClient(client);
+    setProductSale((prev) => ({ ...prev, clientQuery: fullName || client.firstName || '' }));
+    setShowDropdown(false);
+  };
+
   const handleAddMovement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMove.amount || !newMove.description) return;
@@ -204,7 +298,11 @@ const AdminCashDashboard = () => {
         body: JSON.stringify({
           productId: Number(productSale.productId),
           quantity: qty,
-          method: productSale.method
+          method: productSale.method,
+          userId: selectedClient?.id,
+          guestName: selectedClient ? `${selectedClient.firstName || ''} ${selectedClient.lastName || ''}`.trim() : undefined,
+          guestPhone: selectedClient?.phoneNumber || selectedClient?.phone || undefined,
+          guestDni: selectedClient?.dni || selectedClient?.dniNumber || selectedClient?.document || undefined
         })
       });
 
@@ -213,7 +311,8 @@ const AdminCashDashboard = () => {
         throw new Error(errorData.error || 'Error al registrar venta');
       }
 
-      setProductSale({ productId: '', quantity: '1', method: productSale.method });
+      setProductSale({ productId: '', quantity: '1', method: productSale.method, clientQuery: '' });
+      setSelectedClient(null);
       fetchCash();
       fetchProducts();
     } catch (error: any) {
@@ -329,11 +428,17 @@ const AdminCashDashboard = () => {
                                 {m.description}
                             </span>
                             <span className={`text-[9px] font-black px-2 py-0.5 rounded-md border uppercase tracking-widest flex items-center gap-1 w-fit ${
-                                m.method === 'CASH' 
-                                    ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
-                                    : 'bg-blue-50 text-blue-600 border-blue-100'
+                              m.method === 'CASH'
+                                ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                                : m.method === 'DEBT'
+                                  ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                                  : 'bg-blue-50 text-blue-600 border-blue-100'
                             }`}>
-                                {m.method === 'CASH' ? <><Banknote size={10} strokeWidth={3} /> Efectivo</> : <><CreditCard size={10} strokeWidth={3} /> Digital</>}
+                              {m.method === 'CASH'
+                                ? <><Banknote size={10} strokeWidth={3} /> Efectivo</>
+                                : m.method === 'DEBT'
+                                ? <><FileText size={10} strokeWidth={3} /> Fiado</>
+                                : <><CreditCard size={10} strokeWidth={3} /> Digital</>}
                             </span>
                         </div>
                     </div>
@@ -431,6 +536,47 @@ const AdminCashDashboard = () => {
           </h3>
 
           <form onSubmit={handleProductSale} className="space-y-6">
+            <div className="relative z-30" ref={clientWrapperRef}>
+              <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Cliente</label>
+              <input
+                type="text"
+                placeholder="Buscar por nombre, DNI o teléfono..."
+                className="w-full h-14 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl px-4 text-[#347048] font-bold placeholder-[#347048]/20 focus:outline-none shadow-sm transition-all"
+                value={productSale.clientQuery}
+                onChange={(e) => handleClientSearchChange(e.target.value)}
+              />
+              {showDropdown && searchResults.length > 0 && (
+                <ul className="absolute z-[110] w-full mt-2 bg-white border-2 border-[#347048]/10 rounded-2xl shadow-2xl max-h-60 overflow-y-auto custom-scrollbar">
+                  {searchResults.map((client) => (
+                    <li
+                      key={client.id}
+                      onClick={() => selectClient(client)}
+                      className="px-4 py-3 hover:bg-[#B9CF32]/20 cursor-pointer text-[#347048] border-b border-[#347048]/5 last:border-0 transition-colors"
+                    >
+                      <div className="font-black text-sm">{client.firstName} {client.lastName}</div>
+                      <div className="text-[10px] font-bold text-[#347048]/60 flex gap-3 mt-1 uppercase">
+                        {client.phoneNumber && (
+                          <span className="flex items-center gap-1">
+                            <Phone size={12} strokeWidth={2.5} /> {client.phoneNumber}
+                          </span>
+                        )}
+                        {client.dni && (
+                          <span className="flex items-center gap-1">
+                            <IdCard size={12} strokeWidth={2.5} /> {client.dni}
+                          </span>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {selectedClient && (
+                <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-[#347048]/60">
+                  Cliente seleccionado: {selectedClient.firstName} {selectedClient.lastName}
+                </p>
+              )}
+            </div>
+
             <div className="relative z-20">
               <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Producto</label>
               <CustomSelect
@@ -459,7 +605,7 @@ const AdminCashDashboard = () => {
               </div>
               <div className="col-span-2">
                 <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Medio de pago</label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-3">
                   <button
                     type="button"
                     onClick={() => setProductSale({ ...productSale, method: 'CASH' })}
@@ -489,6 +635,21 @@ const AdminCashDashboard = () => {
                       className={productSale.method === 'TRANSFER' ? 'text-[#B9CF32]' : 'text-[#347048]/40'}
                     />
                     Digital
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProductSale({ ...productSale, method: 'DEBT' })}
+                    className={`h-14 w-full px-4 flex items-center justify-center gap-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
+                      productSale.method === 'DEBT'
+                        ? 'bg-[#926699] border-[#926699] text-[#EBE1D8] shadow-lg scale-105'
+                        : 'bg-white border-transparent text-[#347048]/40 hover:bg-white/80'}`}
+                  >
+                    <FileText
+                      size={16}
+                      strokeWidth={2.5}
+                      className={productSale.method === 'DEBT' ? 'text-[#EBE1D8]' : 'text-[#347048]/40'}
+                    />
+                    Fiado
                   </button>
                 </div>
               </div>

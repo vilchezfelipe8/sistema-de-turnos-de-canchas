@@ -1287,6 +1287,9 @@ async payBookingDebt(bookingId: number, paymentMethod: string) {
 
 
 async getClubDebtors(clubId: number) {
+        const clubConfig = await prisma.club.findUnique({ where: { id: clubId }, select: { timeZone: true } });
+        const defaultTimeZone = clubConfig?.timeZone ?? 'America/Argentina/Buenos_Aires';
+
     // 1. Prisma SELECT - Solo pedimos los datos que el Frontend necesita, ni un byte más.
     const bookings = await prisma.booking.findMany({
       where: {
@@ -1303,6 +1306,7 @@ async getClubDebtors(clubId: number) {
         status: true,
         paymentStatus: true,
         startDateTime: true,
+                createdAt: true,
         user: {
           select: { firstName: true, lastName: true, phoneNumber: true, email: true, dni: true}
         },
@@ -1324,6 +1328,26 @@ async getClubDebtors(clubId: number) {
         }
       }
     });
+
+        const extraSales: any[] = await prisma.cashMovement.findMany({
+            where: {
+                clubId,
+                bookingId: null,
+                type: 'INCOME',
+                OR: [
+                    { userId: { not: null } },
+                    { guestDni: { not: null } },
+                    { guestPhone: { not: null } },
+                    { guestName: { not: null } }
+                ]
+            },
+            include: {
+                user: {
+                    select: { id: true, firstName: true, lastName: true, phoneNumber: true, email: true, dni: true }
+                }
+            },
+            orderBy: { date: 'desc' }
+        } as any);
 
     const clientsMap = new Map();
 
@@ -1398,7 +1422,7 @@ async getClubDebtors(clubId: number) {
 
       // Usamos el TimeZone por defecto ya que no existe en la DB
       // 🌎 Lógica internacional lista para escalar
-      const clubTimeZone = (booking.court as any)?.club?.timeZone ?? 'America/Argentina/Buenos_Aires';
+    const clubTimeZone = (booking.court as any)?.club?.timeZone ?? defaultTimeZone;
       const localStart = TimeHelper.utcToLocal(booking.startDateTime, clubTimeZone);
       const dateStr = `${localStart.getFullYear()}-${String(localStart.getMonth() + 1).padStart(2, '0')}-${String(localStart.getDate()).padStart(2, '0')}`;
       const timeStr = `${String(localStart.getHours()).padStart(2, '0')}:${String(localStart.getMinutes()).padStart(2, '0')}`;
@@ -1406,6 +1430,9 @@ async getClubDebtors(clubId: number) {
       // Armamos un objeto chiquito y perfecto
       const leanBookingView = {
         id: booking.id,
+                sourceType: 'BOOKING',
+                bookingId: booking.id,
+        createdAt: booking.createdAt.toISOString(),
         date: dateStr,
         time: timeStr,
         status: booking.status,
@@ -1429,6 +1456,104 @@ async getClubDebtors(clubId: number) {
           client.bookings.push(leanBookingView);
       }
     }
+
+        for (const movement of extraSales) {
+            const normalizedSaleDescription = String(movement.description || '')
+                .replace(/^venta\s*:\s*/i, '')
+                .trim() || 'Venta registrada en caja';
+
+            let uniqueKey = "";
+            let displayName = "";
+            let displayPhone = "";
+            let displayEmail = "";
+            let displayDni = "";
+
+            if (movement.userId && movement.user) {
+                uniqueKey = `USER_${movement.userId}`;
+                displayName = `${movement.user.firstName || ''} ${movement.user.lastName || ''}`.trim();
+                displayPhone = movement.user.phoneNumber || "";
+                displayEmail = movement.user.email || "";
+                displayDni = movement.user.dni || "";
+            } else {
+                const guestDni = movement.guestDni?.trim();
+                const guestPhone = movement.guestPhone?.trim();
+                const guestName = movement.guestName?.trim();
+
+                if (guestDni) uniqueKey = `GUEST_DNI_${guestDni}`;
+                else if (guestPhone) uniqueKey = `GUEST_PHONE_${guestPhone}`;
+                else if (guestName) uniqueKey = `GUEST_NAME_${guestName.toLowerCase()}`;
+                else uniqueKey = `ANON_SALE_${movement.id}`;
+
+                displayName = guestName || "Invitado";
+                displayPhone = guestPhone || "";
+                displayEmail = "";
+                displayDni = guestDni || "";
+            }
+
+            if (!clientsMap.has(uniqueKey)) {
+                clientsMap.set(uniqueKey, {
+                    id: movement.userId || parseInt(uniqueKey.replace(/\D/g, '').substring(0, 8)) || Date.now(),
+                    name: displayName || "Sin Nombre",
+                    phone: displayPhone,
+                    email: displayEmail,
+                    dni: displayDni,
+                    user: movement.user ? {
+                        id: movement.user.id,
+                        firstName: movement.user.firstName,
+                        lastName: movement.user.lastName,
+                        phoneNumber: movement.user.phoneNumber,
+                        email: movement.user.email,
+                        dni: movement.user.dni
+                    } : undefined,
+                    guestDni: movement.guestDni || undefined,
+                    totalDebt: 0,
+                    totalBookings: 0,
+                    bookings: [],
+                    history: []
+                });
+            }
+
+            const client = clientsMap.get(uniqueKey);
+
+            const localDate = TimeHelper.utcToLocal(movement.date, defaultTimeZone);
+            const dateStr = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, '0')}-${String(localDate.getDate()).padStart(2, '0')}`;
+            const timeStr = `${String(localDate.getHours()).padStart(2, '0')}:${String(localDate.getMinutes()).padStart(2, '0')}`;
+
+            const saleView = {
+                id: movement.id,
+                sourceType: 'SALE',
+                movementId: movement.id,
+                createdAt: movement.date instanceof Date ? movement.date.toISOString() : new Date(movement.date).toISOString(),
+                date: dateStr,
+                time: timeStr,
+                status: movement.isSettled ? 'COMPLETED' : 'PENDING',
+                paymentStatus: movement.isSettled ? 'PAID' : 'DEBT',
+                price: Number(movement.amount || 0),
+                amount: movement.isSettled ? 0 : Number(movement.amount || 0),
+                paid: movement.isSettled ? Number(movement.amount || 0) : 0,
+                description: normalizedSaleDescription,
+                items: []
+            };
+
+            client.history.push(saleView);
+
+            if (movement.method === 'DEBT' && !movement.isSettled) {
+                client.totalDebt += Number(movement.amount || 0);
+                client.bookings.push(saleView);
+            }
+        }
+
+        for (const client of clientsMap.values()) {
+            const sortByCreatedAtDesc = (a: any, b: any) => {
+                const aTime = new Date(a?.createdAt || 0).getTime();
+                const bTime = new Date(b?.createdAt || 0).getTime();
+                if (aTime !== bTime) return bTime - aTime;
+                return Number(b?.id || 0) - Number(a?.id || 0);
+            };
+
+            client.history.sort(sortByCreatedAtDesc);
+            client.bookings.sort(sortByCreatedAtDesc);
+        }
 
     return Array.from(clientsMap.values());
 }

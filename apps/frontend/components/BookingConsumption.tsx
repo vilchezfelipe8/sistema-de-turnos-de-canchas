@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
 import { ClubAdminService } from '../services/ClubAdminService';
+import { confirmBooking as confirmBookingService } from '../services/BookingService';
 import { Trash2, Plus, ShoppingCart, Receipt, Lock, ChevronDown, Check, X, Banknote, CreditCard, FileText, Star } from 'lucide-react';
 // import { BookingTicket } from './BookingTicket'; // Si no lo usás, podés borrar esta línea
 
@@ -173,7 +174,11 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
     try {
       setSaving(true);
       skipDraftPersistRef.current = true;
-      await ClubAdminService.updateBookingPaymentStatus(bookingId, targetBookingStatus);
+      if (bookingStatus === 'PENDING') {
+        await confirmBookingService(bookingId, itemPaymentMethod);
+      } else {
+        await ClubAdminService.updateBookingPaymentStatus(bookingId, targetBookingStatus);
+      }
       const deletePromises = itemsToDelete.map(id => ClubAdminService.removeItemFromBooking(id));
       const newItems = cartItems.filter(i => i.isNew);
       const addPromises = newItems.map(item => 

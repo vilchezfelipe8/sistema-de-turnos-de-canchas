@@ -819,12 +819,7 @@ export default function AdminTabBookings() {
   const handleConfirmBooking = async (method: 'CASH' | 'TRANSFER' | 'DEBT') => {
     if (!selectedBookingId) return;
     try {
-        const token = localStorage.getItem('token');
-        await fetch(`${getApiUrl()}/api/bookings/confirm`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify({ bookingId: selectedBookingId, paymentMethod: method })
-        });
+        await confirmBookingService(selectedBookingId, method);
         setShowPaymentModal(false);
         loadSchedule(); 
         showInfo('Cobro registrado correctamente.', "Listo");

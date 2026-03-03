@@ -136,13 +136,17 @@ export class ClubAdminService {
   /**
    * Confirmar reserva
    */
-  static async confirmBooking(clubSlug: string, bookingId: number) {
+  static async confirmBooking(
+    clubSlug: string,
+    bookingId: number,
+    paymentMethod?: 'CASH' | 'TRANSFER' | 'DEBT'
+  ) {
     if (!getToken()) throw new Error('No autenticado');
 
     const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/bookings/confirm`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bookingId })
+      body: JSON.stringify({ bookingId, ...(paymentMethod ? { paymentMethod } : {}) })
     });
 
     if (!res.ok) {

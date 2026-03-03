@@ -20,6 +20,9 @@ export class CashService {
         let totalExpense = 0;
 
         movements.forEach(m => {
+            if (m.method === 'DEBT' && !(m as any).isSettled) {
+                return;
+            }
             const val = m.type === 'INCOME' ? m.amount : -m.amount;
             
             if (m.type === 'INCOME') totalIncome += m.amount;

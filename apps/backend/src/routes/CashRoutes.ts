@@ -55,4 +55,12 @@ router.post(
     cashController.createProductSale
 );
 
+router.post(
+    '/sale-debt/pay',
+    authMiddleware,
+    requireRole('ADMIN'),
+    setAdminClubFromUser,
+    cashController.paySaleDebt
+);
+
 export default router;
