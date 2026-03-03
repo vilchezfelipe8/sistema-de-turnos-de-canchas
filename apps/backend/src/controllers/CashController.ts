@@ -2,12 +2,15 @@ import { Request, Response } from 'express';
 import { CashService } from '../services/CashService';
 import { prisma } from '../prisma';
 import { z } from 'zod';
+import { ProductService } from '../services/ProductService';
 
 export class CashController {
     private cashService: CashService;
+    private productService: ProductService;
 
     constructor(cashService: CashService) {
         this.cashService = cashService;
+        this.productService = new ProductService();
     }
 
     // Usamos arrow functions para no perder el 'this'
@@ -56,10 +59,7 @@ export class CashController {
             const clubId = (req as any).clubId;
             if (!clubId) return res.status(400).json({ error: 'No se pudo determinar el club' });
 
-            const products = await prisma.product.findMany({
-                where: { clubId },
-                orderBy: { name: 'asc' }
-            });
+            const products = await this.productService.getProductsByClub(clubId);
 
             res.json(products);
         } catch (error) {
@@ -99,18 +99,14 @@ export class CashController {
             }
 
             const product = await prisma.product.findFirst({
-                where: { id: Number(productId), clubId }
+                where: { id: Number(productId), clubId, isActive: true }
             });
             if (!product) return res.status(404).json({ error: 'Producto no encontrado' });
-            if (product.stock < qty) return res.status(400).json({ error: 'No hay suficiente stock' });
 
             const amount = Number(product.price) * qty;
 
             const movement = await prisma.$transaction(async (tx) => {
-                await tx.product.update({
-                    where: { id: product.id },
-                    data: { stock: { decrement: qty } }
-                });
+                await this.productService.consumeStock(clubId, product.id, qty, tx);
 
                 return tx.cashMovement.create({
                     data: {

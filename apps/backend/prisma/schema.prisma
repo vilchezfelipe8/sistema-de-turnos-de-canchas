@@ -230,6 +230,7 @@ model Product {
   category String?
   price    Decimal @db.Decimal(10, 2)
   stock    Int     @default(0)
+  isCombo  Boolean @default(false)
   minStock Int     @default(5)
   isActive Boolean @default(true)
 
@@ -240,8 +241,26 @@ model Product {
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   bookingItems BookingItem[]
+  components  ProductComponent[] @relation("ComboParent")
+  usedInCombos ProductComponent[] @relation("ComboComponent")
 
   @@index([clubId])
+}
+
+model ProductComponent {
+  id Int @id @default(autoincrement())
+
+  parentProductId Int
+  parentProduct Product @relation("ComboParent", fields: [parentProductId], references: [id], onDelete: Cascade)
+
+  componentProductId Int
+  componentProduct Product @relation("ComboComponent", fields: [componentProductId], references: [id], onDelete: Cascade)
+
+  quantity Int
+
+  @@unique([parentProductId, componentProductId])
+  @@index([parentProductId])
+  @@index([componentProductId])
 }
 
 model BookingItem {

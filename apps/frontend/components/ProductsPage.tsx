@@ -57,7 +57,14 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
   const [editingProduct, setEditingProduct] = useState<any | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [formData, setFormData] = useState({ name: '', price: '', stock: '', category: '' });
+  const [formData, setFormData] = useState({
+    name: '',
+    price: '',
+    stock: '',
+    category: '',
+    isCombo: false,
+    components: [{ componentProductId: '', quantity: '1' }]
+  });
 
   const loadProducts = useCallback(async () => {
     try {
@@ -77,11 +84,36 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const components = formData.components
+        .map((component) => ({
+          componentProductId: Number(component.componentProductId),
+          quantity: Number(component.quantity)
+        }))
+        .filter((component) => Number.isFinite(component.componentProductId) && component.componentProductId > 0 && Number.isFinite(component.quantity) && component.quantity > 0);
+
+      if (formData.isCombo) {
+        if (components.length === 0) {
+          alert('Un combo debe tener al menos un componente.');
+          return;
+        }
+        const ids = components.map((component) => component.componentProductId);
+        if (new Set(ids).size !== ids.length) {
+          alert('No podés repetir el mismo producto en un combo.');
+          return;
+        }
+        if (editingProduct && ids.includes(Number(editingProduct.id))) {
+          alert('Un producto no puede ser componente de sí mismo.');
+          return;
+        }
+      }
+
       const payload = {
         name: formData.name,
         price: Number(formData.price),
-        stock: Number(formData.stock),
-        category: formData.category
+        stock: formData.isCombo ? 0 : Number(formData.stock),
+        category: formData.category,
+        isCombo: formData.isCombo,
+        components: formData.isCombo ? components : []
       };
       if (editingProduct) {
         await ClubAdminService.updateProduct(slug, editingProduct.id, payload);
@@ -89,7 +121,14 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
         await ClubAdminService.createProduct(slug, payload);
       }
       setIsModalOpen(false);
-      setFormData({ name: '', price: '', stock: '', category: '' });
+      setFormData({
+        name: '',
+        price: '',
+        stock: '',
+        category: '',
+        isCombo: false,
+        components: [{ componentProductId: '', quantity: '1' }]
+      });
       setEditingProduct(null);
       loadProducts();
     } catch (error) {
@@ -120,16 +159,51 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
     setFormData({
       name: product.name,
       price: String(product.price),
-      stock: String(product.stock),
-      category: product.category || ''
+      stock: String(product.baseStock ?? product.stock ?? 0),
+      category: product.category || '',
+      isCombo: Boolean(product.isCombo),
+      components: Array.isArray(product.components) && product.components.length > 0
+        ? product.components.map((component: any) => ({
+            componentProductId: String(component.componentProductId),
+            quantity: String(component.quantity)
+          }))
+        : [{ componentProductId: '', quantity: '1' }]
     });
     setIsModalOpen(true);
   };
 
   const openNew = () => {
     setEditingProduct(null);
-    setFormData({ name: '', price: '', stock: '', category: '' });
+    setFormData({
+      name: '',
+      price: '',
+      stock: '',
+      category: '',
+      isCombo: false,
+      components: [{ componentProductId: '', quantity: '1' }]
+    });
     setIsModalOpen(true);
+  };
+
+  const addComponentRow = () => {
+    setFormData((prev) => ({
+      ...prev,
+      components: [...prev.components, { componentProductId: '', quantity: '1' }]
+    }));
+  };
+
+  const removeComponentRow = (index: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      components: prev.components.filter((_, i) => i !== index)
+    }));
+  };
+
+  const updateComponentRow = (index: number, field: 'componentProductId' | 'quantity', value: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      components: prev.components.map((component, i) => i === index ? { ...component, [field]: value } : component)
+    }));
   };
 
   const filteredProducts = products.filter((p) =>
@@ -139,6 +213,7 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
   // Estilos Wimbledon para los inputs del Modal
   const inputClass ="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all";
   const labelClass = 'block text-[10px] font-black text-[#347048]/60 mb-1.5 uppercase tracking-widest ml-1';
+  const comboComponentOptions = products.filter((product) => !editingProduct || product.id !== editingProduct.id);
 
   return (
     <>
@@ -172,6 +247,7 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
               <thead>
                 <tr className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]/40">
                   <th className="px-6 py-4">Producto</th>
+                  <th className="px-6 py-4">Tipo</th>
                   <th className="px-6 py-4">Categoría</th>
                   <th className="px-6 py-4">Stock Actual</th>
                   <th className="px-6 py-4">Precio Venta</th>
@@ -181,14 +257,14 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
               <tbody className="text-sm font-bold">
                 {loading ? (
                   <tr>
-                    <td colSpan={5} className="p-20 text-center text-[#347048]/40">
+                    <td colSpan={6} className="p-20 text-center text-[#347048]/40">
                       <div className="animate-spin rounded-full h-8 w-8 border-b-4 border-[#347048] mx-auto mb-4"></div>
                       CARGANDO INVENTARIO...
                     </td>
                   </tr>
                 ) : filteredProducts.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="p-20 text-center text-[#347048]/30 italic uppercase tracking-widest font-black">
+                    <td colSpan={6} className="p-20 text-center text-[#347048]/30 italic uppercase tracking-widest font-black">
                       No hay productos registrados
                     </td>
                   </tr>
@@ -197,6 +273,11 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
                     <tr key={product.id} className="bg-white/80 hover:bg-white transition-all shadow-sm group">
                       <td className="px-6 py-5 first:rounded-l-2xl font-black text-[#347048] uppercase tracking-tight italic">
                         {product.name}
+                      </td>
+                      <td className="px-6 py-5">
+                        <span className={`text-[10px] font-black px-3 py-1 rounded-full border uppercase tracking-widest ${product.isCombo ? 'bg-[#347048]/10 text-[#347048] border-[#347048]/20' : 'bg-[#926699]/10 text-[#926699] border-[#926699]/20'}`}>
+                          {product.isCombo ? 'Combo' : 'Simple'}
+                        </span>
                       </td>
                       <td className="px-6 py-5">
                         <span className="text-[10px] font-black bg-[#926699]/10 text-[#926699] px-3 py-1 rounded-full border border-[#926699]/20 uppercase tracking-widest">
@@ -285,25 +366,45 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
                 </div>
               </div>
               
-              {/* PRECIO Y STOCK */}
-              <div className="grid grid-cols-2 gap-5">
-                <div className="space-y-1.5">
-                  <label className={labelClass}>Precio ($)</label>
-                  <div className="relative group">
-                      <input
-                        required
-                        type="number"
-                        min="0"
-                        placeholder="0"
-                        className={`${inputClass} pl-12`}
-                        value={formData.price}
-                        onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                      />
-                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#347048]/40 group-focus-within:text-[#B9CF32] transition-colors">
-                          <DollarSign size={18} strokeWidth={2.5} />
-                      </div>
-                  </div>
+              <div className="space-y-3">
+                <label className={labelClass}>Tipo de producto</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setFormData((prev) => ({ ...prev, isCombo: false }))}
+                    className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${!formData.isCombo ? 'bg-[#347048] border-[#347048] text-[#B9CF32]' : 'bg-white border-transparent text-[#347048]/40'}`}
+                  >
+                    Producto simple
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData((prev) => ({ ...prev, isCombo: true }))}
+                    className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${formData.isCombo ? 'bg-[#347048] border-[#347048] text-[#B9CF32]' : 'bg-white border-transparent text-[#347048]/40'}`}
+                  >
+                    Combo
+                  </button>
                 </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className={labelClass}>Precio ($)</label>
+                <div className="relative group">
+                    <input
+                      required
+                      type="number"
+                      min="0"
+                      placeholder="0"
+                      className={`${inputClass} pl-12`}
+                      value={formData.price}
+                      onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                    />
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#347048]/40 group-focus-within:text-[#B9CF32] transition-colors">
+                        <DollarSign size={18} strokeWidth={2.5} />
+                    </div>
+                </div>
+              </div>
+
+              {!formData.isCombo && (
                 <div className="space-y-1.5">
                   <label className={labelClass}>Stock Inicial</label>
                   <div className="relative group">
@@ -321,7 +422,7 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
                       </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               {/* CATEGORÍA */}
               <div className="space-y-1.5">
@@ -338,6 +439,49 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
                     </div>
                 </div>
               </div>
+
+              {formData.isCombo && (
+                <div className="space-y-3">
+                  <label className={labelClass}>Componentes del combo</label>
+                  <div className="space-y-2">
+                    {formData.components.map((component, index) => (
+                      <div key={index} className="grid grid-cols-12 gap-2 items-center">
+                        <select
+                          className="col-span-7 h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold focus:outline-none shadow-sm"
+                          value={component.componentProductId}
+                          onChange={(e) => updateComponentRow(index, 'componentProductId', e.target.value)}
+                        >
+                          <option value="">Seleccionar producto</option>
+                          {comboComponentOptions.map((product) => (
+                            <option key={product.id} value={product.id}>{product.name}</option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          min="1"
+                          className="col-span-3 h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold focus:outline-none shadow-sm"
+                          value={component.quantity}
+                          onChange={(e) => updateComponentRow(index, 'quantity', e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeComponentRow(index)}
+                          className="col-span-2 h-11 rounded-xl bg-red-50 border border-red-100 text-red-500 hover:bg-red-500 hover:text-white transition"
+                        >
+                          <X size={16} className="mx-auto" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addComponentRow}
+                    className="w-full py-2.5 bg-white border-2 border-[#347048]/10 text-[#347048] rounded-xl text-[10px] font-black uppercase tracking-widest"
+                  >
+                    + Agregar componente
+                  </button>
+                </div>
+              )}
 
               {/* BOTÓN DE GUARDADO */}
               <div className="pt-4">

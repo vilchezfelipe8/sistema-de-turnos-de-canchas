@@ -4,8 +4,11 @@ import { z } from 'zod';
 import { prisma } from '../prisma';
 import { whatsappService } from '../services/WhatsappService';
 import { TimeHelper } from '../utils/TimeHelper';
+import { ProductService } from '../services/ProductService';
 
 export class BookingController {
+    private productService = new ProductService();
+
     constructor(private bookingService: BookingService) {}
 
     createBooking = async (req: Request, res: Response) => {
@@ -751,49 +754,43 @@ Un cliente acaba de cancelar su reserva desde la web en *${clubName}*.
         const product = await prisma.product.findUnique({ where: { id: Number(productId) } });
         if (!product) return res.status(404).json({ error: "Producto no encontrado" });
 
-        if (product.stock < quantity) {
-            return res.status(400).json({ error: "No hay suficiente stock" });
+        if (product.clubId !== booking.court.clubId) {
+            return res.status(400).json({ error: 'El producto no pertenece al club de la reserva' });
         }
 
-        // 2. Agregamos el Item a la Reserva
-        const newItem = await prisma.bookingItem.create({
-            data: {
-                bookingId: bookingId,
-                productId: Number(productId),
-                quantity: Number(quantity),
-                price: Number(product.price) // Convertimos Decimal a Number
-            }
-        });
+        const newItem = await prisma.$transaction(async (tx) => {
+            await this.productService.consumeStock(booking.court.clubId, Number(productId), Number(quantity), tx);
 
-        // 3. Descontamos Stock
-        await prisma.product.update({
-            where: { id: Number(productId) },
-            data: { stock: { decrement: Number(quantity) } }
-        });
-
-        // 4. Lógica de Caja (CashMovement)
-        if (paymentMethod !== 'DEBT') {
-            await prisma.cashMovement.create({
+            const createdItem = await tx.bookingItem.create({
                 data: {
-                    date: new Date(),
-                    type: 'INCOME',
-                    amount: Number(product.price) * Number(quantity),
-                    description: `Venta Extra: ${quantity}x ${product.name} (Reserva #${bookingId})`,
-                    method: paymentMethod || 'CASH', // CASH o TRANSFER
                     bookingId: bookingId,
-                    clubId: booking.court.clubId
+                    productId: Number(productId),
+                    quantity: Number(quantity),
+                    price: Number(product.price)
                 }
             });
-        } 
-        else {
-            // Si es 'DEBT', actualizamos estado si estaba todo pago
-            if (booking.paymentStatus === 'PAID') {
-                await prisma.booking.update({
+
+            if (paymentMethod !== 'DEBT') {
+                await tx.cashMovement.create({
+                    data: {
+                        date: new Date(),
+                        type: 'INCOME',
+                        amount: Number(product.price) * Number(quantity),
+                        description: `Venta Extra: ${quantity}x ${product.name} (Reserva #${bookingId})`,
+                        method: paymentMethod || 'CASH',
+                        bookingId: bookingId,
+                        clubId: booking.court.clubId
+                    }
+                });
+            } else if (booking.paymentStatus === 'PAID') {
+                await tx.booking.update({
                     where: { id: bookingId },
-                    data: { paymentStatus: 'PARTIAL' } 
+                    data: { paymentStatus: 'PARTIAL' }
                 });
             }
-        }
+
+            return createdItem;
+        });
 
         const bookingWithTotals = await prisma.booking.findUnique({
             where: { id: bookingId },

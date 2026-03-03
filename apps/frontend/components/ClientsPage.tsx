@@ -239,7 +239,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                             </td>
                             
                             <td className="px-6 py-4">
-                               <span className="text-[10px] font-black bg-[#926699]/10 text-[#926699] px-3 py-1 rounded-full border border-[#926699]/20 uppercase tracking-widest">{client.totalBookings} Reservas</span>
+                               <span className="inline-flex whitespace-nowrap text-[10px] font-black bg-[#926699]/10 text-[#926699] px-3 py-1 rounded-full border border-[#926699]/20 uppercase tracking-widest">{client.totalBookings} Reservas</span>
                             </td>
                             
                             <td className="px-6 py-4">
@@ -251,7 +251,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                             </td>
                             
                             <td className="px-6 py-4 last:rounded-r-2xl">
-                              <div className="flex justify-end gap-3">
+                              <div className="flex flex-nowrap justify-end gap-3">
                                 <button onClick={() => setSelectedClientHistory(client)} className="text-[10px] font-black uppercase tracking-widest bg-white border-2 border-[#347048]/10 hover:border-[#347048] text-[#347048] px-4 py-2 rounded-xl transition shadow-sm">Historial</button>
                                 {client.totalDebt > 0 && (
                                   <button onClick={() => setSelectedDebtor(client)} className="text-[10px] font-black uppercase tracking-widest bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-xl transition shadow-lg shadow-red-900/20 flex items-center gap-2"><DollarSign size={14} strokeWidth={3}/> Saldar</button>
