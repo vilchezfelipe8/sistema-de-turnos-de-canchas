@@ -323,6 +323,131 @@ Ingresó un nuevo turno web en *${clubName}*.
             const user = (req as any).user;
             const clubId = (req as any).clubId;
             const result = await this.bookingService.cancelBooking(Number(bookingId), user?.userId, clubId);
+
+            // --- INICIO NOTIFICACIONES WHATSAPP DE CANCELACIÓN ---
+            try {
+                // 1. Traemos la reserva completa para leer los datos
+                const fullBooking: any = await prisma.booking.findUnique({
+                    where: { id: Number(req.params.id || req.body.bookingId) }, // Asegurate de usar el ID correcto según tu ruta
+                    include: {
+                        user: true,
+                        court: { include: { club: true } }
+                    }
+                });
+
+                if (fullBooking) {
+                    let clientPhone: string | null = null;
+                    let clientName: string = 'Jugador';
+
+                    // 2. Extraemos datos del Cliente
+                    if (fullBooking.user) {
+                        clientPhone = fullBooking.user.phone || fullBooking.user.phoneNumber;
+                        clientName = fullBooking.user.name || fullBooking.user.firstName || 'Jugador';
+                    } else {
+                        clientPhone = fullBooking.guestPhone;
+                        clientName = fullBooking.guestName || 'Jugador';
+                    }
+
+                    // 3. Extraemos datos del Club
+                    const clubData = fullBooking.court?.club;
+                    const clubName = clubData?.name || 'el complejo';
+                    const courtName = fullBooking.court?.name || 'Cancha';
+                    const clubPhoneRaw = clubData?.phone || clubData?.phoneNumber;
+                    
+                    // Limpieza de números
+                    const cleanClientPhone = clientPhone ? clientPhone.replace(/\D/g, '') : null;
+                    const cleanClubPhone = clubPhoneRaw ? clubPhoneRaw.replace(/\D/g, '') : null;
+
+                    // 4. Fechas y Horas locales
+                    // (Asumo que tenés TimeHelper importado en este controlador)
+                    const localForWhatsApp = TimeHelper.utcToLocal(fullBooking.startDateTime, clubData?.timeZone || 'America/Argentina/Cordoba');
+                    const dia = String(localForWhatsApp.getDate()).padStart(2, '0');
+                    const mes = String(localForWhatsApp.getMonth() + 1).padStart(2, '0');
+                    const anio = localForWhatsApp.getFullYear();
+                    const horas = String(localForWhatsApp.getHours()).padStart(2, '0');
+                    const minutos = String(localForWhatsApp.getMinutes()).padStart(2, '0');
+                    const dateStr = `${dia}/${mes}/${anio}`;
+                    const timeStr = `${horas}:${minutos}`;
+
+                    // 5. Armado de Textos (Versión Cancelación)
+                    const clientMessage = `
+❌ *Reserva Cancelada en ${clubName}* ❌
+
+Hola *${clientName}*, te confirmamos que tu turno ha sido anulado a través del sistema.
+
+📅 *Fecha:* ${dateStr}
+⏰ *Hora:* ${timeStr}
+📍 *Cancha:* ${courtName}
+
+⚠️ *Aviso:* Si tenías una seña abonada, por favor comunicate con la administración para gestionar tu cuenta:
+📱 *WhatsApp del Club:* ${cleanClubPhone ? `https://wa.me/${cleanClubPhone}` : 'No disponible'}
+
+¡Te esperamos la próxima!
+                    `.trim();
+
+                    const clubMessage = `
+⚠️ *¡Turno Cancelado por Usuario!* ⚠️
+
+Un cliente acaba de cancelar su reserva desde la web en *${clubName}*.
+
+👤 *Cliente:* ${clientName} 
+📞 *Tel:* ${cleanClientPhone ? `wa.me/${cleanClientPhone}` : 'No registrado'}
+📅 *Fecha:* ${dateStr}
+⏰ *Hora:* ${timeStr}
+📍 *Cancha:* ${courtName}
+
+ℹ️ *La cancha ya se encuentra disponible para nuevas reservas en la grilla.*
+                    `.trim();
+
+                    // 6. Lista de envíos
+                    const notifications = [];
+
+                    // Siempre notificamos al cliente
+                    if (cleanClientPhone) {
+                        notifications.push({ target: 'Cliente', phone: cleanClientPhone, message: clientMessage });
+                    }
+
+                    // Al club le notificamos para que sepa que se le liberó la cancha
+                    // (Si querés que no le llegue si lo cancela un Admin, podés agregar el && !isAdmin acá)
+                    if (cleanClubPhone) { 
+                        notifications.push({ target: 'Club', phone: cleanClubPhone, message: clubMessage });
+                    }
+
+                    // 7. Loop de despacho con la instancia unificada (TU CÓDIGO EXACTO)
+                    for (const notif of notifications) {
+                        if (process.env.DISABLE_WHATSAPP === 'true' || process.env.DISABLE_WHATSAPP === '1') {
+                            try {
+                                const fetchFn = (globalThis as any).fetch;
+                                if (typeof fetchFn !== 'function') throw new Error('fetch no disponible en el runtime');
+                                const resp = await fetchFn('http://wpp-service:3002/send', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ number: notif.phone, message: notif.message })
+                                });
+                                if (!resp.ok) {
+                                    const text = await resp.text();
+                                    console.error(`❌ Error wpp-service (${notif.target}):`, resp.status, text);
+                                } else {
+                                    console.log(`✅ Mensaje enviado vía wpp-service a ${notif.target} (${notif.phone})`);
+                                }
+                            } catch (e) {
+                                console.error(`❌ Error llamando wpp-service para ${notif.target}:`, e);
+                            }
+                        } else {
+                            try {
+                                // Usamos el servicio de whatsapp inyectado o importado
+                                await whatsappService.sendMessage(notif.phone, notif.message);
+                                console.log(`✅ Mensaje directo de CANCELACIÓN enviado a ${notif.target} (${notif.phone})`);
+                            } catch (err) {
+                                console.error(`❌ Falló envío directo a ${notif.target}:`, err);
+                            }
+                        }
+                    }
+                }
+            } catch (waError) {
+                console.error("❌ Error general procesando notificaciones de WhatsApp para CANCELACIÓN:", waError);
+            }
+            // --- FIN NOTIFICACIONES WHATSAPP ---
             res.json({ message: "Reserva cancelada", booking: result });
         } catch (error: any) {
             if (error.message === "No tienes acceso a esta reserva") {
@@ -773,5 +898,47 @@ Ingresó un nuevo turno web en *${clubName}*.
             res.status(400).json({ error: error.message || "Error al cobrar deuda" });
         }
     }
+
+    public async partialPayment(req: any, res: any) {
+    try {
+      // Accept both string and number values; fallback to defaults
+      const schema = z.object({
+        bookingId: z.preprocess(v => Number(v), z.number().int().positive()),
+        paymentMethod: z.enum(['CASH','TRANSFER','DEBT']),
+        amount: z.preprocess(v => Number(v), z.number().nonnegative()),
+        totalBookingCost: z.preprocess(v => Number(v), z.number().nonnegative()),
+        paidItemIds: z.array(z.preprocess(v => Number(v), z.number().int().positive())).optional()
+      });
+
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ success: false, error: parsed.error.format() });
+      }
+      const { bookingId, paymentMethod, amount, totalBookingCost, paidItemIds = [] } = parsed.data;
+      const uniquePaidIds = Array.from(new Set(paidItemIds));
+
+      const result = await this.bookingService.processPartialPayment(
+        bookingId,
+        paymentMethod,
+        amount,
+        totalBookingCost,
+        uniquePaidIds
+      );
+
+      return res.json({ success: true, ...result });
+    } catch (error: any) {
+      console.error("Error en partialPayment:", error);
+      return res.status(400).json({ success: false, error: error.message });
+    }
+  }
+
+  public async getPaidAmount(req: any, res: any) {
+      try {
+          const result = await this.bookingService.getPaidAmount(Number(req.params.id));
+          return res.json(result);
+      } catch(error) {
+          return res.json({ paidAmount: 0 });
+      }
+  }
 }
 

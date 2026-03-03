@@ -2,27 +2,20 @@ import { prisma } from '../prisma'; // Ajusta la ruta a tu cliente prisma
 
 export class CashRepository {
     async create(data: any) {
-    // 1. Desestructuramos para sacar los IDs y dejar los datos limpios en 'rest'
-    const { bookingId, clubId, userId, ...rest } = data;
+        // 1. Desestructuramos para sacar los IDs y dejar los datos limpios en 'rest'
+        const { bookingId, clubId, userId, ...rest } = data;
 
-    // 2. Armamos el objeto de Prisma usando 'connect'
-    const prismaData = {
-        ...rest, // descripción, monto, fecha, método...
+        // 2. Armamos el objeto de Prisma limpio
+        const prismaData: any = {
+            ...rest,
+            ...(bookingId ? { booking: { connect: { id: Number(bookingId) } } } : {}),
+            ...(clubId ? { club: { connect: { id: Number(clubId) } } } : {}),
+            ...(userId ? { user: { connect: { id: Number(userId) } } } : {})
+        };
 
-        // Conexión con la Reserva (si existe)
-        booking: bookingId ? { connect: { id: Number(bookingId) } } : undefined,
-
-        // Conexión con el Usuario/Cliente (si existe)
-        user: userId ? { connect: { id: Number(userId) } } : undefined,
-
-        club: clubId ? { connect: { id: Number(clubId) } } : undefined
-    };
-
-    // 3. Guardamos
-    return prisma.cashMovement.create({ 
-        data: prismaData 
-    });
-}
+        // 3. Guardamos usando los datos dinámicos
+        return prisma.cashMovement.create({ data: prismaData });
+    }
 
     async findAllByDateRange(startDate: Date, endDate: Date, clubId?: number) {
         return prisma.cashMovement.findMany({

@@ -276,6 +276,7 @@ model BookingItem {
 
   quantity Int
   price    Float
+  isPaid    Boolean  @default(false)
 }
 
 model CashMovement {

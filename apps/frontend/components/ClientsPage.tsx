@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ClubAdminService } from '../services/ClubAdminService';
-import { Phone, DollarSign, Calendar, Users, Trophy, Search, X, CheckCircle, Receipt, Banknote, CreditCard } from 'lucide-react';
+import { Phone, DollarSign, Calendar, Users, Trophy, Search, X, CheckCircle, Receipt } from 'lucide-react';
+import PaymentCalculator from './PaymentCalculator';
 import { useRouter } from 'next/router';
 import AppModal from './AppModal';
 import { getApiUrl } from '../utils/apiUrl';
@@ -52,9 +53,9 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const [searchTerm, setSearchTerm] = useState('');
   const [showPayMethodModal, setShowPayMethodModal] = useState(false);
   const [bookingToPayId, setBookingToPayId] = useState<number | null>(null);
+  // note: payment state now handled by shared calculator component
   const [mounted, setMounted] = useState(false);
   const debtBackdropMouseDownRef = useRef(false);
-  const payMethodBackdropMouseDownRef = useRef(false);
   const historyBackdropMouseDownRef = useRef(false);
 
   // --- LÓGICA DEL APPMODAL ---
@@ -87,6 +88,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
     setMounted(true);
   }, []);
 
+
   const filteredClients = clients.filter(client => {
     const term = searchTerm.toLowerCase();
     return client.name.toLowerCase().includes(term) || (client.phone && client.phone.includes(term)) || (client.dni && client.dni.toLowerCase().includes(term));
@@ -101,14 +103,27 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
     setShowPayMethodModal(true);
   };
 
-  const processDebtPayment = async (method: 'CASH' | 'TRANSFER') => {
+  const processDebtPayment = async (result: {method: 'CASH' | 'TRANSFER'; amount: number; paidItemIds: number[]}) => {
     if (!bookingToPayId) return;
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${getApiUrl()}/api/bookings/pay-debt`, {
+      const bookingInfo = selectedDebtor?.bookings.find((b: any) => b.id === bookingToPayId) || {};
+      const courtPrice = Number(bookingInfo.price || 0) - ((bookingInfo.items || []).reduce((sum: any, it: any) => sum + Number(it.price) * it.quantity, 0));
+      const itemsTotal = (bookingInfo.items || []).reduce((sum: any, it: any) => sum + Number(it.price) * it.quantity, 0);
+      const grandTotal = courtPrice + itemsTotal;
+
+      const body = {
+        bookingId: bookingToPayId,
+        paymentMethod: result.method,
+        amount: result.amount,
+        totalBookingCost: grandTotal,
+        paidItemIds: result.paidItemIds
+      };
+
+      const response = await fetch(`${getApiUrl()}/api/bookings/partial-payment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ bookingId: bookingToPayId, paymentMethod: method })
+        body: JSON.stringify(body)
       });
       if (!response.ok) throw new Error('Error al procesar');
       setShowPayMethodModal(false);
@@ -127,7 +142,6 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
         }
       }
     } catch (error) { 
-        // REEMPLAZO DE ALERT
         showError("No se pudo procesar el cobro. Intentá nuevamente."); 
     }
   };
@@ -290,15 +304,16 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                     .map((booking: any) => {
                         const itemsTotal = (booking.items || []).reduce((sum: any, item: any) => sum + (Number(item.price) * item.quantity), 0);
                         const courtPrice = Number(booking.price) - itemsTotal; 
-                        const totalPaid = Number(booking.paid);
+                        let totalPaid = Number(booking.paid);
+                        if (booking.paymentStatus === 'DEBT') {
+                            totalPaid = 0; // ignore any previous deposit when we force deuda
+                        }
                         let isCourtPaid = totalPaid >= courtPrice;
                         let remainingPayment = isCourtPaid ? totalPaid - courtPrice : totalPaid;
 
                         const itemsWithStatus = (booking.items || []).map((item: any) => {
-                            const itemCost = Number(item.price) * item.quantity;
-                            let isPaid = false;
-                            if (remainingPayment >= itemCost) { remainingPayment -= itemCost; isPaid = true; }
-                            return { ...item, isPaid }; 
+                            // base the paid flag on the server's value; remainingPayment logic only drives court payment
+                            return { ...item, isPaid: !!item.isPaid };
                         });
 
                         return (
@@ -313,12 +328,17 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                                     <span className="text-xs opacity-60 font-mono">${courtPrice}</span>
                                 </div>
                                 <div className="space-y-1.5 pl-3 border-l-4 border-[#347048]/5">
-                                    {itemsWithStatus.map((item: any, idx: number) => (
+                                    {itemsWithStatus.map((item: any, idx: number) => {
+                                      const itemCost = Number(item.price) * item.quantity;
+                                      return (
                                       <div key={idx} className={`flex justify-between items-center text-[11px] font-bold uppercase tracking-wide pr-10 ${item.isPaid ? 'text-[#347048]/20 line-through' : 'text-[#347048]/60'}`}>
-                                          <span className="flex items-center gap-2"><span className={`px-1.5 py-0.5 rounded-md ${item.isPaid ? 'bg-gray-100 text-gray-400' : 'bg-[#926699] text-white'}`}>{item.quantity}x</span>{item.name || item.product?.name}</span>
-                                          <span className="font-mono">${Number(item.price) * item.quantity}</span>
+                                          <span className="flex items-center gap-2">
+                                            <span className={`px-1.5 py-0.5 rounded-md ${item.isPaid ? 'bg-gray-100 text-gray-400' : 'bg-[#926699] text-white'}`}>{item.quantity}x</span>{item.name || item.product?.name}
+                                          </span>
+                                          <span className="font-mono">${itemCost}</span>
                                       </div>
-                                    ))}
+                                    );
+                                    })}
                                 </div>
                             </div>
                             <div className="flex items-center gap-6 pl-8 border-l-2 border-dashed border-[#347048]/10">
@@ -338,75 +358,66 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
 
       {/* MODAL MÉTODOS PAGO */}
     {mounted && showPayMethodModal && createPortal(
-  <div
-    className="fixed inset-0 bg-[#347048]/80 backdrop-blur-[2px] flex items-center justify-center z-[120] p-4 animate-in fade-in duration-200"
-    onMouseDown={(event) => {
-      payMethodBackdropMouseDownRef.current = event.target === event.currentTarget;
-    }}
-    onTouchStart={(event) => {
-      payMethodBackdropMouseDownRef.current = event.target === event.currentTarget;
-    }}
-    onClick={(event) => {
-      const startedOnBackdrop = payMethodBackdropMouseDownRef.current;
-      payMethodBackdropMouseDownRef.current = false;
-      if (startedOnBackdrop && event.target === event.currentTarget) {
-        setShowPayMethodModal(false);
-      }
-    }}
-  >
-      <div className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full relative">
-        <button 
-          onClick={() => setShowPayMethodModal(false)}
-          className="absolute top-6 right-6 bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
-          title="Cerrar ventana"
-        >
-          <X size={20} strokeWidth={3} />
-        </button>
+        <PaymentCalculator
+          courtPrice={
+            (() => {
+              const bookingInfo = selectedDebtor?.bookings.find((b: any) => b.id === bookingToPayId) || {};
+              const allItemsTotal = (bookingInfo.items || []).reduce((sum: any, it: any) => sum + Number(it.price) * it.quantity, 0);
+              return Number(bookingInfo.price || 0) - allItemsTotal;
+            })()
+          }
+          cartItems={
+            (() => {
+              const bookingInfo = selectedDebtor?.bookings.find((b: any) => b.id === bookingToPayId) || {};
+              return (bookingInfo.items || [])
+                .filter((it: any) => !it.isPaid) // 👈 MAGIA 1: Ocultamos los ya pagados en el modal
+                .map((it: any) => ({
+                  id: it.id,
+                  productName: it.name || it.product?.name,
+                  quantity: it.quantity,
+                  price: Number(it.price)
+                }));
+            })()
+          }
+          alreadyPaid={
+            (() => {
+              const bookingInfo = selectedDebtor?.bookings.find((b: any) => b.id === bookingToPayId) || {};
+              let totalPaid = Number(bookingInfo.paid || 0);
+              if (bookingInfo.paymentStatus === 'DEBT') totalPaid = 0;
 
-        <h3 className="text-2xl font-black text-[#347048] mb-2 text-center uppercase tracking-tight italic">¿Método de cobro?</h3>
-                
-        {/* Buscamos el monto exacto de la reserva que estamos saldando */}
-        {(() => {
-          const bookingInfo = selectedDebtor?.bookings.find((b: any) => b.id === bookingToPayId);
-          return bookingInfo ? (
-            <p className="text-[#347048]/60 text-xs font-bold mb-8 text-center uppercase tracking-widest">
-              A SALDAR: <span className="text-[#347048] text-lg font-black">${bookingInfo.amount.toLocaleString()}</span>
-            </p>
-          ) : (
-            <p className="text-[#347048]/60 text-xs font-bold mb-8 text-center uppercase tracking-widest">
-              Se registrará en caja diaria
-            </p>
-          );
-        })()}
+              // Separamos la plata: ¿Cuánto de lo que ya pagó fue para productos?
+              const paidProductsTotal = (bookingInfo.items || [])
+                .filter((it: any) => it.isPaid)
+                .reduce((sum: any, it: any) => sum + Number(it.price) * it.quantity, 0);
 
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          <button
-            onClick={() => processDebtPayment('CASH')}
-            className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-3xl text-[#347048] transition-all hover:scale-[1.02] shadow-sm group"
-          >
-            <Banknote size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
-            <span className="font-black text-[10px] uppercase tracking-widest">Efectivo</span>
-          </button>
-          <button
-            onClick={() => processDebtPayment('TRANSFER')}
-            className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-3xl text-[#347048] transition-all hover:scale-[1.02] shadow-sm group"
-          >
-            <CreditCard size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
-            <span className="font-black text-[10px] uppercase tracking-widest">Digital</span>
-          </button>
-        </div>
-                
-        <button 
-          onClick={() => setShowPayMethodModal(false)}
-          className="w-full text-[#347048]/40 hover:text-[#347048] text-[10px] font-black uppercase tracking-widest hover:underline transition-all"
-        >
-          Cancelar operación
-        </button>
-      </div>
-    </div>,
-    document.body
-    )}
+              // MAGIA 2: Le pasamos al modal SOLO lo que se pagó de la cancha
+              return Math.max(0, totalPaid - paidProductsTotal);
+            })()
+          }
+          grandTotal={
+            (() => {
+              const bookingInfo = selectedDebtor?.bookings.find((b: any) => b.id === bookingToPayId) || {};
+              
+              // 1. Calculamos precio base de cancha
+              const allItemsTotal = (bookingInfo.items || []).reduce((sum: any, it: any) => sum + Number(it.price) * it.quantity, 0);
+              const courtPrice = Number(bookingInfo.price || 0) - allItemsTotal;
 
+              // 2. Sumamos SOLO los productos que faltan pagar
+              const pendingProductsTotal = (bookingInfo.items || [])
+                .filter((it: any) => !it.isPaid)
+                .reduce((sum: any, it: any) => sum + Number(it.price) * it.quantity, 0);
+
+              // MAGIA 3: El Total Deudor real (Cancha + Solo productos pendientes)
+              return courtPrice + pendingProductsTotal;
+            })()
+          }
+          onClose={() => {
+            setShowPayMethodModal(false);
+            setBookingToPayId(null);
+          }}
+          onConfirm={processDebtPayment}
+        />
+      , document.body)}
       {/* HISTORIAL COMPLETO */}
       {mounted && selectedClientHistory && createPortal(
         <div
@@ -439,29 +450,80 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                 <X size={20} strokeWidth={3} />
               </button>
             </div>
-            <div className="p-8 overflow-y-auto space-y-4 custom-scrollbar bg-white/40">
-              {selectedClientHistory.history?.length > 0 ? (
-                selectedClientHistory.history.slice().sort((a: any, b: any) => new Date(b.startDateTime).getTime() - new Date(a.startDateTime).getTime()).map((booking: any) => {
-                    const status = booking.status;
-                    const pStatus = booking.paymentStatus;
-                    const itemsTotal = (booking.items || []).reduce((sum: number, item: any) => sum + Number(item.price) * item.quantity, 0);
-                    const courtPrice = Number(booking.price || 0) - itemsTotal;
-                    return (
-                      <div key={booking.id} className="bg-white p-5 rounded-[1.5rem] border border-[#347048]/5 flex justify-between items-center shadow-sm">
-                        <div className="flex flex-col gap-2 flex-1">
-                          <div className="flex items-center gap-3"><span className="font-black text-[#347048] text-sm italic">#{booking.id}</span><span className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest">{formatDate(booking.date)} · {booking.time}</span></div>
-                          <div className="text-xs font-black text-[#347048] uppercase tracking-tight">Cancha: {booking.courtName || booking.court?.name} <span className="opacity-40 ml-2 font-mono">${courtPrice.toLocaleString()}</span></div>
-                          <div className="flex flex-wrap gap-2 mt-1">
-                            <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${status === 'CANCELLED' ? 'bg-gray-50 text-gray-400 border-gray-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>{bookingStatusLabel[status] ?? status}</span>
-                            <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${['DEBT', 'PARTIAL'].includes(pStatus) ? 'bg-red-50 text-red-500 border-red-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>{paymentStatusLabel[pStatus] ?? pStatus}</span>
-                          </div>
+            <div className="p-8 overflow-y-auto custom-scrollbar space-y-4 bg-white/40">
+                    {selectedDebtor.bookings
+                    .filter((b: any) => ['DEBT', 'PARTIAL', 'PENDING'].includes(b.paymentStatus))
+                    .map((booking: any) => {
+                        
+                        // --- 1. PRECIOS BASE ---
+                        const itemsTotal = (booking.items || []).reduce((sum: any, item: any) => sum + (Number(item.price) * item.quantity), 0);
+                        const courtPrice = Number(booking.price) - itemsTotal; 
+                        
+                        let totalPaid = Number(booking.paid || 0);
+                        if (booking.paymentStatus === 'DEBT') totalPaid = 0; // Ignoramos pagos previos si se forzó deuda
+
+                        // --- 2. MAGIA EXACTA DE CAJA ---
+                        // A. ¿Cuánto de lo pagado fue para productos?
+                        const paidProductsTotal = (booking.items || [])
+                            .filter((it: any) => it.isPaid)
+                            .reduce((sum: any, it: any) => sum + Number(it.price) * it.quantity, 0);
+
+                        // B. ¿Cuánto fue para la cancha?
+                        const courtPaid = Math.max(0, totalPaid - paidProductsTotal);
+                        const pendingCourt = Math.max(0, courtPrice - courtPaid);
+
+                        // C. ¿Cuánto suman los productos NO pagados?
+                        const pendingProductsTotal = (booking.items || [])
+                            .filter((it: any) => !it.isPaid)
+                            .reduce((sum: any, it: any) => sum + Number(it.price) * it.quantity, 0);
+
+                        // 👇 EL RESULTADO FINAL EXACTO
+                        const realAdeudado = pendingCourt + pendingProductsTotal;
+                        
+                        // ¿Tachamos la cancha visualmente? Solo si la deuda de cancha es 0
+                        const isCourtPaid = pendingCourt === 0;
+
+                        const itemsWithStatus = (booking.items || []).map((item: any) => {
+                            return { ...item, isPaid: !!item.isPaid };
+                        });
+
+                        return (
+                        <div key={booking.id} className="bg-white p-5 rounded-[1.5rem] border-2 border-[#347048]/5 flex justify-between items-center shadow-sm">
+                            <div className="flex flex-col flex-1">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <span className="font-black text-[#347048] text-sm bg-[#347048]/5 px-3 py-1 rounded-lg italic">#{booking.id}</span>
+                                    <span className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest">{formatDate(booking.date)}</span>
+                                </div>
+                                <div className={`text-sm font-black uppercase tracking-tight flex justify-between mb-2 pr-10 ${isCourtPaid ? 'text-[#347048]/20 line-through' : 'text-[#347048]'}`}>
+                                    <span>Cancha: {booking.courtName || booking.court?.name}</span>
+                                    <span className="text-xs opacity-60 font-mono">${courtPrice}</span>
+                                </div>
+                                <div className="space-y-1.5 pl-3 border-l-4 border-[#347048]/5">
+                                    {itemsWithStatus.map((item: any, idx: number) => {
+                                      const itemCost = Number(item.price) * item.quantity;
+                                      return (
+                                      <div key={idx} className={`flex justify-between items-center text-[11px] font-bold uppercase tracking-wide pr-10 ${item.isPaid ? 'text-[#347048]/20 line-through' : 'text-[#347048]/60'}`}>
+                                          <span className="flex items-center gap-2">
+                                            <span className={`px-1.5 py-0.5 rounded-md ${item.isPaid ? 'bg-gray-100 text-gray-400' : 'bg-[#926699] text-white'}`}>{item.quantity}x</span>{item.name || item.product?.name}
+                                          </span>
+                                          <span className="font-mono">${itemCost}</span>
+                                      </div>
+                                    );
+                                    })}
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-6 pl-8 border-l-2 border-dashed border-[#347048]/10">
+                                <div className="text-right">
+                                    {/* 👇 ACÁ SE APLICA EL SALDO CLAVADO */}
+                                    <div className="text-2xl font-black text-red-600 font-mono italic tracking-tighter">${realAdeudado.toLocaleString()}</div>
+                                    <div className="text-[9px] text-[#347048]/40 uppercase font-black tracking-widest">Adeudado</div>
+                                </div>
+                                <button onClick={() => handleOpenPayModal(booking.id)} className="bg-[#B9CF32] hover:bg-[#aebd2b] text-[#347048] h-12 w-12 flex items-center justify-center rounded-2xl shadow-lg transition-all active:scale-95"><DollarSign size={24} strokeWidth={3} /></button>
+                            </div>
                         </div>
-                        <div className="text-right pl-6 border-l border-dashed border-[#347048]/10"><div className="text-xl font-black text-[#347048] italic tracking-tighter">${Number(booking.price).toLocaleString()}</div><div className="text-[9px] font-black text-[#347048]/40 uppercase">{booking.amount > 0 ? `DEBE $${Number(booking.amount).toLocaleString()}` : 'SALDADO'}</div></div>
-                      </div>
-                    );
-                })
-              ) : <p className="text-center text-[#347048]/30 font-black py-10 uppercase italic">Sin registros</p>}
-            </div>
+                        );
+                    })}
+                </div>
             
           </div>
         </div>,

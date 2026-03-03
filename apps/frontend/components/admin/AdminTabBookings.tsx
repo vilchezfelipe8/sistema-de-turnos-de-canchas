@@ -288,6 +288,7 @@ export default function AdminTabBookings() {
   const [selectedBookingDetail, setSelectedBookingDetail] = useState<{ booking: any; slotTime: string; courtName?: string } | null>(null);
   const params = useParams();
   const urlSlug = params.slug;
+  const [isQuickPay, setIsQuickPay] = useState(false);
 
   const handleOpenPaymentModal = (bookingId: number) => {
     setSelectedBookingId(bookingId);
@@ -1231,39 +1232,46 @@ export default function AdminTabBookings() {
                         </div>
                       )}
                       <div className="absolute bottom-3 right-3 flex items-center gap-2">
+                      {/* --- CARRITO (Modo Normal) --- */}
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setIsQuickPay(false); // <-- Señal: Entrar a ver consumos
+                          setSelectedBooking(slot.booking);
+                        }}
+                        className="p-2 rounded-xl bg-white border border-[#347048]/10 text-[#347048] hover:bg-[#347048] hover:text-[#EBE1D8] transition-all shadow-sm"
+                        title="Consumos"
+                      >
+                        <ShoppingCart size={14} strokeWidth={2.5} />
+                      </button>
+
+                      {/* --- TILDE VERDE (Modo Rápido) --- */}
+                      {slot.booking.status === 'PENDING' && (
                         <button
                           onClick={(event) => {
                             event.stopPropagation();
+                            setIsQuickPay(true); // <-- Señal: Abrir calculadora de pago directo
                             setSelectedBooking(slot.booking);
                           }}
-                          className="p-2 rounded-xl bg-white border border-[#347048]/10 text-[#347048] hover:bg-[#347048] hover:text-[#EBE1D8] transition-all shadow-sm"
-                          title="Consumos"
+                          className="p-2 rounded-xl bg-[#B9CF32] text-[#347048] border border-white hover:scale-110 transition-all shadow-md"
+                          title="Confirmar pago"
                         >
-                          <ShoppingCart size={14} strokeWidth={2.5} />
+                          <Check size={14} strokeWidth={3} />
                         </button>
-                        {slot.booking.status === 'PENDING' && (
-                          <button
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleOpenPaymentModal(slot.booking.id);
-                            }}
-                            className="p-2 rounded-xl bg-[#B9CF32] text-[#347048] border border-white hover:scale-110 transition-all shadow-md"
-                            title="Confirmar pago"
-                          >
-                            <Check size={14} strokeWidth={3} />
-                          </button>
-                        )}
-                        <button
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleCancelBooking(slot.booking);
-                          }}
-                          className="p-2 rounded-xl bg-red-50 border border-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all"
-                          title="Cancelar"
-                        >
-                          <Trash2 size={14} strokeWidth={2.5} />
-                        </button>
-                      </div>
+                      )}
+
+                      {/* --- BASURERO --- */}
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleCancelBooking(slot.booking);
+                        }}
+                        className="p-2 rounded-xl bg-red-50 border border-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                        title="Cancelar"
+                      >
+                        <Trash2 size={14} strokeWidth={2.5} />
+                      </button>
+                    </div>
                     </button>
                   );
                 })}
@@ -1276,20 +1284,21 @@ export default function AdminTabBookings() {
       </div>
 
       {selectedBooking && (
-        <ModalPortal onClose={handleCloseConsumption}>
-          <BookingConsumption 
-            ref={consumptionRef}
-            bookingId={selectedBooking.id}
-            slug={getClubSlug() || ''}
-            courtPrice={selectedBooking.price}
-            baseCourtPrice={selectedBooking.court?.price}
-            bookingStatus={selectedBooking.status}
-            paymentStatus={selectedBooking.paymentStatus}
-            onClose={handleCloseConsumption}
-            onConfirm={() => { setSelectedBooking(null); loadSchedule(); }}
-          />
-        </ModalPortal>
-      )}
+      <ModalPortal onClose={() => { handleCloseConsumption(); setIsQuickPay(false); }}>
+        <BookingConsumption 
+          ref={consumptionRef}
+          bookingId={selectedBooking.id}
+          slug={getClubSlug() || ''}
+          courtPrice={selectedBooking.price}
+          baseCourtPrice={selectedBooking.court?.price}
+          bookingStatus={selectedBooking.status}
+          paymentStatus={selectedBooking.paymentStatus}
+          onClose={() => { handleCloseConsumption(); setIsQuickPay(false); }}
+          onConfirm={() => { setSelectedBooking(null); setIsQuickPay(false); loadSchedule(); }}
+          autoOpenPayment={isQuickPay} // <-- ACÁ LE PASÁS LA SEÑAL AL COMPONENTE
+        />
+      </ModalPortal>
+    )}
 
       {selectedBookingDetail && (
         <ModalPortal onClose={() => setSelectedBookingDetail(null)}>
@@ -1422,37 +1431,7 @@ export default function AdminTabBookings() {
         </ModalPortal>
       )}
 
-      {showPaymentModal && (
-        <ModalPortal onClose={() => setShowPaymentModal(false)}>
-          <div className="relative text-[#347048]">
-            <button
-              onClick={() => setShowPaymentModal(false)}
-              className="absolute right-0 top-0 -mt-2 -mr-2 bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
-              title="Cerrar ventana"
-            >
-              <X size={20} strokeWidth={3} />
-            </button>
-            <div className="text-center mb-6">
-              <h3 className="text-2xl font-black mb-2 uppercase tracking-tight italic">Cobrar Reserva</h3>
-              <p className="text-[#347048]/60 text-xs font-bold uppercase tracking-widest">Selecciona el método de pago</p>
-            </div>
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <button onClick={() => handleConfirmBooking('CASH')} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-[1.5rem] text-[#347048] transition-all shadow-sm group">
-                <Banknote size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
-                <span className="font-black text-xs uppercase tracking-tighter">Efectivo</span>
-              </button>
-              <button onClick={() => handleConfirmBooking('TRANSFER')} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-[1.5rem] text-[#347048] transition-all shadow-sm group">
-                <CreditCard size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
-                <span className="font-black text-xs uppercase tracking-tighter">Digital</span>
-              </button>
-            </div>
-            <button onClick={() => handleConfirmBooking('DEBT')} className="w-full py-4 flex items-center justify-center gap-2 bg-[#926699]/10 border-2 border-[#926699]/20 hover:bg-[#926699]/20 rounded-xl text-[#926699] font-black uppercase text-[10px] tracking-[0.2em] transition-all">
-              <FileText size={16} strokeWidth={3} />
-              <span>Dejar en Cuenta (Deuda)</span>
-            </button>
-          </div>
-        </ModalPortal>
-      )}
+      
 
       <AppModal show={modalState.show} onClose={closeModal} onCancel={modalState.onCancel} title={modalState.title} message={modalState.message} cancelText={modalState.cancelText} confirmText={modalState.confirmText} isWarning={modalState.isWarning} onConfirm={modalState.onConfirm} closeOnBackdrop={modalState.closeOnBackdrop} closeOnEscape={modalState.closeOnEscape} />
     </>
