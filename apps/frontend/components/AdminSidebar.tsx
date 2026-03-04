@@ -26,6 +26,7 @@ const AdminSidebar = ({ isOpen, onClose }: AdminSidebarProps) => {
     { name: 'Clientes', path: '/admin/clientes', icon: <Users size={20} /> },
     { name: 'Productos & Stock', path: '/admin/products', icon: <Package size={20} /> },
     { name: 'Caja y Movimientos', path: '/admin/cash', icon: <DollarSign size={20} /> },
+    { name: 'Estadísticas', path: '/admin/statistics', icon: <BarChart3 size={20} /> },
     { name: 'Canchas', path: '/admin/canchas', icon: <LayoutGrid size={20} /> },
     { name: 'Métricas', path: '/admin/metrics', icon: <BarChart3 size={20} /> }, 
     { name: 'Configuración', path: '/admin/settings', icon: <Settings size={20} /> },

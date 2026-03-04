@@ -110,7 +110,7 @@ export class AuthController {
             const user = await prisma.user.findUnique({
                 where: { id: payload.userId },
                 // 👉 5. PEDIMOS QUE LA BD NOS TRAIGA EL DNI TAMBIÉN ACÁ
-                select: { id: true, firstName: true, lastName: true, email: true, phoneNumber: true, role: true, clubId: true, dni: true }
+                select: { id: true, firstName: true, lastName: true, email: true, phoneNumber: true, role: true, clubId: true, dni: true, club: { select: { slug: true } } }
             });
             if (!user) {
                 return res.status(401).json({ error: 'Usuario no encontrado' });
@@ -124,7 +124,8 @@ export class AuthController {
                 role: user.role,
                 clubId: user.clubId,
                 // 👉 6. LO DEVOLVEMOS AL FRONTEND
-                dni: user.dni
+                dni: user.dni,
+                club: user.club
             });
         } catch (error: any) {
             res.status(500).json({ error: error.message });

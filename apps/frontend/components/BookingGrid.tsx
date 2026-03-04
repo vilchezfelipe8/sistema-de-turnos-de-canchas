@@ -705,6 +705,19 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
     return `${day} ${month} ${year}`;
   };
 
+  const availableActivities = useMemo(() => {
+    const allNames = activeCourts.flatMap((court) => 
+      court.activities?.map((activity) => activity.name) || []
+    );
+    return Array.from(new Set(allNames));
+  }, [activeCourts]);
+
+  useEffect(() => {
+    if (availableActivities.length === 1 && !selectedActivityFilter) {
+      setSelectedActivityFilter(availableActivities[0]);
+    }
+  }, [availableActivities, selectedActivityFilter]);
+
   // --- RENDERIZADO VISUAL ---
   // --- RENDERIZADO VISUAL ---
   return (
@@ -731,11 +744,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                 setSelectedCourt(null);
               }}
               placeholder="Seleccioná un deporte"
-              options={Array.from(
-                new Set(
-                  activeCourts.flatMap((court) => court.activities?.map((activity) => activity.name) || [])
-                )
-              ).map((activityName) => ({
+              options={availableActivities.map((activityName) => ({
                 value: activityName,
                 label: activityName
               }))}

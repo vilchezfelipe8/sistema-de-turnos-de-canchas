@@ -190,4 +190,11 @@ router.get('/:slug/admin/clients-list',
     clubController.getClubClientsList 
 );
 
+router.get('/:slug/admin/stats/dashboard', 
+    authMiddleware,       
+    requireRole('ADMIN'), 
+    verifyClubAccess,     
+    bookingController.getDashboardStats
+);
+
 export default router;

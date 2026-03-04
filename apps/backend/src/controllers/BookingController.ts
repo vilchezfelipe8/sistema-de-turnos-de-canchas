@@ -1038,5 +1038,80 @@ Un cliente acaba de cancelar su reserva desde la web en *${clubName}*.
             res.status(400).json({ error: error.message || "Error al cobrar deuda" });
         }
     }
+
+    getDashboardStats = async (req: Request, res: Response) => {
+    try {
+        const clubId = Number((req as any).clubId);
+        const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+        const endOfMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59);
+
+        // 1. TRAEMOS TODO EN PARALELO
+        const [movements, playedBookings] = await Promise.all([
+            // Movimientos de caja (Bar + Pagos de turnos)
+            prisma.cashMovement.findMany({
+                where: {
+                    clubId: clubId,
+                    type: 'INCOME',
+                    date: { gte: startOfMonth, lte: endOfMonth }
+                },
+                select: { date: true, amount: true, description: true, method: true }
+            }),
+            // Solo los turnos que se jugaron (Status = COMPLETED)
+            prisma.booking.count({
+                where: {
+                    court: { clubId: clubId },
+                    startDateTime: { gte: startOfMonth, lte: endOfMonth },
+                    status: 'COMPLETED' // 🔥 ACÁ ES DONDE CAMBIAMOS A "JUGADOS"
+                }
+            })
+        ]);
+
+        // 2. PROCESAMOS MOVIMIENTOS
+        const dailyMap = new Map();
+        const methodMap: Record<string, number> = {};
+        let totalTurnos = 0;
+        let totalBar = 0;
+
+        movements.forEach(m => {
+            const day = m.date.getDate();
+            const amount = Number(m.amount);
+            
+            // Separación Bar vs Turnos basada en tu descripción
+            const isProduct = m.description && m.description.includes('Venta Extra:');
+
+            const current = dailyMap.get(day) || { turnos: 0, bar: 0 };
+            
+            if (isProduct) {
+                current.bar += amount;
+                totalBar += amount;
+            } else {
+                current.turnos += amount;
+                totalTurnos += amount;
+            }
+            dailyMap.set(day, current);
+
+            // Acumulamos para la torta de pagos
+            methodMap[m.method] = (methodMap[m.method] || 0) + amount;
+        });
+
+        // 3. Formatear para el gráfico
+        const dailyEvolution = Array.from(dailyMap, ([day, values]) => ({ 
+            day: `Día ${day}`, 
+            ...values 
+        })).sort((a, b) => parseInt(a.day.split(' ')[1]) - parseInt(b.day.split(' ')[1]));
+
+        // 4. RESPUESTA FINAL
+        res.json({
+            totalRevenue: totalTurnos + totalBar,
+            totalBookings: playedBookings, // Usamos el conteo de jugados
+            dailyEvolution: dailyEvolution,
+            paymentMethods: Object.entries(methodMap).map(([name, value]) => ({ name, value }))
+        });
+
+    } catch (error) {
+        console.error("Error:", error);
+        res.status(500).json({ error: "Error al calcular estadísticas" });
+    }
+}
 }
 

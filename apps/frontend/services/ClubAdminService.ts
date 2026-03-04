@@ -336,5 +336,23 @@ export class ClubAdminService {
     if (!response.ok) throw new Error('Error al obtener lista de clientes');
     return response.json();
   }
+
+
+  static async getDashboardStats(slug: string) {
+    if (!getToken()) throw new Error('No autenticado');
+
+    // Ajustá 'apiBase()' según tu configuración, pero suele ser la función que retorna tu URL base
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/stats/dashboard`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Error al cargar métricas');
+    }
+    
+    return res.json();
+  }
 }
 
