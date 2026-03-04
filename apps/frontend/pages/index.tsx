@@ -248,6 +248,20 @@ export default function Home() {
     return initials || 'TU';
   }, [user]);
   const isAdmin = user?.role === 'ADMIN';
+  const adminClubSlug = useMemo(() => {
+    if (!user || !isAdmin) return null;
+
+    const directSlug = user.slug || user.clubSlug || user?.club?.slug;
+    if (typeof directSlug === 'string' && directSlug.trim()) {
+      return directSlug.trim();
+    }
+
+    const clubId = Number(user.clubId || user?.club?.id);
+    if (!Number.isFinite(clubId) || clubId <= 0) return null;
+
+    const club = clubs.find((item) => Number(item.id) === clubId);
+    return club?.slug || null;
+  }, [clubs, isAdmin, user]);
 
   const sportOptions = useMemo(() => ([
     {
@@ -665,7 +679,7 @@ export default function Home() {
                           </span>
                         </div>
                         <h3 className="text-xl font-black text-[#347048] italic tracking-tight">{user.firstName || user.name || 'Usuario'}</h3>
-                        <p className="text-[#347048]/60 text-xs font-bold uppercase tracking-widest mt-1">Miembro</p>
+                        <p className="text-[#347048]/60 text-xs font-bold uppercase tracking-widest mt-1">{isAdmin ? 'Administrador' : 'Miembro'}</p>
                       </div>
                       <div className="border-t border-[#347048]/10 px-6 py-5 bg-[#347048]/5">
                         <p className="text-[#347048]/40 font-black text-[10px] uppercase tracking-widest mb-3">Mis Datos</p>
@@ -681,6 +695,24 @@ export default function Home() {
                         </div>
                       </div>
                       <div className="border-t border-[#347048]/10 px-6 py-4 space-y-2 font-bold">
+                        {isAdmin && (
+                          <Link
+                            href="/admin/agenda"
+                            className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
+                            onClick={() => setShowUserMenu(false)}
+                          >
+                            <ShieldCheck size={18} strokeWidth={2.5} /> Gestión
+                          </Link>
+                        )}
+                        {isAdmin && adminClubSlug && (
+                          <Link
+                            href={`/club/${adminClubSlug}`}
+                            className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
+                            onClick={() => setShowUserMenu(false)}
+                          >
+                            <MapPin size={18} strokeWidth={2.5} /> Mi club
+                          </Link>
+                        )}
                         <Link
                           href="/bookings"
                           className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
@@ -879,44 +911,46 @@ export default function Home() {
           <Calendar className="text-[#347048] group-hover:text-[#B9CF32] transition-colors shrink-0" size={20} />
           <div className="flex flex-col items-start text-left w-full overflow-hidden min-h-[38px] justify-center gap-1">
             <label className="text-[10px] font-bold text-[#347048]/60 uppercase tracking-wider h-3 leading-3">Fecha</label>
-                    <div className="flex items-center gap-2">
+                    <div className="w-full grid grid-cols-1 md:grid-cols-[28px,1fr,28px] items-center">
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); changeDateBy(-1); }}
                         disabled={!canGoPrev()}
-                        className={`p-2 rounded-md transition-colors ${canGoPrev() ? 'bg-white/10 hover:bg-white/20' : 'opacity-40 cursor-not-allowed'}`}
+                        className="hidden md:flex p-1 rounded-lg text-[#347048] disabled:opacity-20 disabled:cursor-not-allowed hover:bg-[#347048]/10 transition-colors"
                         aria-label="Fecha anterior"
                       >
-                        <ChevronLeft size={16} />
+                        <ChevronLeft className="w-5 h-5" />
                       </button>
 
-                      <DatePickerDark
-                        selected={
-                          searchDate
-                            ? (() => {
-                                const [y, m, d] = searchDate.split('-').map(Number);
-                                return new Date(y, m - 1, d);
-                              })()
-                            : null
-                        }
-                        onChange={(date: Date | null) => {
-                          if (!date) { setSearchDate(''); return; }
-                          setSearchDate(formatLocalDate(date));
-                        }}
-                        minDate={getEffectiveToday()}
-                        showIcon={false}
-                        inputSize="compact"
-                        inputClassName="bg-transparent border-none outline-none text-[#347048] font-bold text-sm w-full p-0 leading-5 uppercase cursor-pointer placeholder-[#347048]/40 h-auto px-0 py-0 focus:ring-0 focus:border-transparent truncate"
-                        variant="light"
-                      />
+                      <div className="flex justify-start md:justify-center">
+                        <DatePickerDark
+                          selected={
+                            searchDate
+                              ? (() => {
+                                  const [y, m, d] = searchDate.split('-').map(Number);
+                                  return new Date(y, m - 1, d);
+                                })()
+                              : null
+                          }
+                          onChange={(date: Date | null) => {
+                            if (!date) { setSearchDate(''); return; }
+                            setSearchDate(formatLocalDate(date));
+                          }}
+                          minDate={getEffectiveToday()}
+                          showIcon={false}
+                          inputSize="compact"
+                          inputClassName="bg-transparent border-none outline-none text-[#347048] font-bold text-sm w-full md:w-[132px] text-left md:text-center p-0 leading-5 uppercase cursor-pointer placeholder-[#347048]/40 h-auto px-0 py-0 focus:ring-0 focus:border-transparent"
+                          variant="light"
+                        />
+                      </div>
 
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); changeDateBy(1); }}
-                        className="p-2 rounded-md bg-white/10 hover:bg-white/20 transition-colors"
+                        className="hidden md:flex p-1 rounded-lg text-[#347048] hover:bg-[#347048]/10 transition-colors"
                         aria-label="Fecha siguiente"
                       >
-                        <ChevronRight size={16} />
+                        <ChevronRight className="w-5 h-5" />
                       </button>
                     </div>
           </div>

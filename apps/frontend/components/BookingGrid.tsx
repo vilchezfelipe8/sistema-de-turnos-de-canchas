@@ -199,6 +199,10 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   const STORAGE_PREFIX = 'disabledSlots:';
 
   const [allCourts, setAllCourts] = useState<Array<{ id: number; name: string; price?: number | null; activities?: Array<{ id: number; name: string }> }>>([]);
+  const activeCourts = useMemo(
+    () => allCourts.filter((court: any) => !court?.isUnderMaintenance),
+    [allCourts]
+  );
 
   // ...existing code...
   const [clubConfig, setClubConfig] = useState<Club | null>(null);
@@ -339,7 +343,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
 
     return filteredSlotsWithCourts
       .map((slot) => {
-        const courtsToShow = (allCourts.length > 0 ? allCourts : slot.availableCourts).filter((court) => {
+        const courtsToShow = (activeCourts.length > 0 ? activeCourts : slot.availableCourts).filter((court) => {
           if (selectedActivityFilter === 'ALL') return true;
           const activities = (court as any).activities as Array<{ name: string }> | undefined;
           return (activities || []).some((activity) => activity.name === selectedActivityFilter);
@@ -354,7 +358,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
         return { slotTime: slot.slotTime, courts: availableCourts };
       })
       .filter((slot) => slot.courts.length > 0);
-  }, [filteredSlotsWithCourts, allCourts, selectedActivityFilter, disabledSlots, selectedDate]);
+  }, [filteredSlotsWithCourts, activeCourts, selectedActivityFilter, disabledSlots, selectedDate]);
 
   useEffect(() => {
     if (!selectedSlot) return;
@@ -591,9 +595,9 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
   }, [clubSlug]);
 
   useEffect(() => {
-    if (!pendingSport || allCourts.length === 0) return;
+    if (!pendingSport || activeCourts.length === 0) return;
     const activityNames = Array.from(
-      new Set(allCourts.flatMap((court) => court.activities?.map((activity) => activity.name) || []))
+      new Set(activeCourts.flatMap((court) => court.activities?.map((activity) => activity.name) || []))
     );
     const normalizedTarget = normalizeText(pendingSport);
     const matched = activityNames.find((name) => normalizeText(name) === normalizedTarget);
@@ -601,7 +605,31 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
       setSelectedActivityFilter(matched);
     }
     setPendingSport(null);
-  }, [pendingSport, allCourts]);
+  }, [pendingSport, activeCourts]);
+
+  useEffect(() => {
+    if (pendingSport) return;
+    if (activeCourts.length === 0) return;
+
+    const uniqueActivities = Array.from(
+      new Set(activeCourts.flatMap((court) => court.activities?.map((activity) => activity.name) || []))
+    );
+
+    if (uniqueActivities.length === 1 && !selectedActivityFilter) {
+      setSelectedActivityFilter(uniqueActivities[0]);
+    }
+  }, [activeCourts, pendingSport, selectedActivityFilter]);
+
+  useEffect(() => {
+    if (scheduleDurations.length !== 1) return;
+    const onlyDuration = Number(scheduleDurations[0]);
+    if (!Number.isFinite(onlyDuration)) return;
+    if (selectedDuration === onlyDuration) return;
+
+    setSelectedDuration(onlyDuration);
+    setSelectedSlot(null);
+    setSelectedCourt(null);
+  }, [scheduleDurations, selectedDuration]);
 
   useEffect(() => {
     if (!pendingTime || availableSlots.length === 0) return;
@@ -624,7 +652,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
 
       slotsWithCourts.forEach((slot) => {
         const availableIds = new Set(slot.availableCourts.map((c) => c.id));
-        const courtsToInspect = allCourts.length > 0 ? allCourts : slot.availableCourts;
+        const courtsToInspect = activeCourts.length > 0 ? activeCourts : slot.availableCourts;
 
         courtsToInspect.forEach((court) => {
           const key = `${dateString}-${slot.slotTime}-${court.id}`;
@@ -641,7 +669,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
 
       return nextState;
     });
-  }, [slotsWithCourts, allCourts, selectedDate]);
+  }, [slotsWithCourts, activeCourts, selectedDate]);
 
   // 1. Evitar ir al pasado
   const isPrevDisabled = () => {
@@ -705,7 +733,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
               placeholder="Seleccioná un deporte"
               options={Array.from(
                 new Set(
-                  allCourts.flatMap((court) => court.activities?.map((activity) => activity.name) || [])
+                  activeCourts.flatMap((court) => court.activities?.map((activity) => activity.name) || [])
                 )
               ).map((activityName) => ({
                 value: activityName,

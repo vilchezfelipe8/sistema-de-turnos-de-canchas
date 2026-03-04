@@ -3,8 +3,9 @@ import { useRouter } from 'next/router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getToken, logout } from '../services/AuthService';
 import { getMyBookings } from '../services/BookingService';
+import { ClubService } from '../services/ClubService';
 import AppModal from './AppModal';
-import { Menu, Home, Calendar, Settings, LogOut, Phone, Mail, Check, Lock } from 'lucide-react'; 
+import { Menu, Home, Calendar, Settings, LogOut, Phone, Mail, Check, Lock, MapPin } from 'lucide-react'; 
 
 interface NavbarProps {
   onMenuClick?: () => void;
@@ -19,6 +20,7 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [activeBookingsCount, setActiveBookingsCount] = useState(0);
+  const [resolvedAdminClubSlug, setResolvedAdminClubSlug] = useState<string | null>(null);
   const navRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -95,8 +97,118 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
   }, [showUserMenu]);
 
   const handleLogout = () => setShowLogoutModal(true);
-  const isActive = (path: string) => router.pathname === path;
   const isAdmin = user?.role === 'ADMIN';
+  const isClubSlugView = router.pathname === '/club/[slug]';
+  const isBookingsView = router.pathname === '/bookings';
+  const isAdminView = router.pathname.startsWith('/admin') || router.pathname === '/club/[slug]/admin';
+
+  const adminClubSlug = useMemo(() => {
+    if (!user || !isAdmin) return null;
+
+    const directSlug = user.slug || user.clubSlug || user?.club?.slug;
+    if (typeof directSlug === 'string' && directSlug.trim()) {
+      return directSlug.trim();
+    }
+
+    const routeSlug = router.query.slug;
+    if (typeof routeSlug === 'string' && routeSlug.trim()) {
+      return routeSlug.trim();
+    }
+
+    return null;
+  }, [user, isAdmin, router.query.slug]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const resolveAdminClubSlug = async () => {
+      if (!isAdmin) {
+        setResolvedAdminClubSlug(null);
+        return;
+      }
+
+      if (adminClubSlug) {
+        setResolvedAdminClubSlug(null);
+        return;
+      }
+
+      const clubId = Number(user?.clubId || user?.club?.id);
+      if (!Number.isFinite(clubId) || clubId <= 0) {
+        setResolvedAdminClubSlug(null);
+        return;
+      }
+
+      try {
+        const club = await ClubService.getClubById(clubId);
+        if (!isCancelled && club?.slug) {
+          setResolvedAdminClubSlug(club.slug);
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          setResolvedAdminClubSlug(null);
+        }
+      }
+    };
+
+    resolveAdminClubSlug();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isAdmin, user, adminClubSlug]);
+
+  const effectiveAdminClubSlug = adminClubSlug || resolvedAdminClubSlug;
+
+  const dropdownNavLinks = useMemo(() => {
+    const links: Array<{ href: string; label: string; icon: any }> = [];
+
+    if (isClubSlugView) {
+      if (isAdmin) {
+        links.push({
+          href: '/admin/agenda',
+          label: 'Gestión',
+          icon: <Settings size={18} strokeWidth={2.5} />
+        });
+      }
+      links.push({ href: '/', label: 'Inicio', icon: <Home size={18} strokeWidth={2.5} /> });
+      links.push({ href: '/bookings', label: 'Mis Reservas', icon: <Calendar size={18} strokeWidth={2.5} /> });
+      return links;
+    }
+
+    if (isBookingsView) {
+      if (isAdmin) {
+        links.push({
+          href: '/admin/agenda',
+          label: 'Gestión',
+          icon: <Settings size={18} strokeWidth={2.5} />
+        });
+        if (effectiveAdminClubSlug) {
+          links.push({
+            href: `/club/${effectiveAdminClubSlug}`,
+            label: 'Mi Club',
+            icon: <MapPin size={18} strokeWidth={2.5} />
+          });
+        }
+      }
+      links.push({ href: '/', label: 'Inicio', icon: <Home size={18} strokeWidth={2.5} /> });
+      return links;
+    }
+
+    if (isAdminView) {
+      links.push({ href: '/', label: 'Inicio', icon: <Home size={18} strokeWidth={2.5} /> });
+      if (effectiveAdminClubSlug) {
+        links.push({
+          href: `/club/${effectiveAdminClubSlug}`,
+          label: 'Mi Club',
+          icon: <MapPin size={18} strokeWidth={2.5} />
+        });
+      }
+      links.push({ href: '/bookings', label: 'Mis Reservas', icon: <Calendar size={18} strokeWidth={2.5} /> });
+      return links;
+    }
+
+    return links;
+  }, [isClubSlugView, isAdmin, isBookingsView, isAdminView, effectiveAdminClubSlug]);
 
   const userInitials = useMemo(() => {
     if (!user) return 'TU';
@@ -155,38 +267,6 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
           {/* --- DERECHA: USUARIO / LOGIN --- */}
           {(user || isGuest) && (
             <div className="flex items-center gap-2 sm:gap-4 relative">
-              
-              {/* 👇 Botones de Navegación 👇 */}
-              <div className="hidden sm:flex items-center gap-1 p-1 rounded-full bg-[#EBE1D8]/10">
-                
-                {/* 1. INICIO: Visible para TODOS (Admins y Clientes). Lleva a la vista pública del club */}
-                <NavLink 
-                  href="/" 
-                  icon={<Home size={16} strokeWidth={2.5} />} 
-                  text="Inicio" 
-                  active={router.asPath === '/'} 
-                />
-
-                {/* 2. MIS TURNOS: Solo para clientes (NO admins) */}
-                {!isAdmin && user && (
-                  <NavLink 
-                    href="/bookings" 
-                    icon={<Calendar size={16} strokeWidth={2.5} />} 
-                    text="Mis Turnos" 
-                    active={isActive('/bookings')} 
-                  />
-                )}
-
-                {/* 3. GESTIÓN: Para admins tanto en vista pública como en el panel */}
-                {isAdmin && (
-                  <NavLink 
-                    href="/admin/agenda" 
-                    icon={<Settings size={16} strokeWidth={2.5} />} 
-                    text="Gestión" 
-                    active={router.asPath.startsWith('/admin')} 
-                  />
-                )}
-              </div>
 
               {/* Menú de Usuario (Separado y limpio) */}
               {user ? (
@@ -247,22 +327,16 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
                       </div>
 
                       <div className="border-t border-[#347048]/10 px-6 py-4 space-y-2 font-bold">
-                        {/* Mobile navigation links (visible only on small screens) */}
-                        <div className="block sm:hidden space-y-2">
-                          <Link href="/" className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors" onClick={() => setShowUserMenu(false)}>
-                            <Home size={18} strokeWidth={2.5} /> Inicio
+                        {dropdownNavLinks.map((link) => (
+                          <Link
+                            key={`${link.href}-${link.label}`}
+                            href={link.href}
+                            className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
+                            onClick={() => setShowUserMenu(false)}
+                          >
+                            {link.icon} {link.label}
                           </Link>
-                          {!isAdmin && (
-                            <Link href="/bookings" className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors" onClick={() => setShowUserMenu(false)}>
-                              <Calendar size={18} strokeWidth={2.5} /> Mis Reservas
-                            </Link>
-                          )}
-                          {isAdmin && (
-                            <Link href="/admin/agenda" className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors" onClick={() => setShowUserMenu(false)}>
-                              <Settings size={18} strokeWidth={2.5} /> Gestión
-                            </Link>
-                          )}
-                        </div>
+                        ))}
                         
                         <button
                           type="button"
@@ -308,18 +382,5 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
     </>
   );
 };
-
-const NavLink = ({ href, icon, text, active }: any) => (
-  <Link href={href}
-    className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest transition-all border-2 ${
-      active
-        ? 'bg-[#EBE1D8] text-[#347048] border-[#EBE1D8]'
-        : 'text-[#EBE1D8] border-transparent hover:bg-white/20 hover:text-white'
-    }`}
-  >
-    {icon}
-    <span className="hidden sm:inline mt-[1px]">{text}</span>
-  </Link>
-);
 
 export default Navbar;
