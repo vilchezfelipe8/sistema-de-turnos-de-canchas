@@ -938,6 +938,9 @@ export default function Home() {
                           minDate={getEffectiveToday()}
                           showIcon={false}
                           inputSize="compact"
+                          // AGREGÁ ESTA LÍNEA ACÁ ABAJO:
+                          dateFormat="EEE dd MMM yyyy" 
+                          // ---------------------------
                           inputClassName="bg-transparent border-none outline-none text-[#347048] font-bold text-sm w-full md:w-[132px] text-left md:text-center p-0 leading-5 uppercase cursor-pointer placeholder-[#347048]/40 h-auto px-0 py-0 focus:ring-0 focus:border-transparent"
                           variant="light"
                         />

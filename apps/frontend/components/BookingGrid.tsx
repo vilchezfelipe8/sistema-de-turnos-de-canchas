@@ -698,12 +698,16 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
   // 4. Formatear la fecha para que se vea como "18 FEB 2026"
   // Reemplazá el formattedDate anterior por esto:
   const getFormattedDate = (date: Date) => {
-    const day = date.getDate().toString().padStart(2, '0');
-    const monthNames = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
-    const month = monthNames[date.getMonth()];
-    const year = date.getFullYear();
-    return `${day} ${month} ${year}`;
-  };
+  const weekDays = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
+  const weekDayName = weekDays[date.getDay()];
+  
+  const day = date.getDate().toString().padStart(2, '0');
+  const monthNames = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
+  const month = monthNames[date.getMonth()];
+  const year = date.getFullYear();
+  
+  return `${weekDayName} ${day} ${month} ${year}`;
+};
 
   const availableActivities = useMemo(() => {
     const allNames = activeCourts.flatMap((court) => 

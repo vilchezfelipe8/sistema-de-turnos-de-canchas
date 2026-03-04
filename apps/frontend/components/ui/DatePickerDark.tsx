@@ -137,7 +137,7 @@ const DatePickerDark = ({ className, inputClassName, showIcon = true, variant = 
         <DatePicker
           {...props}
           locale="es"
-          dateFormat="dd MMM yyyy"
+          dateFormat={props.dateFormat || "dd MMM yyyy"}
           showPopperArrow={false}
           popperPlacement="bottom-start"
           popperClassName="react-datepicker-popper"
