@@ -242,6 +242,13 @@ export default function BookingConsumption(
     return method || 'Sin método';
   };
 
+  const formatPaymentTime = (dateValue?: string) => {
+    if (!dateValue) return '--:--';
+    const date = new Date(dateValue);
+    if (Number.isNaN(date.getTime())) return '--:--';
+    return date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+  };
+
   const consumptionTotal = cartItems
     .filter(item => item.isNew)
     .reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -450,7 +457,7 @@ export default function BookingConsumption(
               <p className="text-[9px] font-black uppercase tracking-widest text-[#347048]/50">Detalle pagos cancha</p>
               {courtPayments.map((payment) => (
                 <div key={payment.id} className="flex justify-between items-center text-[10px] font-black text-[#347048]">
-                  <span>{formatMethodLabel(payment.method)}</span>
+                  <span>{formatPaymentTime(payment.date)} • {formatMethodLabel(payment.method)}</span>
                   <span>${Number(payment.amount || 0).toLocaleString()}</span>
                 </div>
               ))}
