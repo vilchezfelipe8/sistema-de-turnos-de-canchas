@@ -307,6 +307,10 @@ const AdminCashDashboard = () => {
       }))
       .filter((payment) => Number.isFinite(payment.amount) && payment.amount > 0);
 
+    const hasDebtInSplit = splitSaleEnabled && parsedSplitPayments.some((payment) => payment.method === 'DEBT');
+    const hasDebtInSale = productSale.method === 'DEBT' || hasDebtInSplit;
+    const fallbackGuestName = productSale.clientQuery.trim();
+
     if (splitSaleEnabled) {
       if (parsedSplitPayments.length === 0) {
         setSaleError('Agregá al menos un tramo de pago válido.');
@@ -317,6 +321,11 @@ const AdminCashDashboard = () => {
         setSaleError('La suma de los pagos debe coincidir con el total de la venta.');
         return;
       }
+    }
+
+    if (hasDebtInSale && !selectedClient && !fallbackGuestName) {
+      setSaleError('Para registrar fiado, seleccioná un cliente o escribí al menos un nombre.');
+      return;
     }
 
     try {
@@ -335,7 +344,9 @@ const AdminCashDashboard = () => {
           method: productSale.method,
           ...(splitSaleEnabled ? { payments: parsedSplitPayments } : {}),
           userId: selectedClient?.id,
-          guestName: selectedClient ? `${selectedClient.firstName || ''} ${selectedClient.lastName || ''}`.trim() : undefined,
+          guestName: selectedClient
+            ? `${selectedClient.firstName || ''} ${selectedClient.lastName || ''}`.trim()
+            : (hasDebtInSale ? fallbackGuestName : undefined),
           guestPhone: selectedClient?.phoneNumber || selectedClient?.phone || undefined,
           guestDni: selectedClient?.dni || selectedClient?.dniNumber || selectedClient?.document || undefined
         })
@@ -635,6 +646,9 @@ const AdminCashDashboard = () => {
                   type="number"
                   min={1}
                   placeholder="1"
+                  onWheel={(event) => {
+                    event.currentTarget.blur();
+                  }}
                   className="w-full h-14 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl px-4 text-[#347048] font-black focus:outline-none shadow-sm transition-all"
                   value={productSale.quantity}
                   onChange={(e) => setProductSale({ ...productSale, quantity: e.target.value })}

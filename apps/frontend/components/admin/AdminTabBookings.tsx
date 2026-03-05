@@ -6,9 +6,9 @@ import {
   getAdminSchedule,
   cancelBooking,
   confirmBooking as confirmBookingService,
-  splitBookingPayment as splitBookingPaymentService,
   getBookingFinancialSummary,
   registerBookingCourtDebtPortion,
+  registerBookingPartialPayment,
   createBooking,
   createFixedBooking,
   cancelFixedBooking,
@@ -887,8 +887,23 @@ export default function AdminTabBookings() {
       return;
     }
 
+    const summary = await getBookingFinancialSummary(selectedBookingId);
+    const totalPending = Math.max(0, Number(summary?.remaining || 0));
+    const enteredTotal = parsedPayments.reduce((sum, payment) => sum + payment.amount, 0);
+
+    if (Math.abs(enteredTotal - totalPending) > 0.01) {
+      showError('La suma de pagos debe ser exactamente igual al saldo pendiente.');
+      return;
+    }
+
     try {
-      await splitBookingPaymentService(selectedBookingId, parsedPayments as Array<{ method: 'CASH' | 'TRANSFER' | 'DEBT'; amount: number }>);
+      for (const payment of parsedPayments) {
+        if (payment.method === 'DEBT') {
+          await registerBookingCourtDebtPortion(selectedBookingId, payment.amount);
+        } else {
+          await registerBookingPartialPayment(selectedBookingId, payment.amount, payment.method);
+        }
+      }
       setShowPaymentModal(false);
       setPaymentMode('single');
       setSplitPayments([{ method: 'CASH', amount: '' }]);
