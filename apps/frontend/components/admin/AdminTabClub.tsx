@@ -4,6 +4,42 @@ import { ClubService, Club } from '../../services/ClubService';
 import AppModal from '../AppModal';
 import { Settings, Globe, Instagram, Facebook, MapPin, Phone, Mail, Lightbulb, Image as ImageIcon, Trash2, Save, AlertTriangle, Clock } from 'lucide-react';
 
+const FIXED_BOOKING_ACTIVITY_KEYS = ['PADEL', 'FUTBOL', 'TENIS'] as const;
+type FixedBookingActivityKey = (typeof FIXED_BOOKING_ACTIVITY_KEYS)[number];
+
+const FIXED_BOOKING_ACTIVITY_LABELS: Record<FixedBookingActivityKey, string> = {
+  PADEL: 'Pádel',
+  FUTBOL: 'Fútbol',
+  TENIS: 'Tenis'
+};
+
+const getDefaultFixedBookingSettingsForm = () => ({
+  PADEL: { fixedBookingDaysAhead: '90', fixedBookingGenerationFrequencyDays: '7' },
+  FUTBOL: { fixedBookingDaysAhead: '90', fixedBookingGenerationFrequencyDays: '7' },
+  TENIS: { fixedBookingDaysAhead: '90', fixedBookingGenerationFrequencyDays: '7' }
+});
+
+const toFixedBookingSettingsForm = (raw: unknown) => {
+  const base = getDefaultFixedBookingSettingsForm();
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return base;
+  const source = raw as Record<string, any>;
+
+  for (const key of FIXED_BOOKING_ACTIVITY_KEYS) {
+    const config = source[key];
+    if (!config || typeof config !== 'object') continue;
+    const daysAhead = Number(config.fixedBookingDaysAhead);
+    const generationFrequencyDays = Number(config.fixedBookingGenerationFrequencyDays);
+    if (Number.isFinite(daysAhead) && daysAhead > 0) {
+      base[key].fixedBookingDaysAhead = String(Math.floor(daysAhead));
+    }
+    if (Number.isFinite(generationFrequencyDays) && generationFrequencyDays > 0) {
+      base[key].fixedBookingGenerationFrequencyDays = String(Math.floor(generationFrequencyDays));
+    }
+  }
+
+  return base;
+};
+
 export default function AdminTabClub() {
     // Utilidades para parsear duraciones y slots
     const parseDurationList = (value: string) =>
@@ -33,7 +69,8 @@ export default function AdminTabClub() {
     scheduleIntervalMinutes: '',
     scheduleDurations: '',
        scheduleFixedSlots: '',
-       openingDays: ''
+       openingDays: '',
+       fixedBookingSettingsByActivity: getDefaultFixedBookingSettingsForm()
   });
      const [openingDaysSet, setOpeningDaysSet] = useState<number[]>([]);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
@@ -87,7 +124,8 @@ export default function AdminTabClub() {
           scheduleIntervalMinutes: clubData.scheduleIntervalMinutes != null ? String(clubData.scheduleIntervalMinutes) : '',
           scheduleDurations: Array.isArray(clubData.scheduleDurations) ? clubData.scheduleDurations.join(', ') : '',
           scheduleFixedSlots: Array.isArray(clubData.scheduleFixedSlots) ? clubData.scheduleFixedSlots.join(', ') : '',
-          openingDays: Array.isArray(clubData.openingDays) ? clubData.openingDays.join(',') : ''
+          openingDays: Array.isArray(clubData.openingDays) ? clubData.openingDays.join(',') : '',
+          fixedBookingSettingsByActivity: toFixedBookingSettingsForm(clubData.fixedBookingSettingsByActivity)
           });
           setOpeningDaysSet(Array.isArray(clubData.openingDays) ? clubData.openingDays : []);
           setLogoPreview(clubData.logoUrl || null);
@@ -109,6 +147,20 @@ export default function AdminTabClub() {
       const durations = parseDurationList(clubForm.scheduleDurations);
       const fixedSlots = parseSlotList(clubForm.scheduleFixedSlots);
       const scheduleMode = clubForm.scheduleMode || 'FIXED';
+      const fixedBookingSettingsByActivity = FIXED_BOOKING_ACTIVITY_KEYS.reduce((acc, key) => {
+        const daysAhead = Number(clubForm.fixedBookingSettingsByActivity[key].fixedBookingDaysAhead);
+        const generationFrequencyDays = Number(clubForm.fixedBookingSettingsByActivity[key].fixedBookingGenerationFrequencyDays);
+
+        if (Number.isFinite(daysAhead) && daysAhead > 0 && Number.isFinite(generationFrequencyDays) && generationFrequencyDays > 0) {
+          acc[key] = {
+            fixedBookingDaysAhead: Math.floor(daysAhead),
+            fixedBookingGenerationFrequencyDays: Math.floor(generationFrequencyDays)
+          };
+        }
+
+        return acc;
+      }, {} as Record<FixedBookingActivityKey, { fixedBookingDaysAhead: number; fixedBookingGenerationFrequencyDays: number }>);
+
         const payload: any = {
         ...clubForm,
         lightsEnabled: !!clubForm.lightsEnabled,
@@ -127,7 +179,8 @@ export default function AdminTabClub() {
         scheduleDurations: durations.length > 0 ? durations : [],
         scheduleFixedSlots: scheduleMode === 'FIXED' ? (fixedSlots.length > 0 ? fixedSlots : []) : []
              ,
-             openingDays: openingDaysSet
+             openingDays: openingDaysSet,
+             fixedBookingSettingsByActivity
       };
       const updatedClub = await ClubService.updateClub(club.id, payload);
       setClub(updatedClub);
@@ -475,6 +528,65 @@ export default function AdminTabClub() {
                     placeholder="60, 90, 120"
                   />
                   <p className="text-[10px] font-bold text-[#347048]/40 mt-1.5 ml-1">Separar con comas.</p>
+                </div>
+
+                <div className="md:col-span-2 bg-white/40 p-4 rounded-2xl border border-white">
+                  <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-[#347048] mb-3">Turnos fijos por actividad</h4>
+                  <div className="space-y-3">
+                    {FIXED_BOOKING_ACTIVITY_KEYS.map((activityKey) => (
+                      <div key={activityKey} className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                        <div>
+                          <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Actividad</label>
+                          <input
+                            type="text"
+                            value={FIXED_BOOKING_ACTIVITY_LABELS[activityKey]}
+                            readOnly
+                            className="w-full h-11 bg-[#EBE1D8] border-2 border-transparent rounded-xl px-4 text-[#347048] font-black text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Días hacia adelante</label>
+                          <input
+                            type="number"
+                            min={1}
+                            step={1}
+                            value={clubForm.fixedBookingSettingsByActivity[activityKey].fixedBookingDaysAhead}
+                            onChange={(e) => setClubForm((prev) => ({
+                              ...prev,
+                              fixedBookingSettingsByActivity: {
+                                ...prev.fixedBookingSettingsByActivity,
+                                [activityKey]: {
+                                  ...prev.fixedBookingSettingsByActivity[activityKey],
+                                  fixedBookingDaysAhead: e.target.value
+                                }
+                              }
+                            }))}
+                            className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black text-sm transition-all"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Frecuencia generación (días)</label>
+                          <input
+                            type="number"
+                            min={1}
+                            step={1}
+                            value={clubForm.fixedBookingSettingsByActivity[activityKey].fixedBookingGenerationFrequencyDays}
+                            onChange={(e) => setClubForm((prev) => ({
+                              ...prev,
+                              fixedBookingSettingsByActivity: {
+                                ...prev.fixedBookingSettingsByActivity,
+                                [activityKey]: {
+                                  ...prev.fixedBookingSettingsByActivity[activityKey],
+                                  fixedBookingGenerationFrequencyDays: e.target.value
+                                }
+                              }
+                            }))}
+                            className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black text-sm transition-all"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 {clubForm.scheduleMode === 'RANGE' ? (

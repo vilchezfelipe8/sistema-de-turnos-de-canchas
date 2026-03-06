@@ -56,6 +56,43 @@ export class BookingService {
         return parsed.length > 0 ? parsed : this.defaultFixedSlots;
     }
 
+    private normalizeActivityKey(name: string | null | undefined) {
+        if (!name) return '';
+        return name
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-zA-Z0-9]/g, '')
+            .toUpperCase();
+    }
+
+    private resolveFixedBookingConfig(clubConfig: any, activity: ActivityType | null | undefined) {
+        const fallback = {
+            fixedBookingDaysAhead: 24 * 7,
+            fixedBookingGenerationFrequencyDays: 7
+        };
+
+        const raw = clubConfig?.fixedBookingSettingsByActivity;
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+            return fallback;
+        }
+
+        const byActivity = raw as Record<string, any>;
+        const activityKey = this.normalizeActivityKey(activity?.name);
+        const selected = activityKey ? byActivity[activityKey] : undefined;
+
+        if (!selected || typeof selected !== 'object') {
+            return fallback;
+        }
+
+        const daysAhead = Number(selected.fixedBookingDaysAhead);
+        const generationFrequencyDays = Number(selected.fixedBookingGenerationFrequencyDays);
+
+        return {
+            fixedBookingDaysAhead: Number.isFinite(daysAhead) && daysAhead > 0 ? Math.floor(daysAhead) : fallback.fixedBookingDaysAhead,
+            fixedBookingGenerationFrequencyDays: Number.isFinite(generationFrequencyDays) && generationFrequencyDays > 0 ? Math.floor(generationFrequencyDays) : fallback.fixedBookingGenerationFrequencyDays
+        };
+    }
+
     private isClubOpenOnLocalDate(clubConfig: any, date: Date, timeZone: string) {
         if (!clubConfig || !Array.isArray(clubConfig.openingDays) || clubConfig.openingDays.length === 0) return true;
         try {
@@ -942,7 +979,7 @@ export class BookingService {
         courtId: number,
         activityId: number,
         startDateTime: Date,
-        weeksToGenerate: number = 24,
+        weeksToGenerate?: number,
         guestName?: string,
         guestPhone?: string | number, // Agregado para recibir el dato del front
         guestDni?: string,
@@ -970,6 +1007,15 @@ export class BookingService {
 
         const activity = await this.activityRepo.findById(activityId);
         const duration = isProfessorOverride ? 60 : (activity ? activity.defaultDurationMinutes : 60);
+        const clubConfigForFixed = (court as any)?.club;
+        const fixedConfig = this.resolveFixedBookingConfig(clubConfigForFixed, activity ?? null);
+
+        const explicitWeeks = Number(weeksToGenerate);
+        const hasExplicitWeeks = Number.isFinite(explicitWeeks) && explicitWeeks > 0;
+        const generationFrequencyDays = Math.max(1, fixedConfig.fixedBookingGenerationFrequencyDays);
+        const totalOccurrences = hasExplicitWeeks
+            ? Math.max(1, Math.ceil((explicitWeeks * 7) / generationFrequencyDays))
+            : Math.max(1, Math.ceil(fixedConfig.fixedBookingDaysAhead / generationFrequencyDays));
 
         const clubTimeZone = (court as any)?.club?.timeZone ?? 'America/Argentina/Buenos_Aires';
         const localStart = TimeHelper.utcToLocal(startDateTime, clubTimeZone);
@@ -979,8 +1025,7 @@ export class BookingService {
         const dayOfWeek = localStart.getDay();
 
         // Verificar días de apertura del club antes de crear turnos fijos
-        const clubCfgForFixed = (court as any)?.club;
-        if (!this.isClubOpenOnLocalDate(clubCfgForFixed, startDateTime, clubTimeZone)) {
+        if (!this.isClubOpenOnLocalDate(clubConfigForFixed, startDateTime, clubTimeZone)) {
             throw new Error('El club está cerrado ese día');
         }
 
@@ -1004,7 +1049,7 @@ export class BookingService {
         // 2. Preparar fechas límites
         const firstStart = new Date(startDateTime);
         const lastStart = new Date(firstStart);
-        lastStart.setDate(firstStart.getDate() + (weeksToGenerate * 7));
+        lastStart.setDate(firstStart.getDate() + ((totalOccurrences - 1) * generationFrequencyDays));
         const lastEnd = new Date(lastStart.getTime() + duration * 60000);
 
         return await prisma.$transaction(async (tx: any) => {
@@ -1040,9 +1085,9 @@ export class BookingService {
             const bookingsToCreate = [];
 
             // C. Procesar en memoria
-            for (let i = 0; i < weeksToGenerate; i++) {
+            for (let i = 0; i < totalOccurrences; i++) {
                 const currentStart = new Date(startDateTime);
-                currentStart.setDate(startDateTime.getDate() + (i * 7));
+                currentStart.setDate(startDateTime.getDate() + (i * generationFrequencyDays));
                 
                 const currentEnd = new Date(currentStart.getTime() + duration * 60000);
 

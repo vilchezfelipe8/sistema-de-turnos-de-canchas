@@ -1,6 +1,7 @@
 import { ClubRepository } from '../repositories/ClubRepository';
 import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
 import { Club } from '../entities/Club';
+import type { FixedBookingSettingsByActivity } from '../entities/Club';
 import { Court } from '../entities/Court';
 
 // 👇 1. USAMOS TUS IMPORTS CORRECTOS
@@ -37,7 +38,8 @@ export class ClubService {
         scheduleCloseTime?: string | null,
         scheduleIntervalMinutes?: number | null,
         scheduleDurations?: number[] | null,
-        scheduleFixedSlots?: string[] | null
+        scheduleFixedSlots?: string[] | null,
+        fixedBookingSettingsByActivity?: FixedBookingSettingsByActivity | null
         ,
         openingDays?: number[] | null
     ) {
@@ -66,7 +68,8 @@ export class ClubService {
             scheduleCloseTime,
             scheduleIntervalMinutes,
             scheduleDurations,
-            scheduleFixedSlots
+            scheduleFixedSlots,
+            fixedBookingSettingsByActivity
             ,
             openingDays
         );
@@ -116,6 +119,7 @@ export class ClubService {
             scheduleIntervalMinutes?: number | null;
             scheduleDurations?: number[] | null;
             scheduleFixedSlots?: string[] | null;
+            fixedBookingSettingsByActivity?: FixedBookingSettingsByActivity | null;
             openingDays?: number[] | null;
         }
     ): Promise<Club> {

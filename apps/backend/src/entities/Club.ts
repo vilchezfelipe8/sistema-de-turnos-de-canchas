@@ -1,5 +1,12 @@
 import { Court } from './Court';
 
+export type FixedBookingActivityConfig = {
+    fixedBookingDaysAhead: number;
+    fixedBookingGenerationFrequencyDays: number;
+};
+
+export type FixedBookingSettingsByActivity = Record<string, FixedBookingActivityConfig>;
+
 export class Club {
     public courts: Court[] = [];
 
@@ -30,6 +37,7 @@ export class Club {
         public scheduleIntervalMinutes?: number | null,
         public scheduleDurations?: number[] | null,
         public scheduleFixedSlots?: string[] | null,
+        public fixedBookingSettingsByActivity?: FixedBookingSettingsByActivity | null,
         public openingDays?: number[] | null,
         public createdAt?: Date,
         public updatedAt?: Date

@@ -18,7 +18,7 @@ import AppModal from '../AppModal';
 import BookingConsumption from '../BookingConsumption';
 import { useParams } from 'react-router-dom';
 import DatePickerDark from '../../components/ui/DatePickerDark';
-import { Trash2, Check, ShoppingCart, Calendar as CalendarIcon, RefreshCw, ChevronDown, CalendarPlus, Repeat, Banknote, CreditCard, FileText, X, Phone, IdCard } from 'lucide-react'; 
+import { Trash2, Check, ShoppingCart, Calendar as CalendarIcon, RefreshCw, ChevronDown, CalendarPlus, Repeat, Banknote, CreditCard, FileText, X, Phone, IdCard, ChevronLeft, ChevronRight } from 'lucide-react'; 
 import { ClubService, Club } from '../../services/ClubService';
 import { getApiUrl } from '../../utils/apiUrl';
 
@@ -214,6 +214,22 @@ const getTodayLocalDate = () => {
   return formatLocalDate(new Date(now.getFullYear(), now.getMonth(), now.getDate()));
 };
 
+const parseLocalDate = (dateStr: string) => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  if (!year || !month || !day) return new Date();
+  return new Date(year, month - 1, day);
+};
+
+const getFormattedDateLabel = (date: Date) => {
+  const weekDays = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
+  const monthNames = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
+  const weekDayName = weekDays[date.getDay()];
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = monthNames[date.getMonth()];
+  const year = date.getFullYear();
+  return `${weekDayName} ${day} ${month} ${year}`;
+};
+
 type SplitPaymentDraft = {
   method: 'CASH' | 'TRANSFER' | 'DEBT';
   amount: string;
@@ -332,6 +348,39 @@ export default function AdminTabBookings() {
   );
 
   const scheduleSlotDuration = scheduleDurations[0] ?? DEFAULT_DURATION_MINUTES;
+
+  const isManualPrevDisabled = () => {
+    const today = parseLocalDate(getTodayLocalDate());
+    today.setHours(0, 0, 0, 0);
+    const current = parseLocalDate(manualBooking.startDateBase || getTodayLocalDate());
+    current.setHours(0, 0, 0, 0);
+    return current <= today;
+  };
+
+  const handleManualPrevDay = () => {
+    if (isManualPrevDisabled()) return;
+    const prev = parseLocalDate(manualBooking.startDateBase || getTodayLocalDate());
+    prev.setDate(prev.getDate() - 1);
+    setManualBooking({ ...manualBooking, startDateBase: formatLocalDate(prev) });
+  };
+
+  const handleManualNextDay = () => {
+    const next = parseLocalDate(manualBooking.startDateBase || getTodayLocalDate());
+    next.setDate(next.getDate() + 1);
+    setManualBooking({ ...manualBooking, startDateBase: formatLocalDate(next) });
+  };
+
+  const handleSchedulePrevDay = () => {
+    const prev = parseLocalDate(scheduleDate || getTodayLocalDate());
+    prev.setDate(prev.getDate() - 1);
+    setScheduleDate(formatLocalDate(prev));
+  };
+
+  const handleScheduleNextDay = () => {
+    const next = parseLocalDate(scheduleDate || getTodayLocalDate());
+    next.setDate(next.getDate() + 1);
+    setScheduleDate(formatLocalDate(next));
+  };
 
   const scheduleSlots = useMemo(() => {
   if (clubConfig) {
@@ -997,18 +1046,38 @@ export default function AdminTabBookings() {
                 <span className="text-[#347048]/40 font-bold text-sm">Selecciona día abajo</span>
               </div>
             ) : (
-              <div className="wimbledon-datepicker relative z-10">
-                <DatePickerDark
-                  selected={manualBooking.startDateBase ? (() => { const [y, m, d] = manualBooking.startDateBase.split('-').map(Number); return new Date(y, m - 1, d); })() : null}
-                  onChange={(date: Date | null) => {
-                    if (!date) return;
-                    setManualBooking({ ...manualBooking, startDateBase: formatLocalDate(date) });
-                  }}
-                  minDate={new Date()}
-                  showIcon={false}
-                  variant="light"
-                  inputClassName="w-full h-12 bg-white text-[#347048] font-bold border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 shadow-sm outline-none transition-all cursor-pointer"
-                />
+              <div className="relative flex items-center justify-between bg-white rounded-xl px-2 py-2.5 border border-transparent shadow-sm h-[46px]">
+                <button
+                  type="button"
+                  onClick={handleManualPrevDay}
+                  disabled={isManualPrevDisabled()}
+                  className="p-1 rounded-lg text-[#347048] disabled:opacity-20 hover:bg-[#347048]/10 transition-colors"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <span className="text-[15px] font-bold text-[#347048] min-w-[100px] text-center whitespace-nowrap">
+                  {getFormattedDateLabel(parseLocalDate(manualBooking.startDateBase || getTodayLocalDate()))}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleManualNextDay}
+                  className="p-1 rounded-lg text-[#347048] hover:bg-[#347048]/10 transition-colors"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+                <div className="absolute inset-y-0 left-12 right-12 z-10">
+                  <DatePickerDark
+                    selected={parseLocalDate(manualBooking.startDateBase || getTodayLocalDate())}
+                    onChange={(date: Date | null) => {
+                      if (!date) return;
+                      setManualBooking({ ...manualBooking, startDateBase: formatLocalDate(date) });
+                    }}
+                    minDate={new Date()}
+                    showIcon={false}
+                    variant="light"
+                    inputClassName="w-full h-[46px] opacity-0 cursor-pointer"
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -1134,15 +1203,39 @@ export default function AdminTabBookings() {
              Agenda del Día
           </h2>
           <div className="flex flex-wrap items-center gap-4 bg-white/40 p-2 rounded-2xl border border-white/60">
-            <div className="flex items-center gap-2 px-3 wimbledon-datepicker">
+            <div className="flex items-center gap-2 px-3">
               <span className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Fecha:</span>
-              <DatePickerDark
-                selected={scheduleDate ? (() => { const [y, m, d] = scheduleDate.split('-').map(Number); return new Date(y, m - 1, d); })() : new Date()}
-                onChange={(date: Date | null) => date && setScheduleDate(formatLocalDate(date))}
-                showIcon={false}
-                variant="light"
-                inputClassName="w-full h-12 bg-white text-[#347048] font-bold border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 shadow-sm outline-none transition-all cursor-pointer"
-              />
+              <div className="relative flex items-center justify-between bg-white rounded-xl px-2 py-2.5 border border-transparent shadow-sm h-[46px] min-w-[280px]">
+                <button
+                  type="button"
+                  onClick={handleSchedulePrevDay}
+                  className="p-1 rounded-lg text-[#347048] hover:bg-[#347048]/10 transition-colors"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <span className="text-[15px] font-bold text-[#347048] min-w-[100px] text-center whitespace-nowrap">
+                  {getFormattedDateLabel(parseLocalDate(scheduleDate || getTodayLocalDate()))}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleScheduleNextDay}
+                  className="p-1 rounded-lg text-[#347048] hover:bg-[#347048]/10 transition-colors"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+                <div className="absolute inset-y-0 left-12 right-12 z-10">
+                  <DatePickerDark
+                    selected={parseLocalDate(scheduleDate || getTodayLocalDate())}
+                    onChange={(date: Date | null) => {
+                      if (!date) return;
+                      setScheduleDate(formatLocalDate(date));
+                    }}
+                    showIcon={false}
+                    variant="light"
+                    inputClassName="w-full h-[46px] opacity-0 cursor-pointer"
+                  />
+                </div>
+              </div>
             </div>
             <button onClick={loadSchedule} disabled={loadingSchedule} className="flex items-center gap-2 px-4 py-2 bg-[#347048] text-[#EBE1D8] rounded-xl text-xs font-black uppercase tracking-tighter hover:bg-[#B9CF32] hover:text-[#347048] transition-all">
               {loadingSchedule ? '...' : 'Actualizar'}

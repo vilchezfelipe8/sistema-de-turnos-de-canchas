@@ -1,5 +1,6 @@
 import { prisma } from '../prisma';
 import { Club } from '../entities/Club';
+import type { FixedBookingSettingsByActivity } from '../entities/Club';
 import { Court } from '../entities/Court';
 import { ActivityType } from '../entities/ActivityType';
 
@@ -31,6 +32,7 @@ export class ClubRepository {
         scheduleIntervalMinutes?: number | null,
         scheduleDurations?: number[] | null,
         scheduleFixedSlots?: string[] | null,
+        fixedBookingSettingsByActivity?: FixedBookingSettingsByActivity | null,
         openingDays?: number[] | null
     ): Promise<Club> {
         const location = await this.ensureLocation(city, province, country);
@@ -61,7 +63,8 @@ export class ClubRepository {
             scheduleCloseTime,
             scheduleIntervalMinutes,
             scheduleDurations,
-            scheduleFixedSlots
+            scheduleFixedSlots,
+            fixedBookingSettingsByActivity
         };
 
         const saved = await prisma.club.create({ data });
@@ -136,6 +139,7 @@ export class ClubRepository {
             club.scheduleIntervalMinutes ?? null,
             club.scheduleDurations ?? null,
             club.scheduleFixedSlots ?? null,
+            club.fixedBookingSettingsByActivity ?? null,
             club.openingDays ?? null
         );
     }
@@ -188,6 +192,7 @@ export class ClubRepository {
         scheduleIntervalMinutes?: number | null;
         scheduleDurations?: number[] | null;
         scheduleFixedSlots?: string[] | null;
+        fixedBookingSettingsByActivity?: FixedBookingSettingsByActivity | null;
         openingDays?: number[] | null;
     }): Promise<Club> {
         if (data.city && data.province && data.country) {
@@ -229,6 +234,7 @@ export class ClubRepository {
             dbClub.scheduleIntervalMinutes ?? null,
             Array.isArray(dbClub.scheduleDurations) ? dbClub.scheduleDurations : null,
             Array.isArray(dbClub.scheduleFixedSlots) ? dbClub.scheduleFixedSlots : null,
+            (dbClub.fixedBookingSettingsByActivity ?? null) as FixedBookingSettingsByActivity | null,
             Array.isArray(dbClub.openingDays) ? dbClub.openingDays : null,
             dbClub.createdAt,
             dbClub.updatedAt

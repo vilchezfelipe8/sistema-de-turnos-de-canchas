@@ -120,9 +120,22 @@ export default function ClubPage() {
         <header className="mb-10">
           <div className="relative bg-[#347048] rounded-[2.5rem] overflow-hidden shadow-2xl border border-black/10">
             
-            {/* 1. FONDO GRADIENTE INTERNO */}
-            <div className="absolute inset-0 bg-gradient-to-br from-[#347048] via-[#347048] to-[#2a2438]"></div>
-            <div className="absolute top-[-50%] right-[-20%] w-[600px] h-[600px] bg-[#B9CF32]/20 rounded-full blur-[120px] pointer-events-none"></div>
+            {/* 1. FONDO (BANNER DEL CLUB + OVERLAY) */}
+            {club.clubImageUrl ? (
+              <>
+                <img
+                  src={club.clubImageUrl}
+                  alt={`Banner de ${club.name}`}
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-br from-[#347048]/85 via-[#347048]/70 to-[#2a2438]/75" />
+              </>
+            ) : (
+              <>
+                <div className="absolute inset-0 bg-gradient-to-br from-[#347048] via-[#347048] to-[#2a2438]"></div>
+                <div className="absolute top-[-50%] right-[-20%] w-[600px] h-[600px] bg-[#B9CF32]/20 rounded-full blur-[120px] pointer-events-none"></div>
+              </>
+            )}
             
 
             {/* 2. CONTENIDO */}

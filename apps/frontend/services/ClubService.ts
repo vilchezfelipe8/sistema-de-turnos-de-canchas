@@ -4,6 +4,13 @@ import { getApiUrl } from '../utils/apiUrl';
 
 const apiBase = () => `${getApiUrl()}/api`;
 
+export type FixedBookingActivityConfig = {
+  fixedBookingDaysAhead: number;
+  fixedBookingGenerationFrequencyDays: number;
+};
+
+export type FixedBookingSettingsByActivity = Record<string, FixedBookingActivityConfig>;
+
 export interface Club {
   id: number;
   slug: string;
@@ -31,6 +38,7 @@ export interface Club {
   scheduleIntervalMinutes?: number | null;
   scheduleDurations?: number[] | null;
   scheduleFixedSlots?: string[] | null;
+  fixedBookingSettingsByActivity?: FixedBookingSettingsByActivity | null;
   openingDays?: number[] | null;
   createdAt?: string;
   updatedAt?: string;
