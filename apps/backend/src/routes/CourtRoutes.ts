@@ -17,6 +17,7 @@ router.post('/', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, (_r
 router.put('/:id', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, courtController.updateCourt);
 router.put('/:id/suspend', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, courtController.suspendCourt);
 router.put('/:id/reactivate', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, courtController.reactivateCourt);
+router.delete('/:id', authMiddleware, requireRole('ADMIN'), setAdminClubFromUser, courtController.deleteCourt);
 
 export default router;
 

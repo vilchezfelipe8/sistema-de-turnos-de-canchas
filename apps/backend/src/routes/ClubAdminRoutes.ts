@@ -111,7 +111,7 @@ router.put('/:slug/admin/info',
     verifyClubAccess,
     async (req: any, res: any) => {
         try {
-            const club = await clubController.updateClub(req.club.id, req.body);
+            const club = await clubService.updateClub(Number(req.club.id), req.body);
             res.json(club);
         } catch (error: any) {
             res.status(400).json({ error: error.message });

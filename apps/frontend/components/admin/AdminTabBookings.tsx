@@ -19,8 +19,6 @@ import BookingConsumption from '../BookingConsumption';
 import { useParams } from 'react-router-dom';
 import DatePickerDark from '../../components/ui/DatePickerDark';
 import { Trash2, Check, ShoppingCart, Calendar as CalendarIcon, RefreshCw, ChevronDown, CalendarPlus, Repeat, Banknote, CreditCard, FileText, X, Phone, IdCard, ChevronLeft, ChevronRight } from 'lucide-react'; 
-import { ClubService, Club } from '../../services/ClubService';
-import { getApiUrl } from '../../utils/apiUrl';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 
 const CLUB_TIME_SLOTS = [
@@ -37,20 +35,6 @@ const ROW_HEIGHT = 120; // px per hour row
 const H_GAP_PX = 12; // horizontal gap between booking cards (px)
 const V_GAP_PX = 10; // vertical gap between booking cards (px)
 
-const normalizeDurations = (raw: unknown, fallback: number) => {
-  const parsed = Array.isArray(raw)
-    ? raw.map((value) => Number(value)).filter((value) => Number.isFinite(value) && value > 0)
-    : [];
-  return parsed.length > 0 ? parsed : [fallback];
-};
-
-const normalizeFixedSlots = (raw: unknown) => {
-  const parsed = Array.isArray(raw)
-    ? raw.map((value) => String(value)).filter((value) => /^\d{2}:\d{2}$/.test(value))
-    : [];
-  return parsed.length > 0 ? parsed : CLUB_TIME_SLOTS;
-};
-
 const toMinutes = (timeValue?: string | null) => {
   if (!timeValue) return null;
   const [hh, mm] = String(timeValue).split(':').map((value) => Number(value));
@@ -58,37 +42,6 @@ const toMinutes = (timeValue?: string | null) => {
   return hh * 60 + mm;
 };
 
-const fromMinutes = (total: number) => {
-  const hh = Math.floor(total / 60);
-  const mm = total % 60;
-  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-};
-
-const buildRangeSlots = (openTime: string, closeTime: string, intervalMinutes: number, durationMinutes: number) => {
-  const openMinutes = toMinutes(openTime);
-  const closeMinutesRaw = toMinutes(closeTime);
-  if (openMinutes === null || closeMinutesRaw === null) return [] as Array<{ slotTime: string; dayOffset: number }>;
-  // soportar cierre pasada la medianoche
-  const closeMinutes = closeMinutesRaw <= openMinutes ? closeMinutesRaw + 24 * 60 : closeMinutesRaw;
-  const slots: Array<{ slotTime: string; dayOffset: number }> = [];
-  for (let t = openMinutes; t + durationMinutes <= closeMinutes; t += intervalMinutes) {
-    const displayTotal = t % (24 * 60);
-    const dayOffset = t >= 24 * 60 ? 1 : 0;
-    slots.push({ slotTime: fromMinutes(displayTotal), dayOffset });
-  }
-  return slots;
-};
-
-const resolveScheduleSlots = (club: Club | null, durationMinutes: number) => {
-  if (club?.scheduleMode === 'RANGE') {
-    const openTime = club.scheduleOpenTime || '08:00';
-    const closeTime = club.scheduleCloseTime || '22:00';
-    const intervalMinutes = Number(club.scheduleIntervalMinutes || 30);
-    return buildRangeSlots(openTime, closeTime, intervalMinutes, durationMinutes);
-  }
-  // Fixed slots as objects with dayOffset 0
-  return normalizeFixedSlots(club?.scheduleFixedSlots).map((s) => ({ slotTime: s, dayOffset: 0 }));
-};
 
 // --- COMPONENTE DROPDOWN CUSTOM (ESTILO WIMBLEDON LANDING) ---
 const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
@@ -236,36 +189,13 @@ type SplitPaymentDraft = {
   amount: string;
 };
 
-const isPastTimeForDate = (
-  dateStr: string,
-  timeStr: string,
-  openTimeStr?: string,
-  closeTimeStr?: string,
-  alreadyAnchored: boolean = false
-) => {
+const isPastTimeForDate = (dateStr: string, timeStr: string) => {
   const [year, month, day] = dateStr.split('-').map(Number);
   if (!year || !month || !day) return false;
   const [hours, minutes] = timeStr.split(':').map(Number);
   if (Number.isNaN(hours) || Number.isNaN(minutes)) return false;
 
   const slotDate = new Date(year, month - 1, day, hours, minutes, 0, 0);
-
-  // Si se pasaron horarios de apertura/cierre, considerar overnight
-  try {
-    if (!alreadyAnchored && openTimeStr && closeTimeStr) {
-      const openM = toMinutes(openTimeStr) ?? 0;
-      const closeMRaw = toMinutes(closeTimeStr) ?? 0;
-      const closeM = closeMRaw <= openM ? closeMRaw + 24 * 60 : closeMRaw;
-      const slotM = (hours * 60) + minutes;
-      if (slotM < openM && closeM > 24 * 60) {
-        // Interpretar como hora del día siguiente
-        slotDate.setDate(slotDate.getDate() + 1);
-      }
-    }
-  } catch {
-    // noop
-  }
-
   return slotDate.getTime() < Date.now();
 };
 
@@ -305,7 +235,6 @@ export default function AdminTabBookings() {
   const [scheduleBookings, setScheduleBookings] = useState<any[]>([]);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-  const [clubConfig, setClubConfig] = useState<Club | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentMode, setPaymentMode] = useState<'single' | 'split'>('single');
   const [splitPayments, setSplitPayments] = useState<SplitPaymentDraft[]>([{ method: 'CASH', amount: '' }]);
@@ -343,12 +272,23 @@ export default function AdminTabBookings() {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const gridScrollRef = useRef<HTMLDivElement | null>(null);
 
-  const scheduleDurations = useMemo(
-    () => normalizeDurations(clubConfig?.scheduleDurations, DEFAULT_DURATION_MINUTES),
-    [clubConfig?.scheduleDurations]
+  const selectedManualCourt = useMemo(
+    () => courts.find((court) => String(court.id) === String(manualBooking.courtId)) ?? null,
+    [courts, manualBooking.courtId]
   );
 
-  const scheduleSlotDuration = scheduleDurations[0] ?? DEFAULT_DURATION_MINUTES;
+  const selectedActivityDefaultDuration = useMemo(() => {
+    const duration = Number(selectedManualCourt?.activityType?.defaultDurationMinutes);
+    return Number.isFinite(duration) && duration > 0 ? duration : DEFAULT_DURATION_MINUTES;
+  }, [selectedManualCourt]);
+
+  const manualDurationOptions = useMemo(() => {
+    const options = [selectedActivityDefaultDuration];
+    if (manualBooking.isProfessor && !options.includes(60)) {
+      return [60, ...options];
+    }
+    return options;
+  }, [manualBooking.isProfessor, selectedActivityDefaultDuration]);
 
   const isManualPrevDisabled = () => {
     const today = parseLocalDate(getTodayLocalDate());
@@ -384,86 +324,31 @@ export default function AdminTabBookings() {
   };
 
   const scheduleSlots = useMemo(() => {
-  if (clubConfig) {
-    try {
-      const [y, m, d] = scheduleDate.split('-').map(Number);
-      const selected = new Date(y, m - 1, d);
-      
-      // Obtenemos los slots teóricos basados en la duración (90 min)
-      const possible = resolveScheduleSlots(clubConfig, scheduleSlotDuration) as Array<{ slotTime: string; dayOffset: number }>;
-      
-      const seen = new Set<string>();
-      const list: string[] = [];
+    const slotTimes = Array.from(
+      new Set(
+        scheduleBookings
+          .map((slot) => String(slot?.slotTime || ''))
+          .filter((slotTime) => /^\d{2}:\d{2}$/.test(slotTime))
+      )
+    );
 
-      // Solo generamos los slots que corresponden al día seleccionado
-      // Ignoramos los 'scheduleBookings' para que no se cuelen horarios de 60 min
-      for (const slotObj of possible) {
-        if (!seen.has(slotObj.slotTime)) {
-          seen.add(slotObj.slotTime);
-          list.push(slotObj.slotTime);
-        }
-      }
-
-      return list.length > 0 ? list.sort() : CLUB_TIME_SLOTS;
-    } catch (e) {
+    if (slotTimes.length === 0) {
       return CLUB_TIME_SLOTS;
     }
-  }
-  return CLUB_TIME_SLOTS;
-}, [clubConfig, scheduleSlotDuration, scheduleDate]); 
-// ✅ Quitamos 'scheduleBookings' de las dependencias para que no se ensucie
+
+    return slotTimes.sort((a, b) => (toMinutes(a) ?? 0) - (toMinutes(b) ?? 0));
+  }, [scheduleBookings]);
 
   
 
-  // Grilla visual fija: filas cada 1 hora entre apertura y cierre (por defecto 08:00-22:00)
+  // Grilla visual fija: filas cada 1 hora en rango de horarios devueltos por backend
   const gridSlots = useMemo(() => {
-    // Construir filas horarias ancladas a la fecha seleccionada
     try {
-      const [y, m, d] = scheduleDate.split('-').map(Number);
-      const selected = new Date(y, m - 1, d);
+      const minutesSet = scheduleSlots
+        .map((slot) => toMinutes(slot))
+        .filter((value): value is number => Number.isFinite(value));
 
-      if (!clubConfig) return ([] as string[]);
-
-      const possible = resolveScheduleSlots(clubConfig, scheduleSlotDuration) as Array<{ slotTime: string; dayOffset: number }>;
-      const anchors = [
-        (() => { const dd = new Date(selected); dd.setDate(dd.getDate() - 1); return dd; })(),
-        new Date(selected)
-      ];
-
-      const minutesSet: number[] = [];
-      for (const anchor of anchors) {
-        for (const slotObj of possible) {
-          const candidate = new Date(anchor);
-          candidate.setDate(candidate.getDate() + (slotObj.dayOffset || 0));
-          if (
-            candidate.getFullYear() === selected.getFullYear() &&
-            candidate.getMonth() === selected.getMonth() &&
-            candidate.getDate() === selected.getDate()
-          ) {
-            const mm = toMinutes(slotObj.slotTime) ?? 0;
-            if (!minutesSet.includes(mm)) minutesSet.push(mm);
-          }
-        }
-      }
-
-      if (minutesSet.length === 0) {
-        // fallback a apertura/cierre simple
-        const openStr = (clubConfig && clubConfig.scheduleOpenTime) || '08:00';
-        const closeStr = (clubConfig && clubConfig.scheduleCloseTime) || '22:00';
-        const openMinutesRaw = toMinutes(openStr) ?? 8 * 60;
-        const closeMinutesRaw = toMinutes(closeStr) ?? 22 * 60;
-        const closeMinutes = closeMinutesRaw <= openMinutesRaw ? closeMinutesRaw + 24 * 60 : closeMinutesRaw;
-        const mins: number[] = [];
-        for (let t = openMinutesRaw; t + 60 <= closeMinutes; t += 60) {
-          mins.push(t % (24 * 60));
-        }
-        mins.sort((a, b) => a - b);
-        return mins.map((total) => {
-          const hh = Math.floor(total / 60);
-          const mm = total % 60;
-          return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-        });
-      }
+      if (minutesSet.length === 0) return [];
 
       // Generar filas horarias entre el mínimo y el máximo minuto, ordenadas ascendente (00:00 arriba)
       const minM = Math.min(...minutesSet);
@@ -479,7 +364,7 @@ export default function AdminTabBookings() {
     } catch (e) {
       return [];
     }
-  }, [clubConfig, scheduleDate, scheduleSlotDuration]);
+  }, [scheduleSlots]);
 
   // Al abrir la pantalla, scrollear a la fila correspondiente a la hora actual (si la fecha es hoy)
   useEffect(() => {
@@ -540,26 +425,11 @@ export default function AdminTabBookings() {
   }, [urlSlug]);
 
   useEffect(() => {
-    const loadClub = async () => {
-      const slug = getClubSlug();
-      if (!slug) return;
-      try {
-        const data = await ClubService.getClubBySlug(slug);
-        setClubConfig(data);
-      } catch (error) {
-        console.error('Error loading club config', error);
-        setClubConfig(null);
-      }
-    };
-    loadClub();
-  }, [getClubSlug]);
-
-  useEffect(() => {
     setManualBooking((prev) => {
-      if (scheduleDurations.includes(prev.durationMinutes)) return prev;
-      return { ...prev, durationMinutes: scheduleDurations[0] };
+      if (manualDurationOptions.includes(prev.durationMinutes)) return prev;
+      return { ...prev, durationMinutes: manualDurationOptions[0] };
     });
-  }, [scheduleDurations]);
+  }, [manualDurationOptions]);
 
   // --- HANDLER PARA CAMBIO DE NOMBRE DEL INVITADO Y BÚSQUEDA DE CLIENTES ---
   const handleGuestFirstNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -674,7 +544,7 @@ export default function AdminTabBookings() {
     const [h, m] = String(slot.slotTime).split(':').map(Number);
     const [year, month, day] = scheduleDate.split('-').map(Number);
     const slotStartDate = new Date(year, month - 1, day, h, m, 0, 0);
-    const slotEndDate = new Date(slotStartDate.getTime() + scheduleSlotDuration * 60000);
+    const slotEndDate = new Date(slotStartDate.getTime() + DEFAULT_DURATION_MINUTES * 60000);
     const now = new Date();
     const isPastStart = slotStartDate < now;
     const isPastEnd = slotEndDate < now;
@@ -752,7 +622,7 @@ export default function AdminTabBookings() {
     }
 
     if (!endDate) {
-      endDate = new Date(startDate.getTime() + scheduleSlotDuration * 60000);
+      endDate = new Date(startDate.getTime() + DEFAULT_DURATION_MINUTES * 60000);
     }
 
     return `${formatTime(startDate)} - ${formatTime(endDate)}`;
@@ -779,40 +649,8 @@ export default function AdminTabBookings() {
             dateBase = nextDateInfo.date; 
         } else {
           dateBase = new Date(`${manualBooking.startDateBase}T${manualBooking.time}:00`);
-          try {
-            // Si el club tiene horario overnight y la hora seleccionada es antes de la apertura,
-            // interpretarla como hora del día siguiente
-            const openStr = (clubConfig && clubConfig.scheduleOpenTime) || '08:00';
-            const closeStr = (clubConfig && clubConfig.scheduleCloseTime) || '22:00';
-            const openM = toMinutes(openStr) ?? 8 * 60;
-            const closeMRaw = toMinutes(closeStr) ?? 22 * 60;
-            const closeM = closeMRaw <= openM ? closeMRaw + 24 * 60 : closeMRaw;
-            const [sh, sm] = manualBooking.time.split(':').map(Number);
-            const slotM = (sh * 60) + sm;
-            if (slotM < openM && closeM > 24 * 60) {
-              dateBase.setDate(dateBase.getDate() + 1);
-            }
-          } catch {
-            // noop
-          }
         }
         if (manualBooking.isFixed) {
-          // Si la hora del turno fijo cae en la madrugada y pertenece al día siguiente según la config,
-          // ajustamos la fecha hacia adelante.
-          try {
-            const openStr = (clubConfig && clubConfig.scheduleOpenTime) || '08:00';
-            const closeStr = (clubConfig && clubConfig.scheduleCloseTime) || '22:00';
-            const openM = toMinutes(openStr) ?? 8 * 60;
-            const closeMRaw = toMinutes(closeStr) ?? 22 * 60;
-            const closeM = closeMRaw <= openM ? closeMRaw + 24 * 60 : closeMRaw;
-            const [sh, sm] = manualBooking.time.split(':').map(Number);
-            const slotM = (sh * 60) + sm;
-            if (slotM < openM && closeM > 24 * 60) {
-              dateBase.setDate(dateBase.getDate() + 1);
-            }
-          } catch {
-            // noop
-          }
 
           await createFixedBooking(
             undefined,
@@ -846,7 +684,7 @@ export default function AdminTabBookings() {
         loadSchedule();
         setManualBooking({ 
             guestFirstName: '', guestLastName: '', guestPhone: '', guestDni: '', 
-      courtId: '', time: '', durationMinutes: scheduleDurations[0] ?? DEFAULT_DURATION_MINUTES, isFixed: false, isProfessor: false, dayOfWeek: '1', startDateBase: getTodayLocalDate() 
+      courtId: '', time: '', durationMinutes: manualDurationOptions[0] ?? DEFAULT_DURATION_MINUTES, isFixed: false, isProfessor: false, dayOfWeek: '1', startDateBase: getTodayLocalDate() 
         });
     } catch (error: any) { showError('Error al reservar: ' + error.message); }
   };
@@ -1093,7 +931,7 @@ export default function AdminTabBookings() {
                 // Para turnos fijos no deshabilitamos horarios (deben mostrarse todos)
                 disabled: manualBooking.isFixed
                   ? false
-                  : !!(manualBooking.startDateBase && isPastTimeForDate(manualBooking.startDateBase, slot, clubConfig?.scheduleOpenTime, clubConfig?.scheduleCloseTime, true))
+                  : !!(manualBooking.startDateBase && isPastTimeForDate(manualBooking.startDateBase, slot))
               }))}
             />
           </div>
@@ -1105,29 +943,7 @@ export default function AdminTabBookings() {
               value={manualBooking.durationMinutes}
               onChange={(val: string) => setManualBooking({ ...manualBooking, durationMinutes: Number(val) })}
               placeholder="Duración"
-              options={(() => {
-                let durations = scheduleDurations.slice();
-                // Si el club tiene horarios flexibles (RANGE)
-                if (clubConfig?.scheduleMode === 'RANGE') {
-                  if (manualBooking.isProfessor && !durations.includes(60)) {
-                    durations = [60, ...durations];
-                  }
-                  return durations.map((duration) => ({ value: duration, label: `${duration} min` }));
-                }
-                // Si el club tiene horarios fijos (FIXED)
-                if (clubConfig?.scheduleMode === 'FIXED') {
-                  // Solo la duración configurada, y si es profesor, suma 60 si no está
-                  if (manualBooking.isProfessor && !durations.includes(60)) {
-                    durations = [60, ...durations];
-                  }
-                  return durations.map((duration) => ({ value: duration, label: `${duration} min` }));
-                }
-                // Por defecto, si no hay config, solo 90 o 60 según profesor
-                if (manualBooking.isProfessor) {
-                  return [60, 90].map((duration) => ({ value: duration, label: `${duration} min` }));
-                }
-                return [{ value: 90, label: '90 min' }];
-              })()}
+              options={manualDurationOptions.map((duration) => ({ value: duration, label: `${duration} min` }))}
             />
           </div>
 
@@ -1293,8 +1109,8 @@ export default function AdminTabBookings() {
                   ))}
                 </div>
 
-                {/* LÍNEAS HORARIAS (fijas cada 1 hora, de 08:00 a 23:00) */}
-                {Array.from({ length: 16 }, (_, i) => `${String(8 + i).padStart(2, '0')}:00`).map((time, index) => (
+                {/* LÍNEAS HORARIAS */}
+                {gridSlots.map((time, index) => (
                   <div
                     key={time}
                     className="absolute left-0 right-0 border-t border-[#347048]/10"
@@ -1316,7 +1132,7 @@ export default function AdminTabBookings() {
 
                   // calcular posición vertical relativa a gridSlots/openMinutes (puede ser horario con minutos)
                   // Calcular posición vertical relativa a la primera fila de `gridSlots`
-                  const firstGridMinutes = (gridSlots.length > 0 ? toMinutes(gridSlots[0]) : null) ?? toMinutes((clubConfig && clubConfig.scheduleOpenTime) || '08:00') ?? 8 * 60;
+                  const firstGridMinutes = (gridSlots.length > 0 ? toMinutes(gridSlots[0]) : null) ?? 8 * 60;
 
                   let startMinutes = toMinutes(slot.slotTime) ?? null;
                   if (courtIndex === -1 || startMinutes === null) return null;
@@ -1351,7 +1167,7 @@ export default function AdminTabBookings() {
 
                   const rowHeight = ROW_HEIGHT; // px por 1 hora
                   const pixelsPerMinute = rowHeight / 60;
-                  const rawHeight = (durationMinutes ?? scheduleSlotDuration) * pixelsPerMinute;
+                  const rawHeight = (durationMinutes ?? DEFAULT_DURATION_MINUTES) * pixelsPerMinute;
                   const height = Math.max(rawHeight - V_GAP_PX, 40);
 
                   // Intentamos sacar el nombre de todas las fuentes posibles:

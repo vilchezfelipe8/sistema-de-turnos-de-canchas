@@ -174,5 +174,32 @@ export class CourtController {
             res.status(400).json({ error: "No se pudo reactivar la cancha. Verifica el ID." });
         }
     }
+
+    deleteCourt = async (req: Request, res: Response) => {
+        try {
+            const paramsSchema = z.object({ id: z.preprocess((v) => Number(v), z.number().int().positive()) });
+            const paramsParsed = paramsSchema.safeParse(req.params);
+            if (!paramsParsed.success) {
+                return res.status(400).json({ error: paramsParsed.error.format() });
+            }
+
+            const id = paramsParsed.data.id;
+            const clubId = (req as any).clubId as number | undefined;
+
+            const court = await prisma.court.findUnique({ where: { id } });
+            if (!court) {
+                return res.status(404).json({ error: 'Cancha no encontrada' });
+            }
+
+            if (clubId && court.clubId !== clubId) {
+                return res.status(403).json({ error: 'No tienes acceso a esta cancha' });
+            }
+
+            const deleted = await this.courtRepo.deleteCourt(id);
+            return res.json({ success: true, court: deleted });
+        } catch (error: any) {
+            return res.status(400).json({ error: error.message || 'No se pudo eliminar la cancha' });
+        }
+    }
 }
 

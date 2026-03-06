@@ -96,6 +96,28 @@ export class BookingService {
             .toUpperCase();
     }
 
+    private resolveClubConfig(club: any) {
+        const settings = club?.settings ?? null;
+        const lightsFromMinutes = settings?.lightsFromHour;
+        const normalizedLightsFromHour = Number.isFinite(Number(lightsFromMinutes))
+            ? this.fromMinutes(Number(lightsFromMinutes))
+            : club?.lightsFromHour ?? null;
+
+        return {
+            ...club,
+            timeZone: settings?.timeZone ?? club?.timeZone ?? 'America/Argentina/Buenos_Aires',
+            openingDays: Array.isArray(settings?.openingDays)
+                ? settings.openingDays
+                : (Array.isArray(club?.openingDays) ? club.openingDays : null),
+            lightsEnabled: settings?.lightsEnabled ?? club?.lightsEnabled ?? false,
+            lightsExtraAmount: settings?.lightsExtraAmount ?? club?.lightsExtraAmount ?? null,
+            lightsFromHour: normalizedLightsFromHour,
+            professorDiscountEnabled: settings?.professorDiscountEnabled ?? club?.professorDiscountEnabled ?? false,
+            professorDiscountPercent: settings?.professorDiscountPercent ?? club?.professorDiscountPercent ?? null,
+            fixedBookingSettingsByActivity: club?.fixedBookingSettingsByActivity ?? null
+        };
+    }
+
     private resolveFixedBookingConfig(clubConfig: any, activity: ActivityType | null | undefined) {
         const fallback = {
             fixedBookingDaysAhead: 24 * 7,
@@ -351,7 +373,7 @@ export class BookingService {
 
         const activity = await this.activityRepo.findById(activityId);
         if (!activity) throw new Error("Actividad no existe");
-        const clubConfig = (court as any)?.club;
+        const clubConfig = this.resolveClubConfig((court as any)?.club);
         const activitySchedule = this.resolveActivitySchedule(activity);
         const allowedDurations = activitySchedule.durations;
         const effectiveDuration = durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
@@ -408,7 +430,7 @@ export class BookingService {
         if (!Number.isFinite(BASE_PRICE) || BASE_PRICE <= 0) {
             throw new Error('Precio de cancha no configurado.');
         }
-        const clubPricingConfig = court.club as any;
+        const clubPricingConfig = this.resolveClubConfig((court as any)?.club);
         const isProfessor = Boolean(user?.isProfessor) || Boolean(isProfessorOverride);
         let finalPrice = BASE_PRICE;
 
@@ -537,8 +559,8 @@ export class BookingService {
         if (!activity) throw new Error("Actividad no encontrada");
         const activitySchedule = this.resolveActivitySchedule(activity);
 
-        const clubTimeZone = (court as any)?.club?.timeZone ?? 'America/Argentina/Buenos_Aires';
-        const clubConfig = (court as any)?.club;
+        const clubConfig = this.resolveClubConfig((court as any)?.club);
+        const clubTimeZone = clubConfig.timeZone ?? 'America/Argentina/Buenos_Aires';
 
         // Si el club está cerrado ese día, retornamos vacío
         if (!this.isClubOpenOnLocalDate(clubConfig, date, clubTimeZone)) {
@@ -825,7 +847,10 @@ export class BookingService {
             }
         }
         const bookings = await prisma.booking.findMany({
-            where: { userId: requestedUserId },
+            where: {
+                userId: requestedUserId,
+                ...(requestUser.clubId ? { clubId: requestUser.clubId } : {})
+            },
             include: {
                 court: { include: { club: true } },
                 activity: true,
@@ -841,15 +866,16 @@ export class BookingService {
         if (clubId) {
             allCourts = await prisma.court.findMany({
                 where: { clubId, isUnderMaintenance: false },
-                include: { club: true, activityType: true }
+                include: { club: { include: { settings: true } }, activityType: true }
             });
         } else {
             allCourts = await this.courtRepo.findAll();
         }
         const activeCourts = allCourts.filter(court => !court.isUnderMaintenance);
 
-        const clubConfig = clubId ? await prisma.club.findUnique({ where: { id: clubId }, select: { timeZone: true } }) : null;
-        const timeZone = clubConfig?.timeZone ?? 'America/Argentina/Buenos_Aires';
+        const clubConfig = clubId ? await prisma.club.findUnique({ where: { id: clubId }, include: { settings: true } }) : null;
+        const normalizedClubConfig = this.resolveClubConfig(clubConfig);
+        const timeZone = normalizedClubConfig?.timeZone ?? 'America/Argentina/Buenos_Aires';
         const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date, timeZone);
 
         const bookings = await prisma.booking.findMany({
@@ -962,8 +988,8 @@ export class BookingService {
         const allCourts = await this.courtRepo.findAll();
         const activeCourts = allCourts.filter(court => {
             if (court.isUnderMaintenance) return false;
-            const clubTZ = (court as any)?.club?.timeZone ?? timeZone;
-            const clubCfg = (court as any)?.club;
+            const clubCfg = this.resolveClubConfig((court as any)?.club);
+            const clubTZ = clubCfg.timeZone ?? timeZone;
             return this.isClubOpenOnLocalDate(clubCfg, date, clubTZ);
         });
         const bookings = await this.bookingRepo.findAllByDate(date, timeZone);
@@ -1041,8 +1067,9 @@ export class BookingService {
         const activeCourts = allCourts.filter(court => !court.isUnderMaintenance);
         const activityCourts = activeCourts.filter((court: any) => Number(court.activityTypeId) === Number(activityId));
 
-        const clubConfig = clubId ? await prisma.club.findUnique({ where: { id: clubId } }) : null;
-        const timeZone = clubConfig?.timeZone ?? 'America/Argentina/Buenos_Aires';
+        const clubConfig = clubId ? await prisma.club.findUnique({ where: { id: clubId }, include: { settings: true } }) : null;
+        const normalizedClubConfig = this.resolveClubConfig(clubConfig);
+        const timeZone = normalizedClubConfig?.timeZone ?? 'America/Argentina/Buenos_Aires';
         const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date, timeZone);
 
         const bookings = await prisma.booking.findMany({
@@ -1066,7 +1093,7 @@ export class BookingService {
         if (!activity) throw new Error("Actividad no encontrada");
 
         // Si el club (si se indicó) está cerrado ese día, no devolvemos horarios
-        if (clubId && !this.isClubOpenOnLocalDate(clubConfig, date, timeZone)) {
+        if (clubId && !this.isClubOpenOnLocalDate(normalizedClubConfig, date, timeZone)) {
             return [];
         }
 
@@ -1189,7 +1216,7 @@ export class BookingService {
         const activity = await this.activityRepo.findById(activityId);
         const duration = isProfessorOverride ? 60 : (activity ? activity.defaultDurationMinutes : 60);
         this.assertValidDuration(duration);
-        const clubConfigForFixed = (court as any)?.club;
+        const clubConfigForFixed = this.resolveClubConfig((court as any)?.club);
         const fixedConfig = this.resolveFixedBookingConfig(clubConfigForFixed, activity ?? null);
 
         const explicitWeeks = Number(weeksToGenerate);
@@ -1199,7 +1226,7 @@ export class BookingService {
             ? Math.max(1, Math.ceil((explicitWeeks * 7) / generationFrequencyDays))
             : Math.max(1, Math.ceil(fixedConfig.fixedBookingDaysAhead / generationFrequencyDays));
 
-        const clubTimeZone = (court as any)?.club?.timeZone ?? 'America/Argentina/Buenos_Aires';
+        const clubTimeZone = clubConfigForFixed.timeZone ?? 'America/Argentina/Buenos_Aires';
         const localStart = TimeHelper.utcToLocal(startDateTime, clubTimeZone);
         const localEnd = TimeHelper.utcToLocal(new Date(startDateTime.getTime() + duration * 60000), clubTimeZone);
         const startTime = `${String(localStart.getHours()).padStart(2, '0')}:${String(localStart.getMinutes()).padStart(2, '0')}`;
@@ -1301,7 +1328,7 @@ export class BookingService {
                     if (!Number.isFinite(basePrice) || basePrice <= 0) {
                         throw new Error('Precio de cancha no configurado.');
                     }
-                    const clubConfig = (court as any)?.club;
+                    const clubConfig = this.resolveClubConfig((court as any)?.club);
                     const isProfessor = Boolean(user?.isProfessor) || Boolean(isProfessorOverride);
                     let fixedPrice = basePrice;
                     if (isProfessor && clubConfig?.professorDiscountEnabled) {
@@ -1950,8 +1977,8 @@ async registerCourtDebtPortion(
 
 
 async getClubDebtors(clubId: number) {
-        const clubConfig = await prisma.club.findUnique({ where: { id: clubId }, select: { timeZone: true } });
-        const defaultTimeZone = clubConfig?.timeZone ?? 'America/Argentina/Buenos_Aires';
+        const clubConfig = await prisma.club.findUnique({ where: { id: clubId }, include: { settings: true } });
+        const defaultTimeZone = this.resolveClubConfig(clubConfig)?.timeZone ?? 'America/Argentina/Buenos_Aires';
 
     // 1. Prisma SELECT - Solo pedimos los datos que el Frontend necesita, ni un byte más.
     const bookings = await prisma.booking.findMany({

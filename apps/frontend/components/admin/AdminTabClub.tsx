@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { ClubService, Club } from '../../services/ClubService';
 import { getCourts } from '../../services/CourtService';
 import AppModal from '../AppModal';
-import { Settings, Globe, Instagram, Facebook, MapPin, Phone, Mail, Lightbulb, Image as ImageIcon, Trash2, Save, AlertTriangle, Clock } from 'lucide-react';
+import { Settings, Globe, Instagram, Facebook, MapPin, Phone, Mail, Lightbulb, Image as ImageIcon, Trash2, Save, AlertTriangle } from 'lucide-react';
 import { normalizeSessionUser } from '../../utils/session';
 
 type FixedBookingActivitySetting = {
@@ -96,18 +96,6 @@ const buildActivitySettingsFromCourts = (courts: any[], existingRaw?: unknown): 
 };
 
 export default function AdminTabClub() {
-    // Utilidades para parsear duraciones y slots
-    const parseDurationList = (value: string) =>
-      value
-        .split(',')
-        .map((item) => Number(item.trim()))
-        .filter((item) => Number.isFinite(item) && item > 0);
-
-    const parseSlotList = (value: string) =>
-      value
-        .split(',')
-        .map((item) => item.trim())
-        .filter((item) => /^\d{2}:\d{2}$/.test(item));
   const [club, setClub] = useState<Club | null>(null);
   const [loadingClub, setLoadingClub] = useState(false);
   const [clubForm, setClubForm] = useState({
@@ -118,12 +106,6 @@ export default function AdminTabClub() {
     lightsFromHour: '',
     professorDiscountEnabled: false,
     professorDiscountPercent: '',
-    scheduleMode: 'FIXED',
-    scheduleOpenTime: '',
-    scheduleCloseTime: '',
-    scheduleIntervalMinutes: '',
-    scheduleDurations: '',
-       scheduleFixedSlots: '',
        openingDays: '',
         fixedBookingSettingsByActivity: {} as FixedBookingSettingsForm
   });
@@ -178,12 +160,6 @@ export default function AdminTabClub() {
           lightsFromHour: clubData.lightsFromHour || '',
           professorDiscountEnabled: clubData.professorDiscountEnabled ?? false,
           professorDiscountPercent: clubData.professorDiscountPercent != null ? String(clubData.professorDiscountPercent) : '',
-          scheduleMode: clubData.scheduleMode || 'FIXED',
-          scheduleOpenTime: clubData.scheduleOpenTime || '',
-          scheduleCloseTime: clubData.scheduleCloseTime || '',
-          scheduleIntervalMinutes: clubData.scheduleIntervalMinutes != null ? String(clubData.scheduleIntervalMinutes) : '',
-          scheduleDurations: Array.isArray(clubData.scheduleDurations) ? clubData.scheduleDurations.join(', ') : '',
-          scheduleFixedSlots: Array.isArray(clubData.scheduleFixedSlots) ? clubData.scheduleFixedSlots.join(', ') : '',
           openingDays: Array.isArray(clubData.openingDays) ? clubData.openingDays.join(',') : '',
           fixedBookingSettingsByActivity: buildFixedBookingSettingsForm(nextActivitySettings, clubData.fixedBookingSettingsByActivity)
           });
@@ -204,9 +180,6 @@ export default function AdminTabClub() {
     e.preventDefault();
     if (!club) { showError('No se pudo identificar el club'); return; }
     try {
-      const durations = parseDurationList(clubForm.scheduleDurations);
-      const fixedSlots = parseSlotList(clubForm.scheduleFixedSlots);
-      const scheduleMode = clubForm.scheduleMode || 'FIXED';
       const fixedBookingSettingsByActivity = activitySettings.reduce((acc, activity) => {
         const config = clubForm.fixedBookingSettingsByActivity[activity.key];
         if (!config) return acc;
@@ -230,19 +203,8 @@ export default function AdminTabClub() {
         lightsFromHour: clubForm.lightsFromHour || null,
         professorDiscountEnabled: !!clubForm.professorDiscountEnabled,
         professorDiscountPercent: clubForm.professorDiscountPercent === '' ? null : Number(clubForm.professorDiscountPercent),
-        scheduleMode,
-        // enviar open/close si el admin los completó (también aplicable en FIXED)
-        scheduleOpenTime: clubForm.scheduleOpenTime || null,
-        scheduleCloseTime: clubForm.scheduleCloseTime || null,
-        scheduleIntervalMinutes: scheduleMode === 'RANGE'
-          ? (clubForm.scheduleIntervalMinutes === '' ? null : Number(clubForm.scheduleIntervalMinutes))
-          : null,
-        // Siempre enviar arrays (aunque vacíos) para evitar validaciones que rechacen `null`.
-        scheduleDurations: durations.length > 0 ? durations : [],
-        scheduleFixedSlots: scheduleMode === 'FIXED' ? (fixedSlots.length > 0 ? fixedSlots : []) : []
-             ,
-             openingDays: openingDaysSet,
-             fixedBookingSettingsByActivity
+        openingDays: openingDaysSet,
+        fixedBookingSettingsByActivity
       };
       const updatedClub = await ClubService.updateClub(club.id, payload);
       setClub(updatedClub);
@@ -562,36 +524,8 @@ export default function AdminTabClub() {
               </div>
             </div>
 
-            {/* CONFIGURACION DE TURNOS */}
             <div className="bg-[#347048]/10 p-6 rounded-[1.5rem] border-2 border-[#347048]/20">
-              <div className="flex items-center gap-2 mb-4 text-[#347048]">
-                <Clock size={18} strokeWidth={3} />
-                <h3 className="text-xs font-black uppercase tracking-[0.2em]">Configuracion de Turnos</h3>
-              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Modo de horarios</label>
-                  <select
-                    value={clubForm.scheduleMode}
-                    onChange={(e) => setClubForm({ ...clubForm, scheduleMode: e.target.value })}
-                    className="h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm transition-all cursor-pointer w-full"
-                  >
-                    <option value="FIXED">Lista fija</option>
-                    <option value="RANGE">Rango horario</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Duraciones (min)</label>
-                  <input
-                    type="text"
-                    value={clubForm.scheduleDurations}
-                    onChange={(e) => setClubForm({ ...clubForm, scheduleDurations: e.target.value })}
-                    className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black text-sm transition-all"
-                    placeholder="60, 90, 120"
-                  />
-                  <p className="text-[10px] font-bold text-[#347048]/40 mt-1.5 ml-1">Separar con comas.</p>
-                </div>
-
                 <div className="md:col-span-2 bg-white/40 p-4 rounded-2xl border border-white">
                   <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-[#347048] mb-3">Turnos fijos por actividad</h4>
                   {activitySettings.length === 0 ? (
@@ -662,73 +596,6 @@ export default function AdminTabClub() {
                   </div>
                   )}
                 </div>
-
-                {clubForm.scheduleMode === 'RANGE' ? (
-                  <>
-                    <div>
-                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Horario apertura</label>
-                      <input
-                        type="time"
-                        value={clubForm.scheduleOpenTime}
-                        onChange={(e) => setClubForm({ ...clubForm, scheduleOpenTime: e.target.value })}
-                        className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black text-sm transition-all"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Horario cierre</label>
-                      <input
-                        type="time"
-                        value={clubForm.scheduleCloseTime}
-                        onChange={(e) => setClubForm({ ...clubForm, scheduleCloseTime: e.target.value })}
-                        className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black text-sm transition-all"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Intervalo (min)</label>
-                      <input
-                        type="number"
-                        min={5}
-                        step={5}
-                        value={clubForm.scheduleIntervalMinutes}
-                        onChange={(e) => setClubForm({ ...clubForm, scheduleIntervalMinutes: e.target.value })}
-                        className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black text-sm transition-all"
-                        placeholder="30"
-                      />
-                    </div>
-                  </>
-                ) : (
-                  <div className="md:col-span-2">
-                    <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Horarios fijos</label>
-                    <input
-                      type="text"
-                      value={clubForm.scheduleFixedSlots}
-                      onChange={(e) => setClubForm({ ...clubForm, scheduleFixedSlots: e.target.value })}
-                      className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black text-sm transition-all"
-                      placeholder="08:00, 09:30, 11:00"
-                    />
-                    <div className="mt-3 grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Apertura (opcional)</label>
-                        <input
-                          type="time"
-                          value={clubForm.scheduleOpenTime}
-                          onChange={(e) => setClubForm({ ...clubForm, scheduleOpenTime: e.target.value })}
-                          className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black text-sm transition-all"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Cierre (opcional)</label>
-                        <input
-                          type="time"
-                          value={clubForm.scheduleCloseTime}
-                          onChange={(e) => setClubForm({ ...clubForm, scheduleCloseTime: e.target.value })}
-                          className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black text-sm transition-all"
-                        />
-                      </div>
-                    </div>
-                    <p className="text-[10px] font-bold text-[#347048]/40 mt-1.5 ml-1">Formato 24h, separar con comas.</p>
-                  </div>
-                )}
               </div>
             </div>
 

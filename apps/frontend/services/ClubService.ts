@@ -27,17 +27,12 @@ export interface Club {
   facebookUrl?: string;
   websiteUrl?: string;
   description?: string;
+  timeZone?: string;
   lightsEnabled?: boolean;
   lightsExtraAmount?: number | null;
   lightsFromHour?: string | null;
   professorDiscountEnabled?: boolean;
   professorDiscountPercent?: number | null;
-  scheduleMode?: 'FIXED' | 'RANGE';
-  scheduleOpenTime?: string | null;
-  scheduleCloseTime?: string | null;
-  scheduleIntervalMinutes?: number | null;
-  scheduleDurations?: number[] | null;
-  scheduleFixedSlots?: string[] | null;
   fixedBookingSettingsByActivity?: FixedBookingSettingsByActivity | null;
   openingDays?: number[] | null;
   createdAt?: string;

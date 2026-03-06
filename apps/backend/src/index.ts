@@ -17,6 +17,11 @@ import authRoutes from './routes/AuthRoutes';
 import ClientRoutes from './routes/ClientRoutes';
 import HealthRoutes from './routes/HealthRoutes';
 import CashRoutes from './routes/CashRoutes';
+import PaymentRoutes from './routes/PaymentRoutes';
+import NotificationRoutes from './routes/NotificationRoutes';
+import EventRoutes from './routes/EventRoutes';
+import AuditLogRoutes from './routes/AuditLogRoutes';
+import CourtPriceRuleRoutes from './routes/CourtPriceRuleRoutes';
 
 import { errorHandler } from './middleware/ErrorHandler';
 import { authMiddleware } from './middleware/AuthMiddleware';
@@ -105,6 +110,11 @@ app.use('/api/clubs', ClubAdminRoutes);
 app.use('/api/locations', LocationRoutes);
 app.use('/api/health', HealthRoutes);
 app.use('/api/cash', CashRoutes);
+app.use('/api/payments', PaymentRoutes);
+app.use('/api/notifications', NotificationRoutes);
+app.use('/api/events', EventRoutes);
+app.use('/api/audit-logs', AuditLogRoutes);
+app.use('/api/court-price-rules', CourtPriceRuleRoutes);
 app.use('/clients', ClientRoutes);
 
 app.get('/', (_req: Request, res: Response) => {

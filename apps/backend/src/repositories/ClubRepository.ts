@@ -21,6 +21,7 @@ export class ClubRepository {
         facebookUrl?: string,
         websiteUrl?: string,
         description?: string,
+        timeZone: string = 'America/Argentina/Buenos_Aires',
         lightsEnabled: boolean = false,
         lightsExtraAmount?: number | null,
         lightsFromHour?: string | null,
@@ -46,6 +47,7 @@ export class ClubRepository {
             facebookUrl,
             websiteUrl,
             description,
+            timeZone,
             lightsEnabled,
             lightsExtraAmount,
             lightsFromHour,
@@ -55,7 +57,23 @@ export class ClubRepository {
             fixedBookingSettingsByActivity
         };
 
-        const saved = await prisma.club.create({ data });
+        const saved = await prisma.club.create({
+            data: {
+                ...data,
+                settings: {
+                    create: {
+                        timeZone,
+                        openingDays,
+                        lightsEnabled,
+                        lightsExtraAmount,
+                        lightsFromHour: this.parseLightsFromHour(lightsFromHour),
+                        professorDiscountEnabled,
+                        professorDiscountPercent
+                    }
+                }
+            },
+            include: { settings: true }
+        });
         return this.mapToClub(saved);
     }
 
@@ -130,6 +148,7 @@ export class ClubRepository {
             club.facebookUrl,
             club.websiteUrl,
             club.description,
+            club.timeZone,
             club.lightsEnabled,
             club.lightsExtraAmount ?? null,
             club.lightsFromHour ?? null,
@@ -141,13 +160,14 @@ export class ClubRepository {
     }
     
     async findAllClubs(): Promise<Club[]> {
-        const all = await prisma.club.findMany();
+        const all = await prisma.club.findMany({ include: { settings: true } });
         return all.map(c => this.mapToClub(c));
     }
 
     async findClubById(id: number): Promise<Club | undefined> {
         const found = await prisma.club.findUnique({
-            where: { id }
+            where: { id },
+            include: { settings: true }
         });
         if (!found) return undefined;
         return this.mapToClub(found);
@@ -155,7 +175,8 @@ export class ClubRepository {
 
     async findClubBySlug(slug: string): Promise<Club | undefined> {
         const found = await prisma.club.findUnique({
-            where: { slug }
+            where: { slug },
+            include: { settings: true }
         });
         if (!found) return undefined;
         return this.mapToClub(found);
@@ -177,6 +198,7 @@ export class ClubRepository {
         facebookUrl?: string | null;
         websiteUrl?: string | null;
         description?: string | null;
+        timeZone?: string;
         lightsEnabled?: boolean;
         lightsExtraAmount?: number | null;
         lightsFromHour?: string | null;
@@ -193,12 +215,54 @@ export class ClubRepository {
         }
         const updated = await prisma.club.update({
             where: { id },
-            data: clubData as any
+            data: {
+                ...(clubData as any),
+                settings: {
+                    upsert: {
+                        create: {
+                            timeZone: data.timeZone ?? 'America/Argentina/Buenos_Aires',
+                            openingDays: data.openingDays ?? null,
+                            lightsEnabled: data.lightsEnabled ?? false,
+                            lightsExtraAmount: data.lightsExtraAmount ?? null,
+                            lightsFromHour: this.parseLightsFromHour(data.lightsFromHour ?? null),
+                            professorDiscountEnabled: data.professorDiscountEnabled ?? false,
+                            professorDiscountPercent: data.professorDiscountPercent ?? null
+                        },
+                        update: {
+                            ...(data.timeZone !== undefined ? { timeZone: data.timeZone } : {}),
+                            ...(data.openingDays !== undefined ? { openingDays: data.openingDays } : {}),
+                            ...(data.lightsEnabled !== undefined ? { lightsEnabled: data.lightsEnabled } : {}),
+                            ...(data.lightsExtraAmount !== undefined ? { lightsExtraAmount: data.lightsExtraAmount } : {}),
+                            ...(data.lightsFromHour !== undefined
+                                ? { lightsFromHour: this.parseLightsFromHour(data.lightsFromHour) }
+                                : {}),
+                            ...(data.professorDiscountEnabled !== undefined
+                                ? { professorDiscountEnabled: data.professorDiscountEnabled }
+                                : {}),
+                            ...(data.professorDiscountPercent !== undefined
+                                ? { professorDiscountPercent: data.professorDiscountPercent }
+                                : {})
+                        }
+                    }
+                }
+            },
+            include: { settings: true }
         });
         return this.mapToClub(updated);
     }
 
     private mapToClub(dbClub: any): Club {
+        const settings = dbClub.settings ?? null;
+        const resolvedTimeZone = settings?.timeZone ?? dbClub.timeZone ?? 'America/Argentina/Buenos_Aires';
+        const resolvedOpeningDays = Array.isArray(settings?.openingDays)
+            ? settings.openingDays
+            : (Array.isArray(dbClub.openingDays) ? dbClub.openingDays : null);
+        const resolvedLightsEnabled = settings?.lightsEnabled ?? dbClub.lightsEnabled ?? false;
+        const resolvedLightsExtraAmount = settings?.lightsExtraAmount ?? dbClub.lightsExtraAmount ?? null;
+        const resolvedLightsFromHour = this.formatLightsFromHour(settings?.lightsFromHour) ?? dbClub.lightsFromHour ?? null;
+        const resolvedProfessorDiscountEnabled = settings?.professorDiscountEnabled ?? dbClub.professorDiscountEnabled ?? false;
+        const resolvedProfessorDiscountPercent = settings?.professorDiscountPercent ?? dbClub.professorDiscountPercent ?? null;
+
         return new Club(
             dbClub.id,
             dbClub.slug,
@@ -215,16 +279,36 @@ export class ClubRepository {
             dbClub.facebookUrl || undefined,
             dbClub.websiteUrl || undefined,
             dbClub.description || undefined,
-            dbClub.lightsEnabled ?? false,
-            dbClub.lightsExtraAmount ?? null,
-            dbClub.lightsFromHour ?? null,
-            dbClub.professorDiscountEnabled ?? false,
-            dbClub.professorDiscountPercent ?? null,
+            resolvedTimeZone,
+            resolvedLightsEnabled,
+            resolvedLightsExtraAmount,
+            resolvedLightsFromHour,
+            resolvedProfessorDiscountEnabled,
+            resolvedProfessorDiscountPercent,
             (dbClub.fixedBookingSettingsByActivity ?? null) as FixedBookingSettingsByActivity | null,
-            Array.isArray(dbClub.openingDays) ? dbClub.openingDays : null,
+            resolvedOpeningDays,
             dbClub.createdAt,
             dbClub.updatedAt
         );
+    }
+
+    private parseLightsFromHour(value: string | null | undefined): number | null {
+        if (!value) return null;
+        const [hoursRaw, minutesRaw] = String(value).split(':');
+        const hours = Number(hoursRaw);
+        const minutes = Number(minutesRaw ?? '0');
+        if (!Number.isInteger(hours) || hours < 0 || hours > 23) return null;
+        if (!Number.isInteger(minutes) || minutes < 0 || minutes > 59) return null;
+        return hours * 60 + minutes;
+    }
+
+    private formatLightsFromHour(value: number | null | undefined): string | null {
+        if (!Number.isFinite(Number(value))) return null;
+        const total = Number(value);
+        if (total < 0) return null;
+        const hours = Math.floor(total / 60);
+        const minutes = total % 60;
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
     }
 
     private async ensureLocation(city: string, province: string, country: string) {
@@ -238,7 +322,8 @@ export class ClubRepository {
     }
     async findBySlug(slug: string) {
         return await prisma.club.findUnique({
-            where: { slug }
+            where: { slug },
+            include: { settings: true }
         });
     }
 }

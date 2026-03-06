@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Wallet, ArrowUpCircle, ArrowDownCircle, Banknote, CreditCard, Plus, Receipt, History, ChevronDown, Check, FileText, Phone, IdCard } from 'lucide-react';
-import { getApiUrl } from '../../utils/apiUrl';
 import { searchClients } from '../../services/BookingService';
 import { ClubService } from '../../services/ClubService';
-import { fetchWithAuth } from '../../utils/apiClient';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
+import { CashService } from '../../services/CashService';
 
 // Tipos
 interface Movement {
@@ -161,20 +160,7 @@ const AdminCashDashboard = () => {
 
   const fetchCash = async () => {
     try {
-      const apiBase = `${getApiUrl()}/api`;
-      const res = await fetchWithAuth(`${apiBase}/cash`, {
-         method: 'GET',
-         headers: {
-           'Content-Type': 'application/json'
-         }
-      });
-
-      if (!res.ok) {
-        if (res.status === 401) throw new Error('Sesión expirada');
-        throw new Error(`Error: ${res.status}`);
-      }
-
-      const data = await res.json();
+      const data = await CashService.getSummary();
       if (data && data.balance) setBalance(data.balance);
       if (data && data.movements) setMovements(data.movements);
 
@@ -189,16 +175,7 @@ const AdminCashDashboard = () => {
 
   const fetchProducts = async () => {
     try {
-      const apiBase = `${getApiUrl()}/api`;
-      const res = await fetchWithAuth(`${apiBase}/cash/products`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!res.ok) throw new Error('Error al cargar productos');
-      const data = await res.json();
+      const data = await CashService.getProducts();
       setProducts(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('❌ Error cargando productos:', error);
@@ -258,15 +235,12 @@ const AdminCashDashboard = () => {
   const handleAddMovement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMove.amount || !newMove.description) return;
-    
-    const apiBase = `${getApiUrl()}/api`;
 
-    await fetchWithAuth(`${apiBase}/cash`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(newMove)
+    await CashService.createMovement({
+      amount: newMove.amount,
+      description: newMove.description,
+      type: newMove.type as 'INCOME' | 'EXPENSE',
+      method: newMove.method as 'CASH' | 'TRANSFER'
     });
     
     setNewMove({ description: '', amount: '', type: 'INCOME', method: 'CASH' });
@@ -320,31 +294,18 @@ const AdminCashDashboard = () => {
     }
 
     try {
-      const apiBase = `${getApiUrl()}/api`;
-
-      const res = await fetchWithAuth(`${apiBase}/cash/product-sale`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          productId: Number(productSale.productId),
-          quantity: qty,
-          method: productSale.method,
-          ...(splitSaleEnabled ? { payments: parsedSplitPayments } : {}),
-          userId: selectedClient?.id,
-          guestName: selectedClient
-            ? `${selectedClient.firstName || ''} ${selectedClient.lastName || ''}`.trim()
-            : (hasDebtInSale ? fallbackGuestName : undefined),
-          guestPhone: selectedClient?.phoneNumber || selectedClient?.phone || undefined,
-          guestDni: selectedClient?.dni || selectedClient?.dniNumber || selectedClient?.document || undefined
-        })
+      await CashService.createProductSale({
+        productId: Number(productSale.productId),
+        quantity: qty,
+        method: productSale.method,
+        ...(splitSaleEnabled ? { payments: parsedSplitPayments } : {}),
+        userId: selectedClient?.id,
+        guestName: selectedClient
+          ? `${selectedClient.firstName || ''} ${selectedClient.lastName || ''}`.trim()
+          : (hasDebtInSale ? fallbackGuestName : undefined),
+        guestPhone: selectedClient?.phoneNumber || selectedClient?.phone || undefined,
+        guestDni: selectedClient?.dni || selectedClient?.dniNumber || selectedClient?.document || undefined
       });
-
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || 'Error al registrar venta');
-      }
 
       setProductSale({ productId: '', quantity: '1', method: productSale.method, clientQuery: '' });
   setSplitSaleEnabled(false);

@@ -6,7 +6,6 @@ import { ClubService, Club } from '../../services/ClubService';
 import { 
   MapPin, 
   Calendar, 
-  Clock, 
   ChevronRight, 
   Search, 
   Phone, 
@@ -233,14 +232,6 @@ export default function ClubPage() {
                     <Phone size={16} />
                     <span className="group-hover:underline decoration-[#B9CF32] underline-offset-4">{club.phone}</span>
                   </a>
-                )}
-                { (club.scheduleOpenTime && club.scheduleCloseTime) && (
-                  <div className="flex items-center gap-2 font-bold mt-2 text-sm text-[#D4C5B0]/90">
-                    <Clock size={16} />
-                    <span>
-                      Horario: {club.scheduleOpenTime} - {club.scheduleCloseTime}
-                    </span>
-                  </div>
                 )}
                 {Array.isArray(club.openingDays) && club.openingDays.length > 0 && (
                   <div className="flex items-center gap-2 font-bold mt-2 text-sm text-[#D4C5B0]/90">

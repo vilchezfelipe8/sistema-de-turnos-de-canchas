@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ClubAdminService } from '../services/ClubAdminService';
+import { ClientService } from '../services/ClientService';
+import { CashService } from '../services/CashService';
 import { Phone, DollarSign, Calendar, Users, Trophy, Search, X, CheckCircle, Receipt, Banknote, CreditCard } from 'lucide-react';
 import AppModal from './AppModal';
-import { getApiUrl } from '../utils/apiUrl';
 import { fetchWithAuth } from '../utils/apiClient';
 
 const formatDate = (dateInput: any) => {
@@ -91,7 +91,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const loadClients = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await ClubAdminService.getDebtors();
+      const data = await ClientService.listDebtors();
       setClients(data);
       return data;
     } catch (error) { console.error(error); }
@@ -133,17 +133,17 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const processDebtPayment = async (method: 'CASH' | 'TRANSFER') => {
     if (!debtTarget) return;
     try {
-      const endpoint = debtTarget.type === 'BOOKING' ? '/api/bookings/pay-debt' : '/api/cash/sale-debt/pay';
-      const payload = debtTarget.type === 'BOOKING'
-        ? { bookingId: debtTarget.id, paymentMethod: method }
-        : { movementId: debtTarget.id, paymentMethod: method };
+      if (debtTarget.type === 'BOOKING') {
+        const response = await fetchWithAuth(`/api/bookings/pay-debt`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bookingId: debtTarget.id, paymentMethod: method })
+        });
+        if (!response.ok) throw new Error('Error al procesar');
+      } else {
+        await CashService.paySaleDebt(debtTarget.id, method);
+      }
 
-      const response = await fetchWithAuth(`${getApiUrl()}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (!response.ok) throw new Error('Error al procesar');
       setShowPayMethodModal(false);
       setDebtTarget(null);
       const updatedClients = await loadClients();

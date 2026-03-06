@@ -28,6 +28,7 @@ export class ClubService {
         facebookUrl?: string,
         websiteUrl?: string,
         description?: string,
+        timeZone: string = 'America/Argentina/Buenos_Aires',
         lightsEnabled: boolean = false,
         lightsExtraAmount?: number | null,
         lightsFromHour?: string | null,
@@ -52,6 +53,7 @@ export class ClubService {
             facebookUrl,
             websiteUrl,
             description,
+            timeZone,
             lightsEnabled,
             lightsExtraAmount,
             lightsFromHour,
@@ -96,6 +98,7 @@ export class ClubService {
             facebookUrl?: string | null;
             websiteUrl?: string | null;
             description?: string | null;
+            timeZone?: string;
             lightsEnabled?: boolean;
             lightsExtraAmount?: number | null;
             lightsFromHour?: string | null;

@@ -4,9 +4,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { getToken, logout } from '../services/AuthService';
 import { getMyBookings } from '../services/BookingService';
 import { ClubService } from '../services/ClubService';
+import { NotificationService, NotificationItem } from '../services/NotificationService';
 import { getActiveClubSlug, normalizeSessionUser } from '../utils/session';
 import AppModal from './AppModal';
-import { Menu, Home, Calendar, Settings, LogOut, Phone, Mail, Check, Lock, MapPin } from 'lucide-react'; 
+import { Menu, Home, Calendar, Settings, LogOut, Phone, Mail, Check, Lock, MapPin, Bell } from 'lucide-react'; 
 
 interface NavbarProps {
   onMenuClick?: () => void;
@@ -22,6 +23,8 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [activeBookingsCount, setActiveBookingsCount] = useState(0);
   const [resolvedAdminClubSlug, setResolvedAdminClubSlug] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
   const navRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -87,18 +90,57 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
 
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
-      if (!showUserMenu) return;
+      if (!showUserMenu && !showNotifications) return;
       const target = event.target as Node;
       if (navRef.current && !navRef.current.contains(target)) {
         setShowUserMenu(false);
+        setShowNotifications(false);
       }
     };
     document.addEventListener('mousedown', handleOutsideClick);
     return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [showUserMenu]);
+  }, [showUserMenu, showNotifications]);
+
+  const isAdmin = user?.role === 'ADMIN';
+
+  const loadNotifications = async () => {
+    if (!isAdmin || !user?.id) {
+      setNotifications([]);
+      return;
+    }
+    try {
+      const rows = await NotificationService.list(false, 20);
+      setNotifications(Array.isArray(rows) ? rows : []);
+    } catch {
+      setNotifications([]);
+    }
+  };
+
+  useEffect(() => {
+    loadNotifications();
+  }, [isAdmin, user?.id]);
+
+  const unreadCount = notifications.filter((item) => !item.isRead).length;
+
+  const handleNotificationClick = async (id: string, isRead: boolean) => {
+    if (!isRead) {
+      try {
+        await NotificationService.markRead(id);
+      } catch {
+      }
+    }
+    await loadNotifications();
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await NotificationService.markAllRead();
+      await loadNotifications();
+    } catch {
+    }
+  };
 
   const handleLogout = () => setShowLogoutModal(true);
-  const isAdmin = user?.role === 'ADMIN';
   const isClubSlugView = router.pathname === '/club/[slug]';
   const isBookingsView = router.pathname === '/bookings';
   const isAdminView = router.pathname.startsWith('/admin') || router.pathname === '/club/[slug]/admin';
@@ -268,6 +310,67 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
           {/* --- DERECHA: USUARIO / LOGIN --- */}
           {(user || isGuest) && (
             <div className="flex items-center gap-2 sm:gap-4 relative">
+
+              {isAdmin && (
+                <div className="relative">
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setShowUserMenu(false);
+                      setShowNotifications((prev) => !prev);
+                    }}
+                    className="relative h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 text-[#EBE1D8] flex items-center justify-center transition-all"
+                    title="Notificaciones"
+                  >
+                    <Bell size={18} strokeWidth={2.5} />
+                    {unreadCount > 0 && (
+                      <span className="absolute -right-1 -top-1 bg-[#B9CF32] text-[#347048] text-[9px] font-black rounded-full h-4 min-w-[16px] px-1 flex items-center justify-center border border-[#347048]/20">
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </span>
+                    )}
+                  </button>
+
+                  {showNotifications && (
+                    <div
+                      className="absolute right-0 mt-4 w-[320px] bg-[#EBE1D8] rounded-3xl shadow-2xl shadow-[#347048]/50 border border-[#347048]/10 overflow-hidden z-[130]"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <div className="px-5 py-4 border-b border-[#347048]/10 flex items-center justify-between">
+                        <h3 className="text-sm font-black uppercase tracking-wider text-[#347048]">Notificaciones</h3>
+                        <button
+                          onClick={handleMarkAllRead}
+                          className="text-[10px] font-black uppercase tracking-widest text-[#926699] hover:text-[#347048]"
+                        >
+                          Marcar todas
+                        </button>
+                      </div>
+
+                      <div className="max-h-[320px] overflow-y-auto">
+                        {notifications.length === 0 ? (
+                          <div className="px-5 py-8 text-center text-[#347048]/50 text-xs font-bold uppercase tracking-wider">
+                            Sin notificaciones
+                          </div>
+                        ) : (
+                          notifications.map((item) => (
+                            <button
+                              key={item.id}
+                              onClick={() => handleNotificationClick(item.id, item.isRead)}
+                              className={`w-full text-left px-5 py-4 border-b border-[#347048]/10 hover:bg-[#347048]/5 transition-colors ${
+                                item.isRead ? 'opacity-70' : 'opacity-100'
+                              }`}
+                            >
+                              <p className="text-xs font-black uppercase tracking-wider text-[#347048]">
+                                {item.title}
+                              </p>
+                              <p className="text-xs text-[#347048]/70 mt-1">{item.message}</p>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Menú de Usuario (Separado y limpio) */}
               {user ? (

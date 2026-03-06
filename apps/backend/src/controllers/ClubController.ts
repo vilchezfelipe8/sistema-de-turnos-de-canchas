@@ -28,6 +28,7 @@ export class ClubController {
                 facebookUrl: z.string().optional().nullable(),
                 websiteUrl: z.string().optional().nullable(),
                 description: z.string().optional().nullable(),
+                timeZone: z.string().optional(),
                 lightsEnabled: z.boolean().optional(),
                 lightsExtraAmount: z.union([z.number(), z.string()]).optional().nullable().transform((v) => (v === '' || v === undefined || v === null ? null : Number(v))),
                 lightsFromHour: z.string().optional().nullable(),
@@ -40,7 +41,7 @@ export class ClubController {
             if (!parsed.success) {
                 return res.status(400).json({ error: parsed.error.format() });
             }
-            const { slug, name, addressLine, city, province, country, contact, phone, logoUrl, clubImageUrl, instagramUrl, facebookUrl, websiteUrl, description,
+            const { slug, name, addressLine, city, province, country, contact, phone, logoUrl, clubImageUrl, instagramUrl, facebookUrl, websiteUrl, description, timeZone,
                 lightsEnabled, lightsExtraAmount, lightsFromHour, openingDays, professorDiscountEnabled, professorDiscountPercent,
                 fixedBookingSettingsByActivity } = parsed.data;
 
@@ -64,6 +65,7 @@ export class ClubController {
                 facebookUrl ?? undefined,
                 websiteUrl ?? undefined,
                 description ?? undefined,
+                timeZone ?? 'America/Argentina/Buenos_Aires',
                 Boolean(lightsEnabled),
                 lightsExtraAmount ?? null,
                 lightsFromHour ?? null,
@@ -136,6 +138,7 @@ export class ClubController {
                 facebookUrl: z.string().optional().nullable(),
                 websiteUrl: z.string().optional().nullable(),
                 description: z.string().optional().nullable(),
+                timeZone: z.string().optional(),
                 lightsEnabled: z.boolean().optional(),
                 lightsExtraAmount: z.union([z.number(), z.string()]).optional().nullable().transform((v) => (v === '' || v === undefined || v === null ? undefined : Number(v))),
                 lightsFromHour: z.string().optional().nullable(),
@@ -163,6 +166,7 @@ export class ClubController {
                 facebookUrl,
                 websiteUrl,
                 description,
+                timeZone,
                 lightsEnabled,
                 lightsExtraAmount,
                 lightsFromHour,
@@ -192,6 +196,7 @@ export class ClubController {
                 facebookUrl: facebookUrl === '' ? null : facebookUrl,
                 websiteUrl: websiteUrl === '' ? null : websiteUrl,
                 description: description === '' ? null : description,
+                timeZone,
                 lightsEnabled: typeof lightsEnabled === 'boolean' ? lightsEnabled : undefined,
                 lightsExtraAmount: lightsExtraAmount ?? null,
                 lightsFromHour: (lightsFromHour === '' || lightsFromHour == null) ? null : lightsFromHour,
