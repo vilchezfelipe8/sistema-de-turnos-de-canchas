@@ -36,6 +36,58 @@ export class CashService {
     return res.json();
   }
 
+  static async getCashRegisters() {
+    const res = await fetchWithAuth(`${apiBase()}/cash-registers`, { method: 'GET' });
+    if (!res.ok) throw new Error('Error al cargar cajas registradoras');
+    return res.json();
+  }
+
+  static async getCurrentShift() {
+    const res = await fetchWithAuth(`${apiBase()}/cash-shifts/current`, { method: 'GET' });
+    if (!res.ok) throw new Error('Error al cargar turno de caja actual');
+    return res.json();
+  }
+
+  static async openShift(data: { cashRegisterId: string; openingAmount: number | string }) {
+    const res = await fetchWithAuth(`${apiBase()}/cash-shifts/open`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cashRegisterId: data.cashRegisterId,
+        openingAmount: Number(data.openingAmount)
+      })
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'Error al abrir turno de caja');
+    }
+    return res.json();
+  }
+
+  static async closeCurrentShift(data: { countedCash: number | string }) {
+    const res = await fetchWithAuth(`${apiBase()}/cash-shifts/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        countedCash: Number(data.countedCash)
+      })
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'Error al cerrar turno de caja');
+    }
+    return res.json();
+  }
+
+  static async getShiftReport(shiftId: string) {
+    const res = await fetchWithAuth(`${apiBase()}/cash-shifts/${shiftId}/report`, { method: 'GET' });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'Error al obtener reporte de cierre');
+    }
+    return res.json();
+  }
+
   static async createProductSale(payload: {
     productId: number;
     quantity: number;

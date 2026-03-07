@@ -31,6 +31,42 @@ interface Product {
   category?: string;
 }
 
+interface CashRegister {
+  id: string;
+  name: string;
+  location?: string | null;
+}
+
+interface CashShift {
+  id: string;
+  cashRegisterId: string;
+  status: 'OPEN' | 'CLOSED';
+  openedAt: string;
+  openingAmount: number;
+  cashRegister?: {
+    id: string;
+    name: string;
+    location?: string | null;
+  };
+}
+
+interface CashShiftCloseReport {
+  shift: {
+    id: string;
+    openedAt?: string;
+    closedAt?: string | null;
+  };
+  expectedCash: number;
+  countedCash: number;
+  difference: number;
+  totals?: {
+    paymentIn?: number;
+    deposit?: number;
+    withdraw?: number;
+    refund?: number;
+  };
+}
+
 type SplitSalePaymentDraft = {
   method: 'CASH' | 'TRANSFER';
   amount: string;
@@ -105,6 +141,17 @@ const AdminCashDashboard = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [productsLoading, setProductsLoading] = useState(true);
   const [saleError, setSaleError] = useState('');
+  const [currentShift, setCurrentShift] = useState<CashShift | null>(null);
+  const [cashRegisters, setCashRegisters] = useState<CashRegister[]>([]);
+  const [shiftLoading, setShiftLoading] = useState(true);
+  const [openingShift, setOpeningShift] = useState(false);
+  const [openShiftError, setOpenShiftError] = useState('');
+  const [openShiftForm, setOpenShiftForm] = useState({ cashRegisterId: '', openingAmount: '' });
+  const [closeShiftForm, setCloseShiftForm] = useState({ countedCash: '' });
+  const [closingShift, setClosingShift] = useState(false);
+  const [closeShiftError, setCloseShiftError] = useState('');
+  const [lastClosedReport, setLastClosedReport] = useState<CashShiftCloseReport | null>(null);
+  const [showLastCloseDetails, setShowLastCloseDetails] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedClient, setSelectedClient] = useState<any | null>(null);
@@ -184,6 +231,38 @@ const AdminCashDashboard = () => {
 
   useEffect(() => { fetchCash(); }, []);
 
+  const fetchShiftContext = async () => {
+    setShiftLoading(true);
+    setOpenShiftError('');
+    try {
+      const [shift, registers] = await Promise.all([
+        CashService.getCurrentShift(),
+        CashService.getCashRegisters()
+      ]);
+
+      setCurrentShift(shift || null);
+      setCloseShiftForm({ countedCash: '' });
+      setCloseShiftError('');
+
+      const normalizedRegisters = Array.isArray(registers) ? registers : [];
+      setCashRegisters(normalizedRegisters);
+
+      if (!shift && normalizedRegisters.length > 0) {
+        setOpenShiftForm((prev) => ({
+          ...prev,
+          cashRegisterId: prev.cashRegisterId || String(normalizedRegisters[0].id)
+        }));
+      }
+    } catch (error) {
+      console.error('❌ Error cargando turnos/cajas:', error);
+      setOpenShiftError('No se pudo cargar la configuración de caja.');
+    } finally {
+      setShiftLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchShiftContext(); }, []);
+
   const fetchProducts = async () => {
     try {
       const data = await CashService.getProducts();
@@ -245,6 +324,10 @@ const AdminCashDashboard = () => {
 
   const handleAddMovement = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!currentShift) {
+      setOpenShiftError('Primero tenés que abrir la caja para registrar movimientos.');
+      return;
+    }
     if (!newMove.amount || !newMove.description) return;
 
     await CashService.createMovement({
@@ -261,6 +344,11 @@ const AdminCashDashboard = () => {
   const handleProductSale = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaleError('');
+
+    if (!currentShift) {
+      setSaleError('Primero tenés que abrir la caja para registrar ventas.');
+      return;
+    }
 
     const qty = Number(productSale.quantity);
     if (!productSale.productId || !Number.isFinite(qty) || qty <= 0) {
@@ -328,6 +416,77 @@ const AdminCashDashboard = () => {
     }
   };
 
+  const handleOpenShift = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setOpenShiftError('');
+
+    if (!openShiftForm.cashRegisterId) {
+      setOpenShiftError('Seleccioná una caja registradora.');
+      return;
+    }
+
+    const openingAmount = Number(openShiftForm.openingAmount);
+    if (!Number.isFinite(openingAmount) || openingAmount < 0) {
+      setOpenShiftError('Ingresá un monto de apertura válido.');
+      return;
+    }
+
+    try {
+      setOpeningShift(true);
+      const openedShift = await CashService.openShift({
+        cashRegisterId: openShiftForm.cashRegisterId,
+        openingAmount
+      });
+      setCurrentShift(openedShift);
+      setLastClosedReport(null);
+      setShowLastCloseDetails(false);
+      await fetchCash();
+    } catch (error: any) {
+      setOpenShiftError(error.message || 'No se pudo abrir la caja.');
+    } finally {
+      setOpeningShift(false);
+    }
+  };
+
+  const handleCloseShift = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCloseShiftError('');
+
+    const countedCash = Number(closeShiftForm.countedCash);
+    if (!Number.isFinite(countedCash) || countedCash < 0) {
+      setCloseShiftError('Ingresá un monto contado válido.');
+      return;
+    }
+
+    try {
+      setClosingShift(true);
+      const closedShift = await CashService.closeCurrentShift({ countedCash });
+
+      try {
+        if (closedShift?.id) {
+          const report = await CashService.getShiftReport(String(closedShift.id));
+          setLastClosedReport(report);
+          setShowLastCloseDetails(false);
+        } else {
+          setLastClosedReport(null);
+          setShowLastCloseDetails(false);
+        }
+      } catch (reportError) {
+        console.error('❌ Error cargando reporte de cierre:', reportError);
+        setLastClosedReport(null);
+        setShowLastCloseDetails(false);
+      }
+
+      setCurrentShift(null);
+      await fetchShiftContext();
+      await fetchCash();
+    } catch (error: any) {
+      setCloseShiftError(error.message || 'No se pudo cerrar la caja.');
+    } finally {
+      setClosingShift(false);
+    }
+  };
+
   if (loading) return (
     <div className="flex flex-col items-center justify-center p-20">
         <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-[#EBE1D8]"></div>
@@ -352,6 +511,197 @@ const AdminCashDashboard = () => {
         <div className="bg-[#347048]/40 border border-[#EBE1D8]/10 px-4 py-2 rounded-2xl backdrop-blur-sm">
             <span className="text-[#EBE1D8] font-black text-sm uppercase italic">{new Date().toLocaleDateString('es-AR', { day: '2-digit', month: 'long' })}</span>
         </div>
+      </div>
+
+      {lastClosedReport && !currentShift && (
+        <div className="bg-[#EBE1D8] border-4 border-white p-6 rounded-[2.5rem] shadow-2xl">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+            <div>
+              <p className="text-[10px] font-black text-[#347048]/60 uppercase tracking-widest">Último cierre de caja</p>
+              <h3 className="text-xl font-black text-[#347048] uppercase italic tracking-tight mt-1">Resumen de cierre</h3>
+            </div>
+            <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-full border w-fit ${
+              Number(lastClosedReport.difference || 0) === 0
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                : Number(lastClosedReport.difference || 0) > 0
+                  ? 'bg-blue-50 text-blue-700 border-blue-200'
+                  : 'bg-red-50 text-red-700 border-red-200'
+            }`}>
+              {Number(lastClosedReport.difference || 0) === 0
+                ? 'Caja cuadrada'
+                : Number(lastClosedReport.difference || 0) > 0
+                  ? 'Sobrante'
+                  : 'Faltante'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white rounded-2xl p-4 border border-[#347048]/10">
+              <p className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Esperado</p>
+              <p className="text-2xl font-black text-[#347048] italic mt-2">${Number(lastClosedReport.expectedCash || 0).toLocaleString()}</p>
+            </div>
+            <div className="bg-white rounded-2xl p-4 border border-[#347048]/10">
+              <p className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Contado</p>
+              <p className="text-2xl font-black text-[#347048] italic mt-2">${Number(lastClosedReport.countedCash || 0).toLocaleString()}</p>
+            </div>
+            <div className="bg-white rounded-2xl p-4 border border-[#347048]/10">
+              <p className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Diferencia</p>
+              <p className={`text-2xl font-black italic mt-2 ${
+                Number(lastClosedReport.difference || 0) === 0
+                  ? 'text-emerald-700'
+                  : Number(lastClosedReport.difference || 0) > 0
+                    ? 'text-blue-700'
+                    : 'text-red-700'
+              }`}>
+                {Number(lastClosedReport.difference || 0) > 0 ? '+' : ''}${Number(lastClosedReport.difference || 0).toLocaleString()}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={() => setShowLastCloseDetails((prev) => !prev)}
+              className="w-full md:w-auto px-6 py-2.5 bg-white border border-[#347048]/20 text-[#347048] rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[#347048]/5 transition-all"
+            >
+              {showLastCloseDetails ? 'Ocultar detalle completo' : 'Ver detalle completo'}
+            </button>
+          </div>
+
+          {showLastCloseDetails && (
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-4">
+              <div className="bg-white rounded-2xl p-4 border border-[#347048]/10">
+                <p className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Payment In</p>
+                <p className="text-lg font-black text-emerald-700 italic mt-2">+${Number(lastClosedReport.totals?.paymentIn || 0).toLocaleString()}</p>
+              </div>
+              <div className="bg-white rounded-2xl p-4 border border-[#347048]/10">
+                <p className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Deposit</p>
+                <p className="text-lg font-black text-emerald-700 italic mt-2">+${Number(lastClosedReport.totals?.deposit || 0).toLocaleString()}</p>
+              </div>
+              <div className="bg-white rounded-2xl p-4 border border-[#347048]/10">
+                <p className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Withdraw</p>
+                <p className="text-lg font-black text-red-700 italic mt-2">-${Number(lastClosedReport.totals?.withdraw || 0).toLocaleString()}</p>
+              </div>
+              <div className="bg-white rounded-2xl p-4 border border-[#347048]/10">
+                <p className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Refund</p>
+                <p className="text-lg font-black text-red-700 italic mt-2">-${Number(lastClosedReport.totals?.refund || 0).toLocaleString()}</p>
+              </div>
+            </div>
+          )}
+
+          {lastClosedReport.shift?.closedAt && (
+            <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50 mt-4">
+              Cerrada: {new Date(lastClosedReport.shift.closedAt).toLocaleString('es-AR')}
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="bg-[#EBE1D8] border-4 border-white p-6 rounded-[2.5rem] shadow-2xl">
+        {shiftLoading ? (
+          <p className="text-xs font-black uppercase tracking-widest text-[#347048]/60">Cargando estado de caja...</p>
+        ) : currentShift ? (
+          <div className="space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-black text-[#347048]/60 uppercase tracking-widest">Turno de caja activo</p>
+                <h3 className="text-xl font-black text-[#347048] uppercase italic tracking-tight mt-1">
+                  {currentShift.cashRegister?.name || 'Caja activa'}
+                </h3>
+                <p className="text-xs font-bold text-[#347048]/70 mt-1">
+                  Apertura: ${Number(currentShift.openingAmount || 0).toLocaleString()} · {new Date(currentShift.openedAt).toLocaleString('es-AR')}
+                </p>
+              </div>
+              <span className="text-[10px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-2 rounded-full w-fit">
+                Caja abierta
+              </span>
+            </div>
+
+            <form onSubmit={handleCloseShift} className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 md:items-end">
+              <div>
+                <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Monto contado al cierre ($)</label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="0"
+                  onWheel={(event) => {
+                    event.currentTarget.blur();
+                  }}
+                  className="w-full h-14 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl px-4 text-[#347048] font-black focus:outline-none shadow-sm transition-all"
+                  value={closeShiftForm.countedCash}
+                  onChange={(e) => setCloseShiftForm({ countedCash: e.target.value })}
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={closingShift}
+                className="h-14 px-8 bg-[#926699] hover:bg-[#347048] text-[#EBE1D8] font-black rounded-[1.2rem] shadow-xl transition-all uppercase tracking-widest text-xs italic disabled:opacity-70"
+              >
+                {closingShift ? 'Cerrando...' : 'Cerrar caja'}
+              </button>
+            </form>
+
+            {closeShiftError && (
+              <p className="text-xs font-bold text-red-500 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">{closeShiftError}</p>
+            )}
+          </div>
+        ) : (
+          <form onSubmit={handleOpenShift} className="space-y-4">
+            <div>
+              <p className="text-[10px] font-black text-[#347048]/60 uppercase tracking-widest">No hay turno de caja abierto</p>
+              <h3 className="text-xl font-black text-[#347048] uppercase italic tracking-tight mt-1">Abrir caja</h3>
+            </div>
+
+            {cashRegisters.length === 0 ? (
+              <p className="text-xs font-bold text-red-500 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">
+                No hay cajas registradoras creadas para este club.
+              </p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="relative z-20">
+                    <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Caja registradora</label>
+                    <CustomSelect
+                      value={openShiftForm.cashRegisterId}
+                      onChange={(val: string) => setOpenShiftForm((prev) => ({ ...prev, cashRegisterId: val }))}
+                      placeholder="Seleccionar caja"
+                      options={cashRegisters.map((register) => ({
+                        value: String(register.id),
+                        label: register.location ? `${register.name} · ${register.location}` : register.name
+                      }))}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Monto de apertura ($)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      placeholder="0"
+                      className="w-full h-14 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl px-4 text-[#347048] font-black focus:outline-none shadow-sm transition-all"
+                      value={openShiftForm.openingAmount}
+                      onChange={(e) => setOpenShiftForm((prev) => ({ ...prev, openingAmount: e.target.value }))}
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={openingShift}
+                  className="w-full md:w-auto px-8 py-3 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-[1.2rem] shadow-xl shadow-[#347048]/20 transition-all uppercase tracking-widest text-xs italic disabled:opacity-70"
+                >
+                  {openingShift ? 'Abriendo...' : 'Abrir caja'}
+                </button>
+              </>
+            )}
+
+            {openShiftError && (
+              <p className="text-xs font-bold text-red-500 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">{openShiftError}</p>
+            )}
+          </form>
+        )}
       </div>
 
       {/* HEADER DE BALANCE (TARJETAS BLANCAS) */}
@@ -534,6 +884,9 @@ const AdminCashDashboard = () => {
             <button type="submit" className="w-full py-4 bg-[#B9CF32] hover:bg-[#aebd2b] text-[#347048] font-black rounded-[1.5rem] shadow-xl shadow-[#B9CF32]/20 transition-all hover:-translate-y-1 active:scale-95 uppercase tracking-widest text-sm italic mt-2">
               Registrar Movimiento
             </button>
+            {!currentShift && (
+              <p className="text-[10px] font-black uppercase tracking-widest text-red-500">Abrí la caja para habilitar registros.</p>
+            )}
           </form>
         </div>
 
@@ -706,6 +1059,9 @@ const AdminCashDashboard = () => {
             <button type="submit" className="w-full py-4 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-[1.5rem] shadow-xl shadow-[#347048]/20 transition-all hover:-translate-y-1 active:scale-95 uppercase tracking-widest text-sm italic mt-2">
               Registrar venta
             </button>
+            {!currentShift && (
+              <p className="text-[10px] font-black uppercase tracking-widest text-red-500">Abrí la caja para registrar ventas POS.</p>
+            )}
           </form>
         </div>
 
