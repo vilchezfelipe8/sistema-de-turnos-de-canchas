@@ -20,6 +20,7 @@ import { PricingService } from './PricingService';
 import { EventService } from './EventService';
 import { AuditLogService } from './AuditLogService';
 import { AccountingService } from './AccountingService';
+import { AccountService } from './AccountService';
 import { OUTBOX_TYPES, OutboxService } from './OutboxService';
 import { ProjectionService } from './ProjectionService';
 
@@ -29,6 +30,7 @@ export class BookingService {
     private readonly auditLogService = new AuditLogService();
     private readonly outboxService = new OutboxService();
     private readonly accountingService = new AccountingService();
+    private readonly accountService = new AccountService();
     private readonly projectionService = new ProjectionService();
 
     constructor(
@@ -82,7 +84,7 @@ export class BookingService {
             activity?.defaultDurationMinutes ?? 90
         );
 
-        // Fallback de compatibilidad para actividades FIXED sin slots configurados.
+        // Completa slots por defecto si la actividad FIXED no trae slots configurados.
         if (normalized.mode === 'FIXED' && normalized.fixedSlots.length === 0) {
             const fallbackDuration = normalized.durations[0] ?? activity?.defaultDurationMinutes ?? 90;
             normalized.fixedSlots = this.defaultFixedSlots.map((start) => ({ start, duration: fallbackDuration }));
@@ -246,8 +248,148 @@ export class BookingService {
 
     private normalizePhone(phone: string | null | undefined) {
         if (!phone) return null;
-        const normalized = phone.replace(/\D/g, '');
-        return normalized.length >= 8 ? normalized : null;
+        const digits = String(phone).replace(/\D/g, '');
+        if (!digits) return null;
+
+        if (digits.startsWith('549') && digits.length >= 12) {
+            return digits;
+        }
+
+        if (digits.startsWith('54') && digits.length >= 12) {
+            return `549${digits.slice(2)}`;
+        }
+
+        if (digits.length === 10) {
+            return `549${digits}`;
+        }
+
+        if (digits.startsWith('0') && digits.length === 11) {
+            return `549${digits.slice(1)}`;
+        }
+
+        return digits.length >= 8 ? digits : null;
+    }
+
+    private normalizeDni(dni: string | null | undefined) {
+        if (!dni) return null;
+        const normalized = String(dni).replace(/\D/g, '');
+        return normalized.length >= 6 ? normalized : null;
+    }
+
+    private async resolveOrCreateClient(input: {
+        clubId: number;
+        userId?: number | null;
+        name?: string | null;
+        phone?: string | null;
+        email?: string | null;
+        dni?: string | null;
+    }) {
+        const safeName = String(input.name ?? '').trim();
+        if (!safeName) {
+            throw new Error('El nombre del cliente es obligatorio');
+        }
+
+        const safePhone = this.normalizePhone(input.phone);
+        const safeDni = this.normalizeDni(input.dni);
+        const safeEmail = String(input.email ?? '').trim().toLowerCase();
+        const safeUserId = Number.isInteger(Number(input.userId)) && Number(input.userId) > 0 ? Number(input.userId) : null;
+
+        if (safeUserId) {
+            const existingByUser = await prisma.client.findFirst({
+                where: {
+                    clubId: input.clubId,
+                    userId: safeUserId
+                }
+            });
+
+            if (existingByUser) {
+                return prisma.client.update({
+                    where: { id: existingByUser.id },
+                    data: {
+                        name: safeName,
+                        phone: safePhone || existingByUser.phone || null,
+                        email: safeEmail || existingByUser.email || null,
+                        dni: safeDni || existingByUser.dni || null,
+                        userId: safeUserId
+                    }
+                });
+            }
+        }
+
+        if (safeDni) {
+            const existingByDni = await prisma.client.findFirst({
+                where: {
+                    clubId: input.clubId,
+                    dni: safeDni
+                }
+            });
+
+            if (existingByDni) {
+                return prisma.client.update({
+                    where: { id: existingByDni.id },
+                    data: {
+                        name: safeName,
+                        phone: safePhone || existingByDni.phone || null,
+                        email: safeEmail || existingByDni.email || null,
+                        dni: safeDni,
+                        userId: safeUserId || existingByDni.userId || null
+                    }
+                });
+            }
+        }
+
+        if (safePhone) {
+            const existingByPhone = await prisma.client.findFirst({
+                where: {
+                    clubId: input.clubId,
+                    phone: safePhone
+                }
+            });
+
+            if (existingByPhone) {
+                return prisma.client.update({
+                    where: { id: existingByPhone.id },
+                    data: {
+                        name: safeName,
+                        email: safeEmail || existingByPhone.email || null,
+                        dni: safeDni || existingByPhone.dni || null,
+                        userId: safeUserId || existingByPhone.userId || null
+                    }
+                });
+            }
+        }
+
+        if (safeEmail) {
+            const existingByEmail = await prisma.client.findFirst({
+                where: {
+                    clubId: input.clubId,
+                    email: safeEmail
+                }
+            });
+
+            if (existingByEmail) {
+                return prisma.client.update({
+                    where: { id: existingByEmail.id },
+                    data: {
+                        name: safeName,
+                        phone: safePhone || existingByEmail.phone || null,
+                        dni: safeDni || existingByEmail.dni || null,
+                        userId: safeUserId || existingByEmail.userId || null
+                    }
+                });
+            }
+        }
+
+        return prisma.client.create({
+            data: {
+                clubId: input.clubId,
+                name: safeName,
+                phone: safePhone || null,
+                email: safeEmail || null,
+                dni: safeDni || null,
+                userId: safeUserId
+            }
+        });
     }
 
     private formatBookingDateTime(date: Date, timeZone: string) {
@@ -459,31 +601,17 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
             .reduce((sum, item) => sum + Number(item.total || 0), 0);
         const total = courtTotal + itemsTotal;
 
-        const totalPaid = account.payments
+        const paid = account.payments
             .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
 
-        const itemsPaid = Math.min(itemsTotal, totalPaid);
-
-        const paidAvailableForCourt = Math.max(0, totalPaid - itemsPaid);
-        const courtPaid = Math.min(courtTotal, paidAvailableForCourt);
-        const itemsDebt = Math.max(0, itemsTotal - itemsPaid);
-
-        const courtDebt = Math.max(0, courtTotal - courtPaid);
-        const remaining = Math.max(0, total - totalPaid);
+        const remaining = Math.max(0, total - paid);
 
         return {
-            bookingId,
             courtTotal,
-            courtPaid,
-            courtDebt,
             itemsTotal,
-            itemsPaid,
-            itemsDebt,
             total,
-            totalPaid,
-            remaining,
-            paymentStatus: remaining <= 0.009 ? 'PAID' : (totalPaid > 0 ? 'PARTIAL' : 'PENDING'),
-            courtPayments: []
+            paid,
+            remaining
         };
     }
 
@@ -497,7 +625,6 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
         courtId: number,
         startDateTime: Date,
         activityId: number,
-        allowGuestWithoutContact = false,
         isProfessorOverride: boolean = false,
         durationMinutes?: number,
         createdByAdmin = false
@@ -507,32 +634,21 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
             user = await this.userRepo.findById(userId);
             if (!user) throw new Error("Usuario no encontrado");
         } else {
-            if (allowGuestWithoutContact) {
-                if (!guestIdentifier) {
-                    guestIdentifier = `admin_${Date.now()}`;
-                }
-            } else {
-                // --- VALIDACIONES ESTRICTAS PARA INVITADOS/ADMIN ---
+            // --- VALIDACIONES ESTRICTAS PARA INVITADOS/ADMIN ---
+            if (!guestName || guestName.trim().length < 2) {
+                throw new Error("El nombre es obligatorio para reservas como invitado.");
+            }
 
-                // 1. Nombre obligatorio
-                if (!guestName || guestName.trim().length < 2) {
-                    throw new Error("El nombre es obligatorio para reservas como invitado.");
-                }
+            if (!guestDni || guestDni.trim().length < 6) {
+                throw new Error("El DNI es obligatorio para identificar al cliente.");
+            }
 
-                // 2. DNI obligatorio (Vital para tu lista de deudores)
-                if (!guestDni || guestDni.trim().length < 6) {
-                    throw new Error("El DNI es obligatorio para identificar al cliente.");
-                }
+            if (!guestPhone || guestPhone.trim().length < 7) {
+                throw new Error("El número de teléfono es obligatorio.");
+            }
 
-                // 3. Teléfono obligatorio (Vital para contacto y agrupación)
-                if (!guestPhone || guestPhone.trim().length < 7) {
-                    throw new Error("El número de teléfono es obligatorio.");
-                }
-
-                // 4. Aseguramos el guestIdentifier (usamos el DNI si no hay uno)
-                if (!guestIdentifier) {
-                    guestIdentifier = guestDni;
-                }
+            if (!guestIdentifier) {
+                guestIdentifier = guestDni;
             }
         }
 
@@ -631,6 +747,8 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
             }
         }
 
+        const bookingClubId = (court as any).club.id;
+
         const created = await prisma.$transaction(async (tx: any) => {
             const overlapping = await tx.booking.findMany({
                 where: {
@@ -650,28 +768,34 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
 
             let saved;
             try {
+                const resolvedClient = await this.resolveOrCreateClient({
+                    clubId: bookingClubId,
+                    userId: user?.id ?? null,
+                    name: guestName || `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || user?.firstName || 'Cliente',
+                    phone: guestPhone || user?.phoneNumber || null,
+                    email: guestEmail || user?.email || null,
+                    dni: guestDni || null
+                });
+
                 saved = await tx.booking.create({
                     data: {
                         startDateTime,
                         endDateTime,
                         price: finalPrice,
                         status: BookingStatus.PENDING,
-                        userId: user ? user.id : undefined,
+                        userId: user ? user.id : null,
+                        clientId: resolvedClient.id,
                         guestIdentifier: guestIdentifier,
-                        guestName: guestName,
-                        guestEmail: guestEmail,
-                        guestPhone: guestPhone,
-                        guestDni: guestDni,
                         courtId: courtId,
                         activityId: activityId,
-                        clubId: (court as any).club.id
+                        clubId: bookingClubId
                     },
                     include: { user: true, court: { include: { club: true } }, activity: true }
                 });
 
                 const createdAccount = await tx.account.create({
                     data: {
-                        clubId: (court as any).club.id,
+                        clubId: bookingClubId,
                         sourceType: 'BOOKING',
                         sourceId: String(saved.id),
                         status: 'OPEN',
@@ -701,7 +825,7 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
                     });
 
                     await this.accountingService.createAccountItemTransaction(tx, {
-                        clubId: (court as any).club.id,
+                        clubId: bookingClubId,
                         type: 'ACCOUNT_ITEM',
                         referenceType: 'BOOKING',
                         referenceId: String(saved.id),
@@ -715,9 +839,9 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
                     await this.projectionService.refreshAccountSummary(createdAccount.id, tx);
                 }
 
-                await this.eventService.bookingCreated((court as any).club.id, {
+                await this.eventService.bookingCreated(bookingClubId, {
                     bookingId: saved.id,
-                    clubId: (court as any).club.id,
+                    clubId: bookingClubId,
                     userId: user?.id ?? null,
                     courtId,
                     activityId,
@@ -730,7 +854,7 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
                 const timeZone = clubConfig?.timeZone ?? 'America/Argentina/Buenos_Aires';
                 const outboxMessages = this.buildBookingCreatedOutboxMessages({
                     bookingId: saved.id,
-                    clubId: (court as any).club.id,
+                    clubId: bookingClubId,
                     clubName: (court as any)?.club?.name || 'el complejo',
                     clubPhone,
                     courtName: court.name,
@@ -899,8 +1023,15 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
             }, tx);
 
             const clubPhone = (booking.court.club as any)?.phone ?? null;
-            const clientPhone = booking.user?.phoneNumber || booking.guestPhone || null;
-            const clientName = booking.user?.firstName || booking.guestName || 'Jugador';
+            const clientPhone =
+                booking.user?.phoneNumber ||
+                booking.client?.phone ||
+                null;
+
+            const clientName =
+                booking.user?.firstName ||
+                booking.client?.name ||
+                'Jugador';
             const timeZone = (booking.court.club as any)?.timeZone || 'America/Argentina/Buenos_Aires';
             const outboxMessages = this.buildBookingCancelledOutboxMessages({
                 bookingId,
@@ -916,6 +1047,11 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
             });
 
             await this.outboxService.enqueueMany(outboxMessages, tx);
+        });
+
+        await this.accountService.cancelItemsForSource({
+            sourceType: 'BOOKING',
+            sourceId: booking.id
         });
 
         console.info('[BOOKING] Reserva cancelada', {
@@ -975,6 +1111,14 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
         return bookings;
     }
 
+    async getBookingById(bookingId: number) {
+        const booking = await this.bookingRepo.findById(bookingId);
+        if (!booking) {
+            throw new Error('Reserva no encontrada');
+        }
+        return booking;
+    }
+
     async getDaySchedule(date: Date, clubId?: number) {
         let allCourts;
         if (clubId) {
@@ -1003,7 +1147,8 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
     },
     include: {
         court: true,
-        user: true
+        user: true,
+        client: true
     }
 });
 
@@ -1384,114 +1529,96 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
             totalOccurrences,
             generationFrequencyDays
         });
+        // A. Crear el "Padre" (Turno Fijo)
+        const fixedBooking = await prisma.fixedBooking.create({
+            data: {
+                ...(userId ? { userId } : {}),
+                ...(guestName ? { guestName } : {}),
+                ...(safePhone ? { guestPhone: safePhone } : {}),
+                ...(guestDni ? { guestDni } : {}),
 
-        return await prisma.$transaction(async (tx: any) => {
-            
-            // A. Crear el "Padre" (Turno Fijo)
-            const fixedBooking = await tx.fixedBooking.create({
-                data: {
-                    ...(userId ? { userId } : {}),
-                    ...(guestName ? { guestName } : {}),
-                    ...(safePhone ? { guestPhone: safePhone } : {}),
-                    ...(guestDni ? { guestDni } : {}),
-
-                    courtId,
-                    activityId,
-                    clubId: (court as any).club.id,
-                    startDate: firstStart,
-                    dayOfWeek,
-                    startTimeMinutes,
-                    endTimeMinutes,
-                    status: 'ACTIVE' // Asegurar estado activo al crear
-                }
-            });
-
-            // B. Conflictos existentes
-            const existingBookings = await tx.booking.findMany({
-                where: {
-                    courtId,
-                    status: { not: 'CANCELLED' },
-                    startDateTime: { gte: firstStart },
-                    endDateTime: { lte: lastEnd }
-                }
-            });
-
-            const bookingsToCreate = [];
-
-            // C. Procesar en memoria
-            for (let i = 0; i < totalOccurrences; i++) {
-                const currentStart = new Date(startDateTime);
-                currentStart.setDate(startDateTime.getDate() + (i * generationFrequencyDays));
-                
-                const currentEnd = new Date(currentStart.getTime() + duration * 60000);
-                this.assertValidRange(currentStart, currentEnd);
-
-                const hasConflict = existingBookings.some((existing: any) => {
-                    return (existing.startDateTime < currentEnd && existing.endDateTime > currentStart);
-                });
-
-                if (!hasConflict) {
-                    const basePrice = Number((court as any)?.price ?? 0);
-                    if (!Number.isFinite(basePrice) || basePrice <= 0) {
-                        throw new Error('Precio de cancha no configurado.');
-                    }
-                    const clubConfig = this.resolveClubConfig((court as any)?.club);
-                    const isProfessor = Boolean(user?.isProfessor) || Boolean(isProfessorOverride);
-                    let fixedPrice = basePrice;
-                    if (isProfessor && clubConfig?.professorDiscountEnabled) {
-                        const discountPercent = Number(clubConfig?.professorDiscountPercent ?? 0);
-                        if (Number.isFinite(discountPercent) && discountPercent > 0) {
-                            const clamped = Math.min(Math.max(discountPercent, 0), 100);
-                            fixedPrice = basePrice * (1 - clamped / 100);
-                        }
-                    }
-                    bookingsToCreate.push({
-                        startDateTime: currentStart,
-                        endDateTime: currentEnd,
-                        price: fixedPrice,
-                        status: 'PENDING',
-                        ...(userId ? { userId } : {}),
-                        ...(guestName ? { guestName } : {}),
-                        ...(safePhone ? { guestPhone: safePhone } : {}), // Guardar teléfono en cada reserva hija
-                        ...(guestDni ? { guestDni } : {}), // Guardar DNI en cada reserva hija
-                        courtId,
-                        activityId,
-                        clubId: (court as any).club.id,
-                        fixedBookingId: fixedBooking.id
-                    });
-                }
-            }
-
-            // D. Guardar hijos
-            if (bookingsToCreate.length > 0) {
-                try {
-                    await Promise.all(bookingsToCreate.map((data) => tx.booking.create({ data })));
-                } catch (error) {
-                    if (this.isOverlapConstraintError(error)) {
-                        throw new Error('Se detectó superposición de turnos durante la generación automática');
-                    }
-                    throw error;
-                }
-            }
-
-            console.info('[FIXED_BOOKING] Generación completada', {
-                fixedBookingId: fixedBooking.id,
-                generatedCount: bookingsToCreate.length,
                 courtId,
                 activityId,
-                clubId: (court as any).club.id
+                clubId: (court as any).club.id,
+                startDate: firstStart,
+                dayOfWeek,
+                startTimeMinutes,
+                endTimeMinutes,
+                status: 'ACTIVE'
+            }
+        });
+
+        // B. Conflictos existentes
+        const existingBookings = await prisma.booking.findMany({
+            where: {
+                courtId,
+                status: { not: 'CANCELLED' },
+                startDateTime: { gte: firstStart },
+                endDateTime: { lte: lastEnd }
+            }
+        });
+
+        let generatedCount = 0;
+
+        // C. Generar hijas usando la misma lógica central de createBooking
+        for (let i = 0; i < totalOccurrences; i++) {
+            const currentStart = new Date(startDateTime);
+            currentStart.setDate(startDateTime.getDate() + (i * generationFrequencyDays));
+
+            const currentEnd = new Date(currentStart.getTime() + duration * 60000);
+            this.assertValidRange(currentStart, currentEnd);
+
+            const hasConflict = existingBookings.some((existing: any) => {
+                return existing.startDateTime < currentEnd && existing.endDateTime > currentStart;
             });
 
-            return { 
-                fixedBookingId: fixedBooking.id, 
-                generatedCount: bookingsToCreate.length,
-                msg: `Se crearon ${bookingsToCreate.length} turnos pendientes.`
-            };
+            if (hasConflict) {
+                continue;
+            }
 
-        }, {
-            maxWait: 5000,
-            timeout: 20000 
+            try {
+                const createdBooking = await this.createBooking(
+                    userId,
+                    guestDni,
+                    guestName,
+                    undefined,
+                    safePhone,
+                    guestDni,
+                    courtId,
+                    currentStart,
+                    activityId,
+                    isProfessorOverride,
+                    duration,
+                    true
+                );
+
+                await prisma.booking.update({
+                    where: { id: createdBooking.id },
+                    data: { fixedBookingId: fixedBooking.id }
+                });
+
+                generatedCount += 1;
+            } catch (error) {
+                if (this.isOverlapConstraintError(error) || String((error as Error)?.message || '').includes('ya fue reservado')) {
+                    continue;
+                }
+                throw error;
+            }
+        }
+
+        console.info('[FIXED_BOOKING] Generación completada', {
+            fixedBookingId: fixedBooking.id,
+            generatedCount,
+            courtId,
+            activityId,
+            clubId: (court as any).club.id
         });
+
+        return {
+            fixedBookingId: fixedBooking.id,
+            generatedCount,
+            msg: `Se crearon ${generatedCount} turnos pendientes.`
+        };
     }
 
     async cancelFixedBooking(fixedBookingId: number, clubId?: number) {

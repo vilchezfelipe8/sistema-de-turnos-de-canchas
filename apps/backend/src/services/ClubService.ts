@@ -135,58 +135,21 @@ export class ClubService {
         return await this.clubRepo.saveCourt(court);
     }
 
-    // 👇 2. NUEVO MÉTODO AGREGADO (Para el Buscador Inteligente)
-async getClients(clubId: number) {
-    
-    // Buscamos todas las reservas de ese club (incluyendo CANCELLED para mantener historial)
-    const bookings: any[] = await prisma.booking.findMany({
-        where: {
-            clubId,
-        },
-        select: {
-            guestName: true,
-            guestPhone: true,
-            guestDni: true,
-            user: {
-                select: {
-                    firstName: true,
-                    lastName: true,
-                    phoneNumber: true,
-                    isProfessor: true,
-                    dni: true 
-                }
-            }
-        },
-        orderBy: { startDateTime: 'desc' }
-    } as any);
+    async getClients(clubId: number) {
+        const prismaAny = prisma as any;
+        const clients: any[] = await prismaAny.client.findMany({
+            where: { clubId },
+            orderBy: { createdAt: 'desc' }
+        });
 
-    const uniqueClients = new Map();
-
-    bookings.forEach(b => {
-        // Lógica para decidir si es User o Guest
-        const name = b.user ? `${b.user.firstName} ${b.user.lastName}` : b.guestName;
-        const phone = b.user ? b.user.phoneNumber : b.guestPhone;
-        
-        // 👉 2. PRIORIZAMOS EL DNI DEL USUARIO, Y SI NO HAY, USAMOS EL DEL INVITADO
-        const dni = b.user?.dni || b.guestDni; 
-
-        if (name) {
-            // Usamos DNI como clave única si existe, sino el nombre
-            const key = dni ? `dni_${dni}` : `name_${name.toLowerCase().trim()}`;
-
-            if (!uniqueClients.has(key)) {
-                uniqueClients.set(key, {
-                    // Mapeamos para que el Frontend lo entienda
-                    firstName: name, 
-                    lastName: '', 
-                    phoneNumber: phone, 
-                    dni: dni, // ¡Ahora sí viaja el correcto!
-                    isProfessor: b.user?.isProfessor ?? false
-                });
-            }
-        }
-    });
-
-    return Array.from(uniqueClients.values());
-}
+        return clients.map((client) => ({
+            id: client.id,
+            firstName: client.name,
+            lastName: '',
+            phoneNumber: client.phone || '',
+            email: client.email || '',
+            dni: client.dni || '',
+            isProfessor: false
+        }));
+    }
 }

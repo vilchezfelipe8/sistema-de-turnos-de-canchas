@@ -97,7 +97,59 @@ export class CashService {
     }
 
     async addMovement(data: any, actorUserId?: number) {
-        const created = await this.cashRepository.create(data);
+        const created = await prisma.$transaction(async (tx) => {
+            const movement = await tx.cashMovement.create({ data });
+
+            const amount = Number(movement.amount || 0);
+            const isIn = movement.type === 'PAYMENT_IN' || movement.type === 'DEPOSIT';
+
+            const movementAccount =
+                movement.method === 'TRANSFER' ? 'BANK' :
+                movement.method === 'CARD' ? 'CARD_CLEARING' :
+                movement.method === 'MP' ? 'ONLINE_GATEWAY' : 'CASH';
+
+            const transaction = await tx.ledgerTransaction.create({
+                data: {
+                    clubId: Number(movement.clubId),
+                    // NOTE: Schema currently has no CASH_MOVEMENT enum value; using ADJUSTMENT as manual movement posting type.
+                    type: 'ADJUSTMENT',
+                    referenceType: 'MANUAL',
+                    referenceId: String(movement.id),
+                    createdByUserId: actorUserId ?? data?.userId ?? null
+                }
+            });
+
+            await tx.ledgerEntry.createMany({
+                data: [
+                    {
+                        transactionId: transaction.id,
+                        clubId: Number(movement.clubId),
+                        type: 'ADJUSTMENT',
+                        referenceType: 'MANUAL',
+                        referenceId: String(movement.id),
+                        amount: new Prisma.Decimal(Math.abs(amount)),
+                        account: isIn ? movementAccount : 'ADJUSTMENTS',
+                        direction: 'DEBIT',
+                        description: String(movement.concept || ''),
+                        createdByUserId: actorUserId ?? data?.userId ?? null
+                    },
+                    {
+                        transactionId: transaction.id,
+                        clubId: Number(movement.clubId),
+                        type: 'ADJUSTMENT',
+                        referenceType: 'MANUAL',
+                        referenceId: String(movement.id),
+                        amount: new Prisma.Decimal(Math.abs(amount)),
+                        account: isIn ? 'ADJUSTMENTS' : movementAccount,
+                        direction: 'CREDIT',
+                        description: String(movement.concept || ''),
+                        createdByUserId: actorUserId ?? data?.userId ?? null
+                    }
+                ]
+            });
+
+            return movement;
+        });
 
         await this.projectionService.refreshCashShiftSummary(String(data.cashShiftId));
         await this.projectionService.refreshDailyCashSummary(Number(data.clubId), created.createdAt);

@@ -155,6 +155,7 @@ model User {
   dni       String?
 
   bookings      Booking[]
+  clients       Client[]
   fixedBookings FixedBooking[]
   memberships   Membership[]
   notifications Notification[]
@@ -206,6 +207,7 @@ model Club {
 
   courts        Court[]
   activities    ActivityType[]
+  clients       Client[]
   bookings      Booking[]
   products      Product[]
   cashMovements CashMovement[]
@@ -318,6 +320,32 @@ model ActivityType {
   @@index([clubId])
 }
 
+model Client {
+  id        String   @id @default(cuid())
+  clubId    Int
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  name      String
+  dni       String?
+  phone     String?
+  email     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings  Booking[]
+
+  @@index([clubId])
+  @@index([userId])
+  @@index([clubId, email])
+  @@index([clubId, phone])
+  @@index([clubId, dni])
+  @@unique([clubId, dni])
+  @@unique([clubId, userId])
+}
+
 model Booking {
   id              Int           @id @default(autoincrement())
 
@@ -333,10 +361,9 @@ model Booking {
   status          BookingStatus @default(PENDING)
 
   guestIdentifier String?
-  guestName       String?
-  guestEmail      String?
-  guestPhone      String?
-  guestDni        String?
+
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
 
   userId Int?
   user   User? @relation(fields: [userId], references: [id])

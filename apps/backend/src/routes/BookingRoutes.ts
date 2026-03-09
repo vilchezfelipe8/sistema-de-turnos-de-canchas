@@ -55,6 +55,7 @@ router.delete('/items/:itemId', authMiddleware, setAdminClubFromUser, requireRol
 
 // Historial y Estados
 router.get('/history/:userId', authMiddleware, (req, res) => bookingController.getHistory(req, res));
+router.get('/:id', authMiddleware, setAdminClubFromUser, requireRole('ADMIN'), (req, res) => bookingController.getById(req, res));
 
 
 export default router;

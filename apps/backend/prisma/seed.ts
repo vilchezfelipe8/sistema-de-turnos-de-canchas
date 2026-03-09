@@ -156,6 +156,33 @@ async function main() {
   const tenisClub3 = await ensureActivityType(club3.id, 'Tenis', 'Deporte de raqueta', 90);
   const futbolClub3 = await ensureActivityType(club3.id, 'Fútbol', 'Deporte de equipo', 60);
 
+  const lasTejasPadelFixedSlots = [
+    '08:00',
+    '09:30',
+    '11:00',
+    '12:30',
+    '14:00',
+    '15:30',
+    '17:30',
+    '19:00',
+    '20:30',
+    '22:00'
+  ].map((start) => ({
+    start,
+    duration: 90
+  }));
+
+  await prisma.activityType.update({
+    where: { id: padelClub1.id },
+    data: {
+      scheduleMode: 'FIXED',
+      scheduleFixedSlots: lasTejasPadelFixedSlots,
+      scheduleOpenTime: null,
+      scheduleCloseTime: null,
+      scheduleIntervalMinutes: null
+    }
+  });
+
   console.log('✅ Actividades creadas/actualizadas por club');
 
   // 5. Canchas (idempotente por id fijo)
@@ -272,6 +299,87 @@ async function main() {
   await upsertMembership(lioUser.id, club1.id, MembershipRole.CUSTOMER);
 
   console.log('✅ Usuarios y memberships creados');
+
+  const normalizePhone = (value?: string) => {
+    if (!value) return null;
+    const digits = value.replace(/\D/g, '');
+    if (!digits) return null;
+    if (digits.startsWith('549') && digits.length >= 12) return digits;
+    if (digits.startsWith('54') && digits.length >= 12) return `549${digits.slice(2)}`;
+    if (digits.length === 10) return `549${digits}`;
+    if (digits.startsWith('0') && digits.length === 11) return `549${digits.slice(1)}`;
+    return digits.length >= 8 ? digits : null;
+  };
+
+  const normalizeDni = (value?: string) => {
+    if (!value) return null;
+    const digits = value.replace(/\D/g, '');
+    return digits.length >= 6 ? digits : null;
+  };
+
+  const upsertClient = async (
+    clubId: number,
+    name: string,
+    phone?: string,
+    email?: string,
+    dni?: string,
+    userId?: number
+  ) => {
+    const normalizedPhone = normalizePhone(phone);
+    const normalizedDni = normalizeDni(dni);
+    const safeEmail = email?.trim().toLowerCase() || null;
+
+    let existing = null;
+
+    if (userId) {
+      existing = await prismaAny.client.findFirst({ where: { clubId, userId } });
+    }
+
+    if (!existing && normalizedDni) {
+      existing = await prismaAny.client.findFirst({ where: { clubId, dni: normalizedDni } });
+    }
+
+    if (!existing && normalizedPhone) {
+      existing = await prismaAny.client.findFirst({ where: { clubId, phone: normalizedPhone } });
+    }
+
+    if (!existing && safeEmail) {
+      existing = await prismaAny.client.findFirst({ where: { clubId, email: safeEmail } });
+    }
+
+    if (!existing) {
+      existing = await prismaAny.client.findFirst({ where: { clubId, name } });
+    }
+
+    const upsertPayload = {
+      name,
+      phone: normalizedPhone,
+      email: safeEmail,
+      dni: normalizedDni,
+      userId: userId ?? null
+    };
+
+    if (existing) {
+      return prismaAny.client.update({
+        where: { id: existing.id },
+        data: upsertPayload
+      });
+    }
+
+    return prismaAny.client.create({
+      data: {
+        clubId,
+        ...upsertPayload
+      }
+    });
+  };
+
+  await upsertClient(club1.id, 'Lionel Messi', '555-101010', 'lio@messi.com', '30123123', lioUser.id);
+  await upsertClient(club1.id, 'Cliente Mostrador Tejas', '+54 9 357 000 0001', 'cliente.tejas@example.com', '30999001');
+  await upsertClient(club2.id, 'Juan Perez', '555-202020', 'usuario@clubcentral.com', '30999002', memberCentral.id);
+  await upsertClient(club2.id, 'Cliente Mostrador Central', '+54 9 11 0000 0002', 'cliente.central@example.com', '30999003');
+  await upsertClient(club3.id, 'Cliente Mostrador Madrid', '+34 600 111 222', 'cliente.madrid@example.com', '30999004');
+  console.log('✅ Clientes creados/actualizados');
 
   const upsertCashRegister = async (clubId: number) => {
     return prisma.cashRegister.upsert({

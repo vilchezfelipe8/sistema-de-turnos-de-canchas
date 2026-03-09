@@ -16,11 +16,8 @@ export class BookingRepository {
             price: booking.price,
             status: booking.status,
             // user puede ser null para reservas de invitado
-            userId: booking.user ? booking.user.id : undefined,
+            userId: booking.user ? booking.user.id : null,
             guestIdentifier: booking.guestIdentifier,
-            guestName: booking.guestName,
-            guestEmail: booking.guestEmail,
-            guestPhone: booking.guestPhone,
             courtId: booking.court.id,
             activityId: booking.activity.id,
             clubId: booking.court.club.id
@@ -28,7 +25,7 @@ export class BookingRepository {
 
         const saved = await prisma.booking.create({
             data,
-            include: { user: true, court: { include: { club: true } }, activity: true }
+            include: { user: true, client: true, court: { include: { club: true } }, activity: true }
         });
         return this.mapToEntity(saved);
     }
@@ -41,7 +38,7 @@ export class BookingRepository {
                 courtId: courtId,
                 startDateTime: { gte: startUtc, lte: endUtc }
             },
-            include: { user: true, court: { include: { club: true } }, activity: true }
+            include: { user: true, client: true, court: { include: { club: true } }, activity: true }
         });
 
         return found.map((b: any) => this.mapToEntity(b));
@@ -63,7 +60,7 @@ export class BookingRepository {
     async findById(id: number): Promise<Booking | undefined> {
         const found = await prisma.booking.findUnique({
             where: { id },
-            include: { user: true, court: { include: { club: true } }, activity: true }
+            include: { user: true, client: true, court: { include: { club: true } }, activity: true }
         });
         if (!found) return undefined;
         return this.mapToEntity(found);
@@ -72,14 +69,14 @@ export class BookingRepository {
     async findByUserId(userId: number): Promise<Booking[]> {
         const found = await prisma.booking.findMany({
             where: { userId },
-            include: { user: true, court: { include: { club: true } }, activity: true }
+            include: { user: true, client: true, court: { include: { club: true } }, activity: true }
         });
         return found.map((b: any) => this.mapToEntity(b));
     }
 
     async findAll(): Promise<Booking[]> {
         const found = await prisma.booking.findMany({
-            include: { user: true, court: { include: { club: true } }, activity: true }
+            include: { user: true, client: true, court: { include: { club: true } }, activity: true }
         });
         return found.map((b: any) => this.mapToEntity(b));
     }
@@ -106,6 +103,7 @@ export class BookingRepository {
             },
             include: {
                 user: true,
+                client: true,
                 court: { include: { club: true } },
                 activity: true
             },
@@ -128,6 +126,7 @@ export class BookingRepository {
             },
             include: {
                 user: true,
+                client: true,
                 court: { include: { club: true } },
                 activity: true
             },
@@ -194,6 +193,16 @@ export class BookingRepository {
             Array.isArray(dbItem.activity.scheduleFixedSlots) ? dbItem.activity.scheduleFixedSlots : null
         );
 
+        const client = dbItem.client
+            ? {
+                id: dbItem.client.id,
+                name: dbItem.client.name,
+                dni: dbItem.client.dni ?? null,
+                phone: dbItem.client.phone ?? null,
+                email: dbItem.client.email ?? null
+            }
+            : null;
+
         const booking = new Booking(
             dbItem.id,
             dbItem.startDateTime,
@@ -204,11 +213,9 @@ export class BookingRepository {
             activity,
             dbItem.status as BookingStatus,
             dbItem.guestIdentifier,
-            dbItem.guestName,
-            dbItem.guestEmail,
-            dbItem.guestPhone,
             dbItem.fixedBookingId || null,
-            dbItem.guestDni
+            dbItem.clientId ?? null,
+            client
         );
         if (dbItem.cancelledBy) booking.cancelledBy = dbItem.cancelledBy;
         if (dbItem.cancelledAt) booking.cancelledAt = dbItem.cancelledAt;

@@ -192,12 +192,12 @@ const closeDuplicateOpenShifts = async () => {
   }
 };
 
-const markLegacyEventsProcessed = async () => {
+const markPendingEventsProcessed = async () => {
   const pending = await prisma.event.count({
     where: { processed: false }
   });
 
-  log('mark_legacy_events_processed', { pending });
+  log('mark_pending_events_processed', { pending });
 
   if (!DRY_RUN && pending > 0) {
     await prisma.event.updateMany({
@@ -243,7 +243,7 @@ const run = async () => {
   await mergeDuplicateAccounts();
   await renameDuplicateCashRegisters();
   await closeDuplicateOpenShifts();
-  await markLegacyEventsProcessed();
+  await markPendingEventsProcessed();
   await backfillProductLinks();
 
   await prisma.$disconnect();

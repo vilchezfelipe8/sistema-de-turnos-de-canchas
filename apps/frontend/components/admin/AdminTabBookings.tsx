@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
-import { getCourts } from '../../services/CourtService';
 import {
   getAdminSchedule,
   cancelBooking,
@@ -11,6 +10,7 @@ import {
   searchClients 
 } from '../../services/BookingService';
 import { getAccountSummary, getOrCreateBookingAccount, registerPayment } from '../../services/AccountService';
+import { ClubAdminService } from '../../services/ClubAdminService';
 import AppModal from '../AppModal';
 import BookingConsumption from '../BookingConsumption';
 import { useParams } from 'react-router-dom';
@@ -525,7 +525,15 @@ export default function AdminTabBookings() {
     onConfirm: wrapAction(options.onConfirm), onCancel: options.onCancel ? wrapAction(options.onCancel) : undefined
   });
 
-  const loadCourts = useCallback(async () => { const data = await getCourts(); setCourts(data); }, []);
+  const loadCourts = useCallback(async () => {
+    const slug = getClubSlug();
+    if (!slug) {
+      setCourts([]);
+      return;
+    }
+    const data = await ClubAdminService.getCourts(slug);
+    setCourts(Array.isArray(data) ? data : []);
+  }, [getClubSlug]);
 
   const loadSchedule = useCallback(async () => {
     try {
@@ -658,7 +666,9 @@ export default function AdminTabBookings() {
     const lastName = manualBooking.guestLastName.trim();
     const dni = manualBooking.guestDni?.trim();
     const phone = manualBooking.guestPhone?.trim();
+    const selectedActivityId = Number(selectedManualCourt?.activityTypeId || selectedManualCourt?.activityType?.id);
     if (!manualBooking.courtId || !manualBooking.time) { showError('Faltan datos de cancha u horario'); return; }
+    if (!Number.isInteger(selectedActivityId) || selectedActivityId <= 0) { showError('La cancha seleccionada no tiene actividad válida'); return; }
     if (!firstName || !lastName || !dni || !phone) { showError('Nombre, Apellido, DNI y Teléfono son obligatorios'); return; }
     let dateBase: Date;
     let guestName = `${firstName} ${lastName}`.trim();
@@ -679,7 +689,7 @@ export default function AdminTabBookings() {
           await createFixedBooking(
             undefined,
             Number(manualBooking.courtId),
-            1,
+            selectedActivityId,
             dateBase,
             guestName,
             phoneToSend || undefined,
@@ -691,7 +701,7 @@ export default function AdminTabBookings() {
             const guestData = { name: guestName, phone: phoneToSend, dni: dni, document: dni, dniNumber: dni };
             await createBooking(
               Number(manualBooking.courtId),
-              1,
+              selectedActivityId,
               dateBase,
               manualBooking.time,
               undefined,
@@ -1196,20 +1206,7 @@ export default function AdminTabBookings() {
                   const rawHeight = (durationMinutes ?? DEFAULT_DURATION_MINUTES) * pixelsPerMinute;
                   const height = Math.max(rawHeight - V_GAP_PX, 40);
 
-                  // Intentamos sacar el nombre de todas las fuentes posibles:
-                  const bookingName =
-                    // 1. Si viene el objeto user completo (muy común en relaciones BDD)
-                    (slot.booking?.user?.firstName && slot.booking?.user?.lastName) 
-                      ? `${slot.booking.user.firstName} ${slot.booking.user.lastName}` 
-                      : slot.booking?.user?.firstName 
-                    // 2. Si viene el nombre del usuario plano (como intentabas antes)
-                    || slot.booking?.userName
-                    // 3. Si es un invitado (sin cuenta)
-                    || slot.booking?.guestName
-                    // 4. Si el objeto booking trae el DNI en lugar del nombre (por si acaso)
-                    || (slot.booking?.user?.dni ? `DNI: ${slot.booking.user.dni}` : null)
-                    // 5. El fallback por defecto si todo lo demás falla
-                    || 'Sin nombre';
+                  const bookingName = slot.booking?.client?.name ?? 'Sin cliente vinculado';
 
                   return (
                     <button
@@ -1337,29 +1334,19 @@ export default function AdminTabBookings() {
             <div className="rounded-2xl border border-[#347048]/10 bg-white p-4">
               <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50">Reservante</p>
               
-              {/* 👉 ACÁ ARREGLAMOS EL NOMBRE */}
               <p className="text-lg font-black mt-1 text-[#347048]">
-                {
-                  (selectedBookingDetail.booking.user?.firstName && selectedBookingDetail.booking.user?.lastName)
-                    ? `${selectedBookingDetail.booking.user.firstName} ${selectedBookingDetail.booking.user.lastName}`
-                    : selectedBookingDetail.booking.user?.firstName
-                    || selectedBookingDetail.booking.userName
-                    || selectedBookingDetail.booking.guestName
-                    || 'Sin nombre'
-                }
+                {selectedBookingDetail.booking.client?.name ?? 'Sin cliente vinculado'}
               </p>
 
-              {/* El teléfono queda igual (ya estaba bien hecho) */}
-              {(selectedBookingDetail.booking.guestPhone || selectedBookingDetail.booking.user?.phoneNumber) && (
+              {selectedBookingDetail.booking.client?.phone && (
                 <p className="text-xs font-bold text-[#347048]/60 mt-1">
-                  {selectedBookingDetail.booking.guestPhone || selectedBookingDetail.booking.user?.phoneNumber}
+                  {selectedBookingDetail.booking.client.phone}
                 </p>
               )}
 
-              {/* 👉 ACÁ TAMBIÉN AGREGAMOS EL DNI DEL USUARIO LOGUEADO */}
-              {(selectedBookingDetail.booking.guestDni || selectedBookingDetail.booking.user?.dni) && (
+              {(selectedBookingDetail.booking.client?.dni) && (
                 <p className="text-xs font-bold text-[#347048]/60 mt-1">
-                  DNI: {selectedBookingDetail.booking.guestDni || selectedBookingDetail.booking.user?.dni}
+                  DNI: {selectedBookingDetail.booking.client.dni}
                 </p>
               )}
             </div>
@@ -1408,10 +1395,7 @@ export default function AdminTabBookings() {
               {selectedBookingDetail.booking.status === 'PENDING' && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setSelectedBookingId(selectedBookingDetail.booking.id);
-                    setShowPaymentModal(true);
-                  }}
+                  onClick={() => handleOpenPaymentModal(selectedBookingDetail.booking.id)}
                   className="px-5 py-3 rounded-xl bg-[#B9CF32] text-[#347048] font-black uppercase tracking-widest text-xs"
                 >
                   Cobrar

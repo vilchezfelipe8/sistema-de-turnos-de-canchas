@@ -96,7 +96,6 @@ export class BookingController {
             const asGuest = Boolean((req.body as any)?.asGuest);
             const forceGuest = isAdmin && asGuest;
             const effectiveUserId = forceGuest ? null : (userIdFromToken ? Number(userIdFromToken) : null);
-            const allowGuestWithoutContact = forceGuest;
             const effectiveGuestIdentifier = forceGuest && !guestIdentifier ? `admin_${Date.now()}` : guestIdentifier;
             const applyProfessorDiscount = isAdmin && Boolean(isProfessor);
 
@@ -119,8 +118,11 @@ export class BookingController {
             if (!effectiveUserId && !guestName) {
                 return res.status(400).json({ error: "Debe enviar un nombre para reservar como invitado." });
             }
-            if (!effectiveUserId && !forceGuest && !guestPhone) {
+            if (!effectiveUserId && !guestPhone) {
                 return res.status(400).json({ error: "Debe enviar un teléfono para reservar como invitado." });
+            }
+            if (!effectiveUserId && !guestDni) {
+                return res.status(400).json({ error: "Debe enviar un DNI para reservar como invitado." });
             }
 
             const isGuest = !effectiveUserId;
@@ -140,7 +142,6 @@ export class BookingController {
                 Number(courtId),
                 startDate,
                 Number(activityId),
-                allowGuestWithoutContact,
                 applyProfessorDiscount,
                 durationMinutes,
                 isAdmin
@@ -279,6 +280,28 @@ export class BookingController {
         }
     }
 
+    getById = async (req: Request, res: Response) => {
+        try {
+            const paramsSchema = z.object({
+                id: z.preprocess((v) => Number(v), z.number().int().positive())
+            });
+            const parsed = paramsSchema.safeParse(req.params);
+            if (!parsed.success) {
+                return res.status(400).json({ error: parsed.error.format() });
+            }
+
+            const bookingId = parsed.data.id;
+            const [booking, financialSummary] = await Promise.all([
+                this.bookingService.getBookingById(bookingId),
+                this.bookingService.getBookingFinancialSummary(bookingId)
+            ]);
+
+            return res.json({ booking, financialSummary });
+        } catch (error: any) {
+            return res.status(404).json({ error: error.message || 'Reserva no encontrada' });
+        }
+    }
+
     getAllAvailableSlots = async (req: Request, res: Response) => {
         try {
             const querySchema = z.object({
@@ -406,6 +429,12 @@ export class BookingController {
             }
             if (!userId && !guestName) {
                 return res.status(400).json({ error: "Debe enviar un nombre para el turno fijo." });
+            }
+            if (!userId && !guestPhone) {
+                return res.status(400).json({ error: "Debe enviar un teléfono para el turno fijo." });
+            }
+            if (!userId && !guestDni) {
+                return res.status(400).json({ error: "Debe enviar un DNI para el turno fijo." });
             }
 
             const startDate = new Date(startDateTime);

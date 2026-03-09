@@ -29,25 +29,11 @@ interface CartItem {
 }
 
 interface BookingFinancialSummary {
-  bookingId: number;
-  accountId?: string;
-  courtTotal?: number;
-  courtPaid?: number;
-  courtDebt?: number;
-  itemsTotal?: number;
-  itemsPaid?: number;
-  itemsDebt?: number;
+  courtTotal: number;
+  itemsTotal: number;
   total: number;
-  totalPaid: number;
+  paid: number;
   remaining: number;
-  paymentStatus: string;
-  courtPayments?: Array<{
-    id: number;
-    amount: number;
-    method: string;
-    description?: string;
-    date: string;
-  }>;
 }
 
 // --- COMPONENTE DROPDOWN CUSTOM (ESTILO WIMBLEDON LANDING) ---
@@ -204,35 +190,21 @@ export default function BookingConsumption(
 
   const isCancelled = bookingStatus === 'CANCELLED';
 
-  const fallbackCourtTotal = Number(courtPrice || 0);
-  const hasSummary = Boolean(financialSummary);
-  const accountRemaining = Number(financialSummary?.remaining || 0);
-  const courtTotal = Number(financialSummary?.courtTotal ?? fallbackCourtTotal);
-  const courtPaid = Number(
-    financialSummary?.courtPaid ??
-    (hasSummary
-      ? Math.max(0, Math.min(courtTotal, courtTotal - accountRemaining))
-      : (paymentStatus === 'PAID' ? fallbackCourtTotal : 0))
-  );
-  const courtPriceToPay = Math.max(
-    0,
-    Number(
-      financialSummary?.courtDebt ??
-      (hasSummary
-        ? Math.min(courtTotal, accountRemaining)
-        : (courtTotal - courtPaid))
-    )
-  );
-  const courtDebtInAccount = Math.max(0, courtTotal - courtPaid - courtPriceToPay);
-  const hasCourtPaid = courtPaid > 0.01;
-  const hasCourtDebtInAccount = courtDebtInAccount > 0.01;
-  const hasCourtPendingToRegister = courtPriceToPay > 0.01;
-  const isCourtFullyPaid = !hasCourtDebtInAccount && !hasCourtPendingToRegister;
-  const isCourtOnlyPending = !hasCourtPaid && !hasCourtDebtInAccount && hasCourtPendingToRegister;
-  const isCourtOnlyInAccount = !hasCourtPaid && hasCourtDebtInAccount && !hasCourtPendingToRegister;
+  const courtTotal = Number(financialSummary?.courtTotal || 0);
+  const itemsTotal = Number(financialSummary?.itemsTotal || 0);
+  const paidTotal = Number(financialSummary?.paid || 0);
+  const remainingTotal = Number(financialSummary?.remaining || 0);
+
+  const courtPriceToPay = Math.max(0, remainingTotal);
+  const hasCourtPaid = paidTotal > 0.01;
+  const hasCourtDebtInAccount = remainingTotal > 0.01;
+  const hasCourtPendingToRegister = remainingTotal > 0.01;
+  const isCourtFullyPaid = remainingTotal <= 0.01;
+  const isCourtOnlyPending = !hasCourtPaid && remainingTotal > 0.01;
+  const isCourtOnlyInAccount = false;
   const basePrice = Number(baseCourtPrice ?? 0);
   const lightsExtra = basePrice > 0 ? Math.max(courtTotal - basePrice, 0) : 0;
-  const courtPayments = Array.isArray(financialSummary?.courtPayments) ? financialSummary.courtPayments : [];
+  const courtPayments: Array<{ id: number; amount: number; method: string; description?: string; date: string }> = [];
 
   const formatMethodLabel = (method?: string) => {
     if (method === 'CASH') return 'Efectivo';
@@ -459,15 +431,15 @@ export default function BookingConsumption(
           </div>
           <div className="flex justify-between text-[10px] font-black text-[#347048]/70 uppercase tracking-widest">
             <span>Cancha pagado</span>
-            <span>${courtPaid.toLocaleString()}</span>
+            <span>${paidTotal.toLocaleString()}</span>
           </div>
-          <div className="flex justify-between text-[10px] font-black text-yellow-700 uppercase tracking-widest">
-            <span>Cancha en cuenta (cliente)</span>
-            <span>${courtDebtInAccount.toLocaleString()}</span>
+          <div className="flex justify-between text-[10px] font-black text-[#347048]/70 uppercase tracking-widest">
+            <span>Consumos registrados</span>
+            <span>${itemsTotal.toLocaleString()}</span>
           </div>
           <div className="flex justify-between text-[10px] font-black text-[#926699] uppercase tracking-widest">
             <span>Cancha pendiente (sin registrar)</span>
-            <span>${courtPriceToPay.toLocaleString()}</span>
+            <span>${remainingTotal.toLocaleString()}</span>
           </div>
           {courtPayments.length > 0 && (
             <div className="rounded-xl bg-white/70 border border-[#347048]/10 p-2 space-y-1">

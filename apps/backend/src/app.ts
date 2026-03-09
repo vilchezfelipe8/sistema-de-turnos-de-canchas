@@ -114,7 +114,7 @@ export const createApp = () => {
   app.use('/api/audit-logs', AuditLogRoutes);
   app.use('/api/court-price-rules', CourtPriceRuleRoutes);
   app.use('/api/cash-movements', CashRoutes);
-  app.use('/clients', ClientRoutes);
+  app.use('/api/clients', ClientRoutes);
 
   app.get('/', (_req: Request, res: Response) => {
     res.json({ message: 'API Sistema de Turnos' });

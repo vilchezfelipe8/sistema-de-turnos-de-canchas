@@ -62,12 +62,12 @@ const run = async () => {
     multipleOpenShifts,
     mismatchedCashMovements,
     mismatchedLedgerEntries,
-    legacyShiftWithoutUserOne,
+    historicalShiftWithoutUserOne,
     bookingClubMismatches,
     courtActivityMismatches,
     courtPriceRuleMismatches,
     paymentCashShiftMismatches,
-    pendingLegacyEvents,
+    pendingEvents,
     productItemsWithoutProduct
   ] = await Promise.all([
     prisma.$queryRaw<Array<{ clubId: number; sourceType: string; sourceId: string; qty: bigint }>>`
@@ -196,11 +196,11 @@ const run = async () => {
   });
 
   checks.push({
-    name: 'legacy_shift_backfill',
-    status: legacyShiftWithoutUserOne.length > 0 ? 'warning' : 'ok',
-    detail: legacyShiftWithoutUserOne.length > 0
-      ? 'Existen legacy shifts y no existe User.id = 1. Revisar backfill histórico.'
-      : 'Sin dependencia activa del backfill legacy User.id = 1.'
+    name: 'historical_shift_backfill',
+    status: historicalShiftWithoutUserOne.length > 0 ? 'warning' : 'ok',
+    detail: historicalShiftWithoutUserOne.length > 0
+      ? 'Existen turnos historicos y no existe User.id = 1. Revisar backfill historico.'
+      : 'Sin dependencia activa del backfill historico User.id = 1.'
   });
 
   checks.push({
@@ -236,10 +236,10 @@ const run = async () => {
   });
 
   checks.push({
-    name: 'legacy_events_pending',
-    status: pendingLegacyEvents.length > 0 ? 'warning' : 'ok',
-    detail: pendingLegacyEvents.length > 0
-      ? `${pendingLegacyEvents.length} eventos legacy siguen pendientes y deben marcarse como procesados antes del retiro definitivo.`
+    name: 'events_pending',
+    status: pendingEvents.length > 0 ? 'warning' : 'ok',
+    detail: pendingEvents.length > 0
+      ? `${pendingEvents.length} eventos siguen pendientes y deben marcarse como procesados antes del retiro definitivo.`
       : 'Sin backlog pendiente en Event.'
   });
 
@@ -249,7 +249,7 @@ const run = async () => {
     detail: !hasAccountItemProductId
       ? 'La columna AccountItem.productId todavía no existe en esta base. Aplicar migraciones y rerun preflight.'
       : productItemsWithoutProduct.length > 0
-      ? `${productItemsWithoutProduct.length} consumos PRODUCT legacy no tienen productId y no podrán revertir stock automáticamente.`
+        ? `${productItemsWithoutProduct.length} consumos PRODUCT sin productId no podran revertir stock automaticamente.`
       : 'Los consumos PRODUCT ya conservan vínculo a Product.'
   });
 

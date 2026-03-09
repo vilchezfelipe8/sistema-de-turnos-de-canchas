@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { ClientService } from '../services/ClientService';
 import { Phone, DollarSign, Calendar, Users, Trophy, Search, X, CheckCircle, Receipt, Banknote, CreditCard } from 'lucide-react';
 import AppModal from './AppModal';
+import { getActiveClubSlug, normalizeSessionUser } from '../utils/session';
 
 const formatDate = (dateInput: any) => {
   if (!dateInput) return '-';
@@ -61,8 +62,6 @@ interface ClientsPageProps {
 }
 
 export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
-  void clubSlug;
-
   const [clients, setClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDebtor, setSelectedDebtor] = useState<any>(null);
@@ -89,13 +88,14 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const loadClients = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await ClientService.listDebtors();
+      const resolvedSlug = clubSlug || getActiveClubSlug(normalizeSessionUser(null)) || undefined;
+      const data = await ClientService.listDebtors(resolvedSlug);
       setClients(data);
       return data;
     } catch (error) { console.error(error); }
     finally { setLoading(false); }
     return null;
-  }, []);
+  }, [clubSlug]);
 
   useEffect(() => {
     loadClients();
@@ -134,14 +134,12 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
       void method;
       setShowPayMethodModal(false);
       setDebtTarget(null);
-      showInfo('La cobranza de deuda legacy fue retirada. Gestioná el saldo desde Cuentas/Account.', 'Flujo migrado');
+      showInfo('La cobranza de deuda directa fue retirada. Gestioná el saldo desde Cuentas/Account.', 'Flujo migrado');
     } catch (error) { 
         // REEMPLAZO DE ALERT
         showError("No se pudo procesar el cobro. Intentá nuevamente."); 
     }
   };
-
-  console.log("LOS CLIENTES QUE LLEGAN SON:", filteredClients);
 
   const selectedDebtorPendingEntries = (selectedDebtor?.bookings || [])
     .slice()
@@ -205,10 +203,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                 {filteredClients.length > 0 ? (
                     filteredClients.map((client) => {
                       
-                      // 👉 1. ACÁ CALCULAMOS EL DNI LIMPIO (Antes de dibujar el HTML)
-                      const dniFinal = (client.dni && client.dni !== '-') 
-                        ? client.dni 
-                        : (client.user?.dni || client.guestDni);
+                      const dniFinal = (client.dni && client.dni !== '-') ? client.dni : null;
 
                       return (
                         <tr key={client.id} className="bg-white/80 hover:bg-white transition-all shadow-sm group">
@@ -307,7 +302,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                       const explicitCourtDebt = Number(booking.courtDebtInAccount || 0);
                       const isCourtPaid = !isSale && explicitCourtDebt <= 0.01;
 
-                      let remainingPaymentForLegacy = Math.max(0, totalPaid - (isCourtPaid ? courtPrice : 0));
+                      let remainingPayment = Math.max(0, totalPaid - (isCourtPaid ? courtPrice : 0));
 
                       const itemsWithStatus = (booking.items || []).map((item: any) => {
                         const itemCost = Number(item.price) * item.quantity;
@@ -322,8 +317,8 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                         }
 
                         let isPaid = false;
-                        if (remainingPaymentForLegacy >= itemCost) {
-                          remainingPaymentForLegacy -= itemCost;
+                        if (remainingPayment >= itemCost) {
+                          remainingPayment -= itemCost;
                           isPaid = true;
                         }
                         return { ...item, isPaid };

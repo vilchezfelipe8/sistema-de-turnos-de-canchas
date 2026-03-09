@@ -3,6 +3,14 @@ import { Court } from './Court';
 import { ActivityType } from './ActivityType';
 import { BookingStatus } from './Enums';
 
+export type BookingClient = {
+    id: string;
+    name: string;
+    dni?: string | null;
+    phone?: string | null;
+    email?: string | null;
+};
+
 export class Booking {
     id: number;
     startDateTime: Date;
@@ -16,11 +24,9 @@ export class Booking {
     user?: User | null;
     court: Court;
     activity: ActivityType;
+    clientId?: string | null;
+    client?: BookingClient | null;
     guestIdentifier?: string;
-    guestName?: string;
-    guestEmail?: string;
-    guestPhone?: string;
-    guestDni?: string;
 
     constructor(
         id: number,
@@ -32,11 +38,9 @@ export class Booking {
         activity: ActivityType,
         status: BookingStatus,
         guestIdentifier?: string,
-        guestName?: string,
-        guestEmail?: string,
-        guestPhone?: string,
         public fixedBookingId?: number | null,
-        guestDni?: string
+        clientId?: string | null,
+        client?: BookingClient | null
     ) {
         this.id = id;
         this.startDateTime = startDateTime;
@@ -48,10 +52,8 @@ export class Booking {
         this.status = status;
         this.createdAt = new Date();
         if (guestIdentifier) this.guestIdentifier = guestIdentifier;
-        if (guestName) this.guestName = guestName;
-        if (guestEmail) this.guestEmail = guestEmail;
-        if (guestPhone) this.guestPhone = guestPhone;
-        if (guestDni) this.guestDni = guestDni;
+        this.clientId = clientId ?? null;
+        this.client = client ?? null;
     }
 }
 

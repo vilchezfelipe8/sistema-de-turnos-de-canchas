@@ -30,73 +30,104 @@ const verifyClubSlugAccess = async (req: any, res: any, next: Function) => {
   }
 };
 
-// GET /clients?clubSlug=... — solo el admin de ese club puede ver la lista
+// GET /api/clients?clubSlug=... — solo el admin de ese club puede ver la lista
 router.get('/', authMiddleware, verifyClubSlugAccess, requireRole('ADMIN'), async (req, res) => {
   try {
     const club = (req as any).club;
 
-    // Buscamos todas las reservas de ese club
-    // CORRECCIÓN APLICADA AQUÍ ABAJO 👇
-    const bookings = await prisma.booking.findMany({
+    const clients = await prisma.client.findMany({
       where: {
         clubId: club.id
       },
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        guestName: true,
-        guestPhone: true,
-        guestEmail: true,
-        user: {
+      orderBy: {
+        createdAt: 'desc'
+      },
+      include: {
+        bookings: {
+          where: {
+            clubId: club.id
+          },
           select: {
-            firstName: true,
-            lastName: true,
-            phoneNumber: true,
-            email: true
+            id: true,
+            startDateTime: true,
+            status: true,
+            price: true,
+            court: {
+              select: {
+                name: true
+              }
+            }
+          }
+        },
+        _count: {
+          select: {
+            bookings: true
           }
         }
       }
     });
 
-    // 3. "Fabricamos" los clientes agrupando por Teléfono o Nombre
-    const clientsMap = new Map();
+    const allBookingIds = clients.flatMap((client) => client.bookings.map((booking) => booking.id));
+    const bookingAccounts = allBookingIds.length
+      ? await prisma.account.findMany({
+          where: {
+            clubId: club.id,
+            sourceType: 'BOOKING',
+            sourceId: {
+              in: allBookingIds.map((id) => String(id))
+            }
+          },
+          select: {
+            sourceId: true,
+            totalAmount: true,
+            paidAmount: true
+          }
+        })
+      : [];
 
-    bookings.forEach((booking) => {
-      // Prioridad: Usuario registrado > Invitado
-      const phone = booking.user?.phoneNumber || booking.guestPhone || '';
-      
-      const rawName = booking.user 
-        ? `${booking.user.firstName} ${booking.user.lastName}` 
-        : booking.guestName;
-      
-      const email = booking.user?.email || booking.guestEmail || '';
+    const accountBySourceId = new Map(bookingAccounts.map((account) => [account.sourceId, account]));
 
-      // Usamos el teléfono como ID único. Si no tiene, usamos el nombre.
-      const uniqueKey = phone && phone.length > 4 ? phone.trim() : (rawName ? rawName.trim() : 'Desconocido');
+    const clientsArray = clients.map((client) => ({
+      history: client.bookings
+        .map((booking) => {
+          const account = accountBySourceId.get(String(booking.id));
+          const total = Number(account?.totalAmount ?? booking.price ?? 0);
+          const paid = Number(account?.paidAmount ?? 0);
+          const remaining = Math.max(0, Number((total - paid).toFixed(2)));
+          const paymentStatus = remaining <= 0.009 ? 'PAID' : paid > 0 ? 'PARTIAL' : 'DEBT';
+          const dt = new Date(booking.startDateTime);
+          const hh = String(dt.getHours()).padStart(2, '0');
+          const mm = String(dt.getMinutes()).padStart(2, '0');
 
-      if (uniqueKey === 'Desconocido') return;
-
-      if (!clientsMap.has(uniqueKey)) {
-        clientsMap.set(uniqueKey, {
-          id: booking.id, // ID ficticio para la tabla visual
-          firstName: rawName || 'Sin Nombre',
-          lastName: '',   
-          email: email,
-          phoneNumber: phone,
-          totalBookings: 0 
-        });
-      }
-
-      // Sumar al contador de reservas
-      const client = clientsMap.get(uniqueKey);
-      client.totalBookings += 1;
-      
-      // Actualizar datos si la reserva es más nueva y tiene mejor info
-      if (!client.phoneNumber && phone) client.phoneNumber = phone;
-      if (!client.email && email) client.email = email;
-    });
-
-    const clientsArray = Array.from(clientsMap.values());
+          return {
+            id: booking.id,
+            sourceType: 'BOOKING',
+            date: dt.toISOString().slice(0, 10),
+            time: `${hh}:${mm}`,
+            status: booking.status,
+            paymentStatus,
+            price: Number(booking.price ?? 0),
+            amount: remaining,
+            courtName: booking.court?.name,
+            items: []
+          };
+        })
+        .sort((a, b) => (a.date < b.date ? 1 : -1)),
+      id: client.id,
+      firstName: client.name,
+      lastName: '',
+      dni: client.dni || null,
+      email: client.email,
+      phoneNumber: client.phone,
+      totalBookings: client._count.bookings,
+      totalDebt: client.bookings.reduce((sum, booking) => {
+        const account = accountBySourceId.get(String(booking.id));
+        const total = Number(account?.totalAmount ?? booking.price ?? 0);
+        const paid = Number(account?.paidAmount ?? 0);
+        const remaining = Math.max(0, Number((total - paid).toFixed(2)));
+        return sum + remaining;
+      }, 0)
+    }));
 
     res.json(clientsArray);
 

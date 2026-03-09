@@ -102,21 +102,14 @@ export const getMyBookings = async (userId: number) => {
 export const cancelBooking = async (bookingId: number) => {
     if (!getToken()) throw new Error("Debes iniciar sesión.");
 
-  // Si es un admin vinculado a un club, usar la ruta /clubs/:slug/admin/... para que
-  // el backend reciba el clubId vía middleware y valide correctamente la pertenencia.
-  try {
-    const rawUser = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
-    if (rawUser) {
-      const parsed = normalizeSessionUser(JSON.parse(rawUser || '{}'));
-      const adminClubId = Number(parsed?.activeClubId || parsed?.clubId || parsed?.club?.id);
-      if (hasAdminAccess(parsed) && Number.isFinite(adminClubId) && adminClubId > 0) {
-        // Obtener slug y llamar al servicio admin
-        const club = await ClubService.getClubById(adminClubId);
-        return await ClubAdminService.cancelBooking(club.slug, bookingId);
-      }
+  const rawUser = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+  if (rawUser) {
+    const parsed = normalizeSessionUser(JSON.parse(rawUser || '{}'));
+    const adminClubId = Number(parsed?.activeClubId || parsed?.clubId || parsed?.club?.id);
+    if (hasAdminAccess(parsed) && Number.isFinite(adminClubId) && adminClubId > 0) {
+      const club = await ClubService.getClubById(adminClubId);
+      return await ClubAdminService.cancelBooking(club.slug, bookingId);
     }
-  } catch (e) {
-    // si falla obtener el slug, caemos al endpoint genérico
   }
 
   const res = await fetchWithAuth(`${apiBase()}/bookings/cancel`, {
@@ -196,49 +189,25 @@ export const registerBookingPartialPayment = async (
 
 export const getBookingFinancialSummary = async (bookingId: number) => {
   if (!getToken()) throw new Error('Debes iniciar sesión como administrador.');
-  const account = await getOrCreateBookingAccount(bookingId);
-  const summary = await getAccountSummary(account.id);
-  const accountDetail = await getAccountById(account.id);
+  const res = await fetchWithAuth(`${apiBase()}/bookings/${bookingId}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' }
+  });
 
-  const accountItems = Array.isArray(accountDetail?.items) ? accountDetail.items : [];
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || error.message || 'No se pudo obtener el resumen financiero de la reserva');
+  }
 
-  const courtTotal = accountItems
-    .filter((item: any) => item?.type === 'BOOKING')
-    .reduce((sum: number, item: any) => sum + Number(item?.total || 0), 0);
+  const payload = await res.json();
 
-  const itemsTotal = accountItems
-    .filter((item: any) => item?.type !== 'BOOKING')
-    .reduce((sum: number, item: any) => sum + Number(item?.total || 0), 0);
-
-  const totalPaid = Number(summary.paymentsTotal || 0);
-  const itemsPaid = Math.min(itemsTotal, totalPaid);
-  const paidAvailableForCourt = Math.max(0, totalPaid - itemsPaid);
-  const courtPaid = Math.min(courtTotal, paidAvailableForCourt);
-  const itemsDebt = Math.max(0, itemsTotal - itemsPaid);
-  const courtDebt = Math.max(0, courtTotal - courtPaid);
-
-  const accountPayments = Array.isArray(accountDetail?.payments) ? accountDetail.payments : [];
-
+  const summary = payload?.financialSummary || {};
   return {
-    bookingId,
-    accountId: account.id,
-    courtTotal,
-    courtPaid,
-    courtDebt,
-    itemsTotal,
-    itemsPaid,
-    itemsDebt,
-    total: Number(summary.itemsTotal || 0),
-    totalPaid,
-    remaining: Number(summary.remaining || 0),
-    paymentStatus: Number(summary.remaining || 0) <= 0.009 ? 'PAID' : (totalPaid > 0 ? 'PARTIAL' : 'PENDING'),
-    courtPayments: accountPayments.map((payment: any) => ({
-      id: Number(payment?.id || 0),
-      amount: Number(payment?.amount || 0),
-      method: String(payment?.method || 'OTHER'),
-      description: payment?.description ? String(payment.description) : undefined,
-      date: payment?.createdAt ? new Date(payment.createdAt).toISOString() : new Date().toISOString()
-    }))
+    courtTotal: Number(summary.courtTotal || 0),
+    itemsTotal: Number(summary.itemsTotal || 0),
+    total: Number(summary.total || 0),
+    paid: Number(summary.paid || 0),
+    remaining: Number(summary.remaining || 0)
   };
 };
 

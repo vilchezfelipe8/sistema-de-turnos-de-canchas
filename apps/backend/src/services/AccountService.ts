@@ -16,6 +16,85 @@ export class AccountService {
   private readonly accountingService = new AccountingService();
   private readonly projectionService = new ProjectionService();
 
+  async cancelItemsForSource(input: {
+    sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL';
+    sourceId: string | number;
+  }) {
+    const sourceId = String(input.sourceId);
+
+    return prisma.$transaction(async (tx) => {
+      const account = await tx.account.findFirst({
+        where: {
+          sourceType: input.sourceType,
+          sourceId
+        },
+        include: {
+          items: { orderBy: { createdAt: 'asc' } }
+        }
+      });
+
+      if (!account) {
+        return null;
+      }
+
+      const total = Number(account.totalAmount || 0);
+      const paid = Number(account.paidAmount || 0);
+      const remaining = Number((total - paid).toFixed(2));
+
+      if (remaining <= 0.009) {
+        if (account.status !== 'CLOSED') {
+          await tx.account.update({
+            where: { id: account.id },
+            data: {
+              status: 'CLOSED',
+              closedAt: new Date()
+            }
+          });
+          await this.projectionService.refreshAccountSummary(account.id, tx);
+        }
+        return account;
+      }
+
+      const cancelDescription = `Cancelación obligaciones ${input.sourceType}#${sourceId}`;
+
+      const adjustmentItem = await tx.accountItem.create({
+        data: {
+          accountId: account.id,
+          type: 'ADJUSTMENT',
+          description: cancelDescription,
+          quantity: 1,
+          unitPrice: new Prisma.Decimal(-remaining),
+          total: new Prisma.Decimal(-remaining)
+        }
+      });
+
+      await tx.account.update({
+        where: { id: account.id },
+        data: {
+          totalAmount: { decrement: new Prisma.Decimal(remaining) },
+          status: 'CLOSED',
+          closedAt: new Date()
+        }
+      });
+
+      await this.accountingService.reverseAccountItemTransaction(tx, {
+        clubId: account.clubId,
+        type: 'ADJUSTMENT',
+        referenceType: 'ACCOUNT_ITEM',
+        referenceId: adjustmentItem.id,
+        accountId: account.id,
+        accountItemId: adjustmentItem.id,
+        amount: remaining,
+        revenueAccount: 'ADJUSTMENTS',
+        description: cancelDescription
+      });
+
+      await this.projectionService.refreshAccountSummary(account.id, tx);
+
+      return tx.account.findFirst({ where: { id: account.id } });
+    });
+  }
+
   async openAccount(input: OpenAccountInput) {
     return prisma.$transaction(async (tx) => {
       await acquireTransactionAdvisoryLock(
