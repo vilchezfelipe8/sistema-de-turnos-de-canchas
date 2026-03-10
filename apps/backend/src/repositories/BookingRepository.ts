@@ -93,13 +93,14 @@ export class BookingRepository {
         });
     }
 
-    async findAllByDate(date: Date, timeZone: string) {
+    async findAllByDate(date: Date, timeZone: string, clubId?: number) {
         const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date, timeZone);
 
         const bookings = await prisma.booking.findMany({
             where: {
                 startDateTime: { gte: startUtc, lte: endUtc },
-                status: { not: 'CANCELLED' }
+                status: { not: 'CANCELLED' },
+                ...(clubId ? { clubId } : {})
             },
             include: {
                 user: true,

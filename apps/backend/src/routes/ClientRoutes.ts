@@ -2,36 +2,12 @@ import { Router } from 'express';
 import { prisma } from '../prisma';
 import { authMiddleware } from '../middleware/AuthMiddleware';
 import { requireRole } from '../middleware/RoleMiddleware';
-import { getUserClubContext } from '../utils/getUserClubContext';
+import { verifyClubAccess } from '../middleware/ClubMiddleware';
 
 const router = Router();
-/** Middleware: verifica que clubSlug en query sea el club del admin autenticado */
-const verifyClubSlugAccess = async (req: any, res: any, next: Function) => {
-  try {
-    const clubSlug = req.query.clubSlug;
-    if (!clubSlug) return res.status(400).json({ error: 'Falta el clubSlug' });
-    const club = await prisma.club.findUnique({ where: { slug: String(clubSlug) } });
-    if (!club) return res.status(404).json({ error: 'Club no encontrado' });
 
-    let context;
-    try {
-      context = await getUserClubContext(Number(req.user.userId), club.id);
-    } catch {
-      return res.status(403).json({ error: 'No tienes acceso a este club' });
-    }
-
-    if (!context || context.clubId !== club.id) return res.status(403).json({ error: 'No tienes acceso a este club' });
-    req.club = club;
-    req.clubContext = context;
-    req.membershipRole = context.role;
-    next();
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
-};
-
-// GET /api/clients?clubSlug=... — solo el admin de ese club puede ver la lista
-router.get('/', authMiddleware, verifyClubSlugAccess, requireRole('ADMIN'), async (req, res) => {
+// GET /api/clients/:slug — solo el admin de ese club puede ver la lista
+router.get('/:slug', authMiddleware, verifyClubAccess, requireRole('ADMIN'), async (req, res) => {
   try {
     const club = (req as any).club;
 
@@ -43,12 +19,41 @@ router.get('/', authMiddleware, verifyClubSlugAccess, requireRole('ADMIN'), asyn
         createdAt: 'desc'
       },
       include: {
-        bookings: {
+        _count: {
+          select: {
+            bookings: true
+          }
+        }
+      }
+    });
+
+    const bookingAccounts = await prisma.account.findMany({
+      where: {
+        clubId: club.id,
+        sourceType: 'BOOKING'
+      },
+      select: {
+        sourceId: true,
+        totalAmount: true,
+        paidAmount: true
+      }
+    });
+
+    const accountBySourceId = new Map(bookingAccounts.map((account) => [account.sourceId, account]));
+    const debtBookingIds = bookingAccounts
+      .filter((account) => Number(account.totalAmount || 0) - Number(account.paidAmount || 0) > 0.009)
+      .map((account) => Number(account.sourceId))
+      .filter((id) => Number.isInteger(id) && id > 0);
+
+    const debtBookings = debtBookingIds.length > 0
+      ? await prisma.booking.findMany({
           where: {
+            id: { in: debtBookingIds },
             clubId: club.id
           },
           select: {
             id: true,
+            clientId: true,
             startDateTime: true,
             status: true,
             price: true,
@@ -58,41 +63,23 @@ router.get('/', authMiddleware, verifyClubSlugAccess, requireRole('ADMIN'), asyn
               }
             }
           }
-        },
-        _count: {
-          select: {
-            bookings: true
-          }
-        }
-      }
-    });
-
-    const allBookingIds = clients.flatMap((client) => client.bookings.map((booking) => booking.id));
-    const bookingAccounts = allBookingIds.length
-      ? await prisma.account.findMany({
-          where: {
-            clubId: club.id,
-            sourceType: 'BOOKING',
-            sourceId: {
-              in: allBookingIds.map((id) => String(id))
-            }
-          },
-          select: {
-            sourceId: true,
-            totalAmount: true,
-            paidAmount: true
-          }
         })
       : [];
 
-    const accountBySourceId = new Map(bookingAccounts.map((account) => [account.sourceId, account]));
+    const debtBookingsByClient = new Map<string, any[]>();
+    for (const booking of debtBookings) {
+      if (!booking.clientId) continue;
+      const existing = debtBookingsByClient.get(booking.clientId) || [];
+      existing.push(booking);
+      debtBookingsByClient.set(booking.clientId, existing);
+    }
 
     const clientsArray = clients.map((client) => ({
-      history: client.bookings
+      history: (debtBookingsByClient.get(client.id) || [])
         .map((booking) => {
-          const account = accountBySourceId.get(String(booking.id));
-          const total = Number(account?.totalAmount ?? booking.price ?? 0);
-          const paid = Number(account?.paidAmount ?? 0);
+          const accountRecord = accountBySourceId.get(String(booking.id));
+          const total = Number(accountRecord?.totalAmount ?? booking.price ?? 0);
+          const paid = Number(accountRecord?.paidAmount ?? 0);
           const remaining = Math.max(0, Number((total - paid).toFixed(2)));
           const paymentStatus = remaining <= 0.009 ? 'PAID' : paid > 0 ? 'PARTIAL' : 'DEBT';
           const dt = new Date(booking.startDateTime);
@@ -120,10 +107,10 @@ router.get('/', authMiddleware, verifyClubSlugAccess, requireRole('ADMIN'), asyn
       email: client.email,
       phoneNumber: client.phone,
       totalBookings: client._count.bookings,
-      totalDebt: client.bookings.reduce((sum, booking) => {
-        const account = accountBySourceId.get(String(booking.id));
-        const total = Number(account?.totalAmount ?? booking.price ?? 0);
-        const paid = Number(account?.paidAmount ?? 0);
+      totalDebt: (debtBookingsByClient.get(client.id) || []).reduce((sum, booking) => {
+        const accountRecord = accountBySourceId.get(String(booking.id));
+        const total = Number(accountRecord?.totalAmount ?? booking.price ?? 0);
+        const paid = Number(accountRecord?.paidAmount ?? 0);
         const remaining = Math.max(0, Number((total - paid).toFixed(2)));
         return sum + remaining;
       }, 0)

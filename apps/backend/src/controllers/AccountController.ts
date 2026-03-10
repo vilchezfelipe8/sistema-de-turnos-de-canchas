@@ -196,6 +196,9 @@ export class AccountController {
       const clubId = this.resolveClubId(req);
       const headerValue = req.headers['idempotency-key'];
       const idempotencyKey = Array.isArray(headerValue) ? headerValue[0] : headerValue;
+      if (typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
+        return res.status(400).json({ error: 'IDEMPOTENCY_KEY_REQUIRED' });
+      }
       const payment = await this.paymentService.create({
         clubId,
         accountId: paramsParsed.data.id,
@@ -204,7 +207,7 @@ export class AccountController {
         source: bodyParsed.data.source,
         cashShiftId: bodyParsed.data.cashShiftId,
         createdByUserId: actorUserId,
-        idempotencyKey: typeof idempotencyKey === 'string' && idempotencyKey.trim() ? idempotencyKey.trim() : undefined
+        idempotencyKey: idempotencyKey.trim()
       });
 
       return res.status(201).json(mapPaymentDto(payment));

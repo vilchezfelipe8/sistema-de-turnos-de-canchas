@@ -471,7 +471,7 @@ model Payment {
   amount    Decimal  @db.Decimal(10, 2)
   method    PaymentMethod
   source    PaymentSource @default(POS)
-  idempotencyKey String? @unique
+  idempotencyKey String?
 
   accountId String
   account   Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
@@ -486,6 +486,7 @@ model Payment {
   @@index([source])
   @@index([cashShiftId])
   @@index([idempotencyKey])
+  @@unique([accountId, idempotencyKey])
 }
 
 model LedgerTransaction {

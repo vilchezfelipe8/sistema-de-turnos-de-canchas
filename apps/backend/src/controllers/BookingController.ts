@@ -233,6 +233,10 @@ export class BookingController {
             if (!Number.isInteger(userId) || userId < 1) {
                 return res.status(400).json({ error: 'userId inválido' });
             }
+            const pageRaw = Number(req.query.page ?? 0);
+            const takeRaw = Number(req.query.take ?? 50);
+            const page = Number.isInteger(pageRaw) && pageRaw >= 0 ? pageRaw : 0;
+            const take = Number.isInteger(takeRaw) && takeRaw > 0 ? Math.min(takeRaw, 100) : 50;
             const user = (req as any).user;
             if (!user?.userId) {
                 return res.status(401).json({ error: 'No autorizado' });
@@ -248,7 +252,7 @@ export class BookingController {
                 role: (req as any).membershipRole ?? user.role ?? 'MEMBER',
                 clubId: clubContext?.clubId ?? null
             };
-            const history = await this.bookingService.getUserHistory(userId, requestUser);
+            const history = await this.bookingService.getUserHistory(userId, requestUser, page, take);
             const payload = history.map((b: any) => ({
                 ...b,
                 court: b.court ? {

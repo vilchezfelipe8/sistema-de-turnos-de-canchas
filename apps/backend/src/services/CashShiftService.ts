@@ -82,8 +82,11 @@ export class CashShiftService {
       const expectedCash = Number(shift.openingAmount || 0) + movementDelta;
       const difference = countedCash - expectedCash;
 
-      const closedShift = await tx.cashShift.update({
-        where: { id: shift.id },
+      const closeResult = await tx.cashShift.updateMany({
+        where: {
+          id: shift.id,
+          status: 'OPEN'
+        },
         data: {
           status: 'CLOSED',
           closedAt: new Date(),
@@ -92,6 +95,15 @@ export class CashShiftService {
           difference: new Prisma.Decimal(difference)
         }
       });
+
+      if (closeResult.count === 0) {
+        throw new Error('Shift already closed');
+      }
+
+      const closedShift = await tx.cashShift.findUnique({ where: { id: shift.id } });
+      if (!closedShift) {
+        throw new Error('Turno de caja no encontrado luego del cierre');
+      }
 
       if (Math.abs(difference) > 0.009) {
         await this.accountingService.createCashDifferenceAdjustment(tx, {

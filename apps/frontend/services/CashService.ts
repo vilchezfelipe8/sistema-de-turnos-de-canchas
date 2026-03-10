@@ -5,7 +5,7 @@ const apiBase = () => `${getApiUrl()}/api`;
 
 export class CashService {
   static async getSummary() {
-    const res = await fetchWithAuth(`${apiBase()}/cash`, { method: 'GET' });
+    const res = await fetchWithAuth(`${apiBase()}/cash/summary`, { method: 'GET' });
     if (!res.ok) throw new Error('Error al cargar caja');
     return res.json();
   }

@@ -1093,7 +1093,9 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
     
     async getUserHistory(
         requestedUserId: number,
-        requestUser: { userId: number; role: string; clubId: number | null }
+        requestUser: { userId: number; role: string; clubId: number | null },
+        page: number = 0,
+        take: number = 50
     ) {
         if (requestedUserId !== requestUser.userId) {
             if ((requestUser.role !== 'ADMIN' && requestUser.role !== 'OWNER') || requestUser.clubId == null) {
@@ -1120,7 +1122,9 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
                 court: { include: { club: true } },
                 activity: true
             },
-            orderBy: { startDateTime: 'desc' }
+            orderBy: { startDateTime: 'desc' },
+            skip: page * take,
+            take
         });
         return bookings;
     }
@@ -1168,6 +1172,13 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
 
         const schedule = [];
 
+        const bookingByCourtAndTime = new Map<string, any>();
+        for (const booking of bookings) {
+            const localDate = TimeHelper.utcToLocal(booking.startDateTime, timeZone);
+            const bookingLocalTimeStr = `${String(localDate.getHours()).padStart(2, '0')}:${String(localDate.getMinutes()).padStart(2, '0')}`;
+            bookingByCourtAndTime.set(`${booking.court.id}:${bookingLocalTimeStr}`, booking);
+        }
+
         // Consider slots coming from anchor = date and anchor = date - 1
         const anchors = [
             (() => { const d = new Date(date); d.setDate(d.getDate() - 1); return d; })(),
@@ -1194,13 +1205,7 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
 
                     const slotDateTime = TimeHelper.localSlotToUtc(slotDateCandidate, slotObj.slotTime, timeZone);
 
-                    const booking = bookings.find(b => {
-                    const courtMatch = b.court.id === court.id;
-                    const localDate = TimeHelper.utcToLocal(b.startDateTime, timeZone);
-                    const bookingLocalTimeStr = `${String(localDate.getHours()).padStart(2, '0')}:${String(localDate.getMinutes()).padStart(2, '0')}`;
-                    const timeMatch = bookingLocalTimeStr === slotObj.slotTime;
-                    return courtMatch && timeMatch;
-                });
+                    const booking = bookingByCourtAndTime.get(`${court.id}:${slotObj.slotTime}`) || null;
 
                     const key = `${slotObj.slotTime}`;
                     if (seen.has(key)) continue;
@@ -1260,7 +1265,7 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
             const clubTZ = clubCfg.timeZone ?? timeZone;
             return this.isClubOpenOnLocalDate(clubCfg, date, clubTZ);
         });
-        const bookings = await this.bookingRepo.findAllByDate(date, timeZone);
+        const bookings = await this.bookingRepo.findAllByDate(date, timeZone, clubId);
 
         const activity = await this.activityRepo.findById(activityId);
         if (!activity) throw new Error("Actividad no encontrada");
@@ -1284,6 +1289,11 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
         const seen = new Set<string>();
         const result: string[] = [];
 
+        const occupiedSlotsByCourt = new Set<string>();
+        for (const booking of bookings) {
+            occupiedSlotsByCourt.add(`${booking.court.id}:${booking.startDateTime.getTime()}`);
+        }
+
         for (const anchor of anchors) {
             for (const slotObj of possibleSlots) {
                 const slotDateCandidate = new Date(anchor);
@@ -1296,22 +1306,8 @@ Un cliente acaba de cancelar su reserva desde la web en *${params.clubName}*.
 
                 const slotDateTime = TimeHelper.localSlotToUtc(slotDateCandidate, slotObj.slotTime, timeZone);
 
-                const hasAvailableCourt = activeActivityCourts.some(court => {
-                    const booking = bookings.find(b => {
-                        const courtMatch = b.court.id === court.id;
-                        const bookingUTCTime = Date.UTC(
-                            b.startDateTime.getUTCFullYear(),
-                            b.startDateTime.getUTCMonth(),
-                            b.startDateTime.getUTCDate(),
-                            b.startDateTime.getUTCHours(),
-                            b.startDateTime.getUTCMinutes()
-                        );
-                        const slotUTCTime = slotDateTime.getTime();
-                        const timeMatch = bookingUTCTime === slotUTCTime;
-                        return courtMatch && timeMatch;
-                    });
-                    return !booking;
-                });
+                const slotMillis = slotDateTime.getTime();
+                const hasAvailableCourt = activeActivityCourts.some((court) => !occupiedSlotsByCourt.has(`${court.id}:${slotMillis}`));
 
                 if (hasAvailableCourt && !seen.has(slotObj.slotTime)) {
                     seen.add(slotObj.slotTime);

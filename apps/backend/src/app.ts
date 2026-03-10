@@ -17,7 +17,6 @@ import HealthRoutes from './routes/HealthRoutes';
 import CashRoutes from './routes/CashRoutes';
 import CashRegisterRoutes from './routes/CashRegisterRoutes';
 import CashShiftRoutes from './routes/CashShiftRoutes';
-import PaymentRoutes from './routes/PaymentRoutes';
 import AccountRoutes from './routes/AccountRoutes';
 import NotificationRoutes from './routes/NotificationRoutes';
 import EventRoutes from './routes/EventRoutes';
@@ -107,7 +106,6 @@ export const createApp = () => {
   app.use('/api/cash', CashRoutes);
   app.use('/api/cash-registers', CashRegisterRoutes);
   app.use('/api/cash-shifts', CashShiftRoutes);
-  app.use('/api/payments', PaymentRoutes);
   app.use('/api/accounts', AccountRoutes);
   app.use('/api/notifications', NotificationRoutes);
   app.use('/api/events', EventRoutes);

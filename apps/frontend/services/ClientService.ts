@@ -20,7 +20,7 @@ export class ClientService {
     if (!slug) return [];
 
     const res = await fetchWithAuth(
-      `${apiBase()}/clients?clubSlug=${encodeURIComponent(slug)}`,
+      `${apiBase()}/clients/${encodeURIComponent(slug)}`,
       { method: 'GET' }
     );
 

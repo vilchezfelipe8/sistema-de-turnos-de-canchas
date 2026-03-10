@@ -70,8 +70,11 @@ export class PaymentService {
         : undefined;
 
       if (scopedIdempotencyKey) {
-        const existingPayment = await tx.payment.findUnique({
-          where: { idempotencyKey: scopedIdempotencyKey }
+        const existingPayment = await tx.payment.findFirst({
+          where: {
+            accountId: input.accountId,
+            idempotencyKey: scopedIdempotencyKey
+          }
         });
         if (existingPayment) {
           return existingPayment;

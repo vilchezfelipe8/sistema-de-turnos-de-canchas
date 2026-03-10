@@ -17,16 +17,6 @@ const cashController = new CashController(cashService);
 
 // --- RUTAS ---
 
-// GET: Ver balance y movimientos
-// Solo ADMIN puede ver cuánto se ganó en total
-router.get(
-    '/', 
-    authMiddleware, 
-    setAdminClubFromUser, 
-    requireRole('ADMIN'), 
-    cashController.getSummary
-);
-
 router.get(
     '/summary',
     authMiddleware,
