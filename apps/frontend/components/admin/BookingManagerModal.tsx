@@ -9,6 +9,7 @@ import {
 } from '../../services/BookingService';
 import PaymentCalculator, { type PaymentCalculatorResult } from '../PaymentCalculator';
 import ProductSearch, { type ProductSearchItem } from '../ui/ProductSearch';
+import { formatDateTime24 } from '../../utils/dateTime';
 
 type Props = {
   booking: any;
@@ -48,6 +49,10 @@ const formatPaymentStatus = (status?: BookingFinancialSummary['paymentStatus']) 
   if (status === 'PAID') return 'Pagado';
   if (status === 'PARTIAL') return 'Parcial';
   return 'Sin pago';
+};
+
+const formatAutoCancelAt = (value?: string | null) => {
+  return formatDateTime24(value, { fallback: 'Sin hora definida' });
 };
 
 export default function BookingManagerModal({ booking, clubSlug, courtName, onClose, onCancelBooking, onUpdated }: Props) {
@@ -361,6 +366,55 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
                 </div>
               ) : null}
 
+              {summary?.confirmationMode === 'DEPOSIT_REQUIRED' ? (
+                <div className="rounded-xl bg-white border border-[#347048]/10 px-3 py-2 mb-2">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-[#347048]/45">Confirmacion por pago</p>
+                  <div className="mt-1 space-y-1 text-[11px] font-black uppercase tracking-wide text-[#347048]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[#347048]/60">Pagado</span>
+                      <span>{formatMoney(Number(summary.paid || 0))}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[#347048]/60">Requerido para confirmar</span>
+                      <span>{formatMoney(Number(summary.requiredToConfirm || 0))}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[#347048]/60">Restante para confirmar</span>
+                      <span>{formatMoney(Number(summary.remainingToConfirm || 0))}</span>
+                    </div>
+                  </div>
+                  {summary.isPendingByInsufficientPayment ? (
+                    <div className="mt-2 rounded-lg border border-yellow-200 bg-yellow-50 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-yellow-700">
+                      Pendiente de confirmacion por pago insuficiente
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className="rounded-xl bg-white border border-[#347048]/10 px-3 py-2 mb-2">
+                <p className="text-[9px] font-black uppercase tracking-widest text-[#347048]/45">Auto-cancelacion</p>
+                <p className="text-[11px] font-black uppercase tracking-wide text-[#347048] mt-1">
+                  {summary?.autoCancelStatus?.label || 'No aplica'}
+                </p>
+                {summary?.autoCancelStatus?.enabled ? (
+                  <div className="mt-2 space-y-1 text-[10px] font-black uppercase tracking-wider text-[#347048]/70">
+                    <div className="flex items-center justify-between">
+                      <span>Solo impagas</span>
+                      <span>{summary.autoCancelStatus.onlyIfUnpaid ? 'Si' : 'No'}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Hora objetivo</span>
+                      <span className="normal-case font-bold tracking-normal">{formatAutoCancelAt(summary.autoCancelStatus.autoCancelAt)}</span>
+                    </div>
+                  </div>
+                ) : null}
+                {summary?.autoCancelStatus?.blockedByPayment ? (
+                  <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-blue-700">
+                    No se cancelara automaticamente porque tiene pagos registrados
+                  </div>
+                ) : null}
+              </div>
+
               <div className="flex items-center justify-between text-[11px] font-black uppercase tracking-widest text-[#347048]/70">
                 <span>Cancha</span>
                 <span>{formatMoney(courtTotal)}</span>
@@ -456,3 +510,4 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
     </div>
   );
 }
+

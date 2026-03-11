@@ -4,6 +4,7 @@ import { getBookingFinancialSummary, registerBookingPartialPayment, type Booking
 import { Trash2, Plus, ShoppingCart, Receipt, Lock, X, Banknote, Star } from 'lucide-react';
 import PaymentCalculator, { type PaymentCalculatorResult } from './PaymentCalculator';
 import ProductSearch, { type ProductSearchItem } from './ui/ProductSearch';
+import { formatTime24 } from '../utils/dateTime';
 // import { BookingTicket } from './BookingTicket'; // Si no lo usás, podés borrar esta línea
 
 interface Props {
@@ -138,10 +139,7 @@ export default function BookingConsumption(
   };
 
   const formatPaymentTime = (dateValue?: string) => {
-    if (!dateValue) return '--:--';
-    const date = new Date(dateValue);
-    if (Number.isNaN(date.getTime())) return '--:--';
-    return date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+    return formatTime24(dateValue, { fallback: '--:--' });
   };
 
   const consumptionTotal = cartItems

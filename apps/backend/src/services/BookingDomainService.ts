@@ -17,6 +17,11 @@ type ClubConfirmationSettings = {
   bookingConfirmationMode: BookingConfirmationMode;
   bookingDepositPercent: number | null;
   allowManualConfirmationOverride: boolean;
+  autoCancelPendingBookingsEnabled: boolean;
+  autoCancelPendingBookingsMinutesBefore: number | null;
+  autoCancelPendingBookingsOnlyIfUnpaid: boolean;
+  autoCancelPendingWarningEnabled: boolean;
+  autoCancelPendingWarningMinutesBefore: number | null;
 };
 
 export class BookingDomainService {
@@ -26,7 +31,18 @@ export class BookingDomainService {
     return {
       bookingConfirmationMode: (settings?.bookingConfirmationMode ?? 'MANUAL') as BookingConfirmationMode,
       bookingDepositPercent: settings?.bookingDepositPercent == null ? null : Number(settings.bookingDepositPercent),
-      allowManualConfirmationOverride: settings?.allowManualConfirmationOverride ?? true
+      allowManualConfirmationOverride: settings?.allowManualConfirmationOverride ?? true,
+      autoCancelPendingBookingsEnabled: settings?.autoCancelPendingBookingsEnabled ?? false,
+      autoCancelPendingBookingsMinutesBefore:
+        settings?.autoCancelPendingBookingsMinutesBefore == null
+          ? null
+          : Number(settings.autoCancelPendingBookingsMinutesBefore),
+      autoCancelPendingBookingsOnlyIfUnpaid: settings?.autoCancelPendingBookingsOnlyIfUnpaid ?? true,
+      autoCancelPendingWarningEnabled: settings?.autoCancelPendingWarningEnabled ?? false,
+      autoCancelPendingWarningMinutesBefore:
+        settings?.autoCancelPendingWarningMinutesBefore == null
+          ? null
+          : Number(settings.autoCancelPendingWarningMinutesBefore)
     };
   }
 
@@ -53,7 +69,7 @@ export class BookingDomainService {
   async getBookingFinancialSummaryTx(tx: TxClient, bookingId: number, clubId?: number) {
     const booking = await tx.booking.findFirst({
       where: { id: bookingId, ...(clubId ? { clubId } : {}) },
-      select: { id: true, clubId: true, price: true, status: true }
+      select: { id: true, clubId: true, price: true, status: true, startDateTime: true }
     });
 
     if (!booking) {

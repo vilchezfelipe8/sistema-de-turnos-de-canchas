@@ -4,6 +4,7 @@ import { searchClients } from '../../services/BookingService';
 import { ClubService } from '../../services/ClubService';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 import { CashService } from '../../services/CashService';
+import { formatDateTime24, formatTime24 } from '../../utils/dateTime';
 
 // Tipos
 interface Movement {
@@ -591,7 +592,7 @@ const AdminCashDashboard = () => {
 
           {lastClosedReport.shift?.closedAt && (
             <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50 mt-4">
-              Cerrada: {new Date(lastClosedReport.shift.closedAt).toLocaleString('es-AR')}
+              Cerrada: {formatDateTime24(lastClosedReport.shift.closedAt)}
             </p>
           )}
         </div>
@@ -609,7 +610,7 @@ const AdminCashDashboard = () => {
                   {currentShift.cashRegister?.name || 'Caja activa'}
                 </h3>
                 <p className="text-xs font-bold text-[#347048]/70 mt-1">
-                  Apertura: ${Number(currentShift.openingAmount || 0).toLocaleString()} · {new Date(currentShift.openedAt).toLocaleString('es-AR')}
+                  Apertura: ${Number(currentShift.openingAmount || 0).toLocaleString()} · {formatDateTime24(currentShift.openedAt)}
                 </p>
               </div>
               <span className="text-[10px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-2 rounded-full w-fit">
@@ -780,7 +781,7 @@ const AdminCashDashboard = () => {
                                 {(() => {
                                   const parsed = new Date(m.date);
                                   if (Number.isNaN(parsed.getTime())) return '--:--';
-                                  return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                  return formatTime24(parsed, { fallback: '--:--' });
                                 })()}
                             </span>
                             <span className="text-[9px] font-bold text-[#347048]/40 uppercase">Hora</span>
@@ -1071,3 +1072,4 @@ const AdminCashDashboard = () => {
 };
 
 export default AdminCashDashboard;
+

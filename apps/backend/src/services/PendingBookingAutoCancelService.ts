@@ -11,6 +11,7 @@ import { ProductRepository } from '../repositories/ProductRepository';
 import { AccountService } from './AccountService';
 import { AuditLogService } from './AuditLogService';
 import { TimeHelper } from '../utils/TimeHelper';
+import { getDepositRequiredAmount } from '../domain/bookingDomain';
 
 const EPSILON = 0.009;
 
@@ -103,6 +104,7 @@ export class PendingBookingAutoCancelService {
     startDateTime: Date;
     timeZone: string;
     cancelMinutesBefore: number;
+    insufficientAmount?: number | null;
   }) {
     const localStart = TimeHelper.utcToLocal(params.startDateTime, params.timeZone);
     const date = `${String(localStart.getDate()).padStart(2, '0')}/${String(localStart.getMonth() + 1).padStart(2, '0')}/${localStart.getFullYear()}`;
@@ -110,6 +112,11 @@ export class PendingBookingAutoCancelService {
     const limit = new Date(params.startDateTime.getTime() - params.cancelMinutesBefore * 60_000);
     const localLimit = TimeHelper.utcToLocal(limit, params.timeZone);
     const limitTime = `${String(localLimit.getHours()).padStart(2, '0')}:${String(localLimit.getMinutes()).padStart(2, '0')}`;
+
+    const insufficientLine =
+      Number(params.insufficientAmount || 0) > 0.009
+        ? `\nEl pago registrado todavia no alcanza para confirmar. Falta completar *$${Number(params.insufficientAmount || 0).toFixed(2)}*.`
+        : '';
 
     return `
 ⚠️ *Tu reserva sigue pendiente de confirmación* ⚠️
@@ -120,6 +127,7 @@ Tu turno en *${params.clubName}* todavía está pendiente.
 📅 *Fecha:* ${date}
 ⏰ *Hora:* ${time}
 📍 *Cancha:* ${params.courtName}
+${insufficientLine}
 
 Si no se confirma antes de las *${limitTime}*, puede cancelarse automáticamente.
 `.trim();
@@ -165,6 +173,29 @@ Si no se confirma antes de las *${limitTime}*, puede cancelarse automáticamente
     const clientName = booking.user?.firstName || booking.client?.name || 'Jugador';
     const clubTimeZone = booking.court.club.settings?.timeZone ?? 'America/Argentina/Buenos_Aires';
     const dedupeSuffix = `booking-auto-cancel-warning:${booking.id}`;
+    let insufficientAmount: number | null = null;
+    if (booking.court.club.settings?.bookingConfirmationMode === 'DEPOSIT_REQUIRED') {
+      const account = await tx.account.findFirst({
+        where: {
+          sourceType: 'BOOKING',
+          sourceId: String(booking.id),
+          clubId: booking.clubId
+        },
+        select: { id: true }
+      });
+      if (account) {
+        const paidAmount = await this.accountService.calculateNetPaidAmountTx(tx, account.id);
+        const depositRequiredAmount = getDepositRequiredAmount({
+          mode: 'DEPOSIT_REQUIRED',
+          bookingBaseAmount: Number(booking.price || 0),
+          depositPercent:
+            booking.court.club.settings.bookingDepositPercent == null
+              ? null
+              : Number(booking.court.club.settings.bookingDepositPercent)
+        });
+        insufficientAmount = Math.max(0, Number((depositRequiredAmount - paidAmount).toFixed(2)));
+      }
+    }
     const message = this.buildWarningMessage({
       bookingId: booking.id,
       clubName: booking.court.club.name,
@@ -172,7 +203,8 @@ Si no se confirma antes de las *${limitTime}*, puede cancelarse automáticamente
       clientName,
       startDateTime: booking.startDateTime,
       timeZone: clubTimeZone,
-      cancelMinutesBefore: Number(settings.cancelMinutesBefore || 0)
+      cancelMinutesBefore: Number(settings.cancelMinutesBefore || 0),
+      insufficientAmount
     });
 
     if (clientPhone) {

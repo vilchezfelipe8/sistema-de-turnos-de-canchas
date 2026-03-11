@@ -17,6 +17,7 @@ import { useParams } from 'react-router-dom';
 import DatePickerDark from '../../components/ui/DatePickerDark';
 import { Trash2, Check, Calendar as CalendarIcon, RefreshCw, ChevronDown, CalendarPlus, Repeat, Banknote, CreditCard, X, Phone, IdCard, ChevronLeft, ChevronRight } from 'lucide-react'; 
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
+import { formatTime24 } from '../../utils/dateTime';
 
 const CLUB_TIME_SLOTS = [
   '08:00', '09:30', '11:00', '12:30',
@@ -622,8 +623,7 @@ export default function AdminTabBookings() {
     }
   };
 
-  const formatTime = (date: Date) =>
-    date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const formatTime = (date: Date) => formatTime24(date);
 
   const getBookingTimeRange = (slotOrBooking: any) => {
     // slotOrBooking can be either a schedule slot object or a booking object
@@ -1101,7 +1101,7 @@ export default function AdminTabBookings() {
             <button onClick={loadSchedule} disabled={loadingSchedule} className="flex items-center gap-2 px-4 py-2 bg-[#347048] text-[#EBE1D8] rounded-xl text-xs font-black uppercase tracking-tighter hover:bg-[#B9CF32] hover:text-[#347048] transition-all">
               {loadingSchedule ? '...' : 'Actualizar'}
             </button>
-            {lastUpdate && <span className="text-[10px] font-bold text-[#347048]/40 px-2 uppercase">{lastUpdate.toLocaleTimeString()}</span>}
+            {lastUpdate && <span className="text-[10px] font-bold text-[#347048]/40 px-2 uppercase">{formatTime24(lastUpdate)}</span>}
           </div>
         </div>
 
@@ -1218,6 +1218,9 @@ export default function AdminTabBookings() {
                   const height = Math.max(rawHeight - V_GAP_PX, 40);
 
                   const bookingName = slot.booking?.client?.name ?? 'Sin cliente vinculado';
+                  const pendingByInsufficientPayment = Boolean(
+                    slot.booking?.confirmationContext?.isPendingByInsufficientPayment
+                  );
 
                   return (
                     <button
@@ -1248,6 +1251,12 @@ export default function AdminTabBookings() {
                       <div className="mt-1 text-[10px] font-bold text-[#347048]/60">
                         {getBookingTimeRange(slot)}
                       </div>
+
+                      {pendingByInsufficientPayment ? (
+                        <div className="mt-2 inline-flex w-fit rounded-md border border-yellow-200 bg-yellow-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-yellow-700">
+                          Pago insuficiente
+                        </div>
+                      ) : null}
 
                       {slot.booking?.fixedBookingId && (
                         <div className="absolute top-2 right-2 bg-[#347048] text-[#B9CF32] text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest">

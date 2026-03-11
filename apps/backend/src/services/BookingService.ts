@@ -24,7 +24,7 @@ import { AccountService } from './AccountService';
 import { OUTBOX_TYPES, OutboxService } from './OutboxService';
 import { ProjectionService } from './ProjectionService';
 import { BookingDomainService } from './BookingDomainService';
-import { isBookingTransitionAllowed, resolveInitialBookingStatus } from '../domain/bookingDomain';
+import { getDepositRequiredAmount, isBookingTransitionAllowed, resolveInitialBookingStatus } from '../domain/bookingDomain';
 import { RefundService } from './RefundService';
 
 type CancelBookingReason = 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED';
@@ -166,6 +166,33 @@ export class BookingService {
         return {
             fixedBookingDaysAhead: Number.isFinite(daysAhead) && daysAhead > 0 ? Math.floor(daysAhead) : fallback.fixedBookingDaysAhead,
             fixedBookingGenerationFrequencyDays: Number.isFinite(generationFrequencyDays) && generationFrequencyDays > 0 ? Math.floor(generationFrequencyDays) : fallback.fixedBookingGenerationFrequencyDays
+        };
+    }
+
+    private buildBookingConfirmationContext(params: {
+        status: string;
+        mode: 'AUTOMATIC' | 'MANUAL' | 'DEPOSIT_REQUIRED';
+        bookingBaseAmount: number;
+        depositPercent: number | null;
+        paidAmount: number;
+    }) {
+        const requiredToConfirm = Number(getDepositRequiredAmount({
+            mode: params.mode,
+            bookingBaseAmount: Number(params.bookingBaseAmount || 0),
+            depositPercent: params.depositPercent
+        }).toFixed(2));
+        const paidAmount = Number(Math.max(0, params.paidAmount || 0).toFixed(2));
+        const remainingToConfirm = Number(Math.max(0, requiredToConfirm - paidAmount).toFixed(2));
+        const isPendingByInsufficientPayment =
+            params.status === 'PENDING' &&
+            params.mode === 'DEPOSIT_REQUIRED' &&
+            paidAmount > 0.009 &&
+            remainingToConfirm > 0.009;
+
+        return {
+            requiredToConfirm,
+            remainingToConfirm,
+            isPendingByInsufficientPayment
         };
     }
 
@@ -624,6 +651,40 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             .filter((item) => item.type !== 'BOOKING')
             .reduce((sum, item) => sum + Number(item.total || 0), 0);
 
+        const autoCancelEnabled = summary.confirmationSettings.autoCancelPendingBookingsEnabled;
+        const autoCancelMinutesBefore = summary.confirmationSettings.autoCancelPendingBookingsMinutesBefore;
+        const autoCancelOnlyIfUnpaid = summary.confirmationSettings.autoCancelPendingBookingsOnlyIfUnpaid;
+        const autoCancelAt = autoCancelEnabled && Number.isFinite(Number(autoCancelMinutesBefore)) && Number(autoCancelMinutesBefore) > 0
+            ? new Date(summary.booking.startDateTime.getTime() - Number(autoCancelMinutesBefore) * 60_000)
+            : null;
+        const autoCancelBlockedByPayment = Boolean(
+            autoCancelEnabled &&
+            autoCancelOnlyIfUnpaid &&
+            summary.paid > 0.009
+        );
+        const autoCancelEligibleNow = Boolean(
+            autoCancelEnabled &&
+            summary.booking.status === 'PENDING' &&
+            autoCancelAt &&
+            !autoCancelBlockedByPayment &&
+            Date.now() >= autoCancelAt.getTime()
+        );
+
+        let autoCancelStatusLabel = 'No aplica';
+        if (!autoCancelEnabled) {
+            autoCancelStatusLabel = 'Auto-cancel desactivado';
+        } else if (summary.booking.status !== 'PENDING') {
+            autoCancelStatusLabel = 'No aplica por estado';
+        } else if (autoCancelBlockedByPayment) {
+            autoCancelStatusLabel = 'No se cancelara automaticamente porque tiene pagos';
+        } else if (!autoCancelAt) {
+            autoCancelStatusLabel = 'Configuracion incompleta';
+        } else if (autoCancelEligibleNow) {
+            autoCancelStatusLabel = 'Elegible para auto-cancel ahora';
+        } else {
+            autoCancelStatusLabel = 'Se cancelara automaticamente al llegar la hora';
+        }
+
         return {
             courtTotal,
             itemsTotal,
@@ -633,7 +694,23 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             depositRequiredAmount: summary.depositRequiredAmount,
             depositCovered: summary.depositCovered,
             paymentStatus: summary.paymentStatus,
-            confirmationMode: summary.confirmationSettings.bookingConfirmationMode
+            confirmationMode: summary.confirmationSettings.bookingConfirmationMode,
+            requiredToConfirm: summary.depositRequiredAmount,
+            remainingToConfirm: Number(Math.max(0, summary.depositRequiredAmount - summary.paid).toFixed(2)),
+            isPendingByInsufficientPayment:
+                summary.booking.status === 'PENDING' &&
+                summary.confirmationSettings.bookingConfirmationMode === 'DEPOSIT_REQUIRED' &&
+                summary.paid > 0.009 &&
+                summary.paid + 0.009 < summary.depositRequiredAmount,
+            autoCancelStatus: {
+                enabled: autoCancelEnabled,
+                minutesBefore: autoCancelMinutesBefore,
+                onlyIfUnpaid: autoCancelOnlyIfUnpaid,
+                blockedByPayment: autoCancelBlockedByPayment,
+                eligibleNow: autoCancelEligibleNow,
+                autoCancelAt: autoCancelAt ? autoCancelAt.toISOString() : null,
+                label: autoCancelStatusLabel
+            }
         };
     }
 
@@ -1365,13 +1442,123 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
     }
 });
 
+        const bookingIds = bookings.map((booking) => booking.id);
+        const sourceIds = bookingIds.map((id) => String(id));
+
+        const [accounts, clubsWithSettings, paymentAgg, refundAgg] = await Promise.all([
+            sourceIds.length > 0
+                ? prisma.account.findMany({
+                    where: {
+                        sourceType: 'BOOKING',
+                        sourceId: { in: sourceIds },
+                        ...(clubId ? { clubId } : {})
+                    },
+                    select: {
+                        id: true,
+                        sourceId: true,
+                        clubId: true
+                    }
+                })
+                : Promise.resolve([]),
+            prisma.club.findMany({
+                where: {
+                    id: { in: Array.from(new Set(bookings.map((booking) => booking.clubId))) }
+                },
+                select: {
+                    id: true,
+                    settings: {
+                        select: {
+                            bookingConfirmationMode: true,
+                            bookingDepositPercent: true
+                        }
+                    }
+                }
+            }),
+            sourceIds.length > 0
+                ? prisma.payment.groupBy({
+                    by: ['accountId'],
+                    where: {
+                        account: {
+                            sourceType: 'BOOKING',
+                            sourceId: { in: sourceIds },
+                            ...(clubId ? { clubId } : {})
+                        }
+                    },
+                    _sum: { amount: true }
+                })
+                : Promise.resolve([]),
+            sourceIds.length > 0
+                ? prisma.refund.groupBy({
+                    by: ['accountId'],
+                    where: {
+                        account: {
+                            sourceType: 'BOOKING',
+                            sourceId: { in: sourceIds },
+                            ...(clubId ? { clubId } : {})
+                        }
+                    },
+                    _sum: { amount: true }
+                })
+                : Promise.resolve([])
+        ]);
+
+        const accountByBookingId = new Map<number, { id: string; clubId: number }>();
+        for (const account of accounts) {
+            const parsedBookingId = Number(account.sourceId);
+            if (Number.isInteger(parsedBookingId)) {
+                accountByBookingId.set(parsedBookingId, { id: account.id, clubId: account.clubId });
+            }
+        }
+
+        const paymentByAccountId = new Map<string, number>();
+        for (const row of paymentAgg) {
+            paymentByAccountId.set(row.accountId, Number(row._sum.amount || 0));
+        }
+
+        const refundByAccountId = new Map<string, number>();
+        for (const row of refundAgg) {
+            refundByAccountId.set(row.accountId, Number(row._sum.amount || 0));
+        }
+
+        const clubSettingsByClubId = new Map<number, { mode: 'AUTOMATIC' | 'MANUAL' | 'DEPOSIT_REQUIRED'; depositPercent: number | null }>();
+        for (const club of clubsWithSettings) {
+            clubSettingsByClubId.set(club.id, {
+                mode: (club.settings?.bookingConfirmationMode ?? 'MANUAL') as 'AUTOMATIC' | 'MANUAL' | 'DEPOSIT_REQUIRED',
+                depositPercent: club.settings?.bookingDepositPercent == null ? null : Number(club.settings.bookingDepositPercent)
+            });
+        }
+
+        const bookingWithContextById = new Map<number, any>();
+        for (const booking of bookings) {
+            const accountRef = accountByBookingId.get(booking.id);
+            const paidAmount = accountRef
+                ? Math.max(0, Number((paymentByAccountId.get(accountRef.id) || 0) - (refundByAccountId.get(accountRef.id) || 0)))
+                : 0;
+            const clubSettings = clubSettingsByClubId.get(booking.clubId) || { mode: 'MANUAL' as const, depositPercent: null };
+            const confirmationContext = this.buildBookingConfirmationContext({
+                status: booking.status,
+                mode: clubSettings.mode,
+                bookingBaseAmount: Number(booking.price || 0),
+                depositPercent: clubSettings.depositPercent,
+                paidAmount
+            });
+
+            bookingWithContextById.set(booking.id, {
+                ...booking,
+                confirmationContext: {
+                    paidAmount: Number(paidAmount.toFixed(2)),
+                    ...confirmationContext
+                }
+            });
+        }
+
         const schedule = [];
 
         const bookingByCourtAndTime = new Map<string, any>();
         for (const booking of bookings) {
             const localDate = TimeHelper.utcToLocal(booking.startDateTime, timeZone);
             const bookingLocalTimeStr = `${String(localDate.getHours()).padStart(2, '0')}:${String(localDate.getMinutes()).padStart(2, '0')}`;
-            bookingByCourtAndTime.set(`${booking.court.id}:${bookingLocalTimeStr}`, booking);
+            bookingByCourtAndTime.set(`${booking.court.id}:${bookingLocalTimeStr}`, bookingWithContextById.get(booking.id) || booking);
         }
 
         // Consider slots coming from anchor = date and anchor = date - 1
@@ -1432,7 +1619,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     slotTime: slotTimeStr,
                     startDateTime: booking.startDateTime.toISOString(),
                     isAvailable: false, // Como es un turno huérfano, obvio que no está disponible
-                    booking: booking
+                    booking: bookingWithContextById.get(booking.id) || booking
                 });
             }
         }
