@@ -141,6 +141,32 @@ enum OutboxStatus {
   FAILED
 }
 
+enum RefundStatus {
+  REQUESTED
+  APPROVED
+  READY_TO_EXECUTE
+  EXECUTED
+  FAILED
+  CANCELLED
+}
+
+enum RefundExecutionMethod {
+  CASH
+  TRANSFER
+  CARD_REVERSAL
+  MP_REFUND
+  CREDIT_NOTE
+  OTHER
+}
+
+enum RefundReasonType {
+  FULL
+  PARTIAL_COMMERCIAL
+  PARTIAL_SERVICE_FAILURE
+  PARTIAL_PRICING_ERROR
+  OTHER
+}
+
 //
 // MODELOS
 //
@@ -168,6 +194,9 @@ model User {
   ledgerTransactionsCreated LedgerTransaction[]
   cashMovementsCreated CashMovement[]
   refundsCreated Refund[]
+  refundsApproved Refund[] @relation("RefundApprovedBy")
+  refundsExecuted Refund[] @relation("RefundExecutedBy")
+  refundsCancelled Refund[] @relation("RefundCancelledBy")
 }
 
 model Club {
@@ -868,6 +897,9 @@ model Refund {
   createdAt       DateTime @default(now()) @db.Timestamptz(3)
   amount          Decimal  @db.Decimal(10, 2)
   reason          String?
+  reasonType      RefundReasonType @default(OTHER)
+  status          RefundStatus @default(REQUESTED)
+  executionMethod RefundExecutionMethod?
 
   paymentId       String
   payment         Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
@@ -886,9 +918,24 @@ model Refund {
 
   createdByUserId Int?
   createdByUser   User?    @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  approvedAt      DateTime? @db.Timestamptz(3)
+  approvedByUserId Int?
+  approvedByUser  User? @relation("RefundApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  executedAt      DateTime? @db.Timestamptz(3)
+  executedByUserId Int?
+  executedByUser  User? @relation("RefundExecutedBy", fields: [executedByUserId], references: [id], onDelete: SetNull)
+  cancelledAt     DateTime? @db.Timestamptz(3)
+  cancelledByUserId Int?
+  cancelledByUser User? @relation("RefundCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  cancelReason    String?
+  executionReference String?
+  executionNotes  String?
+  failedAt        DateTime? @db.Timestamptz(3)
+  failedReason    String?
 
   @@index([paymentId])
   @@index([accountId])
   @@index([clubId, createdAt])
   @@index([cashShiftId])
+  @@index([status, createdAt])
 }

@@ -15,7 +15,7 @@ const rebuildAccountSummaries = async () => {
     accountIds.length > 0
       ? prisma.refund.groupBy({
           by: ['accountId'],
-          where: { accountId: { in: accountIds } },
+          where: { accountId: { in: accountIds }, status: 'EXECUTED' },
           _sum: { amount: true }
         })
       : Promise.resolve([] as Array<{ accountId: string; _sum: { amount: Prisma.Decimal | null } }>)

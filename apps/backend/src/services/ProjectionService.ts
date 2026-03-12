@@ -22,7 +22,7 @@ export class ProjectionService {
         _sum: { amount: true }
       }),
       client.refund.aggregate({
-        where: { accountId: account.id },
+        where: { accountId: account.id, status: 'EXECUTED' },
         _sum: { amount: true }
       })
     ]);

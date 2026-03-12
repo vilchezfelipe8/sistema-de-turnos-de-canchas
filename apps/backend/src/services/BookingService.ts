@@ -1,4 +1,4 @@
-import { BookingRepository } from '../repositories/BookingRepository';
+﻿import { BookingRepository } from '../repositories/BookingRepository';
 import { ClubRepository } from '../repositories/ClubRepository';
 import { UserRepository } from '../repositories/UserRepository';
 import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
@@ -11,7 +11,7 @@ import { User } from '../entities/User';
 import { Club } from '../entities/Club';
 import { Court as CourtEntity } from '../entities/Court';
 import { ActivityType } from '../entities/ActivityType';
-import { BookingStatus, Prisma } from '@prisma/client';
+import { BookingStatus, Prisma, RefundReasonType } from '@prisma/client';
 import { CashRepository } from '../repositories/CashRepository';
 import { ProductRepository } from '../repositories/ProductRepository';
 import { buildSlotsFromSchedule, normalizeSchedule } from '../utils/ActivityScheduleHelper';
@@ -33,6 +33,12 @@ type CancelBookingOptions = {
     triggeredBy?: 'USER' | 'ADMIN' | 'SYSTEM';
     skipAccessValidation?: boolean;
     now?: Date;
+    refund?: {
+        amount?: number;
+        executeNow?: boolean;
+        reasonType?: RefundReasonType;
+        executionNotes?: string;
+    };
 };
 
 export class BookingService {
@@ -1186,31 +1192,67 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 }
             });
 
-            if (paidAmount > 0.009) {
-                await this.refundService.refundBookingPaymentsTx(tx, {
-                    bookingId: booking.id,
-                    clubId: booking.court.club.id,
-                    reason: `Cancelación reserva #${booking.id}`,
-                    createdByUserId: cancelledByUserId ?? undefined
-                });
+            const requestedRefundAmount = Number(options?.refund?.amount ?? paidAmount);
+            const shouldExecuteRefundNow = options?.refund?.executeNow ?? true;
+            const targetRefundAmount = Number.isFinite(requestedRefundAmount)
+                ? Number(Math.max(0, Math.min(paidAmount, requestedRefundAmount)).toFixed(2))
+                : Number(paidAmount.toFixed(2));
+
+            if (paidAmount > 0.009 && targetRefundAmount <= 0.009) {
+                throw new Error('Para cancelar una reserva con pagos, debes devolver al menos una parte del monto pagado.');
+            }
+            if (!shouldExecuteRefundNow && targetRefundAmount + 0.009 < paidAmount) {
+                throw new Error('No se permite cancelar con devolucion parcial pendiente. Ejecuta la devolucion parcial ahora o devuelve el total.');
             }
 
-            if (totalAmount > 0.009) {
+            let refundedAmount = 0;
+            let netPaidAfterRefund = paidAmount;
+            if (paidAmount > 0.009) {
+                const refunds = await this.refundService.refundBookingPaymentsTx(tx, {
+                    bookingId: booking.id,
+                    clubId: booking.court.club.id,
+                    reason: `Cancelacion reserva #${booking.id}`,
+                    reasonType: options?.refund?.reasonType,
+                    executionNotes: options?.refund?.executionNotes,
+                    createdByUserId: cancelledByUserId ?? undefined,
+                    amount: targetRefundAmount,
+                    executeNow: shouldExecuteRefundNow
+                });
+                refundedAmount = Number(refunds.reduce((sum, row) => sum + Number(row.amount || 0), 0).toFixed(2));
+
+                if (refundedAmount + 0.009 < targetRefundAmount) {
+                    throw new Error('No se pudo cubrir el monto de devolucion solicitado');
+                }
+
+                const reconciliation = await this.accountService.reconcilePaidAmountTx(tx, account.id, {
+                    updateStatus: false,
+                    reopenIfRemaining: false
+                });
+                netPaidAfterRefund = reconciliation.netPaid;
+            }
+
+            const retainedAmount = shouldExecuteRefundNow
+                ? Number(Math.max(0, netPaidAfterRefund).toFixed(2))
+                : Number(Math.max(0, paidAmount - refundedAmount).toFixed(2));
+            const reversalAmount = Number(Math.max(0, totalAmount - retainedAmount).toFixed(2));
+
+            if (reversalAmount > 0.009) {
                 const adjustmentItem = await tx.accountItem.create({
                     data: {
                         accountId: account.id,
                         type: 'ADJUSTMENT',
-                        description: `Cancelación reserva #${booking.id}`,
+                        description: `Cancelacion reserva #${booking.id}`,
                         quantity: 1,
-                        unitPrice: new Prisma.Decimal(-totalAmount),
-                        total: new Prisma.Decimal(-totalAmount)
+                        unitPrice: new Prisma.Decimal(-reversalAmount),
+                        total: new Prisma.Decimal(-reversalAmount)
                     }
                 });
 
                 await tx.account.update({
                     where: { id: account.id },
                     data: {
-                        totalAmount: new Prisma.Decimal(0)
+                        totalAmount: new Prisma.Decimal(retainedAmount),
+                        paidAmount: new Prisma.Decimal(retainedAmount)
                     }
                 });
 
@@ -1221,10 +1263,18 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     referenceId: adjustmentItem.id,
                     accountId: account.id,
                     accountItemId: adjustmentItem.id,
-                    amount: totalAmount,
+                    amount: reversalAmount,
                     revenueAccount: 'ADJUSTMENTS',
-                    description: `Anulación obligación reserva #${booking.id}`,
+                    description: `Anulacion obligacion reserva #${booking.id}`,
                     createdByUserId: cancelledByUserId ?? null
+                });
+            } else {
+                await tx.account.update({
+                    where: { id: account.id },
+                    data: {
+                        totalAmount: new Prisma.Decimal(retainedAmount),
+                        paidAmount: new Prisma.Decimal(retainedAmount)
+                    }
                 });
             }
 
@@ -1491,6 +1541,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 ? prisma.refund.groupBy({
                     by: ['accountId'],
                     where: {
+                        status: 'EXECUTED',
                         account: {
                             sourceType: 'BOOKING',
                             sourceId: { in: sourceIds },

@@ -200,13 +200,27 @@ export class ClubAdminService {
   /**
    * Cancelar reserva
    */
-  static async cancelBooking(clubSlug: string, bookingId: number) {
+  static async cancelBooking(
+    clubSlug: string,
+    bookingId: number,
+    options?: {
+      refund?: {
+        amount?: number;
+        executeNow?: boolean;
+        reasonType?: 'FULL' | 'PARTIAL_COMMERCIAL' | 'PARTIAL_SERVICE_FAILURE' | 'PARTIAL_PRICING_ERROR' | 'OTHER';
+        executionNotes?: string;
+      };
+    }
+  ) {
     if (!getToken()) throw new Error('No autenticado');
 
     const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/bookings/cancel`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bookingId })
+      body: JSON.stringify({
+        bookingId,
+        ...(options?.refund ? { refund: options.refund } : {})
+      })
     });
 
     if (!res.ok) {

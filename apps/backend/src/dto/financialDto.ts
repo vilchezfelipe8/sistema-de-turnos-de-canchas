@@ -22,11 +22,25 @@ export const mapRefundDto = (refund: any) => ({
   createdAt: refund.createdAt,
   amount: toNumber(refund.amount),
   reason: refund.reason ?? null,
+  reasonType: refund.reasonType ?? 'OTHER',
+  status: refund.status ?? 'EXECUTED',
+  executionMethod: refund.executionMethod ?? null,
   paymentId: refund.paymentId,
   accountId: refund.accountId,
   clubId: refund.clubId,
   cashShiftId: refund.cashShiftId ?? null,
-  createdByUserId: refund.createdByUserId ?? null
+  createdByUserId: refund.createdByUserId ?? null,
+  approvedAt: refund.approvedAt ?? null,
+  approvedByUserId: refund.approvedByUserId ?? null,
+  executedAt: refund.executedAt ?? null,
+  executedByUserId: refund.executedByUserId ?? null,
+  cancelledAt: refund.cancelledAt ?? null,
+  cancelledByUserId: refund.cancelledByUserId ?? null,
+  cancelReason: refund.cancelReason ?? null,
+  executionReference: refund.executionReference ?? null,
+  executionNotes: refund.executionNotes ?? null,
+  failedAt: refund.failedAt ?? null,
+  failedReason: refund.failedReason ?? null
 });
 
 export const mapAccountItemDto = (item: any) => ({

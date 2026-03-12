@@ -208,7 +208,13 @@ export class BookingController {
     cancelBooking = async (req: Request, res: Response) => {
         try {
             const cancelSchema = z.object({
-                bookingId: z.preprocess((v) => Number(v), z.number().int().positive())
+                bookingId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                refund: z.object({
+                    amount: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().positive().optional()),
+                    executeNow: z.boolean().optional(),
+                    reasonType: z.enum(['FULL', 'PARTIAL_COMMERCIAL', 'PARTIAL_SERVICE_FAILURE', 'PARTIAL_PRICING_ERROR', 'OTHER']).optional(),
+                    executionNotes: z.string().trim().max(500).optional()
+                }).optional()
             });
             const parsed = cancelSchema.safeParse(req.body);
             if (!parsed.success) {
@@ -217,7 +223,16 @@ export class BookingController {
             const { bookingId } = parsed.data;
             const user = (req as any).user;
             const clubId = (req as any).clubId;
-            const result = await this.bookingService.cancelBooking(Number(bookingId), user?.userId, clubId);
+            const result = await this.bookingService.cancelBooking(Number(bookingId), user?.userId, clubId, {
+                refund: parsed.data.refund
+                    ? {
+                        amount: parsed.data.refund.amount,
+                        executeNow: parsed.data.refund.executeNow,
+                        reasonType: parsed.data.refund.reasonType,
+                        executionNotes: parsed.data.refund.executionNotes
+                    }
+                    : undefined
+            });
             res.json({ message: "Reserva cancelada", booking: result });
         } catch (error: any) {
             if (error.message === "No tienes acceso a esta reserva") {

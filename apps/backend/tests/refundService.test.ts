@@ -8,7 +8,18 @@ type FakeState = {
   paidAmount: number;
   source: 'POS' | 'ONLINE' | 'BACKOFFICE';
   method: 'CASH' | 'TRANSFER' | 'CARD' | 'MERCADO_PAGO' | 'OTHER';
-  refunds: Array<{ id: string; amount: number }>;
+  refunds: Array<{
+    id: string;
+    amount: number;
+    status?: 'REQUESTED' | 'APPROVED' | 'READY_TO_EXECUTE' | 'EXECUTED' | 'FAILED' | 'CANCELLED';
+    reason?: string | null;
+    executionMethod?: 'CASH' | 'TRANSFER' | 'CARD_REVERSAL' | 'MP_REFUND' | 'CREDIT_NOTE' | 'OTHER' | null;
+    paymentId?: string;
+    accountId?: string;
+    clubId?: number;
+    createdByUserId?: number | null;
+    cashShiftId?: string | null;
+  }>;
   cashShiftOpen?: boolean;
 };
 
@@ -20,6 +31,9 @@ function createHarness(state: FakeState) {
 
   const tx: any = {
     $queryRaw: async () => [{ id: 'p1' }],
+    auditLog: {
+      create: async () => ({ id: 1 })
+    },
     payment: {
       findUnique: async () => ({
         id: 'p1',
@@ -36,7 +50,11 @@ function createHarness(state: FakeState) {
           totalAmount: new Prisma.Decimal(20000),
           paidAmount: new Prisma.Decimal(state.paidAmount)
         },
-        refunds: state.refunds.map((r) => ({ id: r.id, amount: new Prisma.Decimal(r.amount) }))
+        refunds: state.refunds.map((r) => ({
+          id: r.id,
+          amount: new Prisma.Decimal(r.amount),
+          status: r.status ?? 'EXECUTED'
+        }))
       })
     },
     cashShift: {
@@ -60,12 +78,26 @@ function createHarness(state: FakeState) {
     refund: {
       create: async ({ data }: any) => {
         const id = `r${state.refunds.length + 1}`;
-        state.refunds.push({ id, amount: Number(data.amount) });
+        const created = {
+          id,
+          amount: Number(data.amount),
+          status: data.status ?? 'REQUESTED',
+          reason: data.reason ?? null,
+          executionMethod: data.executionMethod ?? null,
+          paymentId: data.paymentId ?? 'p1',
+          accountId: data.accountId ?? 'a1',
+          clubId: data.clubId ?? 1,
+          createdByUserId: data.createdByUserId ?? null,
+          cashShiftId: data.cashShiftId ?? null
+        };
+        state.refunds.push(created);
         return {
           id,
           createdAt: new Date('2026-03-10T10:00:00Z'),
           amount: data.amount,
           reason: data.reason,
+          status: data.status,
+          executionMethod: data.executionMethod ?? null,
           paymentId: data.paymentId,
           accountId: data.accountId,
           clubId: data.clubId,
@@ -73,7 +105,52 @@ function createHarness(state: FakeState) {
           createdByUserId: data.createdByUserId
         };
       },
-      findUnique: async ({ where }: any) => ({ id: where.id, payment: { id: 'p1' }, cashMovement: null }),
+      findUnique: async ({ where }: any) => {
+        const found = state.refunds.find((r) => r.id === where.id);
+        if (!found) return null;
+        return {
+          id: found.id,
+          createdAt: new Date('2026-03-10T10:00:00Z'),
+          amount: new Prisma.Decimal(found.amount),
+          reason: found.reason ?? null,
+          status: found.status ?? 'EXECUTED',
+          executionMethod: found.executionMethod ?? null,
+          paymentId: found.paymentId ?? 'p1',
+          accountId: found.accountId ?? 'a1',
+          clubId: found.clubId ?? 1,
+          cashShiftId: found.cashShiftId ?? null,
+          createdByUserId: found.createdByUserId ?? null,
+          approvedByUserId: null,
+          executedByUserId: null,
+          executionReference: null,
+          executionNotes: null,
+          failedAt: null,
+          failedReason: null,
+          payment: {
+            id: 'p1',
+            method: state.method,
+            source: state.source,
+            account: {
+              id: 'a1',
+              clubId: 1
+            }
+          },
+          cashMovement: null
+        };
+      },
+      update: async ({ where, data }: any) => {
+        const idx = state.refunds.findIndex((r) => r.id === where.id);
+        if (idx === -1) throw new Error('Refund not found');
+        state.refunds[idx] = {
+          ...state.refunds[idx],
+          ...('amount' in data ? { amount: Number(data.amount) } : {}),
+          ...('status' in data ? { status: data.status } : {}),
+          ...('reason' in data ? { reason: data.reason } : {}),
+          ...('executionMethod' in data ? { executionMethod: data.executionMethod } : {}),
+          ...('cashShiftId' in data ? { cashShiftId: data.cashShiftId } : {})
+        };
+        return { id: where.id };
+      },
       aggregate: async () => ({ _sum: { amount: new Prisma.Decimal(0) } })
     }
   };
@@ -234,20 +311,35 @@ test('bloquea refund en cuenta cerrada no-cancelada', async () => {
 test('refundBookingPaymentsTx usa solo saldo refundable remanente', async () => {
   const service = new RefundService() as any;
   const calls: Array<{ paymentId: string; amount: number }> = [];
-  service.refundPaymentTx = async (_tx: any, input: any) => {
+  service.requestRefundTx = async (_tx: any, input: any) => {
     calls.push({ paymentId: input.paymentId, amount: input.amount });
     return { id: 'rx1' };
   };
 
   const tx: any = {
+    $queryRaw: async () => [{ id: 'p1' }],
     account: {
       findFirst: async () => ({
         id: 'a1',
         payments: [{ id: 'p1', amount: new Prisma.Decimal(10000) }]
       })
     },
-    refund: {
-      aggregate: async () => ({ _sum: { amount: new Prisma.Decimal(4000) } })
+    payment: {
+      findUnique: async () => ({
+        id: 'p1',
+        amount: new Prisma.Decimal(10000),
+        method: 'TRANSFER',
+        source: 'BACKOFFICE',
+        accountId: 'a1',
+        account: {
+          id: 'a1',
+          clubId: 1,
+          sourceType: 'BOOKING',
+          sourceId: '10',
+          status: 'OPEN'
+        },
+        refunds: [{ id: 'r1', amount: new Prisma.Decimal(4000), status: 'EXECUTED' }]
+      })
     }
   };
 
@@ -255,4 +347,56 @@ test('refundBookingPaymentsTx usa solo saldo refundable remanente', async () => 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].paymentId, 'p1');
   assert.equal(calls[0].amount, 6000);
+});
+
+test('requestRefund deja estado REQUESTED cuando no ejecuta', async () => {
+  const { service, tx, state, calls } = createHarness({
+    paymentAmount: 10000,
+    paidAmount: 10000,
+    source: 'BACKOFFICE',
+    method: 'TRANSFER',
+    refunds: []
+  });
+
+  const refund = await (service as any).requestRefundTx(tx, {
+    paymentId: 'p1',
+    amount: 1500,
+    clubId: 1,
+    executeNow: false,
+    createdByUserId: 7
+  });
+
+  assert.equal(refund.status, 'REQUESTED');
+  assert.equal(state.refunds.length, 1);
+  assert.equal(calls.ledger, 0);
+});
+
+test('approve y execute de refund cash generan cash movement', async () => {
+  const { service, tx, state, calls } = createHarness({
+    paymentAmount: 10000,
+    paidAmount: 10000,
+    source: 'POS',
+    method: 'CASH',
+    refunds: []
+  });
+
+  const created = await (service as any).requestRefundTx(tx, {
+    paymentId: 'p1',
+    amount: 1200,
+    clubId: 1,
+    executeNow: false,
+    createdByUserId: 9,
+    executionMethod: 'CASH'
+  });
+
+  const approved = await (service as any).approveRefundTx(tx, {
+    refundId: created.id,
+    clubId: 1,
+    approvedByUserId: 9,
+    executeNow: true
+  });
+
+  assert.equal(approved.status, 'EXECUTED');
+  assert.equal(calls.cashMovement, 1);
+  assert.equal(state.paidAmount, 8800);
 });

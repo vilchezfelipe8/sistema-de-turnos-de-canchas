@@ -118,7 +118,17 @@ export const getMyBookings = async (userId: number) => {
 };
 
 // --- 3. CANCELAR UNA RESERVA ---
-export const cancelBooking = async (bookingId: number) => {
+export const cancelBooking = async (
+  bookingId: number,
+  options?: {
+    refund?: {
+      amount?: number;
+      executeNow?: boolean;
+      reasonType?: 'FULL' | 'PARTIAL_COMMERCIAL' | 'PARTIAL_SERVICE_FAILURE' | 'PARTIAL_PRICING_ERROR' | 'OTHER';
+      executionNotes?: string;
+    };
+  }
+) => {
     if (!getToken()) throw new Error("Debes iniciar sesión.");
 
   const rawUser = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
@@ -127,14 +137,17 @@ export const cancelBooking = async (bookingId: number) => {
     const adminClubId = Number(parsed?.activeClubId || parsed?.clubId || parsed?.club?.id);
     if (hasAdminAccess(parsed) && Number.isFinite(adminClubId) && adminClubId > 0) {
       const club = await ClubService.getClubById(adminClubId);
-      return await ClubAdminService.cancelBooking(club.slug, bookingId);
+      return await ClubAdminService.cancelBooking(club.slug, bookingId, options);
     }
   }
 
   const res = await fetchWithAuth(`${apiBase()}/bookings/cancel`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ bookingId })
+    body: JSON.stringify({
+      bookingId,
+      ...(options?.refund ? { refund: options.refund } : {})
+    })
   });
 
     if (!res.ok) {

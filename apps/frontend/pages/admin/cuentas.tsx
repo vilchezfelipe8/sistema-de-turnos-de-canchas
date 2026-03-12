@@ -1,7 +1,8 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Head from 'next/head';
 import AdminLayout from '../../components/AdminLayout';
 import { addAccountItem, closeAccount, getAccountById, listAccounts, openAccount, registerPayment, type PaymentMethod, type PaymentSource } from '../../services/AccountService';
+import { listRefunds, requestPaymentRefund, type RefundRecord } from '../../services/PaymentService';
 
 type AccountRow = {
   id: string;
@@ -25,6 +26,16 @@ export default function AdminAccountsPage() {
   const [splitPayments, setSplitPayments] = useState<Array<{ amount: number; method: PaymentMethod; source: PaymentSource }>>([{ amount: 0, method: 'CASH', source: 'POS' }]);
   const [newAccount, setNewAccount] = useState({ sourceType: 'MANUAL' as const, sourceId: '' });
   const [itemAllocationDraft, setItemAllocationDraft] = useState<Record<string, number>>({});
+  const [refunds, setRefunds] = useState<RefundRecord[]>([]);
+  const [loadingRefunds, setLoadingRefunds] = useState(false);
+  const [showRefundModal, setShowRefundModal] = useState(false);
+  const [refundPaymentId, setRefundPaymentId] = useState('');
+  const [refundPaymentMaxAmount, setRefundPaymentMaxAmount] = useState(0);
+  const [refundAmountInput, setRefundAmountInput] = useState('');
+  const [refundReasonType, setRefundReasonType] = useState<'FULL' | 'PARTIAL_COMMERCIAL' | 'PARTIAL_SERVICE_FAILURE' | 'PARTIAL_PRICING_ERROR' | 'OTHER'>('OTHER');
+  const [refundExecutionNotes, setRefundExecutionNotes] = useState('');
+  const [refundExecuteNow, setRefundExecuteNow] = useState(false);
+  const [submittingRefund, setSubmittingRefund] = useState(false);
 
   const refreshLists = useCallback(async () => {
     setLoading(true);
@@ -58,6 +69,22 @@ export default function AdminAccountsPage() {
     }
   }, []);
 
+  const loadRefunds = useCallback(async (accountId: string) => {
+    if (!accountId) {
+      setRefunds([]);
+      return;
+    }
+    try {
+      setLoadingRefunds(true);
+      const data = await listRefunds({ accountId, take: 100 });
+      setRefunds(Array.isArray(data) ? data : []);
+    } catch (err: any) {
+      setError(err.message || 'Error al cargar devoluciones');
+    } finally {
+      setLoadingRefunds(false);
+    }
+  }, []);
+
   useEffect(() => {
     refreshLists();
   }, [refreshLists]);
@@ -65,6 +92,10 @@ export default function AdminAccountsPage() {
   useEffect(() => {
     if (selectedId) loadDetail(selectedId);
   }, [selectedId, loadDetail]);
+
+  useEffect(() => {
+    if (selectedId) loadRefunds(selectedId);
+  }, [selectedId, loadRefunds]);
 
   const totals = useMemo(() => ({
     open: openAccounts.length,
@@ -95,6 +126,73 @@ export default function AdminAccountsPage() {
 
     return map;
   }, [detail]);
+
+  const formatRefundStatus = (status?: string) => {
+    switch (status) {
+      case 'REQUESTED':
+        return 'Solicitada';
+      case 'APPROVED':
+        return 'Aprobada';
+      case 'READY_TO_EXECUTE':
+        return 'Lista para ejecutar';
+      case 'EXECUTED':
+        return 'Ejecutada';
+      case 'FAILED':
+        return 'Fallida';
+      case 'CANCELLED':
+        return 'Cancelada';
+      default:
+        return status || '-';
+    }
+  };
+
+  const openRefundModal = (paymentId: string, amount: number) => {
+    setRefundPaymentId(paymentId);
+    setRefundPaymentMaxAmount(amount);
+    setRefundAmountInput(String(Number(amount.toFixed(2))));
+    setRefundReasonType('OTHER');
+    setRefundExecutionNotes('');
+    setRefundExecuteNow(false);
+    setShowRefundModal(true);
+  };
+
+  const closeRefundModal = () => {
+    if (submittingRefund) return;
+    setShowRefundModal(false);
+  };
+
+  const submitRefundModal = async () => {
+    try {
+      const parsedAmount = Number(refundAmountInput);
+      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        throw new Error('Monto invalido');
+      }
+      if (parsedAmount > refundPaymentMaxAmount + 0.009) {
+        throw new Error('El monto no puede superar el pago original');
+      }
+      if (!refundPaymentId) {
+        throw new Error('Pago invalido');
+      }
+
+      setSubmittingRefund(true);
+      await requestPaymentRefund(refundPaymentId, {
+        amount: Number(parsedAmount.toFixed(2)),
+        reasonType: refundReasonType,
+        reason: 'Refund solicitado desde cuentas',
+        executionMethod: 'CASH',
+        executionNotes: refundExecutionNotes.trim() || undefined,
+        executeNow: refundExecuteNow
+      });
+      await loadRefunds(selectedId);
+      await loadDetail(selectedId);
+      await refreshLists();
+      setShowRefundModal(false);
+    } catch (err: any) {
+      setError(err.message || 'No se pudo solicitar refund');
+    } finally {
+      setSubmittingRefund(false);
+    }
+  };
 
   return (
     <AdminLayout>
@@ -317,6 +415,61 @@ export default function AdminAccountsPage() {
                 </button>
               </div>
             </div>
+
+            <div className="rounded-xl border border-[#347048]/10 p-3 space-y-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Pagos de la cuenta (refund manual)</p>
+              <div className="space-y-1 max-h-40 overflow-y-auto text-xs">
+                {(detail.payments || []).map((entry: any) => {
+                  const paymentId = String(entry?.id || '');
+                  if (!paymentId) return null;
+                  const amount = Number(entry?.amount || 0);
+                  return (
+                    <div key={paymentId} className="flex items-center justify-between gap-2 border border-[#347048]/10 rounded-lg px-2 py-1">
+                      <div className="min-w-0">
+                        <p className="font-black truncate">{paymentId}</p>
+                        <p className="text-[#347048]/70 truncate">{entry.method} · ${amount.toLocaleString()}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openRefundModal(paymentId, amount)}
+                        className="h-8 rounded-lg border border-[#347048]/20 px-2 text-[10px] font-black uppercase"
+                      >
+                        Solicitar refund
+                      </button>
+                    </div>
+                  );
+                })}
+                {(!detail.payments || detail.payments.length === 0) && <div className="text-[#347048]/50">Sin pagos.</div>}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-[#347048]/10 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Devoluciones de la cuenta</p>
+                <button
+                  type="button"
+                  onClick={() => loadRefunds(selectedId)}
+                  className="h-7 rounded-lg border border-[#347048]/20 px-2 text-[10px] font-black uppercase"
+                >
+                  Recargar
+                </button>
+              </div>
+              {loadingRefunds ? (
+                <div className="text-xs text-[#347048]/60">Cargando devoluciones...</div>
+              ) : (
+                <div className="space-y-1 max-h-36 overflow-y-auto text-xs">
+                  {refunds.map((refund) => (
+                    <div key={refund.id} className="border border-[#347048]/10 rounded-lg px-2 py-1">
+                      <p className="font-black">{refund.id}</p>
+                      <p className="text-[#347048]/70">
+                        ${Number(refund.amount || 0).toLocaleString()} · {formatRefundStatus(refund.status)} · {refund.executionMethod || '-'}
+                      </p>
+                    </div>
+                  ))}
+                  {!loadingRefunds && refunds.length === 0 ? <div className="text-[#347048]/50">Sin devoluciones para esta cuenta.</div> : null}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -333,6 +486,99 @@ export default function AdminAccountsPage() {
           </div>
         </div>
       </div>
+
+      {showRefundModal ? (
+        <div className="fixed inset-0 z-[9999] bg-[#347048]/70 flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-[#EBE1D8] border-4 border-white/60 rounded-[1.5rem] shadow-2xl p-6 text-[#347048] space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-black uppercase italic">Solicitar refund</h3>
+                <p className="text-xs font-black uppercase tracking-widest text-[#347048]/60">
+                  Pago: {refundPaymentId}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeRefundModal}
+                disabled={submittingRefund}
+                className="h-8 px-3 rounded-lg border border-[#347048]/20 text-xs font-black uppercase"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60 mb-1">Monto</label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={refundAmountInput}
+                  onChange={(e) => setRefundAmountInput(e.target.value)}
+                  className="w-full h-10 border rounded-lg px-3 bg-white"
+                />
+                <p className="text-[11px] text-[#347048]/60 mt-1">Maximo: ${refundPaymentMaxAmount.toLocaleString()}</p>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60 mb-1">Tipo</label>
+                <select
+                  value={refundReasonType}
+                  onChange={(e) => setRefundReasonType(e.target.value as 'FULL' | 'PARTIAL_COMMERCIAL' | 'PARTIAL_SERVICE_FAILURE' | 'PARTIAL_PRICING_ERROR' | 'OTHER')}
+                  className="w-full h-10 border rounded-lg px-3 bg-white"
+                >
+                  <option value="FULL">FULL</option>
+                  <option value="PARTIAL_COMMERCIAL">PARTIAL_COMMERCIAL</option>
+                  <option value="PARTIAL_SERVICE_FAILURE">PARTIAL_SERVICE_FAILURE</option>
+                  <option value="PARTIAL_PRICING_ERROR">PARTIAL_PRICING_ERROR</option>
+                  <option value="OTHER">OTHER</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60 mb-1">Nota operativa</label>
+                <textarea
+                  value={refundExecutionNotes}
+                  onChange={(e) => setRefundExecutionNotes(e.target.value)}
+                  rows={3}
+                  maxLength={500}
+                  className="w-full border rounded-lg px-3 py-2 bg-white resize-none"
+                  placeholder="Detalle interno"
+                />
+              </div>
+
+              <label className="inline-flex items-center gap-2 text-xs font-bold">
+                <input
+                  type="checkbox"
+                  checked={refundExecuteNow}
+                  onChange={(e) => setRefundExecuteNow(e.target.checked)}
+                />
+                Ejecutar ahora
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={closeRefundModal}
+                disabled={submittingRefund}
+                className="h-10 rounded-lg border border-[#347048]/20 text-xs font-black uppercase"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={submitRefundModal}
+                disabled={submittingRefund}
+                className="h-10 rounded-lg bg-[#347048] text-[#EBE1D8] text-xs font-black uppercase disabled:opacity-50"
+              >
+                {submittingRefund ? 'Enviando...' : 'Confirmar refund'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </AdminLayout>
   );
 }

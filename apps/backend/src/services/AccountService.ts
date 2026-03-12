@@ -25,7 +25,7 @@ export class AccountService {
         _sum: { amount: true }
       }),
       tx.refund.aggregate({
-        where: { accountId },
+        where: { accountId, status: 'EXECUTED' },
         _sum: { amount: true }
       })
     ]);
@@ -42,7 +42,7 @@ export class AccountService {
         _sum: { amount: true }
       }),
       prismaRead.refund.aggregate({
-        where: { accountId },
+        where: { accountId, status: 'EXECUTED' },
         _sum: { amount: true }
       })
     ]);
