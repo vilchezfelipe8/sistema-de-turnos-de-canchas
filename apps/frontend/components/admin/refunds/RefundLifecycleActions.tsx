@@ -17,7 +17,7 @@ export default function RefundLifecycleActions({ status, disabled = false, handl
           type="button"
           disabled={disabled || !handlers.onApprove}
           onClick={() => handlers.onApprove?.(false)}
-          className="rounded-lg bg-[#347048] text-[#EBE1D8] px-2 py-1 text-[10px] font-black uppercase tracking-wide disabled:opacity-50"
+          className="rounded-lg bg-[#347048] text-[#EBE1D8] px-2.5 py-1 text-[10px] font-black uppercase tracking-wide disabled:opacity-50"
         >
           Aprobar
         </button>
@@ -25,7 +25,7 @@ export default function RefundLifecycleActions({ status, disabled = false, handl
           type="button"
           disabled={disabled || !handlers.onApprove}
           onClick={() => handlers.onApprove?.(true)}
-          className="rounded-lg bg-[#926699] text-white px-2 py-1 text-[10px] font-black uppercase tracking-wide disabled:opacity-50"
+          className="rounded-lg bg-[#926699] text-white px-2.5 py-1 text-[10px] font-black uppercase tracking-wide disabled:opacity-50"
         >
           Aprobar + ejecutar
         </button>
@@ -33,7 +33,7 @@ export default function RefundLifecycleActions({ status, disabled = false, handl
           type="button"
           disabled={disabled || !handlers.onCancel}
           onClick={() => handlers.onCancel?.()}
-          className="rounded-lg border border-red-200 text-red-600 px-2 py-1 text-[10px] font-black uppercase tracking-wide disabled:opacity-50"
+          className="rounded-lg border border-red-200 bg-red-50/50 text-red-600 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide disabled:opacity-50"
         >
           Cancelar
         </button>
@@ -48,7 +48,7 @@ export default function RefundLifecycleActions({ status, disabled = false, handl
           type="button"
           disabled={disabled || !handlers.onExecute}
           onClick={() => handlers.onExecute?.()}
-          className="rounded-lg bg-[#347048] text-[#EBE1D8] px-2 py-1 text-[10px] font-black uppercase tracking-wide disabled:opacity-50"
+          className="rounded-lg bg-[#347048] text-[#EBE1D8] px-2.5 py-1 text-[10px] font-black uppercase tracking-wide disabled:opacity-50"
         >
           Ejecutar
         </button>
@@ -56,7 +56,7 @@ export default function RefundLifecycleActions({ status, disabled = false, handl
           type="button"
           disabled={disabled || !handlers.onFail}
           onClick={() => handlers.onFail?.()}
-          className="rounded-lg border border-[#926699]/40 text-[#926699] px-2 py-1 text-[10px] font-black uppercase tracking-wide disabled:opacity-50"
+          className="rounded-lg border border-[#926699]/35 bg-[#926699]/5 text-[#926699] px-2.5 py-1 text-[10px] font-black uppercase tracking-wide disabled:opacity-50"
         >
           Marcar fallida
         </button>
@@ -64,7 +64,7 @@ export default function RefundLifecycleActions({ status, disabled = false, handl
           type="button"
           disabled={disabled || !handlers.onCancel}
           onClick={() => handlers.onCancel?.()}
-          className="rounded-lg border border-red-200 text-red-600 px-2 py-1 text-[10px] font-black uppercase tracking-wide disabled:opacity-50"
+          className="rounded-lg border border-red-200 bg-red-50/50 text-red-600 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide disabled:opacity-50"
         >
           Cancelar
         </button>
@@ -79,7 +79,7 @@ export default function RefundLifecycleActions({ status, disabled = false, handl
           type="button"
           disabled={disabled || !handlers.onRetry}
           onClick={() => handlers.onRetry?.(true)}
-          className="rounded-lg bg-[#926699] text-white px-2 py-1 text-[10px] font-black uppercase tracking-wide disabled:opacity-50"
+          className="rounded-lg bg-[#926699] text-white px-2.5 py-1 text-[10px] font-black uppercase tracking-wide disabled:opacity-50"
         >
           Reintentar
         </button>
@@ -87,7 +87,7 @@ export default function RefundLifecycleActions({ status, disabled = false, handl
           type="button"
           disabled={disabled || !handlers.onCancel}
           onClick={() => handlers.onCancel?.()}
-          className="rounded-lg border border-red-200 text-red-600 px-2 py-1 text-[10px] font-black uppercase tracking-wide disabled:opacity-50"
+          className="rounded-lg border border-red-200 bg-red-50/50 text-red-600 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide disabled:opacity-50"
         >
           Cancelar
         </button>

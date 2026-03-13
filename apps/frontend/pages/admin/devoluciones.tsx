@@ -12,11 +12,13 @@ export default function AdminRefundsPage() {
   if (!hasAdminAccess(user)) return <NotFound message="No tenes permiso para acceder al panel de administracion." />;
 
   return (
-    <AdminLayout>
-      <Head>
-        <title>Devoluciones | TuCancha Admin</title>
-      </Head>
-      <AdminTabRefunds />
-    </AdminLayout>
+    <div className="min-h-screen text-text relative overflow-hidden" style={{ backgroundColor: 'var(--bg)' }}>
+      <AdminLayout>
+        <Head>
+          <title>Devoluciones | TuCancha Admin</title>
+        </Head>
+        <AdminTabRefunds />
+      </AdminLayout>
+    </div>
   );
 }

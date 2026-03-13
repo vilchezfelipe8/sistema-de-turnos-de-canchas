@@ -20,11 +20,11 @@ export default function RefundList({
   renderActions
 }: RefundListProps) {
   if (loading) {
-    return <div className="text-xs font-bold text-[#347048]/60">Cargando devoluciones...</div>;
+    return <div className="rounded-xl border border-[#347048]/10 bg-white/80 px-3 py-4 text-xs font-bold text-[#347048]/60">Cargando devoluciones...</div>;
   }
 
   if (!refunds.length) {
-    return <div className="text-xs font-bold text-[#347048]/50">{emptyText}</div>;
+    return <div className="rounded-xl border border-[#347048]/10 bg-white/80 px-3 py-4 text-xs font-bold text-[#347048]/50">{emptyText}</div>;
   }
 
   return (
@@ -32,14 +32,17 @@ export default function RefundList({
       {refunds.map((refund) => {
         const isBusy = actionBusyId === refund.id;
         return (
-          <div key={refund.id} className="rounded-xl border border-[#347048]/10 bg-white px-3 py-2">
+          <div key={refund.id} className="rounded-xl border border-[#347048]/15 bg-white px-3 py-3 shadow-sm">
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-xs font-black text-[#347048] truncate">
+                <p className="text-xs font-black uppercase tracking-wide text-[#347048] truncate">
                   ${Number(refund.amount || 0).toLocaleString()} · {formatRefundStatus(refund.status)}
                 </p>
                 <p className="text-[10px] font-bold text-[#347048]/60 truncate">
                   {formatRefundExecutionMethod(refund.executionMethod) || 'Sin metodo'} · pago {refund.paymentId}
+                </p>
+                <p className="text-[10px] font-semibold text-[#347048]/55 truncate">
+                  Cuenta: {refund.accountId || 'sin cuenta'}
                 </p>
                 {refund.failedReason ? (
                   <p className="text-[10px] font-bold text-red-600 truncate">Fallo: {refund.failedReason}</p>
