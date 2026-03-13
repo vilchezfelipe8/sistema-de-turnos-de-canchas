@@ -946,6 +946,7 @@ const AdminCashDashboard = () => {
           </div>
         </div>
 
+        <div className="space-y-6">
   {/* FORMULARIO AGREGAR RÁPIDO */}
         <div className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl h-fit">
           <h3 className="text-xl font-black text-[#926699] mb-8 flex items-center gap-3 uppercase italic tracking-tight">
@@ -1199,6 +1200,7 @@ const AdminCashDashboard = () => {
           </form>
         </div>
 
+        </div>
       </div>
     </div>
       <AppModal
