@@ -165,7 +165,7 @@ export class CashShiftService {
       });
 
       if (closeResult.count === 0) {
-        throw new Error('Shift already closed');
+        throw new Error('El turno de caja ya estaba cerrado');
       }
 
       const closedShift = await tx.cashShift.findUnique({ where: { id: shift.id } });

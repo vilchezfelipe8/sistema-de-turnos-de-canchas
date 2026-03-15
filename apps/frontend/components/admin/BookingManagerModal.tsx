@@ -610,7 +610,7 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
               ) : null}
 
               <div className="rounded-xl bg-white border border-[#347048]/10 px-3 py-2 mb-2">
-                <p className="text-[9px] font-black uppercase tracking-widest text-[#347048]/45">Auto-cancelacion</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-[#347048]/45">Cancelación automática</p>
                 <p className="text-[11px] font-black uppercase tracking-wide text-[#347048] mt-1">
                   {summary?.autoCancelStatus?.label || 'No aplica'}
                 </p>
@@ -628,7 +628,7 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
                 ) : null}
                 {summary?.autoCancelStatus?.blockedByPayment ? (
                   <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-blue-700">
-                    No se cancelara automaticamente porque tiene pagos registrados
+                    No se cancelará automáticamente porque tiene pagos registrados
                   </div>
                 ) : null}
               </div>

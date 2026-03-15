@@ -50,6 +50,18 @@ export type BookingFinancialSummary = {
   };
 };
 
+export type BookingQuote = {
+  listPrice: number;
+  finalPrice: number;
+  discountAmount: number;
+  hasDiscount: boolean;
+  appliedPolicies: Array<{
+    policyId: string;
+    policyName: string;
+    discountAmount: number;
+  }>;
+};
+
 // --- 1. CREAR UNA RESERVA ---
 export const createBooking = async (
   courtId: number,
@@ -100,6 +112,7 @@ export const createBooking = async (
         ...(options?.isProfessor ? { isProfessor: true } : {}),
         ...(options?.professorOverrideReason ? { professorOverrideReason: options.professorOverrideReason } : {}),
         ...(Number.isFinite(options?.durationMinutes) ? { durationMinutes: options?.durationMinutes } : {}),
+        ...(options?.openAccount === undefined ? {} : { openAccount: options.openAccount }),
         ...(options?.applyDiscount === undefined ? {} : { applyDiscount: options.applyDiscount })
     }),
   });
@@ -110,6 +123,58 @@ export const createBooking = async (
   }
 
   return response.json();
+};
+
+export const getBookingQuote = async (input: {
+  courtId: number;
+  activityId: number;
+  date: Date;
+  slotTime: string;
+  durationMinutes?: number;
+  guestEmail?: string;
+  guestPhone?: string;
+  guestDni?: string;
+  applyDiscount?: boolean;
+}) => {
+  const token = getToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const response = await fetchWithAuth(`${apiBase()}/bookings/quote`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      courtId: input.courtId,
+      activityId: input.activityId,
+      date: `${input.date.getFullYear()}-${String(input.date.getMonth() + 1).padStart(2, '0')}-${String(input.date.getDate()).padStart(2, '0')}`,
+      slotTime: input.slotTime,
+      ...(Number.isFinite(input.durationMinutes) ? { durationMinutes: input.durationMinutes } : {}),
+      ...(input.guestEmail ? { guestEmail: input.guestEmail } : {}),
+      ...(input.guestPhone ? { guestPhone: input.guestPhone } : {}),
+      ...(input.guestDni ? { guestDni: input.guestDni } : {}),
+      ...(input.applyDiscount === undefined ? {} : { applyDiscount: input.applyDiscount })
+    })
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || errorData.message || 'No se pudo cotizar la reserva');
+  }
+
+  const payload = await response.json();
+  return {
+    listPrice: Number(payload?.listPrice || 0),
+    finalPrice: Number(payload?.finalPrice || 0),
+    discountAmount: Number(payload?.discountAmount || 0),
+    hasDiscount: Boolean(payload?.hasDiscount),
+    appliedPolicies: Array.isArray(payload?.appliedPolicies)
+      ? payload.appliedPolicies.map((policy: any) => ({
+          policyId: String(policy.policyId || ''),
+          policyName: String(policy.policyName || ''),
+          discountAmount: Number(policy.discountAmount || 0)
+        }))
+      : []
+  } satisfies BookingQuote;
 };
 
 // --- 2. OBTENER MIS RESERVAS (HISTORIAL) ---
@@ -372,4 +437,3 @@ export const searchClients = async (slug: string, query: string) => {
 
     return res.json();
 };
-

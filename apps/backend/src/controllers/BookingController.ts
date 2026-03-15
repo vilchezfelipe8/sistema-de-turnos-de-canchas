@@ -31,12 +31,12 @@ export class BookingController {
             const createSchema = z.object({
                 courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
                 // Accept either an ISO `startDateTime` or a `date` + `slotTime` pair (local)
-                startDateTime: z.string().optional().refine((s) => s === undefined || !Number.isNaN(Date.parse(s)), { message: 'Invalid ISO datetime' }),
+                startDateTime: z.string().optional().refine((s) => s === undefined || !Number.isNaN(Date.parse(s)), { message: 'Fecha/hora ISO inválida' }),
                 date: z.string()
-                    .regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'Invalid date format. Use YYYY-MM-DD' })
+                    .regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'Formato de fecha inválido. Usá YYYY-MM-DD' })
                     .optional(),
                 slotTime: z.string()
-                    .regex(/^\d{2}:\d{2}$/, { message: 'Invalid slotTime format. Use HH:mm' })
+                    .regex(/^\d{2}:\d{2}$/, { message: 'Formato de hora inválido. Usá HH:mm' })
                     .optional(),
                 activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
                 durationMinutes: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
@@ -84,11 +84,11 @@ export class BookingController {
                     const tz = court?.club?.settings?.timeZone ?? 'America/Argentina/Buenos_Aires';
                     startDate = TimeHelper.localSlotToUtc(dateStr, slotTime, tz);
                 } catch (e) {
-                    return res.status(400).json({ error: 'Invalid date/slot combination or club timezone missing' });
+                    return res.status(400).json({ error: 'Combinación fecha/horario inválida o zona horaria del club faltante' });
                 }
             } else if (startDateTime) {
                 startDate = new Date(String(startDateTime));
-                if (Number.isNaN(startDate.getTime())) return res.status(400).json({ error: 'Invalid startDateTime' });
+                if (Number.isNaN(startDate.getTime())) return res.status(400).json({ error: 'startDateTime inválido' });
             } else {
                 return res.status(400).json({ error: 'Debe enviar startDateTime o (date y slotTime)' });
             }
@@ -178,6 +178,87 @@ export class BookingController {
                 return res.status(400).json({ error: 'El ajuste de duración para profesor está deshabilitado en el club' });
             }
             res.status(400).json({ error: error.message || "Error desconocido" });
+        }
+    }
+
+    quoteBookingPrice = async (req: Request, res: Response) => {
+        try {
+            const optionalTrimmedString = () =>
+                z.preprocess(
+                    (v) => {
+                        if (typeof v !== 'string') return v;
+                        const trimmed = v.trim();
+                        return trimmed.length === 0 ? undefined : trimmed;
+                    },
+                    z.string().optional()
+                );
+
+            const quoteSchema = z.object({
+                courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                startDateTime: z.string().optional().refine((s) => s === undefined || !Number.isNaN(Date.parse(s)), { message: 'Fecha/hora ISO inválida' }),
+                date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+                slotTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+                durationMinutes: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
+                guestEmail: z.preprocess(
+                    (v) => {
+                        if (typeof v !== 'string') return v;
+                        const trimmed = v.trim();
+                        return trimmed.length === 0 ? undefined : trimmed;
+                    },
+                    z.string().email().optional()
+                ),
+                guestPhone: optionalTrimmedString(),
+                guestDni: optionalTrimmedString(),
+                applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional())
+            });
+
+            const parsed = quoteSchema.safeParse(req.body ?? {});
+            if (!parsed.success) {
+                return res.status(400).json({ error: parsed.error.format() });
+            }
+
+            const {
+                courtId,
+                activityId,
+                startDateTime,
+                date: dateStr,
+                slotTime,
+                durationMinutes,
+                guestEmail,
+                guestPhone,
+                guestDni,
+                applyDiscount
+            } = parsed.data;
+
+            let resolvedStart: Date;
+            if (dateStr && slotTime) {
+                const court = await prisma.court.findUnique({ where: { id: Number(courtId) }, include: { club: { include: { settings: true } } } });
+                const tz = court?.club?.settings?.timeZone ?? 'America/Argentina/Buenos_Aires';
+                resolvedStart = TimeHelper.localSlotToUtc(dateStr, slotTime, tz);
+            } else if (startDateTime) {
+                resolvedStart = new Date(String(startDateTime));
+                if (Number.isNaN(resolvedStart.getTime())) return res.status(400).json({ error: 'startDateTime inválido' });
+            } else {
+                return res.status(400).json({ error: 'Debe enviar startDateTime o (date y slotTime)' });
+            }
+
+            const tokenUserId = Number((req as any).user?.userId || 0);
+            const quote = await this.bookingService.quoteBookingPrice({
+                userId: tokenUserId > 0 ? tokenUserId : null,
+                courtId: Number(courtId),
+                activityId: Number(activityId),
+                startDateTime: resolvedStart,
+                durationMinutes,
+                guestEmail,
+                guestPhone,
+                guestDni,
+                applyDiscount
+            });
+
+            return res.json(quote);
+        } catch (error: any) {
+            return res.status(400).json({ error: error?.message || 'No se pudo cotizar la reserva' });
         }
     }
 

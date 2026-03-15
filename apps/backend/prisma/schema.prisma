@@ -406,6 +406,7 @@ model Booking {
   autoCancelledAt         DateTime? @db.Timestamptz(3)
   autoCancelReason        String?
 
+  listPrice       Decimal @default(0) @db.Decimal(10, 2)
   price           Decimal @db.Decimal(10, 2)
   createdAt       DateTime      @default(now()) @db.Timestamptz(3)
 

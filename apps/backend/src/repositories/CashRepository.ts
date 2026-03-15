@@ -63,6 +63,22 @@ export class CashRepository {
               }
             }
           }
+        },
+        refund: {
+          include: {
+            account: {
+              select: {
+                id: true,
+                sourceType: true,
+                sourceId: true
+              }
+            },
+            payment: {
+              select: {
+                id: true
+              }
+            }
+          }
         }
       },
       orderBy: { createdAt: 'desc' }

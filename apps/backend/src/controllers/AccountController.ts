@@ -239,7 +239,7 @@ export class AccountController {
       const headerValue = req.headers['idempotency-key'];
       const idempotencyKey = Array.isArray(headerValue) ? headerValue[0] : headerValue;
       if (typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
-        return res.status(400).json({ error: 'IDEMPOTENCY_KEY_REQUIRED' });
+        return res.status(400).json({ error: 'Falta la clave de idempotencia para registrar el pago' });
       }
       const payment = await this.paymentService.create({
         clubId,

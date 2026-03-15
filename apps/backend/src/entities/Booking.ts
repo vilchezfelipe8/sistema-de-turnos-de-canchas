@@ -15,6 +15,7 @@ export class Booking {
     id: number;
     startDateTime: Date;
     endDateTime: Date;
+    listPrice: number;
     price: number;
     createdAt: Date;
     status: BookingStatus;
@@ -45,6 +46,7 @@ export class Booking {
         this.id = id;
         this.startDateTime = startDateTime;
         this.endDateTime = endDateTime;
+        this.listPrice = price;
         this.price = price;
         this.user = user || null;
         this.court = court;
@@ -56,4 +58,3 @@ export class Booking {
         this.client = client ?? null;
     }
 }
-

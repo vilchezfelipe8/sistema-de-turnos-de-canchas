@@ -49,6 +49,30 @@ type CreateBookingOptions = {
     actorUserId?: number | null;
 };
 
+type BookingPriceQuoteInput = {
+    userId?: number | null;
+    courtId: number;
+    activityId: number;
+    startDateTime: Date;
+    durationMinutes?: number;
+    guestEmail?: string;
+    guestPhone?: string;
+    guestDni?: string;
+    applyDiscount?: boolean;
+};
+
+type BookingPriceQuote = {
+    listPrice: number;
+    finalPrice: number;
+    discountAmount: number;
+    hasDiscount: boolean;
+    appliedPolicies: Array<{
+        policyId: string;
+        policyName: string;
+        discountAmount: number;
+    }>;
+};
+
 export class BookingService {
     private readonly pricingService = new PricingService();
     private readonly eventService = new EventService();
@@ -357,6 +381,149 @@ export class BookingService {
         if (!dni) return null;
         const normalized = String(dni).replace(/\D/g, '');
         return normalized.length >= 6 ? normalized : null;
+    }
+
+    private async resolveClientIdForDiscountTx(
+        tx: Prisma.TransactionClient,
+        input: {
+            clubId: number;
+            userId?: number | null;
+            guestEmail?: string;
+            guestPhone?: string;
+            guestDni?: string;
+        }
+    ) {
+        const safeUserId = Number(input.userId || 0);
+        if (safeUserId > 0) {
+            const byUser = await tx.client.findFirst({
+                where: { clubId: input.clubId, userId: safeUserId },
+                select: { id: true }
+            });
+            if (byUser?.id) return byUser.id;
+        }
+
+        const safeDni = this.normalizeDni(input.guestDni);
+        if (safeDni) {
+            const byDni = await tx.client.findFirst({
+                where: { clubId: input.clubId, dni: safeDni },
+                select: { id: true }
+            });
+            if (byDni?.id) return byDni.id;
+        }
+
+        const safePhone = this.normalizePhone(input.guestPhone);
+        if (safePhone) {
+            const byPhone = await tx.client.findFirst({
+                where: { clubId: input.clubId, phone: safePhone },
+                select: { id: true }
+            });
+            if (byPhone?.id) return byPhone.id;
+        }
+
+        const safeEmail = String(input.guestEmail || '').trim().toLowerCase();
+        if (safeEmail) {
+            const byEmail = await tx.client.findFirst({
+                where: { clubId: input.clubId, email: safeEmail },
+                select: { id: true }
+            });
+            if (byEmail?.id) return byEmail.id;
+        }
+
+        return null;
+    }
+
+    async quoteBookingPrice(input: BookingPriceQuoteInput): Promise<BookingPriceQuote> {
+        const court = await this.courtRepo.findById(input.courtId);
+        if (!court) throw new Error('Cancha no encontrada');
+
+        const activity = await this.activityRepo.findById(input.activityId);
+        if (!activity) throw new Error('Actividad no existe');
+        if (activity.clubId !== (court as any).club.id) {
+            throw new Error('La actividad no pertenece al club de la cancha');
+        }
+
+        const clubConfig = this.resolveClubConfig((court as any)?.club);
+        const activitySchedule = this.resolveActivitySchedule(activity);
+        const allowedDurations = activitySchedule.durations;
+        const effectiveDuration = input.durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
+        this.assertValidDuration(effectiveDuration);
+        if (!allowedDurations.includes(effectiveDuration)) {
+            throw new Error('Duración no permitida por el club');
+        }
+
+        const endDateTime = new Date(input.startDateTime.getTime() + effectiveDuration * 60000);
+        this.assertValidRange(input.startDateTime, endDateTime);
+
+        const basePrice = await this.pricingService.calculateCourtPrice(input.courtId, input.startDateTime);
+        if (!Number.isFinite(basePrice) || basePrice <= 0) {
+            throw new Error('Precio de cancha no configurado.');
+        }
+
+        let listPrice = Number(basePrice);
+        const clubTimeZone = clubConfig?.timeZone ?? 'America/Argentina/Buenos_Aires';
+        if (clubConfig && clubConfig.lightsEnabled && clubConfig.lightsExtraAmount && clubConfig.lightsFromHour) {
+            try {
+                const [lh, lm] = String(clubConfig.lightsFromHour).split(':').map((n: string) => parseInt(n, 10));
+                if (!Number.isNaN(lh) && !Number.isNaN(lm)) {
+                    const localStart = TimeHelper.utcToLocal(input.startDateTime, clubTimeZone);
+                    const bookingTotalMinutes = localStart.getHours() * 60 + localStart.getMinutes();
+                    const lightsTotalMinutes = lh * 60 + lm;
+                    if (bookingTotalMinutes >= lightsTotalMinutes) {
+                        listPrice += Number(clubConfig.lightsExtraAmount);
+                    }
+                }
+            } catch {
+                // noop: ante error de parseo devolvemos precio base sin extra.
+            }
+        }
+
+        const quote = await prisma.$transaction(async (tx) => {
+            const clientId = await this.resolveClientIdForDiscountTx(tx, {
+                clubId: (court as any).club.id,
+                userId: input.userId,
+                guestEmail: input.guestEmail,
+                guestPhone: input.guestPhone,
+                guestDni: input.guestDni
+            });
+
+            const discountDraft = input.applyDiscount === false
+                ? { total: Number(listPrice.toFixed(2)), snapshots: [] as Array<{ policyId: string; discountAmount: number }> }
+                : await this.discountService.computeDraftDiscountTx(tx, {
+                    clubId: (court as any).club.id,
+                    clientId,
+                    itemType: 'BOOKING',
+                    quantity: 1,
+                    unitPrice: Number(listPrice.toFixed(2)),
+                    activityTypeId: input.activityId
+                });
+
+            const policyIds = Array.from(new Set(discountDraft.snapshots.map((snapshot) => snapshot.policyId)));
+            const policies = policyIds.length
+                ? await tx.discountPolicy.findMany({
+                    where: { id: { in: policyIds } },
+                    select: { id: true, name: true }
+                })
+                : [];
+            const policyNameById = new Map(policies.map((policy) => [policy.id, policy.name]));
+
+            const finalPrice = Number(Number(discountDraft.total || listPrice).toFixed(2));
+            const normalizedListPrice = Number(Number(listPrice).toFixed(2));
+            const discountAmount = Number(Math.max(0, normalizedListPrice - finalPrice).toFixed(2));
+
+            return {
+                listPrice: normalizedListPrice,
+                finalPrice,
+                discountAmount,
+                hasDiscount: discountAmount > 0.009,
+                appliedPolicies: discountDraft.snapshots.map((snapshot) => ({
+                    policyId: snapshot.policyId,
+                    policyName: policyNameById.get(snapshot.policyId) || 'Política sin nombre',
+                    discountAmount: Number(snapshot.discountAmount || 0)
+                }))
+            } as BookingPriceQuote;
+        });
+
+        return quote;
     }
 
     private async resolveOrCreateClient(
@@ -813,7 +980,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
         let autoCancelStatusLabel = 'No aplica';
         if (!autoCancelEnabled) {
-            autoCancelStatusLabel = 'Auto-cancel desactivado';
+            autoCancelStatusLabel = 'Cancelación automática desactivada';
         } else if (summary.booking.status !== 'PENDING') {
             autoCancelStatusLabel = 'No aplica por estado';
         } else if (autoCancelBlockedByPayment) {
@@ -821,7 +988,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         } else if (!autoCancelAt) {
             autoCancelStatusLabel = 'Configuracion incompleta';
         } else if (autoCancelEligibleNow) {
-            autoCancelStatusLabel = 'Elegible para auto-cancel ahora';
+            autoCancelStatusLabel = 'Lista para cancelación automática ahora';
         } else {
             autoCancelStatusLabel = 'Se cancelara automaticamente al llegar la hora';
         }
@@ -1062,6 +1229,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     data: {
                         startDateTime,
                         endDateTime,
+                        listPrice: finalPrice,
                         price: finalPrice,
                         status: resolveInitialBookingStatus(
                             (clubConfig?.bookingConfirmationMode ?? 'MANUAL') as 'AUTOMATIC' | 'MANUAL' | 'DEPOSIT_REQUIRED'

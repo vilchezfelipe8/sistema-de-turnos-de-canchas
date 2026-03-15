@@ -51,7 +51,7 @@ export class CashService {
         const movementsRaw = await this.cashRepository.findAllByDateRange(start, end, resolvedClubId);
 
         const paymentIds = (movementsRaw || [])
-            .map((movement: any) => movement?.paymentId)
+            .map((movement: any) => movement?.paymentId ?? movement?.refund?.payment?.id ?? movement?.refund?.paymentId)
             .filter((id: any) => typeof id === 'string' && id.trim().length > 0);
 
         let allocations: Array<{ paymentId: string; accountItem: { type: string } | null; amount: any }> = [];
@@ -79,13 +79,18 @@ export class CashService {
         }
 
         const bookingIds = (movementsRaw || [])
-            .filter((movement: any) => movement?.payment?.account?.sourceType === 'BOOKING')
-            .map((movement: any) => Number(movement?.payment?.account?.sourceId))
-            .filter((id: number) => Number.isFinite(id) && id > 0);
+            .map((movement: any) => {
+                const sourceType = movement?.payment?.account?.sourceType ?? movement?.refund?.account?.sourceType ?? null;
+                const sourceId = movement?.payment?.account?.sourceId ?? movement?.refund?.account?.sourceId ?? null;
+                if (sourceType !== 'BOOKING') return null;
+                const asNumber = Number(sourceId);
+                return Number.isFinite(asNumber) && asNumber > 0 ? asNumber : null;
+            })
+            .filter((id): id is number => Number.isFinite(Number(id)) && Number(id) > 0);
 
         let bookingMap = new Map<number, { id: number; startDateTime: any; courtName: string | null; clientName: string | null }>();
         if (resolvedClubId && bookingIds.length > 0) {
-            const bookings = await prisma.booking.findMany({
+            const bookings: any[] = await prisma.booking.findMany({
                 where: { clubId: resolvedClubId, id: { in: bookingIds } },
                 include: {
                     court: { select: { name: true } },
@@ -104,10 +109,11 @@ export class CashService {
         }
 
         const movements = (movementsRaw || []).map((movement: any) => {
-            const sourceType = movement?.payment?.account?.sourceType ?? null;
-            const sourceId = movement?.payment?.account?.sourceId ?? null;
-            const accountId = movement?.payment?.account?.id ?? null;
-            const paymentId = movement?.paymentId ?? null;
+            const sourceType = movement?.payment?.account?.sourceType ?? movement?.refund?.account?.sourceType ?? null;
+            const sourceId = movement?.payment?.account?.sourceId ?? movement?.refund?.account?.sourceId ?? null;
+            const accountId = movement?.payment?.account?.id ?? movement?.refund?.account?.id ?? null;
+            const paymentId = movement?.paymentId ?? movement?.refund?.payment?.id ?? movement?.refund?.paymentId ?? null;
+            const refundId = movement?.refundId ?? movement?.refund?.id ?? null;
             let bookingAmount = 0;
             let barAmount = 0;
             const bookingId = sourceType === 'BOOKING' ? Number(sourceId) : null;
@@ -130,6 +136,8 @@ export class CashService {
                 sourceType,
                 sourceId,
                 accountId,
+                paymentId,
+                refundId,
                 booking,
                 bookingAmount,
                 barAmount

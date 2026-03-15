@@ -13,6 +13,7 @@ export class BookingRepository {
         const data: any = {
             startDateTime: booking.startDateTime,
             endDateTime: booking.endDateTime,
+            listPrice: booking.listPrice,
             price: booking.price,
             status: booking.status,
             // user puede ser null para reservas de invitado
@@ -229,6 +230,7 @@ export class BookingRepository {
             dbItem.clientId ?? null,
             client
         );
+        booking.listPrice = Number(dbItem.listPrice || dbItem.price || 0);
         if (dbItem.cancelledBy) booking.cancelledBy = dbItem.cancelledBy;
         if (dbItem.cancelledAt) booking.cancelledAt = dbItem.cancelledAt;
         if (dbItem.createdAt) booking.createdAt = dbItem.createdAt;

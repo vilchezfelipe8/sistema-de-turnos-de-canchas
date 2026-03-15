@@ -21,6 +21,7 @@ interface Movement {
   bookingAmount?: number;
   barAmount?: number;
   paymentId?: string | null;
+  refundId?: string | null;
   booking?: {
     id: number;
     startDateTime: string;
@@ -242,6 +243,27 @@ const AdminCashDashboard = () => {
     const raw = String(movement?.description || '').trim();
     const isAutoPay = raw.toLowerCase().startsWith('pago cuenta');
     const isPaymentMovement = movement.type === 'INCOME' && Boolean(movement.paymentId);
+    const isRefundMovement = movement.type === 'EXPENSE' && Boolean(movement.refundId);
+    const isAutoRefund = raw.toLowerCase().startsWith('refund pago') || raw.toLowerCase().startsWith('devolucion');
+
+    if (isAutoRefund && isRefundMovement) {
+      if (movement.sourceType === 'BOOKING') {
+        const booking = movement.booking;
+        const parts = [
+          booking?.clientName || null,
+          booking?.courtName || null
+        ].filter(Boolean);
+        return parts.length > 0 ? `Devolución reserva · ${parts.join(' · ')}` : 'Devolución reserva';
+      }
+
+      if (movement.sourceType === 'BAR') {
+        return 'Devolución bar';
+      }
+
+      if (movement.sourceType === 'TABLE') return 'Devolución mesa';
+      if (movement.sourceType === 'MANUAL') return 'Devolución cuenta';
+      return 'Devolución';
+    }
 
     if (!isAutoPay || !isPaymentMovement) {
       return raw || 'Movimiento';
@@ -297,9 +319,10 @@ const AdminCashDashboard = () => {
           accountId: movement?.accountId ?? movement?.payment?.account?.id ?? null,
           bookingAmount: Number(movement?.bookingAmount || 0),
           barAmount: Number(movement?.barAmount || 0),
-          paymentId: movement?.paymentId ?? movement?.payment?.id ?? null,
+          paymentId: movement?.paymentId ?? movement?.payment?.id ?? movement?.refund?.payment?.id ?? movement?.refund?.paymentId ?? null,
+          refundId: movement?.refundId ?? movement?.refund?.id ?? null,
           booking: movement?.booking ?? null,
-          allocations: (movement?.payment?.allocations || []).map((allocation: any) => ({
+          allocations: ((movement?.payment?.allocations || movement?.refund?.payment?.allocations || []) as any[]).map((allocation: any) => ({
             accountItemId: String(allocation?.accountItemId || ''),
             amount: Number(allocation?.amount || 0),
             type: allocation?.accountItem?.type ?? null,
@@ -663,19 +686,19 @@ const AdminCashDashboard = () => {
           {showLastCloseDetails && (
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-4">
               <div className="bg-white rounded-2xl p-4 border border-[#347048]/10">
-                <p className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Payment In</p>
+                <p className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Ingresos por cobros</p>
                 <p className="text-lg font-black text-emerald-700 italic mt-2">+${Number(lastClosedReport.totals?.paymentIn || 0).toLocaleString()}</p>
               </div>
               <div className="bg-white rounded-2xl p-4 border border-[#347048]/10">
-                <p className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Deposit</p>
+                <p className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Depósitos</p>
                 <p className="text-lg font-black text-emerald-700 italic mt-2">+${Number(lastClosedReport.totals?.deposit || 0).toLocaleString()}</p>
               </div>
               <div className="bg-white rounded-2xl p-4 border border-[#347048]/10">
-                <p className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Withdraw</p>
+                <p className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Retiros</p>
                 <p className="text-lg font-black text-red-700 italic mt-2">-${Number(lastClosedReport.totals?.withdraw || 0).toLocaleString()}</p>
               </div>
               <div className="bg-white rounded-2xl p-4 border border-[#347048]/10">
-                <p className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Refund</p>
+                <p className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Devoluciones</p>
                 <p className="text-lg font-black text-red-700 italic mt-2">-${Number(lastClosedReport.totals?.refund || 0).toLocaleString()}</p>
               </div>
             </div>
@@ -1205,7 +1228,7 @@ const AdminCashDashboard = () => {
     </div>
       <AppModal
         show={showMovementModal}
-        title="Detalle del ingreso"
+        title={selectedMovement?.type === 'INCOME' ? 'Detalle del ingreso' : 'Detalle del egreso'}
         onClose={() => setShowMovementModal(false)}
         onConfirm={() => setShowMovementModal(false)}
         confirmText="Cerrar"
@@ -1296,6 +1319,3 @@ const AdminCashDashboard = () => {
 };
 
 export default AdminCashDashboard;
-
-
-

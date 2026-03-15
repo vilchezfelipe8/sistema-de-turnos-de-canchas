@@ -36,6 +36,7 @@ const bookingController = new BookingController(bookingService);
 // Disponibilidad
 router.get('/availability', (req, res) => bookingController.getAvailability(req, res));
 router.get('/availability-with-courts', (req, res) => bookingController.getAvailableSlotsWithCourts(req, res));
+router.post('/quote', bookingLimiter, optionalAuthMiddleware, (req, res) => bookingController.quoteBookingPrice(req, res));
 
 // Cancelación: usuario puede cancelar la propia; admin con clubId valida que sea de su club
 router.post('/cancel', authMiddleware, (req, res) => bookingController.cancelBooking(req, res));
