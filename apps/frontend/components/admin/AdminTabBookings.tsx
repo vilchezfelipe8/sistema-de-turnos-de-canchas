@@ -782,7 +782,7 @@ export default function AdminTabBookings() {
     if (!manualBooking.courtId || !manualBooking.time) { showError('Faltan datos de cancha u horario'); return; }
     if (!Number.isInteger(selectedActivityId) || selectedActivityId <= 0) { showError('La cancha seleccionada no tiene actividad válida'); return; }
     if (!firstName || !lastName || !dni || !phone) { showError('Nombre, Apellido, DNI y Teléfono son obligatorios'); return; }
-    if (manualBooking.isProfessor && professorOverrideReason.length < 10) { showError('Para override de profesor, el motivo debe tener al menos 10 caracteres'); return; }
+    if (manualBooking.isProfessor && professorOverrideReason.length < 10) { showError('Para ajuste de profesor, el motivo debe tener al menos 10 caracteres'); return; }
     if (!manualBooking.isFixed && adminSimpleMaxDate) {
       const selectedBase = parseLocalDate(manualBooking.startDateBase || getTodayLocalDate());
       selectedBase.setHours(0, 0, 0, 0);
@@ -1243,13 +1243,13 @@ export default function AdminTabBookings() {
                   {manualBooking.isProfessor && <Check size={16} className="text-[#347048]" strokeWidth={4} />}
                 </div>
                 <input type="checkbox" checked={manualBooking.isProfessor} onChange={(e) => setManualBooking({ ...manualBooking, isProfessor: e.target.checked })} className="hidden" />
-                <span className="text-sm uppercase tracking-wide">Profesor (override operativo de duración)</span>
+                <span className="text-sm uppercase tracking-wide">Profesor (ajuste operativo de duración)</span>
               </label>
             </div>
 
             {manualBooking.isProfessor ? (
               <div className="w-full sm:max-w-md">
-                <label className="block text-[10px] font-black text-[#347048]/50 mb-1 uppercase tracking-widest">Motivo del override</label>
+                <label className="block text-[10px] font-black text-[#347048]/50 mb-1 uppercase tracking-widest">Motivo del ajuste</label>
                 <input
                   type="text"
                   minLength={10}
@@ -1638,5 +1638,4 @@ export default function AdminTabBookings() {
     </>
   );
 }
-
 

@@ -54,7 +54,8 @@ export class BookingController {
                 guestDni: optionalTrimmedString(),
                 isProfessor: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional(),
                 professorOverrideReason: optionalTrimmedString(10),
-                applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional())
+                applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional()),
+                openAccount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional())
             });
 
             const dataToValidate = {
@@ -67,7 +68,7 @@ export class BookingController {
                 return res.status(400).json({ error: parsed.error.format() });
             }
 
-            let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, guestIdentifier, guestName, guestEmail, guestPhone, guestDni, isProfessor, professorOverrideReason, applyDiscount } = parsed.data;
+            let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, guestIdentifier, guestName, guestEmail, guestPhone, guestDni, isProfessor, professorOverrideReason, applyDiscount, openAccount } = parsed.data;
             guestName = guestName ? sanitizeString(guestName, 200) : undefined;
             guestIdentifier = guestIdentifier ? sanitizeString(guestIdentifier, 100) : undefined;
             guestEmail = guestEmail ? sanitizeString(guestEmail, 254) : undefined;
@@ -100,11 +101,11 @@ export class BookingController {
             const effectiveUserId = forceGuest ? null : (userIdFromToken ? Number(userIdFromToken) : null);
             const effectiveGuestIdentifier = forceGuest && !guestIdentifier ? `admin_${Date.now()}` : guestIdentifier;
             if (Boolean(isProfessor) && !isAdmin) {
-                return res.status(403).json({ error: 'Solo ADMIN/OWNER puede activar override de profesor' });
+                return res.status(403).json({ error: 'Solo ADMIN/OWNER puede activar ajuste de profesor' });
             }
             const applyProfessorOverride = isAdmin && Boolean(isProfessor);
             if (applyProfessorOverride && !String(professorOverrideReason || '').trim()) {
-                return res.status(400).json({ error: 'Debe indicar motivo del override de profesor' });
+                return res.status(400).json({ error: 'Debe indicar motivo del ajuste de profesor' });
             }
 
             const now = new Date();
@@ -147,6 +148,7 @@ export class BookingController {
                 isAdmin,
                 {
                     applyDiscount,
+                    skipAccountCreation: openAccount ? false : undefined,
                     professorOverrideReason: professorOverrideReason?.trim() || undefined,
                     actorUserId: Number(user?.userId || 0) || null
                 }
@@ -170,10 +172,10 @@ export class BookingController {
                 });
             }
             if (error?.message === 'PROFESSOR_OVERRIDE_REASON_REQUIRED') {
-                return res.status(400).json({ error: 'Debe indicar motivo del override de profesor' });
+                return res.status(400).json({ error: 'Debe indicar motivo del ajuste de profesor' });
             }
             if (error?.message === 'PROFESSOR_DURATION_OVERRIDE_DISABLED') {
-                return res.status(400).json({ error: 'El override de duración para profesor está deshabilitado en el club' });
+                return res.status(400).json({ error: 'El ajuste de duración para profesor está deshabilitado en el club' });
             }
             res.status(400).json({ error: error.message || "Error desconocido" });
         }
@@ -476,10 +478,10 @@ export class BookingController {
             const isAdmin = user?.role === 'ADMIN' || membershipRole === 'OWNER' || membershipRole === 'ADMIN';
             const clubId = (req as any).clubId;
             if (Boolean(isProfessor) && !isAdmin) {
-                return res.status(403).json({ error: 'Solo ADMIN/OWNER puede activar override de profesor' });
+                return res.status(403).json({ error: 'Solo ADMIN/OWNER puede activar ajuste de profesor' });
             }
             if (Boolean(isProfessor) && !String(professorOverrideReason || '').trim()) {
-                return res.status(400).json({ error: 'Debe indicar motivo del override de profesor' });
+                return res.status(400).json({ error: 'Debe indicar motivo del ajuste de profesor' });
             }
 
             if (!userId && !isAdmin) {
@@ -778,4 +780,3 @@ export class BookingController {
     }
 }
 }
-

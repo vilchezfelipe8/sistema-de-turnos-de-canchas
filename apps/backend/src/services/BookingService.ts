@@ -147,10 +147,6 @@ export class BookingService {
             lightsEnabled: settings?.lightsEnabled ?? false,
             lightsExtraAmount: settings?.lightsExtraAmount ?? null,
             lightsFromHour: normalizedLightsFromHour,
-            // DEPRECATED (económico): migrar a DiscountPolicy
-            professorDiscountEnabled: settings?.professorDiscountEnabled ?? false,
-            // DEPRECATED (económico): migrar a DiscountPolicy
-            professorDiscountPercent: settings?.professorDiscountPercent ?? null,
             // Regla operativa explícita separada del descuento económico
             professorDurationOverrideEnabled: settings?.professorDurationOverrideEnabled ?? true,
             professorDurationOverrideMinutes: Number.isFinite(Number(settings?.professorDurationOverrideMinutes))

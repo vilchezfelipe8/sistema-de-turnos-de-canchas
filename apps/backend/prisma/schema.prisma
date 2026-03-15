@@ -837,12 +837,7 @@ model ClubSettings {
   lightsExtraAmount         Decimal? @db.Decimal(10, 2)
   lightsFromHour            String?  // Ej: "19:00"
 
-  // Configuración de Profesores
-  // DEPRECATED (económico): migrar a DiscountPolicy + ClientDiscountAssignment
-  professorDiscountEnabled  Boolean  @default(false)
-  // DEPRECATED (económico): migrar a DiscountPolicy + ClientDiscountAssignment
-  professorDiscountPercent  Decimal? @db.Decimal(5, 2)
-  // Regla operativa explícita (agenda), separada de descuentos económicos
+  // Configuración de Profesores (regla operativa de agenda)
   professorDurationOverrideEnabled Boolean @default(true)
   professorDurationOverrideMinutes Int @default(60)
 

@@ -98,8 +98,6 @@ async function main() {
         lightsEnabled: true,
         lightsExtraAmount: 5000,
         lightsFromHour: '20:00',
-        professorDiscountEnabled: true,
-        professorDiscountPercent: 15,
         bookingSimpleAdvanceDaysUser: 30,
         bookingSimpleAdvanceDaysAdmin: 30,
         allowAdminSkipSimpleAdvanceLimit: false
@@ -111,8 +109,6 @@ async function main() {
         lightsEnabled: true,
         lightsExtraAmount: 5000,
         lightsFromHour: '20:00',
-        professorDiscountEnabled: true,
-        professorDiscountPercent: 15,
         bookingSimpleAdvanceDaysUser: 30,
         bookingSimpleAdvanceDaysAdmin: 30,
         allowAdminSkipSimpleAdvanceLimit: false

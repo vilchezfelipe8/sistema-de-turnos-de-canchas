@@ -32,10 +32,6 @@ export interface Club {
   lightsEnabled?: boolean;
   lightsExtraAmount?: number | null;
   lightsFromHour?: string | null;
-  // DEPRECATED (económico): usar DiscountPolicy
-  professorDiscountEnabled?: boolean;
-  // DEPRECATED (económico): usar DiscountPolicy
-  professorDiscountPercent?: number | null;
   professorDurationOverrideEnabled?: boolean;
   professorDurationOverrideMinutes?: number;
   fixedBookingSettingsByActivity?: FixedBookingSettingsByActivity | null;

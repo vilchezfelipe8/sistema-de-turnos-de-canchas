@@ -208,17 +208,29 @@ export class AccountService {
         return existing;
       }
 
-      let bookingForAccount: { id: number; status: string; price: Prisma.Decimal } | null = null;
+      let bookingForAccount: {
+        id: number;
+        status: string;
+        price: Prisma.Decimal;
+        clientId: string | null;
+        activityId: number;
+      } | null = null;
       if (input.sourceType === 'BOOKING') {
         const booking = await tx.booking.findFirst({
           where: { id: Number(input.sourceId), clubId: input.clubId },
-          select: { id: true, status: true, price: true }
+          select: { id: true, status: true, price: true, clientId: true, activityId: true }
         });
         if (!booking) throw new Error('No se puede abrir cuenta: la reserva no existe');
         if (booking.status === 'CANCELLED' || booking.status === 'COMPLETED') {
           throw new Error('No se puede abrir cuenta para una reserva terminal');
         }
-        bookingForAccount = booking as { id: number; status: string; price: Prisma.Decimal };
+        bookingForAccount = booking as {
+          id: number;
+          status: string;
+          price: Prisma.Decimal;
+          clientId: string | null;
+          activityId: number;
+        };
       }
 
       const account = await tx.account.create({
@@ -233,21 +245,30 @@ export class AccountService {
       if (input.sourceType === 'BOOKING' && bookingForAccount) {
         const bookingCharge = Number(bookingForAccount.price || 0);
         if (bookingCharge > 0) {
+          const discountDraft = await this.discountService.computeDraftDiscountTx(tx, {
+            clubId: input.clubId,
+            clientId: bookingForAccount.clientId ?? null,
+            itemType: 'BOOKING',
+            quantity: 1,
+            unitPrice: bookingCharge,
+            activityTypeId: bookingForAccount.activityId ?? null
+          });
+
           const bookingItem = await tx.accountItem.create({
             data: {
               accountId: account.id,
               type: 'BOOKING',
               description: 'Reserva cancha',
               quantity: 1,
-              unitPrice: new Prisma.Decimal(bookingCharge),
-              total: new Prisma.Decimal(bookingCharge)
+              unitPrice: new Prisma.Decimal(discountDraft.unitPrice),
+              total: new Prisma.Decimal(discountDraft.total)
             }
           });
 
           await tx.account.update({
             where: { id: account.id },
             data: {
-              totalAmount: { increment: new Prisma.Decimal(bookingCharge) }
+              totalAmount: { increment: new Prisma.Decimal(discountDraft.total) }
             }
           });
 
@@ -258,10 +279,26 @@ export class AccountService {
             referenceId: String(bookingForAccount.id),
             accountId: account.id,
             accountItemId: bookingItem.id,
-            amount: bookingCharge,
+            amount: discountDraft.total,
             revenueAccount: 'BOOKING_REVENUE',
             description: `Reserva cancha #${bookingForAccount.id}`
           });
+
+          if (discountDraft.snapshots.length) {
+            await this.discountService.persistAppliedDiscountsTx(tx, {
+              clubId: input.clubId,
+              accountItemId: bookingItem.id,
+              snapshots: discountDraft.snapshots,
+              appliedByUserId: null
+            });
+          }
+
+          if (Math.abs(Number(discountDraft.total || 0) - bookingCharge) > EPSILON) {
+            await tx.booking.update({
+              where: { id: bookingForAccount.id },
+              data: { price: discountDraft.total }
+            });
+          }
         }
       }
 

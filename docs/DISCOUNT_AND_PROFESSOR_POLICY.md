@@ -1,39 +1,38 @@
-# Discount And Professor Policy
+# Política De Descuentos Y Profesor
 
-## 1. Separation of concerns
+## 1. Separación de responsabilidades
 
-- `Professor duration override` is an operational booking rule.
-- `Discounts` are economic rules and must be defined via `DiscountPolicy`.
-- Legacy fields `professorDiscountEnabled` and `professorDiscountPercent` are deprecated for pricing.
+- El `ajuste de duración para profesor` es una regla operativa de agenda.
+- Los `descuentos` son reglas económicas y se definen con `DiscountPolicy`.
+- Los campos económicos legacy de profesor fueron eliminados; el precio se calcula solo con `DiscountPolicy`.
 
-## 2. Operational rule (professor override)
+## 2. Regla operativa (ajuste para profesor)
 
-- Controlled by club settings:
-- `professorDurationOverrideEnabled` (bool)
-- `professorDurationOverrideMinutes` (int, default 60)
-- If override is requested and disabled, booking is rejected with `PROFESSOR_DURATION_OVERRIDE_DISABLED`.
+- Se controla con configuración del club:
+- `professorDurationOverrideEnabled` (booleano)
+- `professorDurationOverrideMinutes` (entero, por defecto 60)
+- Si se solicita el ajuste y está deshabilitado, la reserva se rechaza con `PROFESSOR_DURATION_OVERRIDE_DISABLED`.
 
-## 3. Economic precedence (DiscountPolicy)
+## 3. Precedencia económica (DiscountPolicy)
 
-- Order of evaluation:
-- lower `priority` number first
-- tie-break by `policy.id` ascending
-- then assignment `createdAt`
-- Stacking:
-- if a selected policy is non-stackable, no further policies are applied
-- if stackable, next policy applies over the current net amount
+- Orden de evaluación:
+- primero menor `priority`
+- desempate por `policy.id` ascendente
+- luego `assignment.createdAt`
+- Acumulación:
+- si una política seleccionada es no acumulable (`isStackable = false`), corta la cadena
+- si es acumulable, la siguiente se aplica sobre el neto resultante
 
-## 4. Professor + general promotions
+## 4. Profesor + promociones generales
 
-- There is no implicit “professor discount” in booking price calculation.
-- Any professor-related discount must be represented as a regular `DiscountPolicy` and assigned to the client.
-- Combination with other promotions is defined by `priority` and `isStackable`.
+- No existe descuento implícito por “profesor” en el cálculo de precio.
+- Cualquier descuento para profesor debe representarse como `DiscountPolicy` y asignarse al cliente.
+- La combinación con otras promociones se resuelve por `priority` e `isStackable`.
 
-## 5. Governance and audit
+## 5. Gobierno y auditoría
 
-- Manual professor override can only be requested by admin/owner flows.
-- Manual override requires `professorOverrideReason` (min 10 chars).
-- Audit events are mandatory:
+- El ajuste manual de profesor solo puede solicitarse desde flujos de admin/owner.
+- El ajuste manual requiere `professorOverrideReason` (mínimo 10 caracteres).
+- Eventos de auditoría obligatorios:
 - `BOOKING_PROFESSOR_OVERRIDE`
 - `FIXED_BOOKING_PROFESSOR_OVERRIDE`
-

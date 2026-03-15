@@ -31,6 +31,12 @@ type CartItem = {
   remainingAmount?: number;
   type?: 'BOOKING' | 'PRODUCT' | 'SERVICE' | 'ADJUSTMENT';
   paymentMethod?: 'CASH' | 'TRANSFER' | null;
+  discounts?: Array<{
+    id: string;
+    policyId?: string;
+    policyName?: string | null;
+    discountAmount?: number;
+  }>;
   isNew: boolean;
 };
 
@@ -72,6 +78,12 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
   const [showPaymentCalculator, setShowPaymentCalculator] = useState(false);
   const [bookingChargeItemId, setBookingChargeItemId] = useState<string | null>(null);
   const [bookingChargeRemaining, setBookingChargeRemaining] = useState(0);
+  const [bookingChargeDiscounts, setBookingChargeDiscounts] = useState<Array<{
+    id: string;
+    policyId?: string;
+    policyName?: string | null;
+    discountAmount?: number;
+  }>>([]);
   const paymentInFlightRef = useRef(false);
   const [selectedProduct, setSelectedProduct] = useState<ProductSearchItem | null>(null);
   const [productSearchKey, setProductSearchKey] = useState(0);
@@ -98,6 +110,7 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
             : bookingChargeItem.remainingAmount
         )
       );
+      setBookingChargeDiscounts(Array.isArray(bookingChargeItem?.discounts) ? bookingChargeItem.discounts : []);
 
       const formattedItems = (currentItems || [])
         .filter((item: any) => String(item?.type || '') !== 'BOOKING')
@@ -111,6 +124,7 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
         remainingAmount: Number(item.remainingAmount == null ? item.totalPrice || 0 : item.remainingAmount),
         type: item.type,
         paymentMethod: item.paymentMethod ?? null,
+        discounts: Array.isArray(item.discounts) ? item.discounts : [],
         isNew: false
       }));
       setCartItems(formattedItems);
@@ -151,6 +165,16 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
   const remainingCourt = Math.max(0, Number(bookingChargeRemaining || 0));
   const courtPaidNow = Math.max(0, Number((courtTotal - remainingCourt).toFixed(2)));
   const grandTotalToRegister = remainingCourt + registeredItemsPendingTotal + draftTotal;
+  const bookingDiscountTotal = Number(
+    (bookingChargeDiscounts || []).reduce((sum, discount) => sum + Number(discount?.discountAmount || 0), 0).toFixed(2)
+  );
+  const bookingDiscountPolicies = Array.from(
+    new Set(
+      (bookingChargeDiscounts || [])
+        .map((discount) => String(discount?.policyName || '').trim())
+        .filter(Boolean)
+    )
+  );
 
   const handleSelectProduct = (product: ProductSearchItem) => {
     if (!product?.id) return;
@@ -412,6 +436,16 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
               <div className="p-4 flex items-center justify-between">
                 <div className="min-w-0">
                   <p className="text-sm font-black truncate">Alquiler de cancha</p>
+                  {bookingDiscountTotal > 0.009 ? (
+                    <p className="text-[9px] font-black uppercase tracking-widest text-emerald-700 mt-1">
+                      Descuento aplicado: -{formatMoney(bookingDiscountTotal)}
+                    </p>
+                  ) : null}
+                  {bookingDiscountPolicies.length > 0 ? (
+                    <p className="text-[9px] font-black text-[#347048]/60 mt-1 truncate">
+                      Políticas: {bookingDiscountPolicies.join(', ')}
+                    </p>
+                  ) : null}
                   {remainingCourt <= 0.009 ? (
                     <p className="text-[9px] font-black uppercase tracking-widest text-[#347048]/50 mt-1">
                       Pagado
@@ -441,6 +475,16 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
                   const isPaid = !item.isNew && Number(item.remainingAmount || 0) <= 0.009;
                   const isPartial = !item.isNew && Number(item.paidAmount || 0) > 0.009 && Number(item.remainingAmount || 0) > 0.009;
                   const hasPayments = !item.isNew && Number(item.paidAmount || 0) > 0.009;
+                  const itemDiscountTotal = Number(
+                    ((item.discounts || []).reduce((sum, discount) => sum + Number(discount?.discountAmount || 0), 0)).toFixed(2)
+                  );
+                  const itemDiscountPolicies = Array.from(
+                    new Set(
+                      (item.discounts || [])
+                        .map((discount) => String(discount?.policyName || '').trim())
+                        .filter(Boolean)
+                    )
+                  );
                   const rowClass = isPaid ? 'bg-gray-50 text-gray-500' : isPartial ? 'bg-amber-50/40 text-[#7a5d1f]' : 'text-[#347048]';
                   return (
                   <div key={item.isNew ? item.tempId : item.id} className={`p-4 flex items-center justify-between ${rowClass}`}>
@@ -448,6 +492,16 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
                       <p className="text-sm font-black truncate">
                         {item.quantity}x {item.productName}
                       </p>
+                      {itemDiscountTotal > 0.009 ? (
+                        <p className="text-[9px] font-black uppercase tracking-widest text-emerald-700 mt-1">
+                          Descuento aplicado: -{formatMoney(itemDiscountTotal)}
+                        </p>
+                      ) : null}
+                      {itemDiscountPolicies.length > 0 ? (
+                        <p className="text-[9px] font-black text-[#347048]/60 mt-1 truncate">
+                          Políticas: {itemDiscountPolicies.join(', ')}
+                        </p>
+                      ) : null}
                       {!item.isNew && Number(item.remainingAmount || 0) <= 0.009 ? (
                         <p className="text-[9px] font-black uppercase tracking-widest text-[#347048]/50 mt-1">
                           Pagado

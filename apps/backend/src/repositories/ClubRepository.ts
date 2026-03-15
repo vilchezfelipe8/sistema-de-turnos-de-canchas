@@ -26,8 +26,6 @@ export class ClubRepository {
         lightsEnabled: boolean = false,
         lightsExtraAmount?: number | null,
         lightsFromHour?: string | null,
-        professorDiscountEnabled: boolean = false,
-        professorDiscountPercent?: number | null,
         professorDurationOverrideEnabled: boolean = true,
         professorDurationOverrideMinutes: number = 60,
         fixedBookingSettingsByActivity?: FixedBookingSettingsByActivity | null,
@@ -74,8 +72,6 @@ export class ClubRepository {
                         lightsEnabled,
                         lightsExtraAmount,
                         lightsFromHour: lightsFromHour ?? null,
-                        professorDiscountEnabled,
-                        professorDiscountPercent,
                         professorDurationOverrideEnabled,
                         professorDurationOverrideMinutes,
                         fixedBookingSettingsByActivity: fixedBookingSettingsByActivity ?? undefined,
@@ -178,8 +174,6 @@ export class ClubRepository {
             club.lightsEnabled,
             club.lightsExtraAmount != null ? Number(club.lightsExtraAmount) : null,
             club.lightsFromHour ?? null,
-            club.professorDiscountEnabled ?? false,
-            club.professorDiscountPercent != null ? Number(club.professorDiscountPercent) : null,
             club.professorDurationOverrideEnabled ?? true,
             Number.isFinite(Number(club.professorDurationOverrideMinutes)) ? Number(club.professorDurationOverrideMinutes) : 60,
             club.fixedBookingSettingsByActivity ?? null,
@@ -242,8 +236,6 @@ export class ClubRepository {
         lightsEnabled?: boolean;
         lightsExtraAmount?: number | null;
         lightsFromHour?: string | null;
-        professorDiscountEnabled?: boolean;
-        professorDiscountPercent?: number | null;
         professorDurationOverrideEnabled?: boolean;
         professorDurationOverrideMinutes?: number;
         fixedBookingSettingsByActivity?: FixedBookingSettingsByActivity | null;
@@ -300,8 +292,6 @@ export class ClubRepository {
                             lightsEnabled: data.lightsEnabled ?? false,
                             lightsExtraAmount: data.lightsExtraAmount ?? null,
                             lightsFromHour: typeof data.lightsFromHour === 'string' ? data.lightsFromHour : (data.lightsFromHour ?? null),
-                            professorDiscountEnabled: data.professorDiscountEnabled ?? false,
-                            professorDiscountPercent: data.professorDiscountPercent ?? null,
                             professorDurationOverrideEnabled: data.professorDurationOverrideEnabled ?? true,
                             professorDurationOverrideMinutes: Number.isFinite(Number(data.professorDurationOverrideMinutes))
                                 ? Math.max(1, Math.floor(Number(data.professorDurationOverrideMinutes)))
@@ -331,12 +321,6 @@ export class ClubRepository {
                             ...(data.lightsExtraAmount !== undefined ? { lightsExtraAmount: data.lightsExtraAmount } : {}),
                             ...(data.lightsFromHour !== undefined
                                 ? { lightsFromHour: typeof data.lightsFromHour === 'string' ? data.lightsFromHour : null }
-                                : {}),
-                            ...(data.professorDiscountEnabled !== undefined
-                                ? { professorDiscountEnabled: data.professorDiscountEnabled }
-                                : {}),
-                            ...(data.professorDiscountPercent !== undefined
-                                ? { professorDiscountPercent: data.professorDiscountPercent }
                                 : {}),
                             ...(data.professorDurationOverrideEnabled !== undefined
                                 ? { professorDurationOverrideEnabled: data.professorDurationOverrideEnabled }
@@ -401,8 +385,6 @@ export class ClubRepository {
         const resolvedLightsEnabled = settings?.lightsEnabled ?? false;
         const resolvedLightsExtraAmountRaw = settings?.lightsExtraAmount ?? null;
         const resolvedLightsFromHour = this.formatLightsFromHour(settings?.lightsFromHour) ?? null;
-        const resolvedProfessorDiscountEnabled = settings?.professorDiscountEnabled ?? false;
-        const resolvedProfessorDiscountPercentRaw = settings?.professorDiscountPercent ?? null;
         const resolvedProfessorDurationOverrideEnabled = settings?.professorDurationOverrideEnabled ?? true;
         const resolvedProfessorDurationOverrideMinutesRaw = settings?.professorDurationOverrideMinutes ?? 60;
         const bookingConfirmationMode = settings?.bookingConfirmationMode ?? 'MANUAL';
@@ -418,7 +400,6 @@ export class ClubRepository {
         const bookingSimpleAdvanceDaysAdminRaw = settings?.bookingSimpleAdvanceDaysAdmin ?? 30;
         const allowAdminSkipSimpleAdvanceLimit = settings?.allowAdminSkipSimpleAdvanceLimit ?? false;
         const resolvedLightsExtraAmount = resolvedLightsExtraAmountRaw == null ? null : Number(resolvedLightsExtraAmountRaw);
-        const resolvedProfessorDiscountPercent = resolvedProfessorDiscountPercentRaw == null ? null : Number(resolvedProfessorDiscountPercentRaw);
         const resolvedProfessorDurationOverrideMinutes = Number.isFinite(Number(resolvedProfessorDurationOverrideMinutesRaw))
             ? Math.max(1, Math.floor(Number(resolvedProfessorDurationOverrideMinutesRaw)))
             : 60;
@@ -453,8 +434,6 @@ export class ClubRepository {
             resolvedLightsEnabled,
             resolvedLightsExtraAmount,
             resolvedLightsFromHour,
-            resolvedProfessorDiscountEnabled,
-            resolvedProfessorDiscountPercent,
             resolvedProfessorDurationOverrideEnabled,
             resolvedProfessorDurationOverrideMinutes,
             resolvedFixedBooking,

@@ -31,10 +31,6 @@ export class Club {
         public lightsEnabled: boolean = false,
         public lightsExtraAmount?: number | null,
         public lightsFromHour?: string | null,
-        // DEPRECATED (económico): usar DiscountPolicy
-        public professorDiscountEnabled: boolean = false,
-        // DEPRECATED (económico): usar DiscountPolicy
-        public professorDiscountPercent?: number | null,
         // Regla operativa explícita: duración especial para profesor
         public professorDurationOverrideEnabled: boolean = true,
         public professorDurationOverrideMinutes: number = 60,

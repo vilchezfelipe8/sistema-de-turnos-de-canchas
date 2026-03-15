@@ -32,8 +32,6 @@ export class ClubService {
         lightsEnabled: boolean = false,
         lightsExtraAmount?: number | null,
         lightsFromHour?: string | null,
-        professorDiscountEnabled: boolean = false,
-        professorDiscountPercent?: number | null,
         professorDurationOverrideEnabled: boolean = true,
         professorDurationOverrideMinutes: number = 60,
         fixedBookingSettingsByActivity?: FixedBookingSettingsByActivity | null,
@@ -70,8 +68,6 @@ export class ClubService {
             lightsEnabled,
             lightsExtraAmount,
             lightsFromHour,
-            professorDiscountEnabled,
-            professorDiscountPercent,
             professorDurationOverrideEnabled,
             professorDurationOverrideMinutes,
             fixedBookingSettingsByActivity,
@@ -128,8 +124,6 @@ export class ClubService {
             lightsEnabled?: boolean;
             lightsExtraAmount?: number | null;
             lightsFromHour?: string | null;
-            professorDiscountEnabled?: boolean;
-            professorDiscountPercent?: number | null;
             professorDurationOverrideEnabled?: boolean;
             professorDurationOverrideMinutes?: number;
             fixedBookingSettingsByActivity?: FixedBookingSettingsByActivity | null;

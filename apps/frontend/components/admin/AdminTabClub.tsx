@@ -68,6 +68,23 @@ type ClientSearchResult = {
   dni?: string;
 };
 
+const formatDiscountScopeLabel = (scope: DiscountPolicyScope) => {
+  if (scope === 'BOOKING') return 'Reserva';
+  if (scope === 'PRODUCT') return 'Producto';
+  if (scope === 'SERVICE') return 'Servicio';
+  return 'Todo';
+};
+
+const formatDiscountAmountTypeLabel = (amountType: DiscountAmountType) => {
+  if (amountType === 'PERCENT') return 'Porcentaje';
+  return 'Monto fijo';
+};
+
+const formatDiscountApplyModeLabel = (applyMode: DiscountApplyMode) => {
+  if (applyMode === 'INCLUDE_ONLY') return 'Solo incluidos';
+  return 'Excluir lista';
+};
+
 const normalizeDurations = (value: unknown, fallback: number): number[] => {
   const parsed = Array.isArray(value)
     ? value.map((item) => Number(item)).filter((item) => Number.isFinite(item) && item > 0).map((item) => Math.floor(item))
@@ -218,8 +235,6 @@ export default function AdminTabClub() {
     lightsEnabled: false,
     lightsExtraAmount: '',
     lightsFromHour: '',
-    professorDiscountEnabled: false,
-    professorDiscountPercent: '',
     professorDurationOverrideEnabled: true,
     professorDurationOverrideMinutes: '60',
     bookingConfirmationMode: 'MANUAL' as BookingConfirmationMode,
@@ -343,8 +358,6 @@ export default function AdminTabClub() {
           lightsEnabled: clubData.lightsEnabled ?? false,
           lightsExtraAmount: clubData.lightsExtraAmount != null ? String(clubData.lightsExtraAmount) : '',
           lightsFromHour: clubData.lightsFromHour || '',
-          professorDiscountEnabled: clubData.professorDiscountEnabled ?? false,
-          professorDiscountPercent: clubData.professorDiscountPercent != null ? String(clubData.professorDiscountPercent) : '',
           professorDurationOverrideEnabled: clubData.professorDurationOverrideEnabled ?? true,
           professorDurationOverrideMinutes: clubData.professorDurationOverrideMinutes != null ? String(clubData.professorDurationOverrideMinutes) : '60',
           bookingConfirmationMode: (clubData.bookingConfirmationMode ?? 'MANUAL') as BookingConfirmationMode,
@@ -441,8 +454,6 @@ export default function AdminTabClub() {
         lightsEnabled: !!clubForm.lightsEnabled,
         lightsExtraAmount: clubForm.lightsExtraAmount === '' ? null : Number(clubForm.lightsExtraAmount),
         lightsFromHour: clubForm.lightsFromHour || null,
-        professorDiscountEnabled: !!clubForm.professorDiscountEnabled,
-        professorDiscountPercent: clubForm.professorDiscountPercent === '' ? null : Number(clubForm.professorDiscountPercent),
         professorDurationOverrideEnabled: !!clubForm.professorDurationOverrideEnabled,
         professorDurationOverrideMinutes:
           clubForm.professorDurationOverrideMinutes === '' ? 60 : Number(clubForm.professorDurationOverrideMinutes),
@@ -891,42 +902,14 @@ export default function AdminTabClub() {
               </div>
             </div>
 
-            {/* DESCUENTO A PROFESORES */}
+            {/* PROFESOR (REGLA OPERATIVA) */}
             <div className="bg-[#926699]/10 p-6 rounded-[1.5rem] border-2 border-[#926699]/20">
               <div className="flex items-center gap-2 mb-4 text-[#347048]">
                 <Save size={18} strokeWidth={3} />
-                <h3 className="text-xs font-black uppercase tracking-[0.2em]">Descuento a Profesores</h3>
-              </div>
-              <div className="flex flex-col md:flex-row gap-8 items-start md:items-center">
-                <label className="flex items-center gap-3 text-[#347048] font-black cursor-pointer group">
-                  <div className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all ${clubForm.professorDiscountEnabled ? 'bg-[#347048] border-[#347048] text-white shadow-sm' : 'border-[#347048]/25 bg-white text-transparent'}`}>
-                    {clubForm.professorDiscountEnabled && <Check size={15} strokeWidth={4} />}
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={clubForm.professorDiscountEnabled}
-                    onChange={(e) => setClubForm({ ...clubForm, professorDiscountEnabled: e.target.checked })}
-                    className="hidden"
-                  />
-                  <span className="text-sm uppercase tracking-wide italic">Activar descuento para profesores</span>
-                </label>
-                <div>
-                  <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">% de descuento</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={1}
-                    disabled={!clubForm.professorDiscountEnabled}
-                    value={clubForm.professorDiscountPercent}
-                    onChange={(e) => setClubForm({ ...clubForm, professorDiscountPercent: e.target.value })}
-                    className="w-32 h-10 bg-white border-2 border-transparent focus:border-[#926699] rounded-xl px-3 text-[#347048] font-black text-sm disabled:opacity-30 transition-all"
-                    placeholder="10"
-                  />
-                </div>
+                <h3 className="text-xs font-black uppercase tracking-[0.2em]">Profesor (operativo)</h3>
               </div>
               <p className="text-[11px] text-[#347048]/70 font-bold mt-3">
-                Este descuento económico está deprecado. Recomendado: usar políticas en la nueva sección de descuentos.
+                Los descuentos económicos se configuran en &quot;Descuentos por cliente&quot;. Esta sección solo define el ajuste operativo.
               </p>
               <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                 <label className="flex items-center gap-3 text-[#347048] font-black cursor-pointer group">
@@ -939,10 +922,10 @@ export default function AdminTabClub() {
                     onChange={(e) => setClubForm({ ...clubForm, professorDurationOverrideEnabled: e.target.checked })}
                     className="hidden"
                   />
-                  <span className="text-sm uppercase tracking-wide italic">Permitir override operativo para profesor</span>
+                  <span className="text-sm uppercase tracking-wide italic">Permitir ajuste operativo para profesor</span>
                 </label>
                 <div>
-                  <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Duración override (min)</label>
+                  <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Duración especial (min)</label>
                   <input
                     type="number"
                     min={1}
@@ -1018,7 +1001,7 @@ export default function AdminTabClub() {
                           onChange={(e) => setClubForm((prev) => ({ ...prev, allowManualConfirmationOverride: e.target.checked }))}
                           className="hidden"
                         />
-                        <span className="text-sm tracking-wide">Permitir confirmación manual de override</span>
+                        <span className="text-sm tracking-wide">Permitir confirmación manual de excepción</span>
                       </label>
                     </div>
                   </div>
@@ -1194,16 +1177,16 @@ export default function AdminTabClub() {
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Scope</label>
+                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Alcance</label>
                       <select
                         value={discountPolicyForm.scope}
                         onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, scope: e.target.value as DiscountPolicyScope }))}
                         className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
                       >
-                        <option value="BOOKING">BOOKING</option>
-                        <option value="PRODUCT">PRODUCT</option>
-                        <option value="SERVICE">SERVICE</option>
-                        <option value="ALL">ALL</option>
+                        <option value="BOOKING">Reserva</option>
+                        <option value="PRODUCT">Producto</option>
+                        <option value="SERVICE">Servicio</option>
+                        <option value="ALL">Todo</option>
                       </select>
                     </div>
                     <div>
@@ -1213,8 +1196,8 @@ export default function AdminTabClub() {
                         onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, amountType: e.target.value as DiscountAmountType }))}
                         className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
                       >
-                        <option value="PERCENT">PERCENT</option>
-                        <option value="FIXED">FIXED</option>
+                        <option value="PERCENT">Porcentaje</option>
+                        <option value="FIXED">Monto fijo</option>
                       </select>
                     </div>
                     <div>
@@ -1241,14 +1224,14 @@ export default function AdminTabClub() {
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Apply mode</label>
+                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Modo de aplicación</label>
                       <select
                         value={discountPolicyForm.applyMode}
                         onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, applyMode: e.target.value as DiscountApplyMode }))}
                         className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
                       >
-                        <option value="INCLUDE_ONLY">INCLUDE_ONLY</option>
-                        <option value="EXCLUDE_LIST">EXCLUDE_LIST</option>
+                        <option value="INCLUDE_ONLY">Solo incluidos</option>
+                        <option value="EXCLUDE_LIST">Excluir lista</option>
                       </select>
                     </div>
                     <label className="md:col-span-2 flex items-center gap-3 text-[#347048] font-black cursor-pointer">
@@ -1257,7 +1240,7 @@ export default function AdminTabClub() {
                         checked={discountPolicyForm.isStackable}
                         onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, isStackable: e.target.checked }))}
                       />
-                      <span className="text-sm uppercase tracking-wide">Stackable</span>
+                      <span className="text-sm uppercase tracking-wide">Acumulable</span>
                     </label>
                     <div className="md:col-span-2">
                       <button
@@ -1287,7 +1270,7 @@ export default function AdminTabClub() {
                               </span>
                             </div>
                             <p className="text-[11px] font-bold opacity-80 mt-1">
-                              {policy.scope} · {policy.amountType} {Number(policy.amountValue)} · prio {policy.priority} · {policy.isStackable ? 'stack' : 'no stack'}
+                              {formatDiscountScopeLabel(policy.scope)} · {formatDiscountAmountTypeLabel(policy.amountType)} {Number(policy.amountValue)} · prioridad {policy.priority} · {policy.isStackable ? 'acumulable' : 'no acumulable'}
                             </p>
                           </div>
                         ))}
@@ -1669,5 +1652,3 @@ export default function AdminTabClub() {
     </>
   );
 }
-
-

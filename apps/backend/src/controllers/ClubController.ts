@@ -36,8 +36,6 @@ export class ClubController {
                 lightsExtraAmount: z.union([z.number(), z.string()]).optional().nullable().transform((v) => (v === '' || v === undefined || v === null ? null : Number(v))),
                 lightsFromHour: z.string().optional().nullable(),
                 openingDays: z.array(z.number().int().min(0).max(6)).optional().nullable(),
-                professorDiscountEnabled: z.boolean().optional(),
-                professorDiscountPercent: z.union([z.number(), z.string()]).optional().nullable().transform((v) => (v === '' || v === undefined || v === null ? null : Number(v))),
                 professorDurationOverrideEnabled: z.boolean().optional(),
                 professorDurationOverrideMinutes: z.union([z.number(), z.string()]).optional().nullable().transform((v) => (v === '' || v === undefined || v === null ? null : Number(v))),
                 fixedBookingSettingsByActivity: z.record(fixedBookingActivityConfigSchema).optional().nullable(),
@@ -59,7 +57,7 @@ export class ClubController {
                 return res.status(400).json({ error: parsed.error.format() });
             }
             const { slug, name, addressLine, city, province, country, contact, phone, logoUrl, clubImageUrl, instagramUrl, facebookUrl, websiteUrl, description, timeZone,
-                lightsEnabled, lightsExtraAmount, lightsFromHour, openingDays, professorDiscountEnabled, professorDiscountPercent,
+                lightsEnabled, lightsExtraAmount, lightsFromHour, openingDays,
                 professorDurationOverrideEnabled, professorDurationOverrideMinutes,
                 fixedBookingSettingsByActivity, bookingConfirmationMode, bookingDepositPercent, allowManualConfirmationOverride,
                 autoCancelPendingBookingsEnabled, autoCancelPendingBookingsMinutesBefore, autoCancelPendingBookingsOnlyIfUnpaid,
@@ -123,8 +121,6 @@ export class ClubController {
                 Boolean(lightsEnabled),
                 lightsExtraAmount ?? null,
                 lightsFromHour ?? null,
-                Boolean(professorDiscountEnabled),
-                professorDiscountPercent ?? null,
                 professorDurationOverrideEnabled ?? true,
                 Number.isFinite(Number(professorDurationOverrideMinutes)) ? Number(professorDurationOverrideMinutes) : 60,
                 fixedBookingSettingsByActivity ?? null,
@@ -210,8 +206,6 @@ export class ClubController {
                 lightsEnabled: z.boolean().optional(),
                 lightsExtraAmount: z.union([z.number(), z.string()]).optional().nullable().transform((v) => (v === '' || v === undefined || v === null ? undefined : Number(v))),
                 lightsFromHour: z.string().optional().nullable(),
-                professorDiscountEnabled: z.boolean().optional(),
-                professorDiscountPercent: z.union([z.number(), z.string()]).optional().nullable().transform((v) => (v === '' || v === undefined || v === null ? undefined : Number(v))),
                 professorDurationOverrideEnabled: z.boolean().optional(),
                 professorDurationOverrideMinutes: z.union([z.number(), z.string()]).optional().nullable().transform((v) => (v === '' || v === undefined || v === null ? undefined : Number(v))),
                 fixedBookingSettingsByActivity: z.record(fixedBookingActivityConfigSchema).optional().nullable(),
@@ -252,8 +246,6 @@ export class ClubController {
                 lightsEnabled,
                 lightsExtraAmount,
                 lightsFromHour,
-                professorDiscountEnabled,
-                professorDiscountPercent,
                 professorDurationOverrideEnabled,
                 professorDurationOverrideMinutes,
                 fixedBookingSettingsByActivity,
@@ -333,8 +325,6 @@ export class ClubController {
                 lightsEnabled: typeof lightsEnabled === 'boolean' ? lightsEnabled : undefined,
                 lightsExtraAmount: lightsExtraAmount ?? null,
                 lightsFromHour: (lightsFromHour === '' || lightsFromHour == null) ? null : lightsFromHour,
-                professorDiscountEnabled: typeof professorDiscountEnabled === 'boolean' ? professorDiscountEnabled : undefined,
-                professorDiscountPercent: professorDiscountPercent ?? null,
                 professorDurationOverrideEnabled: typeof professorDurationOverrideEnabled === 'boolean' ? professorDurationOverrideEnabled : undefined,
                 professorDurationOverrideMinutes:
                     Number.isFinite(Number(professorDurationOverrideMinutes))
@@ -383,5 +373,4 @@ export class ClubController {
     }
 };
 }
-
 
