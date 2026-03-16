@@ -77,7 +77,6 @@ export const createBooking = async (
     isProfessor?: boolean;
     professorOverrideReason?: string;
     durationMinutes?: number;
-    openAccount?: boolean;
     applyDiscount?: boolean;
   }
 ) => {
@@ -109,11 +108,10 @@ export const createBooking = async (
       ...(dniValue ? { guestDni: dniValue } : {}),
 
       ...(options?.asGuest ? { asGuest: true } : {}),
-        ...(options?.isProfessor ? { isProfessor: true } : {}),
-        ...(options?.professorOverrideReason ? { professorOverrideReason: options.professorOverrideReason } : {}),
-        ...(Number.isFinite(options?.durationMinutes) ? { durationMinutes: options?.durationMinutes } : {}),
-        ...(options?.openAccount === undefined ? {} : { openAccount: options.openAccount }),
-        ...(options?.applyDiscount === undefined ? {} : { applyDiscount: options.applyDiscount })
+      ...(options?.isProfessor ? { isProfessor: true } : {}),
+      ...(options?.professorOverrideReason ? { professorOverrideReason: options.professorOverrideReason } : {}),
+      ...(Number.isFinite(options?.durationMinutes) ? { durationMinutes: options?.durationMinutes } : {}),
+      ...(options?.applyDiscount === undefined ? {} : { applyDiscount: options.applyDiscount })
     }),
   });
 

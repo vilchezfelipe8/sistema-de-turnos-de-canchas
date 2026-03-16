@@ -5,7 +5,7 @@ import { ClubService } from '../../services/ClubService';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 import { CashService } from '../../services/CashService';
 import { formatDateTime24, formatTime24 } from '../../utils/dateTime';
-import { reportUiError } from '../../utils/uiError';
+import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import AppModal from '../AppModal';
 
 // Tipos
@@ -176,6 +176,7 @@ const AdminCashDashboard = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [productsLoading, setProductsLoading] = useState(true);
   const [saleError, setSaleError] = useState('');
+  const [movementError, setMovementError] = useState('');
   const [currentShift, setCurrentShift] = useState<CashShift | null>(null);
   const [cashRegisters, setCashRegisters] = useState<CashRegister[]>([]);
   const [shiftLoading, setShiftLoading] = useState(true);
@@ -327,6 +328,7 @@ const AdminCashDashboard = () => {
   }, []);
 
   const fetchCash = async () => {
+    setMovementError('');
     try {
       const data = await CashService.getSummary();
       if (data && data.balance) setBalance(data.balance);
@@ -363,6 +365,7 @@ const AdminCashDashboard = () => {
 
     } catch (error) {
       reportUiError({ area: 'AdminCashDashboard', action: 'fetchCash' }, error);
+      setMovementError(extractErrorMessage(error, 'No se pudieron cargar los movimientos de caja.'));
     } finally {
       setLoading(false);
     }
@@ -408,6 +411,7 @@ const AdminCashDashboard = () => {
       setProducts(Array.isArray(data) ? data : []);
     } catch (error) {
       reportUiError({ area: 'AdminCashDashboard', action: 'fetchProducts' }, error);
+      setSaleError(extractErrorMessage(error, 'No se pudieron cargar los productos para ventas.'));
     } finally {
       setProductsLoading(false);
     }
@@ -450,6 +454,7 @@ const AdminCashDashboard = () => {
         setShowDropdown(true);
       } catch (error) {
         reportUiError({ area: 'AdminCashDashboard', action: 'searchClients' }, error);
+        setSaleError(extractErrorMessage(error, 'No se pudo buscar clientes en este momento.'));
       }
     }, 300);
   };
@@ -463,21 +468,27 @@ const AdminCashDashboard = () => {
 
   const handleAddMovement = async (e: React.FormEvent) => {
     e.preventDefault();
+    setMovementError('');
     if (!currentShift) {
       setOpenShiftError('Primero tenés que abrir la caja para registrar movimientos.');
       return;
     }
     if (!newMove.amount || !newMove.description) return;
 
-    await CashService.createMovement({
-      amount: newMove.amount,
-      description: newMove.description,
-      type: newMove.type as 'INCOME' | 'EXPENSE',
-      method: newMove.method as 'CASH' | 'TRANSFER' | 'CARD'
-    });
-    
-    setNewMove({ description: '', amount: '', type: 'INCOME', method: 'CASH' });
-    fetchCash(); 
+    try {
+      await CashService.createMovement({
+        amount: newMove.amount,
+        description: newMove.description,
+        type: newMove.type as 'INCOME' | 'EXPENSE',
+        method: newMove.method as 'CASH' | 'TRANSFER' | 'CARD'
+      });
+
+      setNewMove({ description: '', amount: '', type: 'INCOME', method: 'CASH' });
+      fetchCash();
+    } catch (error) {
+      reportUiError({ area: 'AdminCashDashboard', action: 'addMovement' }, error);
+      setMovementError(extractErrorMessage(error, 'No se pudo registrar el movimiento.'));
+    }
   };
 
   const handleProductSale = async (e: React.FormEvent) => {
@@ -1083,6 +1094,9 @@ const AdminCashDashboard = () => {
             <button type="submit" className="w-full py-4 bg-[#B9CF32] hover:bg-[#aebd2b] text-[#347048] font-black rounded-[1.5rem] shadow-xl shadow-[#B9CF32]/20 transition-all hover:-translate-y-1 active:scale-95 uppercase tracking-widest text-sm italic mt-2">
               Registrar Movimiento
             </button>
+            {movementError && (
+              <p className="text-xs font-bold text-red-500 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">{movementError}</p>
+            )}
             {!currentShift && (
               <p className="text-[10px] font-black uppercase tracking-widest text-red-500">Abrí la caja para habilitar registros.</p>
             )}

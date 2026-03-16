@@ -151,7 +151,17 @@ export const closeAccount = async (accountId: string) => {
   });
   if (!res.ok) {
     const error = await res.json();
-    throw new Error(error.error || 'No se pudo cerrar la cuenta');
+    const closeError = new Error(error.error || 'No se pudo cerrar la cuenta') as Error & {
+      code?: string;
+      remaining?: number;
+    };
+    if (typeof error?.code === 'string') {
+      closeError.code = error.code;
+    }
+    if (Number.isFinite(Number(error?.remaining))) {
+      closeError.remaining = Number(error.remaining);
+    }
+    throw closeError;
   }
   return res.json();
 };

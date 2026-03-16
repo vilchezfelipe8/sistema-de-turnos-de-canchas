@@ -1087,8 +1087,7 @@ export default function AdminTabBookings() {
                 guestIdentifier: `admin_${dni}_${Date.now()}`,
                 isProfessor: manualBooking.isProfessor,
                 professorOverrideReason: professorOverrideReason || undefined,
-                durationMinutes: manualBooking.durationMinutes,
-                openAccount: true
+                durationMinutes: manualBooking.durationMinutes
               }
             );
             showInfo(

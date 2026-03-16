@@ -165,7 +165,17 @@ export class AccountController {
       const account = await this.accountService.closeAccount(clubId, parsed.data.id);
       return res.json(mapAccountDto(account));
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'No se pudo cerrar la cuenta';
+      const knownError = error as Error & { code?: string; remaining?: number };
+      const message = knownError?.message || 'No se pudo cerrar la cuenta';
+
+      if (knownError?.code === 'ACCOUNT_HAS_PENDING_BALANCE') {
+        return res.status(409).json({
+          error: message,
+          code: knownError.code,
+          remaining: Number(knownError.remaining || 0)
+        });
+      }
+
       return res.status(400).json({ error: message });
     }
   };

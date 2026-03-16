@@ -842,11 +842,15 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
           ? `${apiBase()}/courts?clubSlug=${encodeURIComponent(clubSlug)}`
           : `${apiBase()}/courts`;
         const res = await fetch(url);
-        if (!res.ok) return;
+        if (!res.ok) {
+          showError('No se pudieron cargar las canchas disponibles. Reintentá en unos segundos.');
+          return;
+        }
         const data = await res.json();
         setAllCourts(data);
       } catch (err) {
         reportUiError({ area: 'BookingGrid', action: 'loadCourts' }, err);
+        showError('No se pudieron cargar las canchas disponibles. Reintentá en unos segundos.');
       }
     };
     fetchCourts();

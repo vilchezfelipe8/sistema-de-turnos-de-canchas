@@ -54,8 +54,7 @@ export class BookingController {
                 guestDni: optionalTrimmedString(),
                 isProfessor: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional(),
                 professorOverrideReason: optionalTrimmedString(10),
-                applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional()),
-                openAccount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional())
+                applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional())
             });
 
             const dataToValidate = {
@@ -68,7 +67,7 @@ export class BookingController {
                 return res.status(400).json({ error: parsed.error.format() });
             }
 
-            let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, guestIdentifier, guestName, guestEmail, guestPhone, guestDni, isProfessor, professorOverrideReason, applyDiscount, openAccount } = parsed.data;
+            let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, guestIdentifier, guestName, guestEmail, guestPhone, guestDni, isProfessor, professorOverrideReason, applyDiscount } = parsed.data;
             guestName = guestName ? sanitizeString(guestName, 200) : undefined;
             guestIdentifier = guestIdentifier ? sanitizeString(guestIdentifier, 100) : undefined;
             guestEmail = guestEmail ? sanitizeString(guestEmail, 254) : undefined;
@@ -148,7 +147,6 @@ export class BookingController {
                 isAdmin,
                 {
                     applyDiscount,
-                    skipAccountCreation: openAccount ? false : undefined,
                     professorOverrideReason: professorOverrideReason?.trim() || undefined,
                     actorUserId: Number(user?.userId || 0) || null
                 }

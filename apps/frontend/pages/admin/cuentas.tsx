@@ -12,6 +12,7 @@ import RefundRequestModal from '../../components/admin/refunds/RefundRequestModa
 import PaymentCalculator, { type PaymentCalculatorResult } from '../../components/PaymentCalculator';
 import ProductSearch, { type ProductSearchItem } from '../../components/ui/ProductSearch';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
+import { reportUiError } from '../../utils/uiError';
 
 type AccountRow = {
   id: string;
@@ -53,6 +54,10 @@ export default function AdminAccountsPage() {
   const [closedVisibleCount, setClosedVisibleCount] = useState(12);
   const [showCloseAccountConfirm, setShowCloseAccountConfirm] = useState(false);
   const [closingAccount, setClosingAccount] = useState(false);
+  const [closeBlockedModal, setCloseBlockedModal] = useState<{
+    show: boolean;
+    message: string;
+  }>({ show: false, message: '' });
   const [showClosedAccountModal, setShowClosedAccountModal] = useState(false);
   const [selectedClosedAccountId, setSelectedClosedAccountId] = useState<string>('');
   const [selectedClosedAccountDetail, setSelectedClosedAccountDetail] = useState<any>(null);
@@ -91,7 +96,8 @@ export default function AdminAccountsPage() {
       const normalized = normalizeSessionUser(JSON.parse(rawUser));
       return getActiveClubSlug(normalized) || '';
     } catch (err) {
-      console.error('No se pudo resolver clubSlug para cargar productos:', err);
+      reportUiError({ area: 'AdminAccountsPage', action: 'resolveClubSlug' }, err);
+      setError('No se pudo resolver el club activo para cargar productos.');
       return '';
     }
   }, []);
@@ -894,11 +900,34 @@ export default function AdminAccountsPage() {
             setShowCloseAccountConfirm(false);
             await refreshLists();
           } catch (err: any) {
-            setError(err?.message || 'No se pudo cerrar la cuenta');
+            const code = String(err?.code || '');
+            const remaining = Number(err?.remaining || 0);
+            if (code === 'ACCOUNT_HAS_PENDING_BALANCE') {
+              const remainingLabel = Number.isFinite(remaining) && remaining > 0
+                ? `Saldo pendiente actual: $${remaining.toLocaleString()}. `
+                : '';
+              setShowCloseAccountConfirm(false);
+              setCloseBlockedModal({
+                show: true,
+                message: `${remainingLabel}Para cerrar la cuenta primero registrá el pago pendiente o ajustá consumos.`
+              });
+            } else {
+              setError(err?.message || 'No se pudo cerrar la cuenta');
+            }
           } finally {
             setClosingAccount(false);
           }
         }}
+      />
+
+      <AppModal
+        show={closeBlockedModal.show}
+        title="No se pudo cerrar la cuenta"
+        message={closeBlockedModal.message}
+        isWarning
+        confirmText="Entendido"
+        cancelText=""
+        onClose={() => setCloseBlockedModal({ show: false, message: '' })}
       />
     </AdminLayout>
   );

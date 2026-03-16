@@ -454,7 +454,15 @@ export class AccountService {
       const netPaid = await this.calculateNetPaidAmountTx(tx, account.id);
       const remaining = Number((Number(account.totalAmount || 0) - netPaid).toFixed(2));
 
-      if (remaining > EPSILON) throw new Error('No se puede cerrar la cuenta: aún hay saldo pendiente');
+      if (remaining > EPSILON) {
+        const closeError = new Error('No se puede cerrar la cuenta: aun hay saldo pendiente') as Error & {
+          code?: string;
+          remaining?: number;
+        };
+        closeError.code = 'ACCOUNT_HAS_PENDING_BALANCE';
+        closeError.remaining = Number(remaining.toFixed(2));
+        throw closeError;
+      }
 
       const closed = await tx.account.update({
         where: { id: accountId },
@@ -567,3 +575,4 @@ export class AccountService {
     });
   }
 }
+
