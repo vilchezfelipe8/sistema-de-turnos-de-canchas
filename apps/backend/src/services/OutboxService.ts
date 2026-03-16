@@ -3,7 +3,8 @@ import { prisma } from '../prisma';
 
 export const OUTBOX_TYPES = {
   WHATSAPP_SEND: 'WHATSAPP_SEND',
-  NOTIFICATION_CREATE: 'NOTIFICATION_CREATE'
+  NOTIFICATION_CREATE: 'NOTIFICATION_CREATE',
+  FISCAL_DOCUMENT_ISSUE: 'FISCAL_DOCUMENT_ISSUE'
 } as const;
 
 type DbClient = Prisma.TransactionClient | PrismaClient;

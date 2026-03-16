@@ -5,12 +5,14 @@ import { OUTBOX_TYPES } from './OutboxService';
 import { WhatsappDeliveryService } from './WhatsappDeliveryService';
 import { NotificationService } from './NotificationService';
 import { metricsService } from './MetricsService';
+import { FiscalIssuePayload, PaymentGatewayService } from './PaymentGatewayService';
 
 type ClaimedOutboxRow = OutboxMessage;
 
 export class OutboxWorker {
   private readonly whatsappDelivery = new WhatsappDeliveryService();
   private readonly notificationService = new NotificationService();
+  private readonly paymentGatewayService = new PaymentGatewayService();
   private readonly workerId =
     process.env.OUTBOX_WORKER_ID ||
     `${process.pid}-${Math.random().toString(36).slice(2, 10)}`;
@@ -111,6 +113,12 @@ export class OutboxWorker {
         payload.title,
         payload.message
       );
+      return;
+    }
+
+    if (message.type === OUTBOX_TYPES.FISCAL_DOCUMENT_ISSUE) {
+      const payload = (message.payload || {}) as FiscalIssuePayload;
+      await this.paymentGatewayService.processFiscalIssue(payload);
       return;
     }
 

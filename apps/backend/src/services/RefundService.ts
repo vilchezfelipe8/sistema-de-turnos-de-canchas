@@ -1,5 +1,6 @@
 import {
   CashMovementMethod,
+  FiscalMode,
   PaymentMethod,
   Prisma,
   RefundExecutionMethod,
@@ -11,6 +12,7 @@ import { AccountingService } from './AccountingService';
 import { ProjectionService } from './ProjectionService';
 import { AccountService } from './AccountService';
 import { generateDisplayCode } from '../utils/displayCode';
+import { OUTBOX_TYPES, OutboxService } from './OutboxService';
 
 const EPSILON = 0.009;
 
@@ -25,6 +27,7 @@ type RefundPaymentInput = {
   executionNotes?: string;
   executionMethod?: RefundExecutionMethod;
   cashShiftId?: string;
+  fiscalMode?: FiscalMode;
   createdByUserId?: number;
 };
 
@@ -79,6 +82,7 @@ export class RefundService {
   private readonly accountingService = new AccountingService();
   private readonly projectionService = new ProjectionService();
   private readonly accountService = new AccountService();
+  private readonly outboxService = new OutboxService();
 
   private mapPaymentMethodToCashMovement(method: PaymentMethod): CashMovementMethod {
     if (method === 'CARD') return 'CARD';
@@ -351,6 +355,21 @@ export class RefundService {
       }
     });
 
+    if (refund.fiscalMode === 'REQUIRED') {
+      await this.outboxService.enqueue({
+        clubId: refund.clubId,
+        type: OUTBOX_TYPES.FISCAL_DOCUMENT_ISSUE,
+        aggregateType: 'REFUND',
+        aggregateId: refund.id,
+        dedupeKey: `fiscal:refund:${refund.id}:auto`,
+        payload: {
+          clubId: refund.clubId,
+          refundId: refund.id,
+          documentType: 'CREDIT_NOTE_B'
+        }
+      }, tx);
+    }
+
     await this.projectionService.refreshAccountSummary(refund.accountId, tx);
     if (resolvedCashShiftId) {
       await this.projectionService.refreshCashShiftSummary(resolvedCashShiftId, tx);
@@ -412,6 +431,7 @@ export class RefundService {
     const executeNow = input.executeNow ?? false;
     const now = new Date();
     const initialStatus: RefundStatus = executeNow ? 'APPROVED' : 'REQUESTED';
+    const fiscalMode = input.fiscalMode ?? 'ON_DEMAND';
 
     const refund = await tx.refund.create({
       data: {
@@ -425,6 +445,8 @@ export class RefundService {
         executionNotes: input.executionNotes ?? null,
         status: initialStatus,
         executionMethod,
+        fiscalMode,
+        fiscalStatus: 'NOT_APPLICABLE',
         createdByUserId: input.createdByUserId ?? null,
         approvedAt: initialStatus === 'APPROVED' ? now : null,
         approvedByUserId: initialStatus === 'APPROVED' ? (input.createdByUserId ?? null) : null,

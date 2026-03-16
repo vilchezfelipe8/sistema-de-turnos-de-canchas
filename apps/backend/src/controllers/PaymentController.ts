@@ -8,6 +8,7 @@ const refundStatusEnum = z.enum(['REQUESTED', 'APPROVED', 'READY_TO_EXECUTE', 'E
 const refundReasonTypeEnum = z.enum(['FULL', 'PARTIAL_COMMERCIAL', 'PARTIAL_SERVICE_FAILURE', 'PARTIAL_PRICING_ERROR', 'OTHER']);
 const refundExecutionMethodEnum = z.enum(['CASH', 'TRANSFER', 'CARD_REVERSAL', 'CREDIT_NOTE', 'OTHER']);
 const paymentChannelEnum = z.enum(['AUTO', 'CASH_DRAWER', 'BANK_ACCOUNT', 'CARD_TERMINAL', 'VIRTUAL_WALLET', 'OTHER']);
+const fiscalModeEnum = z.enum(['REQUIRED', 'ON_DEMAND', 'NONE']);
 
 export class PaymentController {
   private readonly paymentService = new PaymentService();
@@ -57,7 +58,9 @@ export class PaymentController {
         collectorAccountLabel: z.string().trim().max(120).optional(),
         externalReference: z.string().trim().max(120).optional(),
         source: z.enum(['POS', 'ONLINE', 'BACKOFFICE']).optional(),
-        cashShiftId: z.string().trim().min(1).optional()
+        cashShiftId: z.string().trim().min(1).optional(),
+        providerAccountId: z.string().trim().min(1).optional(),
+        fiscalMode: fiscalModeEnum.optional()
       });
 
       const parsed = bodySchema.safeParse(req.body);
@@ -80,6 +83,8 @@ export class PaymentController {
         externalReference: parsed.data.externalReference,
         source: parsed.data.source,
         cashShiftId: parsed.data.cashShiftId,
+        providerAccountId: parsed.data.providerAccountId,
+        fiscalMode: parsed.data.fiscalMode,
         createdByUserId: this.resolveActorUserId(req),
         idempotencyKey: idempotencyKey.trim()
       });
@@ -100,6 +105,7 @@ export class PaymentController {
         reason: z.string().trim().max(300).optional(),
         reasonType: refundReasonTypeEnum.optional(),
         executionMethod: refundExecutionMethodEnum.optional(),
+        fiscalMode: fiscalModeEnum.optional(),
         executionNotes: z.string().trim().max(500).optional(),
         cashShiftId: z.string().trim().min(1).optional()
       });
@@ -117,6 +123,7 @@ export class PaymentController {
         reason: bodyParsed.data.reason,
         reasonType: bodyParsed.data.reasonType,
         executionMethod: bodyParsed.data.executionMethod,
+        fiscalMode: bodyParsed.data.fiscalMode,
         executionNotes: bodyParsed.data.executionNotes,
         cashShiftId: bodyParsed.data.cashShiftId,
         createdByUserId: this.resolveActorUserId(req)
@@ -138,6 +145,7 @@ export class PaymentController {
         reason: z.string().trim().max(300).optional(),
         reasonType: refundReasonTypeEnum.optional(),
         executionMethod: refundExecutionMethodEnum.optional(),
+        fiscalMode: fiscalModeEnum.optional(),
         executionNotes: z.string().trim().max(500).optional(),
         executeNow: z.boolean().optional(),
         cashShiftId: z.string().trim().min(1).optional()
@@ -156,6 +164,7 @@ export class PaymentController {
         reason: bodyParsed.data.reason,
         reasonType: bodyParsed.data.reasonType,
         executionMethod: bodyParsed.data.executionMethod,
+        fiscalMode: bodyParsed.data.fiscalMode,
         executionNotes: bodyParsed.data.executionNotes,
         executeNow: bodyParsed.data.executeNow,
         cashShiftId: bodyParsed.data.cashShiftId,

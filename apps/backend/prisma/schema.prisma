@@ -173,6 +173,75 @@ enum RefundReasonType {
   OTHER
 }
 
+enum FiscalMode {
+  REQUIRED
+  ON_DEMAND
+  NONE
+}
+
+enum FiscalStatus {
+  NOT_APPLICABLE
+  PENDING
+  AUTHORIZED
+  REJECTED
+  FAILED
+}
+
+enum FiscalProvider {
+  ARCA
+  MANUAL
+  OTHER
+}
+
+enum FiscalDocumentType {
+  INVOICE_B
+  INVOICE_C
+  CREDIT_NOTE_B
+  CREDIT_NOTE_C
+  DEBIT_NOTE_B
+  DEBIT_NOTE_C
+  RECEIPT_X
+}
+
+enum FiscalDocumentStatus {
+  PENDING
+  PROCESSING
+  AUTHORIZED
+  REJECTED
+  CANCELLED
+  FAILED
+}
+
+enum PaymentProvider {
+  MERCADOPAGO
+  BANK_TRANSFER
+  MANUAL_POS
+  OTHER
+}
+
+enum ProviderAccountStatus {
+  ACTIVE
+  INACTIVE
+  ERROR
+}
+
+enum GatewayTransactionType {
+  PAYMENT
+  REFUND
+  CHARGEBACK
+  REVERSAL
+}
+
+enum GatewayTransactionStatus {
+  PENDING
+  IN_PROCESS
+  APPROVED
+  REJECTED
+  CANCELLED
+  REFUNDED
+  FAILED
+}
+
 enum DiscountScope {
   BOOKING
   PRODUCT
@@ -275,6 +344,9 @@ model Club {
   discountPolicies DiscountPolicy[]
   clientDiscountAssignments ClientDiscountAssignment[]
   accountItemDiscounts AccountItemDiscount[]
+  paymentProviderAccounts PaymentProviderAccount[]
+  gatewayTransactions GatewayTransaction[]
+  fiscalDocuments FiscalDocument[]
 }
 
 model Membership {
@@ -500,6 +572,7 @@ model Account {
   payments      Payment[]
   paymentAllocations PaymentAllocation[]
   refunds       Refund[]
+  fiscalDocuments FiscalDocument[]
   ledgerEntries LedgerEntry[]
 
   @@index([clubId])
@@ -649,7 +722,13 @@ model Payment {
   collectorAccountLabel String?
   externalReference String?
   source    PaymentSource @default(POS)
+  providerAccountId String?
+  providerAccount   PaymentProviderAccount? @relation(fields: [providerAccountId], references: [id], onDelete: SetNull)
   idempotencyKey String?
+  fiscalMode FiscalMode @default(ON_DEMAND)
+  fiscalStatus FiscalStatus @default(NOT_APPLICABLE)
+  fiscalDocumentId String? @unique
+  fiscalDocument FiscalDocument? @relation("PaymentFiscalDocument", fields: [fiscalDocumentId], references: [id], onDelete: SetNull)
 
   accountId String
   account   Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
@@ -660,12 +739,16 @@ model Payment {
   cashMovement CashMovement?
   allocations  PaymentAllocation[]
   refunds      Refund[]
+  gatewayTransactions GatewayTransaction[]
   ledgerEntries LedgerEntry[]
 
   @@index([accountId])
   @@index([channel])
   @@index([externalReference])
   @@index([source])
+  @@index([providerAccountId])
+  @@index([fiscalStatus])
+  @@index([fiscalDocumentId])
   @@index([cashShiftId])
   @@index([idempotencyKey])
   @@unique([accountId, idempotencyKey])
@@ -1072,6 +1155,10 @@ model Refund {
   reasonType      RefundReasonType @default(OTHER)
   status          RefundStatus @default(REQUESTED)
   executionMethod RefundExecutionMethod?
+  fiscalMode      FiscalMode @default(ON_DEMAND)
+  fiscalStatus    FiscalStatus @default(NOT_APPLICABLE)
+  fiscalDocumentId String? @unique
+  fiscalDocument   FiscalDocument? @relation("RefundFiscalDocument", fields: [fiscalDocumentId], references: [id], onDelete: SetNull)
 
   paymentId       String
   payment         Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
@@ -1086,6 +1173,7 @@ model Refund {
   cashShift       CashShift? @relation(fields: [cashShiftId], references: [id], onDelete: SetNull)
 
   cashMovement    CashMovement?
+  gatewayTransactions GatewayTransaction[]
   ledgerEntries   LedgerEntry[]
 
   createdByUserId Int?
@@ -1110,4 +1198,119 @@ model Refund {
   @@index([clubId, createdAt])
   @@index([cashShiftId])
   @@index([status, createdAt])
+  @@index([fiscalStatus])
+  @@index([fiscalDocumentId])
+}
+
+model PaymentProviderAccount {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
+
+  clubId        Int
+  club          Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  provider      PaymentProvider
+  status        ProviderAccountStatus @default(ACTIVE)
+  displayName   String
+  isDefault     Boolean  @default(false)
+
+  externalMerchantId String?
+  accountAlias       String?
+  accountCbu         String?
+  accountCvu         String?
+
+  credentialsEncrypted Json?
+  webhookSecretEncrypted String?
+  tokenExpiresAt     DateTime? @db.Timestamptz(3)
+  lastSyncAt         DateTime? @db.Timestamptz(3)
+  lastError          String?
+
+  payments           Payment[]
+  gatewayTransactions GatewayTransaction[]
+
+  @@index([clubId, provider, status])
+  @@index([clubId, isDefault])
+  @@unique([clubId, provider, externalMerchantId])
+}
+
+model GatewayTransaction {
+  id               String   @id @default(cuid())
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
+  occurredAt       DateTime? @db.Timestamptz(3)
+  settledAt        DateTime? @db.Timestamptz(3)
+
+  clubId           Int
+  club             Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  providerAccountId String?
+  providerAccount  PaymentProviderAccount? @relation(fields: [providerAccountId], references: [id], onDelete: SetNull)
+  provider         PaymentProvider
+
+  type             GatewayTransactionType
+  status           GatewayTransactionStatus @default(PENDING)
+
+  externalId       String
+  externalReference String?
+
+  amount           Decimal  @db.Decimal(10, 2)
+  netAmount        Decimal? @db.Decimal(10, 2)
+  feeAmount        Decimal? @db.Decimal(10, 2)
+  currency         String   @default("ARS")
+
+  paymentId        String?
+  payment          Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  refundId         String?
+  refund           Refund?  @relation(fields: [refundId], references: [id], onDelete: SetNull)
+
+  rawPayload       Json?
+  reconciliationNotes String?
+
+  @@index([clubId, createdAt])
+  @@index([providerAccountId, status, createdAt])
+  @@index([paymentId])
+  @@index([refundId])
+  @@unique([provider, externalId])
+}
+
+model FiscalDocument {
+  id               String   @id @default(cuid())
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
+
+  clubId           Int
+  club             Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  accountId        String?
+  account          Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  provider         FiscalProvider @default(ARCA)
+  type             FiscalDocumentType
+  status           FiscalDocumentStatus @default(PENDING)
+
+  pointOfSale      Int?
+  documentNumber   Int?
+  cae              String?
+  caeExpiresAt     DateTime? @db.Timestamptz(3)
+  authorizedAt     DateTime? @db.Timestamptz(3)
+
+  totalAmount      Decimal   @db.Decimal(10, 2)
+  currency         String    @default("ARS")
+
+  requestPayload   Json?
+  responsePayload  Json?
+  errorCode        String?
+  errorMessage     String?
+  retryCount       Int       @default(0)
+  lastAttemptAt    DateTime? @db.Timestamptz(3)
+
+  payment          Payment?  @relation("PaymentFiscalDocument")
+  refund           Refund?   @relation("RefundFiscalDocument")
+
+  @@index([clubId, status, createdAt])
+  @@index([provider, createdAt])
+  @@index([accountId])
+  @@index([cae])
 }

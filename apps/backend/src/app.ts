@@ -23,6 +23,7 @@ import EventRoutes from './routes/EventRoutes';
 import AuditLogRoutes from './routes/AuditLogRoutes';
 import CourtPriceRuleRoutes from './routes/CourtPriceRuleRoutes';
 import PaymentRoutes from './routes/PaymentRoutes';
+import PaymentGatewayRoutes from './routes/PaymentGatewayRoutes';
 
 import { errorHandler } from './middleware/ErrorHandler';
 import { authMiddleware } from './middleware/AuthMiddleware';
@@ -53,7 +54,7 @@ export const createApp = () => {
   const app = express();
   const whatsappDelivery = new WhatsappDeliveryService();
   const allowedOrigins = getAllowedOrigins();
-  type RequestWithId = Request & { requestId?: string };
+  type RequestWithId = Request & { requestId?: string; rawBody?: string };
 
   app.use(helmet({
     contentSecurityPolicy: process.env.NODE_ENV === 'production',
@@ -100,7 +101,12 @@ export const createApp = () => {
     ]
   }));
 
-  app.use(express.json({ limit: '10mb' }));
+  app.use(express.json({
+    limit: '10mb',
+    verify: (req, _res, buf) => {
+      (req as RequestWithId).rawBody = buf.toString('utf8');
+    }
+  }));
   app.use(express.urlencoded({ limit: '10mb', extended: true }));
   app.use(metricsService.middleware);
 
@@ -120,6 +126,7 @@ export const createApp = () => {
   app.use('/api/audit-logs', AuditLogRoutes);
   app.use('/api/court-price-rules', CourtPriceRuleRoutes);
   app.use('/api/payments', PaymentRoutes);
+  app.use('/api/payment-gateways', PaymentGatewayRoutes);
   app.use('/api/clients', ClientRoutes);
 
   app.get('/', (_req: Request, res: Response) => {

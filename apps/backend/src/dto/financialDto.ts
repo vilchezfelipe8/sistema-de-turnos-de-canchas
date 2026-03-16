@@ -11,6 +11,10 @@ export const mapPaymentDto = (payment: any) => ({
   externalReference: payment.externalReference ?? null,
   source: payment.source,
   accountId: payment.accountId,
+  providerAccountId: payment.providerAccountId ?? null,
+  fiscalMode: payment.fiscalMode ?? 'ON_DEMAND',
+  fiscalStatus: payment.fiscalStatus ?? 'NOT_APPLICABLE',
+  fiscalDocumentId: payment.fiscalDocumentId ?? null,
   cashShiftId: payment.cashShiftId ?? null,
   allocations: Array.isArray(payment.allocations)
     ? payment.allocations.map((allocation: any) => ({
@@ -30,6 +34,9 @@ export const mapRefundDto = (refund: any) => ({
   reasonType: refund.reasonType ?? 'OTHER',
   status: refund.status ?? 'EXECUTED',
   executionMethod: refund.executionMethod ?? null,
+  fiscalMode: refund.fiscalMode ?? 'ON_DEMAND',
+  fiscalStatus: refund.fiscalStatus ?? 'NOT_APPLICABLE',
+  fiscalDocumentId: refund.fiscalDocumentId ?? null,
   paymentId: refund.paymentId,
   accountId: refund.accountId,
   clubId: refund.clubId,
@@ -46,6 +53,68 @@ export const mapRefundDto = (refund: any) => ({
   executionNotes: refund.executionNotes ?? null,
   failedAt: refund.failedAt ?? null,
   failedReason: refund.failedReason ?? null
+});
+
+export const mapPaymentProviderAccountDto = (account: any) => ({
+  id: account.id,
+  createdAt: account.createdAt,
+  updatedAt: account.updatedAt,
+  clubId: account.clubId,
+  provider: account.provider,
+  status: account.status,
+  displayName: account.displayName,
+  isDefault: Boolean(account.isDefault),
+  externalMerchantId: account.externalMerchantId ?? null,
+  accountAlias: account.accountAlias ?? null,
+  accountCbu: account.accountCbu ?? null,
+  accountCvu: account.accountCvu ?? null,
+  tokenExpiresAt: account.tokenExpiresAt ?? null,
+  lastSyncAt: account.lastSyncAt ?? null,
+  lastError: account.lastError ?? null
+});
+
+export const mapGatewayTransactionDto = (tx: any) => ({
+  id: tx.id,
+  createdAt: tx.createdAt,
+  updatedAt: tx.updatedAt,
+  clubId: tx.clubId,
+  providerAccountId: tx.providerAccountId ?? null,
+  provider: tx.provider,
+  type: tx.type,
+  status: tx.status,
+  externalId: tx.externalId,
+  externalReference: tx.externalReference ?? null,
+  amount: toNumber(tx.amount),
+  netAmount: tx.netAmount == null ? null : toNumber(tx.netAmount),
+  feeAmount: tx.feeAmount == null ? null : toNumber(tx.feeAmount),
+  currency: tx.currency,
+  paymentId: tx.paymentId ?? null,
+  refundId: tx.refundId ?? null,
+  occurredAt: tx.occurredAt ?? null,
+  settledAt: tx.settledAt ?? null,
+  reconciliationNotes: tx.reconciliationNotes ?? null
+});
+
+export const mapFiscalDocumentDto = (doc: any) => ({
+  id: doc.id,
+  createdAt: doc.createdAt,
+  updatedAt: doc.updatedAt,
+  clubId: doc.clubId,
+  accountId: doc.accountId ?? null,
+  provider: doc.provider,
+  type: doc.type,
+  status: doc.status,
+  pointOfSale: doc.pointOfSale ?? null,
+  documentNumber: doc.documentNumber ?? null,
+  cae: doc.cae ?? null,
+  caeExpiresAt: doc.caeExpiresAt ?? null,
+  authorizedAt: doc.authorizedAt ?? null,
+  totalAmount: toNumber(doc.totalAmount),
+  currency: doc.currency,
+  errorCode: doc.errorCode ?? null,
+  errorMessage: doc.errorMessage ?? null,
+  retryCount: Number(doc.retryCount || 0),
+  lastAttemptAt: doc.lastAttemptAt ?? null
 });
 
 export const mapAccountItemDto = (item: any) => ({

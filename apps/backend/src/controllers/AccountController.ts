@@ -236,6 +236,8 @@ export class AccountController {
         externalReference: z.string().trim().max(120).optional(),
         source: z.enum(['POS', 'ONLINE', 'BACKOFFICE']).optional(),
         cashShiftId: z.string().trim().min(1).optional(),
+        providerAccountId: z.string().trim().min(1).optional(),
+        fiscalMode: z.enum(['REQUIRED', 'ON_DEMAND', 'NONE']).optional(),
         allocations: z.array(z.object({
           accountItemId: z.string().trim().min(1),
           amount: z.preprocess((v) => Number(v), z.number().positive())
@@ -264,6 +266,8 @@ export class AccountController {
         externalReference: bodyParsed.data.externalReference,
         source: bodyParsed.data.source,
         cashShiftId: bodyParsed.data.cashShiftId,
+        providerAccountId: bodyParsed.data.providerAccountId,
+        fiscalMode: bodyParsed.data.fiscalMode,
         createdByUserId: actorUserId,
         idempotencyKey: idempotencyKey.trim(),
         allocations: bodyParsed.data.allocations

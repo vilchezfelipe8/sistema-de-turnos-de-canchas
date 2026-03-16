@@ -1,4 +1,4 @@
-import { CashMovementMethod, PaymentChannel, PaymentMethod, PaymentSource, Prisma } from '@prisma/client';
+import { CashMovementMethod, FiscalMode, PaymentChannel, PaymentMethod, PaymentSource, Prisma } from '@prisma/client';
 import { prisma, prismaRead } from '../prisma';
 import { AccountingService } from './AccountingService';
 import { EventService } from './EventService';
@@ -30,6 +30,8 @@ type CreatePaymentInput = {
   externalReference?: string;
   source?: PaymentSource;
   cashShiftId?: string;
+  providerAccountId?: string;
+  fiscalMode?: FiscalMode;
   createdByUserId?: number;
   idempotencyKey?: string;
   allocations?: Array<{
@@ -239,6 +241,8 @@ export class PaymentService {
     return prisma.$transaction(async (tx) => {
       const source = input.source ?? 'POS';
       const channel = this.resolvePaymentChannel(input.method, input.channel);
+      const fiscalMode = input.fiscalMode ?? 'ON_DEMAND';
+      const fiscalStatus = fiscalMode === 'REQUIRED' ? 'PENDING' : 'NOT_APPLICABLE';
       const collectorAccountLabel = this.normalizeText(input.collectorAccountLabel, 120);
       const externalReference = this.normalizeText(input.externalReference, 120);
       const scopedIdempotencyKey = input.idempotencyKey
@@ -287,6 +291,19 @@ export class PaymentService {
         throw new Error('Cuenta no encontrada');
       }
       if (account.status !== 'OPEN') throw new Error('Solo se pueden registrar pagos en cuentas abiertas');
+
+      if (input.providerAccountId) {
+        const providerAccount = await tx.paymentProviderAccount.findFirst({
+          where: {
+            id: input.providerAccountId,
+            clubId: account.clubId,
+            status: 'ACTIVE'
+          }
+        });
+        if (!providerAccount) {
+          throw new Error('La cuenta proveedora indicada no esta activa o no pertenece al club');
+        }
+      }
 
       if (account.sourceType === 'BOOKING') {
         const booking = await tx.booking.findUnique({
@@ -345,6 +362,9 @@ export class PaymentService {
           collectorAccountLabel,
           externalReference,
           source,
+          providerAccountId: input.providerAccountId ?? null,
+          fiscalMode,
+          fiscalStatus,
           accountId: input.accountId,
           cashShiftId: source === 'POS' ? resolvedCashShiftId : null,
           idempotencyKey: scopedIdempotencyKey
@@ -438,6 +458,21 @@ export class PaymentService {
             clubId: account.clubId,
             title: 'Pago registrado',
             message: `Se registró un pago por $${Number(input.amount).toFixed(2)}.`
+          }
+        }, tx);
+      }
+
+      if (fiscalMode === 'REQUIRED') {
+        await this.outboxService.enqueue({
+          clubId: account.clubId,
+          type: OUTBOX_TYPES.FISCAL_DOCUMENT_ISSUE,
+          aggregateType: 'PAYMENT',
+          aggregateId: payment.id,
+          dedupeKey: `fiscal:payment:${payment.id}:auto`,
+          payload: {
+            clubId: account.clubId,
+            paymentId: payment.id,
+            documentType: 'INVOICE_B'
           }
         }, tx);
       }

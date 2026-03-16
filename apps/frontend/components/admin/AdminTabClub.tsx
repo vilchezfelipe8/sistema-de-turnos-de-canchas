@@ -5,6 +5,7 @@ import { getCourts } from '../../services/CourtService';
 import { ClubAdminService, ClubActivityType, type DiscountApplyMode, type DiscountAmountType, type DiscountPolicyScope, type AuditLogEntry } from '../../services/ClubAdminService';
 import { searchClients } from '../../services/BookingService';
 import AppModal from '../AppModal';
+import ClubPaymentsFiscalSettings from './ClubPaymentsFiscalSettings';
 import { Settings, Globe, Instagram, Facebook, MapPin, Phone, Mail, Lightbulb, Image as ImageIcon, Trash2, Save, AlertTriangle, Check } from 'lucide-react';
 import { normalizeSessionUser } from '../../utils/session';
 import { useRouter } from 'next/router';
@@ -1973,6 +1974,8 @@ export default function AdminTabClub() {
               </div>
             </div>
 
+
+            <ClubPaymentsFiscalSettings />
 
             <div className="bg-white/40 p-4 rounded-2xl border border-white">
               <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-[#347048] mb-2">Historial de cambios recientes</h4>
