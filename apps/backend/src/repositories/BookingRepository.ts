@@ -151,8 +151,7 @@ export class BookingRepository {
                 dbItem.user.lastName,
                 dbItem.user.email,
                 dbItem.user.phoneNumber,
-                dbItem.user.role as Role,
-                (dbItem.user as any).isProfessor ?? false
+                dbItem.user.role as Role
             )
             : null;
         const c = dbItem.court.club;

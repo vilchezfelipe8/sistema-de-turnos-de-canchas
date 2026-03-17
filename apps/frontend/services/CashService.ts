@@ -95,9 +95,13 @@ export class CashService {
     channel?: 'BANK_ACCOUNT' | 'VIRTUAL_WALLET';
     payments?: Array<{ method: 'CASH' | 'TRANSFER' | 'CARD'; channel?: 'BANK_ACCOUNT' | 'VIRTUAL_WALLET'; amount: number }>;
     userId?: number;
+    clientId?: string;
+    createClientIfMissing?: boolean;
     guestName?: string;
     guestPhone?: string;
     guestDni?: string;
+    guestEmail?: string;
+    guestIsProfessor?: boolean;
   }) {
     const idempotencyKey =
       (typeof crypto !== 'undefined' && 'randomUUID' in crypto

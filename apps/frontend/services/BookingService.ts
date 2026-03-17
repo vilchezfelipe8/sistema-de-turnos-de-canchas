@@ -74,8 +74,6 @@ export const createBooking = async (
   options?: {
     asGuest?: boolean;
     guestIdentifier?: string;
-    isProfessor?: boolean;
-    professorOverrideReason?: string;
     durationMinutes?: number;
     applyDiscount?: boolean;
   }
@@ -108,8 +106,6 @@ export const createBooking = async (
       ...(dniValue ? { guestDni: dniValue } : {}),
 
       ...(options?.asGuest ? { asGuest: true } : {}),
-      ...(options?.isProfessor ? { isProfessor: true } : {}),
-      ...(options?.professorOverrideReason ? { professorOverrideReason: options.professorOverrideReason } : {}),
       ...(Number.isFinite(options?.durationMinutes) ? { durationMinutes: options?.durationMinutes } : {}),
       ...(options?.applyDiscount === undefined ? {} : { applyDiscount: options.applyDiscount })
     }),
@@ -384,8 +380,6 @@ export const createFixedBooking = async (
   guestName?: string,
   guestPhone?: string,
   guestDni?: string, // <--- Recibimos el dato (Argumento #7)
-  isProfessor?: boolean,
-  professorOverrideReason?: string,
   options?: {
     allowOverlappingSeries?: boolean;
   }
@@ -412,8 +406,6 @@ export const createFixedBooking = async (
     ...(guestName ? { guestName } : {}),
     ...(guestPhone ? { guestPhone } : {}),
     ...(guestDni ? { guestDni } : {}),
-    ...(isProfessor ? { isProfessor: true } : {}),
-    ...(professorOverrideReason ? { professorOverrideReason } : {}),
     ...(options?.allowOverlappingSeries ? { allowOverlappingSeries: true } : {})
   });
 };

@@ -298,9 +298,13 @@ export class CashService {
         method: 'CASH' | 'TRANSFER' | 'CARD';
         channel?: 'BANK_ACCOUNT' | 'VIRTUAL_WALLET';
         payments?: Array<{ method: 'CASH' | 'TRANSFER' | 'CARD'; channel?: 'BANK_ACCOUNT' | 'VIRTUAL_WALLET'; amount: number }>;
+        clientId?: string;
+        createClientIfMissing?: boolean;
         guestName?: string;
         guestPhone?: string;
         guestDni?: string;
+        guestEmail?: string;
+        guestIsProfessor?: boolean;
         userId?: number;
         idempotencyKey?: string;
     }, actorUserId?: number) {
@@ -373,6 +377,88 @@ export class CashService {
         }
 
         const sale = await prisma.$transaction(async (tx) => {
+            const safeClientId = String(input.clientId || '').trim();
+            let resolvedClientId: string | null = null;
+
+            if (safeClientId) {
+                const existingClient = await tx.client.findFirst({
+                    where: {
+                        id: safeClientId,
+                        clubId: input.clubId
+                    },
+                    select: { id: true }
+                });
+                if (!existingClient) {
+                    throw new Error('Cliente no encontrado para el club');
+                }
+                resolvedClientId = existingClient.id;
+            } else if (input.createClientIfMissing) {
+                const safeGuestName = String(input.guestName || '').trim();
+                if (safeGuestName.length >= 2) {
+                    const normalizedDni = String(input.guestDni || '').replace(/\D/g, '');
+                    const normalizedPhone = String(input.guestPhone || '').replace(/\D/g, '');
+                    const normalizedEmail = String(input.guestEmail || '').trim().toLowerCase();
+
+                    if (normalizedDni.length >= 6) {
+                        const byDni = await tx.client.findFirst({
+                            where: { clubId: input.clubId, dni: normalizedDni },
+                            select: { id: true }
+                        });
+                        if (byDni?.id) {
+                            resolvedClientId = byDni.id;
+                        }
+                    }
+
+                    if (!resolvedClientId && normalizedPhone.length >= 8) {
+                        const byPhone = await tx.client.findFirst({
+                            where: { clubId: input.clubId, phone: normalizedPhone },
+                            select: { id: true }
+                        });
+                        if (byPhone?.id) {
+                            resolvedClientId = byPhone.id;
+                        }
+                    }
+
+                    if (!resolvedClientId && normalizedEmail.length > 3) {
+                        const byEmail = await tx.client.findFirst({
+                            where: { clubId: input.clubId, email: normalizedEmail },
+                            select: { id: true }
+                        });
+                        if (byEmail?.id) {
+                            resolvedClientId = byEmail.id;
+                        }
+                    }
+
+                    if (!resolvedClientId) {
+                        const byName = await tx.client.findFirst({
+                            where: {
+                                clubId: input.clubId,
+                                name: { equals: safeGuestName, mode: 'insensitive' }
+                            },
+                            select: { id: true }
+                        });
+                        if (byName?.id) {
+                            resolvedClientId = byName.id;
+                        }
+                    }
+
+                    if (!resolvedClientId) {
+                        const createdClient = await tx.client.create({
+                            data: {
+                                clubId: input.clubId,
+                                name: safeGuestName,
+                                ...(normalizedPhone.length >= 8 ? { phone: normalizedPhone } : {}),
+                                ...(normalizedDni.length >= 6 ? { dni: normalizedDni } : {}),
+                                ...(normalizedEmail.length > 3 ? { email: normalizedEmail } : {}),
+                                isProfessor: Boolean(input.guestIsProfessor)
+                            },
+                            select: { id: true }
+                        });
+                        resolvedClientId = createdClient.id;
+                    }
+                }
+            }
+
             const sourceId = `product-sale-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
             const account = await tx.account.create({

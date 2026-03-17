@@ -329,11 +329,10 @@ export default function AdminTabBookings() {
     time: '',
     durationMinutes: DEFAULT_DURATION_MINUTES,
     isFixed: false,
-    isProfessor: false,
-    professorOverrideReason: '',
     dayOfWeek: '1',
     startDateBase: getTodayLocalDate()
   });
+  const [selectedClientIsProfessor, setSelectedClientIsProfessor] = useState(false);
 
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -357,11 +356,11 @@ export default function AdminTabBookings() {
 
   const manualDurationOptions = useMemo(() => {
     const options = selectedActivityDurations;
-    if (manualBooking.isProfessor && !options.includes(60)) {
+    if (selectedClientIsProfessor && !options.includes(60)) {
       return [60, ...options];
     }
     return options;
-  }, [manualBooking.isProfessor, selectedActivityDurations]);
+  }, [selectedClientIsProfessor, selectedActivityDurations]);
 
   const adminSimpleMaxDate = useMemo(() => {
     if (clubBookingConfig.allowAdminSkipSimpleAdvanceLimit) return null;
@@ -575,6 +574,7 @@ export default function AdminTabBookings() {
   const handleGuestFirstNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setManualBooking({ ...manualBooking, guestFirstName: value });
+    setSelectedClientIsProfessor(false);
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     if (value.length >= 2) {
       searchTimeoutRef.current = setTimeout(async () => {
@@ -607,9 +607,9 @@ export default function AdminTabBookings() {
       guestFirstName: fName,
       guestLastName: lName,
       guestPhone: rawPhone,
-      guestDni: client.dni || client.dniNumber || client.document || '',
-      isProfessor: !!client.isProfessor
+      guestDni: client.dni || client.dniNumber || client.document || ''
     });
+    setSelectedClientIsProfessor(Boolean(client.isProfessor));
     setShowDropdown(false);
   };
 
@@ -1000,12 +1000,10 @@ export default function AdminTabBookings() {
     const lastName = manualBooking.guestLastName.trim();
     const dni = manualBooking.guestDni?.trim();
     const phone = manualBooking.guestPhone?.trim();
-    const professorOverrideReason = String(manualBooking.professorOverrideReason || '').trim();
     const selectedActivityId = Number(selectedManualCourt?.activityTypeId || selectedManualCourt?.activityType?.id);
     if (!manualBooking.courtId || !manualBooking.time) { showError('Faltan datos de cancha u horario'); return; }
     if (!Number.isInteger(selectedActivityId) || selectedActivityId <= 0) { showError('La cancha seleccionada no tiene actividad válida'); return; }
     if (!firstName || !lastName || !dni || !phone) { showError('Nombre, Apellido, DNI y Teléfono son obligatorios'); return; }
-    if (manualBooking.isProfessor && professorOverrideReason.length < 10) { showError('Para ajuste de profesor, el motivo debe tener al menos 10 caracteres'); return; }
     if (!manualBooking.isFixed && adminSimpleMaxDate) {
       const selectedBase = parseLocalDate(manualBooking.startDateBase || getTodayLocalDate());
       selectedBase.setHours(0, 0, 0, 0);
@@ -1022,8 +1020,9 @@ export default function AdminTabBookings() {
     const resetManualForm = () => {
       setManualBooking({
         guestFirstName: '', guestLastName: '', guestPhone: '', guestDni: '',
-        courtId: '', time: '', durationMinutes: manualDurationOptions[0] ?? DEFAULT_DURATION_MINUTES, isFixed: false, isProfessor: false, professorOverrideReason: '', dayOfWeek: '1', startDateBase: getTodayLocalDate()
+        courtId: '', time: '', durationMinutes: manualDurationOptions[0] ?? DEFAULT_DURATION_MINUTES, isFixed: false, dayOfWeek: '1', startDateBase: getTodayLocalDate()
       });
+      setSelectedClientIsProfessor(false);
     };
     const submitFixedBooking = async (allowOverlappingSeries = false) => {
       const fixedResult = await createFixedBooking(
@@ -1034,8 +1033,6 @@ export default function AdminTabBookings() {
         guestName,
         phoneToSend || undefined,
         dni,
-        manualBooking.isProfessor,
-        professorOverrideReason || undefined,
         { allowOverlappingSeries }
       );
 
@@ -1085,8 +1082,6 @@ export default function AdminTabBookings() {
               {
                 asGuest: true,
                 guestIdentifier: `admin_${dni}_${Date.now()}`,
-                isProfessor: manualBooking.isProfessor,
-                professorOverrideReason: professorOverrideReason || undefined,
                 durationMinutes: manualBooking.durationMinutes
               }
             );
@@ -1524,28 +1519,7 @@ export default function AdminTabBookings() {
                 <input type="checkbox" checked={manualBooking.isFixed} onChange={(e) => setManualBooking({ ...manualBooking, isFixed: e.target.checked })} className="hidden" />
                 <span className="text-sm uppercase tracking-wide">¿Es un turno fijo?</span>
               </label>
-              <label className="flex items-center gap-3 text-[#347048] font-black cursor-pointer group">
-                <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${manualBooking.isProfessor ? 'bg-[#926699] border-[#926699]' : 'border-[#347048]/20 bg-white'}`}>
-                  {manualBooking.isProfessor && <Check size={16} className="text-[#347048]" strokeWidth={4} />}
-                </div>
-                <input type="checkbox" checked={manualBooking.isProfessor} onChange={(e) => setManualBooking({ ...manualBooking, isProfessor: e.target.checked })} className="hidden" />
-                <span className="text-sm uppercase tracking-wide">Profesor (ajuste operativo de duración)</span>
-              </label>
             </div>
-
-            {manualBooking.isProfessor ? (
-              <div className="w-full sm:max-w-md">
-                <label className="block text-[10px] font-black text-[#347048]/50 mb-1 uppercase tracking-widest">Motivo del ajuste</label>
-                <input
-                  type="text"
-                  minLength={10}
-                  value={manualBooking.professorOverrideReason}
-                  onChange={(e) => setManualBooking({ ...manualBooking, professorOverrideReason: e.target.value })}
-                  className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black text-sm transition-all"
-                  placeholder="Ej: Profesor del club, excepción comercial"
-                />
-              </div>
-            ) : null}
 
             <button type="submit" className="w-full sm:w-auto px-10 py-4 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-2xl transition-all shadow-xl shadow-[#347048]/20 uppercase tracking-widest text-sm flex items-center justify-center gap-3 group">
               {manualBooking.isFixed ? <RefreshCw size={18} className="group-hover:rotate-180 transition-transform duration-500" /> : <CalendarIcon size={18} />}

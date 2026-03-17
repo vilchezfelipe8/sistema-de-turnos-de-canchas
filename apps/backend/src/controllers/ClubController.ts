@@ -421,4 +421,79 @@ export class ClubController {
         res.status(500).json({ error: error.message });
     }
 };
+
+    createClubClient = async (req: Request, res: Response) => {
+        try {
+            const club = (req as any).club;
+            if (!club?.id) return res.status(404).json({ error: 'Club no encontrado' });
+
+            const bodySchema = z.object({
+                name: z.string().trim().min(2),
+                phone: z.string().trim().optional().nullable(),
+                dni: z.string().trim().optional().nullable(),
+                email: z.string().trim().email().optional().nullable(),
+                isProfessor: z.boolean().optional()
+            });
+            const parsed = bodySchema.safeParse(req.body);
+            if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+
+            const client = await this.clubService.createClient(Number(club.id), {
+                name: sanitizeString(parsed.data.name, 120),
+                phone: parsed.data.phone ? sanitizeString(parsed.data.phone, 40) : null,
+                dni: parsed.data.dni ? sanitizeString(parsed.data.dni, 40) : null,
+                email: parsed.data.email ? sanitizeString(parsed.data.email, 120).toLowerCase() : null,
+                isProfessor: Boolean(parsed.data.isProfessor)
+            });
+            return res.status(201).json(client);
+        } catch (error: any) {
+            return res.status(400).json({ error: error?.message || 'No se pudo crear el cliente' });
+        }
+    };
+
+    updateClubClient = async (req: Request, res: Response) => {
+        try {
+            const club = (req as any).club;
+            if (!club?.id) return res.status(404).json({ error: 'Club no encontrado' });
+
+            const paramsSchema = z.object({ clientId: z.string().trim().min(1) });
+            const bodySchema = z.object({
+                name: z.string().trim().min(2),
+                phone: z.string().trim().optional().nullable(),
+                dni: z.string().trim().optional().nullable(),
+                email: z.string().trim().email().optional().nullable(),
+                isProfessor: z.boolean().optional()
+            });
+            const paramsParsed = paramsSchema.safeParse(req.params);
+            const bodyParsed = bodySchema.safeParse(req.body);
+            if (!paramsParsed.success) return res.status(400).json({ error: paramsParsed.error.format() });
+            if (!bodyParsed.success) return res.status(400).json({ error: bodyParsed.error.format() });
+
+            const client = await this.clubService.updateClient(Number(club.id), paramsParsed.data.clientId, {
+                name: sanitizeString(bodyParsed.data.name, 120),
+                phone: bodyParsed.data.phone ? sanitizeString(bodyParsed.data.phone, 40) : null,
+                dni: bodyParsed.data.dni ? sanitizeString(bodyParsed.data.dni, 40) : null,
+                email: bodyParsed.data.email ? sanitizeString(bodyParsed.data.email, 120).toLowerCase() : null,
+                isProfessor: Boolean(bodyParsed.data.isProfessor)
+            });
+            return res.json(client);
+        } catch (error: any) {
+            return res.status(400).json({ error: error?.message || 'No se pudo actualizar el cliente' });
+        }
+    };
+
+    deleteClubClient = async (req: Request, res: Response) => {
+        try {
+            const club = (req as any).club;
+            if (!club?.id) return res.status(404).json({ error: 'Club no encontrado' });
+
+            const paramsSchema = z.object({ clientId: z.string().trim().min(1) });
+            const paramsParsed = paramsSchema.safeParse(req.params);
+            if (!paramsParsed.success) return res.status(400).json({ error: paramsParsed.error.format() });
+
+            await this.clubService.deleteClient(Number(club.id), paramsParsed.data.clientId);
+            return res.status(204).send();
+        } catch (error: any) {
+            return res.status(400).json({ error: error?.message || 'No se pudo eliminar el cliente' });
+        }
+    };
 }

@@ -81,6 +81,10 @@ export class CashController {
         guestName: z.string().trim().optional(),
         guestPhone: z.string().trim().optional(),
         guestDni: z.string().trim().optional(),
+        guestEmail: z.string().trim().email().optional(),
+        guestIsProfessor: z.boolean().optional(),
+        clientId: z.string().trim().optional(),
+        createClientIfMissing: z.boolean().optional(),
         userId: z.preprocess((v) => {
           if (v == null || v === '') return undefined;
           const n = Number(v);
@@ -104,6 +108,10 @@ export class CashController {
         guestName: parsed.data.guestName ? sanitizeString(parsed.data.guestName, 200) : undefined,
         guestPhone: parsed.data.guestPhone ? sanitizeString(parsed.data.guestPhone, 30) : undefined,
         guestDni: parsed.data.guestDni ? sanitizeString(parsed.data.guestDni, 20) : undefined,
+        guestEmail: parsed.data.guestEmail ? sanitizeString(parsed.data.guestEmail, 120).toLowerCase() : undefined,
+        guestIsProfessor: Boolean(parsed.data.guestIsProfessor),
+        clientId: parsed.data.clientId ? sanitizeString(parsed.data.clientId, 64) : undefined,
+        createClientIfMissing: Boolean(parsed.data.createClientIfMissing),
         userId: parsed.data.userId,
         idempotencyKey
       } as any, actorUserId);

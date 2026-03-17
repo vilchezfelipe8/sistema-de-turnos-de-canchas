@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ClientService } from '../services/ClientService';
 import { getAccountById, registerPayment } from '../services/AccountService';
-import { Phone, DollarSign, Users, Trophy, Search, X, CheckCircle, Receipt } from 'lucide-react';
+import { Phone, DollarSign, Users, Trophy, Search, X, CheckCircle, Receipt, Plus, Pencil, Trash2 } from 'lucide-react';
 import PaymentCalculator, { type PaymentCalculatorResult } from './PaymentCalculator';
 import AppModal from './AppModal';
 import { getActiveClubSlug, normalizeSessionUser } from '../utils/session';
@@ -186,6 +186,15 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const [mounted, setMounted] = useState(false);
   const debtBackdropMouseDownRef = useRef(false);
   const historyBackdropMouseDownRef = useRef(false);
+  const [showClientFormModal, setShowClientFormModal] = useState(false);
+  const [clientFormSubmitting, setClientFormSubmitting] = useState(false);
+  const [clientToEdit, setClientToEdit] = useState<any | null>(null);
+  const [clientForm, setClientForm] = useState({ name: '', phone: '', dni: '', email: '', isProfessor: false });
+  const [deleteClientModal, setDeleteClientModal] = useState<{ show: boolean; client: any | null; submitting: boolean }>({
+    show: false,
+    client: null,
+    submitting: false
+  });
 
   // --- LÓGICA DEL APPMODAL ---
   const [modalState, setModalState] = useState<{
@@ -197,11 +206,14 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const closeModal = () => setModalState((prev) => ({ ...prev, show: false, onConfirm: undefined, onCancel: undefined }));
   const showInfo = (message: ReactNode, title = 'Información') => setModalState({ show: true, title, message, cancelText: '', confirmText: 'OK' });
   const showError = (message: ReactNode) => setModalState({ show: true, title: 'Error', message, isWarning: true, cancelText: '', confirmText: 'Aceptar' });
+  const resolveClubSlug = useCallback(() => {
+    return clubSlug || getActiveClubSlug(normalizeSessionUser(null)) || '';
+  }, [clubSlug]);
 
   const loadClients = useCallback(async () => {
     try {
       setLoading(true);
-      const resolvedSlug = clubSlug || getActiveClubSlug(normalizeSessionUser(null)) || undefined;
+      const resolvedSlug = resolveClubSlug() || undefined;
       const data = await ClientService.listDebtors(resolvedSlug);
       setClients(data);
       return data;
@@ -211,7 +223,96 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
     }
     finally { setLoading(false); }
     return null;
-  }, [clubSlug]);
+  }, [resolveClubSlug]);
+
+  const openCreateClientModal = () => {
+    setClientToEdit(null);
+    setClientForm({ name: '', phone: '', dni: '', email: '', isProfessor: false });
+    setShowClientFormModal(true);
+  };
+
+  const openEditClientModal = (client: any) => {
+    setClientToEdit(client);
+    setClientForm({
+      name: String(client?.name || ''),
+      phone: String(client?.phone || ''),
+      dni: String(client?.dni && client.dni !== '-' ? client.dni : ''),
+      email: String(client?.email || ''),
+      isProfessor: Boolean(client?.isProfessor)
+    });
+    setShowClientFormModal(true);
+  };
+
+  const submitClientForm = async () => {
+    const slug = resolveClubSlug();
+    if (!slug) {
+      showError('No se pudo resolver el club activo para guardar el cliente.');
+      return;
+    }
+
+    const name = String(clientForm.name || '').trim();
+    const phone = String(clientForm.phone || '').trim();
+    const dni = String(clientForm.dni || '').trim();
+    const email = String(clientForm.email || '').trim();
+
+    if (name.length < 2) {
+      showError('Ingresá un nombre válido.');
+      return;
+    }
+    if (phone.length > 0 && phone.length < 7) {
+      showError('Si cargás teléfono, debe tener al menos 7 dígitos.');
+      return;
+    }
+    if (dni.length > 0 && dni.length < 6) {
+      showError('Si cargás DNI, debe tener al menos 6 dígitos.');
+      return;
+    }
+
+    try {
+      setClientFormSubmitting(true);
+      const payload = {
+        name,
+        phone: phone || undefined,
+        dni: dni || undefined,
+        email: email || undefined,
+        isProfessor: Boolean(clientForm.isProfessor)
+      };
+      if (clientToEdit?.id) {
+        await ClientService.updateByClubSlug(slug, String(clientToEdit.id), payload);
+      } else {
+        await ClientService.createByClubSlug(slug, payload);
+      }
+      setShowClientFormModal(false);
+      await loadClients();
+      showInfo(clientToEdit?.id ? 'Cliente actualizado correctamente.' : 'Cliente creado correctamente.', 'Clientes');
+    } catch (error: any) {
+      showError(error?.message || 'No se pudo guardar el cliente.');
+    } finally {
+      setClientFormSubmitting(false);
+    }
+  };
+
+  const askDeleteClient = (client: any) => {
+    setDeleteClientModal({ show: true, client, submitting: false });
+  };
+
+  const confirmDeleteClient = async () => {
+    const slug = resolveClubSlug();
+    if (!slug || !deleteClientModal.client?.id) {
+      setDeleteClientModal({ show: false, client: null, submitting: false });
+      return;
+    }
+    try {
+      setDeleteClientModal((prev) => ({ ...prev, submitting: true }));
+      await ClientService.deleteByClubSlug(slug, String(deleteClientModal.client.id));
+      setDeleteClientModal({ show: false, client: null, submitting: false });
+      await loadClients();
+      showInfo('Cliente eliminado correctamente.', 'Clientes');
+    } catch (error: any) {
+      setDeleteClientModal((prev) => ({ ...prev, submitting: false }));
+      showError(error?.message || 'No se pudo eliminar el cliente.');
+    }
+  };
 
   useEffect(() => {
     loadClients();
@@ -362,9 +463,19 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
       {/* TABLA + BUSCADOR */}
       <div className="bg-white/40 backdrop-blur-sm border-2 border-white rounded-[2rem] p-6 overflow-hidden shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8 px-2">
-            <h2 className="text-xl font-black text-[#347048] flex items-center gap-3 uppercase italic tracking-tight">
-               <Receipt className="text-[#B9CF32]" /> Directorio de Clientes
-            </h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-xl font-black text-[#347048] flex items-center gap-3 uppercase italic tracking-tight">
+                <Receipt className="text-[#B9CF32]" /> Directorio de Clientes
+              </h2>
+              <button
+                type="button"
+                onClick={openCreateClientModal}
+                className="h-9 w-9 rounded-lg bg-white border border-[#347048]/20 text-[#347048] hover:bg-[#347048]/5 transition-all shadow-sm flex items-center justify-center"
+                title="Nuevo cliente"
+              >
+                <Plus size={14} />
+              </button>
+            </div>
             <div className="relative w-full md:w-80 group">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none transition-colors group-focus-within:text-[#B9CF32] text-[#347048]/40"><Search size={18} strokeWidth={2.5} /></div>
                 <input type="text" className="block w-full pl-12 pr-4 py-3 border-2 border-transparent focus:border-[#B9CF32] rounded-xl bg-white text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none transition-all shadow-sm" placeholder="Buscar por Nombre, DNI o Tel..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
@@ -403,7 +514,14 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                         <tr key={client.id} className="bg-white/80 hover:bg-white transition-all shadow-sm group">
                             
                             <td className="px-6 py-4 font-black text-[#347048] first:rounded-l-2xl uppercase tracking-tight italic">
-                              {client.name}
+                              <div className="flex items-center gap-2">
+                                <span>{client.name}</span>
+                                {client.isProfessor ? (
+                                  <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-[#926699]/10 text-[#926699] border border-[#926699]/20 not-italic">
+                                    Profesor
+                                  </span>
+                                ) : null}
+                              </div>
                             </td>
                             
                             <td className="px-6 py-4">
@@ -435,9 +553,39 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                             
                             <td className="px-6 py-4 last:rounded-r-2xl">
                               <div className="flex flex-nowrap justify-end gap-3">
-                                <button onClick={() => setSelectedClientHistory(client)} className="text-[10px] font-black uppercase tracking-widest bg-white border-2 border-[#347048]/10 hover:border-[#347048] text-[#347048] px-4 py-2 rounded-xl transition shadow-sm">Historial</button>
+                                <button
+                                  type="button"
+                                  onClick={() => openEditClientModal(client)}
+                                  className="h-8 w-8 rounded-lg bg-white border border-[#926699]/20 hover:bg-[#926699]/5 text-[#926699] transition flex items-center justify-center"
+                                  title="Editar cliente"
+                                >
+                                  <Pencil size={12} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => askDeleteClient(client)}
+                                  className="h-8 w-8 rounded-lg bg-white border border-red-200 hover:bg-red-50 text-red-600 transition flex items-center justify-center"
+                                  title="Dar de baja"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedClientHistory(client)}
+                                  className="h-8 w-8 rounded-lg bg-white border border-[#347048]/15 hover:bg-[#347048]/5 text-[#347048] transition flex items-center justify-center"
+                                  title="Ver historial"
+                                >
+                                  <Receipt size={12} />
+                                </button>
                                 {client.totalDebt > 0 && (
-                                  <button onClick={() => setSelectedDebtor(client)} className="text-[10px] font-black uppercase tracking-widest bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-xl transition shadow-lg shadow-red-900/20 flex items-center gap-2"><DollarSign size={14} strokeWidth={3}/> Saldar</button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedDebtor(client)}
+                                    className="h-8 w-8 rounded-lg bg-red-600 hover:bg-red-500 text-white transition flex items-center justify-center shadow-sm"
+                                    title="Saldar deuda"
+                                  >
+                                    <DollarSign size={13} strokeWidth={3} />
+                                  </button>
                                 )}
                               </div>
                             </td>
@@ -747,6 +895,106 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
             </div>
           </div>
         ) : null}
+      />
+      <AppModal
+        show={showClientFormModal}
+        title={clientToEdit ? 'Editar cliente' : 'Alta de cliente'}
+        confirmText={clientFormSubmitting ? 'Guardando...' : (clientToEdit ? 'Guardar cambios' : 'Crear cliente')}
+        cancelText="Cancelar"
+        confirmDisabled={
+          clientFormSubmitting ||
+          String(clientForm.name || '').trim().length < 2 ||
+          (String(clientForm.phone || '').trim().length > 0 && String(clientForm.phone || '').trim().length < 7) ||
+          (String(clientForm.dni || '').trim().length > 0 && String(clientForm.dni || '').trim().length < 6)
+        }
+        onClose={() => {
+          if (clientFormSubmitting) return;
+          setShowClientFormModal(false);
+        }}
+        onCancel={() => {
+          if (clientFormSubmitting) return;
+          setShowClientFormModal(false);
+        }}
+        onConfirm={() => {
+          if (clientFormSubmitting) return;
+          void submitClientForm();
+        }}
+        message={(
+          <div className="space-y-3">
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60 mb-1">Nombre completo</label>
+              <input
+                type="text"
+                value={clientForm.name}
+                onChange={(e) => setClientForm((prev) => ({ ...prev, name: e.target.value }))}
+                className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
+                placeholder="Nombre y apellido"
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60 mb-1">Teléfono</label>
+                <input
+                  type="text"
+                  value={clientForm.phone}
+                  onChange={(e) => setClientForm((prev) => ({ ...prev, phone: e.target.value }))}
+                  className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
+                  placeholder="Ej: 3511234567"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60 mb-1">DNI</label>
+                <input
+                  type="text"
+                  value={clientForm.dni}
+                  onChange={(e) => setClientForm((prev) => ({ ...prev, dni: e.target.value }))}
+                  className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
+                  placeholder="Ej: 30111222"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60 mb-1">Email</label>
+              <input
+                type="email"
+                value={clientForm.email}
+                onChange={(e) => setClientForm((prev) => ({ ...prev, email: e.target.value }))}
+                className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
+                placeholder="cliente@email.com"
+              />
+            </div>
+            <label className="inline-flex items-center gap-2 text-xs font-black text-[#347048]">
+              <input
+                type="checkbox"
+                checked={Boolean(clientForm.isProfessor)}
+                onChange={(e) => setClientForm((prev) => ({ ...prev, isProfessor: e.target.checked }))}
+                className="h-4 w-4 rounded border-[#347048]/30"
+              />
+              Es profesor
+            </label>
+          </div>
+        )}
+      />
+
+      <AppModal
+        show={deleteClientModal.show}
+        title="Eliminar cliente"
+        isWarning
+        confirmText={deleteClientModal.submitting ? 'Eliminando...' : 'Sí, eliminar'}
+        cancelText="Cancelar"
+        onClose={() => {
+          if (deleteClientModal.submitting) return;
+          setDeleteClientModal({ show: false, client: null, submitting: false });
+        }}
+        onCancel={() => {
+          if (deleteClientModal.submitting) return;
+          setDeleteClientModal({ show: false, client: null, submitting: false });
+        }}
+        onConfirm={() => {
+          if (deleteClientModal.submitting) return;
+          void confirmDeleteClient();
+        }}
+        message={`Vas a eliminar a ${deleteClientModal.client?.name || 'este cliente'}. Esta acción no se puede deshacer.`}
       />
       <AppModal 
         show={modalState.show} 

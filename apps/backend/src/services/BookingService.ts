@@ -46,7 +46,6 @@ type CreateBookingOptions = {
     skipAccountCreation?: boolean;
     skipAdvanceLimit?: boolean;
     applyDiscount?: boolean;
-    professorOverrideReason?: string;
     actorUserId?: number | null;
 };
 
@@ -431,6 +430,52 @@ export class BookingService {
         }
 
         return null;
+    }
+
+    private async resolveClientProfessorStatus(input: {
+        clubId: number;
+        userId?: number | null;
+        guestEmail?: string;
+        guestPhone?: string;
+        guestDni?: string;
+    }) {
+        const safeUserId = Number(input.userId || 0);
+        if (safeUserId > 0) {
+            const byUser = await prisma.client.findFirst({
+                where: { clubId: input.clubId, userId: safeUserId },
+                select: { isProfessor: true }
+            });
+            return Boolean(byUser?.isProfessor);
+        }
+
+        const safeDni = this.normalizeDni(input.guestDni);
+        if (safeDni) {
+            const byDni = await prisma.client.findFirst({
+                where: { clubId: input.clubId, dni: safeDni },
+                select: { isProfessor: true }
+            });
+            if (byDni) return Boolean(byDni.isProfessor);
+        }
+
+        const safePhone = this.normalizePhone(input.guestPhone);
+        if (safePhone) {
+            const byPhone = await prisma.client.findFirst({
+                where: { clubId: input.clubId, phone: safePhone },
+                select: { isProfessor: true }
+            });
+            if (byPhone) return Boolean(byPhone.isProfessor);
+        }
+
+        const safeEmail = String(input.guestEmail || '').trim().toLowerCase();
+        if (safeEmail) {
+            const byEmail = await prisma.client.findFirst({
+                where: { clubId: input.clubId, email: safeEmail },
+                select: { isProfessor: true }
+            });
+            if (byEmail) return Boolean(byEmail.isProfessor);
+        }
+
+        return false;
     }
 
     async quoteBookingPrice(input: BookingPriceQuoteInput): Promise<BookingPriceQuote> {
@@ -1034,7 +1079,6 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         courtId: number,
         startDateTime: Date,
         activityId: number,
-        isProfessorOverride: boolean = false,
         durationMinutes?: number,
         createdByAdmin = false,
         options?: CreateBookingOptions
@@ -1071,21 +1115,22 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         if (activity.clubId !== (court as any).club.id) {
             throw new Error('La actividad no pertenece al club de la cancha');
         }
+        const bookingClubId = (court as any).club.id;
+        const isProfessorClient = await this.resolveClientProfessorStatus({
+            clubId: bookingClubId,
+            userId: user?.id ?? null,
+            guestEmail,
+            guestPhone,
+            guestDni
+        });
         const clubConfig = this.resolveClubConfig((court as any)?.club);
         const activitySchedule = this.resolveActivitySchedule(activity);
         const professorOverrideMinutes = Number(clubConfig?.professorDurationOverrideMinutes ?? 60);
         const canProfessorDurationOverride =
-            Boolean(isProfessorOverride) &&
+            Boolean(isProfessorClient) &&
             Boolean(clubConfig?.professorDurationOverrideEnabled) &&
             Number.isFinite(professorOverrideMinutes) &&
             professorOverrideMinutes > 0;
-        if (isProfessorOverride && !canProfessorDurationOverride) {
-            throw new Error('PROFESSOR_DURATION_OVERRIDE_DISABLED');
-        }
-        const professorOverrideReason = String(options?.professorOverrideReason || '').trim();
-        if (isProfessorOverride && !professorOverrideReason) {
-            throw new Error('PROFESSOR_OVERRIDE_REASON_REQUIRED');
-        }
         if (
             clubConfig?.bookingConfirmationMode === 'DEPOSIT_REQUIRED' &&
             (!Number.isFinite(Number(clubConfig?.bookingDepositPercent)) || Number(clubConfig?.bookingDepositPercent) <= 0)
@@ -1196,8 +1241,6 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 // Si algo falla en el parseo, seguimos cobrando solo el precio base
             }
         }
-
-        const bookingClubId = (court as any).club.id;
 
         const created = await prisma.$transaction(async (tx: any) => {
             const overlapping = await tx.booking.findMany({
@@ -1344,27 +1387,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 startDateTime: created.startDateTime,
                 endDateTime: created.endDateTime,
                 amount: Number(created.price || 0),
-                professorOverrideApplied: Boolean(isProfessorOverride),
-                professorOverrideReason: professorOverrideReason || null,
+                professorOverrideApplied: canProfessorDurationOverride,
+                professorFromClient: Boolean(isProfessorClient),
                 professorDurationOverrideMinutes: canProfessorDurationOverride ? professorOverrideMinutes : null
             }
         });
-
-        if (isProfessorOverride) {
-            await this.auditLogService.create({
-                clubId: (court as any).club.id,
-                userId: options?.actorUserId ?? user?.id ?? null,
-                entity: 'Booking',
-                entityId: String(created.id),
-                action: 'BOOKING_PROFESSOR_OVERRIDE',
-                payload: {
-                    reason: professorOverrideReason,
-                    requestedDurationMinutes: effectiveDuration,
-                    overrideMinutes: professorOverrideMinutes,
-                    overrideEnabledInClub: Boolean(clubConfig?.professorDurationOverrideEnabled)
-                }
-            });
-        }
 
         return this.bookingRepo.mapToEntity(created);
     }
@@ -2209,9 +2236,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         guestName?: string,
         guestPhone?: string | number, // Agregado para recibir el dato del front
         guestDni?: string,
-        isProfessorOverride: boolean = false,
         clubId?: number,
-        professorOverrideReason?: string,
         actorUserId?: number | null,
         allowOverlappingSeries: boolean = false
     ) {
@@ -2240,20 +2265,20 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         if ((activity.clubId ?? null) !== ((court as any)?.club?.id ?? null)) {
             throw new Error("ACTIVITY_CLUB_MISMATCH");
         }
+        const fixedClubId = (court as any)?.club?.id;
+        const isProfessorClient = await this.resolveClientProfessorStatus({
+            clubId: fixedClubId,
+            userId: user?.id ?? null,
+            guestPhone: safePhone,
+            guestDni
+        });
         const clubConfigForFixed = this.resolveClubConfig((court as any)?.club);
         const professorOverrideMinutes = Number(clubConfigForFixed?.professorDurationOverrideMinutes ?? 60);
         const canProfessorDurationOverride =
-            Boolean(isProfessorOverride) &&
+            Boolean(isProfessorClient) &&
             Boolean(clubConfigForFixed?.professorDurationOverrideEnabled) &&
             Number.isFinite(professorOverrideMinutes) &&
             professorOverrideMinutes > 0;
-        if (isProfessorOverride && !canProfessorDurationOverride) {
-            throw new Error('PROFESSOR_DURATION_OVERRIDE_DISABLED');
-        }
-        const normalizedProfessorOverrideReason = String(professorOverrideReason || '').trim();
-        if (isProfessorOverride && !normalizedProfessorOverrideReason) {
-            throw new Error('PROFESSOR_OVERRIDE_REASON_REQUIRED');
-        }
         const duration = canProfessorDurationOverride ? professorOverrideMinutes : (activity ? activity.defaultDurationMinutes : 60);
         this.assertValidDuration(duration);
         const fixedConfig = this.resolveFixedBookingConfig(clubConfigForFixed, activity ?? null);
@@ -2477,13 +2502,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         courtId,
                         currentStart,
                         activityId,
-                        isProfessorOverride,
                         duration,
                         true,
                         {
                             skipAccountCreation: true,
                             skipAdvanceLimit: true,
-                            professorOverrideReason: normalizedProfessorOverrideReason,
                             actorUserId: actorUserId ?? null
                         }
                     );
@@ -2534,21 +2557,6 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             activityId,
             clubId: (court as any).club.id
         });
-
-        if (isProfessorOverride) {
-            await this.auditLogService.create({
-                clubId: (court as any).club.id,
-                userId: actorUserId ?? user?.id ?? null,
-                entity: 'FixedBooking',
-                entityId: String(fixedBooking.id),
-                action: 'FIXED_BOOKING_PROFESSOR_OVERRIDE',
-                payload: {
-                    reason: normalizedProfessorOverrideReason,
-                    overrideMinutes: professorOverrideMinutes,
-                    generatedCount
-                }
-            });
-        }
 
         return {
             fixedBookingId: fixedBooking.id,

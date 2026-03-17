@@ -150,6 +150,7 @@ export class ClientDebtService {
       dni: client.dni || null,
       email: client.email,
       phoneNumber: client.phone,
+      isProfessor: Boolean((client as any).isProfessor),
       totalBookings: client._count.bookings,
       totalDebt: (accountsByClient.get(client.id) || []).reduce((sum, account) => sum + Number(account.amount || 0), 0)
     }));

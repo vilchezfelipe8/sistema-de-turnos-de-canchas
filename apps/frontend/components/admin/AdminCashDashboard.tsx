@@ -7,6 +7,7 @@ import { CashService } from '../../services/CashService';
 import { formatDateTime24, formatTime24 } from '../../utils/dateTime';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import AppModal from '../AppModal';
+import PaymentCalculator, { type PaymentCalculatorResult } from '../PaymentCalculator';
 
 // Tipos
 interface Movement {
@@ -101,10 +102,10 @@ interface CashShiftCloseReport {
   };
 }
 
-type SplitSalePaymentDraft = {
+type SalePayment = {
   method: 'CASH' | 'TRANSFER' | 'CARD';
   channel?: 'BANK_ACCOUNT' | 'VIRTUAL_WALLET';
-  amount: string;
+  amount: number;
 };
 
 // --- COMPONENTE DROPDOWN CUSTOM (ESTILO WIMBLEDON) ---
@@ -196,12 +197,22 @@ const AdminCashDashboard = () => {
   const clientWrapperRef = useRef<HTMLDivElement | null>(null);
   const [selectedMovement, setSelectedMovement] = useState<Movement | null>(null);
   const [showMovementModal, setShowMovementModal] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState<{ show: boolean; title: string; message: string }>({
+    show: false,
+    title: '',
+    message: ''
+  });
+  const [showCreateClientModal, setShowCreateClientModal] = useState(false);
+  const [newClientDraft, setNewClientDraft] = useState({ name: '', phone: '', dni: '', email: '', isProfessor: false });
 
   // Formulario
-  const [newMove, setNewMove] = useState({ description: '', amount: '', type: 'INCOME', method: 'CASH' as 'CASH' | 'TRANSFER' | 'CARD' });
-  const [productSale, setProductSale] = useState({ productId: '', quantity: '1', method: 'CASH' as 'CASH' | 'TRANSFER' | 'CARD', channel: 'BANK_ACCOUNT' as 'BANK_ACCOUNT' | 'VIRTUAL_WALLET', clientQuery: '' });
-  const [splitSaleEnabled, setSplitSaleEnabled] = useState(false);
-  const [splitSalePayments, setSplitSalePayments] = useState<SplitSalePaymentDraft[]>([{ method: 'CASH', amount: '' }]);
+  const [newMove, setNewMove] = useState({ description: '', amount: '', type: 'INCOME' });
+  const [showMovementMethodPicker, setShowMovementMethodPicker] = useState(false);
+  const [movementSubmitting, setMovementSubmitting] = useState(false);
+  const [productSale, setProductSale] = useState({ productId: '', quantity: '1', clientQuery: '', guestPhone: '', guestDni: '', guestEmail: '', guestIsProfessor: false });
+  const [createClientIfMissing, setCreateClientIfMissing] = useState(false);
+  const [salePayments, setSalePayments] = useState<SalePayment[]>([]);
+  const [showSalePaymentCalculator, setShowSalePaymentCalculator] = useState(false);
 
   const getClubSlug = useCallback(() => {
     try {
@@ -462,8 +473,56 @@ const AdminCashDashboard = () => {
   const selectClient = (client: any) => {
     const fullName = `${client.firstName || ''} ${client.lastName || ''}`.trim();
     setSelectedClient(client);
-    setProductSale((prev) => ({ ...prev, clientQuery: fullName || client.firstName || '' }));
+    setProductSale((prev) => ({ ...prev, clientQuery: fullName || client.firstName || '', guestPhone: '', guestDni: '', guestEmail: '', guestIsProfessor: false }));
+    setCreateClientIfMissing(false);
+    setNewClientDraft({ name: '', phone: '', dni: '', email: '', isProfessor: false });
     setShowDropdown(false);
+  };
+
+  const handleOpenCreateClientModal = () => {
+    setNewClientDraft((prev) => ({
+      ...prev,
+      name: prev.name || String(productSale.clientQuery || '').trim()
+    }));
+    setShowCreateClientModal(true);
+  };
+
+  const handleConfirmCreateClientDraft = () => {
+    const name = String(newClientDraft.name || '').trim();
+    const phone = String(newClientDraft.phone || '').trim();
+    const dni = String(newClientDraft.dni || '').trim();
+    const email = String(newClientDraft.email || '').trim();
+    const isProfessor = Boolean(newClientDraft.isProfessor);
+
+    if (name.length < 2) {
+      setSaleError('Para crear cliente, ingresá un nombre válido.');
+      return;
+    }
+    if (phone.length < 7) {
+      setSaleError('Para crear cliente, ingresá un teléfono válido.');
+      return;
+    }
+    if (dni.length < 6) {
+      setSaleError('Para crear cliente, ingresá un DNI válido.');
+      return;
+    }
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setSaleError('Para crear cliente, ingresá un email válido o dejalo vacío.');
+      return;
+    }
+
+    setSelectedClient(null);
+    setCreateClientIfMissing(true);
+    setProductSale((prev) => ({
+      ...prev,
+      clientQuery: name,
+      guestPhone: phone,
+      guestDni: dni,
+      guestEmail: email,
+      guestIsProfessor: isProfessor
+    }));
+    setShowCreateClientModal(false);
+    setSaleError('');
   };
 
   const handleAddMovement = async (e: React.FormEvent) => {
@@ -474,20 +533,33 @@ const AdminCashDashboard = () => {
       return;
     }
     if (!newMove.amount || !newMove.description) return;
+    setShowMovementMethodPicker(true);
+  };
 
+  const handleConfirmMovementWithMethod = async (method: 'CASH' | 'TRANSFER' | 'CARD') => {
+    if (movementSubmitting) return;
     try {
+      setMovementSubmitting(true);
       await CashService.createMovement({
         amount: newMove.amount,
         description: newMove.description,
         type: newMove.type as 'INCOME' | 'EXPENSE',
-        method: newMove.method as 'CASH' | 'TRANSFER' | 'CARD'
+        method
       });
 
-      setNewMove({ description: '', amount: '', type: 'INCOME', method: 'CASH' });
+      setNewMove({ description: '', amount: '', type: 'INCOME' });
+      setShowMovementMethodPicker(false);
+      setActionFeedback({
+        show: true,
+        title: 'Movimiento registrado',
+        message: `Se registró ${newMove.type === 'INCOME' ? 'el ingreso' : 'el egreso'} por $${Number(newMove.amount || 0).toLocaleString()}.`
+      });
       fetchCash();
     } catch (error) {
       reportUiError({ area: 'AdminCashDashboard', action: 'addMovement' }, error);
       setMovementError(extractErrorMessage(error, 'No se pudo registrar el movimiento.'));
+    } finally {
+      setMovementSubmitting(false);
     }
   };
 
@@ -513,28 +585,48 @@ const AdminCashDashboard = () => {
     }
 
     const totalAmount = Number(selectedProduct.price) * qty;
-
-    const parsedSplitPayments = splitSalePayments
+    const configuredPayments = salePayments
       .map((payment) => ({
         method: payment.method,
         channel: payment.method === 'TRANSFER' ? (payment.channel || 'BANK_ACCOUNT') : undefined,
-        amount: Number(payment.amount)
+        amount: Number(payment.amount || 0)
       }))
       .filter((payment) => Number.isFinite(payment.amount) && payment.amount > 0);
 
     const hasDebtInSale = false;
     const fallbackGuestName = productSale.clientQuery.trim();
+    const fallbackGuestPhone = String(productSale.guestPhone || '').trim();
+    const fallbackGuestDni = String(productSale.guestDni || '').trim();
+    const fallbackGuestEmail = String(productSale.guestEmail || '').trim();
+    const fallbackGuestIsProfessor = Boolean(productSale.guestIsProfessor);
 
-    if (splitSaleEnabled) {
-      if (parsedSplitPayments.length === 0) {
-        setSaleError('Agregá al menos un tramo de pago válido.');
+    if (!selectedClient && createClientIfMissing) {
+      if (fallbackGuestName.length < 2) {
+        setSaleError('Para crear cliente, ingresá un nombre válido.');
         return;
       }
-      const splitTotal = parsedSplitPayments.reduce((sum, payment) => sum + payment.amount, 0);
-      if (Math.abs(splitTotal - totalAmount) > 0.01) {
-        setSaleError('La suma de los pagos debe coincidir con el total de la venta.');
+      if (fallbackGuestPhone.length < 7) {
+        setSaleError('Para crear cliente, ingresá un teléfono válido.');
         return;
       }
+      if (fallbackGuestDni.length < 6) {
+        setSaleError('Para crear cliente, ingresá un DNI válido.');
+        return;
+      }
+      if (fallbackGuestEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fallbackGuestEmail)) {
+        setSaleError('Para crear cliente, ingresá un email válido o dejalo vacío.');
+        return;
+      }
+    }
+
+    if (configuredPayments.length === 0) {
+      setSaleError('Configurá el cobro con la calculadora antes de registrar la venta.');
+      return;
+    }
+    const splitTotal = configuredPayments.reduce((sum, payment) => sum + payment.amount, 0);
+    if (Math.abs(splitTotal - totalAmount) > 0.01) {
+      setSaleError('La suma de los pagos debe coincidir con el total de la venta.');
+      return;
     }
 
     if (hasDebtInSale && !selectedClient && !fallbackGuestName) {
@@ -546,26 +638,66 @@ const AdminCashDashboard = () => {
       await CashService.createProductSale({
         productId: Number(productSale.productId),
         quantity: qty,
-        method: productSale.method,
-        channel: productSale.method === 'TRANSFER' ? productSale.channel : undefined,
-        ...(splitSaleEnabled ? { payments: parsedSplitPayments } : {}),
-        userId: selectedClient?.id,
+        method: configuredPayments[0].method,
+        channel: configuredPayments[0].method === 'TRANSFER' ? configuredPayments[0].channel : undefined,
+        payments: configuredPayments,
+        clientId: selectedClient?.id ? String(selectedClient.id) : undefined,
+        createClientIfMissing: !selectedClient && createClientIfMissing,
         guestName: selectedClient
           ? `${selectedClient.firstName || ''} ${selectedClient.lastName || ''}`.trim()
-          : (hasDebtInSale ? fallbackGuestName : undefined),
-        guestPhone: selectedClient?.phoneNumber || selectedClient?.phone || undefined,
-        guestDni: selectedClient?.dni || selectedClient?.dniNumber || selectedClient?.document || undefined
+          : (createClientIfMissing ? fallbackGuestName : undefined),
+        guestPhone: selectedClient?.phoneNumber || selectedClient?.phone || (createClientIfMissing ? fallbackGuestPhone : undefined),
+        guestDni: selectedClient?.dni || selectedClient?.dniNumber || selectedClient?.document || (createClientIfMissing ? fallbackGuestDni : undefined),
+        guestEmail: selectedClient?.email || (createClientIfMissing ? fallbackGuestEmail : undefined),
+        guestIsProfessor: createClientIfMissing ? fallbackGuestIsProfessor : undefined
       });
 
-      setProductSale({ productId: '', quantity: '1', method: productSale.method, channel: productSale.channel, clientQuery: '' });
-  setSplitSaleEnabled(false);
-  setSplitSalePayments([{ method: 'CASH', amount: '' }]);
+      setProductSale({ productId: '', quantity: '1', clientQuery: '', guestPhone: '', guestDni: '', guestEmail: '', guestIsProfessor: false });
+      setCreateClientIfMissing(false);
+      setSalePayments([]);
       setSelectedClient(null);
+      setActionFeedback({
+        show: true,
+        title: 'Venta registrada',
+        message: `Se registró la venta por $${Number(totalAmount || 0).toLocaleString()}.`
+      });
       fetchCash();
       fetchProducts();
     } catch (error: any) {
       setSaleError(error.message || 'Error al registrar venta');
     }
+  };
+
+  const handleOpenSalePaymentCalculator = () => {
+    setSaleError('');
+    if (!currentShift) {
+      setSaleError('Primero tenés que abrir la caja para registrar ventas.');
+      return;
+    }
+    const qty = Number(productSale.quantity);
+    if (!productSale.productId || !Number.isFinite(qty) || qty <= 0) {
+      setSaleError('Seleccioná un producto y cantidad válida antes de cobrar.');
+      return;
+    }
+    const selectedProduct = products.find((product) => Number(product.id) === Number(productSale.productId));
+    if (!selectedProduct) {
+      setSaleError('El producto seleccionado no es válido.');
+      return;
+    }
+    setShowSalePaymentCalculator(true);
+  };
+
+  const handleSalePaymentConfirm = async (result: PaymentCalculatorResult) => {
+    const amount = Number(result.amount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    const method = result.method === 'OTHER' ? 'CASH' : result.method;
+    const nextPayment: SalePayment = {
+      method,
+      channel: method === 'TRANSFER' ? (result.channel || 'BANK_ACCOUNT') : undefined,
+      amount: Number(amount.toFixed(2))
+    };
+    setSalePayments((prev) => [...prev, nextPayment]);
+    setShowSalePaymentCalculator(false);
   };
 
   const handleOpenShift = async (e: React.FormEvent) => {
@@ -638,6 +770,47 @@ const AdminCashDashboard = () => {
       setClosingShift(false);
     }
   };
+
+  useEffect(() => {
+    setSalePayments([]);
+  }, [productSale.productId, productSale.quantity]);
+
+  const saleSelectedProduct = products.find((product) => Number(product.id) === Number(productSale.productId));
+  const saleQuantity = Number(productSale.quantity);
+  const saleTotalAmount = saleSelectedProduct && Number.isFinite(saleQuantity) && saleQuantity > 0
+    ? Number(saleSelectedProduct.price || 0) * saleQuantity
+    : 0;
+  const saleConfiguredTotal = salePayments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const saleRemaining = Math.max(0, Number((saleTotalAmount - saleConfiguredTotal).toFixed(2)));
+  const moveAmount = Number(newMove.amount);
+  const canSubmitMovement = Boolean(
+    currentShift &&
+    String(newMove.description || '').trim().length > 0 &&
+    Number.isFinite(moveAmount) &&
+    moveAmount > 0 &&
+    !movementSubmitting
+  );
+  const canSubmitSale = Boolean(
+    currentShift &&
+    productSale.productId &&
+    Number.isFinite(saleQuantity) &&
+    saleQuantity > 0 &&
+    saleTotalAmount > 0 &&
+    salePayments.length > 0 &&
+    Math.abs(saleConfiguredTotal - saleTotalAmount) <= 0.01 &&
+    (
+      !createClientIfMissing ||
+      (
+        String(productSale.clientQuery || '').trim().length >= 2 &&
+        String(productSale.guestPhone || '').trim().length >= 7 &&
+        String(productSale.guestDni || '').trim().length >= 6 &&
+        (
+          String(productSale.guestEmail || '').trim().length === 0 ||
+          /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(productSale.guestEmail || '').trim())
+        )
+      )
+    )
+  );
 
   if (loading) return (
     <div className="flex flex-col items-center justify-center p-20">
@@ -1055,43 +1228,11 @@ const AdminCashDashboard = () => {
               </div>
             </div>
 
-            <div>
-              <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Medio de Pago</label>
-              <div className="grid grid-cols-3 gap-3">
-                <button 
-                  type="button"
-                  onClick={() => setNewMove({...newMove, method: 'CASH'})}
-                  className={`py-3 flex items-center justify-center gap-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
-                      newMove.method === 'CASH' 
-                        ? 'bg-[#347048] border-[#347048] text-[#B9CF32] shadow-lg scale-105' 
-                        : 'bg-white border-transparent text-[#347048]/40 hover:bg-white/80'}`}
-                >
-                  <Banknote size={16} strokeWidth={2.5} /> Efectivo
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => setNewMove({...newMove, method: 'TRANSFER'})}
-                  className={`py-3 flex items-center justify-center gap-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
-                      newMove.method === 'TRANSFER' 
-                        ? 'bg-[#347048] border-[#347048] text-[#B9CF32] shadow-lg scale-105' 
-                        : 'bg-white border-transparent text-[#347048]/40 hover:bg-white/80'}`}
-                >
-                  <CreditCard size={16} strokeWidth={2.5} /> Transferencia
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setNewMove({...newMove, method: 'CARD'})}
-                  className={`py-3 flex items-center justify-center gap-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
-                      newMove.method === 'CARD'
-                        ? 'bg-[#347048] border-[#347048] text-[#B9CF32] shadow-lg scale-105'
-                        : 'bg-white border-transparent text-[#347048]/40 hover:bg-white/80'}`}
-                >
-                  <CreditCard size={16} strokeWidth={2.5} /> Tarjeta
-                </button>
-              </div>
-            </div>
-
-            <button type="submit" className="w-full py-4 bg-[#B9CF32] hover:bg-[#aebd2b] text-[#347048] font-black rounded-[1.5rem] shadow-xl shadow-[#B9CF32]/20 transition-all hover:-translate-y-1 active:scale-95 uppercase tracking-widest text-sm italic mt-2">
+            <button
+              type="submit"
+              disabled={!canSubmitMovement}
+              className="w-full py-4 bg-[#B9CF32] hover:bg-[#aebd2b] text-[#347048] font-black rounded-[1.5rem] shadow-xl shadow-[#B9CF32]/20 transition-all hover:-translate-y-1 active:scale-95 uppercase tracking-widest text-sm italic mt-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+            >
               Registrar Movimiento
             </button>
             {movementError && (
@@ -1149,6 +1290,45 @@ const AdminCashDashboard = () => {
                   Cliente seleccionado: {selectedClient.firstName} {selectedClient.lastName}
                 </p>
               )}
+              {!selectedClient && (
+                <div className="mt-2 space-y-2">
+                  <button
+                    type="button"
+                    onClick={handleOpenCreateClientModal}
+                    className="h-10 px-3 rounded-xl bg-white border border-[#347048]/20 text-[#347048] text-[10px] font-black uppercase tracking-widest hover:bg-[#347048]/5 transition-all"
+                  >
+                    Crear cliente nuevo
+                  </button>
+                  {createClientIfMissing && (
+                    <div className="rounded-xl border border-[#347048]/15 bg-white p-3 text-[#347048]">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Cliente a crear</p>
+                      <p className="text-sm font-black mt-1">{productSale.clientQuery}</p>
+                      <p className="text-[11px] font-bold text-[#347048]/70 mt-1">
+                        Tel: {productSale.guestPhone} · DNI: {productSale.guestDni}{productSale.guestEmail ? ` · Email: ${productSale.guestEmail}` : ''}{productSale.guestIsProfessor ? ' · Profesor' : ''}
+                      </p>
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={handleOpenCreateClientModal}
+                          className="px-2 py-1 rounded-lg bg-[#347048]/10 text-[#347048] text-[10px] font-black uppercase tracking-widest"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCreateClientIfMissing(false);
+                            setProductSale((prev) => ({ ...prev, guestPhone: '', guestDni: '', guestEmail: '', guestIsProfessor: false }));
+                          }}
+                          className="px-2 py-1 rounded-lg bg-red-50 text-red-600 text-[10px] font-black uppercase tracking-widest border border-red-200"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="relative z-20">
@@ -1180,134 +1360,60 @@ const AdminCashDashboard = () => {
                   onChange={(e) => setProductSale({ ...productSale, quantity: e.target.value })}
                 />
               </div>
-              <div className="col-span-2">
-                <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Medio de pago</label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setProductSale({ ...productSale, method: 'CASH' })}
-                    className={`h-14 w-full px-4 flex items-center justify-center gap-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
-                      productSale.method === 'CASH'
-                        ? 'bg-[#347048] border-[#347048] text-[#B9CF32] shadow-lg scale-105'
-                        : 'bg-white border-transparent text-[#347048]/40 hover:bg-white/80'}`}
-                  >
-                    <Banknote
-                      size={16}
-                      strokeWidth={2.5}
-                      className={productSale.method === 'CASH' ? 'text-[#B9CF32]' : 'text-[#347048]/40'}
-                    />
-                    Efectivo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setProductSale({ ...productSale, method: 'TRANSFER', channel: 'BANK_ACCOUNT' })}
-                    className={`h-14 w-full px-4 flex items-center justify-center gap-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
-                      productSale.method === 'TRANSFER' && productSale.channel === 'BANK_ACCOUNT'
-                        ? 'bg-[#347048] border-[#347048] text-[#B9CF32] shadow-lg scale-105'
-                        : 'bg-white border-transparent text-[#347048]/40 hover:bg-white/80'}`}
-                  >
-                    <CreditCard
-                      size={16}
-                      strokeWidth={2.5}
-                      className={productSale.method === 'TRANSFER' ? 'text-[#B9CF32]' : 'text-[#347048]/40'}
-                    />
-                    Transferencia
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setProductSale({ ...productSale, method: 'CARD' })}
-                    className={`h-14 w-full px-4 flex items-center justify-center gap-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
-                      productSale.method === 'CARD'
-                        ? 'bg-[#347048] border-[#347048] text-[#B9CF32] shadow-lg scale-105'
-                        : 'bg-white border-transparent text-[#347048]/40 hover:bg-white/80'}`}
-                  >
-                    <CreditCard
-                      size={16}
-                      strokeWidth={2.5}
-                      className={productSale.method === 'CARD' ? 'text-[#B9CF32]' : 'text-[#347048]/40'}
-                    />
-                    Tarjeta
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setProductSale({ ...productSale, method: 'TRANSFER', channel: 'VIRTUAL_WALLET' })}
-                    className={`h-14 w-full px-4 flex items-center justify-center gap-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
-                      productSale.method === 'TRANSFER' && productSale.channel === 'VIRTUAL_WALLET'
-                        ? 'bg-[#347048] border-[#347048] text-[#B9CF32] shadow-lg scale-105'
-                        : 'bg-white border-transparent text-[#347048]/40 hover:bg-white/80'}`}
-                  >
-                    <CreditCard
-                      size={16}
-                      strokeWidth={2.5}
-                      className={productSale.method === 'TRANSFER' && productSale.channel === 'VIRTUAL_WALLET' ? 'text-[#B9CF32]' : 'text-[#347048]/40'}
-                    />
-                    QR / Billetera
-                  </button>
+              <div className="col-span-2 rounded-2xl border border-[#347048]/15 bg-white/60 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black text-[#347048]/60 uppercase tracking-widest">Cobro de la venta</p>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-[#347048]/70">
+                    Total ${saleTotalAmount.toLocaleString()}
+                  </span>
+                </div>
+                {salePayments.length === 0 ? (
+                  <p className="text-[11px] font-bold text-[#347048]/60">Sin tramos cargados.</p>
+                ) : (
+                  <div className="space-y-2 max-h-36 overflow-y-auto">
+                    {salePayments.map((payment, index) => (
+                      <div key={`sale-payment-${index}`} className="flex items-center justify-between rounded-xl border border-[#347048]/10 bg-white px-3 py-2 text-[11px] font-black text-[#347048]">
+                        <span>
+                          {payment.method === 'CASH'
+                            ? 'Efectivo'
+                            : payment.method === 'CARD'
+                              ? 'Tarjeta'
+                              : payment.channel === 'VIRTUAL_WALLET'
+                                ? 'QR / Billetera'
+                                : 'Transferencia'}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span>${Number(payment.amount || 0).toLocaleString()}</span>
+                          <button
+                            type="button"
+                            onClick={() => setSalePayments((prev) => prev.filter((_, idx) => idx !== index))}
+                            className="text-red-500 text-[10px] uppercase tracking-widest"
+                          >
+                            Quitar
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest">
+                  <span className="text-[#347048]/60">Cargado</span>
+                  <span className="text-[#347048]">${saleConfiguredTotal.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest">
+                  <span className="text-[#347048]/60">Restante</span>
+                  <span className={saleRemaining <= 0.01 ? 'text-emerald-700' : 'text-[#926699]'}>
+                    ${saleRemaining.toLocaleString()}
+                  </span>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setSplitSaleEnabled((prev) => !prev)}
-                  className="mt-2 w-full h-10 rounded-xl border-2 border-[#347048]/20 bg-white text-[#347048] text-[10px] font-black uppercase tracking-widest"
+                  onClick={handleOpenSalePaymentCalculator}
+                  disabled={!currentShift || !productSale.productId || !Number.isFinite(saleQuantity) || saleQuantity <= 0 || saleRemaining <= 0.01}
+                  className="w-full h-11 rounded-xl bg-[#347048] text-[#EBE1D8] hover:bg-[#B9CF32] hover:text-[#347048] text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {splitSaleEnabled ? 'Usar pago simple' : 'Dividir pago'}
+                  Abrir payment calculator
                 </button>
-
-                {splitSaleEnabled && (
-                  <div className="mt-2 space-y-2">
-                    {splitSalePayments.map((payment, index) => (
-                      <div key={`split-sale-${index}`} className="grid grid-cols-12 gap-2">
-                        <select
-                          value={payment.method}
-                          onChange={(e) => {
-                            const method = e.target.value as 'CASH' | 'TRANSFER' | 'CARD';
-                            setSplitSalePayments((prev) => prev.map((item, idx) => idx === index ? { ...item, method, channel: method === 'TRANSFER' ? (item.channel || 'BANK_ACCOUNT') : undefined } : item));
-                          }}
-                          className="col-span-4 h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-xs font-black uppercase tracking-wider"
-                        >
-                          <option value="CASH">Efectivo</option>
-                          <option value="TRANSFER">Transferencia</option>
-                          <option value="CARD">Tarjeta</option>
-                        </select>
-                        {payment.method === 'TRANSFER' ? (
-                          <select
-                            value={payment.channel || 'BANK_ACCOUNT'}
-                            onChange={(e) => setSplitSalePayments((prev) => prev.map((item, idx) => idx === index ? { ...item, channel: e.target.value as 'BANK_ACCOUNT' | 'VIRTUAL_WALLET' } : item))}
-                            className="col-span-3 h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-2 text-[10px] font-black uppercase tracking-wider"
-                          >
-                            <option value="BANK_ACCOUNT">Banco</option>
-                            <option value="VIRTUAL_WALLET">Billetera</option>
-                          </select>
-                        ) : (
-                          <div className="col-span-3 h-11" />
-                        )}
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={payment.amount}
-                          onChange={(e) => setSplitSalePayments((prev) => prev.map((item, idx) => idx === index ? { ...item, amount: e.target.value } : item))}
-                          className="col-span-3 h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-sm font-black"
-                          placeholder="Monto"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setSplitSalePayments((prev) => prev.length <= 1 ? prev : prev.filter((_, idx) => idx !== index))}
-                          className="col-span-2 h-11 rounded-xl border border-red-200 text-red-500 font-black text-xs"
-                          disabled={splitSalePayments.length === 1}
-                        >
-                          Quitar
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => setSplitSalePayments((prev) => [...prev, { method: 'TRANSFER', channel: 'BANK_ACCOUNT', amount: '' }])}
-                      className="w-full h-10 rounded-xl border border-[#347048]/20 bg-white text-[#347048] text-[10px] font-black uppercase tracking-widest"
-                    >
-                      + Agregar tramo
-                    </button>
-                  </div>
-                )}
               </div>
             </div>
 
@@ -1315,7 +1421,11 @@ const AdminCashDashboard = () => {
               <p className="text-xs font-bold text-red-500 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">{saleError}</p>
             )}
 
-            <button type="submit" className="w-full py-4 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-[1.5rem] shadow-xl shadow-[#347048]/20 transition-all hover:-translate-y-1 active:scale-95 uppercase tracking-widest text-sm italic mt-2">
+            <button
+              type="submit"
+              disabled={!canSubmitSale}
+              className="w-full py-4 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-[1.5rem] shadow-xl shadow-[#347048]/20 transition-all hover:-translate-y-1 active:scale-95 uppercase tracking-widest text-sm italic mt-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+            >
               Registrar venta
             </button>
             {!currentShift && (
@@ -1327,6 +1437,169 @@ const AdminCashDashboard = () => {
         </div>
       </div>
     </div>
+      <AppModal
+        show={showCreateClientModal}
+        title="Crear cliente para esta venta"
+        onClose={() => setShowCreateClientModal(false)}
+        onConfirm={handleConfirmCreateClientDraft}
+        confirmText="Guardar cliente"
+        cancelText="Cancelar"
+        message={(
+          <div className="space-y-3">
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60 mb-1">Nombre completo</label>
+              <input
+                type="text"
+                value={newClientDraft.name}
+                onChange={(e) => setNewClientDraft((prev) => ({ ...prev, name: e.target.value }))}
+                className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
+                placeholder="Nombre y apellido"
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60 mb-1">Teléfono</label>
+                <input
+                  type="text"
+                  value={newClientDraft.phone}
+                  onChange={(e) => setNewClientDraft((prev) => ({ ...prev, phone: e.target.value }))}
+                  className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
+                  placeholder="Ej: 3511234567"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60 mb-1">DNI</label>
+                <input
+                  type="text"
+                  value={newClientDraft.dni}
+                  onChange={(e) => setNewClientDraft((prev) => ({ ...prev, dni: e.target.value }))}
+                  className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
+                  placeholder="Ej: 30111222"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60 mb-1">Email</label>
+              <input
+                type="email"
+                value={newClientDraft.email}
+                onChange={(e) => setNewClientDraft((prev) => ({ ...prev, email: e.target.value }))}
+                className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
+                placeholder="cliente@email.com"
+              />
+            </div>
+            <label className="inline-flex items-center gap-2 text-xs font-black text-[#347048]">
+              <input
+                type="checkbox"
+                checked={Boolean(newClientDraft.isProfessor)}
+                onChange={(e) => setNewClientDraft((prev) => ({ ...prev, isProfessor: e.target.checked }))}
+                className="h-4 w-4 rounded border-[#347048]/30"
+              />
+              Es profesor
+            </label>
+          </div>
+        )}
+      />
+
+      <AppModal
+        show={actionFeedback.show}
+        title={actionFeedback.title}
+        message={actionFeedback.message}
+        onClose={() => setActionFeedback({ show: false, title: '', message: '' })}
+        onConfirm={() => setActionFeedback({ show: false, title: '', message: '' })}
+        confirmText="Aceptar"
+        cancelText=""
+      />
+
+      <AppModal
+        show={showMovementMethodPicker}
+        title="Seleccionar medio de pago"
+        onClose={() => {
+          if (movementSubmitting) return;
+          setShowMovementMethodPicker(false);
+        }}
+        onConfirm={() => {
+          if (movementSubmitting) return;
+          setShowMovementMethodPicker(false);
+        }}
+        confirmText="Cancelar"
+        cancelText=""
+        closeOnBackdrop={!movementSubmitting}
+        closeOnEscape={!movementSubmitting}
+        message={(
+          <div className="space-y-3">
+            <p className="text-xs font-bold text-[#347048]/70">
+              Elegí cómo se registró este movimiento.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => void handleConfirmMovementWithMethod('CASH')}
+                disabled={movementSubmitting}
+                className="h-14 rounded-xl bg-white border-2 border-[#347048]/15 text-[#347048] font-black text-[10px] uppercase tracking-widest hover:border-[#B9CF32] transition-all disabled:opacity-50"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Banknote size={14} strokeWidth={2.5} />
+                  Efectivo
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleConfirmMovementWithMethod('TRANSFER')}
+                disabled={movementSubmitting}
+                className="h-14 rounded-xl bg-white border-2 border-[#347048]/15 text-[#347048] font-black text-[10px] uppercase tracking-widest hover:border-[#B9CF32] transition-all disabled:opacity-50"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <CreditCard size={14} strokeWidth={2.5} />
+                  Transferencia
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleConfirmMovementWithMethod('CARD')}
+                disabled={movementSubmitting}
+                className="h-14 rounded-xl bg-white border-2 border-[#347048]/15 text-[#347048] font-black text-[10px] uppercase tracking-widest hover:border-[#B9CF32] transition-all disabled:opacity-50"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <CreditCard size={14} strokeWidth={2.5} />
+                  Tarjeta
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleConfirmMovementWithMethod('TRANSFER')}
+                disabled={movementSubmitting}
+                className="h-14 rounded-xl bg-white border-2 border-[#347048]/15 text-[#347048] font-black text-[10px] uppercase tracking-widest hover:border-[#B9CF32] transition-all disabled:opacity-50"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <CreditCard size={14} strokeWidth={2.5} />
+                  QR / Billetera
+                </span>
+              </button>
+            </div>
+          </div>
+        )}
+      />
+
+      {showSalePaymentCalculator && saleSelectedProduct && saleTotalAmount > 0 && (
+        <PaymentCalculator
+          courtPending={0}
+          courtBaseTotal={0}
+          cartItems={[{
+            id: String(saleSelectedProduct.id),
+            productName: `${Math.max(1, Number(saleQuantity || 1))}x ${saleSelectedProduct.name} (restante)`,
+            quantity: 1,
+            price: Math.max(0, Number(saleRemaining || 0))
+          }]}
+          alreadyPaid={0}
+          grandTotal={Math.max(0, Number(saleRemaining || 0))}
+          onClose={() => setShowSalePaymentCalculator(false)}
+          onConfirm={handleSalePaymentConfirm}
+          submitting={false}
+          zIndexClass="z-[100001]"
+        />
+      )}
+
       <AppModal
         show={showMovementModal}
         title={selectedMovement?.type === 'INCOME' ? 'Detalle del ingreso' : 'Detalle del egreso'}

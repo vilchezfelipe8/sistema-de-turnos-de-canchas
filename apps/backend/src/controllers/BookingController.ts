@@ -52,8 +52,6 @@ export class BookingController {
                 ),
                 guestPhone: optionalTrimmedString(),
                 guestDni: optionalTrimmedString(),
-                isProfessor: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional(),
-                professorOverrideReason: optionalTrimmedString(10),
                 applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional())
             });
 
@@ -67,7 +65,7 @@ export class BookingController {
                 return res.status(400).json({ error: parsed.error.format() });
             }
 
-            let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, guestIdentifier, guestName, guestEmail, guestPhone, guestDni, isProfessor, professorOverrideReason, applyDiscount } = parsed.data;
+            let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, guestIdentifier, guestName, guestEmail, guestPhone, guestDni, applyDiscount } = parsed.data;
             guestName = guestName ? sanitizeString(guestName, 200) : undefined;
             guestIdentifier = guestIdentifier ? sanitizeString(guestIdentifier, 100) : undefined;
             guestEmail = guestEmail ? sanitizeString(guestEmail, 254) : undefined;
@@ -99,14 +97,6 @@ export class BookingController {
             const forceGuest = isAdmin && asGuest;
             const effectiveUserId = forceGuest ? null : (userIdFromToken ? Number(userIdFromToken) : null);
             const effectiveGuestIdentifier = forceGuest && !guestIdentifier ? `admin_${Date.now()}` : guestIdentifier;
-            if (Boolean(isProfessor) && !isAdmin) {
-                return res.status(403).json({ error: 'Solo ADMIN/OWNER puede activar ajuste de profesor' });
-            }
-            const applyProfessorOverride = isAdmin && Boolean(isProfessor);
-            if (applyProfessorOverride && !String(professorOverrideReason || '').trim()) {
-                return res.status(400).json({ error: 'Debe indicar motivo del ajuste de profesor' });
-            }
-
             const now = new Date();
             if (startDate.getTime() < now.getTime()) {
                 return res.status(400).json({ error: "No se pueden reservar turnos en el pasado." });
@@ -142,12 +132,10 @@ export class BookingController {
                 Number(courtId),
                 startDate,
                 Number(activityId),
-                applyProfessorOverride,
                 durationMinutes,
                 isAdmin,
                 {
                     applyDiscount,
-                    professorOverrideReason: professorOverrideReason?.trim() || undefined,
                     actorUserId: Number(user?.userId || 0) || null
                 }
             );
@@ -174,12 +162,6 @@ export class BookingController {
                 return res.status(409).json({
                     error: 'El horario acaba de ser reservado por otro jugador'
                 });
-            }
-            if (error?.message === 'PROFESSOR_OVERRIDE_REASON_REQUIRED') {
-                return res.status(400).json({ error: 'Debe indicar motivo del ajuste de profesor' });
-            }
-            if (error?.message === 'PROFESSOR_DURATION_OVERRIDE_DISABLED') {
-                return res.status(400).json({ error: 'El ajuste de duración para profesor está deshabilitado en el club' });
             }
             res.status(400).json({ error: error.message || "Error desconocido" });
         }
@@ -508,12 +490,6 @@ export class BookingController {
 
             res.json({ date: date, slotsWithCourts });
         } catch (error: any) {
-            if (error?.message === 'PROFESSOR_OVERRIDE_REASON_REQUIRED') {
-                return res.status(400).json({ error: 'Debe indicar motivo del override de profesor' });
-            }
-            if (error?.message === 'PROFESSOR_DURATION_OVERRIDE_DISABLED') {
-                return res.status(400).json({ error: 'El override de duración para profesor está deshabilitado en el club' });
-            }
             res.status(400).json({ error: error.message });
         }
     }
@@ -550,25 +526,17 @@ export class BookingController {
                 guestName: z.string().optional(),
                 guestPhone: z.union([z.string(), z.number()]).optional(),
                 guestDni: z.string().optional(),
-                isProfessor: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional(),
-                professorOverrideReason: z.string().trim().min(10).optional(),
                 allowOverlappingSeries: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
             });
             const parsed = createFixedSchema.safeParse(req.body);
             if (!parsed.success) {
                 return res.status(400).json({ error: parsed.error.format() });
             }
-            const { userId, courtId, activityId, startDateTime, guestName, guestPhone, guestDni, isProfessor, professorOverrideReason, allowOverlappingSeries } = parsed.data;
+            const { userId, courtId, activityId, startDateTime, guestName, guestPhone, guestDni, allowOverlappingSeries } = parsed.data;
             const user = (req as any).user;
             const membershipRole = String((req as any).membershipRole || '');
             const isAdmin = user?.role === 'ADMIN' || membershipRole === 'OWNER' || membershipRole === 'ADMIN';
             const clubId = (req as any).clubId;
-            if (Boolean(isProfessor) && !isAdmin) {
-                return res.status(403).json({ error: 'Solo ADMIN/OWNER puede activar ajuste de profesor' });
-            }
-            if (Boolean(isProfessor) && !String(professorOverrideReason || '').trim()) {
-                return res.status(400).json({ error: 'Debe indicar motivo del ajuste de profesor' });
-            }
 
             if (!userId && !isAdmin) {
                 return res.status(403).json({ error: "Solo un administrador puede crear turnos fijos sin usuario." });
@@ -594,9 +562,7 @@ export class BookingController {
                 guestName,
                 guestPhone,
                 guestDni,
-                Boolean(isProfessor),
                 clubId,
-                professorOverrideReason?.trim() || undefined,
                 Number(user?.userId || 0) || null,
                 Boolean(allowOverlappingSeries)
             );

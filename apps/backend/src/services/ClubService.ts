@@ -3,6 +3,7 @@ import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
 import { Club } from '../entities/Club';
 import type { FixedBookingSettingsByActivity } from '../entities/Club';
 import { Court } from '../entities/Court';
+import { Prisma } from '@prisma/client';
 
 // 👇 1. USAMOS TUS IMPORTS CORRECTOS
 import { prisma } from '../prisma'; 
@@ -196,7 +197,92 @@ export class ClubService {
             phoneNumber: client.phone || '',
             email: client.email || '',
             dni: client.dni || '',
-            isProfessor: false
+            isProfessor: Boolean(client.isProfessor)
         }));
+    }
+
+    async createClient(clubId: number, input: {
+        name: string;
+        phone?: string | null;
+        dni?: string | null;
+        email?: string | null;
+        isProfessor?: boolean;
+    }) {
+        const normalizedName = String(input.name || '').trim();
+        const normalizedPhone = String(input.phone || '').replace(/\D/g, '');
+        const normalizedDni = String(input.dni || '').replace(/\D/g, '');
+        const normalizedEmail = String(input.email || '').trim().toLowerCase();
+
+        if (normalizedName.length < 2) throw new Error('Nombre inválido');
+        if (normalizedPhone && normalizedPhone.length < 7) throw new Error('Teléfono inválido');
+        if (normalizedDni && normalizedDni.length < 6) throw new Error('DNI inválido');
+
+        try {
+            return await prisma.client.create({
+                data: {
+                    clubId,
+                    name: normalizedName,
+                    phone: normalizedPhone || null,
+                    dni: normalizedDni || null,
+                    email: normalizedEmail || null,
+                    isProfessor: Boolean(input.isProfessor)
+                }
+            });
+        } catch (error: any) {
+            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+                throw new Error('Ya existe un cliente con ese DNI, teléfono o email');
+            }
+            throw error;
+        }
+    }
+
+    async updateClient(clubId: number, clientId: string, input: {
+        name: string;
+        phone?: string | null;
+        dni?: string | null;
+        email?: string | null;
+        isProfessor?: boolean;
+    }) {
+        const existing = await prisma.client.findFirst({ where: { id: clientId, clubId } });
+        if (!existing) throw new Error('Cliente no encontrado');
+
+        const normalizedName = String(input.name || '').trim();
+        const normalizedPhone = String(input.phone || '').replace(/\D/g, '');
+        const normalizedDni = String(input.dni || '').replace(/\D/g, '');
+        const normalizedEmail = String(input.email || '').trim().toLowerCase();
+
+        if (normalizedName.length < 2) throw new Error('Nombre inválido');
+        if (normalizedPhone && normalizedPhone.length < 7) throw new Error('Teléfono inválido');
+        if (normalizedDni && normalizedDni.length < 6) throw new Error('DNI inválido');
+
+        try {
+            return await prisma.client.update({
+                where: { id: clientId },
+                data: {
+                    name: normalizedName,
+                    phone: normalizedPhone || null,
+                    dni: normalizedDni || null,
+                    email: normalizedEmail || null,
+                    isProfessor: Boolean(input.isProfessor)
+                }
+            });
+        } catch (error: any) {
+            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+                throw new Error('Ya existe un cliente con ese DNI, teléfono o email');
+            }
+            throw error;
+        }
+    }
+
+    async deleteClient(clubId: number, clientId: string) {
+        const existing = await prisma.client.findFirst({ where: { id: clientId, clubId } });
+        if (!existing) throw new Error('Cliente no encontrado');
+
+        const hasLinkedBookings = await prisma.booking.count({ where: { clubId, clientId } });
+        if (hasLinkedBookings > 0) {
+            throw new Error('No se puede eliminar: el cliente tiene reservas asociadas');
+        }
+
+        await prisma.client.delete({ where: { id: clientId } });
     }
 }

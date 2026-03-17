@@ -300,6 +300,27 @@ router.get('/:slug/admin/clients-list',
     clubController.getClubClientsList 
 );
 
+router.post('/:slug/admin/clients',
+    authMiddleware,
+    verifyClubAccess,
+    requireRole('ADMIN'),
+    clubController.createClubClient
+);
+
+router.put('/:slug/admin/clients/:clientId',
+    authMiddleware,
+    verifyClubAccess,
+    requireRole('ADMIN'),
+    clubController.updateClubClient
+);
+
+router.delete('/:slug/admin/clients/:clientId',
+    authMiddleware,
+    verifyClubAccess,
+    requireRole('ADMIN'),
+    clubController.deleteClubClient
+);
+
 router.get('/:slug/admin/discount-policies',
     authMiddleware,
     verifyClubAccess,
