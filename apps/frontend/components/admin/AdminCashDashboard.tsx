@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Wallet, ArrowUpCircle, ArrowDownCircle, Banknote, CreditCard, Plus, Receipt, History, ChevronDown, Check, Phone, IdCard } from 'lucide-react';
+import { Wallet, ArrowUpCircle, ArrowDownCircle, Banknote, CreditCard, Plus, Receipt, History, ChevronDown, Check, Phone, IdCard, ChevronLeft, ChevronRight } from 'lucide-react';
 import { searchClients } from '../../services/BookingService';
 import { ClubService } from '../../services/ClubService';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
@@ -108,6 +108,40 @@ type SalePayment = {
   amount: number;
 };
 
+type CashPeriod = 'hoy' | 'semana' | 'mes';
+
+const toDateLabel = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+const getCashDateRange = (period: CashPeriod, offset: number = 0) => {
+  const base = new Date();
+  const start = new Date(base);
+  const end = new Date(base);
+
+  if (period === 'hoy') {
+    start.setDate(start.getDate() + offset);
+    end.setDate(end.getDate() + offset);
+  } else if (period === 'semana') {
+    const day = start.getDay() || 7;
+    start.setDate(start.getDate() - day + 1 + (offset * 7));
+    end.setTime(start.getTime());
+    end.setDate(end.getDate() + 6);
+  } else {
+    start.setFullYear(start.getFullYear(), start.getMonth() + offset, 1);
+    end.setFullYear(start.getFullYear(), start.getMonth() + 1, 0);
+  }
+
+  start.setHours(0, 0, 0, 0);
+  end.setHours(23, 59, 59, 999);
+
+  return {
+    startDate: toDateLabel(start),
+    endDate: toDateLabel(end),
+    rawStart: start,
+    rawEnd: end
+  };
+};
+
 // --- COMPONENTE DROPDOWN CUSTOM (ESTILO WIMBLEDON) ---
 const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -174,6 +208,8 @@ const AdminCashDashboard = () => {
   const [movements, setMovements] = useState<Movement[]>([]);
   const [balance, setBalance] = useState<Balance>({ total: 0, cash: 0, digital: 0, income: 0, expense: 0 });
   const [loading, setLoading] = useState(true);
+  const [activePeriod, setActivePeriod] = useState<CashPeriod>('hoy');
+  const [periodOffset, setPeriodOffset] = useState(0);
   const [products, setProducts] = useState<Product[]>([]);
   const [productsLoading, setProductsLoading] = useState(true);
   const [saleError, setSaleError] = useState('');
@@ -204,6 +240,26 @@ const AdminCashDashboard = () => {
   });
   const [showCreateClientModal, setShowCreateClientModal] = useState(false);
   const [newClientDraft, setNewClientDraft] = useState({ name: '', phone: '', dni: '', email: '', isProfessor: false });
+
+  const handlePeriodChange = (period: CashPeriod) => {
+    setActivePeriod(period);
+    setPeriodOffset(0);
+  };
+
+  const getPeriodLabel = () => {
+    const { rawStart, rawEnd } = getCashDateRange(activePeriod, periodOffset);
+    if (activePeriod === 'hoy') {
+      if (periodOffset === 0) return 'Hoy';
+      if (periodOffset === -1) return 'Ayer';
+      return rawStart.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
+    }
+    if (activePeriod === 'semana') {
+      if (periodOffset === 0) return 'Esta Semana';
+      if (periodOffset === -1) return 'Semana Pasada';
+      return `${rawStart.getDate()} al ${rawEnd.getDate()} ${rawEnd.toLocaleDateString('es-AR', { month: 'short' })}`;
+    }
+    return rawStart.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+  };
 
   // Formulario
   const [newMove, setNewMove] = useState({ description: '', amount: '', type: 'INCOME' });
@@ -338,10 +394,11 @@ const AdminCashDashboard = () => {
       .replace(/\b\w/g, (char) => char.toUpperCase());
   }, []);
 
-  const fetchCash = async () => {
+  const fetchCash = useCallback(async () => {
     setMovementError('');
     try {
-      const data = await CashService.getSummary();
+      const { startDate, endDate } = getCashDateRange(activePeriod, periodOffset);
+      const data = await CashService.getSummary({ startDate, endDate });
       if (data && data.balance) setBalance(data.balance);
       if (data && data.movements) {
         const normalizedMovements: Movement[] = (Array.isArray(data.movements) ? data.movements : []).map((movement: any) => ({
@@ -380,9 +437,9 @@ const AdminCashDashboard = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activePeriod, periodOffset]);
 
-  useEffect(() => { fetchCash(); }, []);
+  useEffect(() => { fetchCash(); }, [fetchCash]);
 
   const fetchShiftContext = async () => {
     setShiftLoading(true);
@@ -1049,7 +1106,7 @@ const AdminCashDashboard = () => {
         <div className="bg-white border-4 border-white p-6 rounded-[2.5rem] shadow-xl flex flex-col justify-between relative overflow-hidden group">
           <div className="flex items-center justify-between mb-4">
             <div className="p-3 bg-[#347048]/5 rounded-2xl text-[#347048]"><Wallet size={24} strokeWidth={2.5} /></div>
-            <span className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest">Balance Hoy</span>
+            <span className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest">Balance Período</span>
           </div>
           <p className="text-4xl font-black text-[#347048] italic tracking-tighter mb-4">
             ${(balance?.total || 0).toLocaleString()}
@@ -1097,16 +1154,58 @@ const AdminCashDashboard = () => {
             <h3 className="text-xl font-black text-[#347048] flex items-center gap-3 uppercase italic tracking-tight">
                 <History size={20} className="text-[#926699]" /> Actividad Reciente
             </h3>
-            <span className="text-[10px] font-black text-[#347048]/50 bg-white/40 px-4 py-1.5 rounded-full border border-white/60 uppercase tracking-widest">
-              Últimas 24hs
-            </span>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center bg-white/50 rounded-xl overflow-hidden border border-white/80">
+                <button
+                  type="button"
+                  onClick={() => setPeriodOffset((prev) => prev - 1)}
+                  className="p-2 text-[#347048] hover:bg-[#347048]/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#347048]/20"
+                >
+                  <ChevronLeft size={16} strokeWidth={3} />
+                </button>
+                <span className="text-[#347048] font-black text-[10px] uppercase tracking-widest px-2 min-w-[110px] text-center">
+                  {getPeriodLabel()}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPeriodOffset((prev) => prev + 1)}
+                  disabled={periodOffset === 0}
+                  className={`p-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#347048]/20 ${periodOffset === 0 ? 'text-[#347048]/20' : 'text-[#347048] hover:bg-[#347048]/10'}`}
+                >
+                  <ChevronRight size={16} strokeWidth={3} />
+                </button>
+              </div>
+              <div className="flex items-center gap-1 bg-white/50 p-1 rounded-lg border border-white/80">
+                <button
+                  type="button"
+                  onClick={() => handlePeriodChange('hoy')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all border focus:outline-none focus-visible:ring-2 focus-visible:ring-[#347048]/20 ${activePeriod === 'hoy' ? 'bg-[#347048] text-white shadow-md border-[#347048]' : 'text-[#347048] border-transparent hover:bg-[#347048]/10'}`}
+                >
+                  Hoy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePeriodChange('semana')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all border focus:outline-none focus-visible:ring-2 focus-visible:ring-[#347048]/20 ${activePeriod === 'semana' ? 'bg-[#347048] text-white shadow-md border-[#347048]' : 'text-[#347048] border-transparent hover:bg-[#347048]/10'}`}
+                >
+                  Semana
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePeriodChange('mes')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all border focus:outline-none focus-visible:ring-2 focus-visible:ring-[#347048]/20 ${activePeriod === 'mes' ? 'bg-[#347048] text-white shadow-md border-[#347048]' : 'text-[#347048] border-transparent hover:bg-[#347048]/10'}`}
+                >
+                  Mes
+                </button>
+              </div>
+            </div>
           </div>
           
           <div className="flex-1 overflow-y-auto custom-scrollbar p-4 bg-white/40">
             {movements.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center opacity-30 italic">
                   <Receipt size={48} className="mb-4" />
-                  <p className="text-lg font-black uppercase tracking-widest text-[#347048]">No hay movimientos hoy</p>
+                  <p className="text-lg font-black uppercase tracking-widest text-[#347048]">No hay movimientos en el período</p>
               </div>
             ) : (
               <div className="space-y-3">

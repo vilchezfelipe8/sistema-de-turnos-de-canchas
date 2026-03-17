@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell, Legend 
 } from 'recharts';
-import { DollarSign, Calendar, TrendingUp, CreditCard, Activity, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { DollarSign, Calendar, TrendingUp, CreditCard, Activity, RefreshCw, ChevronLeft, ChevronRight, ShoppingBag } from 'lucide-react';
 import { fetchWithAuth } from '../../utils/apiClient';
 import { getApiUrl } from '../../utils/apiUrl';
 import { reportUiError } from '../../utils/uiError';
@@ -19,6 +19,23 @@ interface Props {
 }
 
 type Period = 'hoy' | 'semana' | 'mes';
+
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  CASH: 'Efectivo',
+  TRANSFER: 'Transferencia',
+  CARD: 'Tarjeta',
+  OTHER: 'Otro',
+  BANK_ACCOUNT: 'Cuenta bancaria',
+  VIRTUAL_WALLET: 'Billetera virtual',
+  CASH_DRAWER: 'Caja',
+  CARD_TERMINAL: 'Terminal',
+  AUTO: 'Automático'
+};
+
+const toPaymentMethodLabel = (method?: string) => {
+  const key = String(method || '').trim().toUpperCase();
+  return PAYMENT_METHOD_LABELS[key] || method || 'Otro';
+};
 
 export const getDateRange = (period: Period, offset: number = 0) => {
   const start = new Date();
@@ -104,7 +121,16 @@ export default function AdminTabStatistics({ slugProp }: Props) {
       
       if (response.ok) {
         const data = await response.json();
-        setStats(data);
+        const normalizedPaymentMethods = Array.isArray(data?.paymentMethods)
+          ? data.paymentMethods.map((row: any) => ({
+              ...row,
+              name: toPaymentMethodLabel(row?.name)
+            }))
+          : [];
+        setStats({
+          ...data,
+          paymentMethods: normalizedPaymentMethods
+        });
       } else {
         reportUiError({ area: 'AdminTabStatistics', action: 'loadStats' }, new Error(`Error del servidor: ${response.status}`));
         setErrorMessage('No se pudieron cargar las estadisticas para este periodo.');
@@ -193,7 +219,7 @@ export default function AdminTabStatistics({ slugProp }: Props) {
            <div className="flex justify-between items-start mb-4 relative z-10">
              <div className="p-3 bg-[#EBE1D8] rounded-xl text-[#347048] group-hover:bg-[#347048] group-hover:text-white transition-colors"><Calendar size={24} strokeWidth={2.5} /></div>
            </div>
-           <p className="text-[#347048]/60 text-xs font-black uppercase tracking-widest mb-1 relative z-10">Turnos Confirmados</p>
+           <p className="text-[#347048]/60 text-xs font-black uppercase tracking-widest mb-1 relative z-10">Turnos Finalizados</p>
            <h3 className="text-4xl font-black text-[#347048] relative z-10">{stats?.totalBookings || 0}</h3>
         </div>
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-[#347048]/5 hover:shadow-md transition-all group relative overflow-hidden">
@@ -281,8 +307,163 @@ export default function AdminTabStatistics({ slugProp }: Props) {
           </div>
         </div>
       </div>
+
+      {/* SECCIÓN: PRODUCTOS VENDIDOS */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Resumen + listas */}
+        <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-[#347048]/5 flex flex-col">
+          <h3 className="text-lg font-black text-[#347048] mb-6 uppercase tracking-tight flex items-center gap-2 border-b border-[#347048]/10 pb-2">
+            <ShoppingBag size={20} /> Productos vendidos
+          </h3>
+
+          <div className="space-y-4">
+            <div className="rounded-2xl bg-[#EBE1D8]/40 border border-[#347048]/10 p-5">
+              <p className="text-[#347048]/60 text-[10px] font-black uppercase tracking-widest mb-1">Unidades (período)</p>
+              <p className="text-3xl font-black text-[#347048]">
+                {Number(stats?.products?.totals?.quantityAll || 0).toLocaleString('es-AR')}
+              </p>
+              <p className="text-[#347048]/50 text-xs font-bold mt-1">Total de unidades vendidas en el período</p>
+            </div>
+
+            <div className="rounded-2xl bg-[#EBE1D8]/40 border border-[#347048]/10 p-5">
+              <p className="text-[#347048]/60 text-[10px] font-black uppercase tracking-widest mb-1">Facturación (período)</p>
+              <p className="text-3xl font-black text-[#347048]">
+                ${Number(stats?.products?.totals?.revenueAll || 0).toLocaleString('es-AR')}
+              </p>
+              <p className="text-[#347048]/50 text-xs font-bold mt-1">Total facturado por productos en el período</p>
+            </div>
+
+            <div className="rounded-2xl bg-[#EBE1D8]/40 border border-[#347048]/10 p-5">
+              <p className="text-[#347048]/60 text-[10px] font-black uppercase tracking-widest mb-1">Productos sin ventas</p>
+              <p className="text-3xl font-black text-[#347048]">
+                {Number(stats?.products?.totals?.unsoldCount || 0).toLocaleString('es-AR')}
+              </p>
+              <p className="text-[#347048]/50 text-xs font-bold mt-1">
+                Cantidad de productos activos con 0 ventas
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Ranking */}
+        <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-[#347048]/5 lg:col-span-2 relative overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-6 border-b border-[#347048]/10 pb-4">
+            <div>
+              <h3 className="text-lg font-black text-[#347048] uppercase tracking-tight flex items-center gap-2">
+                Ranking de productos (unidades)
+              </h3>
+              <p className="text-[#347048]/50 text-[10px] font-black uppercase tracking-widest mt-1">
+                Período activo: {getPeriodLabel()}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-[10px] font-black uppercase tracking-widest text-[#347048] bg-[#347048]/10 px-2 py-1 rounded-lg">
+                Top 12
+              </span>
+
+              <div className="flex items-center bg-[#EBE1D8]/50 rounded-xl overflow-hidden border border-[#347048]/10">
+                <button onClick={() => setPeriodOffset(prev => prev - 1)} className="p-2 text-[#347048] hover:bg-[#347048]/10 transition-colors">
+                  <ChevronLeft size={18} strokeWidth={3} />
+                </button>
+                <span className="text-[#347048] font-black text-xs uppercase italic px-3 min-w-[100px] text-center">
+                  {getPeriodLabel()}
+                </span>
+                <button onClick={() => setPeriodOffset(prev => prev + 1)} disabled={periodOffset === 0} className={`p-2 transition-colors ${periodOffset === 0 ? 'text-[#347048]/20' : 'text-[#347048] hover:bg-[#347048]/10'}`}>
+                  <ChevronRight size={18} strokeWidth={3} />
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1 bg-[#EBE1D8]/50 p-1 rounded-lg border border-[#347048]/10">
+                <button onClick={() => handlePeriodChange('hoy')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${activePeriod === 'hoy' ? 'bg-[#347048] text-white shadow-md' : 'text-[#347048] hover:bg-[#347048]/10'}`}>Hoy</button>
+                <button onClick={() => handlePeriodChange('semana')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${activePeriod === 'semana' ? 'bg-[#347048] text-white shadow-md' : 'text-[#347048] hover:bg-[#347048]/10'}`}>Semana</button>
+                <button onClick={() => handlePeriodChange('mes')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${activePeriod === 'mes' ? 'bg-[#347048] text-white shadow-md' : 'text-[#347048] hover:bg-[#347048]/10'}`}>Mes</button>
+              </div>
+            </div>
+          </div>
+
+          <div className="h-80 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={Array.isArray(stats?.products?.top) ? stats.products.top : []}
+                margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                <XAxis
+                  dataKey="name"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#9CA3AF', fontSize: 11, fontWeight: 600 }}
+                  interval={0}
+                  angle={0}
+                  textAnchor="middle"
+                  height={40}
+                />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#9CA3AF', fontSize: 11, fontWeight: 600 }}
+                  allowDecimals={false}
+                />
+                <Tooltip
+                  cursor={{ fill: '#F3F4F6' }}
+                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                  formatter={(value: any, _name: any, props: any) => {
+                    const qty = Number(value || 0);
+                    const revenue = Number(props?.payload?.revenue || 0);
+                    return [`${qty.toLocaleString('es-AR')} u. ($${revenue.toLocaleString('es-AR')})`, 'Vendidas'];
+                  }}
+                />
+                <Bar dataKey="quantity" name="Unidades" fill="#926699" radius={[6, 6, 0, 0]} barSize={32} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Detalle: Top / Menos / No vendidos */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+            <div className="rounded-2xl border border-[#347048]/10 bg-[#EBE1D8]/30 p-5">
+              <p className="text-[#347048]/60 text-[10px] font-black uppercase tracking-widest mb-3">Más vendidos</p>
+              <div className="space-y-2">
+                {(Array.isArray(stats?.products?.top) ? stats.products.top : []).slice(0, 6).map((row: any, idx: number) => (
+                  <div key={`${row?.productId || 'p'}-top-${idx}`} className="flex items-center justify-between gap-3">
+                    <span className="text-[#347048] font-bold text-sm truncate">{row?.name || 'Producto'}</span>
+                    <span className="text-[#347048]/70 font-black text-xs shrink-0">{Number(row?.quantity || 0)} u.</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#347048]/10 bg-[#EBE1D8]/30 p-5">
+              <p className="text-[#347048]/60 text-[10px] font-black uppercase tracking-widest mb-3">Menos vendidos</p>
+              <div className="space-y-2">
+                {(Array.isArray(stats?.products?.bottom) ? stats.products.bottom : []).slice(0, 6).map((row: any, idx: number) => (
+                  <div key={`${row?.productId || 'p'}-bottom-${idx}`} className="flex items-center justify-between gap-3">
+                    <span className="text-[#347048] font-bold text-sm truncate">{row?.name || 'Producto'}</span>
+                    <span className="text-[#347048]/70 font-black text-xs shrink-0">{Number(row?.quantity || 0)} u.</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#347048]/10 bg-[#EBE1D8]/30 p-5">
+              <p className="text-[#347048]/60 text-[10px] font-black uppercase tracking-widest mb-3">Sin ventas</p>
+              <div className="space-y-2">
+                {(Array.isArray(stats?.products?.unsold) ? stats.products.unsold : []).slice(0, 6).map((row: any, idx: number) => (
+                  <div key={`${row?.productId || 'p'}-unsold-${idx}`} className="flex items-center justify-between gap-3">
+                    <span className="text-[#347048] font-bold text-sm truncate">{row?.name || 'Producto'}</span>
+                    <span className="text-[#347048]/70 font-black text-xs shrink-0">0 u.</span>
+                  </div>
+                ))}
+              </div>
+              {Number(stats?.products?.totals?.unsoldCount || 0) > 12 && (
+                <p className="text-[#347048]/50 text-xs font-bold mt-3">
+                  Mostrando 6 de {Number(stats?.products?.totals?.unsoldCount || 0)} productos sin ventas
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
-
-

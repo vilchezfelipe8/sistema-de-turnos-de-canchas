@@ -191,6 +191,91 @@ export class CashService {
         };
     }
 
+    async getSummaryByDateRange(
+        clubId: number | undefined,
+        startDateStr: string,
+        endDateStr: string,
+        userId?: number,
+        preferredClubId?: number
+    ) {
+        const [startYear, startMonth, startDay] = String(startDateStr).split('-').map(Number);
+        const [endYear, endMonth, endDay] = String(endDateStr).split('-').map(Number);
+
+        const start = new Date(startYear, startMonth - 1, startDay);
+        const end = new Date(endYear, endMonth - 1, endDay);
+
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+            throw new Error('Rango de fechas inválido');
+        }
+        if (start.getTime() > end.getTime()) {
+            throw new Error('La fecha inicial debe ser menor o igual a la fecha final');
+        }
+
+        const totalDays = Math.floor((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+        if (totalDays > 62) {
+            throw new Error('El rango máximo permitido es de 62 días');
+        }
+
+        let totalCash = 0;
+        let totalDigital = 0;
+        let totalIncome = 0;
+        let totalExpense = 0;
+        const groupedByMethod: Record<string, { income: number; expense: number; net: number }> = {};
+        const allMovements: any[] = [];
+
+        for (let i = 0; i < totalDays; i++) {
+            const current = new Date(start);
+            current.setDate(start.getDate() + i);
+            const dateLabel = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+
+            const daily = await this.getSummaryByDate(clubId, dateLabel, userId, preferredClubId);
+
+            totalCash += Number(daily?.balance?.cash || 0);
+            totalDigital += Number(daily?.balance?.digital || 0);
+            totalIncome += Number(daily?.balance?.income || 0);
+            totalExpense += Number(daily?.balance?.expense || 0);
+
+            const dayGrouped = daily?.groupedByMethod || {};
+            for (const methodKey of Object.keys(dayGrouped)) {
+                const row = dayGrouped[methodKey] || { income: 0, expense: 0, net: 0 };
+                if (!groupedByMethod[methodKey]) {
+                    groupedByMethod[methodKey] = { income: 0, expense: 0, net: 0 };
+                }
+                groupedByMethod[methodKey].income += Number(row.income || 0);
+                groupedByMethod[methodKey].expense += Number(row.expense || 0);
+                groupedByMethod[methodKey].net = groupedByMethod[methodKey].income - groupedByMethod[methodKey].expense;
+            }
+
+            if (Array.isArray(daily?.movements)) {
+                allMovements.push(...daily.movements);
+            }
+        }
+
+        allMovements.sort((a, b) => {
+            const ta = new Date(a?.createdAt || a?.date || 0).getTime();
+            const tb = new Date(b?.createdAt || b?.date || 0).getTime();
+            return tb - ta;
+        });
+
+        return {
+            date: `${startDateStr}..${endDateStr}`,
+            startDate: startDateStr,
+            endDate: endDateStr,
+            balance: {
+                total: totalCash + totalDigital,
+                cash: totalCash,
+                digital: totalDigital,
+                income: totalIncome,
+                expense: totalExpense
+            },
+            totalIncome,
+            totalExpenses: totalExpense,
+            cashBalance: totalCash,
+            groupedByMethod,
+            movements: allMovements
+        };
+    }
+
     async addMovement(data: any, actorUserId?: number) {
         const created = await prisma.$transaction(async (tx) => {
             const movement = await tx.cashMovement.create({ data });

@@ -4,8 +4,14 @@ import { getApiUrl } from '../utils/apiUrl';
 const apiBase = () => `${getApiUrl()}/api`;
 
 export class CashService {
-  static async getSummary() {
-    const res = await fetchWithAuth(`${apiBase()}/cash/summary`, { method: 'GET' });
+  static async getSummary(options?: { date?: string; startDate?: string; endDate?: string }) {
+    const params = new URLSearchParams();
+    if (options?.date) params.set('date', options.date);
+    if (options?.startDate) params.set('startDate', options.startDate);
+    if (options?.endDate) params.set('endDate', options.endDate);
+    const query = params.toString() ? `?${params.toString()}` : '';
+
+    const res = await fetchWithAuth(`${apiBase()}/cash/summary${query}`, { method: 'GET' });
     if (!res.ok) throw new Error('Error al cargar caja');
     return res.json();
   }

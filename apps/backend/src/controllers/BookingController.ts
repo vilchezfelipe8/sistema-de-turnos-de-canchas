@@ -821,6 +821,55 @@ export class BookingController {
             })
         ]);
 
+        const productAllRows = await prisma.$queryRaw<Array<{
+            productId: number;
+            name: string | null;
+            quantity: number;
+            revenue: number;
+        }>>`
+            WITH sales AS (
+              SELECT
+                ai."productId"::int AS "productId",
+                COALESCE(SUM(ai."quantity"), 0)::int AS quantity,
+                COALESCE(SUM(ai."total"), 0)::float8 AS revenue
+              FROM "AccountItem" ai
+              JOIN "Account" a ON a."id" = ai."accountId"
+              WHERE a."clubId" = ${clubId}
+                AND ai."type" = 'PRODUCT'::"AccountItemType"
+                AND ai."createdAt" >= ${start}
+                AND ai."createdAt" <= ${end}
+                AND ai."productId" IS NOT NULL
+              GROUP BY ai."productId"
+            )
+            SELECT
+              p."id"::int AS "productId",
+              p."name"::text AS name,
+              COALESCE(s.quantity, 0)::int AS quantity,
+              COALESCE(s.revenue, 0)::float8 AS revenue
+            FROM "Product" p
+            LEFT JOIN sales s ON s."productId" = p."id"
+            WHERE p."clubId" = ${clubId}
+              AND p."isActive" = true
+            ORDER BY quantity DESC, revenue DESC, p."name" ASC
+        `;
+
+        const productsTop = productAllRows.slice(0, 12);
+        const productsBottom = [...productAllRows]
+            .sort((a, b) => {
+                const qa = Number(a.quantity || 0);
+                const qb = Number(b.quantity || 0);
+                if (qa !== qb) return qa - qb;
+                const ra = Number(a.revenue || 0);
+                const rb = Number(b.revenue || 0);
+                if (ra !== rb) return ra - rb;
+                return String(a.name || '').localeCompare(String(b.name || ''), 'es', { sensitivity: 'base' });
+            })
+            .slice(0, 12);
+        const productsUnsold = productAllRows.filter((row) => Number(row.quantity || 0) <= 0);
+        const productsUnsoldTop = productsUnsold
+            .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es', { sensitivity: 'base' }))
+            .slice(0, 12);
+
         const dailyEvolution = dailyRows.map((row) => ({
             day: String(row.day || ''),
             turnos: Number(row.turnos || 0),
@@ -829,6 +878,10 @@ export class BookingController {
 
         const totalTurnos = dailyEvolution.reduce((sum, row) => sum + Number(row.turnos || 0), 0);
         const totalBar = dailyEvolution.reduce((sum, row) => sum + Number(row.bar || 0), 0);
+        const productsRevenueAll = productAllRows.reduce((sum, row) => sum + Number(row.revenue || 0), 0);
+        const productsQuantityAll = productAllRows.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+        const productsRevenueTop = productsTop.reduce((sum, row) => sum + Number(row.revenue || 0), 0);
+        const productsQuantityTop = productsTop.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
 
         res.json({
             totalRevenue: totalTurnos + totalBar,
@@ -837,7 +890,32 @@ export class BookingController {
             paymentMethods: methodRows.map((row) => ({
                 name: row.method,
                 value: Number(row.value || 0)
-            }))
+            })),
+            products: {
+                totals: {
+                    quantityAll: productsQuantityAll,
+                    revenueAll: productsRevenueAll,
+                    quantityTop: productsQuantityTop,
+                    revenueTop: productsRevenueTop,
+                    unsoldCount: productsUnsold.length
+                },
+                top: productsTop.map((row) => ({
+                    productId: row.productId,
+                    name: row.name || 'Producto',
+                    quantity: Number(row.quantity || 0),
+                    revenue: Number(row.revenue || 0)
+                })),
+                bottom: productsBottom.map((row) => ({
+                    productId: row.productId,
+                    name: row.name || 'Producto',
+                    quantity: Number(row.quantity || 0),
+                    revenue: Number(row.revenue || 0)
+                })),
+                unsold: productsUnsoldTop.map((row) => ({
+                    productId: row.productId,
+                    name: row.name || 'Producto'
+                }))
+            }
         });
 
     } catch (error) {

@@ -10,13 +10,25 @@ export class CashController {
   getSummary = async (req: Request, res: Response) => {
     try {
       const clubId = Number((req as any).clubId);
+      const rawStartDate = typeof req.query.startDate === 'string' ? req.query.startDate : undefined;
+      const rawEndDate = typeof req.query.endDate === 'string' ? req.query.endDate : undefined;
       const rawDate = typeof req.query.date === 'string' ? req.query.date : undefined;
-      const summary = rawDate
-        ? await this.cashService.getSummaryByDate(clubId, rawDate)
-        : await this.cashService.getDailySummary(clubId);
+
+      let summary;
+      if (rawStartDate || rawEndDate) {
+        if (!rawStartDate || !rawEndDate) {
+          return res.status(400).json({ error: 'Debe enviar startDate y endDate juntos' });
+        }
+        summary = await this.cashService.getSummaryByDateRange(clubId, rawStartDate, rawEndDate);
+      } else if (rawDate) {
+        summary = await this.cashService.getSummaryByDate(clubId, rawDate);
+      } else {
+        summary = await this.cashService.getDailySummary(clubId);
+      }
+
       return res.json(summary);
-    } catch (error) {
-      return res.status(500).json({ error: 'Error al obtener caja' });
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message || 'Error al obtener caja' });
     }
   };
 
