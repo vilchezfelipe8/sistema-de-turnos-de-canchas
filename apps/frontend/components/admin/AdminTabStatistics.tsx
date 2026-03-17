@@ -20,6 +20,23 @@ interface Props {
 
 type Period = 'hoy' | 'semana' | 'mes';
 
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  CASH: 'Efectivo',
+  TRANSFER: 'Transferencia',
+  CARD: 'Tarjeta',
+  OTHER: 'Otro',
+  BANK_ACCOUNT: 'Cuenta bancaria',
+  VIRTUAL_WALLET: 'Billetera virtual',
+  CASH_DRAWER: 'Caja',
+  CARD_TERMINAL: 'Terminal',
+  AUTO: 'Automático'
+};
+
+const toPaymentMethodLabel = (method?: string) => {
+  const key = String(method || '').trim().toUpperCase();
+  return PAYMENT_METHOD_LABELS[key] || method || 'Otro';
+};
+
 export const getDateRange = (period: Period, offset: number = 0) => {
   const start = new Date();
   const end = new Date();
@@ -104,7 +121,16 @@ export default function AdminTabStatistics({ slugProp }: Props) {
       
       if (response.ok) {
         const data = await response.json();
-        setStats(data);
+        const normalizedPaymentMethods = Array.isArray(data?.paymentMethods)
+          ? data.paymentMethods.map((row: any) => ({
+              ...row,
+              name: toPaymentMethodLabel(row?.name)
+            }))
+          : [];
+        setStats({
+          ...data,
+          paymentMethods: normalizedPaymentMethods
+        });
       } else {
         reportUiError({ area: 'AdminTabStatistics', action: 'loadStats' }, new Error(`Error del servidor: ${response.status}`));
         setErrorMessage('No se pudieron cargar las estadisticas para este periodo.');

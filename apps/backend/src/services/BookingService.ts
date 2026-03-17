@@ -1231,13 +1231,24 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
             let saved;
             try {
+                // Si la reserva es de un usuario registrado, preservamos su DNI en Client
+                // para que aparezca correctamente en Gestión de Clientes.
+                let dniForClient: string | null = guestDni || null;
+                if (!dniForClient && user?.id) {
+                    const dbUser = await tx.user.findUnique({
+                        where: { id: Number(user.id) },
+                        select: { dni: true }
+                    });
+                    dniForClient = dbUser?.dni || null;
+                }
+
                 const resolvedClient = await this.resolveOrCreateClient(tx, {
                     clubId: bookingClubId,
                     userId: user?.id ?? null,
                     name: guestName || `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || user?.firstName || 'Cliente',
                     phone: guestPhone || user?.phoneNumber || null,
                     email: guestEmail || user?.email || null,
-                    dni: guestDni || null
+                    dni: dniForClient
                 });
 
                 saved = await tx.booking.create({
