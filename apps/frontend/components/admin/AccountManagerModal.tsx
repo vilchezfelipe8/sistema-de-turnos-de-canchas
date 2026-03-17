@@ -11,6 +11,7 @@ type NewItemForm = {
   quantity: number;
   unitPrice: number;
   type: 'PRODUCT' | 'SERVICE' | 'ADJUSTMENT';
+  productId?: number;
   serviceCode?: string;
 };
 
@@ -120,10 +121,13 @@ export default function AccountManagerModal({
     if (newItem.type !== 'SERVICE' || !String(newItem.description || '').trim()) {
       setSelectedServiceName('');
     }
+    if (newItem.type !== 'PRODUCT' && newItem.productId) {
+      setNewItem((prev) => ({ ...prev, productId: undefined }));
+    }
     if (newItem.type !== 'SERVICE' && newItem.serviceCode) {
       setNewItem((prev) => ({ ...prev, serviceCode: undefined }));
     }
-  }, [newItem.description, newItem.serviceCode, newItem.type, setNewItem, show]);
+  }, [newItem.description, newItem.productId, newItem.serviceCode, newItem.type, setNewItem, show]);
 
   useEffect(() => {
     if (show && !wasOpenRef.current && Number(newItem.quantity || 0) <= 0) {
@@ -226,6 +230,7 @@ export default function AccountManagerModal({
                                 ...prev,
                                 type: nextType,
                                 quantity: prev.quantity > 0 ? prev.quantity : 1,
+                                productId: prev.type === 'PRODUCT' ? prev.productId : undefined,
                                 serviceCode: undefined
                               }));
                               setSelectedServiceName('');
@@ -238,6 +243,7 @@ export default function AccountManagerModal({
                                 quantity: prev.quantity > 0 ? prev.quantity : 1,
                                 description: '',
                                 unitPrice: 0,
+                                productId: undefined,
                                 serviceCode: undefined
                               }));
                               setSelectedProductName('');
@@ -249,6 +255,7 @@ export default function AccountManagerModal({
                               quantity: prev.quantity > 0 ? prev.quantity : 1,
                               description: '',
                               unitPrice: 0,
+                              productId: undefined,
                               serviceCode: undefined
                             }));
                             setSelectedProductName('');
@@ -279,6 +286,7 @@ export default function AccountManagerModal({
                               if (!selectedProductName) return;
                               if (value.trim().toLowerCase() !== selectedProductName.trim().toLowerCase()) {
                                 setSelectedProductName('');
+                                setNewItem((prev) => ({ ...prev, productId: undefined }));
                               }
                             }}
                             minQueryLength={1}
@@ -347,6 +355,7 @@ export default function AccountManagerModal({
                               onChange={(e) => setNewItem((prev) => ({
                                 ...prev,
                                 description: e.target.value,
+                                productId: prev.type === 'PRODUCT' ? undefined : prev.productId,
                                 serviceCode: prev.type === 'SERVICE' ? undefined : prev.serviceCode
                               }))}
                               className={inputClass}

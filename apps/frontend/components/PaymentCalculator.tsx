@@ -456,9 +456,13 @@ export default function PaymentCalculator({
         </div>
 
         <div className="mb-5 bg-white border-2 border-[#347048]/10 rounded-[1.25rem] p-4">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-2">
             <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Cierre estimado</p>
-            <p className="text-[10px] font-black uppercase tracking-widest text-[#926699]">Pagado / Deuda</p>
+          </div>
+          <div className="grid grid-cols-12 gap-2 items-center mb-2 text-[10px] font-black uppercase tracking-widest">
+            <span className="col-span-5 text-transparent select-none">.</span>
+            <span className="col-span-3 text-right text-emerald-600">Pagado</span>
+            <span className="col-span-4 text-right text-[#926699]">Deuda</span>
           </div>
           <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
             {conceptBreakdown.map((row) => (
@@ -545,4 +549,3 @@ export default function PaymentCalculator({
   if (!mounted) return null;
   return createPortal(modal, document.body);
 }
-

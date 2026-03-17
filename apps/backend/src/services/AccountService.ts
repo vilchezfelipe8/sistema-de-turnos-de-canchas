@@ -484,6 +484,7 @@ export class AccountService {
     quantity: number;
     unitPrice: number;
     type?: 'BOOKING' | 'PRODUCT' | 'SERVICE' | 'ADJUSTMENT';
+    productId?: number;
     serviceCode?: string;
     applyDiscount?: boolean;
     actorUserId?: number | null;
@@ -516,6 +517,20 @@ export class AccountService {
       if (!Number.isFinite(unitPrice) || unitPrice <= 0) throw new Error('Precio unitario inválido');
 
       const itemType = input.type ?? 'PRODUCT';
+      let linkedProduct: { id: number; category: string | null } | null = null;
+      if (itemType === 'PRODUCT' && Number.isInteger(Number(input.productId)) && Number(input.productId) > 0) {
+        const product = await tx.product.findFirst({
+          where: { id: Number(input.productId), clubId },
+          select: { id: true, category: true, stock: true }
+        });
+        if (!product) throw new Error('Producto no encontrado para el club');
+        if (Number(product.stock || 0) < quantity) throw new Error('Stock insuficiente');
+        linkedProduct = {
+          id: product.id,
+          category: product.category ?? null
+        };
+      }
+
       const discountDraft = input.applyDiscount === false
         ? {
             unitPrice: Number(unitPrice.toFixed(2)),
@@ -529,6 +544,8 @@ export class AccountService {
             quantity,
             unitPrice,
             activityTypeId: bookingContext?.activityId ?? null,
+            productId: linkedProduct?.id ?? null,
+            productCategory: linkedProduct?.category ?? null,
             serviceCode: input.serviceCode
           });
 
@@ -536,6 +553,7 @@ export class AccountService {
         data: {
           accountId,
           type: itemType,
+          productId: linkedProduct?.id,
           description: input.description,
           quantity,
           unitPrice: new Prisma.Decimal(discountDraft.unitPrice),
@@ -572,9 +590,18 @@ export class AccountService {
         });
       }
 
+      if (linkedProduct) {
+        const stockUpdate = await tx.product.updateMany({
+          where: { id: linkedProduct.id, clubId, stock: { gte: quantity } },
+          data: { stock: { decrement: quantity } }
+        });
+        if (stockUpdate.count !== 1) {
+          throw new Error('Stock insuficiente');
+        }
+      }
+
       await this.projectionService.refreshAccountSummary(accountId, tx);
       return item;
     });
   }
 }
-

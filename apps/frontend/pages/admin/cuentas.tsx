@@ -36,6 +36,7 @@ const EMPTY_NEW_ITEM = {
   quantity: 0,
   unitPrice: 0,
   type: 'PRODUCT' as const,
+  productId: undefined,
   serviceCode: undefined
 };
 
@@ -47,7 +48,7 @@ export default function AdminAccountsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
 
-  const [newItem, setNewItem] = useState<{ description: string; quantity: number; unitPrice: number; type: 'PRODUCT' | 'SERVICE' | 'ADJUSTMENT'; serviceCode?: string }>(EMPTY_NEW_ITEM);
+  const [newItem, setNewItem] = useState<{ description: string; quantity: number; unitPrice: number; type: 'PRODUCT' | 'SERVICE' | 'ADJUSTMENT'; productId?: number; serviceCode?: string }>(EMPTY_NEW_ITEM);
   const [payment, setPayment] = useState<{ channel: PaymentChannel; collectorAccountLabel: string; externalReference: string; source: PaymentSource }>({ channel: 'AUTO', collectorAccountLabel: '', externalReference: '', source: 'POS' });
   const [newAccount, setNewAccount] = useState({ sourceType: 'MANUAL' as const, sourceId: '' });
   const [showRefundModal, setShowRefundModal] = useState(false);
@@ -423,6 +424,8 @@ export default function AdminAccountsPage() {
       ...prev,
       description: product.name,
       unitPrice: Number(product.price || 0),
+      quantity: 1,
+      productId: Number(product.id || 0) || undefined,
       type: 'PRODUCT',
       serviceCode: undefined
     }));
@@ -433,6 +436,8 @@ export default function AdminAccountsPage() {
       ...prev,
       description: service.name,
       unitPrice: Number(service.price || 0),
+      quantity: 1,
+      productId: undefined,
       type: 'SERVICE',
       serviceCode: service.code
     }));
@@ -690,6 +695,7 @@ export default function AdminAccountsPage() {
                 quantity: newItem.quantity,
                 unitPrice: newItem.unitPrice,
                 type: newItem.type,
+                productId: newItem.type === 'PRODUCT' ? newItem.productId : undefined,
                 serviceCode: newItem.type === 'SERVICE' && newItem.serviceCode ? newItem.serviceCode : undefined
               });
               setNewItem(EMPTY_NEW_ITEM);

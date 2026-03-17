@@ -113,6 +113,7 @@ export const addAccountItem = async (accountId: string, body: {
   quantity: number;
   unitPrice: number;
   type?: 'BOOKING' | 'PRODUCT' | 'SERVICE' | 'ADJUSTMENT';
+  productId?: number;
   serviceCode?: string;
   applyDiscount?: boolean;
 }) => {

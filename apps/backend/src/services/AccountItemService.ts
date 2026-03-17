@@ -8,6 +8,7 @@ export class AccountItemService {
     quantity: number;
     unitPrice: number;
     type?: 'BOOKING' | 'PRODUCT' | 'SERVICE' | 'ADJUSTMENT';
+    productId?: number;
     serviceCode?: string;
     applyDiscount?: boolean;
     actorUserId?: number | null;
