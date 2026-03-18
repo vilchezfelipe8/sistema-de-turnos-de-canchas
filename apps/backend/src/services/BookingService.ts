@@ -530,11 +530,26 @@ export class BookingService {
 
         const clubConfig = this.resolveClubConfig((court as any)?.club);
         const activitySchedule = this.resolveActivitySchedule(activity);
+        const isProfessorClient = await this.resolveClientProfessorStatus({
+            clubId: (court as any).club.id,
+            userId: input.userId ?? null,
+            guestEmail: input.guestEmail,
+            guestPhone: input.guestPhone,
+            guestDni: input.guestDni
+        });
+        const professorOverrideMinutes = Number(clubConfig?.professorDurationOverrideMinutes ?? 60);
+        const canProfessorDurationOverride =
+            Boolean(isProfessorClient) &&
+            Boolean(clubConfig?.professorDurationOverrideEnabled) &&
+            Number.isFinite(professorOverrideMinutes) &&
+            professorOverrideMinutes > 0;
         const allowedDurations = activitySchedule.durations;
         const effectiveDuration = input.durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
         this.assertValidDuration(effectiveDuration);
         if (!allowedDurations.includes(effectiveDuration)) {
-            throw new Error('Duración no permitida por el club');
+            if (!(canProfessorDurationOverride && effectiveDuration === professorOverrideMinutes)) {
+                throw new Error('Duración no permitida por el club');
+            }
         }
 
         const endDateTime = new Date(input.startDateTime.getTime() + effectiveDuration * 60000);
@@ -2153,7 +2168,18 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         return schedule;
     }
 
-    async getAvailableSlotsWithCourts(date: Date, activityId: number, clubId?: number, durationMinutes?: number): Promise<Array<{
+    async getAvailableSlotsWithCourts(
+        date: Date,
+        activityId: number,
+        clubId?: number,
+        durationMinutes?: number,
+        identity?: {
+            userId?: number | null;
+            guestEmail?: string;
+            guestPhone?: string;
+            guestDni?: string;
+        }
+    ): Promise<Array<{
         slotTime: string;
         availableCourts: Array<{
             id: number;
@@ -2194,13 +2220,51 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         }
 
         const activitySchedule = this.resolveActivitySchedule(activity);
+        const professorOverrideMinutes = Number(normalizedClubConfig?.professorDurationOverrideMinutes ?? 60);
+        const resolveProfessorForClubId = Number(clubId ?? (activityCourts[0] as any)?.club?.id);
+        const isProfessorClient = Number.isFinite(resolveProfessorForClubId) && resolveProfessorForClubId > 0
+            ? await this.resolveClientProfessorStatus({
+                clubId: resolveProfessorForClubId,
+                userId: identity?.userId ?? null,
+                guestEmail: identity?.guestEmail,
+                guestPhone: identity?.guestPhone,
+                guestDni: identity?.guestDni
+            })
+            : false;
+        const canProfessorDurationOverride =
+            Boolean(isProfessorClient) &&
+            Boolean(normalizedClubConfig?.professorDurationOverrideEnabled) &&
+            Number.isFinite(professorOverrideMinutes) &&
+            professorOverrideMinutes > 0;
         const allowedDurations = activitySchedule.durations;
         const effectiveDuration = durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
         if (!allowedDurations.includes(effectiveDuration)) {
-            throw new Error("Duración no permitida por el club");
+            if (!(canProfessorDurationOverride && effectiveDuration === professorOverrideMinutes)) {
+                throw new Error("Duración no permitida por el club");
+            }
         }
 
-        const possibleSlots = this.resolveScheduleSlots(activity, effectiveDuration) as Array<{ slotTime: string; dayOffset: number }>;
+        let possibleSlots = this.resolveScheduleSlots(activity, effectiveDuration) as Array<{ slotTime: string; dayOffset: number }>;
+        // Regla operativa explícita: en horarios fijos, si aplica override de profesor,
+        // habilitar los mismos inicios fijos aunque la duración no exista en scheduleFixedSlots.duration.
+        if (
+            possibleSlots.length === 0 &&
+            canProfessorDurationOverride &&
+            effectiveDuration === professorOverrideMinutes &&
+            activitySchedule.mode === 'FIXED' &&
+            Array.isArray(activitySchedule.fixedSlots)
+        ) {
+            const seenStarts = new Set<string>();
+            possibleSlots = activitySchedule.fixedSlots
+                .map((slot: any) => String(slot?.start || '').trim())
+                .filter((start: string) => /^\d{2}:\d{2}$/.test(start))
+                .filter((start: string) => {
+                    if (seenStarts.has(start)) return false;
+                    seenStarts.add(start);
+                    return true;
+                })
+                .map((start: string) => ({ slotTime: start, dayOffset: 0 }));
+        }
 
         const now = new Date();
 

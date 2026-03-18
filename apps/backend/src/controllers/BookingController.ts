@@ -456,6 +456,18 @@ export class BookingController {
             date: z.string(), 
             activityId: z.preprocess((v) => Number(v), z.number()),
             clubSlug: z.string().optional(),
+            guestEmail: z.preprocess(
+                (v) => (typeof v === 'string' ? v.trim() : v),
+                z.string().email().optional()
+            ),
+            guestPhone: z.preprocess(
+                (v) => (typeof v === 'string' ? v.trim() : v),
+                z.string().optional()
+            ),
+            guestDni: z.preprocess(
+                (v) => (typeof v === 'string' ? v.trim() : v),
+                z.string().optional()
+            ),
             durationMinutes: z.preprocess(
                 (v) => (v === undefined || v === '' ? undefined : Number(v)),
                 z.number().optional()
@@ -469,7 +481,7 @@ export class BookingController {
                 return res.status(400).json({ error: parsed.error.format() });
             }
 
-            const { date, activityId, clubSlug, durationMinutes } = parsed.data;
+            const { date, activityId, clubSlug, durationMinutes, guestEmail, guestPhone, guestDni } = parsed.data;
 
             // Blindaje matemático para que la fecha no se atrase un día por el UTC
             const [year, month, day] = String(date).split('-').map(Number);
@@ -485,7 +497,13 @@ export class BookingController {
                 searchDate,
                 Number(activityId),
                 clubId,
-                durationMinutes
+                durationMinutes,
+                {
+                    userId: Number((req as any)?.user?.userId || 0) || null,
+                    guestEmail,
+                    guestPhone,
+                    guestDni
+                }
             );
 
             res.json({ date: date, slotsWithCourts });

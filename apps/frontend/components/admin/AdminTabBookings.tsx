@@ -298,9 +298,13 @@ export default function AdminTabBookings() {
   const [clubBookingConfig, setClubBookingConfig] = useState<{
     bookingSimpleAdvanceDaysAdmin: number;
     allowAdminSkipSimpleAdvanceLimit: boolean;
+    professorDurationOverrideEnabled: boolean;
+    professorDurationOverrideMinutes: number;
   }>({
     bookingSimpleAdvanceDaysAdmin: 30,
-    allowAdminSkipSimpleAdvanceLimit: false
+    allowAdminSkipSimpleAdvanceLimit: false,
+    professorDurationOverrideEnabled: true,
+    professorDurationOverrideMinutes: DEFAULT_DURATION_MINUTES
   });
 
   const handleOpenPaymentModal = async (bookingId: number) => {
@@ -356,11 +360,18 @@ export default function AdminTabBookings() {
 
   const manualDurationOptions = useMemo(() => {
     const options = selectedActivityDurations;
-    if (selectedClientIsProfessor && !options.includes(60)) {
-      return [60, ...options];
+    const professorDurationOverride = Number(clubBookingConfig.professorDurationOverrideMinutes);
+    const canUseProfessorOverride =
+      selectedClientIsProfessor &&
+      Boolean(clubBookingConfig.professorDurationOverrideEnabled) &&
+      Number.isFinite(professorDurationOverride) &&
+      professorDurationOverride > 0;
+
+    if (canUseProfessorOverride && !options.includes(professorDurationOverride)) {
+      return [professorDurationOverride, ...options];
     }
     return options;
-  }, [selectedClientIsProfessor, selectedActivityDurations]);
+  }, [selectedClientIsProfessor, selectedActivityDurations, clubBookingConfig.professorDurationOverrideEnabled, clubBookingConfig.professorDurationOverrideMinutes]);
 
   const adminSimpleMaxDate = useMemo(() => {
     if (clubBookingConfig.allowAdminSkipSimpleAdvanceLimit) return null;
@@ -536,17 +547,25 @@ export default function AdminTabBookings() {
         if (!slug) return;
         const club = await ClubService.getClubBySlug(slug);
         const rawAdvance = Number(club?.bookingSimpleAdvanceDaysAdmin);
+        const rawProfessorOverride = Number(club?.professorDurationOverrideMinutes);
         setClubBookingConfig({
           bookingSimpleAdvanceDaysAdmin:
             Number.isFinite(rawAdvance) && rawAdvance >= 0
               ? Math.floor(rawAdvance)
               : 30,
-          allowAdminSkipSimpleAdvanceLimit: Boolean(club?.allowAdminSkipSimpleAdvanceLimit)
+          allowAdminSkipSimpleAdvanceLimit: Boolean(club?.allowAdminSkipSimpleAdvanceLimit),
+          professorDurationOverrideEnabled: club?.professorDurationOverrideEnabled ?? true,
+          professorDurationOverrideMinutes:
+            Number.isFinite(rawProfessorOverride) && rawProfessorOverride > 0
+              ? Math.floor(rawProfessorOverride)
+              : DEFAULT_DURATION_MINUTES
         });
       } catch {
         setClubBookingConfig({
           bookingSimpleAdvanceDaysAdmin: 30,
-          allowAdminSkipSimpleAdvanceLimit: false
+          allowAdminSkipSimpleAdvanceLimit: false,
+          professorDurationOverrideEnabled: true,
+          professorDurationOverrideMinutes: DEFAULT_DURATION_MINUTES
         });
       }
     };

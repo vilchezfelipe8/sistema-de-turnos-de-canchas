@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getApiUrl } from '../utils/apiUrl';
 import { extractErrorMessage, reportUiError } from '../utils/uiError';
+import { getToken } from '../services/AuthService';
 
 interface Court {
   id: number;
@@ -18,7 +19,17 @@ interface AvailabilityResponse {
   slotsWithCourts: SlotWithCourts[];
 }
 
-export function useAvailability(date: Date | null, activityId?: number | null, clubSlug?: string, durationMinutes?: number) {
+export function useAvailability(
+  date: Date | null,
+  activityId?: number | null,
+  clubSlug?: string,
+  durationMinutes?: number,
+  identity?: {
+    guestEmail?: string;
+    guestPhone?: string;
+    guestDni?: string;
+  }
+) {
   const [slotsWithCourts, setSlotsWithCourts] = useState<SlotWithCourts[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,15 +58,23 @@ export function useAvailability(date: Date | null, activityId?: number | null, c
       const durationParam = Number.isFinite(durationMinutes)
         ? `&durationMinutes=${durationMinutes}`
         : '';
+      const guestEmailParam = identity?.guestEmail ? `&guestEmail=${encodeURIComponent(identity.guestEmail)}` : '';
+      const guestPhoneParam = identity?.guestPhone ? `&guestPhone=${encodeURIComponent(identity.guestPhone)}` : '';
+      const guestDniParam = identity?.guestDni ? `&guestDni=${encodeURIComponent(identity.guestDni)}` : '';
+      const token = getToken();
+      const headers: Record<string, string> = {
+        'Pragma': 'no-cache',
+        'Cache-Control': 'no-cache, no-store, must-revalidate'
+      };
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
 
       const res = await fetch(
-        `${apiBase}/bookings/availability-with-courts?activityId=${Number(activityId)}&date=${dateString}&t=${timestamp}${clubParam}${durationParam}`,
+        `${apiBase}/bookings/availability-with-courts?activityId=${Number(activityId)}&date=${dateString}&t=${timestamp}${clubParam}${durationParam}${guestEmailParam}${guestPhoneParam}${guestDniParam}`,
         {
             cache: 'no-store',
-            headers: {
-                'Pragma': 'no-cache',
-                'Cache-Control': 'no-cache, no-store, must-revalidate'
-            }
+            headers
         }
       );
 
@@ -71,7 +90,7 @@ export function useAvailability(date: Date | null, activityId?: number | null, c
     } finally {
       setLoading(false);
     }
-  }, [date, activityId, apiBase, clubSlug, durationMinutes]);
+  }, [date, activityId, apiBase, clubSlug, durationMinutes, identity?.guestEmail, identity?.guestPhone, identity?.guestDni]);
 
   useEffect(() => {
     fetchSlots();
