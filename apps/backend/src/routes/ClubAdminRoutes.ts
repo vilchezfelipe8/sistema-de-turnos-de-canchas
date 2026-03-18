@@ -166,6 +166,10 @@ router.put('/:slug/admin/activity-types/:id/schedule',
                     if (v === '' || v === undefined || v === null) return null;
                     return Number(v);
                 }),
+                scheduleWindows: z.array(z.object({
+                    start: z.string(),
+                    end: z.string()
+                })).nullable().optional(),
                 scheduleDurations: z.array(z.union([z.number(), z.string()])).optional(),
                 scheduleFixedSlots: z.array(z.object({
                     start: z.string(),
@@ -191,6 +195,145 @@ router.put('/:slug/admin/activity-types/:id/schedule',
                 ? 404
                 : (error?.message === 'La actividad no pertenece a este club' ? 403 : 400);
             res.status(status).json({ error: error.message || 'No se pudo actualizar la configuración de actividad' });
+        }
+    }
+);
+
+router.get('/:slug/admin/activity-types/:id/schedule-exceptions',
+    authMiddleware,
+    verifyClubAccess,
+    requireRole('ADMIN'),
+    async (req: any, res: any) => {
+        try {
+            const idSchema = z.preprocess((v) => Number(v), z.number().int().positive());
+            const idParsed = idSchema.safeParse(req.params.id);
+            if (!idParsed.success) {
+                return res.status(400).json({ error: 'ID de actividad inválido' });
+            }
+
+            const querySchema = z.object({
+                fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+                toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+            });
+            const parsedQuery = querySchema.safeParse(req.query || {});
+            if (!parsedQuery.success) {
+                return res.status(400).json({ error: parsedQuery.error.format() });
+            }
+
+            const clubId = Number(req.clubId || req.club?.id);
+            if (!Number.isFinite(clubId) || clubId <= 0) {
+                return res.status(400).json({ error: 'No se pudo determinar el club activo' });
+            }
+
+            const rows = await activityTypeAdminService.listScheduleExceptions(
+                clubId,
+                idParsed.data,
+                parsedQuery.data.fromDate,
+                parsedQuery.data.toDate
+            );
+
+            return res.json(rows);
+        } catch (error: any) {
+            const status = error?.message === 'Actividad no encontrada'
+                ? 404
+                : (error?.message === 'La actividad no pertenece a este club' ? 403 : 400);
+            return res.status(status).json({ error: error.message || 'No se pudieron listar excepciones de agenda' });
+        }
+    }
+);
+
+router.put('/:slug/admin/activity-types/:id/schedule-exceptions/:localDate',
+    authMiddleware,
+    verifyClubAccess,
+    requireRole('ADMIN'),
+    async (req: any, res: any) => {
+        try {
+            const idSchema = z.preprocess((v) => Number(v), z.number().int().positive());
+            const idParsed = idSchema.safeParse(req.params.id);
+            if (!idParsed.success) {
+                return res.status(400).json({ error: 'ID de actividad inválido' });
+            }
+
+            const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+            const dateParsed = dateSchema.safeParse(req.params.localDate);
+            if (!dateParsed.success) {
+                return res.status(400).json({ error: 'localDate inválida. Formato esperado: YYYY-MM-DD' });
+            }
+
+            const bodySchema = z.object({
+                isClosed: z.boolean().optional(),
+                scheduleMode: z.enum(['FIXED', 'RANGE']).optional(),
+                scheduleOpenTime: z.string().nullable().optional(),
+                scheduleCloseTime: z.string().nullable().optional(),
+                scheduleIntervalMinutes: z.union([z.number(), z.string()]).nullable().optional().transform((v) => {
+                    if (v === '' || v === undefined || v === null) return null;
+                    return Number(v);
+                }),
+                scheduleWindows: z.array(z.object({
+                    start: z.string(),
+                    end: z.string()
+                })).nullable().optional(),
+                scheduleDurations: z.array(z.union([z.number(), z.string()])).optional(),
+                scheduleFixedSlots: z.array(z.object({
+                    start: z.string(),
+                    duration: z.union([z.number(), z.string()]).transform((v) => Number(v))
+                })).optional()
+            });
+            const bodyParsed = bodySchema.safeParse(req.body || {});
+            if (!bodyParsed.success) {
+                return res.status(400).json({ error: bodyParsed.error.format() });
+            }
+
+            const clubId = Number(req.clubId || req.club?.id);
+            if (!Number.isFinite(clubId) || clubId <= 0) {
+                return res.status(400).json({ error: 'No se pudo determinar el club activo' });
+            }
+
+            const row = await activityTypeAdminService.upsertScheduleException(clubId, idParsed.data, {
+                localDate: dateParsed.data,
+                ...bodyParsed.data
+            } as any);
+
+            return res.json(row);
+        } catch (error: any) {
+            const status = error?.message === 'Actividad no encontrada'
+                ? 404
+                : (error?.message === 'La actividad no pertenece a este club' ? 403 : 400);
+            return res.status(status).json({ error: error.message || 'No se pudo guardar la excepción de agenda' });
+        }
+    }
+);
+
+router.delete('/:slug/admin/activity-types/:id/schedule-exceptions/:localDate',
+    authMiddleware,
+    verifyClubAccess,
+    requireRole('ADMIN'),
+    async (req: any, res: any) => {
+        try {
+            const idSchema = z.preprocess((v) => Number(v), z.number().int().positive());
+            const idParsed = idSchema.safeParse(req.params.id);
+            if (!idParsed.success) {
+                return res.status(400).json({ error: 'ID de actividad inválido' });
+            }
+
+            const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+            const dateParsed = dateSchema.safeParse(req.params.localDate);
+            if (!dateParsed.success) {
+                return res.status(400).json({ error: 'localDate inválida. Formato esperado: YYYY-MM-DD' });
+            }
+
+            const clubId = Number(req.clubId || req.club?.id);
+            if (!Number.isFinite(clubId) || clubId <= 0) {
+                return res.status(400).json({ error: 'No se pudo determinar el club activo' });
+            }
+
+            const result = await activityTypeAdminService.deleteScheduleException(clubId, idParsed.data, dateParsed.data);
+            return res.json(result);
+        } catch (error: any) {
+            const status = error?.message === 'Actividad no encontrada'
+                ? 404
+                : (error?.message === 'La actividad no pertenece a este club' ? 403 : 400);
+            return res.status(status).json({ error: error.message || 'No se pudo eliminar la excepción de agenda' });
         }
     }
 );

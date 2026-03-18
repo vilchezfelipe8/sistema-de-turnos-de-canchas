@@ -11,6 +11,11 @@ export type ActivityFixedSlot = {
   duration: number;
 };
 
+export type ActivityRangeWindow = {
+  start: string;
+  end: string;
+};
+
 export type ClubActivityType = {
   id: number;
   name: string;
@@ -20,8 +25,25 @@ export type ClubActivityType = {
   scheduleOpenTime?: string | null;
   scheduleCloseTime?: string | null;
   scheduleIntervalMinutes?: number | null;
+  scheduleWindows?: ActivityRangeWindow[] | null;
   scheduleDurations?: number[] | null;
   scheduleFixedSlots?: ActivityFixedSlot[] | null;
+};
+
+export type ActivityScheduleException = {
+  id: number;
+  activityTypeId: number;
+  localDate: string;
+  isClosed: boolean;
+  scheduleMode?: ActivityScheduleMode | null;
+  scheduleOpenTime?: string | null;
+  scheduleCloseTime?: string | null;
+  scheduleIntervalMinutes?: number | null;
+  scheduleWindows?: ActivityRangeWindow[] | null;
+  scheduleDurations?: number[] | null;
+  scheduleFixedSlots?: ActivityFixedSlot[] | null;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type DiscountPolicyScope = 'BOOKING' | 'PRODUCT' | 'SERVICE' | 'ALL';
@@ -189,6 +211,7 @@ export class ClubAdminService {
       scheduleOpenTime?: string | null;
       scheduleCloseTime?: string | null;
       scheduleIntervalMinutes?: number | null;
+      scheduleWindows?: ActivityRangeWindow[] | null;
       scheduleDurations?: number[];
       scheduleFixedSlots?: ActivityFixedSlot[];
     }
@@ -204,6 +227,82 @@ export class ClubAdminService {
     if (!res.ok) {
       const error = await res.json();
       throw new Error(error.error || error.message || 'Error al actualizar configuración de actividad');
+    }
+
+    return res.json();
+  }
+
+  static async listActivityTypeScheduleExceptions(
+    clubSlug: string,
+    activityTypeId: number,
+    params?: { fromDate?: string; toDate?: string }
+  ): Promise<ActivityScheduleException[]> {
+    if (!getToken()) throw new Error('No autenticado');
+
+    const qs = new URLSearchParams();
+    if (params?.fromDate) qs.set('fromDate', params.fromDate);
+    if (params?.toDate) qs.set('toDate', params.toDate);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/activity-types/${activityTypeId}/schedule-exceptions${suffix}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || error.message || 'Error al listar excepciones de agenda');
+    }
+
+    return res.json();
+  }
+
+  static async upsertActivityTypeScheduleException(
+    clubSlug: string,
+    activityTypeId: number,
+    localDate: string,
+    payload: {
+      isClosed?: boolean;
+      scheduleMode?: ActivityScheduleMode;
+      scheduleOpenTime?: string | null;
+      scheduleCloseTime?: string | null;
+      scheduleIntervalMinutes?: number | null;
+      scheduleWindows?: ActivityRangeWindow[] | null;
+      scheduleDurations?: number[];
+      scheduleFixedSlots?: ActivityFixedSlot[];
+    }
+  ): Promise<ActivityScheduleException> {
+    if (!getToken()) throw new Error('No autenticado');
+
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/activity-types/${activityTypeId}/schedule-exceptions/${encodeURIComponent(localDate)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || error.message || 'Error al guardar excepción de agenda');
+    }
+
+    return res.json();
+  }
+
+  static async deleteActivityTypeScheduleException(
+    clubSlug: string,
+    activityTypeId: number,
+    localDate: string
+  ): Promise<{ deleted: boolean }> {
+    if (!getToken()) throw new Error('No autenticado');
+
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/activity-types/${activityTypeId}/schedule-exceptions/${encodeURIComponent(localDate)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || error.message || 'Error al eliminar excepción de agenda');
     }
 
     return res.json();

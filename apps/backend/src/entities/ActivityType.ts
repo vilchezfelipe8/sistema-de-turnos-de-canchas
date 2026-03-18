@@ -9,6 +9,7 @@ export class ActivityType {
         public scheduleOpenTime?: string | null,
         public scheduleCloseTime?: string | null,
         public scheduleIntervalMinutes?: number | null,
+        public scheduleWindows?: Array<{ start: string; end: string }> | null,
         public scheduleDurations?: number[] | null,
         public scheduleFixedSlots?: Array<{ start: string; duration: number }> | null
     ) {}

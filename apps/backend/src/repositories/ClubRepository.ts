@@ -197,6 +197,14 @@ export class ClubRepository {
                 saved.activityType.description,
                 saved.activityType.defaultDurationMinutes,
                 (saved.activityType as any).clubId
+                ,
+                (saved.activityType as any).scheduleMode,
+                (saved.activityType as any).scheduleOpenTime,
+                (saved.activityType as any).scheduleCloseTime,
+                (saved.activityType as any).scheduleIntervalMinutes,
+                Array.isArray((saved.activityType as any).scheduleWindows) ? (saved.activityType as any).scheduleWindows : null,
+                Array.isArray((saved.activityType as any).scheduleDurations) ? (saved.activityType as any).scheduleDurations : null,
+                Array.isArray((saved.activityType as any).scheduleFixedSlots) ? (saved.activityType as any).scheduleFixedSlots : null
             )
             : null;
         
@@ -221,6 +229,14 @@ export class ClubRepository {
                 found.activityType.description,
                 found.activityType.defaultDurationMinutes,
                 (found.activityType as any).clubId
+                ,
+                (found.activityType as any).scheduleMode,
+                (found.activityType as any).scheduleOpenTime,
+                (found.activityType as any).scheduleCloseTime,
+                (found.activityType as any).scheduleIntervalMinutes,
+                Array.isArray((found.activityType as any).scheduleWindows) ? (found.activityType as any).scheduleWindows : null,
+                Array.isArray((found.activityType as any).scheduleDurations) ? (found.activityType as any).scheduleDurations : null,
+                Array.isArray((found.activityType as any).scheduleFixedSlots) ? (found.activityType as any).scheduleFixedSlots : null
             )
             : null;
         

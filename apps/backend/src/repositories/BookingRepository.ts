@@ -216,6 +216,7 @@ export class BookingRepository {
             dbItem.activity.scheduleOpenTime,
             dbItem.activity.scheduleCloseTime,
             dbItem.activity.scheduleIntervalMinutes,
+            Array.isArray((dbItem.activity as any).scheduleWindows) ? (dbItem.activity as any).scheduleWindows : null,
             Array.isArray(dbItem.activity.scheduleDurations) ? dbItem.activity.scheduleDurations : null,
             Array.isArray(dbItem.activity.scheduleFixedSlots) ? dbItem.activity.scheduleFixedSlots : null
         );

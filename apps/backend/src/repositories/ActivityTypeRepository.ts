@@ -11,6 +11,7 @@ export class ActivityTypeRepository {
                 scheduleOpenTime: activity.scheduleOpenTime,
                 scheduleCloseTime: activity.scheduleCloseTime,
                 scheduleIntervalMinutes: activity.scheduleIntervalMinutes,
+                scheduleWindows: activity.scheduleWindows,
                 scheduleDurations: activity.scheduleDurations,
                 scheduleFixedSlots: activity.scheduleFixedSlots
             },
@@ -18,29 +19,35 @@ export class ActivityTypeRepository {
         );
         assertValidScheduleMode(normalized);
 
+        const scheduleUpdateData: any = {
+            ...(activity.clubId ? { clubId: activity.clubId } : {}),
+            scheduleMode: normalized.mode,
+            scheduleOpenTime: normalized.openTime,
+            scheduleCloseTime: normalized.closeTime,
+            scheduleIntervalMinutes: normalized.intervalMinutes,
+            scheduleWindows: normalized.rangeWindows as any,
+            scheduleDurations: normalized.durations as any,
+            scheduleFixedSlots: normalized.fixedSlots as any
+        };
+
+        const scheduleCreateData: any = {
+            name: activity.name,
+            description: activity.description,
+            defaultDurationMinutes: activity.defaultDurationMinutes,
+            clubId: Number(activity.clubId),
+            scheduleMode: normalized.mode,
+            scheduleOpenTime: normalized.openTime,
+            scheduleCloseTime: normalized.closeTime,
+            scheduleIntervalMinutes: normalized.intervalMinutes,
+            scheduleWindows: normalized.rangeWindows as any,
+            scheduleDurations: normalized.durations as any,
+            scheduleFixedSlots: normalized.fixedSlots as any
+        };
+
         const saved = await prisma.activityType.upsert({
             where: { id: activity.id === 0 ? -1 : activity.id },
-            update: {
-                ...(activity.clubId ? { clubId: activity.clubId } : {}),
-                scheduleMode: normalized.mode,
-                scheduleOpenTime: normalized.openTime,
-                scheduleCloseTime: normalized.closeTime,
-                scheduleIntervalMinutes: normalized.intervalMinutes,
-                scheduleDurations: normalized.durations as any,
-                scheduleFixedSlots: normalized.fixedSlots as any
-            },
-            create: {
-                name: activity.name,
-                description: activity.description,
-                defaultDurationMinutes: activity.defaultDurationMinutes,
-                clubId: Number(activity.clubId),
-                scheduleMode: normalized.mode,
-                scheduleOpenTime: normalized.openTime,
-                scheduleCloseTime: normalized.closeTime,
-                scheduleIntervalMinutes: normalized.intervalMinutes,
-                scheduleDurations: normalized.durations as any,
-                scheduleFixedSlots: normalized.fixedSlots as any
-            }
+            update: scheduleUpdateData,
+            create: scheduleCreateData
         });
 
         return new ActivityType(
@@ -53,6 +60,7 @@ export class ActivityTypeRepository {
             saved.scheduleOpenTime,
             saved.scheduleCloseTime,
             saved.scheduleIntervalMinutes,
+            (Array.isArray((saved as any).scheduleWindows) ? (saved as any).scheduleWindows : null) as Array<{ start: string; end: string }> | null,
             (Array.isArray(saved.scheduleDurations) ? saved.scheduleDurations : null) as number[] | null,
             (Array.isArray(saved.scheduleFixedSlots) ? saved.scheduleFixedSlots : null) as Array<{ start: string; duration: number }> | null
         );
@@ -71,6 +79,7 @@ export class ActivityTypeRepository {
             found.scheduleOpenTime,
             found.scheduleCloseTime,
             found.scheduleIntervalMinutes,
+            (Array.isArray((found as any).scheduleWindows) ? (found as any).scheduleWindows : null) as Array<{ start: string; end: string }> | null,
             (Array.isArray(found.scheduleDurations) ? found.scheduleDurations : null) as number[] | null,
             (Array.isArray(found.scheduleFixedSlots) ? found.scheduleFixedSlots : null) as Array<{ start: string; duration: number }> | null
         );

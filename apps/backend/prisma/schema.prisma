@@ -367,8 +367,10 @@ model ActivityType {
   scheduleOpenTime       String?
   scheduleCloseTime      String?
   scheduleIntervalMinutes Int?
+  scheduleWindows        Json?
   scheduleDurations      Json?
   scheduleFixedSlots     Json?
+  scheduleExceptions     ActivityScheduleException[]
 
   courts                 Court[]
   bookings               Booking[]
@@ -376,6 +378,31 @@ model ActivityType {
   discountTargets        DiscountPolicyTarget[]
 
   @@index([clubId])
+}
+
+model ActivityScheduleException {
+  id                      Int          @id @default(autoincrement())
+  activityTypeId          Int
+  activityType            ActivityType @relation(fields: [activityTypeId], references: [id], onDelete: Cascade)
+  localDate               DateTime     @db.Date
+
+  // Si está cerrado, esta excepción bloquea todo el día para la actividad.
+  isClosed                Boolean      @default(false)
+
+  // Configuración opcional para reemplazar agenda base de la actividad en ese día.
+  scheduleMode            ScheduleMode?
+  scheduleOpenTime        String?
+  scheduleCloseTime       String?
+  scheduleIntervalMinutes Int?
+  scheduleWindows         Json?
+  scheduleDurations       Json?
+  scheduleFixedSlots      Json?
+
+  createdAt               DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime     @updatedAt @db.Timestamptz(3)
+
+  @@unique([activityTypeId, localDate])
+  @@index([localDate])
 }
 
 model Client {

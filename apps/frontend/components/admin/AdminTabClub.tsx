@@ -66,6 +66,19 @@ type ActivityScheduleFormValue = {
   scheduleOpenTime: string;
   scheduleCloseTime: string;
   scheduleIntervalMinutes: string;
+  scheduleWindows: string;
+  scheduleDurations: string;
+  scheduleFixedSlots: string;
+};
+
+type ActivityScheduleExceptionFormValue = {
+  localDate: string;
+  isClosed: boolean;
+  scheduleMode: 'FIXED' | 'RANGE';
+  scheduleOpenTime: string;
+  scheduleCloseTime: string;
+  scheduleIntervalMinutes: string;
+  scheduleWindows: string;
   scheduleDurations: string;
   scheduleFixedSlots: string;
 };
@@ -175,6 +188,39 @@ const parseFixedSlotsInput = (raw: string): Array<{ start: string; duration: num
   return slots;
 };
 
+const parseRangeWindowsInput = (raw: string): Array<{ start: string; end: string }> => {
+  const lines = raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const windows: Array<{ start: string; end: string }> = [];
+
+  for (const line of lines) {
+    const normalized = line.replace(' - ', '-').replace('|', '-').replace(',', '-');
+    const [startRaw, endRaw] = normalized.split('-').map((part) => part.trim());
+    if (!startRaw || !endRaw) {
+      throw new Error(`Formato de franja inválido: "${line}". Usá HH:mm-HH:mm`);
+    }
+    if (!/^\d{2}:\d{2}$/.test(startRaw) || !/^\d{2}:\d{2}$/.test(endRaw)) {
+      throw new Error(`Hora inválida en franja: "${line}"`);
+    }
+    if (startRaw >= endRaw) {
+      throw new Error(`La franja debe tener fin mayor al inicio: "${line}"`);
+    }
+    windows.push({ start: startRaw, end: endRaw });
+  }
+
+  windows.sort((a, b) => a.start.localeCompare(b.start));
+  for (let i = 1; i < windows.length; i += 1) {
+    if (windows[i].start < windows[i - 1].end) {
+      throw new Error(`Franja superpuesta: ${windows[i - 1].start}-${windows[i - 1].end} y ${windows[i].start}-${windows[i].end}`);
+    }
+  }
+
+  return windows;
+};
+
 const parseLocalDate = (value: string): Date | null => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const [year, month, day] = value.split('-').map(Number);
@@ -190,23 +236,48 @@ const formatLocalDate = (date: Date): string => {
   return `${year}-${month}-${day}`;
 };
 
+const getTodayDateKey = () => formatLocalDate(new Date());
+
 const buildScheduleFormFromActivities = (activities: ClubActivityType[]): Record<number, ActivityScheduleFormValue> => {
   return activities.reduce((acc, activity) => {
     const safeDefault = Number(activity.defaultDurationMinutes) > 0 ? Number(activity.defaultDurationMinutes) : 60;
     const durations = normalizeDurations(activity.scheduleDurations, safeDefault);
     const fixedSlots = Array.isArray(activity.scheduleFixedSlots) ? activity.scheduleFixedSlots : [];
+    const rangeWindows = Array.isArray((activity as any).scheduleWindows) ? (activity as any).scheduleWindows : [];
 
     acc[activity.id] = {
       scheduleMode: activity.scheduleMode === 'RANGE' ? 'RANGE' : 'FIXED',
       scheduleOpenTime: activity.scheduleOpenTime || '08:00',
       scheduleCloseTime: activity.scheduleCloseTime || '22:00',
       scheduleIntervalMinutes: activity.scheduleIntervalMinutes != null ? String(activity.scheduleIntervalMinutes) : '30',
+      scheduleWindows: rangeWindows.map((window: any) => `${String(window?.start || '').trim()}-${String(window?.end || '').trim()}`).filter((line: string) => /^\d{2}:\d{2}-\d{2}:\d{2}$/.test(line)).join('\n'),
       scheduleDurations: durations.join(', '),
       scheduleFixedSlots: fixedSlots.map((slot) => `${slot.start}-${slot.duration}`).join('\n')
     };
 
     return acc;
   }, {} as Record<number, ActivityScheduleFormValue>);
+};
+
+const buildScheduleExceptionFormFromSchedule = (
+  scheduleForm: Record<number, ActivityScheduleFormValue>
+): Record<number, ActivityScheduleExceptionFormValue> => {
+  const todayKey = getTodayDateKey();
+  return Object.entries(scheduleForm).reduce((acc, [activityId, value]) => {
+    const id = Number(activityId);
+    acc[id] = {
+      localDate: todayKey,
+      isClosed: false,
+      scheduleMode: value.scheduleMode,
+      scheduleOpenTime: value.scheduleOpenTime,
+      scheduleCloseTime: value.scheduleCloseTime,
+      scheduleIntervalMinutes: value.scheduleIntervalMinutes,
+      scheduleWindows: value.scheduleWindows,
+      scheduleDurations: value.scheduleDurations,
+      scheduleFixedSlots: value.scheduleFixedSlots
+    };
+    return acc;
+  }, {} as Record<number, ActivityScheduleExceptionFormValue>);
 };
 
 const normalizeActivityKey = (name: string) =>
@@ -336,6 +407,9 @@ export default function AdminTabClub() {
   const pendingRouteRef = useRef<string | null>(null);
   const [activityTypes, setActivityTypes] = useState<ClubActivityType[]>([]);
   const [activityScheduleForm, setActivityScheduleForm] = useState<Record<number, ActivityScheduleFormValue>>({});
+  const [activityExceptionForm, setActivityExceptionForm] = useState<Record<number, ActivityScheduleExceptionFormValue>>({});
+  const [activityExceptionBusy, setActivityExceptionBusy] = useState<Record<number, boolean>>({});
+  const [activityExceptionExists, setActivityExceptionExists] = useState<Record<number, boolean>>({});
   const [changeHistory, setChangeHistory] = useState<ConfigHistoryEntry[]>([]);
   const [discountPolicies, setDiscountPolicies] = useState<DiscountPolicyView[]>([]);
   const [loadingDiscountPolicies, setLoadingDiscountPolicies] = useState(false);
@@ -499,6 +573,9 @@ export default function AdminTabClub() {
         setActivitySettings(nextActivitySettings);
         setActivityTypes(nextActivityTypes);
         setActivityScheduleForm(nextActivityScheduleForm);
+        setActivityExceptionForm(buildScheduleExceptionFormFromSchedule(nextActivityScheduleForm));
+        setActivityExceptionBusy({});
+        setActivityExceptionExists({});
         await loadDiscountPolicies(clubData.slug);
         setClientSearch('');
         setClientSearchResults([]);
@@ -727,6 +804,173 @@ export default function AdminTabClub() {
     }));
   };
 
+  const handleLoadScheduleException = async (activity: ClubActivityType, options?: { silent?: boolean; forceLocalDate?: string }) => {
+    if (!club) return;
+    const silent = Boolean(options?.silent);
+    const form = activityExceptionForm[activity.id];
+    const localDate = String((options?.forceLocalDate ?? form?.localDate) || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(localDate)) {
+      if (!silent) showError('Seleccioná una fecha válida para cargar la excepción.');
+      return;
+    }
+
+    try {
+      setActivityExceptionBusy((prev) => ({ ...prev, [activity.id]: true }));
+      const rows = await ClubAdminService.listActivityTypeScheduleExceptions(club.slug, activity.id, {
+        fromDate: localDate,
+        toDate: localDate
+      });
+      const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+
+      if (!row) {
+        const base = activityScheduleForm[activity.id];
+        if (!base) return;
+        setActivityExceptionExists((prev) => ({ ...prev, [activity.id]: false }));
+        setActivityExceptionForm((prev) => ({
+          ...prev,
+          [activity.id]: {
+            localDate,
+            isClosed: false,
+            scheduleMode: base.scheduleMode,
+            scheduleOpenTime: base.scheduleOpenTime,
+            scheduleCloseTime: base.scheduleCloseTime,
+            scheduleIntervalMinutes: base.scheduleIntervalMinutes,
+            scheduleWindows: base.scheduleWindows,
+            scheduleDurations: base.scheduleDurations,
+            scheduleFixedSlots: base.scheduleFixedSlots
+          }
+        }));
+        if (!silent) {
+          showInfo('No había excepción para esa fecha. Se cargó la configuración base como punto de partida.', 'Sin excepción');
+        }
+        return;
+      }
+
+      const rowWindows = Array.isArray(row.scheduleWindows)
+        ? row.scheduleWindows.map((window: any) => `${String(window?.start || '').trim()}-${String(window?.end || '').trim()}`).filter((line) => /^\d{2}:\d{2}-\d{2}:\d{2}$/.test(line)).join('\n')
+        : '';
+      const rowFixedSlots = Array.isArray(row.scheduleFixedSlots)
+        ? row.scheduleFixedSlots.map((slot: any) => `${String(slot?.start || '').trim()}-${Number(slot?.duration || 0)}`).join('\n')
+        : '';
+      const rowDurations = Array.isArray(row.scheduleDurations) ? row.scheduleDurations.join(', ') : '';
+
+      setActivityExceptionForm((prev) => ({
+        ...prev,
+        [activity.id]: {
+          localDate,
+          isClosed: Boolean(row.isClosed),
+          scheduleMode: row.scheduleMode === 'RANGE' ? 'RANGE' : 'FIXED',
+          scheduleOpenTime: row.scheduleOpenTime || '08:00',
+          scheduleCloseTime: row.scheduleCloseTime || '22:00',
+          scheduleIntervalMinutes: row.scheduleIntervalMinutes != null ? String(row.scheduleIntervalMinutes) : '30',
+          scheduleWindows: rowWindows,
+          scheduleDurations: rowDurations || '60',
+          scheduleFixedSlots: rowFixedSlots
+        }
+      }));
+      setActivityExceptionExists((prev) => ({ ...prev, [activity.id]: true }));
+      if (!silent) showInfo('Excepción cargada para la fecha seleccionada.', 'Excepción cargada');
+    } catch (error: any) {
+      if (!silent) showError(`No se pudo cargar la excepción: ${error.message}`);
+    } finally {
+      setActivityExceptionBusy((prev) => ({ ...prev, [activity.id]: false }));
+    }
+  };
+
+  const handleExceptionDateChange = async (activity: ClubActivityType, localDate: string) => {
+    setActivityExceptionForm((prev) => ({
+      ...prev,
+      [activity.id]: {
+        ...prev[activity.id],
+        localDate
+      }
+    }));
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(localDate)) return;
+
+    void handleLoadScheduleException(activity, { silent: true, forceLocalDate: localDate });
+  };
+
+  const handleSaveScheduleException = async (activity: ClubActivityType) => {
+    if (!club) return;
+    const form = activityExceptionForm[activity.id];
+    if (!form) return;
+    const localDate = String(form.localDate || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(localDate)) {
+      showError('La fecha de excepción debe tener formato YYYY-MM-DD.');
+      return;
+    }
+
+    try {
+      setActivityExceptionBusy((prev) => ({ ...prev, [activity.id]: true }));
+      if (form.isClosed) {
+        await ClubAdminService.upsertActivityTypeScheduleException(club.slug, activity.id, localDate, { isClosed: true });
+        showInfo('Se guardó el cierre total de la actividad para ese día.', 'Excepción guardada');
+        return;
+      }
+
+      const durations = parseDurationsInput(form.scheduleDurations, activity.defaultDurationMinutes);
+      const fixedSlots = form.scheduleMode === 'FIXED' ? parseFixedSlotsInput(form.scheduleFixedSlots) : [];
+      const scheduleWindows = form.scheduleMode === 'RANGE' ? parseRangeWindowsInput(form.scheduleWindows) : [];
+
+      await ClubAdminService.upsertActivityTypeScheduleException(club.slug, activity.id, localDate, {
+        isClosed: false,
+        scheduleMode: form.scheduleMode,
+        scheduleOpenTime: form.scheduleMode === 'RANGE' ? form.scheduleOpenTime : null,
+        scheduleCloseTime: form.scheduleMode === 'RANGE' ? form.scheduleCloseTime : null,
+        scheduleIntervalMinutes: form.scheduleMode === 'RANGE' ? Number(form.scheduleIntervalMinutes || 0) : null,
+        scheduleWindows: form.scheduleMode === 'RANGE' ? scheduleWindows : null,
+        scheduleDurations: durations,
+        scheduleFixedSlots: fixedSlots
+      });
+      setActivityExceptionExists((prev) => ({ ...prev, [activity.id]: true }));
+      showInfo('Excepción de agenda guardada correctamente.', 'Excepción guardada');
+    } catch (error: any) {
+      showError(`No se pudo guardar la excepción: ${error.message}`);
+    } finally {
+      setActivityExceptionBusy((prev) => ({ ...prev, [activity.id]: false }));
+    }
+  };
+
+  const handleDeleteScheduleException = async (activity: ClubActivityType) => {
+    if (!club) return;
+    const form = activityExceptionForm[activity.id];
+    if (!form) return;
+    const localDate = String(form.localDate || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(localDate)) {
+      showError('Seleccioná una fecha válida para eliminar la excepción.');
+      return;
+    }
+
+    try {
+      setActivityExceptionBusy((prev) => ({ ...prev, [activity.id]: true }));
+      await ClubAdminService.deleteActivityTypeScheduleException(club.slug, activity.id, localDate);
+      setActivityExceptionExists((prev) => ({ ...prev, [activity.id]: false }));
+      const base = activityScheduleForm[activity.id];
+      if (base) {
+        setActivityExceptionForm((prev) => ({
+          ...prev,
+          [activity.id]: {
+            localDate,
+            isClosed: false,
+            scheduleMode: base.scheduleMode,
+            scheduleOpenTime: base.scheduleOpenTime,
+            scheduleCloseTime: base.scheduleCloseTime,
+            scheduleIntervalMinutes: base.scheduleIntervalMinutes,
+            scheduleWindows: base.scheduleWindows,
+            scheduleDurations: base.scheduleDurations,
+            scheduleFixedSlots: base.scheduleFixedSlots
+          }
+        }));
+      }
+      showInfo('Excepción eliminada para la fecha seleccionada.', 'Excepción eliminada');
+    } catch (error: any) {
+      showError(`No se pudo eliminar la excepción: ${error.message}`);
+    } finally {
+      setActivityExceptionBusy((prev) => ({ ...prev, [activity.id]: false }));
+    }
+  };
+
   const handleUpdateClub = async (e?: React.FormEvent, skipConfirm = false) => {
     e?.preventDefault();
     if (!club) { showError('No se pudo identificar el club'); return; }
@@ -897,12 +1141,16 @@ export default function AdminTabClub() {
         const fixedSlots = formConfig.scheduleMode === 'FIXED'
           ? parseFixedSlotsInput(formConfig.scheduleFixedSlots)
           : [];
+        const scheduleWindows = formConfig.scheduleMode === 'RANGE'
+          ? parseRangeWindowsInput(formConfig.scheduleWindows)
+          : [];
 
         await ClubAdminService.updateActivityTypeSchedule(updatedClub.slug, activity.id, {
           scheduleMode: formConfig.scheduleMode,
           scheduleOpenTime: formConfig.scheduleMode === 'RANGE' ? formConfig.scheduleOpenTime : null,
           scheduleCloseTime: formConfig.scheduleMode === 'RANGE' ? formConfig.scheduleCloseTime : null,
           scheduleIntervalMinutes: formConfig.scheduleMode === 'RANGE' ? Number(formConfig.scheduleIntervalMinutes || 0) : null,
+          scheduleWindows: formConfig.scheduleMode === 'RANGE' ? scheduleWindows : null,
           scheduleDurations: durations,
           scheduleFixedSlots: fixedSlots
         });
@@ -1893,6 +2141,7 @@ export default function AdminTabClub() {
                 <div className="space-y-4">
                   {activityTypes.map((activity) => {
                     const cfg = activityScheduleForm[activity.id];
+                    const exceptionCfg = activityExceptionForm[activity.id];
                     if (!cfg) return null;
                     return (
                       <div key={activity.id} className="bg-white/40 p-4 rounded-2xl border border-white">
@@ -1973,6 +2222,22 @@ export default function AdminTabClub() {
                                   className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
                                 />
                               </div>
+                              <div className="md:col-span-3">
+                                <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Franjas cortadas (opcional, una por línea: HH:mm-HH:mm)</label>
+                                <textarea
+                                  rows={3}
+                                  value={cfg.scheduleWindows}
+                                  onChange={(e) => setActivityScheduleForm((prev) => ({
+                                    ...prev,
+                                    [activity.id]: { ...prev[activity.id], scheduleWindows: e.target.value }
+                                  }))}
+                                  className="w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 py-3 text-[#347048] font-black text-sm resize-none"
+                                  placeholder={'08:00-12:00\n16:00-23:00'}
+                                />
+                                <p className="text-[10px] font-bold text-[#347048]/55 mt-1">
+                                  Si cargás franjas, tienen prioridad sobre apertura/cierre continuo para generar los slots.
+                                </p>
+                              </div>
                             </>
                           ) : (
                             <div className="md:col-span-4">
@@ -1990,6 +2255,191 @@ export default function AdminTabClub() {
                             </div>
                           )}
                         </div>
+
+                        {exceptionCfg ? (
+                          <div className="mt-4 rounded-xl border border-[#926699]/25 bg-[#926699]/8 p-4 space-y-3">
+                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                              <div>
+                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]">Excepción por fecha</p>
+                                <p className="text-[11px] font-bold text-[#347048]/65 mt-1">
+                                  {activityExceptionExists[activity.id]
+                                    ? 'Estado: hay una excepción guardada para esta fecha.'
+                                    : 'Estado: sin excepción guardada (se muestran valores base).'}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleLoadScheduleException(activity)}
+                                  disabled={Boolean(activityExceptionBusy[activity.id])}
+                                  className="h-9 px-3 rounded-lg bg-white border border-[#347048]/20 text-[#347048] text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                                >
+                                  Recargar fecha
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveScheduleException(activity)}
+                                  disabled={Boolean(activityExceptionBusy[activity.id])}
+                                  className="h-9 px-3 rounded-lg bg-[#347048] text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                                >
+                                  Guardar excepción
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteScheduleException(activity)}
+                                  disabled={Boolean(activityExceptionBusy[activity.id]) || !activityExceptionExists[activity.id]}
+                                  className="h-9 px-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                                >
+                                  Eliminar excepción
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                              <div>
+                                <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Fecha local</label>
+                                <div className="relative flex items-center justify-between bg-white rounded-xl px-2 py-2.5 border border-transparent shadow-sm h-[46px]">
+                                  <span className="text-[14px] font-bold text-[#347048] min-w-[120px] text-center whitespace-nowrap pointer-events-none">
+                                    {parseLocalDate(exceptionCfg.localDate)
+                                      ? parseLocalDate(exceptionCfg.localDate)!.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })
+                                      : 'Seleccionar fecha'}
+                                  </span>
+                                  <div className="absolute inset-y-0 left-3 right-3 z-10">
+                                    <DatePickerDark
+                                      selected={parseLocalDate(exceptionCfg.localDate)}
+                                      onChange={(date: Date | null) => {
+                                        void handleExceptionDateChange(activity, date ? formatLocalDate(date) : '');
+                                      }}
+                                      showIcon={false}
+                                      variant="light"
+                                      popperPlacement="bottom"
+                                      inputClassName="w-full h-[46px] opacity-0 cursor-pointer"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="md:col-span-3 flex items-end">
+                                <label className="flex items-center gap-3 text-[#347048] font-black cursor-pointer group">
+                                  <div className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all ${exceptionCfg.isClosed ? 'bg-[#347048] border-[#347048] text-white shadow-sm' : 'border-[#347048]/25 bg-white text-transparent'}`}>
+                                    {exceptionCfg.isClosed && <Check size={15} strokeWidth={4} />}
+                                  </div>
+                                  <input
+                                    type="checkbox"
+                                    checked={exceptionCfg.isClosed}
+                                    onChange={(e) => setActivityExceptionForm((prev) => ({
+                                      ...prev,
+                                      [activity.id]: { ...prev[activity.id], isClosed: e.target.checked }
+                                    }))}
+                                    className="hidden"
+                                  />
+                                  <span className="text-sm tracking-wide">Cerrar toda la actividad en esa fecha</span>
+                                </label>
+                              </div>
+                            </div>
+
+                            {!exceptionCfg.isClosed ? (
+                              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                <div>
+                                  <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Modo excepción</label>
+                                  <select
+                                    value={exceptionCfg.scheduleMode}
+                                    onChange={(e) => setActivityExceptionForm((prev) => ({
+                                      ...prev,
+                                      [activity.id]: { ...prev[activity.id], scheduleMode: e.target.value as 'FIXED' | 'RANGE' }
+                                    }))}
+                                    className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
+                                  >
+                                    <option value="FIXED">Turnos fijos</option>
+                                    <option value="RANGE">Rango horario</option>
+                                  </select>
+                                </div>
+                                <div className="md:col-span-3">
+                                  <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Duraciones (min)</label>
+                                  <input
+                                    type="text"
+                                    value={exceptionCfg.scheduleDurations}
+                                    onChange={(e) => setActivityExceptionForm((prev) => ({
+                                      ...prev,
+                                      [activity.id]: { ...prev[activity.id], scheduleDurations: e.target.value }
+                                    }))}
+                                    className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black text-sm"
+                                    placeholder="60, 90"
+                                  />
+                                </div>
+
+                                {exceptionCfg.scheduleMode === 'RANGE' ? (
+                                  <>
+                                    <div>
+                                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Apertura</label>
+                                      <input
+                                        type="time"
+                                        value={exceptionCfg.scheduleOpenTime}
+                                        onChange={(e) => setActivityExceptionForm((prev) => ({
+                                          ...prev,
+                                          [activity.id]: { ...prev[activity.id], scheduleOpenTime: e.target.value }
+                                        }))}
+                                        className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Cierre</label>
+                                      <input
+                                        type="time"
+                                        value={exceptionCfg.scheduleCloseTime}
+                                        onChange={(e) => setActivityExceptionForm((prev) => ({
+                                          ...prev,
+                                          [activity.id]: { ...prev[activity.id], scheduleCloseTime: e.target.value }
+                                        }))}
+                                        className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Intervalo (min)</label>
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        step={1}
+                                        value={exceptionCfg.scheduleIntervalMinutes}
+                                        onChange={(e) => setActivityExceptionForm((prev) => ({
+                                          ...prev,
+                                          [activity.id]: { ...prev[activity.id], scheduleIntervalMinutes: e.target.value }
+                                        }))}
+                                        className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
+                                      />
+                                    </div>
+                                    <div className="md:col-span-3">
+                                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Franjas cortadas (opcional)</label>
+                                      <textarea
+                                        rows={3}
+                                        value={exceptionCfg.scheduleWindows}
+                                        onChange={(e) => setActivityExceptionForm((prev) => ({
+                                          ...prev,
+                                          [activity.id]: { ...prev[activity.id], scheduleWindows: e.target.value }
+                                        }))}
+                                        className="w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 py-3 text-[#347048] font-black text-sm resize-none"
+                                        placeholder={'08:00-12:00\n16:00-23:00'}
+                                      />
+                                    </div>
+                                  </>
+                                ) : (
+                                  <div className="md:col-span-4">
+                                    <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Turnos fijos (uno por línea: HH:mm-60)</label>
+                                    <textarea
+                                      rows={4}
+                                      value={exceptionCfg.scheduleFixedSlots}
+                                      onChange={(e) => setActivityExceptionForm((prev) => ({
+                                        ...prev,
+                                        [activity.id]: { ...prev[activity.id], scheduleFixedSlots: e.target.value }
+                                      }))}
+                                      className="w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 py-3 text-[#347048] font-black text-sm resize-none"
+                                      placeholder={'08:00-60\n09:00-60\n10:30-90'}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}
