@@ -7,6 +7,7 @@ import {
   createBooking,
   createFixedBooking,
   cancelFixedBooking,
+  getBookingById,
   searchClients,
   getBookingFinancialSummary
 } from '../../services/BookingService';
@@ -16,6 +17,7 @@ import { ClubService } from '../../services/ClubService';
 import AppModal from '../AppModal';
 import BookingManagerModal from './BookingManagerModal';
 import { useParams } from 'react-router-dom';
+import { useRouter } from 'next/router';
 import DatePickerDark from '../../components/ui/DatePickerDark';
 import { Trash2, Check, Calendar as CalendarIcon, RefreshCw, ChevronDown, CalendarPlus, Repeat, Banknote, CreditCard, X, Phone, IdCard, ChevronLeft, ChevronRight } from 'lucide-react'; 
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
@@ -291,6 +293,7 @@ const formatMoney = (value: number) => `$${Number(value || 0).toLocaleString()}`
 const WEEKDAY_LABELS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
 export default function AdminTabBookings() {
+  const router = useRouter();
   const [courts, setCourts] = useState<any[]>([]);
   const [scheduleDate, setScheduleDate] = useState(() => getTodayLocalDate());
   const [scheduleBookings, setScheduleBookings] = useState<any[]>([]);
@@ -304,6 +307,7 @@ export default function AdminTabBookings() {
   const [selectedPaymentAccountId, setSelectedPaymentAccountId] = useState<string | null>(null);
   const [paymentRemainingTarget, setPaymentRemainingTarget] = useState(0);
   const [selectedBookingDetail, setSelectedBookingDetail] = useState<{ booking: any; slotTime: string; courtName?: string } | null>(null);
+  const openedFromQueryRef = useRef<number | null>(null);
   const [showCancelRefundModal, setShowCancelRefundModal] = useState(false);
   const [cancelRefundPaidAmount, setCancelRefundPaidAmount] = useState(0);
   const [cancelRefundDraft, setCancelRefundDraft] = useState<RefundDraft>(() => buildDefaultRefundDraft('BOOKING_CANCELLATION', 0));
@@ -946,6 +950,121 @@ export default function AdminTabBookings() {
     });
   }, [scheduleBookings, selectedBookingDetail?.booking?.id]);
 
+  useEffect(() => {
+    const showReservationDetailFromBooking = (booking: any, fallbackSlotTime?: string, fallbackCourtName?: string) => {
+      const entity = booking?.booking ?? booking;
+      const rawStart = entity?.startDateTime ?? entity?.start ?? null;
+      const start = rawStart ? new Date(rawStart) : (fallbackSlotTime ? new Date(`${scheduleDate}T${fallbackSlotTime}:00`) : null);
+      if (!start || Number.isNaN(start.getTime())) return;
+
+      const explicitDuration = Number(entity?.durationMinutes || 0);
+      const endFromBooking = entity?.endDateTime ? new Date(entity.endDateTime) : null;
+      const durationFromRange = endFromBooking && !Number.isNaN(endFromBooking.getTime())
+        ? Math.round((endFromBooking.getTime() - start.getTime()) / 60000)
+        : 0;
+      const durationMinutes = Number.isFinite(explicitDuration) && explicitDuration > 0
+        ? explicitDuration
+        : (Number.isFinite(durationFromRange) && durationFromRange > 0
+            ? durationFromRange
+            : Number(entity?.activity?.defaultDurationMinutes || DEFAULT_DURATION_MINUTES));
+
+      const price = Number(entity?.price || 0);
+      const listPrice = Number(entity?.listPrice || entity?.price || 0);
+      const discountAmount = Math.max(0, Number((listPrice - price).toFixed(2)));
+      const guestName = String(entity?.client?.name || entity?.user?.firstName || entity?.guestName || 'Cliente');
+      const courtName = String(fallbackCourtName || entity?.court?.name || entity?.courtName || `Cancha ${entity?.courtId || ''}` || 'Cancha');
+      const activityName = String(entity?.activity?.name || entity?.activityType?.name || entity?.activityName || 'Actividad');
+
+      const end = new Date(start.getTime() + durationMinutes * 60000);
+      showInfo((
+        <div className="space-y-3">
+          <p className="text-sm text-[#347048]/80">Detalle de la reserva.</p>
+          <div className="grid grid-cols-1 gap-2 rounded-xl border border-[#926699]/20 bg-[#fdfaff] p-3 text-sm text-[#347048]">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-[#926699] uppercase text-xs">Cliente:</span>
+              <span className="text-[#347048] font-black">{guestName}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-[#926699] uppercase text-xs">Cancha:</span>
+              <span className="text-[#347048] font-black">{courtName}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-[#926699] uppercase text-xs">Actividad:</span>
+              <span className="text-[#347048] font-black">{activityName}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-[#926699] uppercase text-xs">Fecha:</span>
+              <span className="text-[#347048] font-black">{start.toLocaleDateString('es-AR')}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-[#926699] uppercase text-xs">Horario:</span>
+              <span className="text-[#347048] font-black">{`${formatTime(start)} - ${formatTime(end)}`}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-[#926699] uppercase text-xs">Duración:</span>
+              <span className="text-[#347048] font-black">{durationMinutes} min</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-[#926699] uppercase text-xs">Precio:</span>
+              <span className="text-[#347048] font-black text-lg">{formatMoney(price)}</span>
+            </div>
+            {discountAmount > 0.009 ? (
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-[#926699] uppercase text-xs">Descuento:</span>
+                <span className="text-[#347048] font-black">
+                  -{formatMoney(discountAmount)}
+                  {listPrice > 0.009 ? ` (lista ${formatMoney(listPrice)})` : ''}
+                </span>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ), 'Detalle de reserva');
+    };
+
+    const bookingIdRaw = router.query?.bookingId;
+    const bookingId = Number(Array.isArray(bookingIdRaw) ? bookingIdRaw[0] : bookingIdRaw);
+    if (!Number.isFinite(bookingId) || bookingId <= 0) {
+      openedFromQueryRef.current = null;
+      return;
+    }
+    if (openedFromQueryRef.current === bookingId) return;
+
+    const slotWithBooking = scheduleBookings.find((slot) => Number(slot?.booking?.id) === bookingId);
+    if (slotWithBooking?.booking) {
+      openedFromQueryRef.current = bookingId;
+      showReservationDetailFromBooking(slotWithBooking.booking, slotWithBooking.slotTime, slotWithBooking.courtName);
+      const nextQuery: Record<string, any> = { ...router.query };
+      delete nextQuery.bookingId;
+      router.replace({ pathname: router.pathname, query: nextQuery }, undefined, { shallow: true });
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const payload = await getBookingById(bookingId);
+        const booking = payload?.booking ?? payload;
+        if (cancelled || !booking) return;
+        const start = booking?.startDateTime ? new Date(booking.startDateTime) : null;
+        const slotTime = start && !Number.isNaN(start.getTime())
+          ? `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`
+          : undefined;
+        openedFromQueryRef.current = bookingId;
+        showReservationDetailFromBooking(booking, slotTime, booking?.court?.name);
+        const nextQuery: Record<string, any> = { ...router.query };
+        delete nextQuery.bookingId;
+        router.replace({ pathname: router.pathname, query: nextQuery }, undefined, { shallow: true });
+      } catch {
+        // noop
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router, router.query?.bookingId, scheduleBookings, scheduleDate]);
+
   const scheduleByTime = useMemo(() => {
     const map = new Map<string, Map<number, any>>();
     scheduleBookings.forEach((slot) => {
@@ -1092,7 +1211,10 @@ export default function AdminTabBookings() {
         guestName,
         phoneToSend || undefined,
         dni,
-        { allowOverlappingSeries }
+        {
+          allowOverlappingSeries,
+          durationMinutes: Number(manualBooking.durationMinutes || DEFAULT_DURATION_MINUTES)
+        }
       );
 
       showInfo(
@@ -1153,7 +1275,7 @@ export default function AdminTabBookings() {
                 durationMinutes: Number(manualBooking.durationMinutes || DEFAULT_DURATION_MINUTES),
                 price: Number((createdBooking as any)?.price || 0),
                 listPrice: Number((createdBooking as any)?.listPrice || (createdBooking as any)?.price || 0),
-                discountAmount: Math.max(0, Number(Number((createdBooking as any)?.listPrice || (createdBooking as any)?.price || 0) - Number((createdBooking as any)?.price || 0)).toFixed(2)),
+                discountAmount: Math.max(0, Number((Number((createdBooking as any)?.listPrice || (createdBooking as any)?.price || 0) - Number((createdBooking as any)?.price || 0)).toFixed(2))),
                 nightSurcharge: resolveNightSurcharge(dateBase, selectedManualCourt)
               }),
               'Reserva simple creada'
@@ -1758,9 +1880,10 @@ export default function AdminTabBookings() {
                   );
 
                   return (
-                    <button
+                    <div
                       key={slot.booking.id}
-                      type="button"
+                      role="button"
+                      tabIndex={0}
                       onClick={() =>
                         setSelectedBookingDetail({
                           booking: slot.booking,
@@ -1768,9 +1891,19 @@ export default function AdminTabBookings() {
                           courtName: slot.courtName,
                         })
                       }
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setSelectedBookingDetail({
+                            booking: slot.booking,
+                            slotTime: slot.slotTime,
+                            courtName: slot.courtName,
+                          });
+                        }
+                      }}
                       className={`absolute rounded-3xl border-l-[6px] ${getBookingBarClass(
                         slot
-                      )} bg-white/95 p-3 text-left shadow-xl ring-1 ring-white/70 transition hover:shadow-2xl flex flex-col`}
+                      )} bg-white/95 p-3 text-left shadow-xl ring-1 ring-white/70 transition hover:shadow-2xl flex flex-col cursor-pointer`}
                       style={{
                         top,
                         left,
@@ -1810,7 +1943,7 @@ export default function AdminTabBookings() {
                           <Trash2 size={14} strokeWidth={2.5} />
                         </button>
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>

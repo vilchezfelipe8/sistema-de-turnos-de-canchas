@@ -62,6 +62,20 @@ export type BookingQuote = {
   }>;
 };
 
+export const getBookingById = async (bookingId: number) => {
+  if (!getToken()) throw new Error('Debes iniciar sesión.');
+  const res = await fetchWithAuth(`${apiBase()}/bookings/${bookingId}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.error || error.message || 'No se pudo obtener la reserva');
+  }
+  const payload = await res.json();
+  return payload?.booking ?? payload;
+};
+
 // --- 1. CREAR UNA RESERVA ---
 export const createBooking = async (
   courtId: number,
@@ -382,6 +396,7 @@ export const createFixedBooking = async (
   guestDni?: string, // <--- Recibimos el dato (Argumento #7)
   options?: {
     allowOverlappingSeries?: boolean;
+    durationMinutes?: number;
   }
 ) => {
   if (!getToken()) throw new Error('Debes iniciar sesión como administrador.');
@@ -406,6 +421,7 @@ export const createFixedBooking = async (
     ...(guestName ? { guestName } : {}),
     ...(guestPhone ? { guestPhone } : {}),
     ...(guestDni ? { guestDni } : {}),
+    ...(Number.isFinite(options?.durationMinutes) ? { durationMinutes: Number(options?.durationMinutes) } : {}),
     ...(options?.allowOverlappingSeries ? { allowOverlappingSeries: true } : {})
   });
 };

@@ -544,6 +544,7 @@ export class BookingController {
                 courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
                 activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
                 startDateTime: z.string().refine((s) => !Number.isNaN(Date.parse(s)), { message: 'startDateTime debe ser una fecha ISO válida' }),
+                durationMinutes: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
                 guestName: z.string().optional(),
                 guestPhone: z.union([z.string(), z.number()]).optional(),
                 guestDni: z.string().optional(),
@@ -553,7 +554,7 @@ export class BookingController {
             if (!parsed.success) {
                 return res.status(400).json({ error: parsed.error.format() });
             }
-            const { userId, courtId, activityId, startDateTime, guestName, guestPhone, guestDni, allowOverlappingSeries } = parsed.data;
+            const { userId, courtId, activityId, startDateTime, durationMinutes, guestName, guestPhone, guestDni, allowOverlappingSeries } = parsed.data;
             const user = (req as any).user;
             const membershipRole = String((req as any).membershipRole || '');
             const isAdmin = user?.role === 'ADMIN' || membershipRole === 'OWNER' || membershipRole === 'ADMIN';
@@ -585,7 +586,8 @@ export class BookingController {
                 guestDni,
                 clubId,
                 Number(user?.userId || 0) || null,
-                Boolean(allowOverlappingSeries)
+                Boolean(allowOverlappingSeries),
+                durationMinutes
             );
             
             res.status(201).json(result);

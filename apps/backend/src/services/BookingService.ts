@@ -969,7 +969,7 @@ export class BookingService {
         clubPhone?: string | null;
         clientName: string;
         clientPhone?: string | null;
-        notificationUserId?: number | null;
+        notificationUserIds?: number[];
         startDateTime: Date;
         timeZone: string;
         amount: number;
@@ -1010,7 +1010,14 @@ Ingresó un nuevo turno web en *${params.clubName}*.
         `.trim();
 
         const notificationTitle = 'Reserva creada';
-        const notificationMessage = `Tu reserva #${params.bookingId} fue registrada correctamente.`;
+        const notificationMessage = `Se registró la reserva #${params.bookingId} (${params.clientName} · ${params.courtName} · ${date} ${time}).`;
+        const notificationUserIds = Array.from(
+            new Set(
+                (params.notificationUserIds || [])
+                    .map((id) => Number(id))
+                    .filter((id: number) => Number.isInteger(id) && id > 0)
+            )
+        );
 
         return [
             cleanClientPhone
@@ -1033,21 +1040,19 @@ Ingresó un nuevo turno web en *${params.clubName}*.
                     payload: { phone: cleanClubPhone, message: clubMessage }
                 }
                 : null,
-            params.notificationUserId
-                ? {
+            ...notificationUserIds.map((userId) => ({
+                clubId: params.clubId,
+                type: OUTBOX_TYPES.NOTIFICATION_CREATE,
+                aggregateType: 'BOOKING',
+                aggregateId: String(params.bookingId),
+                dedupeKey: `booking-created:${params.bookingId}:notification:${userId}`,
+                payload: {
+                    userId,
                     clubId: params.clubId,
-                    type: OUTBOX_TYPES.NOTIFICATION_CREATE,
-                    aggregateType: 'BOOKING',
-                    aggregateId: String(params.bookingId),
-                    dedupeKey: `booking-created:${params.bookingId}:notification:${params.notificationUserId}`,
-                    payload: {
-                        userId: params.notificationUserId,
-                        clubId: params.clubId,
-                        title: notificationTitle,
-                        message: notificationMessage
-                    }
+                    title: notificationTitle,
+                    message: notificationMessage
                 }
-                : null
+            }))
         ].filter((item): item is NonNullable<typeof item> => Boolean(item));
     }
 
@@ -1512,6 +1517,20 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 const clientPhone = guestPhone || user?.phoneNumber || null;
                 const clubPhone = (court as any)?.club?.phone ?? null;
                 const timeZone = clubConfig?.timeZone ?? 'America/Argentina/Buenos_Aires';
+                const adminMemberships = await tx.membership.findMany({
+                    where: {
+                        clubId: bookingClubId,
+                        role: { in: ['OWNER', 'ADMIN'] }
+                    },
+                    select: { userId: true }
+                });
+                const notificationUserIds: number[] = Array.from(
+                    new Set(
+                        (adminMemberships || [])
+                            .map((membership: { userId: number }) => Number(membership.userId))
+                            .filter((id: number) => Number.isInteger(id) && id > 0)
+                    )
+                );
                 const outboxMessages = this.buildBookingCreatedOutboxMessages({
                     bookingId: saved.id,
                     clubId: bookingClubId,
@@ -1520,7 +1539,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     courtName: court.name,
                     clientName,
                     clientPhone,
-                    notificationUserId: user?.id ?? null,
+                    notificationUserIds,
                     startDateTime,
                     timeZone,
                     amount: Number(saved.price || 0),
@@ -2098,6 +2117,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
     },
     include: {
         court: true,
+        activity: true,
         user: true,
         client: true
     }
@@ -2577,7 +2597,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         guestDni?: string,
         clubId?: number,
         actorUserId?: number | null,
-        allowOverlappingSeries: boolean = false
+        allowOverlappingSeries: boolean = false,
+        durationMinutes?: number
     ) {
         const safePhone = guestPhone ? String(guestPhone) : undefined;
 
@@ -2618,7 +2639,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             Boolean(clubConfigForFixed?.professorDurationOverrideEnabled) &&
             Number.isFinite(professorOverrideMinutes) &&
             professorOverrideMinutes > 0;
-        const duration = canProfessorDurationOverride ? professorOverrideMinutes : (activity ? activity.defaultDurationMinutes : 60);
+        const requestedDuration = Number(durationMinutes);
+        const hasRequestedDuration = Number.isFinite(requestedDuration) && requestedDuration > 0;
+        const duration = hasRequestedDuration
+            ? Math.floor(requestedDuration)
+            : (canProfessorDurationOverride ? professorOverrideMinutes : (activity ? activity.defaultDurationMinutes : 60));
         this.assertValidDuration(duration);
         const fixedConfig = this.resolveFixedBookingConfig(clubConfigForFixed, activity ?? null);
 

@@ -140,13 +140,33 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
 
   const unreadCount = notifications.filter((item) => !item.isRead).length;
 
-  const handleNotificationClick = async (id: string, isRead: boolean) => {
-    if (!isRead) {
+  const extractBookingIdFromNotification = (item: NotificationItem) => {
+    const raw = `${String(item?.title || '')} ${String(item?.message || '')}`;
+    const match = raw.match(/#(\d+)/);
+    if (!match) return null;
+    const bookingId = Number(match[1]);
+    return Number.isFinite(bookingId) && bookingId > 0 ? bookingId : null;
+  };
+
+  const handleNotificationClick = async (item: NotificationItem) => {
+    const markAsRead = async () => {
+      if (item.isRead) return;
       try {
-        await NotificationService.markRead(id);
+        await NotificationService.markRead(item.id);
+        setNotifications((prev) => prev.map((row) => (row.id === item.id ? { ...row, isRead: true } : row)));
       } catch {
       }
+    };
+
+    const bookingId = extractBookingIdFromNotification(item);
+    if (bookingId) {
+      setShowNotifications(false);
+      setShowUserMenu(false);
+      await router.push(`/admin/agenda?bookingId=${bookingId}`);
+      await markAsRead();
+      return;
     }
+    await markAsRead();
     await loadNotifications();
   };
 
@@ -377,7 +397,7 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
                           notifications.map((item) => (
                             <button
                               key={item.id}
-                              onClick={() => handleNotificationClick(item.id, item.isRead)}
+                              onClick={() => handleNotificationClick(item)}
                               className={`w-full text-left px-5 py-4 border-b border-[#347048]/10 hover:bg-[#347048]/5 transition-colors ${
                                 item.isRead ? 'opacity-70' : 'opacity-100'
                               }`}
