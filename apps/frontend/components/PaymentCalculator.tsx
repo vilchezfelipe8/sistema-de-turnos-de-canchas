@@ -43,6 +43,13 @@ export default function PaymentCalculator({
   submitting = false,
   zIndexClass = 'z-[9999]'
 }: PaymentCalculatorProps) {
+  const formatItemLabel = (item: PaymentCalculatorItem) => {
+    const rawName = String(item.productName || '').trim();
+    if (/^\d+\s*x\s+/i.test(rawName)) return rawName;
+    const qty = Number(item.quantity || 0);
+    return qty > 0 ? `${qty}x ${rawName}` : rawName;
+  };
+
   const isApprox = (a: number, b: number) => Math.abs(Number(a || 0) - Number(b || 0)) <= 0.01;
   const backdropRef = useRef<boolean>(false);
   const initializedSelectionRef = useRef<boolean>(false);
@@ -105,7 +112,7 @@ export default function PaymentCalculator({
       const paidNow = Math.max(0, Math.min(itemTotal, allocated));
       rows.push({
         key: String(itemKey),
-        label: Number(item.quantity || 0) > 1 ? `${item.quantity}x ${item.productName}` : item.productName,
+        label: formatItemLabel(item),
         total: itemTotal,
         paidNow,
         debtAfter: Math.max(0, itemTotal - paidNow),
@@ -381,7 +388,7 @@ export default function PaymentCalculator({
                             }}
                           />
                           <span className="text-sm font-bold leading-tight">
-                            {Number(item.quantity || 0) > 1 ? `${item.quantity}x ${item.productName}` : item.productName}
+                            {formatItemLabel(item)}
                           </span>
                         </div>
                         <div className="flex items-center gap-2">

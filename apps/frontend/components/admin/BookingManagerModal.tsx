@@ -1093,16 +1093,14 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
               const pendingAmount = item.isNew
                 ? Number(item.price || 0) * Number(item.quantity || 0)
                 : Number(item.remainingAmount || 0);
-              const qty = item.isNew ? Math.max(1, Number(item.quantity || 1)) : 1;
-              const label = item.isNew
-                ? item.productName
-                : `${Math.max(1, Number(item.quantity || 1))}x ${item.productName}`;
+              const qty = Math.max(1, Number(item.quantity || 1));
+              const label = `${qty}x ${item.productName}`;
               return {
               id: item.id,
               tempId: item.tempId,
               productName: label,
-              quantity: qty,
-              price: pendingAmount / qty
+              quantity: 1,
+              price: pendingAmount
             };
             })}
           alreadyPaid={0}
