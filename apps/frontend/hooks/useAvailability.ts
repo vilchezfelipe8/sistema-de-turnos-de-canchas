@@ -7,6 +7,8 @@ interface Court {
   id: number;
   name: string;
   price?: number | null;
+  basePrice?: number | null;
+  lightsExtraApplied?: number | null;
 }
 
 interface SlotWithCourts {
@@ -17,24 +19,15 @@ interface SlotWithCourts {
 interface AvailabilityResponse {
   date: string;
   slotsWithCourts: SlotWithCourts[];
-  professorOverrideAvailable?: boolean;
-  professorDurationOverrideMinutes?: number | null;
 }
 
 export function useAvailability(
   date: Date | null,
   activityId?: number | null,
   clubSlug?: string,
-  durationMinutes?: number,
-  identity?: {
-    guestEmail?: string;
-    guestPhone?: string;
-    guestDni?: string;
-  }
+  durationMinutes?: number
 ) {
   const [slotsWithCourts, setSlotsWithCourts] = useState<SlotWithCourts[]>([]);
-  const [professorOverrideAvailable, setProfessorOverrideAvailable] = useState(false);
-  const [professorDurationOverrideMinutes, setProfessorDurationOverrideMinutes] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,7 +37,6 @@ export function useAvailability(
     if (!date) return;
     setLoading(true);
     setError(null);
-    setSlotsWithCourts([]);
 
     try {
       if (!Number.isFinite(activityId) || Number(activityId) <= 0) {
@@ -62,9 +54,6 @@ export function useAvailability(
       const durationParam = Number.isFinite(durationMinutes)
         ? `&durationMinutes=${durationMinutes}`
         : '';
-      const guestEmailParam = identity?.guestEmail ? `&guestEmail=${encodeURIComponent(identity.guestEmail)}` : '';
-      const guestPhoneParam = identity?.guestPhone ? `&guestPhone=${encodeURIComponent(identity.guestPhone)}` : '';
-      const guestDniParam = identity?.guestDni ? `&guestDni=${encodeURIComponent(identity.guestDni)}` : '';
       const token = getToken();
       const headers: Record<string, string> = {
         'Pragma': 'no-cache',
@@ -75,7 +64,7 @@ export function useAvailability(
       }
 
       const res = await fetch(
-        `${apiBase}/bookings/availability-with-courts?activityId=${Number(activityId)}&date=${dateString}&t=${timestamp}${clubParam}${durationParam}${guestEmailParam}${guestPhoneParam}${guestDniParam}`,
+        `${apiBase}/bookings/availability-with-courts?activityId=${Number(activityId)}&date=${dateString}&t=${timestamp}${clubParam}${durationParam}`,
         {
             cache: 'no-store',
             headers
@@ -86,12 +75,6 @@ export function useAvailability(
 
       const data: AvailabilityResponse = await res.json();
       setSlotsWithCourts(data.slotsWithCourts);
-      setProfessorOverrideAvailable(Boolean(data.professorOverrideAvailable));
-      setProfessorDurationOverrideMinutes(
-        Number.isFinite(Number(data.professorDurationOverrideMinutes))
-          ? Number(data.professorDurationOverrideMinutes)
-          : null
-      );
 
     } catch (err) {
       const message = extractErrorMessage(err, 'Error al cargar turnos');
@@ -100,7 +83,7 @@ export function useAvailability(
     } finally {
       setLoading(false);
     }
-  }, [date, activityId, apiBase, clubSlug, durationMinutes, identity?.guestEmail, identity?.guestPhone, identity?.guestDni]);
+  }, [date, activityId, apiBase, clubSlug, durationMinutes]);
 
   useEffect(() => {
     fetchSlots();
@@ -108,8 +91,6 @@ export function useAvailability(
 
   return {
     slotsWithCourts,
-    professorOverrideAvailable,
-    professorDurationOverrideMinutes,
     loading,
     error,
     refresh: fetchSlots

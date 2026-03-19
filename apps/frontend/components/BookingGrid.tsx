@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/router';
 import type { ReactNode } from 'react';
 import { useAvailability } from '../hooks/useAvailability';
-import { createBooking, getBookingQuote, type BookingQuote } from '../services/BookingService';
+import { createBooking } from '../services/BookingService';
 import AppModal from './AppModal';
 
 import { getApiUrl } from '../utils/apiUrl';
@@ -30,6 +30,8 @@ type CourtSummary = {
   id: number;
   name: string;
   price?: number | null;
+  basePrice?: number | null;
+  lightsExtraApplied?: number | null;
   activityType?: ActivityTypeSummary | null;
 };
 
@@ -201,6 +203,13 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     end: Date;
     durationMinutes: number;
     price: number;
+    listPrice?: number;
+    discountAmount?: number;
+    nightSurcharge?: {
+      applied: boolean;
+      amount: number;
+      fromHour?: string | null;
+    };
   }) => (
     <div className="space-y-3">
       <p className="text-sm text-[#347048]/80">Tu reserva fue registrada con éxito.</p>
@@ -235,13 +244,29 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
           <span className="font-bold text-[#926699] uppercase text-xs">Precio:</span>
           <span className="text-[#347048] font-black text-lg">${params.price.toLocaleString()}</span>
         </div>
+        {Number(params.discountAmount || 0) > 0.009 ? (
+          <div className="flex items-center justify-between">
+            <span className="font-bold text-[#926699] uppercase text-xs">Descuento:</span>
+            <span className="text-[#347048] font-black">
+              -${Number(params.discountAmount || 0).toLocaleString()}
+              {Number(params.listPrice || 0) > 0.009 ? ` (lista $${Number(params.listPrice || 0).toLocaleString()})` : ''}
+            </span>
+          </div>
+        ) : null}
+        {params.nightSurcharge?.applied ? (
+          <div className="flex items-center justify-between">
+            <span className="font-bold text-[#926699] uppercase text-xs">Recargo nocturno:</span>
+            <span className="text-[#347048] font-black">
+              +${Number(params.nightSurcharge.amount || 0).toLocaleString()}
+              {params.nightSurcharge.fromHour ? ` (desde ${params.nightSurcharge.fromHour})` : ''}
+            </span>
+          </div>
+        ) : null}
       </div>
     </div>
   );
 
   const [disabledSlots, setDisabledSlots] = useState<Record<string, boolean>>({});
-  const [priceQuote, setPriceQuote] = useState<BookingQuote | null>(null);
-  const [isQuoteLoading, setIsQuoteLoading] = useState(false);
   const STORAGE_PREFIX = 'disabledSlots:';
 
   const [allCourts, setAllCourts] = useState<CourtSummary[]>([]);
@@ -294,36 +319,16 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     return normalizeActivityDurations(matchedCourt?.activityType?.scheduleDurations, safeFallback);
   }, [activeCourts, selectedActivityId]);
 
-  const availabilityIdentity = useMemo(() => {
-    const trimmedEmail = guestEmail.trim();
-    const trimmedDni = guestDni.trim().replace(/\./g, '');
-    const trimmedPhoneDigits = guestPhone.replace(/\D/g, '');
-    const normalizedPhone = trimmedPhoneDigits ? `+549${trimmedPhoneDigits}` : '';
-    return {
-      guestEmail: trimmedEmail || undefined,
-      guestPhone: normalizedPhone || undefined,
-      guestDni: trimmedDni || undefined
-    };
-  }, [guestEmail, guestPhone, guestDni]);
-
-  const { slotsWithCourts, professorOverrideAvailable, professorDurationOverrideMinutes, loading, error, refresh } = useAvailability(
+  const { slotsWithCourts, loading, error, refresh } = useAvailability(
     selectedDate,
     selectedActivityId,
     clubSlug,
-    selectedDuration,
-    availabilityIdentity
+    selectedDuration
   );
 
   const durationOptions = useMemo(() => {
-    const professorDuration = Number(professorDurationOverrideMinutes);
-    if (!professorOverrideAvailable || !Number.isFinite(professorDuration) || professorDuration <= 0) {
-      return selectedActivityDurations;
-    }
-    if (selectedActivityDurations.includes(professorDuration)) {
-      return selectedActivityDurations;
-    }
-    return [professorDuration, ...selectedActivityDurations];
-  }, [selectedActivityDurations, professorOverrideAvailable, professorDurationOverrideMinutes]);
+    return selectedActivityDurations;
+  }, [selectedActivityDurations]);
   const getTrimmedGuestInfo = () => {
     const trimmedPhone = guestPhone.replace(/\D/g, '');
     const firstName = guestFirstName.trim();
@@ -474,21 +479,17 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
 
     return filteredSlotsWithCourts
       .map((slot) => {
-        const courtsToShow = (activeCourts.length > 0 ? activeCourts : slot.availableCourts).filter((court) => {
-          if (selectedActivityFilter === 'ALL') return true;
-          return getCourtActivityName(court as any) === selectedActivityFilter;
-        });
+        const courtsToShow = slot.availableCourts;
 
         const availableCourts = courtsToShow.filter((court) => {
           const key = `${dateString}-${slot.slotTime}-${court.id}`;
-          const isBackendAvailable = slot.availableCourts.some((ac) => ac.id === court.id);
-          return !disabledSlots[key] && isBackendAvailable;
+          return !disabledSlots[key];
         });
 
         return { slotTime: slot.slotTime, courts: availableCourts };
       })
       .filter((slot) => slot.courts.length > 0);
-  }, [filteredSlotsWithCourts, activeCourts, selectedActivityFilter, disabledSlots, selectedDate]);
+  }, [filteredSlotsWithCourts, disabledSlots, selectedDate]);
 
   useEffect(() => {
     if (!selectedSlot) return;
@@ -499,178 +500,21 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     }
   }, [availableSlots, selectedSlot]);
 
-  useEffect(() => {
-    if (!selectedDate || !selectedSlot || !selectedCourt?.id) {
-      setPriceQuote(null);
-      return;
-    }
-
-    const bookingActivityId = Number(selectedCourt.activityType?.id || selectedActivityId || 0);
-    if (!Number.isFinite(bookingActivityId) || bookingActivityId <= 0) {
-      setPriceQuote(null);
-      return;
-    }
-
-    const guestPayload = !isAuthenticated
-      ? {
-          guestEmail: guestEmail.trim() || undefined,
-          guestPhone: guestPhone.trim() || undefined,
-          guestDni: guestDni.trim() || undefined
-        }
-      : {};
-
-    let cancelled = false;
-    const timeoutId = window.setTimeout(async () => {
-      try {
-        setIsQuoteLoading(true);
-        const quote = await getBookingQuote({
-          courtId: Number(selectedCourt.id),
-          activityId: bookingActivityId,
-          date: selectedDate,
-          slotTime: selectedSlot,
-          durationMinutes: selectedDuration,
-          ...guestPayload
-        });
-        if (!cancelled) setPriceQuote(quote);
-      } catch {
-        if (!cancelled) setPriceQuote(null);
-      } finally {
-        if (!cancelled) setIsQuoteLoading(false);
-      }
-    }, 250);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
+  const priceInfo = useMemo(() => {
+    const final = Number(selectedCourt?.price ?? 0);
+    const base = Number(selectedCourt?.basePrice ?? final);
+    const extra = Number(selectedCourt?.lightsExtraApplied ?? 0);
+    return {
+      base: Number.isFinite(base) ? base : 0,
+      list: Number.isFinite(final) ? final : 0,
+      final: Number.isFinite(final) ? final : 0,
+      extra: Number.isFinite(extra) ? extra : 0,
+      hasLights: Number(extra) > 0.009,
+      hasDiscount: false,
+      discountAmount: 0,
+      source: 'SERVER' as const
     };
-  }, [
-    selectedDate,
-    selectedSlot,
-    selectedCourt?.id,
-    selectedCourt?.activityType?.id,
-    selectedActivityId,
-    selectedDuration,
-    isAuthenticated,
-    guestEmail,
-    guestPhone,
-    guestDni
-  ]);
-
-  const getPriceInfo = () => {
-    const base = Number(selectedCourt?.price ?? 0);
-    const quoteList = Number(priceQuote?.listPrice || 0);
-    const quoteFinal = Number(priceQuote?.finalPrice || 0);
-    const quoteDiscount = Number(priceQuote?.discountAmount || 0);
-    const hasQuote = Boolean(priceQuote && Number.isFinite(quoteFinal) && quoteFinal >= 0);
-
-    if (!selectedDate || !selectedSlot) {
-      return {
-        base,
-        list: hasQuote ? quoteList : base,
-        final: hasQuote ? quoteFinal : base,
-        extra: 0,
-        hasLights: false,
-        hasDiscount: hasQuote && quoteDiscount > 0.009,
-        discountAmount: hasQuote ? quoteDiscount : 0,
-        source: hasQuote ? ('QUOTE' as const) : ('ESTIMATE' as const)
-      };
-    }
-    if (!Number.isFinite(base) || base <= 0) {
-      return {
-        base: 0,
-        list: hasQuote ? quoteList : 0,
-        final: hasQuote ? quoteFinal : 0,
-        extra: 0,
-        hasLights: false,
-        hasDiscount: hasQuote && quoteDiscount > 0.009,
-        discountAmount: hasQuote ? quoteDiscount : 0,
-        source: hasQuote ? ('QUOTE' as const) : ('ESTIMATE' as const)
-      };
-    }
-    const cfg = clubConfig;
-    if (!cfg || !cfg.lightsEnabled || !cfg.lightsExtraAmount || !cfg.lightsFromHour) {
-      return {
-        base,
-        list: hasQuote ? quoteList : base,
-        final: hasQuote ? quoteFinal : base,
-        extra: 0,
-        hasLights: false,
-        hasDiscount: hasQuote && quoteDiscount > 0.009,
-        discountAmount: hasQuote ? quoteDiscount : 0,
-        source: hasQuote ? ('QUOTE' as const) : ('ESTIMATE' as const)
-      };
-    }
-
-    try {
-      const [lh, lm] = String(cfg.lightsFromHour).split(':').map((n) => parseInt(n, 10));
-      if (Number.isNaN(lh) || Number.isNaN(lm)) {
-        return {
-          base,
-          list: hasQuote ? quoteList : base,
-          final: hasQuote ? quoteFinal : base,
-          extra: 0,
-          hasLights: false,
-          hasDiscount: hasQuote && quoteDiscount > 0.009,
-          discountAmount: hasQuote ? quoteDiscount : 0,
-          source: hasQuote ? ('QUOTE' as const) : ('ESTIMATE' as const)
-        };
-      }
-
-      const [sh, sm] = selectedSlot.split(':').map((n) => parseInt(n, 10));
-      if (Number.isNaN(sh) || Number.isNaN(sm)) {
-        return {
-          base,
-          list: hasQuote ? quoteList : base,
-          final: hasQuote ? quoteFinal : base,
-          extra: 0,
-          hasLights: false,
-          hasDiscount: hasQuote && quoteDiscount > 0.009,
-          discountAmount: hasQuote ? quoteDiscount : 0,
-          source: hasQuote ? ('QUOTE' as const) : ('ESTIMATE' as const)
-        };
-      }
-
-      const slotMinutes = sh * 60 + sm;
-      const lightsMinutes = lh * 60 + lm;
-      if (slotMinutes >= lightsMinutes) {
-        const extra = Number(cfg.lightsExtraAmount);
-        const list = base + extra;
-        return {
-          base,
-          list: hasQuote ? quoteList : list,
-          final: hasQuote ? quoteFinal : list,
-          extra,
-          hasLights: true,
-          hasDiscount: hasQuote && quoteDiscount > 0.009,
-          discountAmount: hasQuote ? quoteDiscount : 0,
-          source: hasQuote ? ('QUOTE' as const) : ('ESTIMATE' as const)
-        };
-      }
-      return {
-        base,
-        list: hasQuote ? quoteList : base,
-        final: hasQuote ? quoteFinal : base,
-        extra: 0,
-        hasLights: false,
-        hasDiscount: hasQuote && quoteDiscount > 0.009,
-        discountAmount: hasQuote ? quoteDiscount : 0,
-        source: hasQuote ? ('QUOTE' as const) : ('ESTIMATE' as const)
-      };
-    } catch {
-      return {
-        base,
-        list: hasQuote ? quoteList : base,
-        final: hasQuote ? quoteFinal : base,
-        extra: 0,
-        hasLights: false,
-        hasDiscount: hasQuote && quoteDiscount > 0.009,
-        discountAmount: hasQuote ? quoteDiscount : 0,
-        source: hasQuote ? ('QUOTE' as const) : ('ESTIMATE' as const)
-      };
-    }
-  };
-
-  const priceInfo = getPriceInfo();
+  }, [selectedCourt?.price, selectedCourt?.basePrice, selectedCourt?.lightsExtraApplied]);
 
 const performBooking = async (guestInfo?: { name: string; email?: string; phone?: string; guestDni?: string }) => {
     
@@ -703,20 +547,33 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
         selectedSlot,
         undefined,
         !isAuthenticated ? guestInfo : undefined,
-        { durationMinutes: selectedDuration }
+        { durationMinutes: selectedDuration, applyDiscount: false }
       );
       const startDateTime = bookingDateTime;
       const endDateTime = new Date(startDateTime.getTime() + selectedDuration * 60000);
       const fallbackPrice = Number(priceInfo.final || 0);
+      const fallbackListPrice = Number(priceInfo.list || fallbackPrice || 0);
       const parsedCreatedPrice = Number((createResult as any)?.price);
+      const parsedCreatedListPrice = Number((createResult as any)?.listPrice);
       const finalPrice = Number.isFinite(parsedCreatedPrice) && parsedCreatedPrice >= 0 ? parsedCreatedPrice : fallbackPrice;
+      const listPrice = Number.isFinite(parsedCreatedListPrice) && parsedCreatedListPrice > 0
+        ? parsedCreatedListPrice
+        : fallbackListPrice;
+      const discountAmount = Math.max(0, Number((listPrice - finalPrice).toFixed(2)));
       const bookingSummaryMessage = buildBookingSummaryMessage({
         courtName: String(selectedCourt.name || `Cancha ${selectedCourt.id}`),
         activityName: String(selectedCourt.activityType?.name || selectedActivityFilter || 'Actividad'),
         start: startDateTime,
         end: endDateTime,
         durationMinutes: selectedDuration,
-        price: finalPrice
+        price: finalPrice,
+        listPrice,
+        discountAmount,
+        nightSurcharge: {
+          applied: Boolean(priceInfo.hasLights),
+          amount: Number(priceInfo.extra || 0),
+          fromHour: clubConfig?.lightsFromHour || null
+        }
       });
 
       // Guardar bloqueo temporal localmente (Optimistic UI)
@@ -741,7 +598,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
           setGuestLastName('');
           setGuestEmail('');
           setGuestPhone('');
-          setGuestDni(''); // No olvidar limpiar el DNI también
+          setGuestDni('');
         }
       } catch (_) { /* noop */ }
 
@@ -1271,33 +1128,20 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
 
       {selectedSlot && selectedCourt && (
         <div className="mt-2 text-xs text-[#347048]/80 text-center font-medium">
-          {priceInfo.source === 'QUOTE' ? (
-            <>
-              Precio final: <span className="font-black text-[#347048] text-base">${priceInfo.final.toLocaleString()}</span>{' '}
-              {priceInfo.hasDiscount ? (
-                <span className="ml-1 text-[11px]">
-                  (lista ${priceInfo.list.toLocaleString()} | descuento ${priceInfo.discountAmount.toLocaleString()})
-                </span>
-              ) : null}
-            </>
+          Precio:{' '}
+          <span className="font-black text-[#347048] text-base">
+            ${priceInfo.final.toLocaleString()}
+          </span>
+          {priceInfo.hasDiscount ? (
+            <span className="ml-1 text-[11px]">
+              (lista ${priceInfo.list.toLocaleString()} | descuento ${priceInfo.discountAmount.toLocaleString()})
+            </span>
           ) : priceInfo.hasLights && clubConfig ? (
-            <>
-              Precio estimado: <span className="font-black text-[#347048] text-base">${priceInfo.final.toLocaleString()}</span>{' '}
-              <span className="ml-1 text-[11px]">
-                (incluye extra por luces de ${priceInfo.extra.toLocaleString()} desde las {clubConfig.lightsFromHour})
-              </span>
-            </>
-          ) : (
-            <>
-              Precio estimado:{' '}
-              <span className="font-black text-[#347048] text-base">
-                ${priceInfo.final.toLocaleString()}
-              </span>
-            </>
-          )}
-          {isQuoteLoading && (
-            <div className="text-[11px] text-[#347048]/50 mt-1">Actualizando precio final...</div>
-          )}
+            <span className="ml-1 text-[11px]">
+              (incluye extra por luces de ${priceInfo.extra.toLocaleString()}
+              {clubConfig.lightsFromHour ? ` desde las ${clubConfig.lightsFromHour}` : ''})
+            </span>
+          ) : null}
         </div>
       )}
 
@@ -1316,7 +1160,7 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
       <AppModal
         show={guestModalOpen}
         onClose={() => setGuestModalOpen(false)}
-        title=""
+        title="Confirmar reserva"
         message={(
           <div className="space-y-3">
             <h4 className="text-sm font-black text-[#926699] uppercase tracking-wider">Datos de reserva</h4>
@@ -1331,12 +1175,12 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
                   <span className="text-[#347048] font-black">{selectedTimes.endLabel}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#926699] uppercase text-xs">{priceInfo.source === 'QUOTE' ? 'Precio final:' : 'Precio:'}</span>
+                  <span className="font-bold text-[#926699] uppercase text-xs">Precio:</span>
                   <span className="text-[#347048] font-black text-lg">
                     ${priceInfo.final.toLocaleString()}
                   </span>
                 </div>
-                {priceInfo.source === 'QUOTE' && priceInfo.hasDiscount && (
+                {priceInfo.hasDiscount && (
                   <div className="flex items-center justify-between text-xs text-[#347048]/60">
                     <span>Lista / descuento:</span>
                     <span>

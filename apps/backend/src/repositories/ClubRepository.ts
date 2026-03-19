@@ -607,7 +607,13 @@ export class ClubRepository {
         return hours * 60 + minutes;
     }
 
-    private formatLightsFromHour(value: number | null | undefined): string | null {
+    private formatLightsFromHour(value: number | string | null | undefined): string | null {
+        if (value === null || value === undefined) return null;
+        if (typeof value === 'string') {
+            const trimmed = value.trim();
+            if (!trimmed) return null;
+            if (/^\d{2}:\d{2}$/.test(trimmed)) return trimmed;
+        }
         if (!Number.isFinite(Number(value))) return null;
         const total = Number(value);
         if (total < 0) return null;

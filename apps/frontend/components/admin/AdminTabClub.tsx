@@ -43,6 +43,8 @@ const BOOKING_CONFIRMATION_MODES: Array<{ value: BookingConfirmationMode; label:
   }
 ];
 
+const LIGHTS_FROM_HOUR_OPTIONS = ["18:00", "19:00", "20:00", "21:00", "22:00"];
+
 const CLUB_OPERATIONAL_STATUS_OPTIONS: Array<{ value: ClubOperationalStatus; label: string; helper: string }> = [
   {
     value: 'OPEN',
@@ -548,7 +550,9 @@ export default function AdminTabClub() {
           websiteUrl: clubData.websiteUrl || '', description: clubData.description || '',
           lightsEnabled: clubData.lightsEnabled ?? false,
           lightsExtraAmount: clubData.lightsExtraAmount != null ? String(clubData.lightsExtraAmount) : '',
-          lightsFromHour: clubData.lightsFromHour || '',
+          lightsFromHour: LIGHTS_FROM_HOUR_OPTIONS.includes(String(clubData.lightsFromHour || ''))
+            ? String(clubData.lightsFromHour)
+            : '',
           professorDurationOverrideEnabled: clubData.professorDurationOverrideEnabled ?? true,
           professorDurationOverrideMinutes: clubData.professorDurationOverrideMinutes != null ? String(clubData.professorDurationOverrideMinutes) : '60',
           bookingConfirmationMode: (clubData.bookingConfirmationMode ?? 'MANUAL') as BookingConfirmationMode,
@@ -1052,8 +1056,23 @@ export default function AdminTabClub() {
         : null;
       const cancelMinutesRaw = Number(clubForm.autoCancelPendingBookingsMinutesBefore);
       const warningMinutesRaw = Number(clubForm.autoCancelPendingWarningMinutesBefore);
+      const lightsExtraAmountRaw = Number(clubForm.lightsExtraAmount);
       const simpleAdvanceUserRaw = Number(clubForm.bookingSimpleAdvanceDaysUser);
       const simpleAdvanceAdminRaw = Number(clubForm.bookingSimpleAdvanceDaysAdmin);
+      if (clubForm.lightsEnabled) {
+        if (!Number.isFinite(lightsExtraAmountRaw) || lightsExtraAmountRaw <= 0) {
+          showError('Si activás recargo nocturno, el monto extra debe ser mayor a 0.');
+          return;
+        }
+        if (!/^\d{2}:\d{2}$/.test(String(clubForm.lightsFromHour || ''))) {
+          showError('Si activás recargo nocturno, debés seleccionar desde qué hora aplica.');
+          return;
+        }
+        if (!LIGHTS_FROM_HOUR_OPTIONS.includes(String(clubForm.lightsFromHour || ''))) {
+          showError('La hora de inicio del recargo nocturno debe ser una de las opciones permitidas.');
+          return;
+        }
+      }
       if (clubForm.autoCancelPendingBookingsEnabled) {
         if (!Number.isFinite(cancelMinutesRaw) || cancelMinutesRaw <= 0) {
           showError('Si activás auto-cancelación, los minutos antes del turno deben ser mayores a 0.');
@@ -1844,7 +1863,7 @@ export default function AdminTabClub() {
                     <select disabled={!clubForm.lightsEnabled} value={clubForm.lightsFromHour || ''} onChange={(e) => setClubForm({ ...clubForm, lightsFromHour: e.target.value })}
                       className="h-10 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm disabled:opacity-30 transition-all cursor-pointer">
                       <option value="">Seleccionar...</option>
-                      {["18:00", "19:00", "20:00", "21:00", "22:00"].map(h => <option key={h} value={h}>{h}</option>)}
+                      {LIGHTS_FROM_HOUR_OPTIONS.map(h => <option key={h} value={h}>{h}</option>)}
                     </select>
                   </div>
                 </div>

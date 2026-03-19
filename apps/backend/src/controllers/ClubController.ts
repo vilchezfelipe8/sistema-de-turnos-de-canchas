@@ -91,6 +91,7 @@ const validateClubClosurePolicy = (params: {
 };
 
 export class ClubController {
+    private static readonly LIGHTS_FROM_HOUR_OPTIONS = new Set(['18:00', '19:00', '20:00', '21:00', '22:00']);
     private readonly mediaStorageService = new MediaStorageService();
     private readonly auditLogService = new AuditLogService();
     constructor(private clubService: ClubService) {}
@@ -189,6 +190,17 @@ export class ClubController {
             }
             if ((professorDurationOverrideEnabled ?? true) && (!Number.isFinite(Number(professorDurationOverrideMinutes)) || Number(professorDurationOverrideMinutes) <= 0)) {
                 return res.status(400).json({ error: 'professorDurationOverrideMinutes debe ser mayor a 0' });
+            }
+            if (lightsEnabled) {
+                if (!Number.isFinite(Number(lightsExtraAmount)) || Number(lightsExtraAmount) <= 0) {
+                    return res.status(400).json({ error: 'lightsExtraAmount debe ser mayor a 0 cuando lightsEnabled está activado' });
+                }
+                if (!/^\d{2}:\d{2}$/.test(String(lightsFromHour || ''))) {
+                    return res.status(400).json({ error: 'lightsFromHour es obligatorio (HH:mm) cuando lightsEnabled está activado' });
+                }
+                if (!ClubController.LIGHTS_FROM_HOUR_OPTIONS.has(String(lightsFromHour))) {
+                    return res.status(400).json({ error: 'lightsFromHour debe ser una hora válida de las opciones configurables del panel' });
+                }
             }
             if (!Number.isFinite(Number(bookingSimpleAdvanceDaysUser ?? 30)) || Number(bookingSimpleAdvanceDaysUser ?? 30) < 0) {
                 return res.status(400).json({ error: 'bookingSimpleAdvanceDaysUser debe ser 0 o mayor' });
@@ -436,6 +448,18 @@ export class ClubController {
             if ((professorDurationOverrideEnabled ?? true) && professorDurationOverrideMinutes !== undefined) {
                 if (!Number.isFinite(Number(professorDurationOverrideMinutes)) || Number(professorDurationOverrideMinutes) <= 0) {
                     return res.status(400).json({ error: 'professorDurationOverrideMinutes debe ser mayor a 0' });
+                }
+            }
+            const resolvedLightsEnabled = typeof lightsEnabled === 'boolean' ? lightsEnabled : undefined;
+            if (resolvedLightsEnabled === true) {
+                if (!Number.isFinite(Number(lightsExtraAmount)) || Number(lightsExtraAmount) <= 0) {
+                    return res.status(400).json({ error: 'lightsExtraAmount debe ser mayor a 0 cuando lightsEnabled está activado' });
+                }
+                if (!/^\d{2}:\d{2}$/.test(String(lightsFromHour || ''))) {
+                    return res.status(400).json({ error: 'lightsFromHour es obligatorio (HH:mm) cuando lightsEnabled está activado' });
+                }
+                if (!ClubController.LIGHTS_FROM_HOUR_OPTIONS.has(String(lightsFromHour))) {
+                    return res.status(400).json({ error: 'lightsFromHour debe ser una hora válida de las opciones configurables del panel' });
                 }
             }
             if (bookingSimpleAdvanceDaysUser !== undefined && (!Number.isFinite(Number(bookingSimpleAdvanceDaysUser)) || Number(bookingSimpleAdvanceDaysUser) < 0)) {

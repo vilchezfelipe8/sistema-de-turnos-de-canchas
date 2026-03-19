@@ -73,6 +73,19 @@ const formatAutoCancelAt = (value?: string | null) => {
   return formatDateTime24(value, { fallback: 'Sin hora definida' });
 };
 
+type NightSurchargeInfo = {
+  applied: boolean;
+  amount: number;
+  fromHour: string | null;
+};
+
+const toMinutes = (timeValue?: string | null) => {
+  if (!timeValue) return null;
+  const [hh, mm] = String(timeValue).split(':').map((value) => Number(value));
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  return hh * 60 + mm;
+};
+
 export default function BookingManagerModal({ booking, clubSlug, courtName, onClose, onCancelBooking, onUpdated }: Props) {
   const bookingId = Number(booking?.id);
   const [products, setProducts] = useState<ProductSearchItem[]>([]);
@@ -99,20 +112,75 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
   const [confirmationQuote, setConfirmationQuote] = useState<BookingQuote | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [clubLightsConfig, setClubLightsConfig] = useState<{
+    enabled: boolean;
+    extraAmount: number;
+    fromHour: string | null;
+  }>({
+    enabled: false,
+    extraAmount: 0,
+    fromHour: null
+  });
 
   const isCancelled = booking?.status === 'CANCELLED';
   const bookingStatus = String(booking?.status || 'PENDING');
   const canManualConfirm = bookingStatus === 'PENDING';
   const canManageConsumptions = bookingStatus !== 'PENDING' && !isCancelled;
+  const bookingStart = useMemo(() => {
+    const raw = booking?.startDateTime;
+    if (!raw) return null;
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }, [booking?.startDateTime]);
+  const bookingDurationMinutes = useMemo(() => {
+    const byField = Number(booking?.durationMinutes || 0);
+    if (Number.isFinite(byField) && byField > 0) return byField;
+    if (bookingStart && booking?.endDateTime) {
+      const end = new Date(booking.endDateTime);
+      if (!Number.isNaN(end.getTime())) {
+        const diff = Math.round((end.getTime() - bookingStart.getTime()) / 60000);
+        if (Number.isFinite(diff) && diff > 0) return diff;
+      }
+    }
+    return Number(booking?.activity?.defaultDurationMinutes || booking?.activityType?.defaultDurationMinutes || 0);
+  }, [booking?.durationMinutes, booking?.endDateTime, booking?.activity?.defaultDurationMinutes, booking?.activityType?.defaultDurationMinutes, bookingStart]);
+  const bookingEnd = useMemo(() => {
+    if (!bookingStart) return null;
+    if (booking?.endDateTime) {
+      const parsed = new Date(booking.endDateTime);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+    if (Number.isFinite(bookingDurationMinutes) && bookingDurationMinutes > 0) {
+      return new Date(bookingStart.getTime() + bookingDurationMinutes * 60000);
+    }
+    return null;
+  }, [booking?.endDateTime, bookingDurationMinutes, bookingStart]);
+  const bookingNightSurcharge = useMemo<NightSurchargeInfo>(() => {
+    if (!bookingStart) return { applied: false, amount: 0, fromHour: clubLightsConfig.fromHour };
+    if (!clubLightsConfig.enabled) return { applied: false, amount: 0, fromHour: clubLightsConfig.fromHour };
+    if (!Number.isFinite(clubLightsConfig.extraAmount) || clubLightsConfig.extraAmount <= 0) {
+      return { applied: false, amount: 0, fromHour: clubLightsConfig.fromHour };
+    }
+    const threshold = toMinutes(clubLightsConfig.fromHour);
+    if (threshold == null) return { applied: false, amount: 0, fromHour: clubLightsConfig.fromHour };
+    const bookingMinutes = bookingStart.getHours() * 60 + bookingStart.getMinutes();
+    if (bookingMinutes < threshold) return { applied: false, amount: 0, fromHour: clubLightsConfig.fromHour };
+    return {
+      applied: true,
+      amount: Number(clubLightsConfig.extraAmount || 0),
+      fromHour: clubLightsConfig.fromHour
+    };
+  }, [bookingStart, clubLightsConfig.enabled, clubLightsConfig.extraAmount, clubLightsConfig.fromHour]);
 
   const loadData = useCallback(async () => {
     if (!clubSlug || !bookingId) return;
     try {
       setLoading(true);
-      const [productsData, currentItems, financial] = await Promise.all([
+      const [productsData, currentItems, financial, clubInfo] = await Promise.all([
         ClubAdminService.getProducts(clubSlug),
         ClubAdminService.getBookingItems(bookingId),
-        getBookingFinancialSummary(bookingId)
+        getBookingFinancialSummary(bookingId),
+        ClubAdminService.getClubInfo(clubSlug)
       ]);
 
       setProducts(Array.isArray(productsData) ? productsData : []);
@@ -144,6 +212,12 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
       }));
       setCartItems(formattedItems);
       setSummary(financial || null);
+      const settings = (clubInfo as any)?.settings ?? (clubInfo as any) ?? {};
+      setClubLightsConfig({
+        enabled: Boolean(settings?.lightsEnabled),
+        extraAmount: Number(settings?.lightsExtraAmount || 0),
+        fromHour: settings?.lightsFromHour ? String(settings.lightsFromHour) : null
+      });
       setActionError(null);
       setSelectedProduct(null);
       setProductSearchKey((prev) => prev + 1);
@@ -523,6 +597,51 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
             <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50">Reservante</p>
             <p className="text-lg font-black mt-1">{clientName}</p>
             {clientPhone ? <p className="text-xs font-bold text-[#347048]/60 mt-1">{clientPhone}</p> : null}
+            {booking?.client?.email ? <p className="text-xs font-bold text-[#347048]/60">{String(booking.client.email)}</p> : null}
+            {booking?.client?.dni ? <p className="text-xs font-bold text-[#347048]/60">DNI: {String(booking.client.dni)}</p> : null}
+          </div>
+
+          <div className="rounded-2xl border border-[#347048]/10 bg-white p-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50">Datos de la reserva</p>
+            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-black uppercase tracking-widest text-[#347048]/50">Estado</span>
+                <span className="font-black">{formatBookingStatus(bookingStatus)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-black uppercase tracking-widest text-[#347048]/50">Actividad</span>
+                <span className="font-black text-right">{String(booking?.activity?.name || booking?.activityType?.name || 'Actividad')}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3 sm:col-span-2">
+                <span className="font-black uppercase tracking-widest text-[#347048]/50">Fecha</span>
+                <span className="font-black text-right">{bookingStart ? bookingStart.toLocaleDateString('es-AR') : '-'}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3 sm:col-span-2">
+                <span className="font-black uppercase tracking-widest text-[#347048]/50">Horario</span>
+                <span className="font-black text-right">
+                  {bookingStart ? bookingStart.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--'}
+                  {' - '}
+                  {bookingEnd ? bookingEnd.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-black uppercase tracking-widest text-[#347048]/50">Duración</span>
+                <span className="font-black">{Number.isFinite(bookingDurationMinutes) && bookingDurationMinutes > 0 ? `${bookingDurationMinutes} min` : '-'}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-black uppercase tracking-widest text-[#347048]/50">Precio reserva</span>
+                <span className="font-black">{formatMoney(Number(booking?.price || 0))}</span>
+              </div>
+              {bookingNightSurcharge.applied ? (
+                <div className="flex items-center justify-between gap-3 sm:col-span-2 text-amber-700">
+                  <span className="font-black uppercase tracking-widest">Recargo nocturno</span>
+                  <span className="font-black text-right">
+                    Aplicado (+{formatMoney(bookingNightSurcharge.amount)})
+                    {bookingNightSurcharge.fromHour ? ` desde ${bookingNightSurcharge.fromHour}` : ''}
+                  </span>
+                </div>
+              ) : null}
+            </div>
           </div>
 
           {canManageConsumptions ? (
@@ -590,6 +709,12 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
                   {bookingDiscountPolicies.length > 0 ? (
                     <p className="text-[9px] font-black text-[#347048]/60 mt-1 truncate">
                       Políticas: {bookingDiscountPolicies.join(', ')}
+                    </p>
+                  ) : null}
+                  {bookingNightSurcharge.applied ? (
+                    <p className="text-[9px] font-black uppercase tracking-widest text-amber-700 mt-1">
+                      Recargo nocturno aplicado: +{formatMoney(bookingNightSurcharge.amount)}
+                      {bookingNightSurcharge.fromHour ? ` (desde ${bookingNightSurcharge.fromHour})` : ''}
                     </p>
                   ) : null}
                   {remainingCourt <= 0.009 ? (
@@ -788,6 +913,15 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
                 <span>Cancha</span>
                 <span>{formatMoney(courtTotal)}</span>
               </div>
+              {bookingNightSurcharge.applied ? (
+                <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-amber-700">
+                  <span>Recargo nocturno</span>
+                  <span>
+                    +{formatMoney(bookingNightSurcharge.amount)}
+                    {bookingNightSurcharge.fromHour ? ` (desde ${bookingNightSurcharge.fromHour})` : ''}
+                  </span>
+                </div>
+              ) : null}
               <div className="flex items-center justify-between text-[11px] font-black uppercase tracking-widest text-[#347048]/70">
                 <span>Extras (registrados)</span>
                 <span>{formatMoney(itemsRegisteredTotal)}</span>
@@ -837,6 +971,15 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
                       <span className="text-[#347048]/60">Final estimado</span>
                       <span>{formatMoney(Number(confirmationQuote.finalPrice || 0))}</span>
                     </div>
+                    {bookingNightSurcharge.applied ? (
+                      <div className="flex items-center justify-between text-amber-700">
+                        <span>Recargo nocturno</span>
+                        <span>
+                          +{formatMoney(bookingNightSurcharge.amount)}
+                          {bookingNightSurcharge.fromHour ? ` (desde ${bookingNightSurcharge.fromHour})` : ''}
+                        </span>
+                      </div>
+                    ) : null}
                     {itemsRegisteredTotal > 0.009 ? (
                       <>
                         <div className="mt-2 border-t border-[#347048]/10 pt-2 flex items-center justify-between">

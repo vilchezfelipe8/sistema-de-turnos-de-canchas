@@ -59,6 +59,21 @@ const toMinutes = (timeValue?: string | null) => {
   return hh * 60 + mm;
 };
 
+const resolveNightSurcharge = (startDate: Date, courtLike: any) => {
+  const settings = courtLike?.club?.settings;
+  const lightsEnabled = Boolean(settings?.lightsEnabled);
+  const lightsExtraAmount = Number(settings?.lightsExtraAmount || 0);
+  const lightsFromHour = String(settings?.lightsFromHour || '').trim();
+  if (!lightsEnabled || !Number.isFinite(lightsExtraAmount) || lightsExtraAmount <= 0 || !lightsFromHour) {
+    return { applied: false, amount: 0, fromHour: null as string | null };
+  }
+  const threshold = toMinutes(lightsFromHour);
+  if (threshold == null) return { applied: false, amount: 0, fromHour: null as string | null };
+  const startMinutes = startDate.getHours() * 60 + startDate.getMinutes();
+  if (startMinutes < threshold) return { applied: false, amount: 0, fromHour: lightsFromHour };
+  return { applied: true, amount: lightsExtraAmount, fromHour: lightsFromHour };
+};
+
 
 // --- COMPONENTE DROPDOWN CUSTOM (ESTILO WIMBLEDON LANDING) ---
 const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
@@ -741,6 +756,13 @@ export default function AdminTabBookings() {
     start: Date;
     durationMinutes: number;
     price: number;
+    listPrice?: number;
+    discountAmount?: number;
+    nightSurcharge?: {
+      applied: boolean;
+      amount: number;
+      fromHour?: string | null;
+    };
   }) => {
     const end = new Date(params.start.getTime() + params.durationMinutes * 60000);
     return (
@@ -775,6 +797,24 @@ export default function AdminTabBookings() {
             <span className="font-bold text-[#926699] uppercase text-xs">Precio:</span>
             <span className="text-[#347048] font-black text-lg">{formatMoney(params.price)}</span>
           </div>
+          {Number(params.discountAmount || 0) > 0.009 ? (
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-[#926699] uppercase text-xs">Descuento:</span>
+              <span className="text-[#347048] font-black">
+                -{formatMoney(params.discountAmount || 0)}
+                {Number(params.listPrice || 0) > 0.009 ? ` (lista ${formatMoney(params.listPrice || 0)})` : ''}
+              </span>
+            </div>
+          ) : null}
+          {params.nightSurcharge?.applied ? (
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-[#926699] uppercase text-xs">Recargo nocturno:</span>
+              <span className="text-[#347048] font-black">
+                +{formatMoney(params.nightSurcharge.amount)}
+                {params.nightSurcharge.fromHour ? ` (desde ${params.nightSurcharge.fromHour})` : ''}
+              </span>
+            </div>
+          ) : null}
         </div>
       </div>
     );
@@ -1111,7 +1151,10 @@ export default function AdminTabBookings() {
                 guestName,
                 start: dateBase,
                 durationMinutes: Number(manualBooking.durationMinutes || DEFAULT_DURATION_MINUTES),
-                price: Number((createdBooking as any)?.price || 0)
+                price: Number((createdBooking as any)?.price || 0),
+                listPrice: Number((createdBooking as any)?.listPrice || (createdBooking as any)?.price || 0),
+                discountAmount: Math.max(0, Number(Number((createdBooking as any)?.listPrice || (createdBooking as any)?.price || 0) - Number((createdBooking as any)?.price || 0)).toFixed(2)),
+                nightSurcharge: resolveNightSurcharge(dateBase, selectedManualCourt)
               }),
               'Reserva simple creada'
             );

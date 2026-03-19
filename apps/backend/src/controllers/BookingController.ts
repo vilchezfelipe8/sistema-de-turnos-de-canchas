@@ -135,7 +135,7 @@ export class BookingController {
                 durationMinutes,
                 isAdmin,
                 {
-                    applyDiscount,
+                    applyDiscount: isAdmin ? applyDiscount : false,
                     actorUserId: Number(user?.userId || 0) || null
                 }
             );
@@ -230,8 +230,12 @@ export class BookingController {
             }
 
             const tokenUserId = Number((req as any).user?.userId || 0);
+            const userRole = (req as any)?.user?.role;
+            const membershipRole = String((req as any).membershipRole || '');
+            const isAdmin = userRole === 'ADMIN' || membershipRole === 'OWNER' || membershipRole === 'ADMIN';
             const quote = await this.bookingService.quoteBookingPrice({
                 userId: tokenUserId > 0 ? tokenUserId : null,
+                allowAdminBenefits: isAdmin,
                 courtId: Number(courtId),
                 activityId: Number(activityId),
                 startDateTime: resolvedStart,
@@ -239,7 +243,7 @@ export class BookingController {
                 guestEmail,
                 guestPhone,
                 guestDni,
-                applyDiscount
+                applyDiscount: isAdmin ? applyDiscount : false
             });
 
             return res.json(quote);
@@ -481,7 +485,7 @@ export class BookingController {
                 return res.status(400).json({ error: parsed.error.format() });
             }
 
-            const { date, activityId, clubSlug, durationMinutes, guestEmail, guestPhone, guestDni } = parsed.data;
+            const { date, activityId, clubSlug, durationMinutes } = parsed.data;
 
             // Blindaje matemático para que la fecha no se atrase un día por el UTC
             const [year, month, day] = String(date).split('-').map(Number);
@@ -497,13 +501,7 @@ export class BookingController {
                 searchDate,
                 Number(activityId),
                 clubId,
-                durationMinutes,
-                {
-                    userId: Number((req as any)?.user?.userId || 0) || null,
-                    guestEmail,
-                    guestPhone,
-                    guestDni
-                }
+                durationMinutes
             );
 
             res.json({

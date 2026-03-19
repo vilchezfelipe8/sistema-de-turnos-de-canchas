@@ -51,6 +51,7 @@ type CreateBookingOptions = {
 
 type BookingPriceQuoteInput = {
     userId?: number | null;
+    allowAdminBenefits?: boolean;
     courtId: number;
     activityId: number;
     startDateTime: Date;
@@ -199,7 +200,7 @@ export class BookingService {
         const normalizedLightsFromHour =
             typeof lightsFromHourRaw === 'string'
                 ? lightsFromHourRaw
-                : Number.isFinite(Number(lightsFromHourRaw))
+                : (lightsFromHourRaw !== null && lightsFromHourRaw !== undefined && Number.isFinite(Number(lightsFromHourRaw)))
                     ? this.fromMinutes(Number(lightsFromHourRaw))
                     : null;
 
@@ -616,13 +617,16 @@ export class BookingService {
             throw new Error('La actividad está cerrada para la fecha solicitada');
         }
         const activitySchedule = resolvedSchedule.schedule;
-        const isProfessorClient = await this.resolveClientProfessorStatus({
-            clubId: (court as any).club.id,
-            userId: input.userId ?? null,
-            guestEmail: input.guestEmail,
-            guestPhone: input.guestPhone,
-            guestDni: input.guestDni
-        });
+        const canUseAdminBenefits = Boolean(input.allowAdminBenefits);
+        const isProfessorClient = canUseAdminBenefits
+            ? await this.resolveClientProfessorStatus({
+                clubId: (court as any).club.id,
+                userId: input.userId ?? null,
+                guestEmail: input.guestEmail,
+                guestPhone: input.guestPhone,
+                guestDni: input.guestDni
+            })
+            : false;
         const professorOverrideMinutes = Number(clubConfig?.professorDurationOverrideMinutes ?? 60);
         const canProfessorDurationOverride =
             Boolean(isProfessorClient) &&
@@ -673,7 +677,7 @@ export class BookingService {
                 guestDni: input.guestDni
             });
 
-            const discountDraft = input.applyDiscount === false
+            const discountDraft = (!canUseAdminBenefits || input.applyDiscount === false)
                 ? { total: Number(listPrice.toFixed(2)), snapshots: [] as Array<{ policyId: string; discountAmount: number }> }
                 : await this.discountService.computeDraftDiscountTx(tx, {
                     clubId: (court as any).club.id,
@@ -1273,6 +1277,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         const activitySchedule = resolvedSchedule.schedule;
         const professorOverrideMinutes = Number(clubConfig?.professorDurationOverrideMinutes ?? 60);
         const canProfessorDurationOverride =
+            createdByAdmin &&
             Boolean(isProfessorClient) &&
             Boolean(clubConfig?.professorDurationOverrideEnabled) &&
             Number.isFinite(professorOverrideMinutes) &&
@@ -2403,6 +2408,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             professorOverrideMinutes > 0;
         const allowedDurations = activitySchedule.durations;
         const effectiveDuration = durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
+        const referenceDuration = this.resolvePriceReferenceDuration(activity, allowedDurations, effectiveDuration);
         if (!allowedDurations.includes(effectiveDuration)) {
             if (!(canProfessorDurationOverride && effectiveDuration === professorOverrideMinutes)) {
                 throw new Error("Duración no permitida por el club");
@@ -2480,7 +2486,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             const slotEndDateTime = new Date(slotDateTime.getTime() + effectiveDuration * 60000);
 
             // 1. Mapeamos TODAS las canchas calculando su disponibilidad real por milisegundos
-            const courtsWithStatus = activityCourts.map(court => {
+            const courtsWithStatus = await Promise.all(activityCourts.map(async (court) => {
                 const isBusy = bookings.some(b => {
                     if (b.court.id !== court.id || b.status === "CANCELLED") return false;
                     
@@ -2493,13 +2499,50 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     return sStart < bEnd && sEnd > bStart;
                 });
 
+                let calculatedPrice = Number((court as any).price ?? 0);
+                let calculatedBase = Number((court as any).price ?? 0);
+                let lightsExtraApplied = 0;
+
+                try {
+                    const basePrice = await this.pricingService.calculateCourtPrice(court.id, slotDateTime);
+                    if (Number.isFinite(Number(basePrice)) && Number(basePrice) > 0) {
+                        calculatedBase = this.calculateDurationAdjustedPrice(
+                            Number(basePrice),
+                            effectiveDuration,
+                            referenceDuration
+                        );
+                        calculatedPrice = calculatedBase;
+                        if (
+                            normalizedClubConfig &&
+                            normalizedClubConfig.lightsEnabled &&
+                            normalizedClubConfig.lightsExtraAmount &&
+                            normalizedClubConfig.lightsFromHour
+                        ) {
+                            const [lh, lm] = String(normalizedClubConfig.lightsFromHour).split(':').map((n: string) => parseInt(n, 10));
+                            if (!Number.isNaN(lh) && !Number.isNaN(lm)) {
+                                const localStart = TimeHelper.utcToLocal(slotDateTime, timeZone);
+                                const bookingTotalMinutes = localStart.getHours() * 60 + localStart.getMinutes();
+                                const lightsTotalMinutes = lh * 60 + lm;
+                                if (bookingTotalMinutes >= lightsTotalMinutes) {
+                                    lightsExtraApplied = Number(normalizedClubConfig.lightsExtraAmount || 0);
+                                    calculatedPrice += lightsExtraApplied;
+                                }
+                            }
+                        }
+                    }
+                } catch {
+                    // fallback al precio de cancha configurado
+                }
+
                 return {
                     id: court.id,
                     name: court.name,
-                    price: (court as any).price ?? null,
+                    price: Number.isFinite(Number(calculatedPrice)) ? Number(Number(calculatedPrice).toFixed(2)) : null,
+                    basePrice: Number.isFinite(Number(calculatedBase)) ? Number(Number(calculatedBase).toFixed(2)) : null,
+                    lightsExtraApplied: Number.isFinite(Number(lightsExtraApplied)) ? Number(Number(lightsExtraApplied).toFixed(2)) : 0,
                     isAvailable: !isBusy
                 };
-            });
+            }));
 
             // 2. Filtramos para la lista de "disponibles" solo las que NO están ocupadas
             const availableOnly = courtsWithStatus
