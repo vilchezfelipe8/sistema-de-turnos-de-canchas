@@ -77,6 +77,32 @@ export type AuditLogEntry = {
   user?: AuditLogUser | null;
 };
 
+export type ClubReviewAdminStatus = 'PUBLISHED' | 'HIDDEN' | 'REPORTED';
+
+export type ClubReviewAdminItem = {
+  id: string;
+  bookingId: number;
+  rating: number;
+  comment?: string | null;
+  status: ClubReviewAdminStatus;
+  createdAt: string;
+  updatedAt: string;
+  user: {
+    id: number;
+    name: string;
+  };
+  booking?: {
+    id: number;
+    startDateTime?: string | null;
+    endDateTime?: string | null;
+  } | null;
+};
+
+export type ClubReviewAdminPage = {
+  items: ClubReviewAdminItem[];
+  nextCursor?: string | null;
+};
+
 export class ClubAdminService {
   /**
    * Obtener la agenda del administrador para un club específico
@@ -751,6 +777,38 @@ export class ClubAdminService {
     if (!res.ok) {
       const error = await res.json();
       throw new Error(error.error || 'Error al actualizar asignación');
+    }
+    return res.json();
+  }
+
+  static async listClubReviews(slug: string, params?: { take?: number; cursor?: string; status?: ClubReviewAdminStatus }): Promise<ClubReviewAdminPage> {
+    if (!getToken()) throw new Error('No autenticado');
+    const query = new URLSearchParams();
+    if (params?.take != null) query.set('take', String(params.take));
+    if (params?.cursor) query.set('cursor', params.cursor);
+    if (params?.status) query.set('status', params.status);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/reviews${suffix}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'Error al listar reseñas');
+    }
+    return res.json();
+  }
+
+  static async setClubReviewStatus(slug: string, reviewId: string, status: ClubReviewAdminStatus): Promise<ClubReviewAdminItem> {
+    if (!getToken()) throw new Error('No autenticado');
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/reviews/${reviewId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'Error al actualizar estado de reseña');
     }
     return res.json();
   }

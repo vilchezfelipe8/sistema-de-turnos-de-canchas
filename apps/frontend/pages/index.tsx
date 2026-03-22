@@ -1329,7 +1329,7 @@ export default function Home() {
       
       {/* SIDEBAR DE CONTACTO (OFF-CANVAS) */}
       <div 
-  className={`fixed inset-0 bg-black/50 z-[60] transition-opacity duration-300 ${showContact ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+  className={`fixed inset-0 bg-black/60 z-[60] transition-opacity duration-300 ${showContact ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onClick={() => setShowContact(false)}
       />
 

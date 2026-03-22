@@ -177,7 +177,7 @@ export default function AccountManagerModal({
 
   const modalContent = (
     <div
-      className="fixed inset-0 z-[100000] bg-black/55 flex items-center justify-center p-4"
+      className="fixed inset-0 z-[100000] bg-black/60 flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div

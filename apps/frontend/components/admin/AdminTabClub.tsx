@@ -1,12 +1,13 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { ClubService, Club, type BookingConfirmationMode } from '../../services/ClubService';
 import { getCourts } from '../../services/CourtService';
-import { ClubAdminService, ClubActivityType, type DiscountApplyMode, type DiscountAmountType, type DiscountPolicyScope, type AuditLogEntry } from '../../services/ClubAdminService';
+import { ClubAdminService, ClubActivityType, type ActivityScheduleException, type DiscountApplyMode, type DiscountAmountType, type DiscountPolicyScope, type AuditLogEntry, type ClubReviewAdminItem, type ClubReviewAdminStatus } from '../../services/ClubAdminService';
 import { searchClients } from '../../services/BookingService';
 import AppModal from '../AppModal';
 import DatePickerDark from '../ui/DatePickerDark';
-import { Settings, Globe, Instagram, Facebook, MapPin, Phone, Mail, Lightbulb, Image as ImageIcon, Trash2, Save, AlertTriangle, Check } from 'lucide-react';
+import { Settings, Globe, Instagram, Facebook, MapPin, Phone, Mail, Lightbulb, Image as ImageIcon, Trash2, Save, AlertTriangle, Check, X } from 'lucide-react';
 import { normalizeSessionUser } from '../../utils/session';
 import { useRouter } from 'next/router';
 
@@ -126,6 +127,22 @@ type ConfigHistoryEntry = {
   changes: ConfigChange[];
 };
 
+type PendingScheduleExceptionMutation = {
+  activityId: number;
+  localDate: string;
+  action: 'UPSERT' | 'DELETE';
+  payload?: {
+    isClosed: boolean;
+    scheduleMode?: 'FIXED' | 'RANGE' | null;
+    scheduleOpenTime?: string | null;
+    scheduleCloseTime?: string | null;
+    scheduleIntervalMinutes?: number | null;
+    scheduleWindows?: Array<{ start: string; end: string }> | null;
+    scheduleDurations?: number[] | null;
+    scheduleFixedSlots?: Array<{ start: string; duration: number }> | null;
+  };
+};
+
 const formatDiscountScopeLabel = (scope: DiscountPolicyScope) => {
   if (scope === 'BOOKING') return 'Reserva';
   if (scope === 'PRODUCT') return 'Producto';
@@ -238,6 +255,11 @@ const formatLocalDate = (date: Date): string => {
 };
 
 const getTodayDateKey = () => formatLocalDate(new Date());
+const addDays = (date: Date, days: number) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+};
 
 const buildScheduleFormFromActivities = (activities: ClubActivityType[]): Record<number, ActivityScheduleFormValue> => {
   return activities.reduce((acc, activity) => {
@@ -411,9 +433,21 @@ export default function AdminTabClub() {
   const [activityExceptionForm, setActivityExceptionForm] = useState<Record<number, ActivityScheduleExceptionFormValue>>({});
   const [activityExceptionBusy, setActivityExceptionBusy] = useState<Record<number, boolean>>({});
   const [activityExceptionExists, setActivityExceptionExists] = useState<Record<number, boolean>>({});
+  const [activityExceptionSummary, setActivityExceptionSummary] = useState<Record<number, { count: number; nextDate: string | null }>>({});
+  const [pendingScheduleExceptionMutations, setPendingScheduleExceptionMutations] = useState<PendingScheduleExceptionMutation[]>([]);
+  const [exceptionModalActivityId, setExceptionModalActivityId] = useState<number | null>(null);
+  const [exceptionModalItems, setExceptionModalItems] = useState<ActivityScheduleException[]>([]);
+  const [exceptionModalLoading, setExceptionModalLoading] = useState(false);
+  const [exceptionModalSelectedDate, setExceptionModalSelectedDate] = useState<string>('');
+  const [exceptionModalNewDate, setExceptionModalNewDate] = useState<string>('');
+  const [exceptionModalDraft, setExceptionModalDraft] = useState<ActivityScheduleExceptionFormValue | null>(null);
   const [changeHistory, setChangeHistory] = useState<ConfigHistoryEntry[]>([]);
   const [discountPolicies, setDiscountPolicies] = useState<DiscountPolicyView[]>([]);
   const [loadingDiscountPolicies, setLoadingDiscountPolicies] = useState(false);
+  const [clubReviews, setClubReviews] = useState<ClubReviewAdminItem[]>([]);
+  const [loadingClubReviews, setLoadingClubReviews] = useState(false);
+  const [reviewStatusFilter, setReviewStatusFilter] = useState<'ALL' | ClubReviewAdminStatus>('ALL');
+  const [reviewStatusUpdatingId, setReviewStatusUpdatingId] = useState<string | null>(null);
   const [discountPolicyForm, setDiscountPolicyForm] = useState({
     name: '',
     scope: 'BOOKING' as DiscountPolicyScope,
@@ -442,8 +476,10 @@ export default function AdminTabClub() {
   const [loadingClientAssignments, setLoadingClientAssignments] = useState(false);
   const [selectedPolicyIdForAssignment, setSelectedPolicyIdForAssignment] = useState('');
   const [assignmentNotes, setAssignmentNotes] = useState('');
+  const [showDiscountsConfigModal, setShowDiscountsConfigModal] = useState(false);
   const clientSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clientSearchWrapperRef = useRef<HTMLDivElement | null>(null);
+  const exceptionBackdropMouseDownRef = useRef(false);
 
   const closeModal = () => setModalState((prev) => ({ ...prev, show: false, onConfirm: undefined, onCancel: undefined, holdToConfirm: false, holdDuration: undefined }));
   const showInfo = (message: ReactNode, title = 'Información') => setModalState({ show: true, title, message, cancelText: '', confirmText: 'OK' });
@@ -502,6 +538,25 @@ export default function AdminTabClub() {
     }
   }, []);
 
+  const loadClubReviews = useCallback(async (
+    clubSlug: string,
+    statusFilter: 'ALL' | ClubReviewAdminStatus = 'ALL'
+  ) => {
+    try {
+      setLoadingClubReviews(true);
+      const page = await ClubAdminService.listClubReviews(clubSlug, {
+        take: 50,
+        status: statusFilter === 'ALL' ? undefined : statusFilter
+      });
+      setClubReviews(Array.isArray(page?.items) ? page.items : []);
+    } catch (error: any) {
+      showError(`Error al cargar reseñas: ${error.message}`);
+      setClubReviews([]);
+    } finally {
+      setLoadingClubReviews(false);
+    }
+  }, []);
+
   const loadClientAssignments = useCallback(async (clubSlug: string, clientId: string) => {
     try {
       setLoadingClientAssignments(true);
@@ -512,6 +567,92 @@ export default function AdminTabClub() {
     } finally {
       setLoadingClientAssignments(false);
     }
+  }, []);
+
+  const openExceptionModalForActivity = useCallback(async (activity: ClubActivityType) => {
+    if (!club) return;
+    try {
+      setExceptionModalActivityId(activity.id);
+      setExceptionModalLoading(true);
+      const fromDate = formatLocalDate(addDays(new Date(), -180));
+      const toDate = formatLocalDate(addDays(new Date(), 730));
+      const rows = await ClubAdminService.listActivityTypeScheduleExceptions(club.slug, activity.id, { fromDate, toDate });
+      const normalizedRows = Array.isArray(rows) ? rows : [];
+      setExceptionModalItems(normalizedRows);
+      setExceptionModalSelectedDate(normalizedRows[0]?.localDate || '');
+      setExceptionModalNewDate(getTodayDateKey());
+    } catch (error: any) {
+      showError(`No se pudo cargar excepciones: ${error.message}`);
+      setExceptionModalItems([]);
+      setExceptionModalSelectedDate('');
+    } finally {
+      setExceptionModalLoading(false);
+    }
+  }, [club]);
+
+  const closeExceptionModal = useCallback(() => {
+    setExceptionModalActivityId(null);
+    setExceptionModalItems([]);
+    setExceptionModalSelectedDate('');
+    setExceptionModalNewDate('');
+    setExceptionModalDraft(null);
+    setExceptionModalLoading(false);
+  }, []);
+
+  const closeDiscountsConfigModal = useCallback(() => {
+    setShowDiscountsConfigModal(false);
+  }, []);
+
+  useEffect(() => {
+    if (!exceptionModalActivityId && !showDiscountsConfigModal) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        if (showDiscountsConfigModal) {
+          closeDiscountsConfigModal();
+        }
+        if (exceptionModalActivityId) {
+          closeExceptionModal();
+        }
+      }
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [exceptionModalActivityId, showDiscountsConfigModal, closeExceptionModal, closeDiscountsConfigModal]);
+
+  const loadActivityExceptionSummary = useCallback(async (clubSlug: string, activities: ClubActivityType[]) => {
+    try {
+      if (!Array.isArray(activities) || activities.length === 0) {
+        setActivityExceptionSummary({});
+        return;
+      }
+      const fromDate = getTodayDateKey();
+      const toDate = formatLocalDate(addDays(new Date(), 365));
+      const entries = await Promise.all(
+        activities.map(async (activity) => {
+          const rows = await ClubAdminService.listActivityTypeScheduleExceptions(clubSlug, activity.id, { fromDate, toDate });
+          const normalizedRows = Array.isArray(rows) ? rows : [];
+          const nextDate = normalizedRows.length > 0
+            ? String(normalizedRows[0]?.localDate || '').trim() || null
+            : null;
+          return [activity.id, { count: normalizedRows.length, nextDate }] as const;
+        })
+      );
+      setActivityExceptionSummary(Object.fromEntries(entries));
+    } catch {
+      setActivityExceptionSummary({});
+    }
+  }, []);
+
+  const upsertPendingScheduleExceptionMutation = useCallback((mutation: PendingScheduleExceptionMutation) => {
+    setPendingScheduleExceptionMutations((prev) => {
+      const filtered = prev.filter((item) => !(item.activityId === mutation.activityId && item.localDate === mutation.localDate));
+      return [...filtered, mutation];
+    });
   }, []);
 
   const loadClub = useCallback(async () => {
@@ -579,7 +720,10 @@ export default function AdminTabClub() {
         setActivityExceptionForm(buildScheduleExceptionFormFromSchedule(nextActivityScheduleForm));
         setActivityExceptionBusy({});
         setActivityExceptionExists({});
+        setActivityExceptionSummary({});
+        setPendingScheduleExceptionMutations([]);
         await loadDiscountPolicies(clubData.slug);
+        setClubReviews([]);
         setClientSearch('');
         setClientSearchResults([]);
         setSelectedDiscountClient(null);
@@ -598,6 +742,7 @@ export default function AdminTabClub() {
           closureDatesSet: nextClosureDates,
           activityScheduleForm: nextActivityScheduleForm
         });
+        await loadActivityExceptionSummary(clubData.slug, nextActivityTypes);
         await loadPersistentConfigHistory(clubData.id);
       }
     } catch (error: any) {
@@ -605,9 +750,14 @@ export default function AdminTabClub() {
     } finally {
       setLoadingClub(false);
     }
-  }, [loadDiscountPolicies, loadPersistentConfigHistory]);
+  }, [loadActivityExceptionSummary, loadDiscountPolicies, loadPersistentConfigHistory]);
 
   useEffect(() => { loadClub(); }, [loadClub]);
+
+  useEffect(() => {
+    if (!club?.slug) return;
+    void loadClubReviews(club.slug, reviewStatusFilter);
+  }, [club?.slug, loadClubReviews, reviewStatusFilter]);
 
   const buildConfigChanges = (): ConfigChange[] => {
     const base = initialConfigRef.current;
@@ -690,6 +840,15 @@ export default function AdminTabClub() {
       });
     }
 
+    if (pendingScheduleExceptionMutations.length > 0) {
+      changes.push({
+        label: 'Excepciones de agenda',
+        before: 'Sin cambios pendientes',
+        after: `${pendingScheduleExceptionMutations.length} cambio(s) pendiente(s)`,
+        critical: true
+      });
+    }
+
     return changes;
   };
 
@@ -704,7 +863,9 @@ export default function AdminTabClub() {
     setOpeningDaysSet(clone.openingDaysSet);
     setClosureDatesSet(clone.closureDatesSet);
     setClosureDateInput('');
-    setActivityScheduleForm(clone.activityScheduleForm);
+      setActivityScheduleForm(clone.activityScheduleForm);
+    setActivityExceptionSummary({});
+    setPendingScheduleExceptionMutations([]);
     setLogoPreview(clone.clubForm.logoUrl || null);
     setClubImagePreview(clone.clubForm.clubImageUrl || null);
     setLogoError(null);
@@ -894,29 +1055,32 @@ export default function AdminTabClub() {
     void handleLoadScheduleException(activity, { silent: true, forceLocalDate: localDate });
   };
 
-  const handleSaveScheduleException = async (activity: ClubActivityType) => {
-    if (!club) return;
-    const form = activityExceptionForm[activity.id];
-    if (!form) return;
+  const queueScheduleExceptionDraft = async (activity: ClubActivityType, form: ActivityScheduleExceptionFormValue) => {
     const localDate = String(form.localDate || '').trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(localDate)) {
-      showError('La fecha de excepción debe tener formato YYYY-MM-DD.');
+      throw new Error('La fecha de excepción debe tener formato YYYY-MM-DD.');
+    }
+
+    if (form.isClosed) {
+      upsertPendingScheduleExceptionMutation({
+        activityId: activity.id,
+        localDate,
+        action: 'UPSERT',
+        payload: { isClosed: true }
+      });
+      setActivityExceptionExists((prev) => ({ ...prev, [activity.id]: true }));
       return;
     }
 
-    try {
-      setActivityExceptionBusy((prev) => ({ ...prev, [activity.id]: true }));
-      if (form.isClosed) {
-        await ClubAdminService.upsertActivityTypeScheduleException(club.slug, activity.id, localDate, { isClosed: true });
-        showInfo('Se guardó el cierre total de la actividad para ese día.', 'Excepción guardada');
-        return;
-      }
+    const durations = parseDurationsInput(form.scheduleDurations, activity.defaultDurationMinutes);
+    const fixedSlots = form.scheduleMode === 'FIXED' ? parseFixedSlotsInput(form.scheduleFixedSlots) : [];
+    const scheduleWindows = form.scheduleMode === 'RANGE' ? parseRangeWindowsInput(form.scheduleWindows) : [];
 
-      const durations = parseDurationsInput(form.scheduleDurations, activity.defaultDurationMinutes);
-      const fixedSlots = form.scheduleMode === 'FIXED' ? parseFixedSlotsInput(form.scheduleFixedSlots) : [];
-      const scheduleWindows = form.scheduleMode === 'RANGE' ? parseRangeWindowsInput(form.scheduleWindows) : [];
-
-      await ClubAdminService.upsertActivityTypeScheduleException(club.slug, activity.id, localDate, {
+    upsertPendingScheduleExceptionMutation({
+      activityId: activity.id,
+      localDate,
+      action: 'UPSERT',
+      payload: {
         isClosed: false,
         scheduleMode: form.scheduleMode,
         scheduleOpenTime: form.scheduleMode === 'RANGE' ? form.scheduleOpenTime : null,
@@ -925,9 +1089,32 @@ export default function AdminTabClub() {
         scheduleWindows: form.scheduleMode === 'RANGE' ? scheduleWindows : null,
         scheduleDurations: durations,
         scheduleFixedSlots: fixedSlots
-      });
-      setActivityExceptionExists((prev) => ({ ...prev, [activity.id]: true }));
-      showInfo('Excepción de agenda guardada correctamente.', 'Excepción guardada');
+      }
+    });
+    setActivityExceptionExists((prev) => ({ ...prev, [activity.id]: true }));
+  };
+
+  const queueScheduleExceptionDelete = async (activity: ClubActivityType, localDateRaw: string) => {
+    const localDate = String(localDateRaw || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(localDate)) {
+      throw new Error('Seleccioná una fecha válida para eliminar la excepción.');
+    }
+    upsertPendingScheduleExceptionMutation({
+      activityId: activity.id,
+      localDate,
+      action: 'DELETE'
+    });
+    setActivityExceptionExists((prev) => ({ ...prev, [activity.id]: false }));
+  };
+
+  const handleSaveScheduleException = async (activity: ClubActivityType) => {
+    const form = activityExceptionForm[activity.id];
+    if (!form) return;
+
+    try {
+      setActivityExceptionBusy((prev) => ({ ...prev, [activity.id]: true }));
+      await queueScheduleExceptionDraft(activity, form);
+      showInfo('Excepción preparada. Se aplicará cuando guardes los cambios generales.', 'Pendiente de guardar');
     } catch (error: any) {
       showError(`No se pudo guardar la excepción: ${error.message}`);
     } finally {
@@ -936,19 +1123,13 @@ export default function AdminTabClub() {
   };
 
   const handleDeleteScheduleException = async (activity: ClubActivityType) => {
-    if (!club) return;
     const form = activityExceptionForm[activity.id];
     if (!form) return;
     const localDate = String(form.localDate || '').trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(localDate)) {
-      showError('Seleccioná una fecha válida para eliminar la excepción.');
-      return;
-    }
 
     try {
       setActivityExceptionBusy((prev) => ({ ...prev, [activity.id]: true }));
-      await ClubAdminService.deleteActivityTypeScheduleException(club.slug, activity.id, localDate);
-      setActivityExceptionExists((prev) => ({ ...prev, [activity.id]: false }));
+      await queueScheduleExceptionDelete(activity, localDate);
       const base = activityScheduleForm[activity.id];
       if (base) {
         setActivityExceptionForm((prev) => ({
@@ -966,7 +1147,7 @@ export default function AdminTabClub() {
           }
         }));
       }
-      showInfo('Excepción eliminada para la fecha seleccionada.', 'Excepción eliminada');
+      showInfo('Eliminación preparada. Se aplicará cuando guardes los cambios generales.', 'Pendiente de guardar');
     } catch (error: any) {
       showError(`No se pudo eliminar la excepción: ${error.message}`);
     } finally {
@@ -1174,7 +1355,25 @@ export default function AdminTabClub() {
         });
       }
 
+      for (const mutation of pendingScheduleExceptionMutations) {
+        if (mutation.action === 'DELETE') {
+          await ClubAdminService.deleteActivityTypeScheduleException(updatedClub.slug, mutation.activityId, mutation.localDate);
+          continue;
+        }
+        if (!mutation.payload) {
+          throw new Error(`Excepción inválida para actividad ${mutation.activityId} (${mutation.localDate})`);
+        }
+        await ClubAdminService.upsertActivityTypeScheduleException(
+          updatedClub.slug,
+          mutation.activityId,
+          mutation.localDate,
+          mutation.payload
+        );
+      }
+
       setClub(updatedClub);
+      setPendingScheduleExceptionMutations([]);
+      await loadActivityExceptionSummary(updatedClub.slug, activityTypes);
       initialConfigRef.current = cloneSnapshot({
         clubForm,
         openingDaysSet,
@@ -1186,6 +1385,121 @@ export default function AdminTabClub() {
     } catch (error: any) {
       showError('Error al actualizar el club: ' + error.message);
     }
+  };
+
+  const handleJumpToNextException = async (activity: ClubActivityType) => {
+    const summary = activityExceptionSummary[activity.id];
+    const nextDate = String(summary?.nextDate || '').trim();
+    if (!nextDate || !/^\d{4}-\d{2}-\d{2}$/.test(nextDate)) return;
+    await handleExceptionDateChange(activity, nextDate);
+    await handleLoadScheduleException(activity, { forceLocalDate: nextDate });
+  };
+
+  const exceptionModalActivity = exceptionModalActivityId
+    ? activityTypes.find((item) => item.id === exceptionModalActivityId) || null
+    : null;
+  const exceptionModalSelected = exceptionModalItems.find((item) => item.localDate === exceptionModalSelectedDate) || null;
+
+  useEffect(() => {
+    if (!exceptionModalSelected) {
+      setExceptionModalDraft(null);
+      return;
+    }
+    const rowWindows = Array.isArray(exceptionModalSelected.scheduleWindows)
+      ? exceptionModalSelected.scheduleWindows.map((window: any) => `${String(window?.start || '').trim()}-${String(window?.end || '').trim()}`).filter((line) => /^\d{2}:\d{2}-\d{2}:\d{2}$/.test(line)).join('\n')
+      : '';
+    const rowFixedSlots = Array.isArray(exceptionModalSelected.scheduleFixedSlots)
+      ? exceptionModalSelected.scheduleFixedSlots.map((slot: any) => `${String(slot?.start || '').trim()}-${Number(slot?.duration || 0)}`).join('\n')
+      : '';
+    const rowDurations = Array.isArray(exceptionModalSelected.scheduleDurations) ? exceptionModalSelected.scheduleDurations.join(', ') : '';
+    setExceptionModalDraft({
+      localDate: exceptionModalSelected.localDate,
+      isClosed: Boolean(exceptionModalSelected.isClosed),
+      scheduleMode: exceptionModalSelected.scheduleMode === 'RANGE' ? 'RANGE' : 'FIXED',
+      scheduleOpenTime: exceptionModalSelected.scheduleOpenTime || '08:00',
+      scheduleCloseTime: exceptionModalSelected.scheduleCloseTime || '22:00',
+      scheduleIntervalMinutes: exceptionModalSelected.scheduleIntervalMinutes != null ? String(exceptionModalSelected.scheduleIntervalMinutes) : '30',
+      scheduleWindows: rowWindows,
+      scheduleDurations: rowDurations || '60',
+      scheduleFixedSlots: rowFixedSlots
+    });
+  }, [exceptionModalSelected]);
+
+  const handleSaveExceptionFromModal = async () => {
+    if (!exceptionModalActivity || !exceptionModalDraft) return;
+    try {
+      await queueScheduleExceptionDraft(exceptionModalActivity, exceptionModalDraft);
+      setExceptionModalItems((prev) => {
+        const nextItem: ActivityScheduleException = {
+          id: 0,
+          activityTypeId: exceptionModalActivity.id,
+          localDate: exceptionModalDraft.localDate,
+          isClosed: exceptionModalDraft.isClosed,
+          scheduleMode: exceptionModalDraft.isClosed ? null : exceptionModalDraft.scheduleMode,
+          scheduleOpenTime: exceptionModalDraft.isClosed ? null : exceptionModalDraft.scheduleOpenTime,
+          scheduleCloseTime: exceptionModalDraft.isClosed ? null : exceptionModalDraft.scheduleCloseTime,
+          scheduleIntervalMinutes: exceptionModalDraft.isClosed ? null : Number(exceptionModalDraft.scheduleIntervalMinutes || 0),
+          scheduleWindows: exceptionModalDraft.isClosed || exceptionModalDraft.scheduleMode !== 'RANGE'
+            ? null
+            : parseRangeWindowsInput(exceptionModalDraft.scheduleWindows),
+          scheduleDurations: exceptionModalDraft.isClosed
+            ? []
+            : parseDurationsInput(exceptionModalDraft.scheduleDurations, exceptionModalActivity.defaultDurationMinutes),
+          scheduleFixedSlots: exceptionModalDraft.isClosed || exceptionModalDraft.scheduleMode !== 'FIXED'
+            ? []
+            : parseFixedSlotsInput(exceptionModalDraft.scheduleFixedSlots),
+          createdAt: '',
+          updatedAt: ''
+        };
+        const filtered = prev.filter((item) => item.localDate !== nextItem.localDate);
+        return [nextItem, ...filtered].sort((a, b) => String(a.localDate).localeCompare(String(b.localDate)));
+      });
+      setActivityExceptionForm((prev) => ({
+        ...prev,
+        [exceptionModalActivity.id]: { ...exceptionModalDraft }
+      }));
+      showInfo('Excepción preparada desde el modal. Se aplicará al guardar cambios generales.', 'Pendiente de guardar');
+    } catch (error: any) {
+      showError(`No se pudo preparar la excepción: ${error.message}`);
+    }
+  };
+
+  const handleDeleteExceptionFromModal = async () => {
+    if (!exceptionModalActivity || !exceptionModalDraft) return;
+    try {
+      await queueScheduleExceptionDelete(exceptionModalActivity, exceptionModalDraft.localDate);
+      setExceptionModalItems((prev) => prev.filter((item) => item.localDate !== exceptionModalDraft.localDate));
+      setExceptionModalSelectedDate('');
+      showInfo('Eliminación preparada desde el modal. Se aplicará al guardar cambios generales.', 'Pendiente de guardar');
+    } catch (error: any) {
+      showError(`No se pudo preparar la eliminación: ${error.message}`);
+    }
+  };
+
+  const handleCreateExceptionInModal = () => {
+    if (!exceptionModalActivity) return;
+    const localDate = String(exceptionModalNewDate || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(localDate)) {
+      showError('La fecha nueva debe tener formato YYYY-MM-DD.');
+      return;
+    }
+    const base = activityScheduleForm[exceptionModalActivity.id];
+    if (!base) {
+      showError('No se encontró configuración base para la actividad.');
+      return;
+    }
+    setExceptionModalSelectedDate(localDate);
+    setExceptionModalDraft({
+      localDate,
+      isClosed: false,
+      scheduleMode: base.scheduleMode,
+      scheduleOpenTime: base.scheduleOpenTime,
+      scheduleCloseTime: base.scheduleCloseTime,
+      scheduleIntervalMinutes: base.scheduleIntervalMinutes,
+      scheduleWindows: base.scheduleWindows,
+      scheduleDurations: base.scheduleDurations,
+      scheduleFixedSlots: base.scheduleFixedSlots
+    });
   };
 
   const handleCreateDiscountPolicy = async (e?: React.FormEvent | React.MouseEvent) => {
@@ -1320,6 +1634,19 @@ export default function AdminTabClub() {
       await loadClientAssignments(club.slug, selectedDiscountClient.id);
     } catch (error: any) {
       showError(`No se pudo actualizar la asignación: ${error.message}`);
+    }
+  };
+
+  const handleUpdateReviewStatus = async (reviewId: string, status: ClubReviewAdminStatus) => {
+    if (!club) return;
+    try {
+      setReviewStatusUpdatingId(reviewId);
+      await ClubAdminService.setClubReviewStatus(club.slug, reviewId, status);
+      await loadClubReviews(club.slug, reviewStatusFilter);
+    } catch (error: any) {
+      showError(`No se pudo actualizar la reseña: ${error.message}`);
+    } finally {
+      setReviewStatusUpdatingId(null);
     }
   };
 
@@ -2159,7 +2486,6 @@ export default function AdminTabClub() {
                 <div className="space-y-4">
                   {activityTypes.map((activity) => {
                     const cfg = activityScheduleForm[activity.id];
-                    const exceptionCfg = activityExceptionForm[activity.id];
                     if (!cfg) return null;
                     return (
                       <div key={activity.id} className="bg-white/40 p-4 rounded-2xl border border-white">
@@ -2274,190 +2600,34 @@ export default function AdminTabClub() {
                           )}
                         </div>
 
-                        {exceptionCfg ? (
-                          <div className="mt-4 rounded-xl border border-[#926699]/25 bg-[#926699]/8 p-4 space-y-3">
-                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                              <div>
-                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]">Excepción por fecha</p>
-                                <p className="text-[11px] font-bold text-[#347048]/65 mt-1">
-                                  {activityExceptionExists[activity.id]
-                                    ? 'Estado: hay una excepción guardada para esta fecha.'
-                                    : 'Estado: sin excepción guardada (se muestran valores base).'}
+                        <div className="mt-4 rounded-xl border border-[#926699]/25 bg-[#926699]/8 p-4">
+                          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]">Excepciones de agenda</p>
+                              {Number(activityExceptionSummary[activity.id]?.count || 0) > 0 ? (
+                                <p className="text-[11px] font-black text-[#347048] mt-1">
+                                  Hay {activityExceptionSummary[activity.id].count} excepción(es) futura(s). Próxima: {activityExceptionSummary[activity.id].nextDate}
                                 </p>
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleLoadScheduleException(activity)}
-                                  disabled={Boolean(activityExceptionBusy[activity.id])}
-                                  className="h-9 px-3 rounded-lg bg-white border border-[#347048]/20 text-[#347048] text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-                                >
-                                  Recargar fecha
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleSaveScheduleException(activity)}
-                                  disabled={Boolean(activityExceptionBusy[activity.id])}
-                                  className="h-9 px-3 rounded-lg bg-[#347048] text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-                                >
-                                  Guardar excepción
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteScheduleException(activity)}
-                                  disabled={Boolean(activityExceptionBusy[activity.id]) || !activityExceptionExists[activity.id]}
-                                  className="h-9 px-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-                                >
-                                  Eliminar excepción
-                                </button>
-                              </div>
+                              ) : (
+                                <p className="text-[11px] font-bold text-[#347048]/55 mt-1">
+                                  No hay excepciones futuras cargadas.
+                                </p>
+                              )}
+                              {pendingScheduleExceptionMutations.some((item) => item.activityId === activity.id) ? (
+                                <p className="text-[11px] font-black text-[#926699] mt-1">
+                                  Hay cambios pendientes. Se aplican al guardar cambios generales.
+                                </p>
+                              ) : null}
                             </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                              <div>
-                                <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Fecha local</label>
-                                <div className="relative flex items-center justify-between bg-white rounded-xl px-2 py-2.5 border border-transparent shadow-sm h-[46px]">
-                                  <span className="text-[14px] font-bold text-[#347048] min-w-[120px] text-center whitespace-nowrap pointer-events-none">
-                                    {parseLocalDate(exceptionCfg.localDate)
-                                      ? parseLocalDate(exceptionCfg.localDate)!.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })
-                                      : 'Seleccionar fecha'}
-                                  </span>
-                                  <div className="absolute inset-y-0 left-3 right-3 z-10">
-                                    <DatePickerDark
-                                      selected={parseLocalDate(exceptionCfg.localDate)}
-                                      onChange={(date: Date | null) => {
-                                        void handleExceptionDateChange(activity, date ? formatLocalDate(date) : '');
-                                      }}
-                                      showIcon={false}
-                                      variant="light"
-                                      popperPlacement="bottom"
-                                      inputClassName="w-full h-[46px] opacity-0 cursor-pointer"
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="md:col-span-3 flex items-end">
-                                <label className="flex items-center gap-3 text-[#347048] font-black cursor-pointer group">
-                                  <div className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all ${exceptionCfg.isClosed ? 'bg-[#347048] border-[#347048] text-white shadow-sm' : 'border-[#347048]/25 bg-white text-transparent'}`}>
-                                    {exceptionCfg.isClosed && <Check size={15} strokeWidth={4} />}
-                                  </div>
-                                  <input
-                                    type="checkbox"
-                                    checked={exceptionCfg.isClosed}
-                                    onChange={(e) => setActivityExceptionForm((prev) => ({
-                                      ...prev,
-                                      [activity.id]: { ...prev[activity.id], isClosed: e.target.checked }
-                                    }))}
-                                    className="hidden"
-                                  />
-                                  <span className="text-sm tracking-wide">Cerrar toda la actividad en esa fecha</span>
-                                </label>
-                              </div>
-                            </div>
-
-                            {!exceptionCfg.isClosed ? (
-                              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                                <div>
-                                  <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Modo excepción</label>
-                                  <select
-                                    value={exceptionCfg.scheduleMode}
-                                    onChange={(e) => setActivityExceptionForm((prev) => ({
-                                      ...prev,
-                                      [activity.id]: { ...prev[activity.id], scheduleMode: e.target.value as 'FIXED' | 'RANGE' }
-                                    }))}
-                                    className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
-                                  >
-                                    <option value="FIXED">Turnos fijos</option>
-                                    <option value="RANGE">Rango horario</option>
-                                  </select>
-                                </div>
-                                <div className="md:col-span-3">
-                                  <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Duraciones (min)</label>
-                                  <input
-                                    type="text"
-                                    value={exceptionCfg.scheduleDurations}
-                                    onChange={(e) => setActivityExceptionForm((prev) => ({
-                                      ...prev,
-                                      [activity.id]: { ...prev[activity.id], scheduleDurations: e.target.value }
-                                    }))}
-                                    className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black text-sm"
-                                    placeholder="60, 90"
-                                  />
-                                </div>
-
-                                {exceptionCfg.scheduleMode === 'RANGE' ? (
-                                  <>
-                                    <div>
-                                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Apertura</label>
-                                      <input
-                                        type="time"
-                                        value={exceptionCfg.scheduleOpenTime}
-                                        onChange={(e) => setActivityExceptionForm((prev) => ({
-                                          ...prev,
-                                          [activity.id]: { ...prev[activity.id], scheduleOpenTime: e.target.value }
-                                        }))}
-                                        className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Cierre</label>
-                                      <input
-                                        type="time"
-                                        value={exceptionCfg.scheduleCloseTime}
-                                        onChange={(e) => setActivityExceptionForm((prev) => ({
-                                          ...prev,
-                                          [activity.id]: { ...prev[activity.id], scheduleCloseTime: e.target.value }
-                                        }))}
-                                        className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Intervalo (min)</label>
-                                      <input
-                                        type="number"
-                                        min={1}
-                                        step={1}
-                                        value={exceptionCfg.scheduleIntervalMinutes}
-                                        onChange={(e) => setActivityExceptionForm((prev) => ({
-                                          ...prev,
-                                          [activity.id]: { ...prev[activity.id], scheduleIntervalMinutes: e.target.value }
-                                        }))}
-                                        className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
-                                      />
-                                    </div>
-                                    <div className="md:col-span-3">
-                                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Franjas cortadas (opcional)</label>
-                                      <textarea
-                                        rows={3}
-                                        value={exceptionCfg.scheduleWindows}
-                                        onChange={(e) => setActivityExceptionForm((prev) => ({
-                                          ...prev,
-                                          [activity.id]: { ...prev[activity.id], scheduleWindows: e.target.value }
-                                        }))}
-                                        className="w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 py-3 text-[#347048] font-black text-sm resize-none"
-                                        placeholder={'08:00-12:00\n16:00-23:00'}
-                                      />
-                                    </div>
-                                  </>
-                                ) : (
-                                  <div className="md:col-span-4">
-                                    <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Turnos fijos (uno por línea: HH:mm-60)</label>
-                                    <textarea
-                                      rows={4}
-                                      value={exceptionCfg.scheduleFixedSlots}
-                                      onChange={(e) => setActivityExceptionForm((prev) => ({
-                                        ...prev,
-                                        [activity.id]: { ...prev[activity.id], scheduleFixedSlots: e.target.value }
-                                      }))}
-                                      className="w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 py-3 text-[#347048] font-black text-sm resize-none"
-                                      placeholder={'08:00-60\n09:00-60\n10:30-90'}
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() => void openExceptionModalForActivity(activity)}
+                              className="h-9 px-3 rounded-lg bg-white border border-[#347048]/20 text-[#347048] text-[10px] font-black uppercase tracking-widest"
+                            >
+                              Gestionar en modal
+                            </button>
                           </div>
-                        ) : null}
+                        </div>
                       </div>
                     );
                   })}
@@ -2552,234 +2722,99 @@ export default function AdminTabClub() {
                 <Settings size={18} strokeWidth={3} />
                 <h3 className="text-xs font-black uppercase tracking-[0.2em]">Descuentos por cliente</h3>
               </div>
-
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                <div className="bg-white/40 p-4 rounded-2xl border border-white">
-                  <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-[#347048] mb-3">Nueva política</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="md:col-span-2">
-                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Nombre</label>
-                      <input
-                        type="text"
-                        value={discountPolicyForm.name}
-                        onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, name: e.target.value }))}
-                        className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black text-sm"
-                        placeholder="Ej: Amigo 20% turnos"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Alcance</label>
-                      <select
-                        value={discountPolicyForm.scope}
-                        onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, scope: e.target.value as DiscountPolicyScope }))}
-                        className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
-                      >
-                        <option value="BOOKING">Reserva</option>
-                        <option value="PRODUCT">Producto</option>
-                        <option value="SERVICE">Servicio</option>
-                        <option value="ALL">Todo</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Tipo</label>
-                      <select
-                        value={discountPolicyForm.amountType}
-                        onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, amountType: e.target.value as DiscountAmountType }))}
-                        className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
-                      >
-                        <option value="PERCENT">Porcentaje</option>
-                        <option value="FIXED">Monto fijo</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Valor</label>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={discountPolicyForm.amountValue}
-                        onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, amountValue: e.target.value }))}
-                        className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
-                        placeholder={discountPolicyForm.amountType === 'PERCENT' ? '20' : '1000'}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Prioridad</label>
-                      <input
-                        type="number"
-                        min={0}
-                        step={1}
-                        value={discountPolicyForm.priority}
-                        onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, priority: e.target.value }))}
-                        className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Modo de aplicación</label>
-                      <select
-                        value={discountPolicyForm.applyMode}
-                        onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, applyMode: e.target.value as DiscountApplyMode }))}
-                        className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
-                      >
-                        <option value="INCLUDE_ONLY">Solo incluidos</option>
-                        <option value="EXCLUDE_LIST">Excluir lista</option>
-                      </select>
-                    </div>
-                    <label className="md:col-span-2 flex items-center gap-3 text-[#347048] font-black cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={discountPolicyForm.isStackable}
-                        onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, isStackable: e.target.checked }))}
-                      />
-                      <span className="text-sm uppercase tracking-wide">Acumulable</span>
-                    </label>
-                    <div className="md:col-span-2">
-                      <button
-                        type="button"
-                        onClick={handleCreateDiscountPolicy}
-                        className="w-full h-11 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] rounded-xl font-black text-sm uppercase tracking-widest transition-all"
-                      >
-                        Crear Política
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-4">
-                    <h5 className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50 mb-2">Políticas actuales</h5>
-                    {loadingDiscountPolicies ? (
-                      <p className="text-[11px] font-bold text-[#347048]/60">Cargando...</p>
-                    ) : discountPolicies.length === 0 ? (
-                      <p className="text-[11px] font-bold text-[#347048]/60">Sin políticas cargadas.</p>
-                    ) : (
-                      <div className="space-y-2 max-h-56 overflow-auto pr-1">
-                        {discountPolicies.map((policy) => (
-                          <div key={policy.id} className="bg-white rounded-xl border border-white/70 p-3 text-[#347048]">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="font-black text-sm">{policy.name}</p>
-                              <div className="flex items-center gap-2">
-                                <span className={`text-[10px] font-black px-2 py-1 rounded-lg ${policy.isActive ? 'bg-[#B9CF32]/50' : 'bg-[#926699]/20'}`}>
-                                  {policy.isActive ? 'ACTIVA' : 'INACTIVA'}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleStartEditDiscountPolicy(policy)}
-                                  className="px-2 py-1 rounded-lg bg-[#347048]/10 text-[#347048] text-[10px] font-black uppercase tracking-widest hover:bg-[#347048]/20"
-                                >
-                                  Editar
-                                </button>
-                              </div>
-                            </div>
-                            <p className="text-[11px] font-bold opacity-80 mt-1">
-                              {formatDiscountScopeLabel(policy.scope)} · {formatDiscountAmountTypeLabel(policy.amountType)} {Number(policy.amountValue)} · prioridad {policy.priority} · {policy.isStackable ? 'acumulable' : 'no acumulable'}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="bg-white/40 p-4 rounded-2xl border border-white">
-                  <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-[#347048] mb-3">Asignación a cliente</h4>
-                  <div className="space-y-3">
-                    <div className="relative z-20" ref={clientSearchWrapperRef}>
-                      <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Buscar cliente</label>
-                      <input
-                        type="text"
-                        value={clientSearch}
-                        onChange={handleDiscountClientSearchChange}
-                        className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black text-sm"
-                        placeholder="Nombre, teléfono, DNI, email"
-                      />
-                      {showClientSearchDropdown && clientSearchResults.length > 0 ? (
-                        <div className="absolute z-[120] mt-2 w-full max-h-56 overflow-auto rounded-xl border border-white/70 bg-white shadow-xl">
-                          {clientSearchResults.map((client) => {
-                            const fullName = String(client.name || '').trim() || 'Sin nombre';
-                            return (
-                              <button
-                                type="button"
-                                key={client.id}
-                                onClick={() => handleSelectDiscountClient(client)}
-                                className="w-full text-left px-3 py-2 text-sm font-bold text-[#347048] hover:bg-[#B9CF32]/20 transition-all border-b last:border-b-0 border-white/60"
-                              >
-                                {fullName} {client.dni ? `· DNI ${client.dni}` : ''}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-                    </div>
-                    {showClientSearchDropdown && clientSearch.trim().length >= 2 && clientSearchResults.length === 0 ? (
-                      <p className="text-[11px] font-bold text-[#347048]/60">Sin resultados para esa búsqueda.</p>
-                    ) : null}
-
-                    {selectedDiscountClient ? (
-                      <div className="rounded-xl border border-white/70 bg-white p-3">
-                        <p className="text-sm font-black text-[#347048]">
-                          Cliente seleccionado: {String(selectedDiscountClient.name || '').trim() || selectedDiscountClient.id}
-                        </p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3">
-                          <select
-                            value={selectedPolicyIdForAssignment}
-                            onChange={(e) => setSelectedPolicyIdForAssignment(e.target.value)}
-                            className="h-11 bg-white border-2 border-[#347048]/20 focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
-                          >
-                            <option value="">Seleccionar política...</option>
-                            {discountPolicies.filter((p) => p.isActive).map((policy) => (
-                              <option value={policy.id} key={policy.id}>
-                                {policy.name}
-                              </option>
-                            ))}
-                          </select>
-                          <input
-                            type="text"
-                            value={assignmentNotes}
-                            onChange={(e) => setAssignmentNotes(e.target.value)}
-                            className="h-11 bg-white border-2 border-[#347048]/20 focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
-                            placeholder="Motivo / nota"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleAssignPolicyToClient}
-                          className="w-full mt-2 h-11 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] rounded-xl font-black text-sm uppercase tracking-widest transition-all"
-                        >
-                          Asignar Política
-                        </button>
-
-                        <div className="mt-3">
-                          <h5 className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50 mb-2">Asignaciones del cliente</h5>
-                          {loadingClientAssignments ? (
-                            <p className="text-[11px] font-bold text-[#347048]/60">Cargando...</p>
-                          ) : clientAssignments.length === 0 ? (
-                            <p className="text-[11px] font-bold text-[#347048]/60">Sin asignaciones.</p>
-                          ) : (
-                            <div className="space-y-2 max-h-44 overflow-auto pr-1">
-                              {clientAssignments.map((assignment: any) => (
-                                <div key={assignment.id} className="bg-[#EBE1D8] rounded-xl p-2 border border-white">
-                                  <p className="text-sm font-black text-[#347048]">{assignment.policy?.name || assignment.policyId}</p>
-                                  <p className="text-[11px] font-bold text-[#347048]/70">{assignment.notes || 'Sin nota'}</p>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleToggleAssignment(assignment.id, !assignment.isActive)}
-                                    className={`mt-1 px-2 py-1 rounded-lg text-[10px] font-black ${assignment.isActive ? 'bg-[#926699]/20 text-[#347048]' : 'bg-[#B9CF32]/40 text-[#347048]'}`}
-                                  >
-                                    {assignment.isActive ? 'Desactivar' : 'Activar'}
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-[11px] font-bold text-[#347048]/60">Seleccioná un cliente para asignar descuentos.</p>
-                    )}
-                  </div>
-                </div>
+              <div className="rounded-2xl border border-white bg-white/50 p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <p className="text-[12px] font-bold text-[#347048]/80">
+                  La gestión completa de descuentos se hace por modal para evitar confusión en esta pantalla.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowDiscountsConfigModal(true)}
+                  className="h-11 px-5 rounded-xl bg-[#347048] text-[#EBE1D8] hover:bg-[#B9CF32] hover:text-[#347048] text-[11px] font-black uppercase tracking-widest"
+                >
+                  Gestionar descuentos
+                </button>
               </div>
             </div>
 
+
+            <div className="bg-[#347048]/10 p-6 rounded-[1.5rem] border-2 border-[#347048]/20">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-[0.2em] text-[#347048]">Moderación de reseñas</h3>
+                  <p className="text-[11px] font-bold text-[#347048]/65 mt-1">Publicá u ocultá reseñas sin borrar historial.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={reviewStatusFilter}
+                    onChange={(e) => setReviewStatusFilter(e.target.value as 'ALL' | ClubReviewAdminStatus)}
+                    className="h-10 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-xs uppercase tracking-widest"
+                  >
+                    <option value="ALL">Todas</option>
+                    <option value="PUBLISHED">Publicadas</option>
+                    <option value="HIDDEN">Ocultas</option>
+                    <option value="REPORTED">Reportadas</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (club?.slug) void loadClubReviews(club.slug, reviewStatusFilter);
+                    }}
+                    className="h-10 px-4 rounded-xl bg-white border border-[#347048]/20 text-[#347048] text-[10px] font-black uppercase tracking-widest"
+                  >
+                    Recargar
+                  </button>
+                </div>
+              </div>
+
+              {loadingClubReviews ? (
+                <p className="text-[11px] font-bold text-[#347048]/60">Cargando reseñas...</p>
+              ) : clubReviews.length === 0 ? (
+                <p className="text-[11px] font-bold text-[#347048]/60">No hay reseñas para el filtro seleccionado.</p>
+              ) : (
+                <div className="space-y-2 max-h-72 overflow-auto pr-1">
+                  {clubReviews.map((review) => (
+                    <div key={review.id} className="bg-white/50 rounded-xl border border-white p-3">
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="text-sm font-black text-[#347048]">
+                            {review.user?.name || 'Usuario'} · {Number(review.rating).toFixed(1)} / 5
+                          </p>
+                          <p className="text-[11px] font-bold text-[#347048]/70 mt-0.5">
+                            Reserva #{review.bookingId} · {new Date(review.createdAt).toLocaleDateString('es-AR')}
+                          </p>
+                          <p className="text-[11px] font-black uppercase tracking-widest text-[#926699] mt-1">
+                            Estado: {review.status}
+                          </p>
+                          {review.comment ? (
+                            <p className="text-[12px] text-[#347048] mt-2 leading-relaxed">{review.comment}</p>
+                          ) : (
+                            <p className="text-[11px] font-bold text-[#347048]/50 mt-2 italic">Sin comentario.</p>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-2 md:justify-end">
+                          <button
+                            type="button"
+                            disabled={reviewStatusUpdatingId === review.id || review.status === 'PUBLISHED'}
+                            onClick={() => void handleUpdateReviewStatus(review.id, 'PUBLISHED')}
+                            className="h-9 px-3 rounded-lg bg-[#347048] text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                          >
+                            Publicar
+                          </button>
+                          <button
+                            type="button"
+                            disabled={reviewStatusUpdatingId === review.id || review.status === 'HIDDEN'}
+                            onClick={() => void handleUpdateReviewStatus(review.id, 'HIDDEN')}
+                            className="h-9 px-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                          >
+                            Ocultar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <div className="bg-white/40 p-4 rounded-2xl border border-white">
               <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-[#347048] mb-2">Historial de cambios recientes</h4>
@@ -2846,6 +2881,488 @@ export default function AdminTabClub() {
           </div>
         </div>
       ) : null}
+
+      {exceptionModalActivity && typeof document !== 'undefined'
+        ? createPortal(
+        <div
+          className="fixed inset-0 z-[100200] bg-[#347048]/60 p-4 flex items-center justify-center animate-in fade-in duration-200"
+          onMouseDown={(event) => {
+            exceptionBackdropMouseDownRef.current = event.target === event.currentTarget;
+          }}
+          onTouchStart={(event) => {
+            exceptionBackdropMouseDownRef.current = event.target === event.currentTarget;
+          }}
+          onClick={(event) => {
+            const startedOnBackdrop = exceptionBackdropMouseDownRef.current;
+            exceptionBackdropMouseDownRef.current = false;
+            if (startedOnBackdrop && event.target === event.currentTarget) {
+              closeExceptionModal();
+            }
+          }}
+        >
+          <div
+            className="relative w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-[2rem] border-4 border-white bg-[#EBE1D8] shadow-2xl animate-in zoom-in-95 duration-200"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#347048]/10">
+              <div>
+                <h3 className="text-xl font-black uppercase italic tracking-tight text-[#347048]">Excepciones de agenda</h3>
+                <p className="text-[12px] font-bold text-[#347048]/70 mt-1">{exceptionModalActivity.name}</p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={closeExceptionModal}
+              className="absolute right-5 top-5 bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
+              title="Cerrar"
+            >
+              <X size={20} strokeWidth={3} />
+            </button>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-5 max-h-[calc(90vh-96px)] overflow-auto">
+              <div className="rounded-2xl border border-white bg-white/40 p-4">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048] mb-3">Listado</p>
+                <div className="mb-3 rounded-xl border border-white bg-white p-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/60 mb-2">Nueva excepción</p>
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      type="date"
+                      value={exceptionModalNewDate}
+                      onChange={(e) => setExceptionModalNewDate(e.target.value)}
+                      className="h-10 bg-white border-2 border-[#347048]/15 focus:border-[#B9CF32] rounded-lg px-3 text-[#347048] font-black text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCreateExceptionInModal}
+                      className="h-10 px-3 rounded-lg bg-[#347048] text-white text-[10px] font-black uppercase tracking-widest"
+                    >
+                      Crear borrador
+                    </button>
+                  </div>
+                </div>
+                {exceptionModalLoading ? (
+                  <p className="text-[11px] font-bold text-[#347048]/65">Cargando excepciones...</p>
+                ) : exceptionModalItems.length === 0 ? (
+                  <p className="text-[11px] font-bold text-[#347048]/65">No hay excepciones para esta actividad.</p>
+                ) : (
+                  <div className="space-y-2 max-h-[55vh] overflow-auto pr-1">
+                    {exceptionModalItems.map((item) => {
+                      const active = item.localDate === exceptionModalSelectedDate;
+                      return (
+                        <button
+                          key={`${item.activityTypeId}-${item.localDate}`}
+                          type="button"
+                          onClick={() => setExceptionModalSelectedDate(item.localDate)}
+                          className={`w-full text-left rounded-xl border px-3 py-2 transition-all ${
+                            active ? 'border-[#B9CF32] bg-[#B9CF32]/20' : 'border-white bg-white/70 hover:bg-white'
+                          }`}
+                        >
+                          <p className="text-[12px] font-black text-[#347048]">{item.localDate}</p>
+                          <p className="text-[11px] font-bold text-[#347048]/70 mt-0.5">
+                            {item.isClosed
+                              ? 'Cerrado todo el día'
+                              : item.scheduleMode === 'RANGE'
+                                ? `Rango ${item.scheduleOpenTime || '--'} - ${item.scheduleCloseTime || '--'}`
+                                : `Turnos fijos (${Array.isArray(item.scheduleFixedSlots) ? item.scheduleFixedSlots.length : 0})`}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-2xl border border-white bg-white/40 p-4">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048] mb-3">Detalle</p>
+                {exceptionModalDraft ? (
+                  <div className="space-y-3 text-[#347048]">
+                    <div className="rounded-xl border border-white bg-white p-3">
+                      <p className="text-[11px] font-black uppercase tracking-widest">Fecha</p>
+                      <p className="text-sm font-black mt-1">{exceptionModalDraft.localDate}</p>
+                    </div>
+                    <div className="rounded-xl border border-white bg-white p-3">
+                      <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest">
+                        <input
+                          type="checkbox"
+                          checked={exceptionModalDraft.isClosed}
+                          onChange={(e) => setExceptionModalDraft((prev) => prev ? ({ ...prev, isClosed: e.target.checked }) : prev)}
+                        />
+                        Cerrar toda la actividad en esta fecha
+                      </label>
+                    </div>
+                    {!exceptionModalDraft.isClosed ? (
+                      <div className="rounded-xl border border-white bg-white p-3 space-y-2">
+                        <div>
+                          <label className="text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Modo</label>
+                          <select
+                            value={exceptionModalDraft.scheduleMode}
+                            onChange={(e) => setExceptionModalDraft((prev) => prev ? ({ ...prev, scheduleMode: e.target.value as 'FIXED' | 'RANGE' }) : prev)}
+                            className="mt-1 w-full h-10 bg-white border-2 border-[#347048]/15 focus:border-[#B9CF32] rounded-lg px-3 text-[#347048] font-black text-sm"
+                          >
+                            <option value="FIXED">Turnos fijos</option>
+                            <option value="RANGE">Rango horario</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Duraciones (min)</label>
+                          <input
+                            type="text"
+                            value={exceptionModalDraft.scheduleDurations}
+                            onChange={(e) => setExceptionModalDraft((prev) => prev ? ({ ...prev, scheduleDurations: e.target.value }) : prev)}
+                            className="mt-1 w-full h-10 bg-white border-2 border-[#347048]/15 focus:border-[#B9CF32] rounded-lg px-3 text-[#347048] font-black text-sm"
+                            placeholder="60, 90"
+                          />
+                        </div>
+                        {exceptionModalDraft.scheduleMode === 'RANGE' ? (
+                          <>
+                            <div className="grid grid-cols-3 gap-2">
+                              <div>
+                                <label className="text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Apertura</label>
+                                <input
+                                  type="time"
+                                  value={exceptionModalDraft.scheduleOpenTime}
+                                  onChange={(e) => setExceptionModalDraft((prev) => prev ? ({ ...prev, scheduleOpenTime: e.target.value }) : prev)}
+                                  className="mt-1 w-full h-10 bg-white border-2 border-[#347048]/15 focus:border-[#B9CF32] rounded-lg px-2 text-[#347048] font-black text-sm"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Cierre</label>
+                                <input
+                                  type="time"
+                                  value={exceptionModalDraft.scheduleCloseTime}
+                                  onChange={(e) => setExceptionModalDraft((prev) => prev ? ({ ...prev, scheduleCloseTime: e.target.value }) : prev)}
+                                  className="mt-1 w-full h-10 bg-white border-2 border-[#347048]/15 focus:border-[#B9CF32] rounded-lg px-2 text-[#347048] font-black text-sm"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Intervalo</label>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  step={1}
+                                  value={exceptionModalDraft.scheduleIntervalMinutes}
+                                  onChange={(e) => setExceptionModalDraft((prev) => prev ? ({ ...prev, scheduleIntervalMinutes: e.target.value }) : prev)}
+                                  className="mt-1 w-full h-10 bg-white border-2 border-[#347048]/15 focus:border-[#B9CF32] rounded-lg px-2 text-[#347048] font-black text-sm"
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Franjas (una por línea HH:mm-HH:mm)</label>
+                              <textarea
+                                rows={3}
+                                value={exceptionModalDraft.scheduleWindows}
+                                onChange={(e) => setExceptionModalDraft((prev) => prev ? ({ ...prev, scheduleWindows: e.target.value }) : prev)}
+                                className="mt-1 w-full bg-white border-2 border-[#347048]/15 focus:border-[#B9CF32] rounded-lg px-3 py-2 text-[#347048] font-black text-sm resize-none"
+                              />
+                            </div>
+                          </>
+                        ) : (
+                          <div>
+                            <label className="text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Turnos fijos (uno por línea HH:mm-60)</label>
+                            <textarea
+                              rows={4}
+                              value={exceptionModalDraft.scheduleFixedSlots}
+                              onChange={(e) => setExceptionModalDraft((prev) => prev ? ({ ...prev, scheduleFixedSlots: e.target.value }) : prev)}
+                              className="mt-1 w-full bg-white border-2 border-[#347048]/15 focus:border-[#B9CF32] rounded-lg px-3 py-2 text-[#347048] font-black text-sm resize-none"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+
+                    <div className="pt-1">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleSaveExceptionFromModal()}
+                          className="h-10 px-4 rounded-xl bg-[#347048] text-white text-[11px] font-black uppercase tracking-widest"
+                        >
+                          Guardar pendiente
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteExceptionFromModal()}
+                          className="h-10 px-4 rounded-xl bg-red-50 border border-red-200 text-red-600 text-[11px] font-black uppercase tracking-widest"
+                        >
+                          Eliminar pendiente
+                        </button>
+                      </div>
+                      <p className="text-[10px] font-bold text-[#347048]/60 mt-2">
+                        Este cambio se guarda como pendiente y se aplica con Guardar cambios general.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[11px] font-bold text-[#347048]/65">Seleccioná una excepción para ver su detalle.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )
+        : null}
+
+      {showDiscountsConfigModal && typeof document !== 'undefined'
+        ? createPortal(
+        <div
+          className="fixed inset-0 z-[100200] bg-[#347048]/60 p-4 flex items-center justify-center"
+          onMouseDown={(event) => {
+            exceptionBackdropMouseDownRef.current = event.target === event.currentTarget;
+          }}
+          onTouchStart={(event) => {
+            exceptionBackdropMouseDownRef.current = event.target === event.currentTarget;
+          }}
+          onClick={(event) => {
+            const startedOnBackdrop = exceptionBackdropMouseDownRef.current;
+            exceptionBackdropMouseDownRef.current = false;
+            if (startedOnBackdrop && event.target === event.currentTarget) {
+              closeDiscountsConfigModal();
+            }
+          }}
+        >
+          <div className="relative w-full max-w-6xl max-h-[90vh] overflow-auto rounded-[2rem] border-4 border-white bg-[#EBE1D8] p-6">
+            <button
+              type="button"
+              onClick={closeDiscountsConfigModal}
+              className="absolute right-4 top-4 bg-red-50 p-2 rounded-full border border-red-100 text-red-500"
+            >
+              <X size={18} />
+            </button>
+            <h3 className="text-lg font-black uppercase tracking-widest text-[#347048]">Gestionar descuentos por cliente</h3>
+            <p className="text-[12px] font-bold text-[#347048]/70 mt-1">Creá políticas y asignalas desde este modal.</p>
+
+            <div className="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <div className="bg-white/40 p-4 rounded-2xl border border-white">
+                <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-[#347048] mb-3">Nueva política</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="md:col-span-2">
+                    <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Nombre</label>
+                    <input
+                      type="text"
+                      value={discountPolicyForm.name}
+                      onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, name: e.target.value }))}
+                      className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black text-sm"
+                      placeholder="Ej: Amigo 20% turnos"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Alcance</label>
+                    <select
+                      value={discountPolicyForm.scope}
+                      onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, scope: e.target.value as DiscountPolicyScope }))}
+                      className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
+                    >
+                      <option value="BOOKING">Reserva</option>
+                      <option value="PRODUCT">Producto</option>
+                      <option value="SERVICE">Servicio</option>
+                      <option value="ALL">Todo</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Tipo</label>
+                    <select
+                      value={discountPolicyForm.amountType}
+                      onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, amountType: e.target.value as DiscountAmountType }))}
+                      className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
+                    >
+                      <option value="PERCENT">Porcentaje</option>
+                      <option value="FIXED">Monto fijo</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Valor</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={discountPolicyForm.amountValue}
+                      onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, amountValue: e.target.value }))}
+                      className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
+                      placeholder={discountPolicyForm.amountType === 'PERCENT' ? '20' : '1000'}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Prioridad</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={discountPolicyForm.priority}
+                      onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, priority: e.target.value }))}
+                      className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Modo de aplicación</label>
+                    <select
+                      value={discountPolicyForm.applyMode}
+                      onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, applyMode: e.target.value as DiscountApplyMode }))}
+                      className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
+                    >
+                      <option value="INCLUDE_ONLY">Solo incluidos</option>
+                      <option value="EXCLUDE_LIST">Excluir lista</option>
+                    </select>
+                  </div>
+                  <label className="md:col-span-2 flex items-center gap-3 text-[#347048] font-black cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={discountPolicyForm.isStackable}
+                      onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, isStackable: e.target.checked }))}
+                    />
+                    <span className="text-sm uppercase tracking-wide">Acumulable</span>
+                  </label>
+                  <div className="md:col-span-2">
+                    <button
+                      type="button"
+                      onClick={handleCreateDiscountPolicy}
+                      className="w-full h-11 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] rounded-xl font-black text-sm uppercase tracking-widest transition-all"
+                    >
+                      Crear política
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <h5 className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50 mb-2">Políticas actuales</h5>
+                  {loadingDiscountPolicies ? (
+                    <p className="text-[11px] font-bold text-[#347048]/60">Cargando...</p>
+                  ) : discountPolicies.length === 0 ? (
+                    <p className="text-[11px] font-bold text-[#347048]/60">Sin políticas cargadas.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-56 overflow-auto pr-1">
+                      {discountPolicies.map((policy) => (
+                        <div key={policy.id} className="bg-white rounded-xl border border-white/70 p-3 text-[#347048]">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-black text-sm">{policy.name}</p>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[10px] font-black px-2 py-1 rounded-lg ${policy.isActive ? 'bg-[#B9CF32]/50' : 'bg-[#926699]/20'}`}>
+                                {policy.isActive ? 'ACTIVA' : 'INACTIVA'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleStartEditDiscountPolicy(policy)}
+                                className="px-2 py-1 rounded-lg bg-[#347048]/10 text-[#347048] text-[10px] font-black uppercase tracking-widest hover:bg-[#347048]/20"
+                              >
+                                Editar
+                              </button>
+                            </div>
+                          </div>
+                          <p className="text-[11px] font-bold opacity-80 mt-1">
+                            {formatDiscountScopeLabel(policy.scope)} · {formatDiscountAmountTypeLabel(policy.amountType)} {Number(policy.amountValue)} · prioridad {policy.priority} · {policy.isStackable ? 'acumulable' : 'no acumulable'}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white/40 p-4 rounded-2xl border border-white">
+                <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-[#347048] mb-3">Asignación a cliente</h4>
+                <div className="space-y-3">
+                  <div className="relative z-20" ref={clientSearchWrapperRef}>
+                    <label className="block text-[10px] font-black text-[#347048]/40 mb-1 uppercase tracking-widest">Buscar cliente</label>
+                    <input
+                      type="text"
+                      value={clientSearch}
+                      onChange={handleDiscountClientSearchChange}
+                      className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black text-sm"
+                      placeholder="Nombre, teléfono, DNI, email"
+                    />
+                    {showClientSearchDropdown && clientSearchResults.length > 0 ? (
+                      <div className="absolute z-[120] mt-2 w-full max-h-56 overflow-auto rounded-xl border border-white/70 bg-white shadow-xl">
+                        {clientSearchResults.map((client) => {
+                          const fullName = String(client.name || '').trim() || 'Sin nombre';
+                          return (
+                            <button
+                              type="button"
+                              key={client.id}
+                              onClick={() => handleSelectDiscountClient(client)}
+                              className="w-full text-left px-3 py-2 text-sm font-bold text-[#347048] hover:bg-[#B9CF32]/20 transition-all border-b last:border-b-0 border-white/60"
+                            >
+                              {fullName} {client.dni ? `· DNI ${client.dni}` : ''}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                  {showClientSearchDropdown && clientSearch.trim().length >= 2 && clientSearchResults.length === 0 ? (
+                    <p className="text-[11px] font-bold text-[#347048]/60">Sin resultados para esa búsqueda.</p>
+                  ) : null}
+
+                  {selectedDiscountClient ? (
+                    <div className="rounded-xl border border-white/70 bg-white p-3">
+                      <p className="text-sm font-black text-[#347048]">
+                        Cliente seleccionado: {String(selectedDiscountClient.name || '').trim() || selectedDiscountClient.id}
+                      </p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3">
+                        <select
+                          value={selectedPolicyIdForAssignment}
+                          onChange={(e) => setSelectedPolicyIdForAssignment(e.target.value)}
+                          className="h-11 bg-white border-2 border-[#347048]/20 focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
+                        >
+                          <option value="">Seleccionar política...</option>
+                          {discountPolicies.filter((p) => p.isActive).map((policy) => (
+                            <option value={policy.id} key={policy.id}>
+                              {policy.name}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="text"
+                          value={assignmentNotes}
+                          onChange={(e) => setAssignmentNotes(e.target.value)}
+                          className="h-11 bg-white border-2 border-[#347048]/20 focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-black text-sm"
+                          placeholder="Motivo / nota"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAssignPolicyToClient}
+                        className="w-full mt-2 h-11 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] rounded-xl font-black text-sm uppercase tracking-widest transition-all"
+                      >
+                        Asignar política
+                      </button>
+
+                      <div className="mt-3">
+                        <h5 className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50 mb-2">Asignaciones del cliente</h5>
+                        {loadingClientAssignments ? (
+                          <p className="text-[11px] font-bold text-[#347048]/60">Cargando...</p>
+                        ) : clientAssignments.length === 0 ? (
+                          <p className="text-[11px] font-bold text-[#347048]/60">Sin asignaciones.</p>
+                        ) : (
+                          <div className="space-y-2 max-h-44 overflow-auto pr-1">
+                            {clientAssignments.map((assignment: any) => (
+                              <div key={assignment.id} className="bg-[#EBE1D8] rounded-xl p-2 border border-white">
+                                <p className="text-sm font-black text-[#347048]">{assignment.policy?.name || assignment.policyId}</p>
+                                <p className="text-[11px] font-bold text-[#347048]/70">{assignment.notes || 'Sin nota'}</p>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleAssignment(assignment.id, !assignment.isActive)}
+                                  className={`mt-1 px-2 py-1 rounded-lg text-[10px] font-black ${assignment.isActive ? 'bg-[#926699]/20 text-[#347048]' : 'bg-[#B9CF32]/40 text-[#347048]'}`}
+                                >
+                                  {assignment.isActive ? 'Desactivar' : 'Activar'}
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] font-bold text-[#347048]/60">Seleccioná un cliente para asignar descuentos.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )
+        : null}
 
       <AppModal
         show={Boolean(editingDiscountPolicyId)}

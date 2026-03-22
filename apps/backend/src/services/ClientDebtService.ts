@@ -65,9 +65,17 @@ export class ClientDebtService {
             clientId: { in: clientIds }
           },
           select: {
+            id: true,
             clientId: true,
             startDateTime: true,
-            status: true
+            status: true,
+            listPrice: true,
+            price: true,
+            court: {
+              select: {
+                name: true
+              }
+            }
           },
           orderBy: {
             startDateTime: 'asc'
@@ -165,6 +173,20 @@ export class ClientDebtService {
         nextBookingAt: string | null;
       }
     >();
+    const detailedBookingsByClient = new Map<
+      string,
+      Array<{
+        id: number;
+        bookingId: number;
+        startDateTime: string;
+        date: string;
+        time: string;
+        status: string;
+        courtName: string | null;
+        listPrice: number;
+        price: number;
+      }>
+    >();
     const bookingsByClient = new Map<string, Array<{ startDateTime: Date; status: string }>>();
     for (const booking of allClientBookings) {
       const clientId = String(booking.clientId || '').trim();
@@ -175,6 +197,23 @@ export class ClientDebtService {
         status: String(booking.status || '')
       });
       bookingsByClient.set(clientId, existing);
+
+      const dt = new Date(booking.startDateTime);
+      const hh = String(dt.getHours()).padStart(2, '0');
+      const mm = String(dt.getMinutes()).padStart(2, '0');
+      const detailRows = detailedBookingsByClient.get(clientId) || [];
+      detailRows.push({
+        id: booking.id,
+        bookingId: booking.id,
+        startDateTime: booking.startDateTime.toISOString(),
+        date: dt.toISOString().slice(0, 10),
+        time: `${hh}:${mm}`,
+        status: String(booking.status || ''),
+        courtName: booking.court?.name ?? null,
+        listPrice: Number(booking.listPrice || 0),
+        price: Number(booking.price || 0)
+      });
+      detailedBookingsByClient.set(clientId, detailRows);
     }
     const nowTs = Date.now();
     for (const [clientId, bookingRows] of bookingsByClient.entries()) {
@@ -206,6 +245,14 @@ export class ClientDebtService {
       };
       return {
         history,
+        bookings: (detailedBookingsByClient.get(String(client.id)) || [])
+          .slice()
+          .sort((a, b) => {
+            const aTs = new Date(a.startDateTime).getTime();
+            const bTs = new Date(b.startDateTime).getTime();
+            if (aTs !== bTs) return bTs - aTs;
+            return b.bookingId - a.bookingId;
+          }),
         id: client.id,
         firstName: client.name,
         lastName: '',

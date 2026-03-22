@@ -150,11 +150,27 @@ const ModalPortal = ({
   maxWidthClass?: string;
 }) => {
   const backdropMouseDownRef = useRef(false);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [onClose]);
+
   if (typeof document === 'undefined') return null;
   
   return createPortal(
   <div
-    className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#347048]/85 p-4 animate-in fade-in duration-200"
+    className="fixed inset-0 z-[2147483000] flex items-center justify-center bg-[#347048]/60 p-4 animate-in fade-in duration-200"
     onMouseDown={(event) => {
       backdropMouseDownRef.current = event.target === event.currentTarget;
     }}

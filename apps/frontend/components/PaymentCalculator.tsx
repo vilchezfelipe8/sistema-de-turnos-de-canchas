@@ -249,7 +249,7 @@ export default function PaymentCalculator({
 
   const modal = (
     <div
-      className={`fixed inset-0 bg-[#347048]/85 flex items-center justify-center ${zIndexClass} p-4 animate-in fade-in duration-200`}
+      className={`fixed inset-0 bg-[#347048]/60 flex items-center justify-center ${zIndexClass} p-4 animate-in fade-in duration-200`}
       onMouseDown={(event) => {
         backdropRef.current = event.target === event.currentTarget;
       }}

@@ -196,6 +196,11 @@ enum DiscountApplyMode {
   EXCLUDE_LIST
 }
 
+enum ClubReviewStatus {
+  PUBLISHED
+  HIDDEN
+}
+
 //
 // MODELOS
 //
@@ -227,6 +232,7 @@ model User {
   refundsCancelled Refund[] @relation("RefundCancelledBy")
   clientDiscountAssignmentsCreated ClientDiscountAssignment[]
   accountItemDiscountsApplied AccountItemDiscount[]
+  clubReviews ClubReview[]
 }
 
 model Club {
@@ -280,6 +286,7 @@ model Club {
   discountPolicies DiscountPolicy[]
   clientDiscountAssignments ClientDiscountAssignment[]
   accountItemDiscounts AccountItemDiscount[]
+  reviews       ClubReview[]
 }
 
 model Membership {
@@ -472,6 +479,7 @@ model Booking {
 
   fixedBookingId Int?
   fixedBooking   FixedBooking? @relation(fields: [fixedBookingId], references: [id])
+  reviews        ClubReview[]
 
   @@index([courtId, startDateTime], map: "booking_court_day")
   @@index([courtId, endDateTime])
@@ -479,6 +487,29 @@ model Booking {
   @@index([activityId, startDateTime], map: "booking_activity_day")
   @@index([startDateTime])
   @@index([status, startDateTime, autoCancelledAt], map: "booking_pending_autocancel_idx")
+}
+
+model ClubReview {
+  id        String           @id @default(cuid())
+  clubId    Int
+  club      Club             @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  bookingId Int
+  booking   Booking          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  userId    Int
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  rating    Int
+  comment   String?
+  status    ClubReviewStatus @default(PUBLISHED)
+
+  createdAt DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime         @updatedAt @db.Timestamptz(3)
+
+  @@unique([bookingId, userId])
+  @@index([clubId, status, createdAt])
+  @@index([userId, createdAt])
 }
 
 model FixedBooking {

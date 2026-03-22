@@ -23,6 +23,7 @@ import EventRoutes from './routes/EventRoutes';
 import AuditLogRoutes from './routes/AuditLogRoutes';
 import CourtPriceRuleRoutes from './routes/CourtPriceRuleRoutes';
 import PaymentRoutes from './routes/PaymentRoutes';
+import ClubReviewRoutes from './routes/ClubReviewRoutes';
 
 import { errorHandler } from './middleware/ErrorHandler';
 import { authMiddleware } from './middleware/AuthMiddleware';
@@ -108,6 +109,7 @@ export const createApp = () => {
   app.use('/api/bookings', bookingRoutes);
   app.use('/api/courts', CourtRoutes);
   app.use('/api/clubs', ClubRoutes);
+  app.use('/api/clubs', ClubReviewRoutes);
   app.use('/api/clubs', ClubAdminRoutes);
   app.use('/api/locations', LocationRoutes);
   app.use('/api/health', HealthRoutes);

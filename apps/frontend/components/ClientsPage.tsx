@@ -2,6 +2,7 @@
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ClientService } from '../services/ClientService';
+import { ClubAdminService } from '../services/ClubAdminService';
 import { getAccountById, registerPayment } from '../services/AccountService';
 import { Phone, DollarSign, Users, Trophy, Search, X, CheckCircle, Receipt, Plus, Pencil, Trash2 } from 'lucide-react';
 import PaymentCalculator, { type PaymentCalculatorResult } from './PaymentCalculator';
@@ -91,6 +92,13 @@ const formatAccountItemType = (value: unknown) => {
   return accountItemTypeLabel[key] || formatRawTypeFallback(key);
 };
 
+const getClientRoles = (client: any): string[] => {
+  const roles: string[] = [];
+  if (Boolean(client?.isProfessor)) roles.push('Profesor');
+  if (roles.length === 0) roles.push('Cliente');
+  return roles;
+};
+
 const getEntryReference = (entry: any) => {
   const accountId = String(entry?.id || '').trim();
   if (accountId) return `C-${accountId.slice(-6).toUpperCase()}`;
@@ -104,6 +112,32 @@ const sortByCreationDesc = (a: any, b: any) => {
     return createdB - createdA;
   }
   return Number(b?.id || 0) - Number(a?.id || 0);
+};
+
+const buildClientBookingHistory = (client: any) => {
+  const rows = Array.isArray(client?.bookings) ? client.bookings : [];
+  const normalized = rows
+    .map((entry: any) => ({
+      bookingId: entry?.bookingId ?? entry?.id ?? null,
+      status: String(entry?.bookingStatus || entry?.status || '').trim().toUpperCase(),
+      date: entry?.date || entry?.startDateTime || null,
+      time: entry?.time || null,
+      courtName: entry?.courtName || '-',
+      amount: Number(entry?.totalAmount || entry?.amount || entry?.price || 0)
+    }))
+    .filter((entry) => entry.bookingId != null);
+
+  const dedup = new Map<string, (typeof normalized)[number]>();
+  for (const entry of normalized) {
+    const key = String(entry.bookingId);
+    if (!dedup.has(key)) dedup.set(key, entry);
+  }
+  return Array.from(dedup.values()).sort((a, b) => {
+    const ta = new Date(a.date || '').getTime();
+    const tb = new Date(b.date || '').getTime();
+    if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return tb - ta;
+    return Number(b.bookingId) - Number(a.bookingId);
+  });
 };
 
 interface ClientsPageProps {
@@ -190,6 +224,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const [clients, setClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDebtor, setSelectedDebtor] = useState<any>(null);
+  const [selectedClientDetail, setSelectedClientDetail] = useState<any>(null);
   const [selectedClientHistory, setSelectedClientHistory] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [viewScope, setViewScope] = useState<ClientViewScope>('all');
@@ -202,11 +237,14 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const [loadingAccountDetailById, setLoadingAccountDetailById] = useState<Record<string, boolean>>({});
   const [mounted, setMounted] = useState(false);
   const debtBackdropMouseDownRef = useRef(false);
+  const clientDetailBackdropMouseDownRef = useRef(false);
   const historyBackdropMouseDownRef = useRef(false);
   const [showClientFormModal, setShowClientFormModal] = useState(false);
   const [clientFormSubmitting, setClientFormSubmitting] = useState(false);
   const [clientToEdit, setClientToEdit] = useState<any | null>(null);
   const [clientForm, setClientForm] = useState({ name: '', phone: '', dni: '', email: '', isProfessor: false });
+  const [selectedClientDiscountAssignments, setSelectedClientDiscountAssignments] = useState<any[]>([]);
+  const [loadingSelectedClientDiscountAssignments, setLoadingSelectedClientDiscountAssignments] = useState(false);
   const [deleteClientModal, setDeleteClientModal] = useState<{ show: boolean; client: any | null; submitting: boolean }>({
     show: false,
     client: null,
@@ -246,6 +284,31 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
     setClientToEdit(null);
     setClientForm({ name: '', phone: '', dni: '', email: '', isProfessor: false });
     setShowClientFormModal(true);
+  };
+
+  const copyToClipboard = async (value: string, label: string) => {
+    const text = String(value || '').trim();
+    if (!text) return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else if (typeof document !== 'undefined') {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      } else {
+        throw new Error('Clipboard no disponible');
+      }
+      showInfo(`${label} copiado: ${text}`, 'Copiado');
+    } catch {
+      showError(`No se pudo copiar ${label.toLowerCase()}.`);
+    }
   };
 
   const openEditClientModal = (client: any) => {
@@ -337,10 +400,39 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
 
   useEffect(() => {
     setSelectedDebtor(null);
+    setSelectedClientDetail(null);
     setSelectedClientHistory(null);
+    setSelectedClientDiscountAssignments([]);
     setShowPayMethodModal(false);
     setDebtTarget(null);
   }, [viewScope]);
+
+  useEffect(() => {
+    const loadClientDiscountAssignments = async () => {
+      if (!selectedClientDetail?.id) {
+        setSelectedClientDiscountAssignments([]);
+        return;
+      }
+
+      const slug = resolveClubSlug();
+      if (!slug) {
+        setSelectedClientDiscountAssignments([]);
+        return;
+      }
+
+      try {
+        setLoadingSelectedClientDiscountAssignments(true);
+        const rows = await ClubAdminService.listClientDiscountAssignments(slug, String(selectedClientDetail.id));
+        setSelectedClientDiscountAssignments(Array.isArray(rows) ? rows : []);
+      } catch {
+        setSelectedClientDiscountAssignments([]);
+      } finally {
+        setLoadingSelectedClientDiscountAssignments(false);
+      }
+    };
+
+    void loadClientDiscountAssignments();
+  }, [selectedClientDetail?.id, resolveClubSlug]);
 
   useEffect(() => {
     setMounted(true);
@@ -458,6 +550,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const selectedDebtEntry = selectedDebtorPendingEntries.find((entry: any) => entry.id === debtTarget?.accountId);
   const selectedDebtBreakdown = selectedDebtEntry ? accountBreakdownById[String(selectedDebtEntry.id)] : null;
   const selectedAccountBreakdown = selectedAccountDetail ? accountBreakdownById[String(selectedAccountDetail.id)] : null;
+  const selectedClientBookingsHistory = selectedClientHistory ? buildClientBookingHistory(selectedClientHistory) : [];
 
   const openAccountDetail = async (account: any) => {
     await ensureAccountBreakdown(String(account?.id || ''));
@@ -562,32 +655,50 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                       const bookingsWithoutAccount = Math.max(0, totalBookings - historyCount);
 
                       return (
-                        <tr key={client.id} className="bg-white/80 hover:bg-white transition-all shadow-sm group">
+                        <tr
+                          key={client.id}
+                          className="bg-white/80 hover:bg-white transition-all duration-150 shadow-sm hover:shadow-md hover:shadow-[#347048]/10 group cursor-pointer"
+                          onClick={() => setSelectedClientDetail(client)}
+                        >
                             
                             <td className="px-6 py-4 font-black text-[#347048] first:rounded-l-2xl uppercase tracking-tight italic">
-                              <div className="flex items-center gap-2">
-                                <span>{client.name}</span>
-                                {client.isProfessor ? (
-                                  <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-[#926699]/10 text-[#926699] border border-[#926699]/20 not-italic">
-                                    Profesor
-                                  </span>
-                                ) : null}
-                              </div>
+                              <span className="group-hover:text-[#2b6a43] transition-colors">{client.name}</span>
                             </td>
                             
                             <td className="px-6 py-4">
                                 {/* 2. Y ACÁ LO MOSTRAMOS SÚPER FÁCIL */}
                                 {dniFinal ? (
-                                    <span className="bg-[#347048]/5 border border-[#347048]/10 px-2 py-1 rounded-lg text-[#347048] font-bold text-xs">
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        void copyToClipboard(String(dniFinal), 'DNI');
+                                      }}
+                                      className="bg-[#347048]/5 border border-[#347048]/10 px-2 py-1 rounded-lg text-[#347048] font-bold text-xs hover:bg-[#347048]/10 transition-colors cursor-copy"
+                                      title="Copiar DNI"
+                                    >
                                         {dniFinal}
-                                    </span>
+                                    </button>
                                 ) : (
                                     <span className="opacity-20">-</span>
                                 )}
                             </td>
                             
                             <td className="px-6 py-4 text-[#347048]/70 font-bold text-xs uppercase">
-                                {client.phone ? <span className="flex items-center gap-2"><Phone size={12} className="text-[#B9CF32]"/> {client.phone}</span> : '-'}
+                                {client.phone ? (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void copyToClipboard(String(client.phone), 'Teléfono');
+                                    }}
+                                    className="flex items-center gap-2 hover:text-[#347048] transition-colors cursor-copy"
+                                    title="Copiar teléfono"
+                                  >
+                                    <Phone size={12} className="text-[#B9CF32]" />
+                                    {client.phone}
+                                  </button>
+                                ) : '-'}
                             </td>
                             
                             <td className="px-6 py-4">
@@ -605,9 +716,9 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                             
                             <td className="px-6 py-4">
                               {client.totalDebt > 0 ? (
-                                  <span className="inline-flex items-center gap-2 bg-red-50 text-red-600 px-3 py-1.5 rounded-xl text-[10px] font-black border border-red-100 uppercase tracking-wider italic">DEBE: ${client.totalDebt.toLocaleString()}</span>
+                                  <span className="inline-flex items-center gap-2 whitespace-nowrap bg-red-50 text-red-600 px-3 py-1.5 rounded-xl text-[10px] font-black border border-red-100 uppercase tracking-wider italic">DEBE: ${client.totalDebt.toLocaleString()}</span>
                               ) : (
-                                  <span className="inline-flex items-center gap-1 text-emerald-600 text-[10px] font-black uppercase tracking-wider"><CheckCircle size={12}/> Al día</span>
+                                  <span className="inline-flex items-center gap-1 whitespace-nowrap text-emerald-600 text-[10px] font-black uppercase tracking-wider"><CheckCircle size={12}/> Al día</span>
                               )}
                             </td>
                             
@@ -615,7 +726,10 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                               <div className="flex flex-nowrap justify-end gap-3">
                                 <button
                                   type="button"
-                                  onClick={() => openEditClientModal(client)}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    openEditClientModal(client);
+                                  }}
                                   className="h-8 w-8 rounded-lg bg-white border border-[#926699]/20 hover:bg-[#926699]/5 text-[#926699] transition flex items-center justify-center"
                                   title="Editar cliente"
                                 >
@@ -623,7 +737,10 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => askDeleteClient(client)}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    askDeleteClient(client);
+                                  }}
                                   className="h-8 w-8 rounded-lg bg-white border border-red-200 hover:bg-red-50 text-red-600 transition flex items-center justify-center"
                                   title="Dar de baja"
                                 >
@@ -631,7 +748,10 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => setSelectedClientHistory(client)}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setSelectedClientHistory(client);
+                                  }}
                                   className="h-8 w-8 rounded-lg bg-white border border-[#347048]/15 hover:bg-[#347048]/5 text-[#347048] transition flex items-center justify-center"
                                   title="Ver historial"
                                 >
@@ -640,7 +760,10 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                                 {client.totalDebt > 0 && (
                                   <button
                                     type="button"
-                                    onClick={() => setSelectedDebtor(client)}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setSelectedDebtor(client);
+                                    }}
                                     className="h-8 w-8 rounded-lg bg-red-600 hover:bg-red-500 text-white transition flex items-center justify-center shadow-sm"
                                     title="Saldar deuda"
                                   >
@@ -662,10 +785,167 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
         )}
       </div>
 
+      {/* MODAL DETALLE DE CLIENTE */}
+      {mounted && selectedClientDetail && createPortal(
+        <div
+          className="fixed inset-0 bg-[#347048]/60 flex items-center justify-center z-[100000] p-4 animate-in fade-in"
+          onMouseDown={(event) => {
+            clientDetailBackdropMouseDownRef.current = event.target === event.currentTarget;
+          }}
+          onTouchStart={(event) => {
+            clientDetailBackdropMouseDownRef.current = event.target === event.currentTarget;
+          }}
+          onClick={(event) => {
+            const startedOnBackdrop = clientDetailBackdropMouseDownRef.current;
+            clientDetailBackdropMouseDownRef.current = false;
+            if (startedOnBackdrop && event.target === event.currentTarget) {
+              setSelectedClientDetail(null);
+            }
+          }}
+        >
+          <div className="bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl">
+            <div className="p-8 border-b border-[#347048]/10 flex items-center justify-between bg-[#EBE1D8]">
+              <div>
+                <h3 className="text-2xl font-black text-[#347048] flex items-center gap-3 uppercase italic tracking-tighter">
+                  {selectedClientDetail.name}
+                  {selectedClientDetail.isProfessor ? (
+                    <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-[#926699]/10 text-[#926699] border border-[#926699]/20 not-italic">
+                      Profesor
+                    </span>
+                  ) : null}
+                </h3>
+                <p className="text-[10px] font-black text-[#347048]/40 mt-1 uppercase tracking-widest">Detalle del cliente</p>
+              </div>
+              <button
+                onClick={() => setSelectedClientDetail(null)}
+                className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
+                title="Cerrar ventana"
+              >
+                <X size={20} strokeWidth={3} />
+              </button>
+            </div>
+
+            <div className="p-8 overflow-y-auto space-y-4 custom-scrollbar bg-white/40">
+              <div className="rounded-2xl border border-[#347048]/10 bg-white/80 p-3">
+                <div className="text-[9px] font-black uppercase tracking-widest text-[#347048]/45 mb-2">Roles</div>
+                <div className="flex flex-wrap gap-2">
+                  {getClientRoles(selectedClientDetail).map((role) => (
+                    <span
+                      key={role}
+                      className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+                        role === 'Profesor'
+                          ? 'bg-[#926699]/10 text-[#926699] border-[#926699]/20'
+                          : 'bg-[#347048]/5 text-[#347048] border-[#347048]/15'
+                      }`}
+                    >
+                      {role}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="rounded-2xl border border-[#347048]/10 bg-white/80 p-3">
+                  <div className="text-[9px] font-black uppercase tracking-widest text-[#347048]/45">DNI</div>
+                  <div className="mt-1 text-[12px] font-black uppercase tracking-wide text-[#347048]">
+                    {selectedClientDetail.dni && selectedClientDetail.dni !== '-' ? selectedClientDetail.dni : 'No informado'}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-[#347048]/10 bg-white/80 p-3">
+                  <div className="text-[9px] font-black uppercase tracking-widest text-[#347048]/45">Teléfono</div>
+                  <div className="mt-1 text-[12px] font-black uppercase tracking-wide text-[#347048]">
+                    {selectedClientDetail.phone || 'No informado'}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-[#347048]/10 bg-white/80 p-3 md:col-span-2">
+                  <div className="text-[9px] font-black uppercase tracking-widest text-[#347048]/45">Email</div>
+                  <div className="mt-1 text-[12px] font-black tracking-wide text-[#347048] break-all">
+                    {selectedClientDetail.email || 'No informado'}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-[#347048]/10 bg-white/80 p-3">
+                  <div className="text-[9px] font-black uppercase tracking-widest text-[#347048]/45">Total reservas</div>
+                  <div className="mt-1 text-[18px] font-black italic tracking-tight text-[#347048]">
+                    {Number(selectedClientDetail.totalBookings || 0)}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-[#347048]/10 bg-white/80 p-3">
+                  <div className="text-[9px] font-black uppercase tracking-widest text-[#347048]/45">Saldo actual</div>
+                  <div className={`mt-1 text-[18px] font-black italic tracking-tight ${Number(selectedClientDetail.totalDebt || 0) > 0.009 ? 'text-red-600' : 'text-emerald-600'}`}>
+                    ${Number(selectedClientDetail.totalDebt || 0).toLocaleString()}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-[#347048]/10 bg-white/80 p-3">
+                  <div className="text-[9px] font-black uppercase tracking-widest text-[#347048]/45">Próxima reserva</div>
+                  <div className="mt-1 text-[12px] font-black uppercase tracking-wide text-[#347048]">
+                    {selectedClientDetail.nextBookingAt ? formatDateTime(selectedClientDetail.nextBookingAt) : 'Sin próxima reserva'}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-[#347048]/10 bg-white/80 p-3">
+                  <div className="text-[9px] font-black uppercase tracking-widest text-[#347048]/45">Última reserva</div>
+                  <div className="mt-1 text-[12px] font-black uppercase tracking-wide text-[#347048]">
+                    {selectedClientDetail.lastBookingAt ? formatDateTime(selectedClientDetail.lastBookingAt) : 'Sin historial de reservas'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-[#347048]/10 bg-white/80 p-3">
+                <div className="text-[9px] font-black uppercase tracking-widest text-[#347048]/45 mb-2">Asignaciones de descuentos</div>
+                {loadingSelectedClientDiscountAssignments ? (
+                  <p className="text-[11px] font-bold text-[#347048]/60">Cargando asignaciones...</p>
+                ) : selectedClientDiscountAssignments.length === 0 ? (
+                  <p className="text-center text-[#347048]/30 font-black py-6 uppercase italic">Sin registros</p>
+                ) : (
+                  <div className="space-y-2 max-h-44 overflow-y-auto custom-scrollbar pr-1">
+                    {selectedClientDiscountAssignments.map((assignment: any, index: number) => (
+                      <div key={String(assignment?.id || `${assignment?.policyId || 'policy'}-${index}`)} className="rounded-xl border border-[#347048]/10 bg-white p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[11px] font-black text-[#347048]">
+                            {String(assignment?.policy?.name || assignment?.policyName || assignment?.policyId || 'Política')}
+                          </p>
+                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border ${
+                            assignment?.isActive ? 'bg-[#B9CF32]/30 text-[#347048] border-[#B9CF32]/40' : 'bg-[#926699]/10 text-[#926699] border-[#926699]/30'
+                          }`}>
+                            {assignment?.isActive ? 'Activa' : 'Inactiva'}
+                          </span>
+                        </div>
+                        {assignment?.notes ? (
+                          <p className="text-[10px] font-bold text-[#347048]/65 mt-1">{String(assignment.notes)}</p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-5 border-t border-[#347048]/10 bg-[#EBE1D8] flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedClientHistory(selectedClientDetail);
+                  setSelectedClientDetail(null);
+                }}
+                className="h-10 px-4 rounded-xl bg-[#347048] text-white text-[10px] font-black uppercase tracking-widest"
+              >
+                Ver historiales
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedClientDetail(null)}
+                className="h-10 px-4 rounded-xl bg-white border border-[#347048]/20 text-[#347048] text-[10px] font-black uppercase tracking-widest"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
       {/* MODAL DETALLE DE DEUDA */}
       {mounted && selectedDebtor && createPortal(
         <div
-          className="fixed inset-0 bg-[#347048]/90 flex items-center justify-center z-[100001] p-4 animate-in fade-in"
+          className="fixed inset-0 bg-[#347048]/60 flex items-center justify-center z-[100001] p-4 animate-in fade-in"
           onMouseDown={(event) => {
             debtBackdropMouseDownRef.current = event.target === event.currentTarget;
           }}
@@ -796,7 +1076,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
       {/* HISTORIAL COMPLETO */}
       {mounted && selectedClientHistory && createPortal(
         <div
-          className="fixed inset-0 bg-[#347048]/90 flex items-center justify-center z-[100002] p-4 animate-in fade-in"
+          className="fixed inset-0 bg-[#347048]/60 flex items-center justify-center z-[100002] p-4 animate-in fade-in"
           onMouseDown={(event) => {
             historyBackdropMouseDownRef.current = event.target === event.currentTarget;
           }}
@@ -852,6 +1132,33 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                   </div>
                 </div>
               </div>
+              <div className="rounded-2xl border border-[#347048]/10 bg-white/80 p-3">
+                <div className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50 mb-2">Historial de reservas</div>
+                {selectedClientBookingsHistory.length > 0 ? (
+                  <div className="space-y-2 max-h-52 overflow-y-auto custom-scrollbar pr-1">
+                    {selectedClientBookingsHistory.map((booking: any) => (
+                      <div key={String(booking.bookingId)} className="bg-white p-3 rounded-xl border border-[#347048]/10">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[12px] font-black text-[#347048]">Reserva #{booking.bookingId}</p>
+                          <span className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full border bg-[#347048]/5 text-[#347048]/80 border-[#347048]/10">
+                            {bookingStatusLabel[booking.status] || booking.status || 'Sin estado'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] font-bold text-[#347048]/70 mt-1">
+                          {formatDate(booking.date)}{booking.time ? ` · ${booking.time}` : ''} · {booking.courtName || '-'}
+                        </p>
+                        <p className="text-[10px] font-black text-[#347048]/45 uppercase tracking-widest mt-1">
+                          Monto: ${Number(booking.amount || 0).toLocaleString()}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-center text-[#347048]/30 font-black py-6 uppercase italic">Sin registros</p>
+                )}
+              </div>
+              <div className="rounded-2xl border border-[#347048]/10 bg-white/80 p-3">
+                <div className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50 mb-2">Historial de cuentas</div>
               {selectedClientHistory.history?.length > 0 ? (
                 selectedClientHistory.history
                   .slice()
@@ -891,7 +1198,8 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                       </div>
                     );
                 })
-              ) : <p className="text-center text-[#347048]/30 font-black py-10 uppercase italic">Sin registros</p>}
+              ) : <p className="text-center text-[#347048]/30 font-black py-6 uppercase italic">Sin registros</p>}
+              </div>
             </div>
             
           </div>

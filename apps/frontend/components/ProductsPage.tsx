@@ -20,7 +20,7 @@ const ModalPortal = ({ children, onClose }: { children: ReactNode, onClose: () =
   
   return createPortal(
   <div
-    className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#347048]/80 p-4 animate-in fade-in duration-200"
+    className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#347048]/60 p-4 animate-in fade-in duration-200"
     onMouseDown={(event) => {
       backdropMouseDownRef.current = event.target === event.currentTarget;
     }}

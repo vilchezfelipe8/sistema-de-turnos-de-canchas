@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { ActivityTypeAdminService } from '../services/ActivityTypeAdminService';
 import { DiscountController } from '../controllers/DiscountController';
 import { ClubServiceCatalogController } from '../controllers/ClubServiceCatalogController';
+import { ClubReviewController } from '../controllers/ClubReviewController';
 
 const router = Router();
 
@@ -49,6 +50,7 @@ const clubController = new ClubController(clubService);
 const activityTypeAdminService = new ActivityTypeAdminService();
 const discountController = new DiscountController();
 const clubServiceCatalogController = new ClubServiceCatalogController();
+const clubReviewController = new ClubReviewController();
 
 // Todas las rutas requieren autenticación, rol ADMIN y verificación de acceso al club
 // El middleware verifyClubAccess agrega req.clubId al request
@@ -434,6 +436,20 @@ router.delete('/:slug/admin/services/:id',
     verifyClubAccess,
     requireRole('ADMIN'),
     clubServiceCatalogController.delete
+);
+
+router.patch('/:slug/admin/reviews/:reviewId/status',
+    authMiddleware,
+    verifyClubAccess,
+    requireRole('ADMIN'),
+    clubReviewController.setStatus
+);
+
+router.get('/:slug/admin/reviews',
+    authMiddleware,
+    verifyClubAccess,
+    requireRole('ADMIN'),
+    clubReviewController.listForAdmin
 );
 
 router.get('/:slug/admin/clients-list',

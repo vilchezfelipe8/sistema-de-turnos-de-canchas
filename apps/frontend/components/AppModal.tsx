@@ -151,7 +151,7 @@ export default function AppModal({
     <div
       role="dialog"
       aria-modal="true"
-      className={`fixed inset-0 ${zIndexClass} bg-[#347048]/85 flex items-center justify-center p-4 animate-in fade-in duration-200`}
+      className={`fixed inset-0 ${zIndexClass} bg-[#347048]/60 flex items-center justify-center p-4 animate-in fade-in duration-200`}
       onMouseDown={(event) => {
         if (!closeOnBackdrop) return;
         backdropMouseDownRef.current = event.target === event.currentTarget;

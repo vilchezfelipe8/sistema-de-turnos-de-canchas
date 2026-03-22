@@ -5,6 +5,7 @@ import { useRouter } from 'next/router';
 import BookingGrid from '../../components/BookingGrid';
 import Navbar from '../../components/NavBar';
 import { ClubService, Club } from '../../services/ClubService';
+import { ClubReviewItem, getClubReviewsSummary, listClubReviews } from '../../services/ClubReviewService';
 import { reportUiError } from '../../utils/uiError';
 import { 
   MapPin, 
@@ -24,12 +25,20 @@ const formatClubAddress = (club: Club) => {
   return [club.addressLine, club.city, club.province, club.country].filter(Boolean).join(', ');
 };
 
+const formatRatingLabel = (value: number) => {
+  const safe = Number(value || 0);
+  if (!Number.isFinite(safe)) return '0';
+  return Number.isInteger(safe) ? String(safe) : safe.toFixed(1);
+};
+
 export default function ClubPage() {
   const router = useRouter();
   const { slug } = router.query;
   const [club, setClub] = useState<Club | null>(null);
   const [loadingClub, setLoadingClub] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reviewsSummary, setReviewsSummary] = useState<{ count: number; averageRating: number }>({ count: 0, averageRating: 0 });
+  const [reviews, setReviews] = useState<ClubReviewItem[]>([]);
   
   // 👉 1. Estado para el botón de compartir
   const [isCopied, setIsCopied] = useState(false);
@@ -55,6 +64,28 @@ export default function ClubPage() {
     };
 
     loadClub();
+  }, [slug]);
+
+  useEffect(() => {
+    const loadReviews = async () => {
+      if (!slug || typeof slug !== 'string') return;
+      try {
+        const [summary, list] = await Promise.all([
+          getClubReviewsSummary(slug),
+          listClubReviews(slug, { take: 6 })
+        ]);
+        setReviewsSummary({
+          count: Number(summary?.count || 0),
+          averageRating: Number(summary?.averageRating || 0)
+        });
+        setReviews(Array.isArray(list?.items) ? list.items : []);
+      } catch (error) {
+        reportUiError({ area: 'ClubPage', action: 'loadClubReviews' }, error);
+        setReviewsSummary({ count: 0, averageRating: 0 });
+        setReviews([]);
+      }
+    };
+    loadReviews();
   }, [slug]);
 
   // 👉 2. Función que copia la URL
@@ -182,18 +213,14 @@ export default function ClubPage() {
 
               {/* NOMBRE E INFO */}
               <div className="flex-1 py-2">
-                <div className="flex items-center justify-center md:justify-start gap-3 mb-3">
-                  <span className="bg-[#B9CF32] text-[#347048] px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-1">
-                    Club Verificado
-                  </span>
-                  <div className="flex items-center gap-1 text-[#EBE1D8] text-xs font-bold">
+                {reviewsSummary.count > 0 && (
+                  <div className="flex items-center justify-center md:justify-start gap-1 text-[#EBE1D8] text-xs font-bold mb-3">
                     <span className="flex items-center gap-1">
-                      <Star size={14} className="text-[#B9CF32]" /> 4.9
+                      <Star size={14} className="text-[#B9CF32]" /> {formatRatingLabel(reviewsSummary.averageRating)}
                     </span>
-                    <span className="opacity-50">(120 reseñas)</span>
+                    <span className="opacity-70">({reviewsSummary.count} reseñas)</span>
                   </div>
-                </div>
-
+                )}
                 <h1 className="text-4xl md:text-5xl lg:text-6xl font-black text-[#EBE1D8] italic tracking-tighter leading-[0.9] mb-4 drop-shadow-lg">
                   {club.name}
                 </h1>
@@ -287,6 +314,30 @@ export default function ClubPage() {
                       <span>{club.instagramUrl.replace(/^https?:\/\/(www\.)?(instagram\.com\/)?/, '@')}</span>
                     </a>
                   )}
+                </div>
+              </div>
+            )}
+
+            {reviewsSummary.count > 0 && (
+              <div className="bg-white/10 border border-white/20 rounded-3xl p-5 backdrop-blur">
+                <h3 className="text-lg font-bold text-[#D4C5B0] mb-4">Reseñas</h3>
+                <div className="mb-3 text-sm font-bold text-[#D4C5B0]">
+                  {formatRatingLabel(reviewsSummary.averageRating)} / 5 · {reviewsSummary.count} reseñas
+                </div>
+                <div className="space-y-3">
+                  {reviews.slice(0, 3).map((review) => (
+                    <div key={review.id} className="rounded-2xl bg-white/10 border border-white/10 p-3">
+                      <div className="flex items-center justify-between gap-3 mb-1">
+                        <p className="text-xs font-black text-[#D4C5B0] uppercase tracking-widest truncate">{review.user.name}</p>
+                        <p className="text-xs font-black text-[#B9CF32]">{formatRatingLabel(Number(review.rating || 0))} / 5</p>
+                      </div>
+                      {review.comment ? (
+                        <p className="text-sm text-[#D4C5B0]/90 leading-relaxed">{review.comment}</p>
+                      ) : (
+                        <p className="text-sm text-[#D4C5B0]/60 italic">Sin comentario</p>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
