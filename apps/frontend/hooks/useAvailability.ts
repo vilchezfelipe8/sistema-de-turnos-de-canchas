@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getApiUrl } from '../utils/apiUrl';
 import { extractErrorMessage, reportUiError } from '../utils/uiError';
 import { getToken } from '../services/AuthService';
@@ -30,11 +30,24 @@ export function useAvailability(
   const [slotsWithCourts, setSlotsWithCourts] = useState<SlotWithCourts[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const apiBase = `${getApiUrl()}/api`;
 
   const fetchSlots = useCallback(async () => {
-    if (!date) return;
+    if (!date) {
+      setSlotsWithCourts([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const requestId = ++requestIdRef.current;
+
     setLoading(true);
     setError(null);
 
@@ -67,27 +80,61 @@ export function useAvailability(
         `${apiBase}/bookings/availability-with-courts?activityId=${Number(activityId)}&date=${dateString}&t=${timestamp}${clubParam}${durationParam}`,
         {
             cache: 'no-store',
-            headers
+            headers,
+            signal: controller.signal
         }
       );
 
-      if (!res.ok) throw new Error('Error al cargar turnos');
+      if (!res.ok) {
+        let backendMessage = 'Error al cargar turnos';
+        try {
+          const errorPayload = await res.json();
+          const parsedError =
+            typeof errorPayload?.error === 'string'
+              ? errorPayload.error
+              : typeof errorPayload?.message === 'string'
+                ? errorPayload.message
+                : null;
+          if (parsedError) {
+            backendMessage = parsedError;
+          }
+        } catch {
+          // noop: fallback to generic message
+        }
+        throw new Error(backendMessage);
+      }
 
       const data: AvailabilityResponse = await res.json();
+      if (requestId !== requestIdRef.current || controller.signal.aborted) {
+        return;
+      }
       setSlotsWithCourts(data.slotsWithCourts);
+      setError(null);
 
     } catch (err) {
+      if (controller.signal.aborted || requestId !== requestIdRef.current) {
+        return;
+      }
       const message = extractErrorMessage(err, 'Error al cargar turnos');
       reportUiError({ area: 'useAvailability', action: 'fetchSlots' }, err);
+      setSlotsWithCourts([]);
       setError(message);
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+      }
     }
   }, [date, activityId, apiBase, clubSlug, durationMinutes]);
 
   useEffect(() => {
     fetchSlots();
   }, [fetchSlots]);
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   return {
     slotsWithCourts,

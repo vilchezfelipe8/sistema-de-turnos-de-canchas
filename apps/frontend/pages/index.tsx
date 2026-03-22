@@ -908,7 +908,6 @@ export default function Home() {
               <span className="truncate">{selectedSport.label}</span>
             </div>
           </div>
-          <ChevronRight size={14} className="text-[#B9CF32] transition-transform group-hover:translate-x-0.5" />
         </div>
 
        {showSportDropdown && (
@@ -934,7 +933,7 @@ export default function Home() {
               setSearchSport(sport.value);
               setShowSportDropdown(false);
             }}
-            className="px-6 py-3.5 hover:bg-[#347048]/5 cursor-pointer flex items-center justify-between group transition-colors border-b border-[#347048]/5 last:border-0"
+            className="px-6 py-3.5 hover:bg-[#347048]/5 cursor-pointer flex items-center transition-colors border-b border-[#347048]/5 last:border-0"
           >
             <div className="flex items-center gap-4">
               {/* CÍRCULO DEL ÍCONO CON COLOR DINÁMICO */}
@@ -954,8 +953,6 @@ export default function Home() {
               </span>
             </div>
 
-            {/* Dejé el chevron que tenías porque es un lindo detalle de UX al hacer hover */}
-            <ChevronRight size={16} className="text-[#B9CF32] opacity-0 group-hover:opacity-100 transition-all transform group-hover:translate-x-1" />
           </li>
         );
       })}
