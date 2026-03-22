@@ -478,8 +478,13 @@ export const searchClients = async (slug: string, query: string) => {
     });
 
     if (!res.ok) {
-        return [];
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.error || error.message || 'No se pudo buscar clientes');
     }
 
-    return res.json();
+    const payload = await res.json();
+    if (!Array.isArray(payload)) {
+      throw new Error('Respuesta inválida: clients-list debe devolver un arreglo');
+    }
+    return payload;
 };

@@ -620,7 +620,10 @@ export default function AdminTabBookings() {
           const currentSlug = getClubSlug();
           if (!currentSlug) return; 
           const results = await searchClients(currentSlug, value);
-          setSearchResults(results || []);
+          if (!Array.isArray(results)) {
+            throw new Error('Respuesta inválida al buscar clientes');
+          }
+          setSearchResults(results);
           setShowDropdown(true);
         } catch (error) {
           reportUiError({ area: 'AdminTabBookings', action: 'searchClients' }, error);
@@ -631,21 +634,22 @@ export default function AdminTabBookings() {
   };
 
   const selectClient = (client: any) => {
-    let fName = client.firstName || '';
-    let lName = client.lastName || '';
-    if (!lName && fName.includes(' ')) {
-      const parts = fName.split(' ');
+    const rawName = String(client?.name || '').trim();
+    let fName = rawName;
+    let lName = '';
+    if (rawName.includes(' ')) {
+      const parts = rawName.split(' ');
       fName = parts[0];
       lName = parts.slice(1).join(' ');
     }
-    let rawPhone = client.phoneNumber || client.phone || client.celular || '';
+    let rawPhone = String(client?.phone || '').trim();
     if (rawPhone) { rawPhone = rawPhone.toString().replace(/^(\+?549)/, ''); }
     setManualBooking({
       ...manualBooking,
       guestFirstName: fName,
       guestLastName: lName,
       guestPhone: rawPhone,
-      guestDni: client.dni || client.dniNumber || client.document || ''
+      guestDni: String(client?.dni || '').trim()
     });
     setSelectedClientIsProfessor(Boolean(client.isProfessor));
     setShowDropdown(false);
@@ -953,8 +957,8 @@ export default function AdminTabBookings() {
   useEffect(() => {
     const showReservationDetailFromBooking = (booking: any, fallbackSlotTime?: string, fallbackCourtName?: string) => {
       const entity = booking?.booking ?? booking;
-      const rawStart = entity?.startDateTime ?? entity?.start ?? null;
-      const start = rawStart ? new Date(rawStart) : (fallbackSlotTime ? new Date(`${scheduleDate}T${fallbackSlotTime}:00`) : null);
+      const rawStart = entity?.startDateTime ?? null;
+      const start = rawStart ? new Date(rawStart) : null;
       if (!start || Number.isNaN(start.getTime())) return;
 
       const explicitDuration = Number(entity?.durationMinutes || 0);
@@ -1138,7 +1142,6 @@ export default function AdminTabBookings() {
     } else if (booking?.activity?.defaultDurationMinutes) {
       endDate = new Date(startDate.getTime() + Number(booking.activity.defaultDurationMinutes) * 60000);
     } else if (booking?.fixedBooking) {
-      // Soporta tanto payload legacy HH:MM como el esquema actual en minutos.
       try {
         let sM: number | null = null;
         let eM: number | null = null;
@@ -1146,13 +1149,6 @@ export default function AdminTabBookings() {
         if (Number.isFinite(Number(booking.fixedBooking.startTimeMinutes)) && Number.isFinite(Number(booking.fixedBooking.endTimeMinutes))) {
           sM = Number(booking.fixedBooking.startTimeMinutes);
           eM = Number(booking.fixedBooking.endTimeMinutes);
-        } else if (booking.fixedBooking.startTime && booking.fixedBooking.endTime) {
-          const s = String(booking.fixedBooking.startTime).split(':').map(Number);
-          const e = String(booking.fixedBooking.endTime).split(':').map(Number);
-          if (s.length === 2 && e.length === 2) {
-            sM = s[0] * 60 + s[1];
-            eM = e[0] * 60 + e[1];
-          }
         }
 
         if (sM !== null && eM !== null) {
@@ -1252,7 +1248,7 @@ export default function AdminTabBookings() {
         if (manualBooking.isFixed) {
           await submitFixedBooking(false);
         } else {
-            const guestData = { name: guestName, phone: phoneToSend, dni: dni, document: dni, dniNumber: dni };
+            const guestData = { name: guestName, phone: phoneToSend, dni };
             const createdBooking = await createBooking(
               Number(manualBooking.courtId),
               selectedActivityId,
@@ -1554,11 +1550,11 @@ export default function AdminTabBookings() {
                       {searchResults.map((client) => (
                           <li key={client.id} onClick={() => selectClient(client)}
                               className="px-4 py-3 hover:bg-[#B9CF32]/20 cursor-pointer text-[#347048] border-b border-[#347048]/5 last:border-0 transition-colors">
-                              <div className="font-black text-sm">{client.firstName} {client.lastName}</div>
+                              <div className="font-black text-sm">{String(client?.name || 'Cliente')}</div>
                               <div className="text-[10px] font-bold text-[#347048]/60 flex gap-3 mt-1 uppercase">
-                                  {client.phoneNumber && (
+                                  {client.phone && (
                                     <span className="flex items-center gap-1">
-                                      <Phone size={12} strokeWidth={2.5} /> {client.phoneNumber}
+                                      <Phone size={12} strokeWidth={2.5} /> {client.phone}
                                     </span>
                                   )}
                                   {client.dni && (

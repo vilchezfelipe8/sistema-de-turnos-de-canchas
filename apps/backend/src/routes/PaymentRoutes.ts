@@ -18,6 +18,5 @@ router.post('/refunds/:refundId/retry', paymentLimiter, authMiddleware, setAdmin
 router.post('/refunds/:refundId/cancel', paymentLimiter, authMiddleware, setAdminClubFromUser, requireRole('ADMIN'), paymentController.cancelRefund);
 router.post('/', paymentLimiter, authMiddleware, setAdminClubFromUser, requireRole('ADMIN'), paymentController.create);
 router.post('/:id/refunds/request', paymentLimiter, authMiddleware, setAdminClubFromUser, requireRole('ADMIN'), paymentController.requestRefund);
-router.post('/:id/refunds', paymentLimiter, authMiddleware, setAdminClubFromUser, requireRole('ADMIN'), paymentController.refund);
 
 export default router;

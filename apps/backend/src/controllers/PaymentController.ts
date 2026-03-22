@@ -93,44 +93,6 @@ export class PaymentController {
     }
   };
 
-  refund = async (req: Request, res: Response) => {
-    try {
-      const paramsSchema = z.object({
-        id: z.string().trim().min(1)
-      });
-      const bodySchema = z.object({
-        amount: z.preprocess((v) => Number(v), z.number().positive()),
-        reason: z.string().trim().max(300).optional(),
-        reasonType: refundReasonTypeEnum.optional(),
-        executionMethod: refundExecutionMethodEnum.optional(),
-        executionNotes: z.string().trim().max(500).optional(),
-        cashShiftId: z.string().trim().min(1).optional()
-      });
-
-      const paramsParsed = paramsSchema.safeParse(req.params);
-      const bodyParsed = bodySchema.safeParse(req.body);
-      if (!paramsParsed.success) return res.status(400).json({ error: paramsParsed.error.format() });
-      if (!bodyParsed.success) return res.status(400).json({ error: bodyParsed.error.format() });
-
-      const clubId = Number((req as any).clubId);
-      const refund = await this.refundService.refundPayment({
-        clubId,
-        paymentId: paramsParsed.data.id,
-        amount: bodyParsed.data.amount,
-        reason: bodyParsed.data.reason,
-        reasonType: bodyParsed.data.reasonType,
-        executionMethod: bodyParsed.data.executionMethod,
-        executionNotes: bodyParsed.data.executionNotes,
-        cashShiftId: bodyParsed.data.cashShiftId,
-        createdByUserId: this.resolveActorUserId(req)
-      });
-
-      return res.status(201).json(mapRefundDto(refund));
-    } catch (error: any) {
-      return res.status(400).json({ error: error.message || 'Error al registrar devolucion' });
-    }
-  };
-
   requestRefund = async (req: Request, res: Response) => {
     try {
       const paramsSchema = z.object({

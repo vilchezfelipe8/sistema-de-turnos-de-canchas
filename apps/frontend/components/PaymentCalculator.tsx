@@ -23,6 +23,12 @@ export type PaymentCalculatorResult = {
 export interface PaymentCalculatorProps {
   courtPending: number;
   courtBaseTotal?: number;
+  courtBreakdown?: {
+    baseAmount: number;
+    lightsExtraAmount: number;
+    totalAmount: number;
+    lightsFromHour?: string | null;
+  };
   cartItems: PaymentCalculatorItem[];
   alreadyPaid: number;
   grandTotal: number;
@@ -35,6 +41,7 @@ export interface PaymentCalculatorProps {
 export default function PaymentCalculator({
   courtPending,
   courtBaseTotal,
+  courtBreakdown,
   cartItems,
   alreadyPaid,
   grandTotal,
@@ -61,6 +68,14 @@ export default function PaymentCalculator({
 
   const safeCourtPending = Math.max(0, Number(courtPending || 0));
   const safeCourtBaseTotal = Math.max(0, Number(courtBaseTotal ?? courtPending ?? 0));
+  const hasCourtBreakdown =
+    Boolean(courtBreakdown) &&
+    Number.isFinite(Number(courtBreakdown?.totalAmount || 0)) &&
+    Number(courtBreakdown?.totalAmount || 0) > 0;
+  const breakdownBase = hasCourtBreakdown ? Number(courtBreakdown?.baseAmount || 0) : 0;
+  const breakdownLights = hasCourtBreakdown ? Number(courtBreakdown?.lightsExtraAmount || 0) : 0;
+  const breakdownTotal = hasCourtBreakdown ? Number(courtBreakdown?.totalAmount || 0) : 0;
+  const breakdownFromHour = hasCourtBreakdown && courtBreakdown?.lightsFromHour ? String(courtBreakdown.lightsFromHour) : null;
   const quarterBase = safeCourtBaseTotal / 4;
   const halfBase = safeCourtBaseTotal / 2;
   const canSelectQuarter = quarterBase <= safeCourtPending + 0.01;
@@ -287,6 +302,25 @@ export default function PaymentCalculator({
             {safeCourtPending > 0 && (
               <div className="p-3 bg-[#347048]/5 rounded-xl border border-[#347048]/10">
                 <div className="text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2">Alquiler de cancha</div>
+                {hasCourtBreakdown ? (
+                  <div className="mb-3 rounded-lg border border-[#347048]/10 bg-white/70 px-2 py-2 text-[10px] font-black uppercase tracking-widest">
+                    <div className="flex items-center justify-between text-[#347048]/70">
+                      <span>Cancha base</span>
+                      <span>${breakdownBase.toLocaleString()}</span>
+                    </div>
+                    <div className={`mt-1 flex items-center justify-between ${breakdownLights > 0.009 ? 'text-amber-700' : 'text-[#347048]/55'}`}>
+                      <span>Recargo luces</span>
+                      <span>
+                        {breakdownLights > 0.009 ? `+$${breakdownLights.toLocaleString()}` : '$0'}
+                        {breakdownFromHour ? ` (desde ${breakdownFromHour})` : ''}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between text-[#347048]">
+                      <span>Total cancha</span>
+                      <span>${breakdownTotal.toLocaleString()}</span>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="grid grid-cols-2 gap-2 mb-2">
                   <button
                     type="button"

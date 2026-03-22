@@ -495,6 +495,16 @@ export default function BookingConsumption(
         <PaymentCalculator
           courtPending={courtPriceToPay}
           courtBaseTotal={courtTotal}
+          courtBreakdown={
+            lightsExtra > 0
+              ? {
+                  baseAmount: Number(courtBaseWithoutLights || 0),
+                  lightsExtraAmount: Number(lightsExtra || 0),
+                  totalAmount: Number(courtTotal || 0),
+                  lightsFromHour: null
+                }
+              : undefined
+          }
           cartItems={cartItems.filter((item) => item.isNew).map((item) => ({
             id: item.id,
             tempId: item.tempId,

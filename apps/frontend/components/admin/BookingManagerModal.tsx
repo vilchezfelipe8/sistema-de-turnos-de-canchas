@@ -338,7 +338,7 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
     : null;
   const lightsSurchargeAmount = Number(summary?.pricingBreakdown?.lightsExtraAmount || 0);
   const courtBaseWithoutLights = Number(summary?.pricingBreakdown?.courtBaseAmount || 0);
-  const lightsDetailVisible = hasPricingBreakdown && (lightsEnabled || lightsSurchargeAmount > 0.009);
+  const lightsSurchargeVisible = hasPricingBreakdown && lightsSurchargeAmount > 0.009;
   const hasBookingChargeItem = Boolean(bookingChargeItemId);
   const remainingCourt = hasBookingChargeItem
     ? Math.max(0, Number(bookingChargeRemaining || 0))
@@ -723,11 +723,9 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
                       Políticas: {bookingDiscountPolicies.join(', ')}
                     </p>
                   ) : null}
-                  {lightsDetailVisible ? (
-                    <p className={`text-[9px] font-black uppercase tracking-widest mt-1 ${summaryLightsApplies ? 'text-amber-700' : 'text-[#347048]/55'}`}>
-                      {lightsSurchargeAmount > 0.009
-                        ? `Recargo luces aplicado: +${formatMoney(lightsSurchargeAmount)}${lightsFromHourLabel ? ` (desde ${lightsFromHourLabel})` : ''}`
-                        : `Luces configuradas${lightsFromHourLabel ? ` desde ${lightsFromHourLabel}` : ''}: este turno no aplica recargo`}
+                  {lightsSurchargeVisible ? (
+                    <p className="text-[9px] font-black uppercase tracking-widest mt-1 text-amber-700">
+                      {`Recargo luces aplicado: +${formatMoney(lightsSurchargeAmount)}${lightsFromHourLabel ? ` (desde ${lightsFromHourLabel})` : ''}`}
                     </p>
                   ) : null}
                   {lightsSurchargeAmount > 0.009 ? (
@@ -927,18 +925,17 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
                 ) : null}
               </div>
 
-              {lightsDetailVisible ? (
+              {lightsSurchargeVisible ? (
                 <>
                   <div className="flex items-center justify-between text-[11px] font-black uppercase tracking-widest text-[#347048]/70">
                     <span>Cancha base</span>
-                    <span>{formatMoney(lightsSurchargeAmount > 0.009 ? courtBaseWithoutLights : courtTotal)}</span>
+                    <span>{formatMoney(courtBaseWithoutLights)}</span>
                   </div>
-                  <div className={`flex items-center justify-between text-[10px] font-black uppercase tracking-widest ${lightsSurchargeAmount > 0.009 ? 'text-amber-700' : 'text-[#347048]/55'}`}>
+                  <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-amber-700">
                     <span>Recargo luces</span>
                     <span>
-                      {lightsSurchargeAmount > 0.009 ? `+${formatMoney(lightsSurchargeAmount)}` : formatMoney(0)}
+                      +{formatMoney(lightsSurchargeAmount)}
                       {lightsFromHourLabel ? ` (desde ${lightsFromHourLabel})` : ''}
-                      {lightsSurchargeAmount <= 0.009 ? ' - no aplica' : ''}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-[11px] font-black uppercase tracking-widest text-[#347048]/70">
@@ -1001,13 +998,12 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
                       <span className="text-[#347048]/60">Final estimado</span>
                       <span>{formatMoney(Number(confirmationQuote.finalPrice || 0))}</span>
                     </div>
-                    {lightsDetailVisible ? (
-                      <div className={`flex items-center justify-between ${summaryLightsApplies ? 'text-amber-700' : 'text-[#347048]/55'}`}>
+                    {lightsSurchargeVisible ? (
+                      <div className="flex items-center justify-between text-amber-700">
                         <span>Recargo luces</span>
                         <span>
-                          {lightsSurchargeAmount > 0.009 ? `+${formatMoney(lightsSurchargeAmount)}` : formatMoney(0)}
+                          +{formatMoney(lightsSurchargeAmount)}
                           {lightsFromHourLabel ? ` (desde ${lightsFromHourLabel})` : ''}
-                          {lightsSurchargeAmount <= 0.009 ? ' - no aplica' : ''}
                         </span>
                       </div>
                     ) : null}
@@ -1115,6 +1111,16 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
         <PaymentCalculator
           courtPending={remainingCourt}
           courtBaseTotal={courtTotal}
+          courtBreakdown={
+            lightsSurchargeVisible
+              ? {
+                  baseAmount: Number(courtBaseWithoutLights || 0),
+                  lightsExtraAmount: Number(lightsSurchargeAmount || 0),
+                  totalAmount: Number(courtTotal || 0),
+                  lightsFromHour: lightsFromHourLabel
+                }
+              : undefined
+          }
           cartItems={payableItems
             .filter((item) => {
               if (item.isNew) return true;

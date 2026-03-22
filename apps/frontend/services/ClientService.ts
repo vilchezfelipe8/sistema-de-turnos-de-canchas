@@ -11,8 +11,15 @@ export class ClientService {
       { method: 'GET' }
     );
 
-    if (!res.ok) return [];
-    return res.json();
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudo buscar clientes');
+    }
+    const payload = await res.json();
+    if (!Array.isArray(payload)) {
+      throw new Error('Respuesta inválida: clients-list debe devolver un arreglo');
+    }
+    return payload;
   }
 
   static async listDebtors(
@@ -30,10 +37,15 @@ export class ClientService {
       { method: 'GET' }
     );
 
-    if (!res.ok) return [];
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudo obtener clientes');
+    }
 
     const rows = await res.json();
-    if (!Array.isArray(rows)) return [];
+    if (!Array.isArray(rows)) {
+      throw new Error('Respuesta inválida: /clients debe devolver un arreglo');
+    }
 
     return rows.map((client: any) => ({
       id: client.id,

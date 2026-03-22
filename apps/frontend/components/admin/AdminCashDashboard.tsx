@@ -433,32 +433,60 @@ const AdminCashDashboard = () => {
       const data = await CashService.getSummary({ startDate, endDate });
       if (data && data.balance) setBalance(data.balance);
       if (data && data.movements) {
-        const normalizedMovements: Movement[] = (Array.isArray(data.movements) ? data.movements : []).map((movement: any) => ({
-          id: Number(movement?.id || 0),
-          date: String(movement?.createdAt || movement?.date || new Date().toISOString()),
-          type: movement?.type === 'PAYMENT_IN' || movement?.type === 'DEPOSIT' || movement?.type === 'INCOME' ? 'INCOME' : 'EXPENSE',
-          amount: Number(movement?.amount || 0),
-          description: String(movement?.concept || movement?.description || 'Movimiento'),
-          method: movement?.method === 'CASH' ? 'CASH' : movement?.method === 'CARD' ? 'CARD' : 'TRANSFER',
-          channel: movement?.channel ?? movement?.payment?.channel ?? movement?.refund?.payment?.channel ?? null,
-          sourceType: movement?.sourceType ?? movement?.payment?.account?.sourceType ?? null,
-          sourceId: movement?.sourceId ?? movement?.payment?.account?.sourceId ?? null,
-          accountId: movement?.accountId ?? movement?.payment?.account?.id ?? null,
-          bookingAmount: Number(movement?.bookingAmount || 0),
-          barAmount: Number(movement?.barAmount || 0),
-          paymentId: movement?.paymentId ?? movement?.payment?.id ?? movement?.refund?.payment?.id ?? movement?.refund?.paymentId ?? null,
-          refundId: movement?.refundId ?? movement?.refund?.id ?? null,
-          booking: movement?.booking ?? null,
-          allocations: ((movement?.payment?.allocations || movement?.refund?.payment?.allocations || []) as any[]).map((allocation: any) => ({
-            accountItemId: String(allocation?.accountItemId || ''),
-            amount: Number(allocation?.amount || 0),
-            type: allocation?.accountItem?.type ?? null,
-            description: allocation?.accountItem?.description ?? null,
-            quantity: Number(allocation?.accountItem?.quantity || 0),
-            unitPrice: Number(allocation?.accountItem?.unitPrice || 0),
-            total: Number(allocation?.accountItem?.total || 0)
-          }))
-        }));
+        const normalizedMovements: Movement[] = (Array.isArray(data.movements) ? data.movements : []).map((movement: any) => {
+          const id = Number(movement?.id);
+          const createdAt = movement?.createdAt;
+          const rawType = String(movement?.type || '');
+          const rawMethod = String(movement?.method || '');
+          const amount = Number(movement?.amount);
+          const concept = movement?.concept;
+
+          if (!Number.isFinite(id) || id <= 0) {
+            throw new Error('Respuesta inválida de caja: movement.id es obligatorio.');
+          }
+          if (typeof createdAt !== 'string' || !createdAt.trim()) {
+            throw new Error('Respuesta inválida de caja: movement.createdAt es obligatorio.');
+          }
+          if (!['PAYMENT_IN', 'DEPOSIT', 'REFUND', 'WITHDRAW', 'INCOME', 'EXPENSE'].includes(rawType)) {
+            throw new Error(`Respuesta inválida de caja: movement.type inválido (${rawType || 'N/A'}).`);
+          }
+          if (!['CASH', 'CARD', 'TRANSFER'].includes(rawMethod)) {
+            throw new Error(`Respuesta inválida de caja: movement.method inválido (${rawMethod || 'N/A'}).`);
+          }
+          if (!Number.isFinite(amount) || amount < 0) {
+            throw new Error('Respuesta inválida de caja: movement.amount es obligatorio y debe ser >= 0.');
+          }
+          if (typeof concept !== 'string' || !concept.trim()) {
+            throw new Error('Respuesta inválida de caja: movement.concept es obligatorio.');
+          }
+
+          return {
+            id,
+            date: createdAt,
+            type: rawType === 'PAYMENT_IN' || rawType === 'DEPOSIT' || rawType === 'INCOME' ? 'INCOME' : 'EXPENSE',
+            amount,
+            description: concept,
+            method: rawMethod as 'CASH' | 'CARD' | 'TRANSFER',
+            channel: movement?.channel ?? null,
+            sourceType: movement?.sourceType ?? null,
+            sourceId: movement?.sourceId ?? null,
+            accountId: movement?.accountId ?? null,
+            bookingAmount: Number(movement?.bookingAmount || 0),
+            barAmount: Number(movement?.barAmount || 0),
+            paymentId: movement?.paymentId ?? null,
+            refundId: movement?.refundId ?? null,
+            booking: movement?.booking ?? null,
+            allocations: (Array.isArray(movement?.payment?.allocations) ? movement.payment.allocations : []).map((allocation: any) => ({
+              accountItemId: String(allocation?.accountItemId || ''),
+              amount: Number(allocation?.amount || 0),
+              type: allocation?.accountItem?.type ?? null,
+              description: allocation?.accountItem?.description ?? null,
+              quantity: Number(allocation?.accountItem?.quantity || 0),
+              unitPrice: Number(allocation?.accountItem?.unitPrice || 0),
+              total: Number(allocation?.accountItem?.total || 0)
+            }))
+          };
+        });
 
         setMovements(normalizedMovements);
       }
@@ -550,7 +578,10 @@ const AdminCashDashboard = () => {
         const slug = searchClubSlug || await resolveClubSlug();
         if (!slug) return;
         const results = await searchClients(slug, value);
-        setSearchResults(results || []);
+        if (!Array.isArray(results)) {
+          throw new Error('Respuesta inválida al buscar clientes');
+        }
+        setSearchResults(results);
         setShowDropdown(true);
       } catch (error) {
         reportUiError({ area: 'AdminCashDashboard', action: 'searchClients' }, error);
@@ -560,9 +591,9 @@ const AdminCashDashboard = () => {
   };
 
   const selectClient = (client: any) => {
-    const fullName = `${client.firstName || ''} ${client.lastName || ''}`.trim();
+    const fullName = String(client?.name || '').trim();
     setSelectedClient(client);
-    setProductSale((prev) => ({ ...prev, clientQuery: fullName || client.firstName || '', guestPhone: '', guestDni: '', guestEmail: '', guestIsProfessor: false }));
+    setProductSale((prev) => ({ ...prev, clientQuery: fullName || '', guestPhone: '', guestDni: '', guestEmail: '', guestIsProfessor: false }));
     setCreateClientIfMissing(false);
     setNewClientDraft({ name: '', phone: '', dni: '', email: '', isProfessor: false });
     setShowDropdown(false);
@@ -750,10 +781,10 @@ const AdminCashDashboard = () => {
         clientId: selectedClient?.id ? String(selectedClient.id) : undefined,
         createClientIfMissing: !selectedClient && createClientIfMissing,
         guestName: selectedClient
-          ? `${selectedClient.firstName || ''} ${selectedClient.lastName || ''}`.trim()
+          ? String(selectedClient?.name || '').trim()
           : (createClientIfMissing ? fallbackGuestName : undefined),
-        guestPhone: selectedClient?.phoneNumber || selectedClient?.phone || (createClientIfMissing ? fallbackGuestPhone : undefined),
-        guestDni: selectedClient?.dni || selectedClient?.dniNumber || selectedClient?.document || (createClientIfMissing ? fallbackGuestDni : undefined),
+        guestPhone: selectedClient?.phone || (createClientIfMissing ? fallbackGuestPhone : undefined),
+        guestDni: selectedClient?.dni || (createClientIfMissing ? fallbackGuestDni : undefined),
         guestEmail: selectedClient?.email || (createClientIfMissing ? fallbackGuestEmail : undefined),
         guestIsProfessor: createClientIfMissing ? fallbackGuestIsProfessor : undefined
       });
@@ -953,10 +984,10 @@ const AdminCashDashboard = () => {
           clientId: selectedClient?.id ? String(selectedClient.id) : undefined,
           createClientIfMissing: !selectedClient && createClientIfMissing,
           guestName: selectedClient
-            ? `${selectedClient.firstName || ''} ${selectedClient.lastName || ''}`.trim()
+            ? String(selectedClient?.name || '').trim()
             : (createClientIfMissing ? fallbackGuestName : undefined),
-          guestPhone: selectedClient?.phoneNumber || selectedClient?.phone || (createClientIfMissing ? fallbackGuestPhone : undefined),
-          guestDni: selectedClient?.dni || selectedClient?.dniNumber || selectedClient?.document || (createClientIfMissing ? fallbackGuestDni : undefined),
+          guestPhone: selectedClient?.phone || (createClientIfMissing ? fallbackGuestPhone : undefined),
+          guestDni: selectedClient?.dni || (createClientIfMissing ? fallbackGuestDni : undefined),
           guestEmail: selectedClient?.email || (createClientIfMissing ? fallbackGuestEmail : undefined),
           guestIsProfessor: createClientIfMissing ? fallbackGuestIsProfessor : undefined
         });
@@ -1634,11 +1665,11 @@ const AdminCashDashboard = () => {
                       onClick={() => selectClient(client)}
                       className="px-4 py-3 hover:bg-[#B9CF32]/20 cursor-pointer text-[#347048] border-b border-[#347048]/5 last:border-0 transition-colors"
                     >
-                      <div className="font-black text-sm">{client.firstName} {client.lastName}</div>
+                      <div className="font-black text-sm">{String(client?.name || 'Cliente')}</div>
                       <div className="text-[10px] font-bold text-[#347048]/60 flex gap-3 mt-1 uppercase">
-                        {client.phoneNumber && (
+                        {client.phone && (
                           <span className="flex items-center gap-1">
-                            <Phone size={12} strokeWidth={2.5} /> {client.phoneNumber}
+                            <Phone size={12} strokeWidth={2.5} /> {client.phone}
                           </span>
                         )}
                         {client.dni && (
@@ -1653,7 +1684,7 @@ const AdminCashDashboard = () => {
               )}
               {selectedClient && (
                 <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-[#347048]/60">
-                  Cliente seleccionado: {selectedClient.firstName} {selectedClient.lastName}
+                  Cliente seleccionado: {String(selectedClient?.name || '')}
                 </p>
               )}
               {!selectedClient && (

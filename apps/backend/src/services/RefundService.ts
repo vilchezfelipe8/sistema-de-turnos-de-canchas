@@ -784,22 +784,6 @@ export class RefundService {
     return prisma.$transaction((tx) => this.retryRefundTx(tx, input));
   }
 
-  async refundPayment(input: RefundPaymentInput) {
-    // Backward-compatible path used by current API endpoint.
-    return this.requestRefund({
-      ...input,
-      executeNow: true
-    });
-  }
-
-  async refundPaymentTx(tx: TxClient, input: RefundPaymentInput) {
-    // Backward-compatible transactional path used by booking cancellation.
-    return this.requestRefundTx(tx, {
-      ...input,
-      executeNow: true
-    });
-  }
-
   async refundBookingPaymentsTx(tx: TxClient, input: {
     bookingId: number;
     clubId: number;

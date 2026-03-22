@@ -204,9 +204,8 @@ export class ClubService {
 
         return clients.map((client) => ({
             id: client.id,
-            firstName: client.name,
-            lastName: '',
-            phoneNumber: client.phone || '',
+            name: client.name,
+            phone: client.phone || '',
             email: client.email || '',
             dni: client.dni || '',
             isProfessor: Boolean(client.isProfessor)
