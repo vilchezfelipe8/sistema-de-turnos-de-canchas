@@ -99,10 +99,9 @@ type DiscountPolicyView = {
 
 type ClientSearchResult = {
   id: string;
-  firstName?: string;
-  lastName?: string;
+  name?: string;
   email?: string;
-  phoneNumber?: string;
+  phone?: string;
   dni?: string;
 };
 
@@ -1357,7 +1356,7 @@ export default function AdminTabClub() {
   const handleSelectDiscountClient = async (client: ClientSearchResult) => {
     if (!club) return;
     setSelectedDiscountClient(client);
-    setClientSearch(`${String(client.firstName || '').trim()} ${String(client.lastName || '').trim()}`.trim() || String(client.id));
+    setClientSearch(String(client.name || '').trim() || String(client.id));
     setShowClientSearchDropdown(false);
     await loadClientAssignments(club.slug, client.id);
   };
@@ -2695,7 +2694,7 @@ export default function AdminTabClub() {
                       {showClientSearchDropdown && clientSearchResults.length > 0 ? (
                         <div className="absolute z-[120] mt-2 w-full max-h-56 overflow-auto rounded-xl border border-white/70 bg-white shadow-xl">
                           {clientSearchResults.map((client) => {
-                            const fullName = `${String(client.firstName || '').trim()} ${String(client.lastName || '').trim()}`.trim() || 'Sin nombre';
+                            const fullName = String(client.name || '').trim() || 'Sin nombre';
                             return (
                               <button
                                 type="button"
@@ -2717,7 +2716,7 @@ export default function AdminTabClub() {
                     {selectedDiscountClient ? (
                       <div className="rounded-xl border border-white/70 bg-white p-3">
                         <p className="text-sm font-black text-[#347048]">
-                          Cliente seleccionado: {`${selectedDiscountClient.firstName || ''} ${selectedDiscountClient.lastName || ''}`.trim() || selectedDiscountClient.id}
+                          Cliente seleccionado: {String(selectedDiscountClient.name || '').trim() || selectedDiscountClient.id}
                         </p>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3">
                           <select
