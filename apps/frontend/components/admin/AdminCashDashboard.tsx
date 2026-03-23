@@ -2225,7 +2225,7 @@ const AdminCashDashboard = () => {
             {Array.isArray(selectedMovement.allocations) && selectedMovement.allocations.length > 0 && (
               <div className="rounded-2xl border border-[#347048]/10 bg-white/60 p-3">
                 <div className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50 mb-2">Detalle de items</div>
-                <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                <div className="space-y-2 max-h-[30vh] md:max-h-[38vh] overflow-y-auto custom-scrollbar pr-1">
                   {selectedMovement.allocations.map((allocation) => (
                     <div key={`${allocation.accountItemId}-${allocation.amount}`} className="flex items-center justify-between gap-3 text-xs">
                       <div className="flex flex-col">

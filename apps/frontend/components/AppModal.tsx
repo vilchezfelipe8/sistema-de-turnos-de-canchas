@@ -174,7 +174,7 @@ export default function AppModal({
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-md bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+        className="w-full max-w-md max-h-[92vh] bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
       >
         
         {/* CABECERA WIMBLEDON */}
@@ -199,7 +199,7 @@ export default function AppModal({
         </div>
 
         {/* CUERPO DEL MODAL */}
-        <div className="p-8 bg-white/40 flex flex-col gap-4">
+        <div className="p-6 sm:p-8 bg-white/40 flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto">
           <div className="text-[#347048] text-base font-bold leading-relaxed">
             {typeof message === 'string' ? <p className="m-0">{message}</p> : message}
           </div>
@@ -225,7 +225,7 @@ export default function AppModal({
         </div>
 
         {/* PIE Y BOTONES DE ACCIÓN */}
-        <div className="p-6 border-t border-[#347048]/10 bg-[#EBE1D8] flex justify-end gap-3">
+        <div className="p-4 sm:p-6 border-t border-[#347048]/10 bg-[#EBE1D8] flex justify-end gap-3">
           {cancelText && (
             <button
               type="button"
