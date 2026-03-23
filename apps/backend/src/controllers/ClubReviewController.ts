@@ -15,7 +15,7 @@ const listQuerySchema = z.object({
 const upsertBodySchema = z.object({
   bookingId: z.preprocess((v) => Number(v), z.number().int().positive()),
   rating: z.preprocess((v) => Number(v), z.number().int().min(1).max(5)),
-  comment: z.string().trim().max(500).optional().nullable()
+  comment: z.string().trim().max(220).optional().nullable()
 });
 
 const mineQuerySchema = z.object({

@@ -24,6 +24,8 @@ const apiBase = () => `${getApiUrl()}/api`;
 export interface UseValidateAuthOptions {
   /** Si es true, solo permite acceso a usuarios con role ADMIN; si no, redirige a / */
   requireAdmin?: boolean;
+  /** Si es true, permite navegar sin token (modo invitado) y no redirige */
+  allowGuest?: boolean;
 }
 
 /**
@@ -32,7 +34,7 @@ export interface UseValidateAuthOptions {
  * - Con requireAdmin y usuario no ADMIN: no redirige; la página debe mostrar 404.
  */
 export function useValidateAuth(options: UseValidateAuthOptions = {}): { authChecked: boolean; user: AuthUser | null } {
-  const { requireAdmin = false } = options;
+  const { requireAdmin = false, allowGuest = false } = options;
   const router = useRouter();
   const [authChecked, setAuthChecked] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -40,6 +42,11 @@ export function useValidateAuth(options: UseValidateAuthOptions = {}): { authChe
   useEffect(() => {
     const token = typeof window !== 'undefined' ? getToken() : null;
     if (!token) {
+      if (allowGuest) {
+        setUser(null);
+        setAuthChecked(true);
+        return;
+      }
       router.replace('/');
       return;
     }
@@ -61,7 +68,7 @@ export function useValidateAuth(options: UseValidateAuthOptions = {}): { authChe
         // 401/403: fetchWithAuth hace logout; el redirect al home lo maneja la app
       }
     })();
-  }, [router, requireAdmin]);
+  }, [router, requireAdmin, allowGuest]);
 
   return { authChecked, user };
 }

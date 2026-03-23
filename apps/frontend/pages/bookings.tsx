@@ -507,7 +507,7 @@ export default function MyBookingsPage() {
                               onClick={() => handleOpenReviewModal(selectedBooking)}
                               className="w-full mt-2 py-4 rounded-xl border-2 border-[#B9CF32]/40 bg-[#B9CF32]/10 text-[#347048] font-bold text-xs uppercase tracking-widest hover:bg-[#B9CF32] hover:text-[#347048] transition-all flex justify-center items-center gap-2 text-center"
                             >
-                              <MessageSquare size={16} /> Dejar / Editar reseña
+                              <MessageSquare size={16} /> Dejar / Editar reseña del club
                             </button>
                           )}
                           <Link 
@@ -564,7 +564,7 @@ export default function MyBookingsPage() {
             className="w-full max-w-lg bg-[#EBE1D8] rounded-[2rem] p-6 md:p-8 shadow-2xl border-4 border-white/60"
             onClick={(event) => event.stopPropagation()}
           >
-            <h3 className="text-2xl font-black text-[#347048] uppercase italic tracking-tight mb-2">Tu reseña</h3>
+            <h3 className="text-2xl font-black text-[#347048] uppercase italic tracking-tight mb-2">Tu reseña del club</h3>
             <p className="text-sm font-bold text-[#347048]/70 mb-5">
               {selectedBooking?.court?.club?.name || 'Club'} · {selectedBooking?.court?.name || 'Cancha'}
             </p>
@@ -598,12 +598,12 @@ export default function MyBookingsPage() {
                   <p className="text-[11px] font-black uppercase tracking-widest text-[#347048]/60 mb-2">Comentario (opcional)</p>
                   <textarea
                     value={reviewComment}
-                    onChange={(event) => setReviewComment(event.target.value.slice(0, 500))}
+                    onChange={(event) => setReviewComment(event.target.value.slice(0, 220))}
                     rows={4}
                     className="w-full rounded-xl border-2 border-[#347048]/20 focus:border-[#B9CF32] bg-white px-4 py-3 text-sm font-semibold text-[#347048] outline-none resize-none"
                     placeholder="Contá tu experiencia..."
                   />
-                  <p className="mt-1 text-[11px] text-[#347048]/50 font-bold text-right">{reviewComment.length}/500</p>
+                  <p className="mt-1 text-[11px] text-[#347048]/50 font-bold text-right">{reviewComment.length}/220</p>
                 </div>
               </div>
             )}

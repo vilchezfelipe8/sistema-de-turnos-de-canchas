@@ -507,7 +507,7 @@ model ClubReview {
   createdAt DateTime         @default(now()) @db.Timestamptz(3)
   updatedAt DateTime         @updatedAt @db.Timestamptz(3)
 
-  @@unique([bookingId, userId])
+  @@unique([clubId, userId])
   @@index([clubId, status, createdAt])
   @@index([userId, createdAt])
 }

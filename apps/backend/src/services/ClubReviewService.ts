@@ -10,7 +10,7 @@ type CreateOrUpdateMyReviewInput = {
 };
 
 const REVIEW_WINDOW_DAYS = 30;
-const MAX_COMMENT_LENGTH = 500;
+const MAX_COMMENT_LENGTH = 220;
 
 export class ClubReviewService {
   private normalizeComment(value: string | null | undefined): string | null {
@@ -85,12 +85,13 @@ export class ClubReviewService {
 
       const review = await tx.clubReview.upsert({
         where: {
-          bookingId_userId: {
-            bookingId: input.bookingId,
+          clubId_userId: {
+            clubId: input.clubId,
             userId: input.userId
           }
         },
         update: {
+          bookingId: input.bookingId,
           rating,
           comment,
           status: ClubReviewStatus.PUBLISHED
@@ -113,7 +114,6 @@ export class ClubReviewService {
     const review = await prismaRead.clubReview.findFirst({
       where: {
         clubId: input.clubId,
-        bookingId: input.bookingId,
         userId: input.userId
       },
       select: {

@@ -6,6 +6,9 @@ import BookingGrid from '../../components/BookingGrid';
 import Navbar from '../../components/NavBar';
 import { ClubService, Club } from '../../services/ClubService';
 import { ClubReviewItem, getClubReviewsSummary, listClubReviews } from '../../services/ClubReviewService';
+import { getMyBookings } from '../../services/BookingService';
+import { getMyReviewForBooking } from '../../services/ClubReviewService';
+import { useValidateAuth } from '../../hooks/useValidateAuth';
 import { reportUiError } from '../../utils/uiError';
 import { 
   MapPin, 
@@ -34,11 +37,15 @@ const formatRatingLabel = (value: number) => {
 export default function ClubPage() {
   const router = useRouter();
   const { slug } = router.query;
+  const { authChecked, user } = useValidateAuth({ allowGuest: true });
   const [club, setClub] = useState<Club | null>(null);
   const [loadingClub, setLoadingClub] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reviewsSummary, setReviewsSummary] = useState<{ count: number; averageRating: number }>({ count: 0, averageRating: 0 });
   const [reviews, setReviews] = useState<ClubReviewItem[]>([]);
+  const [reviewCtaLoading, setReviewCtaLoading] = useState(false);
+  const [canReviewClub, setCanReviewClub] = useState(false);
+  const [hasExistingClubReview, setHasExistingClubReview] = useState(false);
   
   // 👉 1. Estado para el botón de compartir
   const [isCopied, setIsCopied] = useState(false);
@@ -87,6 +94,49 @@ export default function ClubPage() {
     };
     loadReviews();
   }, [slug]);
+
+  useEffect(() => {
+    const loadReviewEligibility = async () => {
+      if (!authChecked || !slug || typeof slug !== 'string' || !user?.id) {
+        setCanReviewClub(false);
+        setHasExistingClubReview(false);
+        return;
+      }
+
+      try {
+        setReviewCtaLoading(true);
+        const myBookings = await getMyBookings(user.id);
+        const completedInClub = Array.isArray(myBookings)
+          ? myBookings.filter((booking: any) => {
+              const bookingClubSlug = String(booking?.court?.club?.slug || '').trim();
+              return bookingClubSlug === slug && String(booking?.status || '') === 'COMPLETED';
+            })
+          : [];
+
+        if (completedInClub.length === 0) {
+          setCanReviewClub(false);
+          setHasExistingClubReview(false);
+          return;
+        }
+
+        setCanReviewClub(true);
+        try {
+          const existing = await getMyReviewForBooking(slug, Number(completedInClub[0]?.id || 0));
+          setHasExistingClubReview(Boolean(existing));
+        } catch {
+          setHasExistingClubReview(false);
+        }
+      } catch (error) {
+        reportUiError({ area: 'ClubPage', action: 'loadReviewEligibility' }, error);
+        setCanReviewClub(false);
+        setHasExistingClubReview(false);
+      } finally {
+        setReviewCtaLoading(false);
+      }
+    };
+
+    void loadReviewEligibility();
+  }, [authChecked, slug, user?.id]);
 
   // 👉 2. Función que copia la URL
   const handleShare = async () => {
@@ -341,6 +391,32 @@ export default function ClubPage() {
                 </div>
               </div>
             )}
+
+            <div className="bg-white/10 border border-white/20 rounded-3xl p-5 backdrop-blur">
+              <h3 className="text-lg font-bold text-[#D4C5B0] mb-3">Tu reseña</h3>
+              {reviewCtaLoading ? (
+                <p className="text-sm font-bold text-[#D4C5B0]/70">Validando elegibilidad...</p>
+              ) : canReviewClub ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-bold text-[#D4C5B0]/75">
+                    {hasExistingClubReview
+                      ? 'Ya dejaste una reseña en este club. Podés editarla.'
+                      : 'Podés dejar tu reseña de este club.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => router.push('/bookings')}
+                    className="w-full h-11 rounded-xl bg-[#B9CF32] text-[#347048] text-xs font-black uppercase tracking-widest hover:brightness-95 transition-all"
+                  >
+                    Dejar / Editar mi reseña
+                  </button>
+                </div>
+              ) : (
+                <p className="text-sm font-bold text-[#D4C5B0]/75">
+                  Podés reseñar después de completar una reserva.
+                </p>
+              )}
+            </div>
           </div>
         </div>
 
