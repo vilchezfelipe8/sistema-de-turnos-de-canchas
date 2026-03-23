@@ -20,7 +20,7 @@ export type PaymentCalculatorResult = {
   itemAllocations: Array<{ key: string | number; amount: number }>;
 };
 
-type PaymentMethodOption = 'CASH' | 'CARD' | 'OTHER' | 'TRANSFER_BANK' | 'TRANSFER_WALLET';
+type PaymentMethodOption = 'CASH' | 'CARD' | 'TRANSFER_BANK' | 'TRANSFER_WALLET';
 
 export interface PaymentCalculatorProps {
   courtPending: number;
@@ -160,7 +160,6 @@ export default function PaymentCalculator({
   const selectedMethodLabel = useMemo(() => {
     if (selectedPaymentOption === 'CASH') return 'Efectivo';
     if (selectedPaymentOption === 'CARD') return 'Tarjeta';
-    if (selectedPaymentOption === 'OTHER') return 'Otro';
     if (selectedPaymentOption === 'TRANSFER_BANK') return 'Transferencia bancaria';
     if (selectedPaymentOption === 'TRANSFER_WALLET') return 'QR / Billetera virtual';
     return 'Sin seleccionar';
@@ -614,7 +613,6 @@ export default function PaymentCalculator({
               <option value="TRANSFER_BANK">Transferencia bancaria</option>
               <option value="TRANSFER_WALLET">QR / Billetera virtual</option>
               <option value="CARD">Tarjeta</option>
-              <option value="OTHER">Otro</option>
             </select>
           </div>
 
