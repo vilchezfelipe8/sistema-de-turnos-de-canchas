@@ -4,6 +4,7 @@ import { getApiUrl } from '../utils/apiUrl';
 import { getEffectiveActiveClubId, persistSessionUser } from '../utils/session';
 
 const apiBase = () => `${getApiUrl()}/api`;
+export const AUTH_LOGOUT_EVENT = 'auth:logout';
 
 export const login = async (email: string, password: string) => {
   const response = await fetch(`${apiBase()}/auth/login`, {
@@ -53,14 +54,17 @@ export const register = async (firstName: string, lastName: string, email: strin
   return data;
 };
 
-export const logout = () => {
-  // Limpiar token y datos del usuario en localStorage y navegar a '/'.
+export const logout = (options?: { redirectTo?: string | null }) => {
+  // Limpiar token y datos del usuario en localStorage.
   localStorage.removeItem('token');
   localStorage.removeItem('user');
   localStorage.removeItem('activeClubId');
-  // Redirigimos siempre al home después de cerrar sesión.
   if (typeof window !== 'undefined') {
-    window.location.href = '/';
+    window.dispatchEvent(new Event(AUTH_LOGOUT_EVENT));
+    const target = String(options?.redirectTo || '').trim();
+    if (target) {
+      window.location.href = target;
+    }
   }
 };
 

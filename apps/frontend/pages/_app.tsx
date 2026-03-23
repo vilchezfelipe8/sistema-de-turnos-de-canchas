@@ -1,7 +1,8 @@
 import type { AppProps } from 'next/app';
 import Head from 'next/head';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ActiveClubProvider } from '../contexts/ActiveClubContext';
+import { AUTH_LOGOUT_EVENT } from '../services/AuthService';
 
 // IMPORTANTE: Aquí buscamos el archivo en la carpeta styles
 import '../styles/globals.css'; 
@@ -11,6 +12,8 @@ const LOGO_PATH = '/logo1.svg';
 const LOGO_URL = SITE_URL ? `${SITE_URL.replace(/\/+$/,'')}${LOGO_PATH}` : LOGO_PATH;
 
 export default function MyApp({ Component, pageProps }: AppProps) {
+  const [showLogoutNotice, setShowLogoutNotice] = useState(false);
+
   useEffect(() => {
     const preventNumberInputWheel = (event: WheelEvent) => {
       const target = event.target;
@@ -23,6 +26,28 @@ export default function MyApp({ Component, pageProps }: AppProps) {
     window.addEventListener('wheel', preventNumberInputWheel, { passive: false });
     return () => {
       window.removeEventListener('wheel', preventNumberInputWheel);
+    };
+  }, []);
+
+  useEffect(() => {
+    let hideTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const handleLogout = () => {
+      setShowLogoutNotice(true);
+      if (hideTimeout) {
+        clearTimeout(hideTimeout);
+      }
+      hideTimeout = setTimeout(() => {
+        setShowLogoutNotice(false);
+      }, 2600);
+    };
+
+    window.addEventListener(AUTH_LOGOUT_EVENT, handleLogout);
+    return () => {
+      window.removeEventListener(AUTH_LOGOUT_EVENT, handleLogout);
+      if (hideTimeout) {
+        clearTimeout(hideTimeout);
+      }
     };
   }, []);
 
@@ -60,6 +85,11 @@ export default function MyApp({ Component, pageProps }: AppProps) {
       <ActiveClubProvider>
         <Component {...pageProps} />
       </ActiveClubProvider>
+      {showLogoutNotice && (
+        <div className="fixed bottom-5 left-1/2 z-[100000] -translate-x-1/2 rounded-xl border border-[#347048]/20 bg-[#EBE1D8] px-4 py-3 text-sm font-bold text-[#347048] shadow-xl">
+          Sesion cerrada correctamente.
+        </div>
+      )}
       {/* Portal para react-datepicker - renderiza fuera del stacking context */}
       <div id="datepicker-portal" />
     </>

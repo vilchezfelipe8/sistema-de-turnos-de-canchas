@@ -763,7 +763,7 @@ export default function Home() {
                           type="button"
                           className="flex items-center gap-3 text-red-500 hover:text-red-600 w-full text-left p-2 rounded-xl hover:bg-red-50 transition-colors"
                           onClick={() => {
-                            // Cerrar sesión (logout() redirige siempre a '/').
+                            // Cerrar sesión sin forzar redirección.
                             logout();
                             setUser(null);
                             setShowUserMenu(false);

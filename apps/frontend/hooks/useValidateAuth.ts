@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/router';
-import { getToken } from '../services/AuthService';
+import { AUTH_LOGOUT_EVENT, getToken } from '../services/AuthService';
 import { fetchWithAuth } from '../utils/apiClient';
 import { getApiUrl } from '../utils/apiUrl';
 import { persistSessionUser, type MembershipLite } from '../utils/session';
@@ -30,24 +29,19 @@ export interface UseValidateAuthOptions {
 
 /**
  * Valida el token con el backend (GET /api/auth/me).
- * - Sin token o token inválido: redirige a / (home).
+ * - Sin token o token inválido: deja usuario en null y finaliza el check.
  * - Con requireAdmin y usuario no ADMIN: no redirige; la página debe mostrar 404.
  */
 export function useValidateAuth(options: UseValidateAuthOptions = {}): { authChecked: boolean; user: AuthUser | null } {
   const { requireAdmin = false, allowGuest = false } = options;
-  const router = useRouter();
   const [authChecked, setAuthChecked] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
 
   useEffect(() => {
     const token = typeof window !== 'undefined' ? getToken() : null;
     if (!token) {
-      if (allowGuest) {
-        setUser(null);
-        setAuthChecked(true);
-        return;
-      }
-      router.replace('/');
+      setUser(null);
+      setAuthChecked(true);
       return;
     }
 
@@ -68,7 +62,19 @@ export function useValidateAuth(options: UseValidateAuthOptions = {}): { authChe
         // 401/403: fetchWithAuth hace logout; el redirect al home lo maneja la app
       }
     })();
-  }, [router, requireAdmin, allowGuest]);
+  }, [requireAdmin, allowGuest]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleLogout = () => {
+      setUser(null);
+      setAuthChecked(true);
+    };
+
+    window.addEventListener(AUTH_LOGOUT_EVENT, handleLogout);
+    return () => window.removeEventListener(AUTH_LOGOUT_EVENT, handleLogout);
+  }, []);
 
   return { authChecked, user };
 }

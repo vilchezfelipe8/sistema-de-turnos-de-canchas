@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getToken, logout } from '../services/AuthService';
+import { AUTH_LOGOUT_EVENT, getToken, logout } from '../services/AuthService';
 import { getMyBookings } from '../services/BookingService';
 import { ClubService } from '../services/ClubService';
 import { NotificationService, NotificationItem } from '../services/NotificationService';
@@ -61,8 +61,20 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 10);
     };
+    const handleLogout = () => {
+      setUser(null);
+      setShowUserMenu(false);
+      setShowNotifications(false);
+      setActiveBookingsCount(0);
+      setResolvedAdminClubSlug(null);
+      setIsGuest(true);
+    };
     window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
+    window.addEventListener(AUTH_LOGOUT_EVENT, handleLogout);
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener(AUTH_LOGOUT_EVENT, handleLogout);
+    };
   }, []);
 
 
@@ -520,9 +532,16 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
         confirmText="Salir"
         isWarning={true}
         onConfirm={() => {
-          // Cerrar sesión (logout() redirige siempre a '/').
+          const adminLogoutRedirect = isAdminView && effectiveAdminClubSlug
+            ? `/club/${effectiveAdminClubSlug}`
+            : null;
+
           logout();
           setShowLogoutModal(false);
+
+          if (adminLogoutRedirect) {
+            void router.push(adminLogoutRedirect);
+          }
         }}
         closeOnBackdrop
         closeOnEscape
