@@ -28,7 +28,7 @@ export function sanitizeString(value: string | null | undefined, maxLen = MAX_LE
   return stripped;
 }
 
-/** Para nombres cortos (guestName, product name): 200 chars */
+/** Para nombres cortos (cliente, producto): 200 chars */
 export function sanitizeShortText(value: string | null | undefined): string {
   return sanitizeString(value, 200);
 }

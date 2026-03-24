@@ -5,6 +5,7 @@ import { getEffectiveActiveClubId, persistSessionUser } from '../utils/session';
 
 const apiBase = () => `${getApiUrl()}/api`;
 export const AUTH_LOGOUT_EVENT = 'auth:logout';
+export const AUTH_LOGIN_EVENT = 'auth:login';
 
 export const login = async (email: string, password: string) => {
   const response = await fetch(`${apiBase()}/auth/login`, {
@@ -31,18 +32,41 @@ export const login = async (email: string, password: string) => {
     if (data.user) {
         persistSessionUser(data.user);
     }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event(AUTH_LOGIN_EVENT));
+    }
   }
 
   return data;
 };
 
-export const register = async (firstName: string, lastName: string, email: string, password: string, phoneNumber: string, role: string, dni: string) => {
+export const register = async (
+  firstName: string,
+  lastName: string,
+  email: string,
+  password: string,
+  phoneNumber: string,
+  role: string,
+  dni?: string,
+  phoneCountryCode?: string,
+  phoneNumberLocal?: string
+) => {
   const response = await fetch(`${apiBase()}/auth/register`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ firstName, lastName, email, password, phoneNumber, role, dni}),
+    body: JSON.stringify({
+      firstName,
+      lastName,
+      email,
+      password,
+      phoneNumber,
+      ...(phoneCountryCode ? { phoneCountryCode } : {}),
+      ...(phoneNumberLocal ? { phoneNumberLocal } : {}),
+      role,
+      ...(dni ? { dni } : {})
+    }),
   });
 
   if (!response.ok) {

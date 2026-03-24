@@ -20,6 +20,8 @@ import { ActivityTypeAdminService } from '../services/ActivityTypeAdminService';
 import { DiscountController } from '../controllers/DiscountController';
 import { ClubServiceCatalogController } from '../controllers/ClubServiceCatalogController';
 import { ClubReviewController } from '../controllers/ClubReviewController';
+import { ClientDuplicateIncidentController } from '../controllers/ClientDuplicateIncidentController';
+import { ClientDuplicateIncidentService } from '../services/ClientDuplicateIncidentService';
 
 const router = Router();
 
@@ -51,6 +53,8 @@ const activityTypeAdminService = new ActivityTypeAdminService();
 const discountController = new DiscountController();
 const clubServiceCatalogController = new ClubServiceCatalogController();
 const clubReviewController = new ClubReviewController();
+const clientDuplicateIncidentService = new ClientDuplicateIncidentService();
+const clientDuplicateIncidentController = new ClientDuplicateIncidentController(clientDuplicateIncidentService);
 
 // Todas las rutas requieren autenticación, rol ADMIN y verificación de acceso al club
 // El middleware verifyClubAccess agrega req.clubId al request
@@ -520,6 +524,34 @@ router.patch('/:slug/admin/discount-assignments/:assignmentId',
     verifyClubAccess,
     requireRole('ADMIN'),
     discountController.setAssignmentStatus
+);
+
+router.get('/:slug/admin/client-duplicate-incidents',
+    authMiddleware,
+    verifyClubAccess,
+    requireRole('ADMIN'),
+    clientDuplicateIncidentController.list
+);
+
+router.get('/:slug/admin/client-duplicate-incidents/:incidentId',
+    authMiddleware,
+    verifyClubAccess,
+    requireRole('ADMIN'),
+    clientDuplicateIncidentController.getById
+);
+
+router.post('/:slug/admin/client-duplicate-incidents/:incidentId/resolve-link',
+    authMiddleware,
+    verifyClubAccess,
+    requireRole('ADMIN'),
+    clientDuplicateIncidentController.resolveLink
+);
+
+router.post('/:slug/admin/client-duplicate-incidents/:incidentId/dismiss',
+    authMiddleware,
+    verifyClubAccess,
+    requireRole('ADMIN'),
+    clientDuplicateIncidentController.dismiss
 );
 
 router.get('/:slug/admin/stats/dashboard', 

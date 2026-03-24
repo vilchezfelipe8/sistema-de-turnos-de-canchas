@@ -11,6 +11,9 @@ import { generateDisplayCode } from '../utils/displayCode';
 export class BookingRepository {
 
     async save(booking: Booking): Promise<Booking> {
+        if (!booking.clientId) {
+            throw new Error('No se puede guardar una reserva sin clientId');
+        }
         const data: any = {
             displayCode: generateDisplayCode('RES'),
             startDateTime: booking.startDateTime,
@@ -18,9 +21,9 @@ export class BookingRepository {
             listPrice: booking.listPrice,
             price: booking.price,
             status: booking.status,
-            // user puede ser null para reservas de invitado
+            // user puede ser null para reservas creadas por admin sin vínculo a cuenta global
             userId: booking.user ? booking.user.id : null,
-            guestIdentifier: booking.guestIdentifier,
+            clientId: booking.clientId,
             courtId: booking.court.id,
             activityId: booking.activity.id,
             clubId: booking.court.club.id
@@ -240,9 +243,8 @@ export class BookingRepository {
             court,
             activity,
             dbItem.status as BookingStatus,
-            dbItem.guestIdentifier,
+            dbItem.clientId,
             dbItem.fixedBookingId || null,
-            dbItem.clientId ?? null,
             client
         );
         booking.listPrice = Number(dbItem.listPrice || dbItem.price || 0);

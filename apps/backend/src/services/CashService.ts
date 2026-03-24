@@ -10,6 +10,7 @@ import { AccountingService } from './AccountingService';
 import { ProjectionService } from './ProjectionService';
 import { generateDisplayCode } from '../utils/displayCode';
 import { DiscountService } from './DiscountService';
+import { getPhoneIdentityVariants, normalizeIdentityPhone } from '../utils/phone';
 
 type ProductSaleItemInput = {
     itemKey?: string;
@@ -23,6 +24,16 @@ type ProductSalePaymentAllocationInput = {
     itemKey?: string;
     productId?: number;
     amount: number;
+};
+
+type ClientDraftInput = {
+    name: string;
+    phone?: string;
+    phoneCountryCode?: string;
+    phoneNumberLocal?: string;
+    dni?: string;
+    email?: string;
+    isProfessor?: boolean;
 };
 
 type NormalizedProductSaleItem = {
@@ -425,13 +436,8 @@ export class CashService {
     private async resolveClientIdForSaleTx(tx: Prisma.TransactionClient, input: {
         clubId: number;
         clientId?: string;
-        createClientIfMissing?: boolean;
+        clientDraft?: ClientDraftInput;
         allowCreateMissing?: boolean;
-        guestName?: string;
-        guestPhone?: string;
-        guestDni?: string;
-        guestEmail?: string;
-        guestIsProfessor?: boolean;
     }) {
         const safeClientId = String(input.clientId || '').trim();
         let resolvedClientId: string | null = null;
@@ -446,43 +452,86 @@ export class CashService {
             return resolvedClientId;
         }
 
-        if (!input.createClientIfMissing) return null;
+        const draft = input.clientDraft;
+        if (!draft) return null;
+        const club = await tx.club.findUnique({
+            where: { id: input.clubId },
+            select: { country: true }
+        });
 
-        const safeGuestName = String(input.guestName || '').trim();
-        if (safeGuestName.length < 2) return null;
+        const normalizedName = String(draft.name || '').trim();
+        const normalizedPhone = normalizeIdentityPhone(
+            {
+                phone: draft.phone,
+                countryCode: draft.phoneCountryCode,
+                phoneNumberLocal: draft.phoneNumberLocal
+            },
+            { defaultCountryIso2: String(club?.country || '').trim() || null }
+        ) || '';
+        const normalizedDni = String(draft.dni || '').replace(/\D/g, '');
+        const normalizedEmail = String(draft.email || '').trim().toLowerCase();
 
-        const normalizedDni = String(input.guestDni || '').replace(/\D/g, '');
-        const normalizedPhone = String(input.guestPhone || '').replace(/\D/g, '');
-        const normalizedEmail = String(input.guestEmail || '').trim().toLowerCase();
-
-        if (normalizedDni.length >= 6) {
-            const byDni = await tx.client.findFirst({ where: { clubId: input.clubId, dni: normalizedDni }, select: { id: true } });
-            if (byDni?.id) return byDni.id;
+        if (normalizedName.length < 2 || !normalizedPhone) {
+            throw new Error('CLIENT_DRAFT_INVALID');
         }
-        if (normalizedPhone.length >= 8) {
-            const byPhone = await tx.client.findFirst({ where: { clubId: input.clubId, phone: normalizedPhone }, select: { id: true } });
-            if (byPhone?.id) return byPhone.id;
+
+        const candidateIds = new Set<string>();
+        if (normalizedDni.length >= 6) {
+            const byDni = await tx.client.findFirst({
+                where: { clubId: input.clubId, dni: normalizedDni },
+                select: { id: true }
+            });
+            if (byDni?.id) candidateIds.add(byDni.id);
+        }
+        if (normalizedPhone) {
+            const phoneVariants = getPhoneIdentityVariants(normalizedPhone);
+            const byPhone = await tx.client.findFirst({
+                where: { clubId: input.clubId, phone: { in: phoneVariants } },
+                select: { id: true }
+            });
+            if (byPhone?.id) candidateIds.add(byPhone.id);
         }
         if (normalizedEmail.length > 3) {
-            const byEmail = await tx.client.findFirst({ where: { clubId: input.clubId, email: normalizedEmail }, select: { id: true } });
-            if (byEmail?.id) return byEmail.id;
+            const byEmail = await tx.client.findFirst({
+                where: { clubId: input.clubId, email: normalizedEmail },
+                select: { id: true }
+            });
+            if (byEmail?.id) candidateIds.add(byEmail.id);
         }
-        const byName = await tx.client.findFirst({
-            where: { clubId: input.clubId, name: { equals: safeGuestName, mode: 'insensitive' } },
-            select: { id: true }
-        });
-        if (byName?.id) return byName.id;
+
+        if (candidateIds.size > 1) {
+            const conflictError: any = new Error('CLIENT_POSSIBLE_DUPLICATE');
+            conflictError.code = 'CLIENT_POSSIBLE_DUPLICATE';
+            const reasonSignals = new Set<string>();
+            if (normalizedDni.length >= 6) reasonSignals.add('DNI');
+            if (normalizedPhone) reasonSignals.add('PHONE');
+            if (normalizedEmail.length > 3) reasonSignals.add('EMAIL');
+            conflictError.details = {
+                clubId: input.clubId,
+                candidateClientIds: Array.from(candidateIds),
+                reasonType: reasonSignals.size === 1 ? Array.from(reasonSignals)[0] : 'MULTI_SIGNAL_CONFLICT',
+                signals: {
+                    dni: normalizedDni || null,
+                    phone: normalizedPhone || null,
+                    email: normalizedEmail || null
+                }
+            };
+            throw conflictError;
+        }
+        if (candidateIds.size === 1) {
+            return Array.from(candidateIds)[0];
+        }
 
         if (!input.allowCreateMissing) return null;
 
         const createdClient = await tx.client.create({
             data: {
                 clubId: input.clubId,
-                name: safeGuestName,
-                ...(normalizedPhone.length >= 8 ? { phone: normalizedPhone } : {}),
+                name: normalizedName,
+                phone: normalizedPhone,
                 ...(normalizedDni.length >= 6 ? { dni: normalizedDni } : {}),
                 ...(normalizedEmail.length > 3 ? { email: normalizedEmail } : {}),
-                isProfessor: Boolean(input.guestIsProfessor)
+                isProfessor: Boolean(draft.isProfessor)
             },
             select: { id: true }
         });
@@ -555,14 +604,12 @@ export class CashService {
         quantity?: number;
         items?: ProductSaleItemInput[];
         clientId?: string;
-        createClientIfMissing?: boolean;
-        guestName?: string;
-        guestPhone?: string;
-        guestDni?: string;
-        guestEmail?: string;
-        guestIsProfessor?: boolean;
+        clientDraft?: ClientDraftInput;
         userId?: number;
     }) {
+        if (!String(input.clientId || '').trim() && !input.clientDraft) {
+            throw new Error('Debes seleccionar un cliente o cargar un alta rápida válida.');
+        }
         const normalizedItems = this.normalizeProductSaleItems(input);
 
         const quote = await prisma.$transaction(async (tx) => {
@@ -677,27 +724,20 @@ export class CashService {
             allocations?: ProductSalePaymentAllocationInput[];
         }>;
         clientId?: string;
-        createClientIfMissing?: boolean;
-        guestName?: string;
-        guestPhone?: string;
-        guestDni?: string;
-        guestEmail?: string;
-        guestIsProfessor?: boolean;
+        clientDraft?: ClientDraftInput;
         userId?: number;
         idempotencyKey?: string;
     }, actorUserId?: number) {
+        if (!String(input.clientId || '').trim() && !input.clientDraft) {
+            throw new Error('Debes seleccionar un cliente o cargar un alta rápida válida.');
+        }
         const normalizedItems = this.normalizeProductSaleItems(input);
 
         const quote = await this.quoteProductSale({
             clubId: input.clubId,
             items: normalizedItems,
             clientId: input.clientId,
-            createClientIfMissing: input.createClientIfMissing,
-            guestName: input.guestName,
-            guestPhone: input.guestPhone,
-            guestDni: input.guestDni,
-            guestEmail: input.guestEmail,
-            guestIsProfessor: input.guestIsProfessor
+            clientDraft: input.clientDraft
         });
 
         const total = Number(quote.finalTotal || 0);
@@ -816,11 +856,15 @@ export class CashService {
                     where: { accountId: existingAccount.id }
                 });
 
-                const guestBits = [input.guestName, input.guestPhone, input.guestDni]
+                const clientBits = [
+                    input.clientDraft?.name,
+                    input.clientDraft?.phone,
+                    input.clientDraft?.dni
+                ]
                     .filter((value) => typeof value === 'string' && value.trim().length > 0)
                     .map((value) => String(value).trim());
-                const description = guestBits.length > 0
-                    ? `Venta productos (${guestBits.join(' | ')})`
+                const description = clientBits.length > 0
+                    ? `Venta productos (${clientBits.join(' | ')})`
                     : `Venta productos`;
 
                 return {
@@ -835,7 +879,7 @@ export class CashService {
         const sale = await prisma.$transaction(async (tx) => {
             const resolvedClientId = await this.resolveClientIdForSaleTx(tx, {
                 ...input,
-                allowCreateMissing: Boolean(input.createClientIfMissing)
+                allowCreateMissing: Boolean(input.clientDraft)
             });
 
             const sourceId = `product-sale-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -853,11 +897,15 @@ export class CashService {
                 }
             });
 
-            const guestBits = [input.guestName, input.guestPhone, input.guestDni]
+            const clientBits = [
+                input.clientDraft?.name,
+                input.clientDraft?.phone,
+                input.clientDraft?.dni
+            ]
                 .filter((value) => typeof value === 'string' && value.trim().length > 0)
                 .map((value) => String(value).trim());
-            const baseDescription = guestBits.length > 0
-                ? `Venta productos (${guestBits.join(' | ')})`
+            const baseDescription = clientBits.length > 0
+                ? `Venta productos (${clientBits.join(' | ')})`
                 : `Venta productos`;
 
             const createdItems: Array<{ id: string }> = [];

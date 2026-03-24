@@ -28,6 +28,7 @@ import { getDepositRequiredAmount, isBookingTransitionAllowed, resolveInitialBoo
 import { RefundService } from './RefundService';
 import { DiscountService } from './DiscountService';
 import { generateDisplayCode } from '../utils/displayCode';
+import { getPhoneIdentityVariants, normalizeIdentityPhone, toDialablePhoneNumber } from '../utils/phone';
 
 type CancelBookingReason = 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED';
 type CancelBookingOptions = {
@@ -47,18 +48,42 @@ type CreateBookingOptions = {
     skipAdvanceLimit?: boolean;
     applyDiscount?: boolean;
     actorUserId?: number | null;
+    clientId?: string | null;
+    clientDraft?: {
+        name: string;
+        phone?: string | null;
+        email?: string | null;
+        dni?: string | null;
+    } | null;
+};
+
+type CreateFixedBookingOptions = {
+    userId?: number | null;
+    clientId?: string | null;
+    clientDraft?: {
+        name: string;
+        phone?: string | null;
+        email?: string | null;
+        dni?: string | null;
+    } | null;
+    clubId?: number;
+    actorUserId?: number | null;
+    allowOverlappingSeries?: boolean;
+    durationMinutes?: number;
+    weeksToGenerate?: number;
 };
 
 type BookingPriceQuoteInput = {
     userId?: number | null;
     allowAdminBenefits?: boolean;
+    clientId?: string | null;
     courtId: number;
     activityId: number;
     startDateTime: Date;
     durationMinutes?: number;
-    guestEmail?: string;
-    guestPhone?: string;
-    guestDni?: string;
+    clientEmail?: string;
+    clientPhone?: string;
+    clientDni?: string;
     applyDiscount?: boolean;
 };
 
@@ -533,27 +558,7 @@ export class BookingService {
     }
 
     private normalizePhone(phone: string | null | undefined) {
-        if (!phone) return null;
-        const digits = String(phone).replace(/\D/g, '');
-        if (!digits) return null;
-
-        if (digits.startsWith('549') && digits.length >= 12) {
-            return digits;
-        }
-
-        if (digits.startsWith('54') && digits.length >= 12) {
-            return `549${digits.slice(2)}`;
-        }
-
-        if (digits.length === 10) {
-            return `549${digits}`;
-        }
-
-        if (digits.startsWith('0') && digits.length === 11) {
-            return `549${digits.slice(1)}`;
-        }
-
-        return digits.length >= 8 ? digits : null;
+        return normalizeIdentityPhone(phone);
     }
 
     private normalizeDni(dni: string | null | undefined) {
@@ -566,12 +571,22 @@ export class BookingService {
         tx: Prisma.TransactionClient,
         input: {
             clubId: number;
+            clientId?: string | null;
             userId?: number | null;
-            guestEmail?: string;
-            guestPhone?: string;
-            guestDni?: string;
+            clientEmail?: string;
+            clientPhone?: string;
+            clientDni?: string;
         }
     ) {
+        const safeClientId = String(input.clientId || '').trim();
+        if (safeClientId) {
+            const byId = await tx.client.findFirst({
+                where: { id: safeClientId, clubId: input.clubId },
+                select: { id: true }
+            });
+            if (byId?.id) return byId.id;
+        }
+
         const safeUserId = Number(input.userId || 0);
         if (safeUserId > 0) {
             const byUser = await tx.client.findFirst({
@@ -581,7 +596,7 @@ export class BookingService {
             if (byUser?.id) return byUser.id;
         }
 
-        const safeDni = this.normalizeDni(input.guestDni);
+        const safeDni = this.normalizeDni(input.clientDni);
         if (safeDni) {
             const byDni = await tx.client.findFirst({
                 where: { clubId: input.clubId, dni: safeDni },
@@ -590,16 +605,17 @@ export class BookingService {
             if (byDni?.id) return byDni.id;
         }
 
-        const safePhone = this.normalizePhone(input.guestPhone);
+        const safePhone = this.normalizePhone(input.clientPhone);
         if (safePhone) {
+            const phoneVariants = getPhoneIdentityVariants(safePhone);
             const byPhone = await tx.client.findFirst({
-                where: { clubId: input.clubId, phone: safePhone },
+                where: { clubId: input.clubId, phone: { in: phoneVariants } },
                 select: { id: true }
             });
             if (byPhone?.id) return byPhone.id;
         }
 
-        const safeEmail = String(input.guestEmail || '').trim().toLowerCase();
+        const safeEmail = String(input.clientEmail || '').trim().toLowerCase();
         if (safeEmail) {
             const byEmail = await tx.client.findFirst({
                 where: { clubId: input.clubId, email: safeEmail },
@@ -613,11 +629,21 @@ export class BookingService {
 
     private async resolveClientProfessorStatus(input: {
         clubId: number;
+        clientId?: string | null;
         userId?: number | null;
-        guestEmail?: string;
-        guestPhone?: string;
-        guestDni?: string;
+        clientEmail?: string;
+        clientPhone?: string;
+        clientDni?: string;
     }) {
+        const safeClientId = String(input.clientId || '').trim();
+        if (safeClientId) {
+            const byId = await prisma.client.findFirst({
+                where: { id: safeClientId, clubId: input.clubId },
+                select: { isProfessor: true }
+            });
+            if (byId) return Boolean(byId.isProfessor);
+        }
+
         const safeUserId = Number(input.userId || 0);
         if (safeUserId > 0) {
             const byUser = await prisma.client.findFirst({
@@ -627,7 +653,7 @@ export class BookingService {
             return Boolean(byUser?.isProfessor);
         }
 
-        const safeDni = this.normalizeDni(input.guestDni);
+        const safeDni = this.normalizeDni(input.clientDni);
         if (safeDni) {
             const byDni = await prisma.client.findFirst({
                 where: { clubId: input.clubId, dni: safeDni },
@@ -636,16 +662,17 @@ export class BookingService {
             if (byDni) return Boolean(byDni.isProfessor);
         }
 
-        const safePhone = this.normalizePhone(input.guestPhone);
+        const safePhone = this.normalizePhone(input.clientPhone);
         if (safePhone) {
+            const phoneVariants = getPhoneIdentityVariants(safePhone);
             const byPhone = await prisma.client.findFirst({
-                where: { clubId: input.clubId, phone: safePhone },
+                where: { clubId: input.clubId, phone: { in: phoneVariants } },
                 select: { isProfessor: true }
             });
             if (byPhone) return Boolean(byPhone.isProfessor);
         }
 
-        const safeEmail = String(input.guestEmail || '').trim().toLowerCase();
+        const safeEmail = String(input.clientEmail || '').trim().toLowerCase();
         if (safeEmail) {
             const byEmail = await prisma.client.findFirst({
                 where: { clubId: input.clubId, email: safeEmail },
@@ -678,10 +705,11 @@ export class BookingService {
         const isProfessorClient = canUseAdminBenefits
             ? await this.resolveClientProfessorStatus({
                 clubId: (court as any).club.id,
+                clientId: input.clientId ?? null,
                 userId: input.userId ?? null,
-                guestEmail: input.guestEmail,
-                guestPhone: input.guestPhone,
-                guestDni: input.guestDni
+                clientEmail: input.clientEmail,
+                clientPhone: input.clientPhone,
+                clientDni: input.clientDni
             })
             : false;
         const professorOverrideMinutes = Number(clubConfig?.professorDurationOverrideMinutes ?? 60);
@@ -725,10 +753,11 @@ export class BookingService {
         const quote = await prisma.$transaction(async (tx) => {
             const clientId = await this.resolveClientIdForDiscountTx(tx, {
                 clubId: (court as any).club.id,
+                clientId: input.clientId ?? null,
                 userId: input.userId,
-                guestEmail: input.guestEmail,
-                guestPhone: input.guestPhone,
-                guestDni: input.guestDni
+                clientEmail: input.clientEmail,
+                clientPhone: input.clientPhone,
+                clientDni: input.clientDni
             });
 
             const discountDraft = (!canUseAdminBenefits || input.applyDiscount === false)
@@ -813,75 +842,90 @@ export class BookingService {
             }
         }
 
+        let existingByDni: any = null;
         if (safeDni) {
-            const existingByDni = await tx.client.findFirst({
+            existingByDni = await tx.client.findFirst({
                 where: {
                     clubId: input.clubId,
                     dni: safeDni
                 }
             });
-
-            if (existingByDni) {
-                return tx.client.update({
-                    where: { id: existingByDni.id },
-                    data: {
-                        name: safeName,
-                        phone: safePhone || existingByDni.phone || null,
-                        email: safeEmail || existingByDni.email || null,
-                        dni: safeDni,
-                        userId: safeUserId || existingByDni.userId || null
-                    }
-                });
-            }
         }
 
+        let existingByPhone: any = null;
         if (safePhone) {
-            const existingByPhone = await tx.client.findFirst({
+            const phoneVariants = getPhoneIdentityVariants(safePhone);
+            existingByPhone = await tx.client.findFirst({
                 where: {
                     clubId: input.clubId,
-                    phone: safePhone
+                    phone: { in: phoneVariants }
                 }
             });
-
-            if (existingByPhone) {
-                return tx.client.update({
-                    where: { id: existingByPhone.id },
-                    data: {
-                        name: safeName,
-                        email: safeEmail || existingByPhone.email || null,
-                        dni: safeDni || existingByPhone.dni || null,
-                        userId: safeUserId || existingByPhone.userId || null
-                    }
-                });
-            }
         }
 
+        let existingByEmail: any = null;
         if (safeEmail) {
-            const existingByEmail = await tx.client.findFirst({
+            existingByEmail = await tx.client.findFirst({
                 where: {
                     clubId: input.clubId,
                     email: safeEmail
                 }
             });
+        }
 
-            if (existingByEmail) {
-                return tx.client.update({
-                    where: { id: existingByEmail.id },
-                    data: {
-                        name: safeName,
-                        phone: safePhone || existingByEmail.phone || null,
-                        dni: safeDni || existingByEmail.dni || null,
-                        userId: safeUserId || existingByEmail.userId || null
-                    }
-                });
-            }
+        const candidateIds = Array.from(
+            new Set(
+                [existingByDni?.id, existingByPhone?.id, existingByEmail?.id]
+                    .filter((value): value is string => Boolean(value))
+            )
+        );
+        if (candidateIds.length > 1) {
+            const conflictError: any = new Error('CLIENT_POSSIBLE_DUPLICATE');
+            conflictError.code = 'CLIENT_POSSIBLE_DUPLICATE';
+            const reasonSignals = new Set<string>();
+            if (existingByDni?.id) reasonSignals.add('DNI');
+            if (existingByPhone?.id) reasonSignals.add('PHONE');
+            if (existingByEmail?.id) reasonSignals.add('EMAIL');
+            conflictError.details = {
+                clubId: input.clubId,
+                userId: safeUserId,
+                candidateClientIds: candidateIds,
+                reasonType: reasonSignals.size === 1 ? Array.from(reasonSignals)[0] : 'MULTI_SIGNAL_CONFLICT',
+                signals: {
+                    dni: safeDni || null,
+                    phone: safePhone || null,
+                    email: safeEmail || null
+                }
+            };
+            throw conflictError;
+        }
+
+        const existingByIdentity = candidateIds.length === 1
+            ? await tx.client.findUnique({ where: { id: candidateIds[0] } })
+            : null;
+
+        if (existingByIdentity) {
+            return tx.client.update({
+                where: { id: existingByIdentity.id },
+                data: {
+                    name: safeName,
+                    phone: safePhone || existingByIdentity.phone || null,
+                    email: safeEmail || existingByIdentity.email || null,
+                    dni: safeDni || existingByIdentity.dni || null,
+                    userId: safeUserId || existingByIdentity.userId || null
+                }
+            });
+        }
+
+        if (!safePhone) {
+            throw new Error('El teléfono es obligatorio para crear un nuevo cliente.');
         }
 
         return tx.client.create({
             data: {
                 clubId: input.clubId,
                 name: safeName,
-                phone: safePhone || null,
+                phone: safePhone,
                 email: safeEmail || null,
                 dni: safeDni || null,
                 userId: safeUserId
@@ -910,7 +954,7 @@ export class BookingService {
             clubId: number;
             bookingPrice: number;
             activityTypeId?: number | null;
-            clientId?: string | null;
+            clientId: string;
             applyDiscount?: boolean;
             actorUserId?: number | null;
         }
@@ -956,7 +1000,7 @@ export class BookingService {
                     }
                     : await this.discountService.computeDraftDiscountTx(tx, {
                         clubId: params.clubId,
-                        clientId: params.clientId ?? null,
+                        clientId: params.clientId,
                         itemType: 'BOOKING',
                         quantity: 1,
                         unitPrice: bookingCharge,
@@ -1029,8 +1073,8 @@ export class BookingService {
         amount: number;
         suppressClubNotification?: boolean;
     }) {
-        const cleanClientPhone = this.normalizePhone(params.clientPhone);
-        const cleanClubPhone = this.normalizePhone(params.clubPhone);
+        const cleanClientPhone = toDialablePhoneNumber(params.clientPhone);
+        const cleanClubPhone = toDialablePhoneNumber(params.clubPhone);
         const { date, time } = this.formatBookingDateTime(params.startDateTime, params.timeZone);
 
         const clientMessage = `
@@ -1123,8 +1167,8 @@ Ingresó un nuevo turno web en *${params.clubName}*.
         timeZone: string;
         reason?: CancelBookingReason;
     }) {
-        const cleanClientPhone = this.normalizePhone(params.clientPhone);
-        const cleanClubPhone = this.normalizePhone(params.clubPhone);
+        const cleanClientPhone = toDialablePhoneNumber(params.clientPhone);
+        const cleanClubPhone = toDialablePhoneNumber(params.clubPhone);
         const { date, time } = this.formatBookingDateTime(params.startDateTime, params.timeZone);
         const isAutoCancel = params.reason === 'AUTO_CANCEL_UNCONFIRMED';
 
@@ -1323,11 +1367,6 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
     async createBooking(
         userId: number | null,
-        guestIdentifier: string | undefined,
-        guestName: string | undefined,
-        guestEmail: string | undefined,
-        guestPhone: string | undefined,
-        guestDni: string | undefined,
         courtId: number,
         startDateTime: Date,
         activityId: number,
@@ -1336,25 +1375,19 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         options?: CreateBookingOptions
     ): Promise<Booking> {
         let user: User | null = null;
+        const requestedClientId = String(options?.clientId || '').trim();
+        const requestedClientDraftName = String(options?.clientDraft?.name || '').trim();
+        const requestedClientDraftPhone = this.normalizePhone(options?.clientDraft?.phone);
+
         if (userId) {
             user = await this.userRepo.findById(userId);
             if (!user) throw new Error("Usuario no encontrado");
         } else {
-            // --- VALIDACIONES ESTRICTAS PARA INVITADOS/ADMIN ---
-            if (!guestName || guestName.trim().length < 2) {
-                throw new Error("El nombre es obligatorio para reservas como invitado.");
+            if (!requestedClientId && requestedClientDraftName.length < 2) {
+                throw new Error("Debes seleccionar un cliente o cargar un alta rápida válida.");
             }
-
-            if (!guestDni || guestDni.trim().length < 6) {
-                throw new Error("El DNI es obligatorio para identificar al cliente.");
-            }
-
-            if (!guestPhone || guestPhone.trim().length < 7) {
-                throw new Error("El número de teléfono es obligatorio.");
-            }
-
-            if (!guestIdentifier) {
-                guestIdentifier = guestDni;
+            if (!requestedClientId && (!requestedClientDraftPhone || requestedClientDraftPhone.length < 7)) {
+                throw new Error("El teléfono es obligatorio para el alta rápida de cliente.");
             }
         }
 
@@ -1370,10 +1403,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         const bookingClubId = (court as any).club.id;
         const isProfessorClient = await this.resolveClientProfessorStatus({
             clubId: bookingClubId,
+            clientId: options?.clientId ?? null,
             userId: user?.id ?? null,
-            guestEmail,
-            guestPhone,
-            guestDni
+            clientEmail: options?.clientDraft?.email ?? user?.email ?? undefined,
+            clientPhone: options?.clientDraft?.phone ?? user?.phoneNumber ?? undefined,
+            clientDni: options?.clientDraft?.dni ?? undefined
         });
         const clubConfig = this.resolveClubConfig((court as any)?.club);
         const clubTimeZone = (clubConfig && clubConfig.timeZone) ? clubConfig.timeZone : 'America/Argentina/Buenos_Aires';
@@ -1545,25 +1579,48 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
             let saved;
             try {
-                // Si la reserva es de un usuario registrado, preservamos su DNI en Client
-                // para que aparezca correctamente en Gestión de Clientes.
-                let dniForClient: string | null = guestDni || null;
-                if (!dniForClient && user?.id) {
-                    const dbUser = await tx.user.findUnique({
-                        where: { id: Number(user.id) },
-                        select: { dni: true }
+                let resolvedClient: any = null;
+
+                if (requestedClientId) {
+                    resolvedClient = await tx.client.findFirst({
+                        where: {
+                            id: requestedClientId,
+                            clubId: bookingClubId
+                        }
                     });
-                    dniForClient = dbUser?.dni || null;
+                    if (!resolvedClient) {
+                        throw new Error('Cliente no encontrado para el club seleccionado');
+                    }
                 }
 
-                const resolvedClient = await this.resolveOrCreateClient(tx, {
-                    clubId: bookingClubId,
-                    userId: user?.id ?? null,
-                    name: guestName || `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || user?.firstName || 'Cliente',
-                    phone: guestPhone || user?.phoneNumber || null,
-                    email: guestEmail || user?.email || null,
-                    dni: dniForClient
-                });
+                if (!resolvedClient) {
+                    let dniForClient: string | null = options?.clientDraft?.dni ?? null;
+                    if (!dniForClient && user?.id) {
+                        const dbUser = await tx.user.findUnique({
+                            where: { id: Number(user.id) },
+                            select: { dni: true }
+                        });
+                        dniForClient = dbUser?.dni || null;
+                    }
+
+                    const draftName = String(options?.clientDraft?.name || '').trim()
+                        || `${user?.firstName || ''} ${user?.lastName || ''}`.trim()
+                        || user?.firstName
+                        || 'Cliente';
+
+                    resolvedClient = await this.resolveOrCreateClient(tx, {
+                        clubId: bookingClubId,
+                        userId: user?.id ?? null,
+                        name: draftName,
+                        phone: options?.clientDraft?.phone ?? user?.phoneNumber ?? null,
+                        email: options?.clientDraft?.email ?? user?.email ?? null,
+                        dni: dniForClient
+                    });
+                }
+
+                if (!resolvedClient?.id) {
+                    throw new Error('No se pudo resolver un cliente para la reserva');
+                }
 
                 const initialStatus = resolveInitialBookingStatus(
                     (clubConfig?.bookingConfirmationMode ?? 'MANUAL') as 'AUTOMATIC' | 'MANUAL' | 'DEPOSIT_REQUIRED'
@@ -1579,12 +1636,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         status: initialStatus,
                         userId: user ? user.id : null,
                         clientId: resolvedClient.id,
-                        guestIdentifier: guestIdentifier,
                         courtId: courtId,
                         activityId: activityId,
                         clubId: bookingClubId
                     },
-                    include: { user: true, court: { include: { club: true } }, activity: true }
+                    include: { user: true, client: true, court: { include: { club: true } }, activity: true }
                 });
 
                 // Estrategia lazy: para turnos simples no abrimos cuenta al crear.
@@ -1601,7 +1657,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     });
                     const refreshed = await tx.booking.findUnique({
                         where: { id: saved.id },
-                        include: { user: true, court: { include: { club: true } }, activity: true }
+                        include: { user: true, client: true, court: { include: { club: true } }, activity: true }
                     });
                     if (refreshed) {
                         saved = refreshed;
@@ -1617,8 +1673,12 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     amount: Number(saved.price || 0)
                 }, tx);
 
-                const clientName = guestName || user?.firstName || 'Jugador';
-                const clientPhone = guestPhone || user?.phoneNumber || null;
+                const clientName = String(
+                    resolvedClient?.name
+                    || user?.firstName
+                    || 'Jugador'
+                );
+                const clientPhone = resolvedClient?.phone || user?.phoneNumber || null;
                 const clubPhone = (court as any)?.club?.phone ?? null;
                 const timeZone = clubConfig?.timeZone ?? 'America/Argentina/Buenos_Aires';
                 const adminMemberships = await tx.membership.findMany({
@@ -2505,10 +2565,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         clubId?: number,
         durationMinutes?: number,
         identity?: {
+            clientId?: string | null;
             userId?: number | null;
-            guestEmail?: string;
-            guestPhone?: string;
-            guestDni?: string;
+            clientEmail?: string;
+            clientPhone?: string;
+            clientDni?: string;
         }
     ): Promise<{
         slotsWithCourts: Array<{
@@ -2576,10 +2637,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         const isProfessorClient = Number.isFinite(resolveProfessorForClubId) && resolveProfessorForClubId > 0
             ? await this.resolveClientProfessorStatus({
                 clubId: resolveProfessorForClubId,
+                clientId: identity?.clientId ?? null,
                 userId: identity?.userId ?? null,
-                guestEmail: identity?.guestEmail,
-                guestPhone: identity?.guestPhone,
-                guestDni: identity?.guestDni
+                clientEmail: identity?.clientEmail,
+                clientPhone: identity?.clientPhone,
+                clientDni: identity?.clientDni
             })
             : false;
         const canProfessorDurationOverride =
@@ -2748,50 +2810,53 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
     }
 
     async createFixedBooking(
-        userId: number | null,
         courtId: number,
         activityId: number,
         startDateTime: Date,
-        weeksToGenerate?: number,
-        guestName?: string,
-        guestPhone?: string | number, // Agregado para recibir el dato del front
-        guestDni?: string,
-        clubId?: number,
-        actorUserId?: number | null,
-        allowOverlappingSeries: boolean = false,
-        durationMinutes?: number
+        options?: CreateFixedBookingOptions
     ) {
-        const safePhone = guestPhone ? String(guestPhone) : undefined;
+        const requestedUserId = Number.isInteger(Number(options?.userId)) && Number(options?.userId) > 0
+            ? Number(options?.userId)
+            : null;
+        const requestedClientId = String(options?.clientId || '').trim();
+        const requestedClientDraftName = String(options?.clientDraft?.name || '').trim();
+        const requestedClientDraftPhone = this.normalizePhone(options?.clientDraft?.phone);
 
-        // 1. Validaciones básicas
+        if (!requestedClientId && !requestedUserId && requestedClientDraftName.length < 2) {
+            throw new Error('Debes seleccionar un cliente o cargar un alta rápida válida.');
+        }
+        if (!requestedClientId && !requestedUserId && (!requestedClientDraftPhone || requestedClientDraftPhone.length < 7)) {
+            throw new Error('El teléfono es obligatorio para el alta rápida de cliente.');
+        }
+
         let user: User | null = null;
-        if (userId) {
-            user = await this.userRepo.findById(userId);
-            if (!user) throw new Error("Usuario no encontrado");
-        } else if (!guestName) {
-            throw new Error("Debe proveer un nombre para reservas fijas como invitado.");
+        if (requestedUserId) {
+            user = await this.userRepo.findById(requestedUserId);
+            if (!user) throw new Error('Usuario no encontrado');
         }
 
         const court = await this.courtRepo.findById(courtId);
         if (!court) throw new Error("Cancha no encontrada");
-        
+
         const courtClubId = (court as any)?.club?.id;
-        if (clubId && courtClubId !== clubId) {
+        if (options?.clubId && courtClubId !== options.clubId) {
             throw new Error("No tienes acceso a esta cancha");
         }
 
         const activity = await this.activityRepo.findById(activityId);
         if (!activity) throw new Error("Actividad no encontrada");
-        // Validar que la actividad pertenezca al mismo club que la cancha
         if ((activity.clubId ?? null) !== ((court as any)?.club?.id ?? null)) {
             throw new Error("ACTIVITY_CLUB_MISMATCH");
         }
+
         const fixedClubId = (court as any)?.club?.id;
         const isProfessorClient = await this.resolveClientProfessorStatus({
             clubId: fixedClubId,
+            clientId: requestedClientId || null,
             userId: user?.id ?? null,
-            guestPhone: safePhone,
-            guestDni
+            clientEmail: options?.clientDraft?.email ?? undefined,
+            clientPhone: options?.clientDraft?.phone ?? user?.phoneNumber ?? undefined,
+            clientDni: options?.clientDraft?.dni ?? undefined
         });
         const clubConfigForFixed = this.resolveClubConfig((court as any)?.club);
         const professorOverrideMinutes = Number(clubConfigForFixed?.professorDurationOverrideMinutes ?? 60);
@@ -2800,7 +2865,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             Boolean(clubConfigForFixed?.professorDurationOverrideEnabled) &&
             Number.isFinite(professorOverrideMinutes) &&
             professorOverrideMinutes > 0;
-        const requestedDuration = Number(durationMinutes);
+        const requestedDuration = Number(options?.durationMinutes);
         const hasRequestedDuration = Number.isFinite(requestedDuration) && requestedDuration > 0;
         const duration = hasRequestedDuration
             ? Math.floor(requestedDuration)
@@ -2808,7 +2873,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         this.assertValidDuration(duration);
         const fixedConfig = this.resolveFixedBookingConfig(clubConfigForFixed, activity ?? null);
 
-        const explicitWeeks = Number(weeksToGenerate);
+        const explicitWeeks = Number(options?.weeksToGenerate);
         const hasExplicitWeeks = Number.isFinite(explicitWeeks) && explicitWeeks > 0;
         const generationFrequencyDays = Math.max(1, fixedConfig.fixedBookingGenerationFrequencyDays);
         const totalOccurrences = hasExplicitWeeks
@@ -2827,20 +2892,19 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         }
         const dayOfWeek = localStart.getDay();
 
-        // Verificar días de apertura del club antes de crear turnos fijos
         if (!this.isClubOpenOnLocalDate(clubConfigForFixed, startDateTime, clubTimeZone)) {
             throw new Error('El club está cerrado ese día');
         }
 
-        // 👇 CORRECCIÓN 1: FILTRAR SOLO LOS ACTIVOS (NO CANCELADOS)
         const existingFixed = await prisma.fixedBooking.findMany({
             where: {
                 courtId,
                 dayOfWeek,
-                status: { not: 'CANCELLED' } // Importante: Ignora los dados de baja
+                status: { not: 'CANCELLED' }
             },
             include: {
                 user: true,
+                client: true,
                 court: true,
                 activity: true
             }
@@ -2853,6 +2917,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             return startTimeMinutes < fixedEnd && endTimeMinutes > fixedStart;
         });
         const overlapsFixed = conflictingFixed.length > 0;
+        const allowOverlappingSeries = Boolean(options?.allowOverlappingSeries);
 
         if (overlapsFixed && !allowOverlappingSeries) {
             const fixedError: any = new Error("Ya existe un turno fijo en ese horario para esta cancha.");
@@ -2887,7 +2952,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         endTimeMinutes: Number((fixed as any)?.endTimeMinutes ?? 0),
                         courtName: fixed?.court?.name || '',
                         activityName: fixed?.activity?.name || '',
-                        clientName: fixed?.guestName
+                        clientName: fixed?.client?.name
                             || `${fixed?.user?.firstName || ''} ${fixed?.user?.lastName || ''}`.trim()
                             || 'Cliente'
                     });
@@ -2904,7 +2969,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     endTimeMinutes: Number((fixed as any)?.endTimeMinutes ?? 0),
                     courtName: fixed?.court?.name || '',
                     activityName: fixed?.activity?.name || '',
-                    clientName: fixed?.guestName
+                    clientName: fixed?.client?.name
                         || `${fixed?.user?.firstName || ''} ${fixed?.user?.lastName || ''}`.trim()
                         || 'Cliente'
                 }));
@@ -2912,7 +2977,6 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             throw fixedError;
         }
 
-        // 2. Preparar fechas límites
         const firstStart = new Date(startDateTime);
         const lastStart = new Date(firstStart);
         lastStart.setDate(firstStart.getDate() + ((totalOccurrences - 1) * generationFrequencyDays));
@@ -2926,9 +2990,10 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             totalOccurrences,
             generationFrequencyDays
         });
-        // ATÓMICO: crear FixedBooking y bookings hijas en una sola transacción
+
         let fixedBooking: any;
         let generatedCount = 0;
+        let fixedClientId: string = '';
         const createdOccurrences: Array<{
             bookingId: number;
             startDateTime: Date;
@@ -2949,15 +3014,60 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             conflictingActivityName?: string;
             conflictingStatus?: string;
         }> = [];
+
         await prisma.$transaction(async (tx) => {
-            // A. Crear el "Padre" (Turno Fijo)
+            let resolvedClient: any = null;
+
+            if (requestedClientId) {
+                resolvedClient = await tx.client.findFirst({
+                    where: {
+                        id: requestedClientId,
+                        clubId: fixedClubId
+                    }
+                });
+                if (!resolvedClient) {
+                    throw new Error('Cliente no encontrado para el club seleccionado');
+                }
+            }
+
+            if (!resolvedClient) {
+                const draftName = requestedClientDraftName
+                    || `${user?.firstName || ''} ${user?.lastName || ''}`.trim()
+                    || user?.firstName
+                    || 'Cliente';
+                const draftPhone = options?.clientDraft?.phone ?? user?.phoneNumber ?? null;
+                const draftEmail = options?.clientDraft?.email ?? user?.email ?? null;
+                let draftDni = options?.clientDraft?.dni ?? null;
+                if (!draftDni && user?.id) {
+                    const dbUser = await tx.user.findUnique({
+                        where: { id: Number(user.id) },
+                        select: { dni: true }
+                    });
+                    draftDni = dbUser?.dni || null;
+                }
+
+                resolvedClient = await this.resolveOrCreateClient(tx, {
+                    clubId: fixedClubId,
+                    userId: user?.id ?? null,
+                    name: draftName,
+                    phone: draftPhone,
+                    email: draftEmail,
+                    dni: draftDni
+                });
+            }
+
+            if (!resolvedClient?.id) {
+                throw new Error('No se pudo resolver un cliente para el turno fijo');
+            }
+            if (!this.normalizePhone(resolvedClient?.phone || null)) {
+                throw new Error('El cliente del turno fijo debe tener teléfono válido.');
+            }
+
+            fixedClientId = String(resolvedClient.id);
             fixedBooking = await tx.fixedBooking.create({
                 data: {
-                    ...(userId ? { userId } : {}),
-                    ...(guestName ? { guestName } : {}),
-                    ...(safePhone ? { guestPhone: safePhone } : {}),
-                    ...(guestDni ? { guestDni } : {}),
-
+                    clientId: fixedClientId,
+                    ...(resolvedClient?.userId ? { userId: Number(resolvedClient.userId) } : {}),
                     courtId,
                     activityId,
                     clubId: (court as any).club.id,
@@ -2969,7 +3079,6 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 }
             });
 
-            // B. Conflictos existentes
             const existingBookings = await tx.booking.findMany({
                 where: {
                     courtId,
@@ -2985,7 +3094,6 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 }
             });
 
-            // C. Generar hijas usando la misma lógica central de createBooking
             for (let i = 0; i < totalOccurrences; i++) {
                 const currentStart = new Date(startDateTime);
                 currentStart.setDate(startDateTime.getDate() + (i * generationFrequencyDays));
@@ -3018,12 +3126,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
                 try {
                     const createdBooking = await this.createBooking(
-                        userId,
-                        guestDni,
-                        guestName,
-                        undefined,
-                        safePhone,
-                        guestDni,
+                        resolvedClient?.userId ? Number(resolvedClient.userId) : null,
                         courtId,
                         currentStart,
                         activityId,
@@ -3032,7 +3135,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         {
                             skipAccountCreation: true,
                             skipAdvanceLimit: true,
-                            actorUserId: actorUserId ?? null
+                            actorUserId: options?.actorUserId ?? null,
+                            clientId: fixedClientId
                         }
                     );
 
@@ -3080,11 +3184,13 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             generatedCount,
             courtId,
             activityId,
+            clientId: fixedClientId,
             clubId: (court as any).club.id
         });
 
         return {
             fixedBookingId: fixedBooking.id,
+            clientId: fixedClientId,
             generatedCount,
             createdOccurrences,
             skippedOccurrences,
@@ -3264,7 +3370,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 }
                 : await this.discountService.computeDraftDiscountTx(tx, {
                     clubId,
-                    clientId: booking.clientId ?? null,
+                    clientId: booking.clientId,
                     itemType: 'PRODUCT',
                     quantity: normalizedQty,
                     unitPrice: Number(txProduct.price || 0),
@@ -3362,7 +3468,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 ? { unitPrice: unitListPrice, total: Number((unitListPrice * normalizedQty).toFixed(2)), snapshots: [] }
                 : await this.discountService.computeDraftDiscountTx(tx, {
                     clubId,
-                    clientId: booking.clientId ?? null,
+                    clientId: booking.clientId,
                     itemType: 'PRODUCT',
                     quantity: normalizedQty,
                     unitPrice: unitListPrice,

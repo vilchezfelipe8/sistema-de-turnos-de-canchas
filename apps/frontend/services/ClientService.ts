@@ -68,6 +68,8 @@ export class ClientService {
   static async createByClubSlug(slug: string, body: {
     name: string;
     phone?: string;
+    phoneCountryCode?: string;
+    phoneNumberLocal?: string;
     dni?: string;
     email?: string;
     isProfessor?: boolean;
@@ -87,6 +89,8 @@ export class ClientService {
   static async updateByClubSlug(slug: string, clientId: string, body: {
     name: string;
     phone?: string;
+    phoneCountryCode?: string;
+    phoneNumberLocal?: string;
     dni?: string;
     email?: string;
     isProfessor?: boolean;

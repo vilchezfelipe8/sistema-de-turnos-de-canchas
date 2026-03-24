@@ -4,6 +4,7 @@ import { Club } from '../entities/Club';
 import type { ClubOperationalStatus, FixedBookingSettingsByActivity } from '../entities/Club';
 import { Court } from '../entities/Court';
 import { Prisma } from '@prisma/client';
+import { normalizeIdentityPhone } from '../utils/phone';
 
 // 👇 1. USAMOS TUS IMPORTS CORRECTOS
 import { prisma } from '../prisma'; 
@@ -219,13 +220,20 @@ export class ClubService {
         email?: string | null;
         isProfessor?: boolean;
     }) {
+        const club = await prisma.club.findUnique({
+            where: { id: clubId },
+            select: { country: true }
+        });
         const normalizedName = String(input.name || '').trim();
-        const normalizedPhone = String(input.phone || '').replace(/\D/g, '');
+        const normalizedPhone = normalizeIdentityPhone(
+            { phone: input.phone ?? null },
+            { defaultCountryIso2: String(club?.country || '').trim() || null }
+        );
         const normalizedDni = String(input.dni || '').replace(/\D/g, '');
         const normalizedEmail = String(input.email || '').trim().toLowerCase();
 
         if (normalizedName.length < 2) throw new Error('Nombre inválido');
-        if (normalizedPhone && normalizedPhone.length < 7) throw new Error('Teléfono inválido');
+        if (input.phone && !normalizedPhone) throw new Error('Teléfono inválido');
         if (normalizedDni && normalizedDni.length < 6) throw new Error('DNI inválido');
 
         try {
@@ -233,7 +241,7 @@ export class ClubService {
                 data: {
                     clubId,
                     name: normalizedName,
-                    phone: normalizedPhone || null,
+                    phone: normalizedPhone,
                     dni: normalizedDni || null,
                     email: normalizedEmail || null,
                     isProfessor: Boolean(input.isProfessor)
@@ -256,14 +264,21 @@ export class ClubService {
     }) {
         const existing = await prisma.client.findFirst({ where: { id: clientId, clubId } });
         if (!existing) throw new Error('Cliente no encontrado');
+        const club = await prisma.club.findUnique({
+            where: { id: clubId },
+            select: { country: true }
+        });
 
         const normalizedName = String(input.name || '').trim();
-        const normalizedPhone = String(input.phone || '').replace(/\D/g, '');
+        const normalizedPhone = normalizeIdentityPhone(
+            { phone: input.phone ?? null },
+            { defaultCountryIso2: String(club?.country || '').trim() || null }
+        );
         const normalizedDni = String(input.dni || '').replace(/\D/g, '');
         const normalizedEmail = String(input.email || '').trim().toLowerCase();
 
         if (normalizedName.length < 2) throw new Error('Nombre inválido');
-        if (normalizedPhone && normalizedPhone.length < 7) throw new Error('Teléfono inválido');
+        if (input.phone && !normalizedPhone) throw new Error('Teléfono inválido');
         if (normalizedDni && normalizedDni.length < 6) throw new Error('DNI inválido');
 
         try {
@@ -271,7 +286,7 @@ export class ClubService {
                 where: { id: clientId },
                 data: {
                     name: normalizedName,
-                    phone: normalizedPhone || null,
+                    phone: normalizedPhone,
                     dni: normalizedDni || null,
                     email: normalizedEmail || null,
                     isProfessor: Boolean(input.isProfessor)

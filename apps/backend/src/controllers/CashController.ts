@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { CashService } from '../services/CashService';
 import { CashShiftService } from '../services/CashShiftService';
+import { ClientDuplicateIncidentService } from '../services/ClientDuplicateIncidentService';
 import { sanitizeString } from '../utils/sanitize';
 
 const optionalPositiveIntSchema = z.preprocess((v) => {
@@ -53,6 +54,26 @@ const salePaymentAllocationSchema = z.object({
   });
 });
 
+const clientDraftSchema = z.object({
+  name: z.string().trim().min(2).max(200),
+  phone: z.string().trim().min(4).max(30).optional(),
+  phoneCountryCode: z.string().trim().min(1).max(8).optional(),
+  phoneNumberLocal: z.string().trim().min(4).max(30).optional(),
+  dni: z.string().trim().optional(),
+  email: z.string().trim().email().optional(),
+  isProfessor: z.boolean().optional()
+}).superRefine((value, ctx) => {
+  const hasPhone = String(value.phone || '').trim().length > 0;
+  const hasLocal = String(value.phoneNumberLocal || '').trim().length > 0;
+  if (!hasPhone && !hasLocal) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['phone'],
+      message: 'Teléfono inválido'
+    });
+  }
+});
+
 const sanitizeSaleItems = (items?: Array<z.infer<typeof saleItemSchema>>) =>
   Array.isArray(items)
     ? items.map((item) => ({
@@ -86,7 +107,45 @@ const sanitizeSalePaymentAllocations = (payments?: Array<{
     : undefined;
 
 export class CashController {
+  private readonly duplicateIncidentService = new ClientDuplicateIncidentService();
+
   constructor(private readonly cashService: CashService) {}
+
+  private async registerDuplicateIncident(req: Request, error: any, endpoint: 'createProductSale' | 'quoteProductSale') {
+    try {
+      const details = (error && typeof error === 'object') ? (error.details || {}) : {};
+      const clubId = Number((req as any).clubId || details?.clubId || 0);
+      if (!Number.isInteger(clubId) || clubId <= 0) return;
+
+      const candidateClientIds: string[] = Array.from(
+        new Set(
+          (Array.isArray(details?.candidateClientIds) ? details.candidateClientIds : [])
+            .map((value: unknown) => String(value || '').trim())
+            .filter(Boolean)
+        )
+      );
+      if (candidateClientIds.length === 0) return;
+
+      const actorUserId = Number((req as any)?.user?.userId || 0);
+      const userId = Number(req.body?.userId || 0) > 0 ? Number(req.body.userId) : null;
+
+      await this.duplicateIncidentService.createOrReuseIncident({
+        clubId,
+        userId,
+        sourceType: 'CASH',
+        reasonType: String(details?.reasonType || 'MULTI_SIGNAL_CONFLICT'),
+        primaryClientId: details?.primaryClientId ? String(details.primaryClientId) : null,
+        candidateClientIds,
+        payload: {
+          endpoint,
+          signals: details?.signals || null,
+          actorUserId: Number.isInteger(actorUserId) && actorUserId > 0 ? actorUserId : null
+        }
+      });
+    } catch (incidentError) {
+      console.warn('No se pudo registrar incidente de duplicado en caja', incidentError);
+    }
+  }
 
   getSummary = async (req: Request, res: Response) => {
     try {
@@ -126,7 +185,6 @@ export class CashController {
 
       const clubId = Number((req as any).clubId);
       const actorUserId = Number((req as any)?.user?.userId || 0) || undefined;
-
       const shiftService = new CashShiftService();
       const currentShift = await shiftService.current(clubId);
       if (!currentShift) {
@@ -176,18 +234,20 @@ export class CashController {
           amount: z.preprocess((v) => Number(v), z.number().positive()),
           allocations: z.array(salePaymentAllocationSchema).optional()
         })).optional(),
-        guestName: z.string().trim().optional(),
-        guestPhone: z.string().trim().optional(),
-        guestDni: z.string().trim().optional(),
-        guestEmail: z.string().trim().email().optional(),
-        guestIsProfessor: z.boolean().optional(),
         clientId: z.string().trim().optional(),
-        createClientIfMissing: z.boolean().optional(),
+        clientDraft: clientDraftSchema.optional(),
         userId: z.preprocess((v) => {
           if (v == null || v === '') return undefined;
           const n = Number(v);
           return Number.isNaN(n) || n < 1 ? undefined : n;
         }, z.number().int().positive().optional())
+      }).superRefine((value, ctx) => {
+        if (value.clientId || value.clientDraft) return;
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['clientId'],
+          message: 'Debes seleccionar un cliente o cargar un alta rápida válida.'
+        });
       });
 
       const parsed = schema.safeParse(req.body);
@@ -204,19 +264,26 @@ export class CashController {
         method: parsed.data.method,
         channel: parsed.data.channel,
         payments: sanitizeSalePaymentAllocations(parsed.data.payments),
-        guestName: parsed.data.guestName ? sanitizeString(parsed.data.guestName, 200) : undefined,
-        guestPhone: parsed.data.guestPhone ? sanitizeString(parsed.data.guestPhone, 30) : undefined,
-        guestDni: parsed.data.guestDni ? sanitizeString(parsed.data.guestDni, 20) : undefined,
-        guestEmail: parsed.data.guestEmail ? sanitizeString(parsed.data.guestEmail, 120).toLowerCase() : undefined,
-        guestIsProfessor: Boolean(parsed.data.guestIsProfessor),
         clientId: parsed.data.clientId ? sanitizeString(parsed.data.clientId, 64) : undefined,
-        createClientIfMissing: Boolean(parsed.data.createClientIfMissing),
+        clientDraft: parsed.data.clientDraft ? {
+          name: sanitizeString(parsed.data.clientDraft.name, 200),
+          phone: parsed.data.clientDraft.phone ? sanitizeString(parsed.data.clientDraft.phone, 30) : undefined,
+          phoneCountryCode: parsed.data.clientDraft.phoneCountryCode ? sanitizeString(parsed.data.clientDraft.phoneCountryCode, 8) : undefined,
+          phoneNumberLocal: parsed.data.clientDraft.phoneNumberLocal ? sanitizeString(parsed.data.clientDraft.phoneNumberLocal, 30) : undefined,
+          dni: parsed.data.clientDraft.dni ? sanitizeString(parsed.data.clientDraft.dni, 20) : undefined,
+          email: parsed.data.clientDraft.email ? sanitizeString(parsed.data.clientDraft.email, 120).toLowerCase() : undefined,
+          isProfessor: Boolean(parsed.data.clientDraft.isProfessor)
+        } : undefined,
         userId: parsed.data.userId,
         idempotencyKey
       } as any, actorUserId);
 
       return res.status(201).json(sale);
     } catch (error: any) {
+      if (error?.code === 'CLIENT_POSSIBLE_DUPLICATE' || error?.message === 'CLIENT_POSSIBLE_DUPLICATE') {
+        await this.registerDuplicateIncident(req, error, 'createProductSale');
+        return res.status(409).json({ error: 'CLIENT_POSSIBLE_DUPLICATE' });
+      }
       return res.status(400).json({ error: error.message || 'No se pudo registrar la venta' });
     }
   };
@@ -230,41 +297,58 @@ export class CashController {
           return Number(v);
         }, z.number().int().positive().optional()),
         items: z.array(saleItemSchema).optional(),
-        guestName: z.string().trim().optional(),
-        guestPhone: z.string().trim().optional(),
-        guestDni: z.string().trim().optional(),
-        guestEmail: z.string().trim().email().optional(),
-        guestIsProfessor: z.boolean().optional(),
         clientId: z.string().trim().optional(),
-        createClientIfMissing: z.boolean().optional(),
+        clientDraft: clientDraftSchema.optional(),
         userId: z.preprocess((v) => {
           if (v == null || v === '') return undefined;
           const n = Number(v);
           return Number.isNaN(n) || n < 1 ? undefined : n;
         }, z.number().int().positive().optional())
+      }).superRefine((value, ctx) => {
+        if (value.clientId || value.clientDraft) return;
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['clientId'],
+          message: 'Debes seleccionar un cliente o cargar un alta rápida válida.'
+        });
       });
 
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
 
       const clubId = Number((req as any).clubId);
+      if (parsed.data.clientDraft) {
+        const hasAnyPhoneInput =
+          Boolean(String(parsed.data.clientDraft.phone || '').trim()) ||
+          Boolean(String(parsed.data.clientDraft.phoneNumberLocal || '').trim());
+        if (!hasAnyPhoneInput) {
+          return res.status(400).json({ error: 'CLIENT_DRAFT_INVALID' });
+        }
+      }
       const quote = await this.cashService.quoteProductSale({
         clubId,
         productId: parsed.data.productId,
         quantity: parsed.data.quantity,
         items: sanitizeSaleItems(parsed.data.items),
-        guestName: parsed.data.guestName ? sanitizeString(parsed.data.guestName, 200) : undefined,
-        guestPhone: parsed.data.guestPhone ? sanitizeString(parsed.data.guestPhone, 30) : undefined,
-        guestDni: parsed.data.guestDni ? sanitizeString(parsed.data.guestDni, 20) : undefined,
-        guestEmail: parsed.data.guestEmail ? sanitizeString(parsed.data.guestEmail, 120).toLowerCase() : undefined,
-        guestIsProfessor: Boolean(parsed.data.guestIsProfessor),
         clientId: parsed.data.clientId ? sanitizeString(parsed.data.clientId, 64) : undefined,
-        createClientIfMissing: Boolean(parsed.data.createClientIfMissing),
+        clientDraft: parsed.data.clientDraft ? {
+          name: sanitizeString(parsed.data.clientDraft.name, 200),
+          phone: parsed.data.clientDraft.phone ? sanitizeString(parsed.data.clientDraft.phone, 30) : undefined,
+          phoneCountryCode: parsed.data.clientDraft.phoneCountryCode ? sanitizeString(parsed.data.clientDraft.phoneCountryCode, 8) : undefined,
+          phoneNumberLocal: parsed.data.clientDraft.phoneNumberLocal ? sanitizeString(parsed.data.clientDraft.phoneNumberLocal, 30) : undefined,
+          dni: parsed.data.clientDraft.dni ? sanitizeString(parsed.data.clientDraft.dni, 20) : undefined,
+          email: parsed.data.clientDraft.email ? sanitizeString(parsed.data.clientDraft.email, 120).toLowerCase() : undefined,
+          isProfessor: Boolean(parsed.data.clientDraft.isProfessor)
+        } : undefined,
         userId: parsed.data.userId
       } as any);
 
       return res.json(quote);
     } catch (error: any) {
+      if (error?.code === 'CLIENT_POSSIBLE_DUPLICATE' || error?.message === 'CLIENT_POSSIBLE_DUPLICATE') {
+        await this.registerDuplicateIncident(req, error, 'quoteProductSale');
+        return res.status(409).json({ error: 'CLIENT_POSSIBLE_DUPLICATE' });
+      }
       return res.status(400).json({ error: error.message || 'No se pudo cotizar la venta' });
     }
   };

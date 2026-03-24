@@ -57,6 +57,21 @@ export interface Club {
   updatedAt?: string;
 }
 
+export type FavoriteLinkingStatus =
+  | 'already_linked'
+  | 'linked_existing_client'
+  | 'created_client'
+  | 'duplicate_detected_no_link'
+  | 'insufficient_data_no_link';
+
+export type ClubFavorite = {
+  id: string;
+  clubId: number;
+  userId: number;
+  createdAt: string;
+  club: Club;
+};
+
 export class ClubService {
   static async getClubById(id: number): Promise<Club> {
     const response = await fetch(`${apiBase()}/clubs/${id}`);
@@ -113,6 +128,54 @@ export class ClubService {
       throw new Error(error.error || 'Error al crear el club');
     }
 
+    return response.json();
+  }
+
+  static async getMyFavorites(): Promise<ClubFavorite[]> {
+    if (!getToken()) return [];
+    const response = await fetchWithAuth(`${apiBase()}/clubs/favorites/me`, {
+      method: 'GET'
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Error al obtener favoritos');
+    }
+    const payload = await response.json();
+    return Array.isArray(payload?.favorites) ? payload.favorites : [];
+  }
+
+  static async markFavorite(clubId: number): Promise<{
+    favorite: {
+      id: string;
+      clubId: number;
+      userId: number;
+      createdAt: string;
+    };
+    linking: {
+      status: FavoriteLinkingStatus;
+      clientId: string | null;
+    };
+  }> {
+    if (!getToken()) throw new Error('No autenticado');
+    const response = await fetchWithAuth(`${apiBase()}/clubs/${clubId}/favorite`, {
+      method: 'POST'
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudo marcar favorito');
+    }
+    return response.json();
+  }
+
+  static async unmarkFavorite(clubId: number): Promise<{ removed: boolean }> {
+    if (!getToken()) throw new Error('No autenticado');
+    const response = await fetchWithAuth(`${apiBase()}/clubs/${clubId}/favorite`, {
+      method: 'DELETE'
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudo quitar favorito');
+    }
     return response.json();
   }
 }

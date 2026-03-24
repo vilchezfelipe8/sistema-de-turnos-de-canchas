@@ -251,9 +251,9 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
       ? Math.round((endDateTime.getTime() - startDateTime.getTime()) / 60000)
       : null;
     const durationMinutes = Number(booking?.durationMinutes || durationFromRange || 0);
-    const safeGuestDni = String(booking?.client?.dni || '').replace(/\D/g, '');
-    const safeGuestPhone = String(booking?.client?.phone || '').trim();
-    const safeGuestEmail = String(booking?.client?.email || '').trim();
+    const safeClientDni = String(booking?.client?.dni || '').replace(/\D/g, '');
+    const safeClientPhone = String(booking?.client?.phone || '').trim();
+    const safeClientEmail = String(booking?.client?.email || '').trim();
 
     if (!Number.isFinite(courtId) || courtId <= 0 || !Number.isFinite(activityId) || activityId <= 0 || !startDateTime || Number.isNaN(startDateTime.getTime())) {
       setConfirmationQuote(null);
@@ -272,9 +272,9 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
           activityId,
           startDateTime,
           ...(Number.isFinite(durationMinutes) && durationMinutes > 0 ? { durationMinutes } : {}),
-          ...(safeGuestDni ? { guestDni: safeGuestDni } : {}),
-          ...(safeGuestPhone ? { guestPhone: safeGuestPhone } : {}),
-          ...(safeGuestEmail ? { guestEmail: safeGuestEmail } : {})
+          ...(safeClientDni ? { clientDni: safeClientDni } : {}),
+          ...(safeClientPhone ? { clientPhone: safeClientPhone } : {}),
+          ...(safeClientEmail ? { clientEmail: safeClientEmail } : {})
         });
         if (!cancelled) setConfirmationQuote(quote);
       } catch (error) {

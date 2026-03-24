@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { login, register } from '../services/AuthService';
 import { ClubService } from '../services/ClubService';
 import { Mail, Lock, User, Phone, UserPlus, LogIn, AlertCircle, Loader2, IdCard, CheckCircle, Eye, EyeOff } from 'lucide-react'; // Agregamos IdCard y Eye
 import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser } from '../utils/session';
+import { buildCanonicalPhone, DEFAULT_PHONE_COUNTRY_ISO2, normalizePhoneCountryIso2, PHONE_COUNTRY_OPTIONS, resolveCallingCodeByIso2 } from '../utils/phone';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,29 +19,32 @@ export default function LoginPage() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [phoneCountryIso2, setPhoneCountryIso2] = useState(DEFAULT_PHONE_COUNTRY_ISO2);
   const [dni, setDni] = useState(''); // Estado del DNI listo
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  const isPhoneValid = (phone: string) => {
-    if (!phone) return false;
-    if (!phone.startsWith('+549')) return false;
-    const digits = phone.replace(/\D/g, '');
-    if (!digits.startsWith('549')) return false;
-    const nationalDigits = digits.slice(3);
-    if (nationalDigits.length !== 10) return false;
-    return /^\+549\d+$/.test(phone);
-  };
-
-  const formatPhoneDigits = (digits: string) => {
-    const clean = digits.slice(0, 10);
-    const part1 = clean.slice(0, 3);
-    const part2 = clean.slice(3, 6);
-    const part3 = clean.slice(6, 10);
-    return [part1, part2, part3].filter(Boolean).join(' ');
-  };
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const userRaw = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+        const parsedUser = userRaw ? normalizeSessionUser(JSON.parse(userRaw)) : null;
+        const activeClubId = Number(parsedUser?.activeClubId || parsedUser?.clubId || parsedUser?.club?.id || 0);
+        if (!Number.isInteger(activeClubId) || activeClubId <= 0) return;
+        const club = await ClubService.getClubById(activeClubId);
+        if (cancelled) return;
+        setPhoneCountryIso2(normalizePhoneCountryIso2(club?.country));
+      } catch {
+        if (!cancelled) setPhoneCountryIso2(DEFAULT_PHONE_COUNTRY_ISO2);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,24 +70,37 @@ export default function LoginPage() {
           window.location.href = '/';
         }
       } else {
-        const phoneDigits = phoneNumber.replace(/\D/g, '').slice(0, 10);
-        const fullPhone = phoneDigits ? `+549${phoneDigits}` : '';
-        
-        if (!phoneDigits) {
+        const localPhone = String(phoneNumber || '').replace(/[^\d]/g, '');
+        const fullPhone = buildCanonicalPhone({
+          countryIso2: phoneCountryIso2,
+          localNumber: localPhone
+        });
+
+        if (!localPhone) {
           setError('Ingresá un teléfono para completar el registro.');
           return;
         }
-        if (!isPhoneValid(fullPhone)) {
+        if (!fullPhone) {
           setError('Ingresá un teléfono con formato válido.');
           return;
         }
-        if (!dni || dni.length < 7) {
-          setError('Ingresá un DNI válido.');
+        const safeDni = String(dni || '').trim();
+        if (safeDni && safeDni.length < 7) {
+          setError('Si cargás DNI, debe tener al menos 7 dígitos.');
           return;
         }
 
-        // IMPORTANTE: Asegurate de que tu función register en AuthService acepte el DNI
-        await register(firstName, lastName, email, password, fullPhone, 'MEMBER', dni); 
+        await register(
+          firstName,
+          lastName,
+          email,
+          password,
+          fullPhone,
+          'MEMBER',
+          safeDni || undefined,
+          resolveCallingCodeByIso2(phoneCountryIso2),
+          localPhone
+        );
         
         setSuccessMessage('Usuario registrado exitosamente. Ahora podés iniciar sesión.');
         setIsLogin(true);
@@ -175,11 +192,10 @@ export default function LoginPage() {
                     </div>
                     <input 
                       type="number" 
-                      required 
                       value={dni} 
                       onChange={(e) => setDni(e.target.value)}
                       className="w-full pl-11 pr-4 py-3.5 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl text-[#347048] font-bold focus:outline-none transition-all shadow-sm placeholder-[#347048]/20" 
-                      placeholder="Sin puntos ni espacios. Ej: 35123456" 
+                      placeholder="Opcional. Ej: 35123456" 
                     />
                   </div>
                 </div>
@@ -188,13 +204,29 @@ export default function LoginPage() {
                 <div className="col-span-2">
                   <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Teléfono</label>
                   <div className="relative flex items-stretch bg-white border-2 border-transparent focus-within:border-[#B9CF32] rounded-2xl transition-all shadow-sm overflow-hidden min-h-[56px]">
-                    <div className="pl-4 pr-3 py-0 flex items-center bg-[#347048]/5 text-[#347048]/60 border-r border-[#347048]/10 shrink-0 self-stretch">
-                      <Phone size={16} strokeWidth={3} className="mr-2 text-[#347048]/40" />
-                      <span className="font-black text-sm whitespace-nowrap">+54 9</span>
+                    <div className="pl-3 pr-2 py-0 flex items-center bg-[#347048]/5 text-[#347048]/60 border-r border-[#347048]/10 shrink-0 self-stretch gap-2">
+                      <Phone size={16} strokeWidth={3} className="text-[#347048]/40" />
+                      <select
+                        value={phoneCountryIso2}
+                        onChange={(e) => setPhoneCountryIso2(normalizePhoneCountryIso2(e.target.value))}
+                        className="bg-transparent text-[#347048] font-black text-xs focus:outline-none"
+                      >
+                        {PHONE_COUNTRY_OPTIONS.map((option) => (
+                          <option key={option.iso2} value={option.iso2}>
+                            {option.callingCode} {option.iso2}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                    <input type="tel" required maxLength={12} value={formatPhoneDigits(phoneNumber)}
-                      onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ''))}
-                      className="w-full px-4 py-3.5 bg-transparent text-[#347048] font-bold focus:outline-none placeholder-[#347048]/20 h-full" placeholder="351 123 4567" />
+                    <input
+                      type="tel"
+                      required
+                      maxLength={20}
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value.replace(/[^\d]/g, ''))}
+                      className="w-full px-4 py-3.5 bg-transparent text-[#347048] font-bold focus:outline-none placeholder-[#347048]/20 h-full"
+                      placeholder="Número local"
+                    />
                   </div>
                 </div>
               </div>

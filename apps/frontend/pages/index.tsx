@@ -5,7 +5,7 @@ import { ClubService, Club } from '../services/ClubService';
 import { getApiUrl } from '../utils/apiUrl';
 import { LocationService, Location } from '../services/LocationService';
 import DatePickerDark from '../components/ui/DatePickerDark';
-import { Search, MapPin, Calendar, TrendingUp, ShieldCheck, ArrowRight, Menu, X, Phone, Mail, Instagram, Activity, ChevronRight, ChevronLeft, MousePointerClick, CalendarCheck, PlayCircle, Coffee, Droplets, Lightbulb, Trophy, ChevronDown, LogOut, Check, MessageSquare, Calculator, Users } from 'lucide-react';
+import { Search, MapPin, Calendar, TrendingUp, ShieldCheck, ArrowRight, Menu, X, Phone, Mail, Instagram, Activity, ChevronRight, ChevronLeft, MousePointerClick, CalendarCheck, PlayCircle, Coffee, Droplets, Lightbulb, Trophy, ChevronDown, LogOut, Check, MessageSquare, Calculator, Users, Heart } from 'lucide-react';
 import Link from 'next/link';
 import { logout } from '../services/AuthService';
 import { getMyBookings } from '../services/BookingService';
@@ -140,6 +140,10 @@ export default function Home() {
   const [showContact, setShowContact] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [activeBookingsCount, setActiveBookingsCount] = useState(0);
+  const [favoriteClubIds, setFavoriteClubIds] = useState<Set<number>>(new Set());
+  const [favoriteClubs, setFavoriteClubs] = useState<Club[]>([]);
+  const [favoriteFeedback, setFavoriteFeedback] = useState<string | null>(null);
+  const [favoriteBusyByClub, setFavoriteBusyByClub] = useState<Record<number, boolean>>({});
   // track which FAQ item is currently open (null if none)
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
   const faqRefs = useRef<Array<HTMLDivElement | null>>([]);
@@ -368,6 +372,83 @@ export default function Home() {
 
     loadActiveBookings();
   }, [user]);
+
+  useEffect(() => {
+    const loadFavorites = async () => {
+      if (!user?.id) {
+        setFavoriteClubIds(new Set());
+        setFavoriteClubs([]);
+        setFavoriteFeedback(null);
+        return;
+      }
+      try {
+        const favorites = await ClubService.getMyFavorites();
+        const nextIds = new Set<number>(favorites.map((item) => Number(item.clubId)));
+        const nextClubs = favorites
+          .map((item) => item.club)
+          .filter((club): club is Club => Boolean(club && club.id));
+        setFavoriteClubIds(nextIds);
+        setFavoriteClubs(nextClubs);
+      } catch (error) {
+        reportUiError({ area: 'HomePage', action: 'loadFavorites' }, error);
+      }
+    };
+    void loadFavorites();
+  }, [user?.id]);
+
+  const resolveLinkingMessage = (status: string) => {
+    if (status === 'linked_existing_client') return 'Favorito guardado y cliente vinculado.';
+    if (status === 'created_client') return 'Favorito guardado y cliente creado.';
+    if (status === 'already_linked') return 'Favorito guardado. Ya estabas vinculado en este club.';
+    if (status === 'duplicate_detected_no_link') return 'Favorito guardado. Detectamos posible duplicado y no vinculamos automáticamente.';
+    if (status === 'insufficient_data_no_link') return 'Favorito guardado. No hubo datos suficientes para vincular cliente.';
+    return null;
+  };
+
+  const handleToggleFavorite = async (e: React.MouseEvent, club: Club) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!user?.id) {
+      setFavoriteFeedback('Iniciá sesión para guardar favoritos.');
+      return;
+    }
+
+    const clubId = Number(club.id);
+    if (!Number.isFinite(clubId) || clubId <= 0) return;
+    if (favoriteBusyByClub[clubId]) return;
+
+    setFavoriteBusyByClub((prev) => ({ ...prev, [clubId]: true }));
+    try {
+      if (favoriteClubIds.has(clubId)) {
+        await ClubService.unmarkFavorite(clubId);
+        setFavoriteClubIds((prev) => {
+          const next = new Set(prev);
+          next.delete(clubId);
+          return next;
+        });
+        setFavoriteClubs((prev) => prev.filter((item) => Number(item.id) !== clubId));
+        setFavoriteFeedback('Favorito eliminado.');
+      } else {
+        const result = await ClubService.markFavorite(clubId);
+        setFavoriteClubIds((prev) => {
+          const next = new Set(prev);
+          next.add(clubId);
+          return next;
+        });
+        setFavoriteClubs((prev) => {
+          const exists = prev.some((item) => Number(item.id) === clubId);
+          return exists ? prev : [club, ...prev];
+        });
+        setFavoriteFeedback(resolveLinkingMessage(String(result?.linking?.status || '')) || 'Favorito guardado.');
+      }
+    } catch (error) {
+      reportUiError({ area: 'HomePage', action: 'toggleFavorite' }, error);
+      setFavoriteFeedback('No se pudo actualizar favorito.');
+    } finally {
+      setFavoriteBusyByClub((prev) => ({ ...prev, [clubId]: false }));
+    }
+  };
 
   useEffect(() => {
     setDisplayedClubs(clubs);
@@ -1079,6 +1160,30 @@ export default function Home() {
           </h2>
         </RevealOnScroll>
 
+        {user?.id && favoriteClubs.length > 0 && (
+          <RevealOnScroll delay={40}>
+            <div className="mb-5 flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-black uppercase tracking-widest text-[#D4C5B0]/70">Favoritos</span>
+              {favoriteClubs.slice(0, 5).map((club) => (
+                <Link
+                  key={`favorite-chip-${club.id}`}
+                  href={`/club/${club.slug}`}
+                  className="inline-flex items-center gap-1 rounded-full bg-[#B9CF32]/20 border border-[#B9CF32]/50 px-3 py-1 text-[11px] font-black text-[#D4C5B0]"
+                >
+                  <Heart size={12} className="fill-[#B9CF32] text-[#B9CF32]" />
+                  {club.name}
+                </Link>
+              ))}
+            </div>
+          </RevealOnScroll>
+        )}
+
+        {favoriteFeedback && (
+          <RevealOnScroll delay={50}>
+            <div className="mb-5 text-xs text-[#D4C5B0]/85 font-semibold">{favoriteFeedback}</div>
+          </RevealOnScroll>
+        )}
+
         {searchError && (
           <RevealOnScroll delay={100}><div className="mb-6 text-sm text-[#B9CF32] font-semibold">{searchError}</div></RevealOnScroll>
         )}
@@ -1102,6 +1207,19 @@ export default function Home() {
               <RevealOnScroll key={club.id} delay={index * 100} className="h-full block">
                 <Link href={`/club/${club.slug}`} className="group relative h-full bg-[#EBE1D8] border border-transparent rounded-3xl overflow-hidden hover:scale-[1.02] transition-all shadow-xl hover:shadow-[#B9CF32]/20 flex flex-col">
                   <div className="h-40 shrink-0 w-full bg-[#dcd0c5] relative border-b border-[#347048]/10 rounded-t-3xl">
+                    <button
+                      type="button"
+                      onClick={(event) => handleToggleFavorite(event, club)}
+                      disabled={Boolean(favoriteBusyByClub[Number(club.id)])}
+                      className="absolute top-3 right-3 z-20 bg-white/85 hover:bg-white rounded-xl p-2 border border-[#347048]/15 disabled:opacity-60"
+                      aria-label={favoriteClubIds.has(Number(club.id)) ? 'Quitar de favoritos' : 'Guardar en favoritos'}
+                      title={favoriteClubIds.has(Number(club.id)) ? 'Quitar de favoritos' : 'Guardar en favoritos'}
+                    >
+                      <Heart
+                        size={16}
+                        className={favoriteClubIds.has(Number(club.id)) ? 'text-[#B9CF32] fill-[#B9CF32]' : 'text-[#347048]/70'}
+                      />
+                    </button>
                     {club.clubImageUrl ? (
                       <>
                         <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 rounded-t-3xl" style={{ backgroundImage: `url(${club.clubImageUrl})` }} />

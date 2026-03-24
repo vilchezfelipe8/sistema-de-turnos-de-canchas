@@ -1,3 +1,5 @@
+import { toDialablePhoneNumber } from '../utils/phone';
+
 export type WhatsappRuntimeStatus = {
   ready: boolean;
   hasQR: boolean;
@@ -20,16 +22,18 @@ export class WhatsappDeliveryService {
 
   async sendMessage(phoneNumber: string, message: string): Promise<boolean> {
     if (!phoneNumber || !message) return false;
+    const dialablePhone = toDialablePhoneNumber(phoneNumber);
+    if (!dialablePhone) return false;
 
     if (getProvider() === 'local_browser') {
       const { whatsappService } = await import('./WhatsappService');
-      return whatsappService.sendMessage(phoneNumber, message);
+      return whatsappService.sendMessage(dialablePhone, message);
     }
 
     const response = await fetch(`${getBaseUrl()}/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ number: phoneNumber, message })
+      body: JSON.stringify({ number: dialablePhone, message })
     });
 
     if (!response.ok) {

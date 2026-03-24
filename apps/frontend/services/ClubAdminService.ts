@@ -103,6 +103,54 @@ export type ClubReviewAdminPage = {
   nextCursor?: string | null;
 };
 
+export type ClientDuplicateIncidentStatus = 'OPEN' | 'RESOLVED' | 'DISMISSED';
+export type ClientDuplicateIncidentSourceType = 'BOOKING' | 'FIXED_BOOKING' | 'CASH' | 'FAVORITE' | 'ADMIN' | 'UNKNOWN';
+export type ClientDuplicateIncidentReasonType =
+  | 'PHONE'
+  | 'EMAIL'
+  | 'DNI'
+  | 'LINKING_CONFLICT'
+  | 'MULTI_SIGNAL_CONFLICT'
+  | 'UNKNOWN';
+
+export type ClientDuplicateIncidentCandidate = {
+  id: string;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  dni?: string | null;
+  userId?: number | null;
+  isProfessor?: boolean;
+};
+
+export type ClientDuplicateIncident = {
+  id: string;
+  clubId: number;
+  userId?: number | null;
+  status: ClientDuplicateIncidentStatus;
+  reasonType: ClientDuplicateIncidentReasonType | string;
+  sourceType: ClientDuplicateIncidentSourceType | string;
+  primaryClientId?: string | null;
+  candidateClientIds: string[];
+  payload?: any;
+  resolutionType?: string | null;
+  resolutionNotes?: string | null;
+  resolvedClientId?: string | null;
+  resolvedByUserId?: number | null;
+  resolvedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user?: {
+    id: number;
+    firstName?: string | null;
+    lastName?: string | null;
+    email?: string | null;
+    phoneNumber?: string | null;
+    dni?: string | null;
+  } | null;
+  candidateClients?: ClientDuplicateIncidentCandidate[];
+};
+
 export class ClubAdminService {
   /**
    * Obtener la agenda del administrador para un club específico
@@ -647,6 +695,77 @@ export class ClubAdminService {
     });
     if (!response.ok) throw new Error('Error al obtener lista de clientes');
     return response.json();
+  }
+
+  static async listClientDuplicateIncidents(
+    slug: string,
+    filters?: { status?: ClientDuplicateIncidentStatus; sourceType?: string }
+  ): Promise<ClientDuplicateIncident[]> {
+    if (!getToken()) throw new Error('No autenticado');
+    const query = new URLSearchParams();
+    if (filters?.status) query.set('status', filters.status);
+    if (filters?.sourceType) query.set('sourceType', filters.sourceType);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    const response = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/client-duplicate-incidents${suffix}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Error al obtener incidentes de duplicados');
+    }
+    const data = await response.json();
+    return Array.isArray(data?.incidents) ? data.incidents : [];
+  }
+
+  static async getClientDuplicateIncident(slug: string, incidentId: string): Promise<ClientDuplicateIncident> {
+    if (!getToken()) throw new Error('No autenticado');
+    const response = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/client-duplicate-incidents/${encodeURIComponent(incidentId)}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Error al obtener detalle del incidente');
+    }
+    const data = await response.json();
+    return data.incident;
+  }
+
+  static async resolveClientDuplicateIncidentLink(slug: string, incidentId: string, clientId: string) {
+    if (!getToken()) throw new Error('No autenticado');
+    const response = await fetchWithAuth(
+      `${apiBase()}/clubs/${slug}/admin/client-duplicate-incidents/${encodeURIComponent(incidentId)}/resolve-link`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId })
+      }
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudo resolver el incidente');
+    }
+    const data = await response.json();
+    return data.incident;
+  }
+
+  static async dismissClientDuplicateIncident(slug: string, incidentId: string, reason?: string) {
+    if (!getToken()) throw new Error('No autenticado');
+    const response = await fetchWithAuth(
+      `${apiBase()}/clubs/${slug}/admin/client-duplicate-incidents/${encodeURIComponent(incidentId)}/dismiss`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason || '' })
+      }
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudo descartar el incidente');
+    }
+    const data = await response.json();
+    return data.incident;
   }
 
 

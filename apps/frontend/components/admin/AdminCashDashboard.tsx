@@ -6,6 +6,7 @@ import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 import { CashService } from '../../services/CashService';
 import { formatDateTime24, formatTime24 } from '../../utils/dateTime';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
+import { buildCanonicalPhone, DEFAULT_PHONE_COUNTRY_ISO2, normalizePhoneCountryIso2, PHONE_COUNTRY_OPTIONS, splitCanonicalPhone } from '../../utils/phone';
 import AppModal from '../AppModal';
 import PaymentCalculator, { type PaymentCalculatorResult } from '../PaymentCalculator';
 import ProductSearch, { type ProductSearchItem } from '../ui/ProductSearch';
@@ -258,7 +259,15 @@ const AdminCashDashboard = () => {
     message: ''
   });
   const [showCreateClientModal, setShowCreateClientModal] = useState(false);
-  const [newClientDraft, setNewClientDraft] = useState({ name: '', phone: '', dni: '', email: '', isProfessor: false });
+  const [newClientDraft, setNewClientDraft] = useState({
+    name: '',
+    phoneCountryIso2: DEFAULT_PHONE_COUNTRY_ISO2,
+    phone: '',
+    dni: '',
+    email: '',
+    isProfessor: false
+  });
+  const [clubPhoneCountryIso2, setClubPhoneCountryIso2] = useState(DEFAULT_PHONE_COUNTRY_ISO2);
 
   const handlePeriodChange = (period: CashPeriod) => {
     setActivePeriod(period);
@@ -289,10 +298,11 @@ const AdminCashDashboard = () => {
     manualUnitPrice: '',
     quantity: '1',
     clientQuery: '',
-    guestPhone: '',
-    guestDni: '',
-    guestEmail: '',
-    guestIsProfessor: false
+    clientPhoneCountryIso2: DEFAULT_PHONE_COUNTRY_ISO2,
+    clientPhone: '',
+    clientDni: '',
+    clientEmail: '',
+    clientIsProfessor: false
   });
   const [createClientIfMissing, setCreateClientIfMissing] = useState(false);
   const [saleCart, setSaleCart] = useState<SaleCartItem[]>([]);
@@ -325,6 +335,15 @@ const AdminCashDashboard = () => {
     const directSlug = getClubSlug();
     if (directSlug) {
       setSearchClubSlug(directSlug);
+      try {
+        const club = await ClubService.getClubBySlug(directSlug);
+        const iso = normalizePhoneCountryIso2(club?.country);
+        setClubPhoneCountryIso2(iso);
+        setProductSale((prev) => ({ ...prev, clientPhoneCountryIso2: prev.clientPhoneCountryIso2 || iso }));
+        setNewClientDraft((prev) => ({ ...prev, phoneCountryIso2: prev.phoneCountryIso2 || iso }));
+      } catch {
+        setClubPhoneCountryIso2(DEFAULT_PHONE_COUNTRY_ISO2);
+      }
       return directSlug;
     }
 
@@ -336,6 +355,10 @@ const AdminCashDashboard = () => {
       if (!Number.isFinite(clubId) || clubId <= 0) return '';
       const club = await ClubService.getClubById(clubId);
       const resolvedSlug = club?.slug || '';
+      const iso = normalizePhoneCountryIso2(club?.country);
+      setClubPhoneCountryIso2(iso);
+      setProductSale((prev) => ({ ...prev, clientPhoneCountryIso2: prev.clientPhoneCountryIso2 || iso }));
+      setNewClientDraft((prev) => ({ ...prev, phoneCountryIso2: prev.phoneCountryIso2 || iso }));
       if (resolvedSlug) setSearchClubSlug(resolvedSlug);
       return resolvedSlug;
     } catch (error) {
@@ -592,10 +615,26 @@ const AdminCashDashboard = () => {
 
   const selectClient = (client: any) => {
     const fullName = String(client?.name || '').trim();
+    const splitPhone = splitCanonicalPhone(String(client?.phone || '').trim(), clubPhoneCountryIso2);
     setSelectedClient(client);
-    setProductSale((prev) => ({ ...prev, clientQuery: fullName || '', guestPhone: '', guestDni: '', guestEmail: '', guestIsProfessor: false }));
+    setProductSale((prev) => ({
+      ...prev,
+      clientQuery: fullName || '',
+      clientPhoneCountryIso2: splitPhone.countryIso2 || clubPhoneCountryIso2,
+      clientPhone: String(splitPhone.localNumber || ''),
+      clientDni: '',
+      clientEmail: '',
+      clientIsProfessor: false
+    }));
     setCreateClientIfMissing(false);
-    setNewClientDraft({ name: '', phone: '', dni: '', email: '', isProfessor: false });
+    setNewClientDraft({
+      name: '',
+      phoneCountryIso2: clubPhoneCountryIso2,
+      phone: '',
+      dni: '',
+      email: '',
+      isProfessor: false
+    });
     setShowDropdown(false);
   };
 
@@ -609,16 +648,20 @@ const AdminCashDashboard = () => {
 
   const handleConfirmCreateClientDraft = () => {
     const name = String(newClientDraft.name || '').trim();
-    const phone = String(newClientDraft.phone || '').trim();
+    const localPhone = String(newClientDraft.phone || '').trim();
     const dni = String(newClientDraft.dni || '').trim();
     const email = String(newClientDraft.email || '').trim();
     const isProfessor = Boolean(newClientDraft.isProfessor);
+    const canonicalPhone = buildCanonicalPhone({
+      countryIso2: newClientDraft.phoneCountryIso2 || clubPhoneCountryIso2,
+      localNumber: localPhone
+    });
 
     if (name.length < 2) {
       setSaleError('Para crear cliente, ingresá un nombre válido.');
       return;
     }
-    if (phone.length < 7) {
+    if (!canonicalPhone) {
       setSaleError('Para crear cliente, ingresá un teléfono válido.');
       return;
     }
@@ -636,10 +679,11 @@ const AdminCashDashboard = () => {
     setProductSale((prev) => ({
       ...prev,
       clientQuery: name,
-      guestPhone: phone,
-      guestDni: dni,
-      guestEmail: email,
-      guestIsProfessor: isProfessor
+      clientPhoneCountryIso2: newClientDraft.phoneCountryIso2 || clubPhoneCountryIso2,
+      clientPhone: localPhone.replace(/[^\d]/g, ''),
+      clientDni: dni,
+      clientEmail: email,
+      clientIsProfessor: isProfessor
     }));
     setShowCreateClientModal(false);
     setSaleError('');
@@ -732,26 +776,35 @@ const AdminCashDashboard = () => {
       .filter((payment) => Number.isFinite(payment.amount) && payment.amount > 0);
 
     const hasDebtInSale = false;
-    const fallbackGuestName = productSale.clientQuery.trim();
-    const fallbackGuestPhone = String(productSale.guestPhone || '').trim();
-    const fallbackGuestDni = String(productSale.guestDni || '').trim();
-    const fallbackGuestEmail = String(productSale.guestEmail || '').trim();
-    const fallbackGuestIsProfessor = Boolean(productSale.guestIsProfessor);
+    const fallbackClientName = productSale.clientQuery.trim();
+    const fallbackClientPhoneLocal = String(productSale.clientPhone || '').trim();
+    const fallbackClientPhoneCanonical = buildCanonicalPhone({
+      countryIso2: productSale.clientPhoneCountryIso2 || clubPhoneCountryIso2,
+      localNumber: fallbackClientPhoneLocal
+    });
+    const fallbackClientDni = String(productSale.clientDni || '').trim();
+    const fallbackClientEmail = String(productSale.clientEmail || '').trim();
+    const fallbackClientIsProfessor = Boolean(productSale.clientIsProfessor);
+
+    if (!selectedClient && !createClientIfMissing) {
+      setSaleError('Seleccioná un cliente o cargá un alta rápida antes de registrar la venta.');
+      return;
+    }
 
     if (!selectedClient && createClientIfMissing) {
-      if (fallbackGuestName.length < 2) {
+      if (fallbackClientName.length < 2) {
         setSaleError('Para crear cliente, ingresá un nombre válido.');
         return;
       }
-      if (fallbackGuestPhone.length < 7) {
+      if (!fallbackClientPhoneCanonical) {
         setSaleError('Para crear cliente, ingresá un teléfono válido.');
         return;
       }
-      if (fallbackGuestDni.length < 6) {
+      if (fallbackClientDni.length < 6) {
         setSaleError('Para crear cliente, ingresá un DNI válido.');
         return;
       }
-      if (fallbackGuestEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fallbackGuestEmail)) {
+      if (fallbackClientEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fallbackClientEmail)) {
         setSaleError('Para crear cliente, ingresá un email válido o dejalo vacío.');
         return;
       }
@@ -767,26 +820,30 @@ const AdminCashDashboard = () => {
       return;
     }
 
-    if (hasDebtInSale && !selectedClient && !fallbackGuestName) {
+    if (hasDebtInSale && !selectedClient && !fallbackClientName) {
       setSaleError('Para registrar fiado, seleccioná un cliente o escribí al menos un nombre.');
       return;
     }
 
     try {
+      const clientDraft = !selectedClient && createClientIfMissing
+        ? {
+            name: fallbackClientName,
+            phone: fallbackClientPhoneCanonical || undefined,
+            phoneNumberLocal: fallbackClientPhoneLocal.replace(/[^\d]/g, '') || undefined,
+            dni: fallbackClientDni || undefined,
+            email: fallbackClientEmail || undefined,
+            isProfessor: fallbackClientIsProfessor
+          }
+        : undefined;
+
       await CashService.createProductSale({
         items: saleCart.map(buildSaleItemPayload),
         method: configuredPayments[0].method,
         channel: configuredPayments[0].method === 'TRANSFER' ? configuredPayments[0].channel : undefined,
         payments: configuredPayments,
         clientId: selectedClient?.id ? String(selectedClient.id) : undefined,
-        createClientIfMissing: !selectedClient && createClientIfMissing,
-        guestName: selectedClient
-          ? String(selectedClient?.name || '').trim()
-          : (createClientIfMissing ? fallbackGuestName : undefined),
-        guestPhone: selectedClient?.phone || (createClientIfMissing ? fallbackGuestPhone : undefined),
-        guestDni: selectedClient?.dni || (createClientIfMissing ? fallbackGuestDni : undefined),
-        guestEmail: selectedClient?.email || (createClientIfMissing ? fallbackGuestEmail : undefined),
-        guestIsProfessor: createClientIfMissing ? fallbackGuestIsProfessor : undefined
+        clientDraft
       });
 
       setProductSale({
@@ -794,10 +851,11 @@ const AdminCashDashboard = () => {
         manualUnitPrice: '',
         quantity: '1',
         clientQuery: '',
-        guestPhone: '',
-        guestDni: '',
-        guestEmail: '',
-        guestIsProfessor: false
+        clientPhoneCountryIso2: clubPhoneCountryIso2,
+        clientPhone: '',
+        clientDni: '',
+        clientEmail: '',
+        clientIsProfessor: false
       });
       setCreateClientIfMissing(false);
       setSaleCart([]);
@@ -972,23 +1030,34 @@ const AdminCashDashboard = () => {
           setSaleError('');
           return;
         }
-        const fallbackGuestName = productSale.clientQuery.trim();
-        const fallbackGuestPhone = String(productSale.guestPhone || '').trim();
-        const fallbackGuestDni = String(productSale.guestDni || '').trim();
-        const fallbackGuestEmail = String(productSale.guestEmail || '').trim();
-        const fallbackGuestIsProfessor = Boolean(productSale.guestIsProfessor);
+        if (!selectedClient && !createClientIfMissing) {
+          setSaleQuote(null);
+          setSaleError('');
+          return;
+        }
+        const fallbackClientName = productSale.clientQuery.trim();
+        const fallbackClientPhoneLocal = String(productSale.clientPhone || '').trim();
+        const fallbackClientPhoneCanonical = buildCanonicalPhone({
+          countryIso2: productSale.clientPhoneCountryIso2 || clubPhoneCountryIso2,
+          localNumber: fallbackClientPhoneLocal
+        });
+        const fallbackClientDni = String(productSale.clientDni || '').trim();
+        const fallbackClientEmail = String(productSale.clientEmail || '').trim();
+        const fallbackClientIsProfessor = Boolean(productSale.clientIsProfessor);
 
         const quote = await CashService.quoteProductSale({
           items: saleCart.map(buildSaleItemPayload),
           clientId: selectedClient?.id ? String(selectedClient.id) : undefined,
-          createClientIfMissing: !selectedClient && createClientIfMissing,
-          guestName: selectedClient
-            ? String(selectedClient?.name || '').trim()
-            : (createClientIfMissing ? fallbackGuestName : undefined),
-          guestPhone: selectedClient?.phone || (createClientIfMissing ? fallbackGuestPhone : undefined),
-          guestDni: selectedClient?.dni || (createClientIfMissing ? fallbackGuestDni : undefined),
-          guestEmail: selectedClient?.email || (createClientIfMissing ? fallbackGuestEmail : undefined),
-          guestIsProfessor: createClientIfMissing ? fallbackGuestIsProfessor : undefined
+          clientDraft: !selectedClient && createClientIfMissing
+            ? {
+                name: fallbackClientName,
+                phone: fallbackClientPhoneCanonical || undefined,
+                phoneNumberLocal: fallbackClientPhoneLocal.replace(/[^\d]/g, '') || undefined,
+                dni: fallbackClientDni || undefined,
+                email: fallbackClientEmail || undefined,
+                isProfessor: fallbackClientIsProfessor
+              }
+            : undefined
         });
         if (!cancelled) {
           setSaleQuote(quote);
@@ -1012,10 +1081,11 @@ const AdminCashDashboard = () => {
     selectedClient,
     createClientIfMissing,
     productSale.clientQuery,
-    productSale.guestPhone,
-    productSale.guestDni,
-    productSale.guestEmail,
-    productSale.guestIsProfessor
+    productSale.clientPhoneCountryIso2,
+    productSale.clientPhone,
+    productSale.clientDni,
+    productSale.clientEmail,
+    productSale.clientIsProfessor
   ]);
 
   const handleOpenShift = async (e: React.FormEvent) => {
@@ -1097,10 +1167,10 @@ const AdminCashDashboard = () => {
     saleCart,
     selectedClient?.id,
     createClientIfMissing,
-    productSale.guestPhone,
-    productSale.guestDni,
-    productSale.guestEmail,
-    productSale.guestIsProfessor,
+    productSale.clientPhone,
+    productSale.clientDni,
+    productSale.clientEmail,
+    productSale.clientIsProfessor,
     saleClientQueryResetDependency
   ]);
 
@@ -1149,6 +1219,7 @@ const AdminCashDashboard = () => {
   const canSubmitSale = Boolean(
     currentShift &&
     saleCart.length > 0 &&
+    (Boolean(selectedClient) || createClientIfMissing) &&
     saleTotalAmount > 0 &&
     salePayments.length > 0 &&
     Math.abs(saleConfiguredTotal - saleTotalAmount) <= 0.01 &&
@@ -1156,11 +1227,14 @@ const AdminCashDashboard = () => {
       !createClientIfMissing ||
       (
         String(productSale.clientQuery || '').trim().length >= 2 &&
-        String(productSale.guestPhone || '').trim().length >= 7 &&
-        String(productSale.guestDni || '').trim().length >= 6 &&
+        Boolean(buildCanonicalPhone({
+          countryIso2: productSale.clientPhoneCountryIso2 || clubPhoneCountryIso2,
+          localNumber: String(productSale.clientPhone || '').trim()
+        })) &&
+        String(productSale.clientDni || '').trim().length >= 6 &&
         (
-          String(productSale.guestEmail || '').trim().length === 0 ||
-          /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(productSale.guestEmail || '').trim())
+          String(productSale.clientEmail || '').trim().length === 0 ||
+          /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(productSale.clientEmail || '').trim())
         )
       )
     )
@@ -1700,7 +1774,8 @@ const AdminCashDashboard = () => {
                       <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Cliente a crear</p>
                       <p className="text-sm font-black mt-1">{productSale.clientQuery}</p>
                       <p className="text-[11px] font-bold text-[#347048]/70 mt-1">
-                        Tel: {productSale.guestPhone} · DNI: {productSale.guestDni}{productSale.guestEmail ? ` · Email: ${productSale.guestEmail}` : ''}{productSale.guestIsProfessor ? ' · Profesor' : ''}
+                        Tel: {buildCanonicalPhone({ countryIso2: productSale.clientPhoneCountryIso2, localNumber: productSale.clientPhone }) || productSale.clientPhone}
+                        {' · '}DNI: {productSale.clientDni}{productSale.clientEmail ? ` · Email: ${productSale.clientEmail}` : ''}{productSale.clientIsProfessor ? ' · Profesor' : ''}
                       </p>
                       <div className="mt-2 flex gap-2">
                         <button
@@ -1714,7 +1789,14 @@ const AdminCashDashboard = () => {
                           type="button"
                           onClick={() => {
                             setCreateClientIfMissing(false);
-                            setProductSale((prev) => ({ ...prev, guestPhone: '', guestDni: '', guestEmail: '', guestIsProfessor: false }));
+                            setProductSale((prev) => ({
+                              ...prev,
+                              clientPhoneCountryIso2: clubPhoneCountryIso2,
+                              clientPhone: '',
+                              clientDni: '',
+                              clientEmail: '',
+                              clientIsProfessor: false
+                            }));
                           }}
                           className="h-8 w-8 inline-flex items-center justify-center rounded-lg bg-red-50 text-red-600 border border-red-200"
                           title="Quitar"
@@ -2018,13 +2100,26 @@ const AdminCashDashboard = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               <div>
                 <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60 mb-1">Teléfono</label>
-                <input
-                  type="text"
-                  value={newClientDraft.phone}
-                  onChange={(e) => setNewClientDraft((prev) => ({ ...prev, phone: e.target.value }))}
-                  className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
-                  placeholder="Ej: 3511234567"
-                />
+                <div className="flex items-center gap-2">
+                  <select
+                    value={newClientDraft.phoneCountryIso2}
+                    onChange={(e) => setNewClientDraft((prev) => ({ ...prev, phoneCountryIso2: normalizePhoneCountryIso2(e.target.value) }))}
+                    className="h-11 w-28 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-2 text-xs font-black text-[#347048] focus:outline-none shadow-sm transition-all"
+                  >
+                    {PHONE_COUNTRY_OPTIONS.map((option) => (
+                      <option key={option.iso2} value={option.iso2}>
+                        {option.callingCode} {option.iso2}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    value={newClientDraft.phone}
+                    onChange={(e) => setNewClientDraft((prev) => ({ ...prev, phone: e.target.value.replace(/[^\d]/g, '') }))}
+                    className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
+                    placeholder="Número local"
+                  />
+                </div>
               </div>
               <div>
                 <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60 mb-1">DNI</label>

@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { getUserClubContext } from '../utils/getUserClubContext';
 import { getPreferredClubIdFromRequest } from '../utils/clubContext';
+import { normalizeIdentityPhone } from '../utils/phone';
 
 const JWT_SECRET = process.env.JWT_SECRET as string;
 
@@ -65,9 +66,21 @@ export class AuthController {
             lastName: z.string().min(1),
             email: z.string().email(),
             password: z.string().min(6),
-            phoneNumber: z.string().min(5),
+            phoneNumber: z.string().trim().optional(),
+            phoneCountryCode: z.string().trim().optional(),
+            phoneNumberLocal: z.string().trim().optional(),
             role: z.enum(["MEMBER", "ADMIN"]).optional(),
             dni: z.string().min(7, "El DNI es muy corto").optional() // Dejalo opcional o sacale el .optional() si es obligatorio
+        }).superRefine((value, ctx) => {
+            const hasFullPhone = String(value.phoneNumber || '').trim().length > 0;
+            const hasLocal = String(value.phoneNumberLocal || '').trim().length > 0;
+            if (!hasFullPhone && !hasLocal) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: ['phoneNumber'],
+                    message: 'Debes ingresar un teléfono'
+                });
+            }
         });
         
         const parsed = registerSchema.safeParse(req.body);
@@ -76,7 +89,15 @@ export class AuthController {
         }
         
         // 👉 2. DESESTRUCTURAMOS EL DNI
-        const { firstName, lastName, email, password, phoneNumber, dni } = parsed.data;
+        const { firstName, lastName, email, password, phoneNumber, phoneCountryCode, phoneNumberLocal, dni } = parsed.data;
+        const normalizedPhoneNumber = normalizeIdentityPhone({
+            phone: phoneNumber,
+            countryCode: phoneCountryCode,
+            phoneNumberLocal
+        });
+        if (!normalizedPhoneNumber) {
+            return res.status(400).json({ error: 'Número de teléfono inválido' });
+        }
         
         try {
             const existingUser = await prisma.user.findUnique({ where: { email } });
@@ -91,7 +112,7 @@ export class AuthController {
                     firstName, 
                     lastName, 
                     email, 
-                    phoneNumber,
+                    phoneNumber: normalizedPhoneNumber,
                     password: hashedPassword,
                     role: 'MEMBER',
                     dni 

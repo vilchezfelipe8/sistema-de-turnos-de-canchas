@@ -213,7 +213,7 @@ export class AccountService {
         id: number;
         status: string;
         price: Prisma.Decimal;
-        clientId: string | null;
+        clientId: string;
         activityId: number;
       } | null = null;
       if (input.sourceType === 'BOOKING') {
@@ -229,7 +229,7 @@ export class AccountService {
           id: number;
           status: string;
           price: Prisma.Decimal;
-          clientId: string | null;
+          clientId: string;
           activityId: number;
         };
       }
@@ -249,7 +249,7 @@ export class AccountService {
         if (bookingCharge > 0) {
           const discountDraft = await this.discountService.computeDraftDiscountTx(tx, {
             clubId: input.clubId,
-            clientId: bookingForAccount.clientId ?? null,
+            clientId: bookingForAccount.clientId,
             itemType: 'BOOKING',
             quantity: 1,
             unitPrice: bookingCharge,
@@ -494,7 +494,7 @@ export class AccountService {
       if (!account) throw new Error('Cuenta no encontrada');
       if (account.status !== 'OPEN') throw new Error('Solo se pueden agregar consumos a cuentas abiertas');
 
-      let bookingContext: { status: string; clientId: string | null; activityId: number } | null = null;
+      let bookingContext: { status: string; clientId: string; activityId: number } | null = null;
       if (account.sourceType === 'BOOKING') {
         const booking = await tx.booking.findFirst({
           where: { id: Number(account.sourceId), clubId },

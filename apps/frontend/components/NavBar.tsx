@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AUTH_LOGOUT_EVENT, getToken, logout } from '../services/AuthService';
+import { AUTH_LOGIN_EVENT, AUTH_LOGOUT_EVENT, getToken, logout } from '../services/AuthService';
 import { getMyBookings } from '../services/BookingService';
 import { ClubService } from '../services/ClubService';
 import { NotificationService, NotificationItem } from '../services/NotificationService';
@@ -29,20 +29,23 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
   const navRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    const token = getToken();
-    const userStr = localStorage.getItem('user');
+    const hydrateAuthState = () => {
+      const token = getToken();
+      const userStr = localStorage.getItem('user');
 
-    if (token && userStr) {
-      try {
-        setUser(normalizeSessionUser(JSON.parse(userStr)));
-      } catch {
+      if (token && userStr) {
+        try {
+          setUser(normalizeSessionUser(JSON.parse(userStr)));
+          setIsGuest(false);
+          return;
+        } catch {
+          localStorage.removeItem('user');
+          setUser(null);
+        }
+      } else if (!token && userStr) {
         localStorage.removeItem('user');
-        setUser(null);
       }
-    } else {
-      if (!token && userStr) {
-        localStorage.removeItem('user');
-      }
+
       let guestId = localStorage.getItem('guestId');
       if (!guestId) {
         try {
@@ -50,13 +53,16 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
             ? (crypto as any).randomUUID() 
             : `guest_${Math.random().toString(36).slice(2, 10)}`;
           localStorage.setItem('guestId', guestId);
-        } catch (e) {
+        } catch {
           guestId = `guest_${Math.random().toString(36).slice(2, 10)}`;
           localStorage.setItem('guestId', guestId);
         }
       }
-      if (guestId) setIsGuest(true);
-    }
+      setUser(null);
+      setIsGuest(Boolean(guestId));
+    };
+
+    hydrateAuthState();
 
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 10);
@@ -69,11 +75,21 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
       setResolvedAdminClubSlug(null);
       setIsGuest(true);
     };
+    const handleLogin = () => {
+      hydrateAuthState();
+    };
+    const handleStorage = () => {
+      hydrateAuthState();
+    };
     window.addEventListener('scroll', handleScroll);
     window.addEventListener(AUTH_LOGOUT_EVENT, handleLogout);
+    window.addEventListener(AUTH_LOGIN_EVENT, handleLogin);
+    window.addEventListener('storage', handleStorage);
     return () => {
       window.removeEventListener('scroll', handleScroll);
       window.removeEventListener(AUTH_LOGOUT_EVENT, handleLogout);
+      window.removeEventListener(AUTH_LOGIN_EVENT, handleLogin);
+      window.removeEventListener('storage', handleStorage);
     };
   }, []);
 

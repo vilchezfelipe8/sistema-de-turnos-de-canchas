@@ -114,12 +114,15 @@ export class CashService {
     }>;
     userId?: number;
     clientId?: string;
-    createClientIfMissing?: boolean;
-    guestName?: string;
-    guestPhone?: string;
-    guestDni?: string;
-    guestEmail?: string;
-    guestIsProfessor?: boolean;
+    clientDraft?: {
+      name: string;
+      phone?: string;
+      phoneCountryCode?: string;
+      phoneNumberLocal?: string;
+      dni?: string;
+      email?: string;
+      isProfessor?: boolean;
+    };
   }) {
     const idempotencyKey =
       (typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -152,12 +155,15 @@ export class CashService {
       unitPrice?: number;
     }>;
     clientId?: string;
-    createClientIfMissing?: boolean;
-    guestName?: string;
-    guestPhone?: string;
-    guestDni?: string;
-    guestEmail?: string;
-    guestIsProfessor?: boolean;
+    clientDraft?: {
+      name: string;
+      phone?: string;
+      phoneCountryCode?: string;
+      phoneNumberLocal?: string;
+      dni?: string;
+      email?: string;
+      isProfessor?: boolean;
+    };
   }) {
     const res = await fetchWithAuth(`${apiBase()}/cash/product-sale/quote`, {
       method: 'POST',

@@ -4,9 +4,11 @@ import { z } from 'zod';
 import { prisma } from '../prisma';
 import { TimeHelper } from '../utils/TimeHelper';
 import { ProductService } from '../services/ProductService';
+import { ClientDuplicateIncidentService } from '../services/ClientDuplicateIncidentService';
 import { getUserClubContext } from '../utils/getUserClubContext';
 import { getPreferredClubIdFromRequest } from '../utils/clubContext';
 import { sanitizeString } from '../utils/sanitize';
+import { normalizeIdentityPhone } from '../utils/phone';
 
 const getErrorMessage = (error: unknown, fallback: string) =>
     error instanceof Error && String(error.message || '').trim().length > 0
@@ -18,8 +20,55 @@ const isIntegrityInconsistencyError = (error: unknown) =>
 
 export class BookingController {
     private productService = new ProductService();
+    private duplicateIncidentService = new ClientDuplicateIncidentService();
 
     constructor(private bookingService: BookingService) {}
+
+    private async registerDuplicateIncidentFromBookingError(req: Request, sourceType: 'BOOKING' | 'FIXED_BOOKING', error: any) {
+        try {
+            const details = (error && typeof error === 'object') ? (error.details || {}) : {};
+            let clubId = Number((req as any).clubId || details?.clubId || 0);
+            if ((!Number.isInteger(clubId) || clubId <= 0) && Number.isInteger(Number(req.body?.courtId))) {
+                const court = await prisma.court.findUnique({
+                    where: { id: Number(req.body.courtId) },
+                    select: { clubId: true }
+                });
+                clubId = Number(court?.clubId || 0);
+            }
+            if (!Number.isInteger(clubId) || clubId <= 0) return;
+
+            const actorUserId = Number((req as any)?.user?.userId || 0);
+            const userId =
+                Number(details?.userId || 0) > 0
+                    ? Number(details.userId)
+                    : (Number(req.body?.userId || 0) > 0 ? Number(req.body.userId) : null);
+
+            const candidateClientIds: string[] = Array.from(
+                new Set(
+                    (Array.isArray(details?.candidateClientIds) ? details.candidateClientIds : [])
+                        .map((value: unknown) => String(value || '').trim())
+                        .filter(Boolean)
+                )
+            );
+            if (candidateClientIds.length === 0) return;
+
+            await this.duplicateIncidentService.createOrReuseIncident({
+                clubId,
+                userId,
+                sourceType,
+                reasonType: String(details?.reasonType || 'MULTI_SIGNAL_CONFLICT'),
+                primaryClientId: details?.primaryClientId ? String(details.primaryClientId) : null,
+                candidateClientIds,
+                payload: {
+                    endpoint: sourceType === 'BOOKING' ? 'createBooking' : 'createFixedBooking',
+                    signals: details?.signals || null,
+                    actorUserId: Number.isInteger(actorUserId) && actorUserId > 0 ? actorUserId : null
+                }
+            });
+        } catch (incidentError) {
+            console.warn('No se pudo registrar incidente de duplicado en booking', incidentError);
+        }
+    }
 
     createBooking = async (req: Request, res: Response) => {
         try {
@@ -48,18 +97,22 @@ export class BookingController {
                     .optional(),
                 activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
                 durationMinutes: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
-                guestIdentifier: optionalTrimmedString(),
-                guestName: optionalTrimmedString(2),
-                guestEmail: z.preprocess(
-                    (v) => {
-                        if (typeof v !== 'string') return v;
-                        const trimmed = v.trim();
-                        return trimmed.length === 0 ? undefined : trimmed;
-                    },
-                    z.string().email().optional()
-                ),
-                guestPhone: optionalTrimmedString(),
-                guestDni: optionalTrimmedString(),
+                clientId: optionalTrimmedString(),
+                client: z.object({
+                    name: optionalTrimmedString(2),
+                    phone: optionalTrimmedString(),
+                    phoneCountryCode: optionalTrimmedString(),
+                    phoneNumberLocal: optionalTrimmedString(),
+                    email: z.preprocess(
+                        (v) => {
+                            if (typeof v !== 'string') return v;
+                            const trimmed = v.trim();
+                            return trimmed.length === 0 ? undefined : trimmed;
+                        },
+                        z.string().email().optional()
+                    ),
+                    dni: optionalTrimmedString()
+                }).optional(),
                 applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional())
             });
 
@@ -73,12 +126,18 @@ export class BookingController {
                 return res.status(400).json({ error: parsed.error.format() });
             }
 
-            let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, guestIdentifier, guestName, guestEmail, guestPhone, guestDni, applyDiscount } = parsed.data;
-            guestName = guestName ? sanitizeString(guestName, 200) : undefined;
-            guestIdentifier = guestIdentifier ? sanitizeString(guestIdentifier, 100) : undefined;
-            guestEmail = guestEmail ? sanitizeString(guestEmail, 254) : undefined;
-            guestPhone = guestPhone ? sanitizeString(guestPhone, 30) : undefined;
-            guestDni = guestDni ? sanitizeString(guestDni, 20) : undefined;
+            let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, clientId, client, applyDiscount } = parsed.data;
+            clientId = clientId ? sanitizeString(clientId, 64) : undefined;
+            const sanitizedClient = client
+                ? {
+                    name: client.name ? sanitizeString(client.name, 200) : '',
+                    phone: client.phone ? sanitizeString(client.phone, 30) : undefined,
+                    phoneCountryCode: client.phoneCountryCode ? sanitizeString(client.phoneCountryCode, 8) : undefined,
+                    phoneNumberLocal: client.phoneNumberLocal ? sanitizeString(client.phoneNumberLocal, 30) : undefined,
+                    email: client.email ? sanitizeString(client.email, 254) : undefined,
+                    dni: client.dni ? sanitizeString(client.dni, 20) : undefined
+                }
+                : undefined;
 
             // Resolve startDate: prefer date+slotTime (local) if provided, otherwise use startDateTime ISO
             let startDate: Date;
@@ -104,42 +163,46 @@ export class BookingController {
             const userRole = user?.role;
             const membershipRole = String((req as any).membershipRole || '');
             const isAdmin = userRole === 'ADMIN' || membershipRole === 'OWNER' || membershipRole === 'ADMIN';
-            const asGuest = Boolean((req.body as any)?.asGuest);
-            const forceGuest = isAdmin && asGuest;
-            const effectiveUserId = forceGuest ? null : (userIdFromToken ? Number(userIdFromToken) : null);
-            const effectiveGuestIdentifier = forceGuest && !guestIdentifier ? `admin_${Date.now()}` : guestIdentifier;
+            const tokenUserId = userIdFromToken ? Number(userIdFromToken) : null;
+            const effectiveUserId = isAdmin ? null : tokenUserId;
             const now = new Date();
             if (startDate.getTime() < now.getTime()) {
                 return res.status(400).json({ error: "No se pueden reservar turnos en el pasado." });
             }
 
-            if (!effectiveUserId && !forceGuest && !effectiveGuestIdentifier) {
-                return res.status(400).json({ error: "Debe enviar guestIdentifier o autenticarse para reservar." });
-            }
-            if (!effectiveUserId && !guestName) {
-                return res.status(400).json({ error: "Debe enviar un nombre para reservar como invitado." });
-            }
-            if (!effectiveUserId && !guestPhone) {
-                return res.status(400).json({ error: "Debe enviar un teléfono para reservar como invitado." });
-            }
-            if (!effectiveUserId && !guestDni) {
-                return res.status(400).json({ error: "Debe enviar un DNI para reservar como invitado." });
+            if (!isAdmin && !effectiveUserId) {
+                return res.status(401).json({ error: "Debes iniciar sesión para reservar." });
             }
 
-            const isGuest = !effectiveUserId;
-            const effectiveGuestName = isGuest ? guestName : undefined;
-            const effectiveGuestEmail = isGuest ? guestEmail : undefined;
-            const effectiveGuestPhone = isGuest ? guestPhone : undefined;
-            const effectiveGuestDni = isGuest ? guestDni : undefined;
+            const courtCountry = await prisma.court.findUnique({
+                where: { id: Number(courtId) },
+                select: { club: { select: { country: true } } }
+            });
+            const normalizedDraftPhone = normalizeIdentityPhone(
+                {
+                    phone: sanitizedClient?.phone,
+                    countryCode: sanitizedClient?.phoneCountryCode,
+                    phoneNumberLocal: sanitizedClient?.phoneNumberLocal
+                },
+                { defaultCountryIso2: String(courtCountry?.club?.country || '').trim() || null }
+            );
+
+            const adminClientDraft = isAdmin
+                ? {
+                    name: sanitizedClient?.name || '',
+                    phone: normalizedDraftPhone || undefined,
+                    email: sanitizedClient?.email,
+                    dni: sanitizedClient?.dni
+                }
+                : undefined;
+
+            if (isAdmin && !clientId && !adminClientDraft?.name && !effectiveUserId) {
+                return res.status(400).json({ error: "Para crear la reserva debes seleccionar un cliente o cargar un alta rápida." });
+            }
 
             // 1. CREAR LA RESERVA
             const result = await this.bookingService.createBooking(
                 effectiveUserId,
-                effectiveGuestIdentifier,
-                effectiveGuestName,
-                effectiveGuestEmail,
-                effectiveGuestPhone,
-                effectiveGuestDni,
                 Number(courtId),
                 startDate,
                 Number(activityId),
@@ -147,7 +210,9 @@ export class BookingController {
                 isAdmin,
                 {
                     applyDiscount: isAdmin ? applyDiscount : false,
-                    actorUserId: Number(user?.userId || 0) || null
+                    actorUserId: Number(user?.userId || 0) || null,
+                    clientId: clientId || null,
+                    clientDraft: adminClientDraft?.name ? adminClientDraft : null
                 }
             );
 
@@ -166,6 +231,12 @@ export class BookingController {
 
         } catch (error: any) {
             console.error(error);
+            if (error?.code === 'CLIENT_POSSIBLE_DUPLICATE' || error?.message === 'CLIENT_POSSIBLE_DUPLICATE') {
+                await this.registerDuplicateIncidentFromBookingError(req, 'BOOKING', error);
+                return res.status(409).json({
+                    error: 'Se detectaron datos que podrían corresponder a más de un cliente. Revisá y seleccioná el cliente correcto.'
+                });
+            }
             if (error?.code === 'BOOKING_OVERLAP') {
                 return res.status(409).json({
                     error: 'El horario se superpone con reservas existentes.',
@@ -196,11 +267,12 @@ export class BookingController {
             const quoteSchema = z.object({
                 courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
                 activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                clientId: optionalTrimmedString(),
                 startDateTime: z.string().optional().refine((s) => s === undefined || !Number.isNaN(Date.parse(s)), { message: 'Fecha/hora ISO inválida' }),
                 date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
                 slotTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
                 durationMinutes: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
-                guestEmail: z.preprocess(
+                clientEmail: z.preprocess(
                     (v) => {
                         if (typeof v !== 'string') return v;
                         const trimmed = v.trim();
@@ -208,8 +280,10 @@ export class BookingController {
                     },
                     z.string().email().optional()
                 ),
-                guestPhone: optionalTrimmedString(),
-                guestDni: optionalTrimmedString(),
+                clientPhone: optionalTrimmedString(),
+                clientPhoneCountryCode: optionalTrimmedString(),
+                clientPhoneNumberLocal: optionalTrimmedString(),
+                clientDni: optionalTrimmedString(),
                 applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional())
             });
 
@@ -221,15 +295,37 @@ export class BookingController {
             const {
                 courtId,
                 activityId,
+                clientId,
                 startDateTime,
                 date: dateStr,
                 slotTime,
                 durationMinutes,
-                guestEmail,
-                guestPhone,
-                guestDni,
+                clientEmail,
+                clientPhone,
+                clientPhoneCountryCode,
+                clientPhoneNumberLocal,
+                clientDni,
                 applyDiscount
             } = parsed.data;
+
+            const courtCountry = await prisma.court.findUnique({
+                where: { id: Number(courtId) },
+                select: { club: { select: { country: true } } }
+            });
+            const normalizedClientPhone = normalizeIdentityPhone(
+                {
+                    phone: clientPhone,
+                    countryCode: clientPhoneCountryCode,
+                    phoneNumberLocal: clientPhoneNumberLocal
+                },
+                { defaultCountryIso2: String(courtCountry?.club?.country || '').trim() || null }
+            );
+            const hasAnyClientPhoneInput =
+                Boolean(String(clientPhone || '').trim()) ||
+                Boolean(String(clientPhoneNumberLocal || '').trim());
+            if (hasAnyClientPhoneInput && !normalizedClientPhone) {
+                return res.status(400).json({ error: 'Teléfono inválido para cotización' });
+            }
 
             let resolvedStart: Date;
             if (dateStr && slotTime) {
@@ -253,13 +349,14 @@ export class BookingController {
             const quote = await this.bookingService.quoteBookingPrice({
                 userId: tokenUserId > 0 ? tokenUserId : null,
                 allowAdminBenefits: isAdmin,
+                clientId: clientId || null,
                 courtId: Number(courtId),
                 activityId: Number(activityId),
                 startDateTime: resolvedStart,
                 durationMinutes,
-                guestEmail,
-                guestPhone,
-                guestDni,
+                clientEmail,
+                clientPhone: normalizedClientPhone || undefined,
+                clientDni,
                 applyDiscount: isAdmin ? applyDiscount : false
             });
 
@@ -489,18 +586,10 @@ export class BookingController {
             date: z.string(), 
             activityId: z.preprocess((v) => Number(v), z.number()),
             clubSlug: z.string().optional(),
-            guestEmail: z.preprocess(
-                (v) => (typeof v === 'string' ? v.trim() : v),
-                z.string().email().optional()
-            ),
-            guestPhone: z.preprocess(
-                (v) => (typeof v === 'string' ? v.trim() : v),
-                z.string().optional()
-            ),
-            guestDni: z.preprocess(
-                (v) => (typeof v === 'string' ? v.trim() : v),
-                z.string().optional()
-            ),
+            clientId: z.preprocess((v) => (typeof v === 'string' ? v.trim() : v), z.string().optional()),
+            clientEmail: z.preprocess((v) => (typeof v === 'string' ? v.trim() : v), z.string().email().optional()),
+            clientPhone: z.preprocess((v) => (typeof v === 'string' ? v.trim() : v), z.string().optional()),
+            clientDni: z.preprocess((v) => (typeof v === 'string' ? v.trim() : v), z.string().optional()),
             durationMinutes: z.preprocess(
                 (v) => (v === undefined || v === '' ? undefined : Number(v)),
                 z.number().optional()
@@ -514,7 +603,7 @@ export class BookingController {
                 return res.status(400).json({ error: parsed.error.format() });
             }
 
-            const { date, activityId, clubSlug, durationMinutes } = parsed.data;
+            const { date, activityId, clubSlug, clientId, clientEmail, clientPhone, clientDni, durationMinutes } = parsed.data;
 
             // Blindaje matemático para que la fecha no se atrase un día por el UTC
             const [year, month, day] = String(date).split('-').map(Number);
@@ -530,7 +619,14 @@ export class BookingController {
                 searchDate,
                 Number(activityId),
                 clubId,
-                durationMinutes
+                durationMinutes,
+                {
+                    clientId: clientId || null,
+                    userId: Number((req as any)?.user?.userId || 0) || null,
+                    clientEmail: clientEmail || undefined,
+                    clientPhone: clientPhone || undefined,
+                    clientDni: clientDni || undefined
+                }
             );
 
             res.json({
@@ -571,59 +667,91 @@ export class BookingController {
     
     createFixed = async (req: Request, res: Response) => {
         try {
+            const optionalTrimmedString = (minLength?: number) =>
+                z.preprocess(
+                    (v) => {
+                        if (typeof v !== 'string') return v;
+                        const trimmed = v.trim();
+                        return trimmed.length === 0 ? undefined : trimmed;
+                    },
+                    minLength ? z.string().min(minLength).optional() : z.string().optional()
+                );
+
             const createFixedSchema = z.object({
-                userId: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
                 courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
                 activityId: z.preprocess((v) => Number(v), z.number().int().positive()),
                 startDateTime: z.string().refine((s) => !Number.isNaN(Date.parse(s)), { message: 'startDateTime debe ser una fecha ISO válida' }),
                 durationMinutes: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
-                guestName: z.string().optional(),
-                guestPhone: z.union([z.string(), z.number()]).optional(),
-                guestDni: z.string().optional(),
+                userId: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
+                clientId: optionalTrimmedString(),
+                client: z.object({
+                    name: optionalTrimmedString(2),
+                    phone: optionalTrimmedString(),
+                    email: z.preprocess(
+                        (v) => {
+                            if (typeof v !== 'string') return v;
+                            const trimmed = v.trim();
+                            return trimmed.length === 0 ? undefined : trimmed;
+                        },
+                        z.string().email().optional()
+                    ),
+                    dni: optionalTrimmedString()
+                }).optional(),
                 allowOverlappingSeries: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
             });
             const parsed = createFixedSchema.safeParse(req.body);
             if (!parsed.success) {
                 return res.status(400).json({ error: parsed.error.format() });
             }
-            const { userId, courtId, activityId, startDateTime, durationMinutes, guestName, guestPhone, guestDni, allowOverlappingSeries } = parsed.data;
+            const { userId, courtId, activityId, startDateTime, durationMinutes, clientId, client, allowOverlappingSeries } = parsed.data;
             const user = (req as any).user;
             const membershipRole = String((req as any).membershipRole || '');
             const isAdmin = user?.role === 'ADMIN' || membershipRole === 'OWNER' || membershipRole === 'ADMIN';
             const clubId = (req as any).clubId;
 
-            if (!userId && !isAdmin) {
-                return res.status(403).json({ error: "Solo un administrador puede crear turnos fijos sin usuario." });
+            if (!isAdmin) {
+                return res.status(403).json({ error: "Solo un administrador puede crear turnos fijos." });
             }
-            if (!userId && !guestName) {
-                return res.status(400).json({ error: "Debe enviar un nombre para el turno fijo." });
-            }
-            if (!userId && !guestPhone) {
-                return res.status(400).json({ error: "Debe enviar un teléfono para el turno fijo." });
-            }
-            if (!userId && !guestDni) {
-                return res.status(400).json({ error: "Debe enviar un DNI para el turno fijo." });
+
+            const sanitizedClient = client
+                ? {
+                    name: client.name ? sanitizeString(client.name, 200) : '',
+                    phone: client.phone ? sanitizeString(client.phone, 30) : undefined,
+                    email: client.email ? sanitizeString(client.email, 254) : undefined,
+                    dni: client.dni ? sanitizeString(client.dni, 20) : undefined
+                }
+                : undefined;
+
+            const safeClientId = clientId ? sanitizeString(clientId, 64) : undefined;
+            if (!safeClientId && !userId && !sanitizedClient?.name) {
+                return res.status(400).json({ error: "Debes seleccionar un cliente o cargar un alta rápida." });
             }
 
             const startDate = new Date(startDateTime);
 
             const result = await this.bookingService.createFixedBooking(
-                userId ? Number(userId) : null, 
                 courtId, 
                 activityId, 
                 startDate,
-                undefined,
-                guestName,
-                guestPhone,
-                guestDni,
-                clubId,
-                Number(user?.userId || 0) || null,
-                Boolean(allowOverlappingSeries),
-                durationMinutes
+                {
+                    userId: userId ? Number(userId) : null,
+                    clientId: safeClientId || null,
+                    clientDraft: sanitizedClient?.name ? sanitizedClient : null,
+                    clubId,
+                    actorUserId: Number(user?.userId || 0) || null,
+                    allowOverlappingSeries: Boolean(allowOverlappingSeries),
+                    durationMinutes
+                }
             );
             
             res.status(201).json(result);
         } catch (error: any) {
+            if (error?.code === 'CLIENT_POSSIBLE_DUPLICATE' || error?.message === 'CLIENT_POSSIBLE_DUPLICATE') {
+                await this.registerDuplicateIncidentFromBookingError(req, 'FIXED_BOOKING', error);
+                return res.status(409).json({
+                    error: 'Se detectaron datos que podrían corresponder a más de un cliente. Revisá y seleccioná el cliente correcto.'
+                });
+            }
             if (error?.code === 'FIXED_BOOKING_OVERLAP') {
                 return res.status(409).json({
                     error: 'El turno fijo se superpone con otro turno fijo existente.',

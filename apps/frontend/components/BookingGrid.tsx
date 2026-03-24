@@ -5,6 +5,7 @@ import { useRouter } from 'next/router';
 import type { ReactNode } from 'react';
 import { useAvailability } from '../hooks/useAvailability';
 import { createBooking } from '../services/BookingService';
+import { AUTH_LOGIN_EVENT, AUTH_LOGOUT_EVENT, getToken, login as loginUser } from '../services/AuthService';
 import AppModal from './AppModal';
 
 import { getApiUrl } from '../utils/apiUrl';
@@ -119,15 +120,6 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     return `${year}-${month}-${day}`;
   };
   
-  const formatDateTime = (date: Date) =>
-    date.toLocaleString('es-AR', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    });
   // Inicializar con la fecha de hoy sin problemas de zona horaria
   const getTodayDate = () => {
     const now = new Date();
@@ -153,13 +145,6 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   const [queryApplied, setQueryApplied] = useState(false);
   const [isBooking, setIsBooking] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false); // Estado para el botón visual
-  const [guestFirstName, setGuestFirstName] = useState('');
-  const [guestLastName, setGuestLastName] = useState('');
-  const [guestEmail, setGuestEmail] = useState('');
-  const [guestPhone, setGuestPhone] = useState('');
-  const [guestDni, setGuestDni] = useState('');
-  const [guestModalOpen, setGuestModalOpen] = useState(false);
-  const [guestError, setGuestError] = useState('');
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
   const courtsSectionRef = useRef<HTMLDivElement | null>(null);
   const [modalState, setModalState] = useState<{
@@ -169,10 +154,24 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     cancelText?: string;
     confirmText?: string;
     isWarning?: boolean;
+    onConfirm?: () => void;
+    onCancel?: () => void;
+    confirmDisabled?: boolean;
+    closeOnBackdrop?: boolean;
+    closeOnEscape?: boolean;
+    blockManualClose?: boolean;
   }>({ show: false });
+  const pendingAfterLoginActionRef = useRef<null | (() => void)>(null);
+  const [loginModalEmail, setLoginModalEmail] = useState('');
+  const [loginModalPassword, setLoginModalPassword] = useState('');
+  const [loginModalError, setLoginModalError] = useState('');
+  const [loginModalLoading, setLoginModalLoading] = useState(false);
 
   const closeModal = () => {
     setModalState((prev) => ({ ...prev, show: false }));
+    setLoginModalError('');
+    setLoginModalLoading(false);
+    pendingAfterLoginActionRef.current = null;
   };
 
   const showInfo = (message: ReactNode, title = 'Información') => {
@@ -181,7 +180,11 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
       title,
       message,
       cancelText: '',
-      confirmText: 'OK'
+      confirmText: 'OK',
+      onConfirm: closeModal,
+      closeOnBackdrop: true,
+      closeOnEscape: true,
+      blockManualClose: false
     });
   };
 
@@ -192,9 +195,100 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
       message,
       isWarning: true,
       cancelText: '',
-      confirmText: 'Aceptar'
+      confirmText: 'Aceptar',
+      onConfirm: closeModal,
+      closeOnBackdrop: true,
+      closeOnEscape: true,
+      blockManualClose: false
     });
   };
+
+  const openLoginModal = (afterLoginAction?: () => void) => {
+    pendingAfterLoginActionRef.current = afterLoginAction || null;
+    setLoginModalError('');
+    setLoginModalLoading(false);
+
+    const loginMessage = (
+      <div className="space-y-3">
+        <p className="text-sm text-[#347048]/80">Iniciá sesión para confirmar tu reserva sin salir de esta pantalla.</p>
+        {loginModalError ? (
+          <div className="rounded-lg border border-red-300/60 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
+            {loginModalError}
+          </div>
+        ) : null}
+        <div className="space-y-2">
+          <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Email</label>
+          <input
+            type="email"
+            value={loginModalEmail}
+            onChange={(e) => setLoginModalEmail(e.target.value)}
+            className="w-full rounded-xl border-2 border-[#347048]/15 bg-white px-3 py-2 text-sm font-bold text-[#347048] outline-none focus:border-[#B9CF32]"
+            placeholder="tu@email.com"
+            autoComplete="email"
+          />
+        </div>
+        <div className="space-y-2">
+          <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Contraseña</label>
+          <input
+            type="password"
+            value={loginModalPassword}
+            onChange={(e) => setLoginModalPassword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !loginModalLoading) {
+                e.preventDefault();
+                void handleLoginFromModal();
+              }
+            }}
+            className="w-full rounded-xl border-2 border-[#347048]/15 bg-white px-3 py-2 text-sm font-bold text-[#347048] outline-none focus:border-[#B9CF32]"
+            placeholder="********"
+            autoComplete="current-password"
+          />
+        </div>
+      </div>
+    );
+
+    setModalState({
+      show: true,
+      title: 'Iniciar sesión',
+      message: loginMessage,
+      cancelText: '',
+      confirmText: loginModalLoading ? 'Ingresando...' : 'Ingresar',
+      onConfirm: () => {
+        void handleLoginFromModal();
+      },
+      onCancel: undefined,
+      confirmDisabled: loginModalLoading || !String(loginModalEmail).trim() || !String(loginModalPassword).trim(),
+      closeOnBackdrop: false,
+      closeOnEscape: false,
+      blockManualClose: true
+    });
+  };
+
+  const handleLoginFromModal = async () => {
+    if (loginModalLoading) return;
+    setLoginModalLoading(true);
+    setLoginModalError('');
+    try {
+      await loginUser(String(loginModalEmail).trim(), String(loginModalPassword));
+      setIsAuthenticated(true);
+      setModalState((prev) => ({ ...prev, show: false }));
+      const pendingAction = pendingAfterLoginActionRef.current;
+      pendingAfterLoginActionRef.current = null;
+      if (pendingAction) pendingAction();
+    } catch (error) {
+      const message = extractErrorMessage(error, 'No se pudo iniciar sesión.');
+      setLoginModalError(message);
+      reportUiError({ area: 'BookingGrid', action: 'loginModalSubmit' }, error);
+    } finally {
+      setLoginModalLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!modalState.show || modalState.title !== 'Iniciar sesión') return;
+    openLoginModal(pendingAfterLoginActionRef.current || undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loginModalEmail, loginModalPassword, loginModalError, loginModalLoading]);
 
   const buildBookingSummaryMessage = (params: {
     courtName: string;
@@ -329,56 +423,20 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   const durationOptions = useMemo(() => {
     return selectedActivityDurations;
   }, [selectedActivityDurations]);
-  const getTrimmedGuestInfo = () => {
-    const trimmedPhone = guestPhone.replace(/\D/g, '');
-    const firstName = guestFirstName.trim();
-    const lastName = guestLastName.trim();
-    const fullName = [firstName, lastName].filter(Boolean).join(' ');
-    const trimmedDni = guestDni.trim().replace(/\./g, '');
-    return {
-      name: fullName,
-      email: guestEmail.trim(),
-      phone: trimmedPhone ? `+549${trimmedPhone}` : '',
-      guestDni: trimmedDni
-    };
-  };
-
-  const isEmailValid = (email: string) => {
-    if (!email) return true;
-    return /^\S+@\S+\.\S+$/.test(email);
-  };
-
-  const isPhoneValid = (phone: string) => {
-    if (!phone) return true;
-    if (!phone.startsWith('+549')) return false;
-    const digits = phone.replace(/\D/g, '');
-    if (!digits.startsWith('549')) return false;
-    const nationalDigits = digits.slice(3);
-    if (nationalDigits.length !== 10) return false;
-    return /^\+549\d+$/.test(phone);
-  };
-
-  const formatPhoneDigits = (digits: string) => {
-    const clean = digits.slice(0, 10);
-    const part1 = clean.slice(0, 3);
-    const part2 = clean.slice(3, 6);
-    const part3 = clean.slice(6, 10);
-    return [part1, part2, part3].filter(Boolean).join(' ');
-  };
-
-  const isGuestInfoValid = () => {
-    const { email, phone } = getTrimmedGuestInfo();
-    const firstName = guestFirstName.trim();
-    const lastName = guestLastName.trim();
-    if (!firstName || !lastName) return false;
-    if (!phone) return false;
-    return isEmailValid(email) && isPhoneValid(phone);
-  };
-
-  // --- Verificar autenticación al cargar ---
+  // --- Sincronizar autenticación en vivo ---
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    setIsAuthenticated(!!token);
+    const syncAuth = () => {
+      setIsAuthenticated(Boolean(getToken()));
+    };
+    syncAuth();
+    window.addEventListener(AUTH_LOGIN_EVENT, syncAuth);
+    window.addEventListener(AUTH_LOGOUT_EVENT, syncAuth);
+    window.addEventListener('storage', syncAuth);
+    return () => {
+      window.removeEventListener(AUTH_LOGIN_EVENT, syncAuth);
+      window.removeEventListener(AUTH_LOGOUT_EVENT, syncAuth);
+      window.removeEventListener('storage', syncAuth);
+    };
   }, []);
 
   useEffect(() => {
@@ -516,7 +574,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     };
   }, [selectedCourt?.price, selectedCourt?.basePrice, selectedCourt?.lightsExtraApplied]);
 
-const performBooking = async (guestInfo?: { name: string; email?: string; phone?: string; guestDni?: string }) => {
+const performBooking = async () => {
     
     if (!selectedDate || !selectedSlot || !selectedCourt) return;
     
@@ -527,12 +585,6 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
       const month = selectedDate.getMonth();
       const day = selectedDate.getDate();
       const bookingDateTime = new Date(year, month, day, hours, minutes, 0, 0);
-
-      const guestDataForBackend = (!isAuthenticated && guestInfo) ? {
-          guestName: guestInfo.name,     
-          guestPhone: guestInfo.phone,    
-          guestDni: guestInfo.guestDni    
-      } : undefined;
 
       const bookingActivityId = Number(selectedCourt.activityType?.id || selectedActivityId || 0);
       if (!Number.isFinite(bookingActivityId) || bookingActivityId <= 0) {
@@ -545,8 +597,6 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
         bookingActivityId,
         selectedDate,
         selectedSlot,
-        undefined,
-        !isAuthenticated ? guestInfo : undefined,
         { durationMinutes: selectedDuration, applyDiscount: false }
       );
       const startDateTime = bookingDateTime;
@@ -593,74 +643,36 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
         setSelectedCourt(null);
         
         // 4. LIMPIEZA DE FORMULARIO
-        if (!isAuthenticated) {
-          setGuestFirstName('');
-          setGuestLastName('');
-          setGuestEmail('');
-          setGuestPhone('');
-          setGuestDni('');
-        }
       } catch (_) { /* noop */ }
 
       showInfo(bookingSummaryMessage, 'Reserva confirmada');
     } catch (error) {
       const message = extractErrorMessage(error, 'No se pudo completar la reserva.');
       reportUiError({ area: 'BookingGrid', action: 'handleBooking' }, error);
+      if (String(message).toLowerCase().includes('sesión expirada') || String(message).toLowerCase().includes('sesion expirada')) {
+        setIsAuthenticated(false);
+        openLoginModal(() => {
+          performBooking();
+        });
+        return;
+      }
       showError(message);
     } finally {
       setIsBooking(false);
     }
   };
 
-  const handleGuestConfirm = () => {
-    const info = getTrimmedGuestInfo();
-    const firstName = guestFirstName.trim();
-    const lastName = guestLastName.trim();
-    const dni = guestDni.trim();
-    if (!firstName || !lastName) {
-      setGuestError('Ingresá tu nombre y apellido para reservar como invitado.');
-      return;
-    }
-    if (!dni) {
-      setGuestError('El DNI es obligatorio para identificar la reserva.');
-      return;
-    }
-    // Opcional: validar largo mínimo (ej: al menos 7 números)
-    if (dni.length < 7) {
-      setGuestError('Ingresá un DNI válido (mínimo 7 números).');
-       return;
-    }
-    if (info.email && !isEmailValid(info.email)) {
-      setGuestError('Ingresá un email con formato válido.');
-      return;
-    }
-    if (info.phone && !isPhoneValid(info.phone)) {
-      setGuestError('Ingresá un teléfono con formato válido.');
-      return;
-    }
-    if (!info.phone) {
-      setGuestError('Ingresá un teléfono para poder contactarte.');
-      return;
-    }
-    setGuestError('');
-    setGuestModalOpen(false);
-    performBooking(info);
-  };
-
-  const handleGuestKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== 'Enter') return;
-    event.preventDefault();
-    if (isBooking || !isGuestInfoValid()) return;
-    handleGuestConfirm();
-  };
-
   const handleBooking = () => {
     if (!selectedDate || !selectedSlot || !selectedCourt) return;
-    if (!isAuthenticated) {
-      setGuestError('');
-      setGuestModalOpen(true);
+    const hasSession = Boolean(getToken());
+    if (!hasSession || !isAuthenticated) {
+      setIsAuthenticated(false);
+      openLoginModal(() => {
+        performBooking();
+      });
       return;
     }
+    setIsAuthenticated(true);
     performBooking();
   };
 
@@ -696,17 +708,6 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
       reportUiError({ area: 'BookingGrid', action: 'saveDisabledSlotsToStorage' }, err);
     }
   }, [disabledSlots, selectedDate]);
-
-  const selectedTimes = (() => {
-    if (!selectedDate || !selectedSlot) return null;
-    const [hours, minutes] = selectedSlot.split(':').map(Number);
-    const start = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), hours, minutes, 0, 0);
-    const end = new Date(start.getTime() + selectedDuration * 60000);
-    return {
-      startLabel: formatDateTime(start),
-      endLabel: formatDateTime(end)
-    };
-  })();
 
   useEffect(() => {
     if (!selectedSlot || !selectedCourt) return;
@@ -1147,132 +1148,20 @@ const performBooking = async (guestInfo?: { name: string; email?: string; phone?
 
       <AppModal
         show={modalState.show}
-        onClose={closeModal}
+        onClose={modalState.blockManualClose ? () => {} : closeModal}
+        onCancel={modalState.onCancel}
         title={modalState.title}
         message={modalState.message}
         cancelText={modalState.cancelText}
         confirmText={modalState.confirmText}
+        onConfirm={modalState.onConfirm}
+        confirmDisabled={modalState.confirmDisabled}
         isWarning={modalState.isWarning}
-        closeOnBackdrop
-        closeOnEscape
+        closeOnBackdrop={modalState.closeOnBackdrop ?? true}
+        closeOnEscape={modalState.closeOnEscape ?? true}
+        hideCloseButton={Boolean(modalState.blockManualClose)}
       />
 
-      <AppModal
-        show={guestModalOpen}
-        onClose={() => setGuestModalOpen(false)}
-        title="Confirmar reserva"
-        message={(
-          <div className="space-y-3">
-            <h4 className="text-sm font-black text-[#926699] uppercase tracking-wider">Datos de reserva</h4>
-            {selectedTimes && (
-              <div className="grid grid-cols-1 gap-2 rounded-xl border border-[#926699]/20 bg-[#fdfaff] p-3 text-sm text-[#347048]">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#926699] uppercase text-xs">Inicia:</span>
-                  <span className="text-[#347048] font-black">{selectedTimes.startLabel}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#926699] uppercase text-xs">Termina:</span>
-                  <span className="text-[#347048] font-black">{selectedTimes.endLabel}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#926699] uppercase text-xs">Precio:</span>
-                  <span className="text-[#347048] font-black text-lg">
-                    ${priceInfo.final.toLocaleString()}
-                  </span>
-                </div>
-                {priceInfo.hasDiscount && (
-                  <div className="flex items-center justify-between text-xs text-[#347048]/60">
-                    <span>Lista / descuento:</span>
-                    <span>
-                      ${priceInfo.list.toLocaleString()} / ${priceInfo.discountAmount.toLocaleString()}
-                    </span>
-                  </div>
-                )}
-                {priceInfo.hasLights && clubConfig && (
-                  <div className="flex items-center justify-between text-xs text-[#347048]/60">
-                    <span>Detalle:</span>
-                    <span>
-                      ${priceInfo.base.toLocaleString()} cancha + ${priceInfo.extra.toLocaleString()} luces
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-            <h4 className="text-sm font-black text-[#926699] uppercase tracking-wider pt-2">Datos de contacto</h4>
-            <div className="grid grid-cols-1 gap-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="relative">
-                  <input
-                    id="guest-first-name"
-                    type="text"
-                    placeholder="Nombre"
-                    value={guestFirstName}
-                    onChange={(e) => setGuestFirstName(e.target.value)}
-                    onKeyDown={handleGuestKeyDown}
-                    className="w-full p-3 rounded-xl border border-[#347048]/20 bg-white text-[#347048] placeholder:text-[#347048]/40 focus:outline-none focus:border-[#B9CF32] focus:ring-0 transition-colors font-bold shadow-sm"
-                  />
-                </div>
-                <div className="relative">
-                  <input
-                    id="guest-last-name"
-                    type="text"
-                    placeholder="Apellido"
-                    value={guestLastName}
-                    onChange={(e) => setGuestLastName(e.target.value)}
-                    onKeyDown={handleGuestKeyDown}
-                    className="w-full p-3 rounded-xl border border-[#347048]/20 bg-white text-[#347048] placeholder:text-[#347048]/40 focus:outline-none focus:border-[#B9CF32] focus:ring-0 transition-colors font-bold shadow-sm"
-                  />
-                </div>
-                <div className="relative col-span-1 sm:col-span-2">
-                <input
-                  id="guest-dni"
-                  type="text"
-                  placeholder="DNI"
-                  value={guestDni}
-                  onChange={(e) => {
-                    const soloNumeros = e.target.value.replace(/\D/g, '');
-                    setGuestDni(soloNumeros);
-                  }}
-                  onKeyDown={handleGuestKeyDown}
-                  className="w-full p-3 rounded-xl border border-[#347048]/20 bg-white text-[#347048] placeholder:text-[#347048]/40 focus:outline-none focus:border-[#B9CF32] focus:ring-0 transition-colors font-bold shadow-sm"
-                />
-              </div>
-              </div>
-              <div className="relative flex items-center rounded-xl border border-[#347048]/20 bg-white focus-within:border-[#B9CF32] transition-colors shadow-sm">
-                <span className="px-3 text-[#347048]/60 font-bold whitespace-nowrap min-w-[3.25rem] text-center leading-none">
-                  +54&nbsp;9
-                </span>
-                <input
-                  id="guest-phone"
-                  type="tel"
-                  placeholder="351 123 4567"
-                  value={formatPhoneDigits(guestPhone)}
-                  onChange={(e) => {
-                    const digits = e.target.value.replace(/\D/g, '');
-                    setGuestPhone(digits);
-                  }}
-                  onKeyDown={handleGuestKeyDown}
-                  maxLength={12}
-                  className="w-full p-3 rounded-xl bg-transparent text-[#347048] placeholder:text-[#347048]/40 focus:outline-none transition-colors font-bold border-0 focus:border-0 leading-tight"
-                />
-              </div>
-            </div>
-            
-            {/* Feedback de error con ícono de alerta */}
-            {guestError && (
-              <p className="text-xs text-red-500 font-bold bg-red-50 p-2 rounded-lg text-center flex items-center justify-center gap-1">
-                 <AlertCircle size={14} strokeWidth={2.5}/> {guestError}
-              </p>
-            )}
-          </div>
-        )}
-        cancelText="Cancelar"
-        confirmText="Confirmar reserva"
-        onConfirm={handleGuestConfirm}
-        confirmDisabled={!isGuestInfoValid() || isBooking}
-        closeOnBackdrop
-        closeOnEscape
-      />
     </div>
   );
 }

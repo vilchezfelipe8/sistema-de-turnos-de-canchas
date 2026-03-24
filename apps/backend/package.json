@@ -27,6 +27,7 @@
     "rebuild:read-models": "ts-node src/scripts/rebuildReadModels.ts",
     "db:ensure-partitions": "ts-node src/scripts/ensureFuturePartitions.ts",
     "smoke:release": "ts-node src/scripts/smokeRelease.ts",
+    "phones:backfill": "ts-node src/scripts/backfillPhoneCanonical.ts",
     "db:setup": "bash setup-db-simple.sh",
     "db:setup:win": "setup-db.bat",
     "db:reset": "docker rm -f sistema-postgres && npm run db:setup",

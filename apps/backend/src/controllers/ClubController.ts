@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { validateOpeningDays } from '../utils/ActivityScheduleHelper';
 import { MediaStorageService } from '../services/MediaStorageService';
 import { sanitizeString } from '../utils/sanitize';
+import { normalizeIdentityPhone } from '../utils/phone';
 import { AuditLogService } from '../services/AuditLogService';
 
 const fixedBookingActivityConfigSchema = z.object({
@@ -604,6 +605,8 @@ export class ClubController {
             const bodySchema = z.object({
                 name: z.string().trim().min(2),
                 phone: z.string().trim().optional().nullable(),
+                phoneCountryCode: z.string().trim().optional().nullable(),
+                phoneNumberLocal: z.string().trim().optional().nullable(),
                 dni: z.string().trim().optional().nullable(),
                 email: z.string().trim().email().optional().nullable(),
                 isProfessor: z.boolean().optional()
@@ -611,9 +614,24 @@ export class ClubController {
             const parsed = bodySchema.safeParse(req.body);
             if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
 
+            const normalizedPhone = normalizeIdentityPhone(
+                {
+                    phone: parsed.data.phone ? sanitizeString(parsed.data.phone, 40) : null,
+                    countryCode: parsed.data.phoneCountryCode ? sanitizeString(parsed.data.phoneCountryCode, 8) : null,
+                    phoneNumberLocal: parsed.data.phoneNumberLocal ? sanitizeString(parsed.data.phoneNumberLocal, 30) : null
+                },
+                { defaultCountryIso2: String(club.country || '').trim() || null }
+            );
+            const hasAnyPhoneInput =
+                Boolean(parsed.data.phone && String(parsed.data.phone).trim()) ||
+                Boolean(parsed.data.phoneNumberLocal && String(parsed.data.phoneNumberLocal).trim());
+            if (hasAnyPhoneInput && !normalizedPhone) {
+                return res.status(400).json({ error: 'Teléfono inválido' });
+            }
+
             const client = await this.clubService.createClient(Number(club.id), {
                 name: sanitizeString(parsed.data.name, 120),
-                phone: parsed.data.phone ? sanitizeString(parsed.data.phone, 40) : null,
+                phone: normalizedPhone,
                 dni: parsed.data.dni ? sanitizeString(parsed.data.dni, 40) : null,
                 email: parsed.data.email ? sanitizeString(parsed.data.email, 120).toLowerCase() : null,
                 isProfessor: Boolean(parsed.data.isProfessor)
@@ -633,6 +651,8 @@ export class ClubController {
             const bodySchema = z.object({
                 name: z.string().trim().min(2),
                 phone: z.string().trim().optional().nullable(),
+                phoneCountryCode: z.string().trim().optional().nullable(),
+                phoneNumberLocal: z.string().trim().optional().nullable(),
                 dni: z.string().trim().optional().nullable(),
                 email: z.string().trim().email().optional().nullable(),
                 isProfessor: z.boolean().optional()
@@ -642,9 +662,24 @@ export class ClubController {
             if (!paramsParsed.success) return res.status(400).json({ error: paramsParsed.error.format() });
             if (!bodyParsed.success) return res.status(400).json({ error: bodyParsed.error.format() });
 
+            const normalizedPhone = normalizeIdentityPhone(
+                {
+                    phone: bodyParsed.data.phone ? sanitizeString(bodyParsed.data.phone, 40) : null,
+                    countryCode: bodyParsed.data.phoneCountryCode ? sanitizeString(bodyParsed.data.phoneCountryCode, 8) : null,
+                    phoneNumberLocal: bodyParsed.data.phoneNumberLocal ? sanitizeString(bodyParsed.data.phoneNumberLocal, 30) : null
+                },
+                { defaultCountryIso2: String(club.country || '').trim() || null }
+            );
+            const hasAnyPhoneInput =
+                Boolean(bodyParsed.data.phone && String(bodyParsed.data.phone).trim()) ||
+                Boolean(bodyParsed.data.phoneNumberLocal && String(bodyParsed.data.phoneNumberLocal).trim());
+            if (hasAnyPhoneInput && !normalizedPhone) {
+                return res.status(400).json({ error: 'Teléfono inválido' });
+            }
+
             const client = await this.clubService.updateClient(Number(club.id), paramsParsed.data.clientId, {
                 name: sanitizeString(bodyParsed.data.name, 120),
-                phone: bodyParsed.data.phone ? sanitizeString(bodyParsed.data.phone, 40) : null,
+                phone: normalizedPhone,
                 dni: bodyParsed.data.dni ? sanitizeString(bodyParsed.data.dni, 40) : null,
                 email: bodyParsed.data.email ? sanitizeString(bodyParsed.data.email, 120).toLowerCase() : null,
                 isProfessor: Boolean(bodyParsed.data.isProfessor)

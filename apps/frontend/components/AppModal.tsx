@@ -23,6 +23,7 @@ type AppModalProps = {
   closeOnBackdrop?: boolean;
   closeOnEscape?: boolean;
   zIndexClass?: string;
+  hideCloseButton?: boolean;
 };
 
 /**
@@ -48,7 +49,8 @@ export default function AppModal({
   confirmDisabled = false,
   closeOnBackdrop = true,
   closeOnEscape = true,
-  zIndexClass = 'z-[2147483200]'
+  zIndexClass = 'z-[2147483200]',
+  hideCloseButton = false
 }: AppModalProps) {
   const [mounted, setMounted] = useState(false);
   const [inputText, setInputText] = useState(inputValue);
@@ -189,13 +191,15 @@ export default function AppModal({
             )}
             {title}
           </h3>
-          <button 
-            onClick={onClose} 
-            className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
-            title="Cerrar ventana"
-          >
-            <X size={20} strokeWidth={3} />
-          </button>
+          {!hideCloseButton ? (
+            <button 
+              onClick={onClose} 
+              className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
+              title="Cerrar ventana"
+            >
+              <X size={20} strokeWidth={3} />
+            </button>
+          ) : null}
         </div>
 
         {/* CUERPO DEL MODAL */}

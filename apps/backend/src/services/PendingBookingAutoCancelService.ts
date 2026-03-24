@@ -12,6 +12,7 @@ import { AccountService } from './AccountService';
 import { AuditLogService } from './AuditLogService';
 import { TimeHelper } from '../utils/TimeHelper';
 import { getDepositRequiredAmount } from '../domain/bookingDomain';
+import { normalizeIdentityPhone } from '../utils/phone';
 
 const EPSILON = 0.009;
 
@@ -59,17 +60,6 @@ export class PendingBookingAutoCancelService {
     new CashRepository(),
     new ProductRepository()
   );
-
-  private normalizePhone(phone: string | null | undefined) {
-    if (!phone) return null;
-    const digits = String(phone).replace(/\D/g, '');
-    if (!digits) return null;
-    if (digits.startsWith('549') && digits.length >= 12) return digits;
-    if (digits.startsWith('54') && digits.length >= 12) return `549${digits.slice(2)}`;
-    if (digits.length === 10) return `549${digits}`;
-    if (digits.startsWith('0') && digits.length === 11) return `549${digits.slice(1)}`;
-    return digits.length >= 8 ? digits : null;
-  }
 
   private getSettings(raw: any): PendingAutoCancelSettings {
     return {
@@ -169,7 +159,7 @@ Si no se confirma antes de las *${limitTime}*, puede cancelarse automáticamente
       return false;
     }
 
-    const clientPhone = this.normalizePhone(booking.user?.phoneNumber || booking.client?.phone || null);
+    const clientPhone = normalizeIdentityPhone(booking.user?.phoneNumber || booking.client?.phone || null);
     const clientName = booking.user?.firstName || booking.client?.name || 'Jugador';
     const clubTimeZone = booking.court.club.settings?.timeZone ?? 'America/Argentina/Buenos_Aires';
     const dedupeSuffix = `booking-auto-cancel-warning:${booking.id}`;

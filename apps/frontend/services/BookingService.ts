@@ -5,19 +5,6 @@
 import { getToken } from './AuthService';
 import { fetchWithAuth } from '../utils/apiClient';
 
-const GUEST_KEY = 'guestId';
-function getOrCreateGuestId() {
-  try {
-    const existing = localStorage.getItem(GUEST_KEY);
-    if (existing) return existing;
-    const id = (typeof crypto !== 'undefined' && (crypto as any).randomUUID) ? (crypto as any).randomUUID() : `guest_${Math.random().toString(36).slice(2,10)}`;
-    localStorage.setItem(GUEST_KEY, id);
-    return id;
-  } catch (e) {
-    return `guest_${Math.random().toString(36).slice(2,10)}`;
-  }
-}
-
 import { getApiUrl } from '../utils/apiUrl';
 import { ClubService } from './ClubService';
 import { ClubAdminService } from './ClubAdminService';
@@ -89,22 +76,21 @@ export const createBooking = async (
   activityId: number,
   date: Date,
   slotTime?: string,
-  userId?: number,
-  // Aceptamos 'dni' también en el tipo para evitar errores de TS
-  guestInfo?: { name?: string; email?: string; phone?: string; guestDni?: string; dni?: string },
   options?: {
-    asGuest?: boolean;
-    guestIdentifier?: string;
     durationMinutes?: number;
     applyDiscount?: boolean;
+    clientId?: string;
+    client?: {
+      name: string;
+      phone?: string;
+      phoneCountryCode?: string;
+      phoneNumberLocal?: string;
+      email?: string;
+      dni?: string;
+    };
   }
 ) => {
   const token = getToken();
-  const guestId = token ? undefined : getOrCreateGuestId();
-  const guestIdentifier = options?.guestIdentifier ?? guestId;
-
-  // Truco: unificamos el valor del DNI venga como venga
-  const dniValue = guestInfo?.guestDni || guestInfo?.dni;
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -119,14 +105,8 @@ export const createBooking = async (
         date: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
         slotTime
       } : { startDateTime: date.toISOString() }),
-      ...(guestIdentifier ? { guestIdentifier } : {}),
-      ...(guestInfo?.name ? { guestName: guestInfo.name } : {}),
-      ...(guestInfo?.email ? { guestEmail: guestInfo.email } : {}),
-      ...(guestInfo?.phone ? { guestPhone: guestInfo.phone } : {}),
-      
-      ...(dniValue ? { guestDni: dniValue } : {}),
-
-      ...(options?.asGuest ? { asGuest: true } : {}),
+      ...(options?.clientId ? { clientId: options.clientId } : {}),
+      ...(options?.client ? { client: options.client } : {}),
       ...(Number.isFinite(options?.durationMinutes) ? { durationMinutes: options?.durationMinutes } : {}),
       ...(options?.applyDiscount === undefined ? {} : { applyDiscount: options.applyDiscount })
     }),
@@ -149,9 +129,9 @@ export const getBookingQuote = async (input: {
   slotTime?: string;
   startDateTime?: Date;
   durationMinutes?: number;
-  guestEmail?: string;
-  guestPhone?: string;
-  guestDni?: string;
+  clientEmail?: string;
+  clientPhone?: string;
+  clientDni?: string;
   applyDiscount?: boolean;
 }) => {
   const token = getToken();
@@ -173,9 +153,9 @@ export const getBookingQuote = async (input: {
               }
             : {})),
       ...(Number.isFinite(input.durationMinutes) ? { durationMinutes: input.durationMinutes } : {}),
-      ...(input.guestEmail ? { guestEmail: input.guestEmail } : {}),
-      ...(input.guestPhone ? { guestPhone: input.guestPhone } : {}),
-      ...(input.guestDni ? { guestDni: input.guestDni } : {}),
+      ...(input.clientEmail ? { clientEmail: input.clientEmail } : {}),
+      ...(input.clientPhone ? { clientPhone: input.clientPhone } : {}),
+      ...(input.clientDni ? { clientDni: input.clientDni } : {}),
       ...(input.applyDiscount === undefined ? {} : { applyDiscount: input.applyDiscount })
     })
   });
@@ -411,14 +391,18 @@ export const getAdminSchedule = async (date: string) => {
 
 // --- 5. CREAR TURNO FIJO ---
 export const createFixedBooking = async (
-  userId: number | undefined,
   courtId: number,
   activityId: number,
   startDateTime: Date,
-  guestName?: string,
-  guestPhone?: string,
-  guestDni?: string, // <--- Recibimos el dato (Argumento #7)
   options?: {
+    userId?: number;
+    clientId?: string;
+    client?: {
+      name: string;
+      phone?: string;
+      email?: string;
+      dni?: string;
+    };
     allowOverlappingSeries?: boolean;
     durationMinutes?: number;
   }
@@ -441,10 +425,9 @@ export const createFixedBooking = async (
     courtId,
     activityId,
     startDateTime: startDateTime.toISOString(),
-    ...(userId ? { userId } : {}),
-    ...(guestName ? { guestName } : {}),
-    ...(guestPhone ? { guestPhone } : {}),
-    ...(guestDni ? { guestDni } : {}),
+    ...(options?.userId ? { userId: options.userId } : {}),
+    ...(options?.clientId ? { clientId: options.clientId } : {}),
+    ...(options?.client ? { client: options.client } : {}),
     ...(Number.isFinite(options?.durationMinutes) ? { durationMinutes: Number(options?.durationMinutes) } : {}),
     ...(options?.allowOverlappingSeries ? { allowOverlappingSeries: true } : {})
   });

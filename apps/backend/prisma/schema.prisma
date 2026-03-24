@@ -233,6 +233,9 @@ model User {
   clientDiscountAssignmentsCreated ClientDiscountAssignment[]
   accountItemDiscountsApplied AccountItemDiscount[]
   clubReviews ClubReview[]
+  clubFavorites ClubFavorite[]
+  duplicateIncidents ClientDuplicateIncident[] @relation("DuplicateIncidentUser")
+  duplicateIncidentsResolved ClientDuplicateIncident[] @relation("DuplicateIncidentResolvedBy")
 }
 
 model Club {
@@ -287,6 +290,21 @@ model Club {
   clientDiscountAssignments ClientDiscountAssignment[]
   accountItemDiscounts AccountItemDiscount[]
   reviews       ClubReview[]
+  favorites     ClubFavorite[]
+  duplicateIncidents ClientDuplicateIncident[]
+}
+
+model ClubFavorite {
+  id        String   @id @default(cuid())
+  clubId    Int
+  userId    Int
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  club      Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([clubId, userId])
+  @@index([userId, createdAt])
 }
 
 model Membership {
@@ -429,8 +447,11 @@ model Client {
   updatedAt DateTime @updatedAt
 
   bookings  Booking[]
+  fixedBookings FixedBooking[]
   discountAssignments ClientDiscountAssignment[]
   accountItemDiscounts AccountItemDiscount[]
+  duplicateIncidentsPrimary ClientDuplicateIncident[] @relation("DuplicateIncidentPrimaryClient")
+  duplicateIncidentsResolvedTarget ClientDuplicateIncident[] @relation("DuplicateIncidentResolvedClient")
 
   @@index([clubId])
   @@index([userId])
@@ -439,6 +460,46 @@ model Client {
   @@index([clubId, dni])
   @@unique([clubId, dni])
   @@unique([clubId, userId])
+}
+
+enum ClientDuplicateIncidentStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+model ClientDuplicateIncident {
+  id        String   @id @default(cuid())
+  clubId    Int
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  userId    Int?
+  user      User?    @relation("DuplicateIncidentUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  status    ClientDuplicateIncidentStatus @default(OPEN)
+  reasonType String
+  sourceType String
+  dedupeKey String?
+
+  primaryClientId String?
+  primaryClient   Client? @relation("DuplicateIncidentPrimaryClient", fields: [primaryClientId], references: [id], onDelete: SetNull)
+
+  candidateClientIds Json
+  payload            Json?
+
+  resolutionType     String?
+  resolutionNotes    String?
+  resolvedClientId   String?
+  resolvedClient     Client? @relation("DuplicateIncidentResolvedClient", fields: [resolvedClientId], references: [id], onDelete: SetNull)
+  resolvedByUserId   Int?
+  resolvedByUser     User?   @relation("DuplicateIncidentResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  resolvedAt         DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([clubId, status, createdAt])
+  @@index([clubId, dedupeKey, status])
 }
 
 model Booking {
@@ -460,10 +521,8 @@ model Booking {
 
   status          BookingStatus @default(PENDING)
 
-  guestIdentifier String?
-
-  clientId String?
-  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
 
   userId Int?
   user   User? @relation(fields: [userId], references: [id])
@@ -522,9 +581,8 @@ model FixedBooking {
   startDate DateTime @db.Timestamptz(3)
 
   status     FixedBookingStatus @default(ACTIVE)
-  guestPhone String?
-  guestDni   String?
-  guestName  String?
+  clientId   String
+  client     Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
 
   userId     Int?
   user       User? @relation(fields: [userId], references: [id])
@@ -542,6 +600,7 @@ model FixedBooking {
 
   @@index([courtId, dayOfWeek])
   @@index([clubId])
+  @@index([clientId])
 }
 
 model Account {

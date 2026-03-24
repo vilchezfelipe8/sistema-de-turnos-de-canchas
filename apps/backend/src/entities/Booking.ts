@@ -26,9 +26,8 @@ export class Booking {
     user?: User | null;
     court: Court;
     activity: ActivityType;
-    clientId?: string | null;
+    clientId: string;
     client?: BookingClient | null;
-    guestIdentifier?: string;
 
     constructor(
         id: number,
@@ -39,9 +38,8 @@ export class Booking {
         court: Court,
         activity: ActivityType,
         status: BookingStatus,
-        guestIdentifier?: string,
+        clientId: string,
         public fixedBookingId?: number | null,
-        clientId?: string | null,
         client?: BookingClient | null
     ) {
         this.id = id;
@@ -54,8 +52,7 @@ export class Booking {
         this.activity = activity;
         this.status = status;
         this.createdAt = new Date();
-        if (guestIdentifier) this.guestIdentifier = guestIdentifier;
-        this.clientId = clientId ?? null;
+        this.clientId = clientId;
         this.client = client ?? null;
     }
 }

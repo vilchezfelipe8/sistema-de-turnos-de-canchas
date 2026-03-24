@@ -23,6 +23,7 @@ import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 import { formatTime24 } from '../../utils/dateTime';
 import { reportUiError } from '../../utils/uiError';
 import { lockBodyScroll } from '../../utils/bodyScrollLock';
+import { buildCanonicalPhone, DEFAULT_PHONE_COUNTRY_ISO2, normalizePhoneCountryIso2, PHONE_COUNTRY_OPTIONS, splitCanonicalPhone } from '../../utils/phone';
 import type { RefundDraft } from '../../modules/refunds/refund.types';
 import { buildDefaultRefundDraft } from '../../modules/refunds/refund.policy';
 import { validateRefundAmountInput } from '../../modules/refunds/refund.validators';
@@ -329,10 +330,12 @@ export default function AdminTabBookings() {
   });
 
   const [manualBooking, setManualBooking] = useState({
-    guestFirstName: '',
-    guestLastName: '',
-    guestPhone: '',
-    guestDni: '',
+    clientId: '',
+    clientFirstName: '',
+    clientLastName: '',
+    clientPhoneCountryIso2: DEFAULT_PHONE_COUNTRY_ISO2,
+    clientPhone: '',
+    clientDni: '',
     courtId: '',
     time: '',
     durationMinutes: DEFAULT_DURATION_MINUTES,
@@ -341,6 +344,7 @@ export default function AdminTabBookings() {
     startDateBase: getTodayLocalDate()
   });
   const [selectedClientIsProfessor, setSelectedClientIsProfessor] = useState(false);
+  const [clubPhoneCountryIso2, setClubPhoneCountryIso2] = useState(DEFAULT_PHONE_COUNTRY_ISO2);
 
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -564,6 +568,12 @@ export default function AdminTabBookings() {
               ? Math.floor(rawProfessorOverride)
               : DEFAULT_DURATION_MINUTES
         });
+        const countryIso = normalizePhoneCountryIso2(club?.country);
+        setClubPhoneCountryIso2(countryIso);
+        setManualBooking((prev) => ({
+          ...prev,
+          clientPhoneCountryIso2: prev.clientPhoneCountryIso2 || countryIso
+        }));
       } catch {
         setClubBookingConfig({
           bookingSimpleAdvanceDaysAdmin: 30,
@@ -571,6 +581,7 @@ export default function AdminTabBookings() {
           professorDurationOverrideEnabled: true,
           professorDurationOverrideMinutes: DEFAULT_DURATION_MINUTES
         });
+        setClubPhoneCountryIso2(DEFAULT_PHONE_COUNTRY_ISO2);
       }
     };
 
@@ -596,7 +607,7 @@ export default function AdminTabBookings() {
   // --- HANDLER PARA CAMBIO DE NOMBRE DEL INVITADO Y BUSQUEDA DE CLIENTES ---
   const handleGuestFirstNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
-    setManualBooking({ ...manualBooking, guestFirstName: value });
+    setManualBooking({ ...manualBooking, clientId: '', clientFirstName: value });
     setSelectedClientIsProfessor(false);
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     if (value.length >= 2) {
@@ -627,14 +638,15 @@ export default function AdminTabBookings() {
       fName = parts[0];
       lName = parts.slice(1).join(' ');
     }
-    let rawPhone = String(client?.phone || '').trim();
-    if (rawPhone) { rawPhone = rawPhone.toString().replace(/^(\+?549)/, ''); }
+    const splitPhone = splitCanonicalPhone(String(client?.phone || '').trim(), clubPhoneCountryIso2);
     setManualBooking({
       ...manualBooking,
-      guestFirstName: fName,
-      guestLastName: lName,
-      guestPhone: rawPhone,
-      guestDni: String(client?.dni || '').trim()
+      clientId: String(client?.id || ''),
+      clientFirstName: fName,
+      clientLastName: lName,
+      clientPhoneCountryIso2: splitPhone.countryIso2 || clubPhoneCountryIso2,
+      clientPhone: String(splitPhone.localNumber || ''),
+      clientDni: String(client?.dni || '').trim()
     });
     setSelectedClientIsProfessor(Boolean(client.isProfessor));
     setShowDropdown(false);
@@ -745,7 +757,7 @@ export default function AdminTabBookings() {
   const buildSimpleBookingSummaryMessage = (params: {
     courtName: string;
     activityName: string;
-    guestName: string;
+    clientName: string;
     start: Date;
     durationMinutes: number;
     price: number;
@@ -764,7 +776,7 @@ export default function AdminTabBookings() {
         <div className="grid grid-cols-1 gap-2 rounded-xl border border-[#926699]/20 bg-[#fdfaff] p-3 text-sm text-[#347048]">
           <div className="flex items-center justify-between">
             <span className="font-bold text-[#926699] uppercase text-xs">Cliente:</span>
-            <span className="text-[#347048] font-black">{params.guestName}</span>
+            <span className="text-[#347048] font-black">{params.clientName}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="font-bold text-[#926699] uppercase text-xs">Cancha:</span>
@@ -815,7 +827,7 @@ export default function AdminTabBookings() {
   const buildFixedBookingSummaryMessage = (params: {
     courtName: string;
     activityName: string;
-    guestName: string;
+    clientName: string;
     firstDate: Date;
     slotTime: string;
     generatedCount: number;
@@ -835,7 +847,7 @@ export default function AdminTabBookings() {
       <div className="grid grid-cols-1 gap-2 rounded-xl border border-[#926699]/20 bg-[#fdfaff] p-3 text-sm text-[#347048]">
         <div className="flex items-center justify-between">
           <span className="font-bold text-[#926699] uppercase text-xs">Cliente:</span>
-          <span className="text-[#347048] font-black">{params.guestName}</span>
+          <span className="text-[#347048] font-black">{params.clientName}</span>
         </div>
         <div className="flex items-center justify-between">
           <span className="font-bold text-[#926699] uppercase text-xs">Cancha:</span>
@@ -960,7 +972,7 @@ export default function AdminTabBookings() {
       const price = Number(entity?.price || 0);
       const listPrice = Number(entity?.listPrice || entity?.price || 0);
       const discountAmount = Math.max(0, Number((listPrice - price).toFixed(2)));
-      const guestName = String(entity?.client?.name || entity?.user?.firstName || entity?.guestName || 'Cliente');
+      const clientName = String(entity?.client?.name || entity?.user?.firstName || 'Cliente');
       const courtName = String(fallbackCourtName || entity?.court?.name || entity?.courtName || `Cancha ${entity?.courtId || ''}` || 'Cancha');
       const activityName = String(entity?.activity?.name || entity?.activityType?.name || entity?.activityName || 'Actividad');
 
@@ -971,7 +983,7 @@ export default function AdminTabBookings() {
           <div className="grid grid-cols-1 gap-2 rounded-xl border border-[#926699]/20 bg-[#fdfaff] p-3 text-sm text-[#347048]">
             <div className="flex items-center justify-between">
               <span className="font-bold text-[#926699] uppercase text-xs">Cliente:</span>
-              <span className="text-[#347048] font-black">{guestName}</span>
+              <span className="text-[#347048] font-black">{clientName}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="font-bold text-[#926699] uppercase text-xs">Cancha:</span>
@@ -1155,14 +1167,19 @@ export default function AdminTabBookings() {
 
   const handleCreateBooking = async (e: React.FormEvent) => {
     e.preventDefault();
-    const firstName = manualBooking.guestFirstName.trim();
-    const lastName = manualBooking.guestLastName.trim();
-    const dni = manualBooking.guestDni?.trim();
-    const phone = manualBooking.guestPhone?.trim();
+    const firstName = manualBooking.clientFirstName.trim();
+    const lastName = manualBooking.clientLastName.trim();
+    const dni = manualBooking.clientDni?.trim();
+    const localPhone = String(manualBooking.clientPhone || '').trim();
+    const selectedClientId = String(manualBooking.clientId || '').trim();
+    const hasSelectedClient = selectedClientId.length > 0;
     const selectedActivityId = Number(selectedManualCourt?.activityTypeId || selectedManualCourt?.activityType?.id);
     if (!manualBooking.courtId || !manualBooking.time) { showError('Faltan datos de cancha u horario'); return; }
     if (!Number.isInteger(selectedActivityId) || selectedActivityId <= 0) { showError('La cancha seleccionada no tiene actividad válida'); return; }
-    if (!firstName || !lastName || !dni || !phone) { showError('Nombre, Apellido, DNI y Teléfono son obligatorios'); return; }
+    if (!hasSelectedClient && (!firstName || !lastName || !localPhone)) {
+      showError('Nombre, Apellido y Teléfono son obligatorios para alta rápida.');
+      return;
+    }
     if (!manualBooking.isFixed && adminSimpleMaxDate) {
       const selectedBase = parseLocalDate(manualBooking.startDateBase || getTodayLocalDate());
       selectedBase.setHours(0, 0, 0, 0);
@@ -1174,25 +1191,31 @@ export default function AdminTabBookings() {
       }
     }
     let dateBase: Date;
-    let guestName = `${firstName} ${lastName}`.trim();
+    let clientDisplayName = `${firstName} ${lastName}`.trim();
     let phoneToSend = "";
     const resetManualForm = () => {
       setManualBooking({
-        guestFirstName: '', guestLastName: '', guestPhone: '', guestDni: '',
+        clientId: '',
+        clientFirstName: '', clientLastName: '', clientPhoneCountryIso2: clubPhoneCountryIso2, clientPhone: '', clientDni: '',
         courtId: '', time: '', durationMinutes: manualDurationOptions[0] ?? DEFAULT_DURATION_MINUTES, isFixed: false, dayOfWeek: '1', startDateBase: getTodayLocalDate()
       });
       setSelectedClientIsProfessor(false);
     };
     const submitFixedBooking = async (allowOverlappingSeries = false) => {
       const fixedResult = await createFixedBooking(
-        undefined,
         Number(manualBooking.courtId),
         selectedActivityId,
         dateBase,
-        guestName,
-        phoneToSend || undefined,
-        dni,
         {
+          ...(hasSelectedClient
+            ? { clientId: selectedClientId }
+            : {
+                client: {
+                  name: clientDisplayName,
+                  phone: phoneToSend || undefined,
+                  dni: dni || undefined
+                }
+              }),
           allowOverlappingSeries,
           durationMinutes: Number(manualBooking.durationMinutes || DEFAULT_DURATION_MINUTES)
         }
@@ -1202,7 +1225,7 @@ export default function AdminTabBookings() {
         buildFixedBookingSummaryMessage({
           courtName: String(selectedManualCourt?.name || `Cancha ${manualBooking.courtId}`),
           activityName: String(selectedManualCourt?.activityType?.name || 'Actividad'),
-          guestName,
+          clientName: clientDisplayName,
           firstDate: dateBase,
           slotTime: manualBooking.time,
           generatedCount: Number((fixedResult as any)?.generatedCount || 0),
@@ -1220,8 +1243,15 @@ export default function AdminTabBookings() {
       resetManualForm();
     };
     try {
-        const rawPhone = phone.replace(/\D/g, '');
-        phoneToSend = rawPhone ? `+549${rawPhone}` : '';
+        const canonicalPhone = buildCanonicalPhone({
+          countryIso2: manualBooking.clientPhoneCountryIso2 || clubPhoneCountryIso2,
+          localNumber: localPhone
+        });
+        phoneToSend = canonicalPhone || '';
+        if (!hasSelectedClient && !phoneToSend) {
+          showError('Ingresá un teléfono válido para alta rápida.');
+          return;
+        }
         if (manualBooking.isFixed) {
             const base = new Date(manualBooking.startDateBase);
             base.setHours(12, 0, 0, 0);
@@ -1233,25 +1263,29 @@ export default function AdminTabBookings() {
         if (manualBooking.isFixed) {
           await submitFixedBooking(false);
         } else {
-            const guestData = { name: guestName, phone: phoneToSend, dni };
             const createdBooking = await createBooking(
               Number(manualBooking.courtId),
               selectedActivityId,
               dateBase,
               manualBooking.time,
-              undefined,
-              guestData,
               {
-                asGuest: true,
-                guestIdentifier: `admin_${dni}_${Date.now()}`,
-                durationMinutes: manualBooking.durationMinutes
+                durationMinutes: manualBooking.durationMinutes,
+                ...(hasSelectedClient
+                  ? { clientId: selectedClientId }
+                  : {
+                      client: {
+                        name: clientDisplayName,
+                        phone: phoneToSend || undefined,
+                        dni: dni || undefined
+                      }
+                    })
               }
             );
             showInfo(
               buildSimpleBookingSummaryMessage({
                 courtName: String(selectedManualCourt?.name || `Cancha ${manualBooking.courtId}`),
                 activityName: String(selectedManualCourt?.activityType?.name || 'Actividad'),
-                guestName,
+                clientName: clientDisplayName,
                 start: dateBase,
                 durationMinutes: Number(manualBooking.durationMinutes || DEFAULT_DURATION_MINUTES),
                 price: Number((createdBooking as any)?.price || 0),
@@ -1421,7 +1455,7 @@ export default function AdminTabBookings() {
               <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Nombre (Buscar Cliente)</label>
               <input 
                   type="text" 
-                  value={manualBooking.guestFirstName} 
+                  value={manualBooking.clientFirstName} 
                   onChange={handleGuestFirstNameChange}
                   className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all relative z-10"
                   placeholder="Escribe para buscar..." 
@@ -1453,20 +1487,39 @@ export default function AdminTabBookings() {
 
           <div className="relative z-10">
             <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Apellido</label>
-            <input type="text" value={manualBooking.guestLastName} onChange={(e) => setManualBooking({ ...manualBooking, guestLastName: e.target.value })} 
+            <input type="text" value={manualBooking.clientLastName} onChange={(e) => setManualBooking({ ...manualBooking, clientId: '', clientLastName: e.target.value })} 
             className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all" placeholder="Ingresa el apellido" required />
           </div>
 
           <div className="relative z-10">
             <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Teléfono</label>
-            <input type="tel" value={manualBooking.guestPhone} onChange={(e) => setManualBooking({ ...manualBooking, guestPhone: e.target.value })} 
-            className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all" placeholder="Ej: 3511234567" required/>
+            <div className="flex items-center gap-2">
+              <select
+                value={manualBooking.clientPhoneCountryIso2}
+                onChange={(e) => setManualBooking({ ...manualBooking, clientId: '', clientPhoneCountryIso2: normalizePhoneCountryIso2(e.target.value) })}
+                className="h-12 w-28 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-2 text-xs font-black text-[#347048] focus:outline-none shadow-sm transition-all"
+              >
+                {PHONE_COUNTRY_OPTIONS.map((option) => (
+                  <option key={option.iso2} value={option.iso2}>
+                    {option.callingCode} {option.iso2}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="tel"
+                value={manualBooking.clientPhone}
+                onChange={(e) => setManualBooking({ ...manualBooking, clientId: '', clientPhone: e.target.value.replace(/[^\d]/g, '') })}
+                className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
+                placeholder="Número local"
+                required
+              />
+            </div>
           </div>
 
           <div className="relative z-10">
             <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">DNI</label>
-            <input type="text" value={manualBooking.guestDni} onChange={(e) => setManualBooking({ ...manualBooking, guestDni: e.target.value })} 
-            className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all" placeholder="Número de documento" required />
+            <input type="text" value={manualBooking.clientDni} onChange={(e) => setManualBooking({ ...manualBooking, clientId: '', clientDni: e.target.value })} 
+            className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all" placeholder="Número de documento" />
           </div>
 
           {/* FECHA (Usa focus-within para tapar TODO al abrirse) */}

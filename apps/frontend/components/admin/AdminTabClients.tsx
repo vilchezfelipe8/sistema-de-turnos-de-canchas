@@ -1,6 +1,7 @@
 import React from 'react';
 import ClientsPage from '../ClientsPage';
 import { Users } from 'lucide-react';
+import AdminDuplicateIncidents from './AdminDuplicateIncidents';
 
 export default function AdminTabClients() {
   return (
@@ -20,11 +21,6 @@ export default function AdminTabClients() {
             Base de datos de personas que han reservado en el club.
           </p>
         </div>
-
-        {/* Badge de contador o estado (Estilo Lima para resaltar) */}
-        <div className="hidden sm:block">
-           
-        </div>
       </div>
 
       {/* Aviso: ClientsPage recibirá estos nuevos estilos del contenedor padre. 
@@ -33,6 +29,10 @@ export default function AdminTabClients() {
       */}
       <div className="relative z-10">
         <ClientsPage />
+      </div>
+
+      <div className="relative z-10 mt-10 pt-8 border-t border-[#347048]/15">
+        <AdminDuplicateIncidents />
       </div>
 
       {/* DECORACIÓN SUTIL DE MARCA (Opcional, en la esquina inferior) */}

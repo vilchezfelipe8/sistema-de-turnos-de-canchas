@@ -3,12 +3,14 @@ import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ClientService } from '../services/ClientService';
 import { ClubAdminService } from '../services/ClubAdminService';
+import { ClubService } from '../services/ClubService';
 import { getAccountById, registerPayment } from '../services/AccountService';
 import { Phone, DollarSign, Users, Trophy, Search, X, CheckCircle, Receipt, Plus, Pencil, Trash2 } from 'lucide-react';
 import PaymentCalculator, { type PaymentCalculatorResult } from './PaymentCalculator';
 import AppModal from './AppModal';
 import { getActiveClubSlug, normalizeSessionUser } from '../utils/session';
 import { reportUiError } from '../utils/uiError';
+import { buildCanonicalPhone, DEFAULT_PHONE_COUNTRY_ISO2, normalizePhoneCountryIso2, PHONE_COUNTRY_OPTIONS, splitCanonicalPhone } from '../utils/phone';
 
 const formatDate = (dateInput: any) => {
   if (!dateInput) return '-';
@@ -242,7 +244,15 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   const [showClientFormModal, setShowClientFormModal] = useState(false);
   const [clientFormSubmitting, setClientFormSubmitting] = useState(false);
   const [clientToEdit, setClientToEdit] = useState<any | null>(null);
-  const [clientForm, setClientForm] = useState({ name: '', phone: '', dni: '', email: '', isProfessor: false });
+  const [clientForm, setClientForm] = useState({
+    name: '',
+    phoneCountryIso2: DEFAULT_PHONE_COUNTRY_ISO2,
+    phone: '',
+    dni: '',
+    email: '',
+    isProfessor: false
+  });
+  const [clubPhoneCountryIso2, setClubPhoneCountryIso2] = useState(DEFAULT_PHONE_COUNTRY_ISO2);
   const [selectedClientDiscountAssignments, setSelectedClientDiscountAssignments] = useState<any[]>([]);
   const [loadingSelectedClientDiscountAssignments, setLoadingSelectedClientDiscountAssignments] = useState(false);
   const [deleteClientModal, setDeleteClientModal] = useState<{ show: boolean; client: any | null; submitting: boolean }>({
@@ -265,6 +275,26 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
     return clubSlug || getActiveClubSlug(normalizeSessionUser(null)) || '';
   }, [clubSlug]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const slug = resolveClubSlug();
+        if (!slug) return;
+        const club = await ClubService.getClubBySlug(slug);
+        if (cancelled) return;
+        const iso = normalizePhoneCountryIso2(club?.country);
+        setClubPhoneCountryIso2(iso);
+        setClientForm((prev) => ({ ...prev, phoneCountryIso2: prev.phoneCountryIso2 || iso }));
+      } catch {
+        if (!cancelled) setClubPhoneCountryIso2(DEFAULT_PHONE_COUNTRY_ISO2);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [resolveClubSlug]);
+
   const loadClients = useCallback(async () => {
     try {
       setLoading(true);
@@ -282,7 +312,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
 
   const openCreateClientModal = () => {
     setClientToEdit(null);
-    setClientForm({ name: '', phone: '', dni: '', email: '', isProfessor: false });
+    setClientForm({ name: '', phoneCountryIso2: clubPhoneCountryIso2, phone: '', dni: '', email: '', isProfessor: false });
     setShowClientFormModal(true);
   };
 
@@ -312,10 +342,12 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   };
 
   const openEditClientModal = (client: any) => {
+    const splitPhone = splitCanonicalPhone(String(client?.phone || ''), clubPhoneCountryIso2);
     setClientToEdit(client);
     setClientForm({
       name: String(client?.name || ''),
-      phone: String(client?.phone || ''),
+      phoneCountryIso2: splitPhone.countryIso2 || clubPhoneCountryIso2,
+      phone: String(splitPhone.localNumber || ''),
       dni: String(client?.dni && client.dni !== '-' ? client.dni : ''),
       email: String(client?.email || ''),
       isProfessor: Boolean(client?.isProfessor)
@@ -331,7 +363,11 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
     }
 
     const name = String(clientForm.name || '').trim();
-    const phone = String(clientForm.phone || '').trim();
+    const phoneLocal = String(clientForm.phone || '').trim();
+    const canonicalPhone = buildCanonicalPhone({
+      countryIso2: clientForm.phoneCountryIso2 || clubPhoneCountryIso2,
+      localNumber: phoneLocal
+    });
     const dni = String(clientForm.dni || '').trim();
     const email = String(clientForm.email || '').trim();
 
@@ -339,8 +375,8 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
       showError('Ingresá un nombre válido.');
       return;
     }
-    if (phone.length > 0 && phone.length < 7) {
-      showError('Si cargás teléfono, debe tener al menos 7 dígitos.');
+    if (phoneLocal.length > 0 && !canonicalPhone) {
+      showError('Si cargás teléfono, debe ser válido.');
       return;
     }
     if (dni.length > 0 && dni.length < 6) {
@@ -352,7 +388,9 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
       setClientFormSubmitting(true);
       const payload = {
         name,
-        phone: phone || undefined,
+        phone: canonicalPhone || undefined,
+        phoneCountryCode: clientForm.phoneCountryIso2 || undefined,
+        phoneNumberLocal: phoneLocal || undefined,
         dni: dni || undefined,
         email: email || undefined,
         isProfessor: Boolean(clientForm.isProfessor)
@@ -1294,7 +1332,11 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
         confirmDisabled={
           clientFormSubmitting ||
           String(clientForm.name || '').trim().length < 2 ||
-          (String(clientForm.phone || '').trim().length > 0 && String(clientForm.phone || '').trim().length < 7) ||
+          (String(clientForm.phone || '').trim().length > 0 &&
+            !buildCanonicalPhone({
+              countryIso2: clientForm.phoneCountryIso2 || clubPhoneCountryIso2,
+              localNumber: String(clientForm.phone || '').trim()
+            })) ||
           (String(clientForm.dni || '').trim().length > 0 && String(clientForm.dni || '').trim().length < 6)
         }
         onClose={() => {
@@ -1324,13 +1366,26 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               <div>
                 <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60 mb-1">Teléfono</label>
-                <input
-                  type="text"
-                  value={clientForm.phone}
-                  onChange={(e) => setClientForm((prev) => ({ ...prev, phone: e.target.value }))}
-                  className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
-                  placeholder="Ej: 3511234567"
-                />
+                <div className="flex items-center gap-2">
+                  <select
+                    value={clientForm.phoneCountryIso2}
+                    onChange={(e) => setClientForm((prev) => ({ ...prev, phoneCountryIso2: normalizePhoneCountryIso2(e.target.value) }))}
+                    className="h-11 w-28 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-2 text-xs font-black text-[#347048] focus:outline-none shadow-sm transition-all"
+                  >
+                    {PHONE_COUNTRY_OPTIONS.map((option) => (
+                      <option key={option.iso2} value={option.iso2}>
+                        {option.callingCode} {option.iso2}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    value={clientForm.phone}
+                    onChange={(e) => setClientForm((prev) => ({ ...prev, phone: e.target.value.replace(/[^\d]/g, '') }))}
+                    className="w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
+                    placeholder="Número local"
+                  />
+                </div>
               </div>
               <div>
                 <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60 mb-1">DNI</label>
