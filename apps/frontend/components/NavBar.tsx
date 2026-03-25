@@ -612,7 +612,7 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
         onConfirm={() => {
           const logoutRedirect = isAdminView && effectiveAdminClubSlug
             ? `/club/${effectiveAdminClubSlug}`
-            : isBookingsView && userClubSlug
+            : (isBookingsView || isProfileView) && userClubSlug
               ? `/club/${userClubSlug}`
               : null;
 
