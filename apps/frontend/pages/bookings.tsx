@@ -6,7 +6,9 @@ import { getMyBookings, cancelBooking } from '../services/BookingService';
 import { getMyReviewForBooking, upsertMyClubReview } from '../services/ClubReviewService';
 import AppModal from '../components/AppModal';
 import { useValidateAuth } from '../hooks/useValidateAuth';
+import { getPendingLogoutRedirect } from '../services/AuthService';
 import Link from 'next/link';
+import RouteTransitionScreen from '../components/RouteTransitionScreen';
 import { Calendar, Clock, MapPin, Ticket, ArrowRight, Search, XCircle, AlertCircle, CheckCircle2, Star, MessageSquare } from 'lucide-react';
 
 export default function MyBookingsPage() {
@@ -97,6 +99,12 @@ export default function MyBookingsPage() {
     if (!authChecked || !user) return;
     loadData();
   }, [authChecked, user, loadData]);
+
+  useEffect(() => {
+    if (!authChecked || user) return;
+    if (getPendingLogoutRedirect()) return;
+    void router.replace(`/login?from=${encodeURIComponent(router.asPath || '/bookings')}`);
+  }, [authChecked, user, router]);
 
   const { activeBookings, pastBookings, cancelledBookings } = useMemo(() => {
     const now = new Date();
@@ -293,7 +301,7 @@ export default function MyBookingsPage() {
     }
   };
 
-  if (!authChecked || !user) return null;
+  if (!authChecked || !user) return <RouteTransitionScreen message={authChecked ? 'Redirigiendo al login...' : 'Validando sesion...'} />;
 
   // --- RENDERIZADO VISUAL PREMIUM ---
   return (

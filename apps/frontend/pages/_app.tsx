@@ -1,8 +1,9 @@
 import type { AppProps } from 'next/app';
 import Head from 'next/head';
 import { useEffect, useRef, useState } from 'react';
+import Router from 'next/router';
 import { ActiveClubProvider } from '../contexts/ActiveClubContext';
-import { AUTH_LOGOUT_EVENT } from '../services/AuthService';
+import { AUTH_LOGOUT_EVENT, clearPendingLogoutRedirect, type AuthLogoutEventDetail } from '../services/AuthService';
 
 // IMPORTANTE: Aquí buscamos el archivo en la carpeta styles
 import '../styles/globals.css'; 
@@ -60,8 +61,17 @@ export default function MyApp({ Component, pageProps }: AppProps) {
       }, 1720);
     };
 
-    const handleLogout = () => {
+    const handleLogout = (event: Event) => {
+      const custom = event as CustomEvent<AuthLogoutEventDetail>;
+      const redirectTo = String(custom?.detail?.redirectTo || '').trim();
       showNotice('Sesion cerrada correctamente.');
+      if (redirectTo) {
+        void Router.replace(redirectTo).finally(() => {
+          clearPendingLogoutRedirect();
+        });
+        return;
+      }
+      clearPendingLogoutRedirect();
     };
     const handleAppNotice = (event: Event) => {
       const custom = event as CustomEvent<{ message?: string }>;

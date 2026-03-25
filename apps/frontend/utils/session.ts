@@ -25,11 +25,17 @@ export type SessionUser = {
 
 const STORAGE_USER_KEY = 'user';
 const STORAGE_ACTIVE_CLUB_KEY = 'activeClubId';
+const STORAGE_LAST_CLUB_SLUG_KEY = 'lastClubSlug';
 
 const toPositiveInt = (value: unknown): number | null => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
   return Math.floor(parsed);
+};
+
+const normalizeClubSlug = (value: unknown): string | null => {
+  const slug = String(value || '').trim();
+  return slug ? slug : null;
 };
 
 const membershipPriority = (role?: string | null) => {
@@ -144,7 +150,24 @@ export const persistSessionUser = (rawUser: SessionUser | null): SessionUser | n
     localStorage.removeItem(STORAGE_ACTIVE_CLUB_KEY);
   }
 
+  const activeSlug = getActiveClubSlug(normalized);
+  if (activeSlug) {
+    localStorage.setItem(STORAGE_LAST_CLUB_SLUG_KEY, activeSlug);
+  }
+
   return normalized;
+};
+
+export const setLastClubSlug = (slug: string | null | undefined) => {
+  if (typeof window === 'undefined') return;
+  const normalized = normalizeClubSlug(slug);
+  if (!normalized) return;
+  localStorage.setItem(STORAGE_LAST_CLUB_SLUG_KEY, normalized);
+};
+
+export const getLastClubSlug = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  return normalizeClubSlug(localStorage.getItem(STORAGE_LAST_CLUB_SLUG_KEY));
 };
 
 export const setActiveClubId = (clubId: number): SessionUser | null => {

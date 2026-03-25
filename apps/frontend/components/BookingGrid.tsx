@@ -257,7 +257,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
             type="button"
             onClick={() => {
               const from = encodeURIComponent(router.asPath || '/');
-              window.location.href = `/login?mode=register&from=${from}`;
+              void router.push(`/login?mode=register&from=${from}`);
             }}
             className="text-[#347048]/60 hover:text-[#347048] text-[10px] font-black uppercase tracking-widest transition-colors hover:underline decoration-2 underline-offset-4"
           >

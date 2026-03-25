@@ -6,6 +6,46 @@ import { getEffectiveActiveClubId, persistSessionUser } from '../utils/session';
 const apiBase = () => `${getApiUrl()}/api`;
 export const AUTH_LOGOUT_EVENT = 'auth:logout';
 export const AUTH_LOGIN_EVENT = 'auth:login';
+const LOGOUT_REDIRECT_STORAGE_KEY = 'auth:logout:pending-redirect';
+const LOGOUT_REDIRECT_TTL_MS = 12000;
+export interface AuthLogoutEventDetail {
+  redirectTo: string | null;
+}
+
+type PendingLogoutRedirect = {
+  target: string;
+  ts: number;
+};
+
+const setPendingLogoutRedirect = (target: string) => {
+  if (typeof window === 'undefined') return;
+  const payload: PendingLogoutRedirect = { target, ts: Date.now() };
+  sessionStorage.setItem(LOGOUT_REDIRECT_STORAGE_KEY, JSON.stringify(payload));
+};
+
+export const clearPendingLogoutRedirect = () => {
+  if (typeof window === 'undefined') return;
+  sessionStorage.removeItem(LOGOUT_REDIRECT_STORAGE_KEY);
+};
+
+export const getPendingLogoutRedirect = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  const raw = sessionStorage.getItem(LOGOUT_REDIRECT_STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as PendingLogoutRedirect;
+    const target = String(parsed?.target || '').trim();
+    const ts = Number(parsed?.ts || 0);
+    if (!target || !Number.isFinite(ts) || Date.now() - ts > LOGOUT_REDIRECT_TTL_MS) {
+      clearPendingLogoutRedirect();
+      return null;
+    }
+    return target;
+  } catch {
+    clearPendingLogoutRedirect();
+    return null;
+  }
+};
 
 export const login = async (email: string, password: string) => {
   const response = await fetch(`${apiBase()}/auth/login`, {
@@ -26,6 +66,7 @@ export const login = async (email: string, password: string) => {
   // Aquí es donde ocurre la magia: Guardamos el token en el navegador
   if (data.token) {
     localStorage.setItem('token', data.token);
+    clearPendingLogoutRedirect();
 
 
     // Opcional: Guardar datos del usuario si el back los devuelve
@@ -84,10 +125,22 @@ export const logout = (options?: { redirectTo?: string | null }) => {
   localStorage.removeItem('user');
   localStorage.removeItem('activeClubId');
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new Event(AUTH_LOGOUT_EVENT));
     const target = String(options?.redirectTo || '').trim();
     if (target) {
-      window.location.href = target;
+      setPendingLogoutRedirect(target);
+    } else {
+      clearPendingLogoutRedirect();
+    }
+    const detail: AuthLogoutEventDetail = { redirectTo: target || null };
+    window.dispatchEvent(new CustomEvent<AuthLogoutEventDetail>(AUTH_LOGOUT_EVENT, { detail }));
+
+    if (target) {
+      window.setTimeout(() => {
+        const currentPath = `${window.location.pathname}${window.location.search}`;
+        if (currentPath !== target) {
+          window.location.assign(target);
+        }
+      }, 180);
     }
   }
 };

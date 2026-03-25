@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import NotFound from '../../components/NotFound';
+import RouteTransitionScreen from '../../components/RouteTransitionScreen';
+import { getPendingLogoutRedirect } from '../../services/AuthService';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
 import { hasAdminAccess } from '../../utils/session';
 
@@ -10,9 +12,14 @@ export default function AdminIndex() {
   const { authChecked, user } = useValidateAuth({ requireAdmin: true });
 
   useEffect(() => {
-    if (!authChecked || !user) return;
+    if (!authChecked) return;
+    if (!user) {
+      if (getPendingLogoutRedirect()) return;
+      void router.replace(`/login?from=${encodeURIComponent(router.asPath || '/admin')}`);
+      return;
+    }
     if (!hasAdminAccess(user)) return;
-    router.replace('/admin/agenda');
+    void router.replace('/admin/agenda');
   }, [authChecked, user, router]);
 
   return (
@@ -21,7 +28,7 @@ export default function AdminIndex() {
         <title>Admin | TuCancha</title>
       </Head>
       {!authChecked || !user
-        ? null
+        ? <RouteTransitionScreen message={authChecked ? 'Redirigiendo al login...' : 'Validando acceso...'} />
         : !hasAdminAccess(user)
           ? <NotFound message="No tenes permiso para acceder al panel de administracion." />
           : null}

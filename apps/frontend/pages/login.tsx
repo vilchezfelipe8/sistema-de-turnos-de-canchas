@@ -67,16 +67,16 @@ export default function LoginPage() {
         const normalizedUser = normalizeSessionUser(data?.user);
         const activeSlug = getActiveClubSlug(normalizedUser);
         if (hasAdminAccess(normalizedUser)) {
-          window.location.href = '/admin/agenda';
+          await router.replace('/admin/agenda');
         } else if (returnTo) {
-          window.location.href = returnTo;
+          await router.replace(returnTo);
         } else if (activeSlug) {
-          window.location.href = `/club/${activeSlug}`;
+          await router.replace(`/club/${activeSlug}`);
         } else if (normalizedUser?.activeClubId || data?.user?.clubId) {
           const club = await ClubService.getClubById(Number(normalizedUser?.activeClubId || data.user.clubId));
-          window.location.href = `/club/${club.slug}`;
+          await router.replace(`/club/${club.slug}`);
         } else {
-          window.location.href = '/';
+          await router.replace('/');
         }
       } else {
         const localPhone = String(phoneNumber || '').replace(/[^\d]/g, '');

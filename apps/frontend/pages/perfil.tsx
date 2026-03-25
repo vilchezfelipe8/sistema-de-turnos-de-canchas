@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import Navbar from '../components/NavBar';
+import RouteTransitionScreen from '../components/RouteTransitionScreen';
+import { getPendingLogoutRedirect } from '../services/AuthService';
 import { useValidateAuth } from '../hooks/useValidateAuth';
 import { updateMyProfile } from '../services/AuthService';
 import { Mail, Phone, IdCard, User, Save } from 'lucide-react';
@@ -32,7 +34,8 @@ export default function PerfilPage() {
   useEffect(() => {
     if (!authChecked) return;
     if (user) return;
-    router.replace('/login?from=%2Fperfil');
+    if (getPendingLogoutRedirect()) return;
+    void router.replace(`/login?from=${encodeURIComponent(router.asPath || '/perfil')}`);
   }, [authChecked, user, router]);
 
   useEffect(() => {
@@ -48,7 +51,7 @@ export default function PerfilPage() {
     });
   }, [user]);
 
-  if (!authChecked || !user) return null;
+  if (!authChecked || !user) return <RouteTransitionScreen message={authChecked ? 'Redirigiendo al login...' : 'Validando sesion...'} />;
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();

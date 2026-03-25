@@ -48,7 +48,11 @@ export function useValidateAuth(options: UseValidateAuthOptions = {}): { authChe
     (async () => {
       try {
         const res = await fetchWithAuth(`${apiBase()}/auth/me`, { method: 'GET' });
-        if (!res.ok) return;
+        if (!res.ok) {
+          setUser(null);
+          setAuthChecked(true);
+          return;
+        }
         const data: AuthUser = await res.json();
         const normalized = persistSessionUser(data as any) as AuthUser | null;
         if (typeof window !== 'undefined') {
@@ -60,6 +64,8 @@ export function useValidateAuth(options: UseValidateAuthOptions = {}): { authChe
         setAuthChecked(true);
       } catch {
         // 401/403: fetchWithAuth hace logout; el redirect al home lo maneja la app
+        setUser(null);
+        setAuthChecked(true);
       }
     })();
   }, [requireAdmin, allowGuest]);

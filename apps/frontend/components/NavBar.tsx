@@ -5,7 +5,7 @@ import { AUTH_LOGIN_EVENT, AUTH_LOGOUT_EVENT, getToken, logout } from '../servic
 import { getMyBookings } from '../services/BookingService';
 import { ClubService } from '../services/ClubService';
 import { NotificationService, NotificationItem } from '../services/NotificationService';
-import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser } from '../utils/session';
+import { getActiveClubSlug, getLastClubSlug, hasAdminAccess, normalizeSessionUser, setLastClubSlug } from '../utils/session';
 import { reportUiError } from '../utils/uiError';
 import AppModal from './AppModal';
 import { Menu, Home, Calendar, Settings, LogOut, Phone, Mail, Check, Lock, MapPin, Bell, User } from 'lucide-react'; 
@@ -224,6 +224,19 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
   const isBookingsView = router.pathname === '/bookings';
   const isProfileView = router.pathname === '/perfil';
   const isAdminView = router.pathname.startsWith('/admin') || router.pathname === '/club/[slug]/admin';
+
+  useEffect(() => {
+    if (router.pathname !== '/club/[slug]') return;
+    const slug = typeof router.query.slug === 'string' ? router.query.slug.trim() : '';
+    if (!slug) return;
+    setLastClubSlug(slug);
+  }, [router.pathname, router.query.slug]);
+
+  const userClubSlug = useMemo(() => {
+    const activeSlug = user ? getActiveClubSlug(user) : null;
+    if (activeSlug) return activeSlug;
+    return getLastClubSlug();
+  }, [user]);
 
   const adminClubSlug = useMemo(() => {
     if (!user || !isAdmin) return null;
@@ -597,16 +610,14 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
         confirmText="Salir"
         isWarning={true}
         onConfirm={() => {
-          const adminLogoutRedirect = isAdminView && effectiveAdminClubSlug
+          const logoutRedirect = isAdminView && effectiveAdminClubSlug
             ? `/club/${effectiveAdminClubSlug}`
-            : null;
+            : isBookingsView && userClubSlug
+              ? `/club/${userClubSlug}`
+              : null;
 
-          logout();
+          logout({ redirectTo: logoutRedirect });
           setShowLogoutModal(false);
-
-          if (adminLogoutRedirect) {
-            void router.push(adminLogoutRedirect);
-          }
         }}
         closeOnBackdrop
         closeOnEscape
