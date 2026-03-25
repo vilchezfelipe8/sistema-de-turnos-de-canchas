@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma';
+import { recordUserClientLinkAuditTx } from './UserClientLinkAudit';
 
 type IncidentStatus = 'OPEN' | 'RESOLVED' | 'DISMISSED';
 type SourceType = 'BOOKING' | 'FIXED_BOOKING' | 'CASH' | 'FAVORITE' | 'ADMIN' | 'UNKNOWN';
@@ -185,6 +186,17 @@ export class ClientDuplicateIncidentService {
       await tx.client.update({
         where: { id: targetClient.id },
         data: { userId: Number(incident.userId) }
+      });
+      await recordUserClientLinkAuditTx(tx, {
+        clubId: Number(input.clubId),
+        userId: Number(incident.userId),
+        clientId: String(targetClient.id),
+        reason: 'MANUAL_ADMIN_LINK',
+        source: 'DUPLICATE_INCIDENT',
+        actorUserId: Number(input.actorUserId),
+        payload: {
+          incidentId: String(incident.id)
+        }
       });
 
       return txAny.clientDuplicateIncident.update({

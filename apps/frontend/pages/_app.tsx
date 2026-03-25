@@ -1,6 +1,6 @@
 import type { AppProps } from 'next/app';
 import Head from 'next/head';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActiveClubProvider } from '../contexts/ActiveClubContext';
 import { AUTH_LOGOUT_EVENT } from '../services/AuthService';
 
@@ -10,9 +10,17 @@ import '../styles/globals.css';
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || '';
 const LOGO_PATH = '/logo1.svg';
 const LOGO_URL = SITE_URL ? `${SITE_URL.replace(/\/+$/,'')}${LOGO_PATH}` : LOGO_PATH;
+export const APP_NOTICE_EVENT = 'app:notice';
+type AppNotice = {
+  id: number;
+  message: string;
+  phase: 'entering' | 'visible' | 'leaving';
+};
 
 export default function MyApp({ Component, pageProps }: AppProps) {
-  const [showLogoutNotice, setShowLogoutNotice] = useState(false);
+  const [notices, setNotices] = useState<AppNotice[]>([]);
+  const noticeIdRef = useRef(1);
+  const noticeTimeoutsRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
 
   useEffect(() => {
     const preventNumberInputWheel = (event: WheelEvent) => {
@@ -30,24 +38,45 @@ export default function MyApp({ Component, pageProps }: AppProps) {
   }, []);
 
   useEffect(() => {
-    let hideTimeout: ReturnType<typeof setTimeout> | null = null;
+    const scheduleTimeout = (fn: () => void, delay: number) => {
+      const timeout = setTimeout(fn, delay);
+      noticeTimeoutsRef.current.push(timeout);
+    };
+
+    const showNotice = (message: string) => {
+      const id = noticeIdRef.current++;
+      setNotices((prev) => [...prev, { id, message, phase: 'entering' }]);
+
+      scheduleTimeout(() => {
+        setNotices((prev) => prev.map((notice) => (notice.id === id ? { ...notice, phase: 'visible' } : notice)));
+      }, 24);
+
+      scheduleTimeout(() => {
+        setNotices((prev) => prev.map((notice) => (notice.id === id ? { ...notice, phase: 'leaving' } : notice)));
+      }, 1400);
+
+      scheduleTimeout(() => {
+        setNotices((prev) => prev.filter((notice) => notice.id !== id));
+      }, 1720);
+    };
 
     const handleLogout = () => {
-      setShowLogoutNotice(true);
-      if (hideTimeout) {
-        clearTimeout(hideTimeout);
-      }
-      hideTimeout = setTimeout(() => {
-        setShowLogoutNotice(false);
-      }, 2600);
+      showNotice('Sesion cerrada correctamente.');
+    };
+    const handleAppNotice = (event: Event) => {
+      const custom = event as CustomEvent<{ message?: string }>;
+      const message = String(custom?.detail?.message || '').trim();
+      if (!message) return;
+      showNotice(message);
     };
 
     window.addEventListener(AUTH_LOGOUT_EVENT, handleLogout);
+    window.addEventListener(APP_NOTICE_EVENT, handleAppNotice as EventListener);
     return () => {
       window.removeEventListener(AUTH_LOGOUT_EVENT, handleLogout);
-      if (hideTimeout) {
-        clearTimeout(hideTimeout);
-      }
+      window.removeEventListener(APP_NOTICE_EVENT, handleAppNotice as EventListener);
+      noticeTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
+      noticeTimeoutsRef.current = [];
     };
   }, []);
 
@@ -85,9 +114,29 @@ export default function MyApp({ Component, pageProps }: AppProps) {
       <ActiveClubProvider>
         <Component {...pageProps} />
       </ActiveClubProvider>
-      {showLogoutNotice && (
-        <div className="fixed bottom-5 left-1/2 z-[100000] -translate-x-1/2 rounded-xl border border-[#347048]/20 bg-[#EBE1D8] px-4 py-3 text-sm font-bold text-[#347048] shadow-xl">
-          Sesion cerrada correctamente.
+      {notices.length > 0 && (
+        <div className="fixed bottom-5 left-1/2 z-[100000] -translate-x-1/2 pointer-events-none">
+          {[...notices].slice(-3).reverse().map((notice, index) => {
+            const depth = Math.min(index, 2);
+            const baseOffsetY = depth * -9;
+            const phaseOffsetY = notice.phase === 'visible' ? 0 : 20;
+            const scale = 1 - depth * 0.025;
+            const opacity = notice.phase === 'visible' ? 1 : 0;
+            return (
+              <div
+                key={notice.id}
+                className="absolute left-1/2 w-max max-w-[92vw] rounded-xl border border-[#347048]/20 bg-[#EBE1D8] px-4 py-3 text-sm font-bold text-[#347048] shadow-xl transition-all duration-300"
+                style={{
+                  bottom: 0,
+                  zIndex: 100 - depth,
+                  opacity,
+                  transform: `translate(-50%, ${baseOffsetY + phaseOffsetY}px) scale(${scale})`
+                }}
+              >
+                {notice.message}
+              </div>
+            );
+          })}
         </div>
       )}
       {/* Portal para react-datepicker - renderiza fuera del stacking context */}
@@ -95,4 +144,3 @@ export default function MyApp({ Component, pageProps }: AppProps) {
     </>
   );
 }
-

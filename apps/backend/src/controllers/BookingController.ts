@@ -164,14 +164,9 @@ export class BookingController {
             const membershipRole = String((req as any).membershipRole || '');
             const isAdmin = userRole === 'ADMIN' || membershipRole === 'OWNER' || membershipRole === 'ADMIN';
             const tokenUserId = userIdFromToken ? Number(userIdFromToken) : null;
-            const effectiveUserId = isAdmin ? null : tokenUserId;
             const now = new Date();
             if (startDate.getTime() < now.getTime()) {
                 return res.status(400).json({ error: "No se pueden reservar turnos en el pasado." });
-            }
-
-            if (!isAdmin && !effectiveUserId) {
-                return res.status(401).json({ error: "Debes iniciar sesión para reservar." });
             }
 
             const courtCountry = await prisma.court.findUnique({
@@ -196,8 +191,12 @@ export class BookingController {
                 }
                 : undefined;
 
-            if (isAdmin && !clientId && !adminClientDraft?.name && !effectiveUserId) {
-                return res.status(400).json({ error: "Para crear la reserva debes seleccionar un cliente o cargar un alta rápida." });
+            const hasAdminClientInput = Boolean(clientId || adminClientDraft?.name);
+            const useAdminClientMode = Boolean(isAdmin && hasAdminClientInput);
+            const effectiveUserId = useAdminClientMode ? null : tokenUserId;
+
+            if (!effectiveUserId) {
+                return res.status(401).json({ error: "Debes iniciar sesión para reservar." });
             }
 
             // 1. CREAR LA RESERVA
@@ -207,12 +206,12 @@ export class BookingController {
                 startDate,
                 Number(activityId),
                 durationMinutes,
-                isAdmin,
+                useAdminClientMode,
                 {
-                    applyDiscount: isAdmin ? applyDiscount : false,
+                    applyDiscount: useAdminClientMode ? applyDiscount : false,
                     actorUserId: Number(user?.userId || 0) || null,
                     clientId: clientId || null,
-                    clientDraft: adminClientDraft?.name ? adminClientDraft : null
+                    clientDraft: useAdminClientMode && adminClientDraft?.name ? adminClientDraft : null
                 }
             );
 

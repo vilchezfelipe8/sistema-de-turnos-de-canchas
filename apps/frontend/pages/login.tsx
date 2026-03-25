@@ -119,7 +119,7 @@ export default function LoginPage() {
       <Head>
         <title>Ingresar | TuCancha</title>
       </Head>
-      <div className="flex min-h-screen items-center justify-center p-4 relative overflow-hidden bg-[#347048]">
+      <div className="flex min-h-screen items-center justify-center p-4 relative overflow-hidden bg-vibrant-brand">
       
       {/* Decoración de Fondo (Estilo Wimbledon) */}
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none opacity-20">

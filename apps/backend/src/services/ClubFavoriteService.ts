@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma';
 import { getPhoneIdentityVariants, normalizeIdentityPhone } from '../utils/phone';
 import { ClientDuplicateIncidentService } from './ClientDuplicateIncidentService';
+import { recordUserClientLinkAuditTx, UserClientLinkReason } from './UserClientLinkAudit';
 
 type LinkStatus =
   | 'already_linked'
@@ -13,82 +14,232 @@ type LinkStatus =
 type LinkResult = {
   status: LinkStatus;
   clientId: string | null;
+  reason?: 'missing_phone' | 'missing_name' | 'insufficient_identity_data';
 };
 
 const normalizeDni = (value: unknown) => String(value || '').replace(/\D/g, '');
 const normalizeEmail = (value: unknown) => String(value || '').trim().toLowerCase();
+const isMissingFavoritesTableError = (error: unknown) =>
+  error instanceof Prisma.PrismaClientKnownRequestError &&
+  error.code === 'P2021' &&
+  String((error.meta as any)?.table || '').includes('ClubFavorite');
+const missingFavoritesTableMessage =
+  'Favoritos no disponibles temporalmente. Faltan migraciones de base de datos.';
 
 export class ClubFavoriteService {
   private readonly duplicateIncidentService = new ClientDuplicateIncidentService();
+  private hasFavoritesDelegate() {
+    return Boolean((prisma as any)?.clubFavorite);
+  }
+  private async listFavoritesRaw(userId: number) {
+    const rows = await prisma.$queryRaw<any[]>`
+      SELECT
+        f."id" AS "favoriteId",
+        f."clubId" AS "clubId",
+        f."userId" AS "userId",
+        f."createdAt" AS "createdAt",
+        c."id" AS "c_id",
+        c."slug" AS "c_slug",
+        c."name" AS "c_name",
+        c."addressLine" AS "c_addressLine",
+        c."city" AS "c_city",
+        c."province" AS "c_province",
+        c."country" AS "c_country",
+        c."contactInfo" AS "c_contactInfo",
+        c."phone" AS "c_phone",
+        c."logoUrl" AS "c_logoUrl",
+        c."clubImageUrl" AS "c_clubImageUrl",
+        c."instagramUrl" AS "c_instagramUrl",
+        c."facebookUrl" AS "c_facebookUrl",
+        c."websiteUrl" AS "c_websiteUrl",
+        c."description" AS "c_description"
+      FROM "ClubFavorite" f
+      INNER JOIN "Club" c ON c."id" = f."clubId"
+      WHERE f."userId" = ${userId}
+      ORDER BY f."createdAt" DESC
+    `;
 
-  async listFavorites(userId: number) {
-    const favorites = await prisma.$transaction(async (tx) => {
-      const txAny = tx as any;
-      return txAny.clubFavorite.findMany({
-        where: { userId },
-        orderBy: { createdAt: 'desc' },
-        include: {
-          club: true
-        }
-      });
-    });
-
-    return favorites.map((favorite: any) => ({
-      id: favorite.id,
-      clubId: Number(favorite.clubId),
-      userId: Number(favorite.userId),
-      createdAt: favorite.createdAt,
-      club: favorite.club
+    return rows.map((row: any) => ({
+      id: String(row.favoriteId),
+      clubId: Number(row.clubId),
+      userId: Number(row.userId),
+      createdAt: row.createdAt,
+      club: {
+        id: Number(row.c_id),
+        slug: String(row.c_slug || ''),
+        name: String(row.c_name || ''),
+        addressLine: String(row.c_addressLine || ''),
+        city: String(row.c_city || ''),
+        province: String(row.c_province || ''),
+        country: String(row.c_country || ''),
+        contactInfo: String(row.c_contactInfo || ''),
+        phone: row.c_phone ?? null,
+        logoUrl: row.c_logoUrl ?? null,
+        clubImageUrl: row.c_clubImageUrl ?? null,
+        instagramUrl: row.c_instagramUrl ?? null,
+        facebookUrl: row.c_facebookUrl ?? null,
+        websiteUrl: row.c_websiteUrl ?? null,
+        description: row.c_description ?? null
+      }
     }));
   }
 
-  async removeFavorite(userId: number, clubId: number) {
-    await prisma.$transaction(async (tx) => {
-      const txAny = tx as any;
-      await txAny.clubFavorite.deleteMany({
-        where: { userId, clubId }
+  private async removeFavoriteRaw(userId: number, clubId: number) {
+    await prisma.$executeRaw`
+      DELETE FROM "ClubFavorite"
+      WHERE "userId" = ${userId} AND "clubId" = ${clubId}
+    `;
+  }
+
+  private async markFavoriteRaw(userId: number, clubId: number) {
+    const clubRows = await prisma.$queryRaw<any[]>`
+      SELECT "id" FROM "Club" WHERE "id" = ${clubId} LIMIT 1
+    `;
+    if (!Array.isArray(clubRows) || clubRows.length === 0) {
+      throw new Error('Club no encontrado');
+    }
+
+    const favoriteId =
+      typeof crypto !== 'undefined' && typeof (crypto as any).randomUUID === 'function'
+        ? String((crypto as any).randomUUID())
+        : `fav_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+    await prisma.$executeRaw`
+      INSERT INTO "ClubFavorite" ("id", "clubId", "userId", "createdAt")
+      VALUES (${favoriteId}, ${clubId}, ${userId}, NOW())
+      ON CONFLICT ("clubId","userId") DO NOTHING
+    `;
+
+    const favoriteRows = await prisma.$queryRaw<any[]>`
+      SELECT "id", "clubId", "userId", "createdAt"
+      FROM "ClubFavorite"
+      WHERE "clubId" = ${clubId} AND "userId" = ${userId}
+      LIMIT 1
+    `;
+    const favorite = favoriteRows?.[0];
+    if (!favorite) {
+      throw new Error('No se pudo marcar favorito');
+    }
+
+    const linkResult = await this.tryLinkUserWithClientTx(prisma as any, userId, clubId);
+    return {
+      favorite: {
+        id: String(favorite.id),
+        clubId: Number(favorite.clubId),
+        userId: Number(favorite.userId),
+        createdAt: favorite.createdAt
+      },
+      linking: linkResult
+    };
+  }
+
+  async listFavorites(userId: number) {
+    try {
+      if (!this.hasFavoritesDelegate()) {
+        return this.listFavoritesRaw(userId);
+      }
+      const favorites = await prisma.$transaction(async (tx) => {
+        const txAny = tx as any;
+        if (!txAny?.clubFavorite?.findMany) return [];
+        return txAny.clubFavorite.findMany({
+          where: { userId },
+          orderBy: { createdAt: 'desc' },
+          include: {
+            club: true
+          }
+        });
       });
-    });
-    return { removed: true };
+
+      return favorites.map((favorite: any) => ({
+        id: favorite.id,
+        clubId: Number(favorite.clubId),
+        userId: Number(favorite.userId),
+        createdAt: favorite.createdAt,
+        club: favorite.club
+      }));
+    } catch (error) {
+      if (isMissingFavoritesTableError(error)) throw new Error(missingFavoritesTableMessage);
+      throw error;
+    }
+  }
+
+  async removeFavorite(userId: number, clubId: number) {
+    try {
+      if (!this.hasFavoritesDelegate()) {
+        await this.removeFavoriteRaw(userId, clubId);
+        return { removed: true };
+      }
+      await prisma.$transaction(async (tx) => {
+        const txAny = tx as any;
+        if (!txAny?.clubFavorite?.deleteMany) return;
+        await txAny.clubFavorite.deleteMany({
+          where: { userId, clubId }
+        });
+      });
+      return { removed: true };
+    } catch (error) {
+      if (isMissingFavoritesTableError(error)) throw new Error(missingFavoritesTableMessage);
+      throw error;
+    }
   }
 
   async markFavorite(userId: number, clubId: number) {
-    return prisma.$transaction(async (tx) => {
-      const txAny = tx as any;
-      const club = await tx.club.findUnique({
-        where: { id: clubId },
-        select: { id: true }
-      });
-      if (!club?.id) {
-        throw new Error('Club no encontrado');
+    try {
+      if (!this.hasFavoritesDelegate()) {
+        return this.markFavoriteRaw(userId, clubId);
+      }
+      return prisma.$transaction(async (tx) => {
+        const txAny = tx as any;
+        const club = await tx.club.findUnique({
+          where: { id: clubId },
+          select: { id: true }
+        });
+        if (!club?.id) {
+          throw new Error('Club no encontrado');
+        }
+
+        if (!txAny?.clubFavorite?.upsert) {
+        return {
+          favorite: {
+            id: `unavailable-${clubId}-${userId}`,
+            clubId,
+            userId,
+            createdAt: new Date()
+          },
+          linking: { status: 'insufficient_data_no_link' as const, clientId: null, reason: 'insufficient_identity_data' as const }
+        };
       }
 
-      const favorite = await txAny.clubFavorite.upsert({
-        where: {
-          clubId_userId: {
+        const favorite = await txAny.clubFavorite.upsert({
+          where: {
+            clubId_userId: {
+              clubId,
+              userId
+            }
+          },
+          update: {},
+          create: {
             clubId,
             userId
           }
-        },
-        update: {},
-        create: {
-          clubId,
-          userId
-        }
+        });
+
+        const linkResult = await this.tryLinkUserWithClientTx(tx as any, userId, clubId);
+
+        return {
+          favorite: {
+            id: favorite.id,
+            clubId: Number(favorite.clubId),
+            userId: Number(favorite.userId),
+            createdAt: favorite.createdAt
+          },
+          linking: linkResult
+        };
       });
-
-      const linkResult = await this.tryLinkUserWithClientTx(tx as any, userId, clubId);
-
-      return {
-        favorite: {
-          id: favorite.id,
-          clubId: Number(favorite.clubId),
-          userId: Number(favorite.userId),
-          createdAt: favorite.createdAt
-        },
-        linking: linkResult
-      };
-    });
+    } catch (error) {
+      if (isMissingFavoritesTableError(error)) throw new Error(missingFavoritesTableMessage);
+      throw error;
+    }
   }
 
   private async tryLinkUserWithClientTx(tx: any, userId: number, clubId: number): Promise<LinkResult> {
@@ -113,6 +264,13 @@ export class ClubFavoriteService {
       select: { id: true }
     });
     if (alreadyLinked?.id) {
+      await recordUserClientLinkAuditTx(tx, {
+        clubId,
+        userId,
+        clientId: alreadyLinked.id,
+        reason: 'ALREADY_LINKED',
+        source: 'FAVORITE'
+      });
       return { status: 'already_linked', clientId: alreadyLinked.id };
     }
 
@@ -166,11 +324,37 @@ export class ClubFavoriteService {
       const clientId = Array.from(candidateIds)[0];
       const target = await tx.client.findUnique({
         where: { id: clientId },
-        select: { id: true, userId: true }
+        select: { id: true, userId: true, dni: true, phone: true, email: true }
       });
 
       if (!target?.id) {
-        return { status: 'insufficient_data_no_link', clientId: null };
+        return { status: 'insufficient_data_no_link', clientId: null, reason: 'insufficient_identity_data' };
+      }
+      const mismatchSignals: string[] = [];
+      const targetDni = normalizeDni(target.dni);
+      const targetPhone = normalizeIdentityPhone(target.phone);
+      const targetEmail = normalizeEmail(target.email);
+      if (normalizedDni.length >= 6 && targetDni && normalizedDni !== targetDni) mismatchSignals.push('DNI');
+      if (normalizedPhone && targetPhone) {
+        const inputVariants = new Set(getPhoneIdentityVariants(normalizedPhone));
+        const samePhone = getPhoneIdentityVariants(targetPhone).some((value) => inputVariants.has(value));
+        if (!samePhone) mismatchSignals.push('PHONE');
+      }
+      if (normalizedEmail.length > 3 && targetEmail.length > 3 && normalizedEmail !== targetEmail) mismatchSignals.push('EMAIL');
+      if (mismatchSignals.length > 0) {
+        await this.registerDuplicateIncidentSafeTx(tx, {
+          clubId,
+          userId,
+          reasonType: 'LINKING_CONFLICT',
+          candidateClientIds: [target.id],
+          primaryClientId: target.id,
+          payload: {
+            source: 'favorite_linking',
+            reason: 'identity_signal_mismatch',
+            mismatchSignals
+          }
+        });
+        return { status: 'duplicate_detected_no_link', clientId: null };
       }
       if (target.userId && Number(target.userId) !== Number(userId)) {
         await this.registerDuplicateIncidentSafeTx(tx, {
@@ -191,12 +375,28 @@ export class ClubFavoriteService {
         where: { id: target.id },
         data: { userId }
       });
+      let reason: UserClientLinkReason = 'EXACT_PHONE_MATCH';
+      if (normalizedDni.length >= 6 && targetDni && normalizedDni === targetDni) reason = 'EXACT_DNI_MATCH';
+      else if (normalizedEmail.length > 3 && targetEmail.length > 3 && normalizedEmail === targetEmail) reason = 'EXACT_EMAIL_MATCH';
+      await recordUserClientLinkAuditTx(tx, {
+        clubId,
+        userId,
+        clientId: target.id,
+        reason,
+        source: 'FAVORITE'
+      });
       return { status: 'linked_existing_client', clientId: target.id };
     }
 
     const clientName = `${String(user.firstName || '').trim()} ${String(user.lastName || '').trim()}`.trim();
     if (clientName.length < 2 || !normalizedPhone) {
-      return { status: 'insufficient_data_no_link', clientId: null };
+      if (!normalizedPhone) {
+        return { status: 'insufficient_data_no_link', clientId: null, reason: 'missing_phone' };
+      }
+      if (clientName.length < 2) {
+        return { status: 'insufficient_data_no_link', clientId: null, reason: 'missing_name' };
+      }
+      return { status: 'insufficient_data_no_link', clientId: null, reason: 'insufficient_identity_data' };
     }
 
     try {
@@ -210,6 +410,13 @@ export class ClubFavoriteService {
           ...(normalizedEmail.length > 3 ? { email: normalizedEmail } : {})
         },
         select: { id: true }
+      });
+      await recordUserClientLinkAuditTx(tx, {
+        clubId,
+        userId,
+        clientId: createdClient.id,
+        reason: 'CREATED_CLIENT',
+        source: 'FAVORITE'
       });
       return { status: 'created_client', clientId: createdClient.id };
     } catch (error: any) {

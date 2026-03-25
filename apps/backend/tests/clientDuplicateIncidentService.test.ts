@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import { ClientDuplicateIncidentService } from '../src/services/ClientDuplicateIncidentService';
 import { prisma } from '../src/prisma';
 
-function withMockedPrisma(run: (state: { incidents: any[]; clients: any[] }) => Promise<void>) {
+function withMockedPrisma(run: (state: { incidents: any[]; clients: any[]; auditLogs: any[] }) => Promise<void>) {
   const original = {
     transaction: (prisma as any).$transaction,
     incident: (prisma as any).clientDuplicateIncident,
-    client: (prisma as any).client
+    client: (prisma as any).client,
+    auditLog: (prisma as any).auditLog
   };
 
   const incidents: any[] = [];
@@ -15,6 +16,7 @@ function withMockedPrisma(run: (state: { incidents: any[]; clients: any[] }) => 
     { id: 'c-1', clubId: 10, userId: null, name: 'Cliente 1', phone: '+5493511111111', email: 'c1@example.com', dni: '30111222', isProfessor: false },
     { id: 'c-2', clubId: 10, userId: null, name: 'Cliente 2', phone: '+5493512222222', email: 'c2@example.com', dni: '30222333', isProfessor: false }
   ];
+  const auditLogs: any[] = [];
 
   const incidentRepo = {
     findFirst: async ({ where }: any) =>
@@ -64,15 +66,24 @@ function withMockedPrisma(run: (state: { incidents: any[]; clients: any[] }) => 
 
   (prisma as any).clientDuplicateIncident = incidentRepo;
   (prisma as any).client = clientRepo;
+  (prisma as any).auditLog = {
+    create: async ({ data }: any) => {
+      const created = { id: `audit-${auditLogs.length + 1}`, ...data, createdAt: new Date() };
+      auditLogs.push(created);
+      return created;
+    }
+  };
   (prisma as any).$transaction = async (fn: any) => fn({
     clientDuplicateIncident: incidentRepo,
-    client: clientRepo
+    client: clientRepo,
+    auditLog: (prisma as any).auditLog
   });
 
-  return run({ incidents, clients }).finally(() => {
+  return run({ incidents, clients, auditLogs }).finally(() => {
     (prisma as any).$transaction = original.transaction;
     (prisma as any).clientDuplicateIncident = original.incident;
     (prisma as any).client = original.client;
+    (prisma as any).auditLog = original.auditLog;
   });
 }
 
@@ -105,7 +116,7 @@ test('createOrReuseIncident no duplica incidentes abiertos iguales', async () =>
 test('resolveByLinkingUser vincula user al client y marca RESOLVED', async () => {
   const service = new ClientDuplicateIncidentService();
 
-  await withMockedPrisma(async ({ incidents, clients }) => {
+  await withMockedPrisma(async ({ incidents, clients, auditLogs }) => {
     incidents.push({
       id: 'inc-1',
       clubId: 10,
@@ -129,6 +140,7 @@ test('resolveByLinkingUser vincula user al client y marca RESOLVED', async () =>
     assert.equal(resolved.status, 'RESOLVED');
     assert.equal(resolved.resolvedClientId, 'c-2');
     assert.equal(clients.find((item) => item.id === 'c-2')?.userId, 77);
+    assert.equal(auditLogs.some((row) => row.payload?.reason === 'MANUAL_ADMIN_LINK'), true);
   });
 });
 

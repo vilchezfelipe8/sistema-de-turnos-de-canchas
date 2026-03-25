@@ -133,15 +133,27 @@ export class ClubService {
 
   static async getMyFavorites(): Promise<ClubFavorite[]> {
     if (!getToken()) return [];
-    const response = await fetchWithAuth(`${apiBase()}/clubs/favorites/me`, {
-      method: 'GET'
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error || 'Error al obtener favoritos');
+    try {
+      const response = await fetchWithAuth(`${apiBase()}/clubs/favorites/me`, {
+        method: 'GET'
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || 'Error al obtener favoritos');
+      }
+      const payload = await response.json();
+      return Array.isArray(payload?.favorites) ? payload.favorites : [];
+    } catch (error: any) {
+      const message = String(error?.message || '').toLowerCase();
+      if (
+        message.includes('findmany') ||
+        message.includes('clubfavorite') ||
+        message.includes('error al obtener favoritos')
+      ) {
+        return [];
+      }
+      throw error;
     }
-    const payload = await response.json();
-    return Array.isArray(payload?.favorites) ? payload.favorites : [];
   }
 
   static async markFavorite(clubId: number): Promise<{

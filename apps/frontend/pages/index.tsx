@@ -16,6 +16,18 @@ import { FaTableTennis } from "react-icons/fa"; // Paleta (Perfecta para Pádel)
 import { IoFootballOutline } from "react-icons/io5"; // Pelota de fútbol limpia
 import { IoTennisballOutline } from "react-icons/io5"; // Pelota de tenis limpia
 
+const countActiveBookings = (rows: any[]): number => {
+  const now = Date.now();
+  return rows.filter((booking: any) => {
+    const status = String(booking?.status || '').toUpperCase();
+    if (status === 'CANCELLED' || status === 'COMPLETED') return false;
+    const endValue = booking?.endDateTime || booking?.startDateTime;
+    const endTs = new Date(endValue).getTime();
+    if (!Number.isFinite(endTs)) return true;
+    return endTs >= now;
+  }).length;
+};
+
 // ReactDOM portal removed: menu will be rendered inside the sidebar to keep positioning stable under zoom
 
 // --- COMPONENTE DE ANIMACIÓN AL SCROLLEAR ---
@@ -361,9 +373,7 @@ export default function Home() {
       }
       try {
         const bookings = await getMyBookings(user.id);
-        const active = Array.isArray(bookings)
-          ? bookings.filter((booking: any) => !['CANCELLED', 'COMPLETED'].includes(booking.status)).length
-          : 0;
+        const active = Array.isArray(bookings) ? countActiveBookings(bookings) : 0;
         setActiveBookingsCount(active);
       } catch (error) {
         reportUiError({ area: 'HomePage', action: 'loadActiveBookings' }, error);
@@ -396,12 +406,18 @@ export default function Home() {
     void loadFavorites();
   }, [user?.id]);
 
-  const resolveLinkingMessage = (status: string) => {
+  const resolveLinkingMessage = (linking: { status?: string; reason?: string } | null | undefined) => {
+    const status = String(linking?.status || '');
     if (status === 'linked_existing_client') return 'Favorito guardado y cliente vinculado.';
     if (status === 'created_client') return 'Favorito guardado y cliente creado.';
     if (status === 'already_linked') return 'Favorito guardado. Ya estabas vinculado en este club.';
     if (status === 'duplicate_detected_no_link') return 'Favorito guardado. Detectamos posible duplicado y no vinculamos automáticamente.';
-    if (status === 'insufficient_data_no_link') return 'Favorito guardado. No hubo datos suficientes para vincular cliente.';
+    if (status === 'insufficient_data_no_link') {
+      const reason = String(linking?.reason || '');
+      if (reason === 'missing_phone') return 'Favorito guardado. No se pudo vincular cliente: falta teléfono.';
+      if (reason === 'missing_name') return 'Favorito guardado. No se pudo vincular cliente: falta nombre.';
+      return 'Favorito guardado. No se pudo vincular cliente: faltan datos de identidad.';
+    }
     return null;
   };
 
@@ -440,7 +456,7 @@ export default function Home() {
           const exists = prev.some((item) => Number(item.id) === clubId);
           return exists ? prev : [club, ...prev];
         });
-        setFavoriteFeedback(resolveLinkingMessage(String(result?.linking?.status || '')) || 'Favorito guardado.');
+        setFavoriteFeedback(resolveLinkingMessage(result?.linking) || 'Favorito guardado.');
       }
     } catch (error) {
       reportUiError({ area: 'HomePage', action: 'toggleFavorite' }, error);
@@ -765,14 +781,14 @@ export default function Home() {
       <Head>
         <title>Inicio | TuCancha</title>
       </Head>
-      <div className="min-h-screen relative overflow-x-hidden bg-[#347048] text-[#D4C5B0] selection:bg-[#B9CF32] selection:text-[#347048]" onClick={() => {
+      <div className="min-h-screen relative overflow-x-hidden bg-vibrant-brand text-[#D4C5B0] selection:bg-[#B9CF32] selection:text-[#347048]" onClick={() => {
         setShowCityDropdown(false);
         setShowSportDropdown(false);
         setShowUserMenu(false);
       }}>
       
       {/* NAVBAR */}
-      <nav className="absolute top-0 left-0 right-0 z-50 px-6 py-6 flex justify-between items-center max-w-7xl mx-auto">
+      <nav className="absolute top-0 left-0 right-0 z-50 px-6 py-4 flex justify-between items-center max-w-7xl mx-auto">
         <div className="flex items-center gap-2">
             <span className="text-2xl font-black tracking-tighter text-[#D4C5B0] italic opacity-90 hover:opacity-100 transition-opacity cursor-pointer">
                 TuCancha
@@ -784,18 +800,6 @@ export default function Home() {
             </button>
             {user ? (
               <>
-                {!isAdmin && (
-                  <div className="hidden sm:flex items-center gap-1 p-1 rounded-full bg-[#EBE1D8]/10">
-                    <Link
-                      href="/bookings"
-                      className="flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest transition-all border-2 bg-[#EBE1D8] text-[#347048] border-[#EBE1D8]"
-                      onClick={() => setShowUserMenu(false)}
-                    >
-                      <Calendar size={16} strokeWidth={2.5} />
-                      Mis Turnos
-                    </Link>
-                  </div>
-                )}
                 <div className="relative">
                   <button
                     onClick={(e) => {
@@ -863,12 +867,28 @@ export default function Home() {
                             <MapPin size={18} strokeWidth={2.5} /> Mi club
                           </Link>
                         )}
+                        {router.pathname !== '/perfil' && (
+                          <Link
+                            href="/perfil"
+                            className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
+                            onClick={() => setShowUserMenu(false)}
+                          >
+                            <Users size={18} strokeWidth={2.5} /> Mi Perfil
+                          </Link>
+                        )}
                         <Link
                           href="/bookings"
-                          className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
+                          className="flex items-center justify-between gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
                           onClick={() => setShowUserMenu(false)}
                         >
-                          <Calendar size={18} strokeWidth={2.5} /> Mis Reservas
+                          <span className="flex items-center gap-3">
+                            <Calendar size={18} strokeWidth={2.5} /> Mis Reservas
+                          </span>
+                          {activeBookingsCount > 0 ? (
+                            <span className="inline-flex items-center justify-center min-w-[22px] h-6 px-2 rounded-full bg-[#926699] text-white text-[10px] font-black">
+                              {activeBookingsCount}
+                            </span>
+                          ) : null}
                         </Link>
                         <button
                           type="button"
@@ -1211,13 +1231,21 @@ export default function Home() {
                       type="button"
                       onClick={(event) => handleToggleFavorite(event, club)}
                       disabled={Boolean(favoriteBusyByClub[Number(club.id)])}
-                      className="absolute top-3 right-3 z-20 bg-white/85 hover:bg-white rounded-xl p-2 border border-[#347048]/15 disabled:opacity-60"
+                      className={`group/fav absolute top-3 right-3 z-20 rounded-xl p-2 border transition-all duration-200 shadow-md disabled:opacity-60 ${
+                        favoriteClubIds.has(Number(club.id))
+                          ? 'bg-[#347048] border-[#B9CF32] shadow-[#347048]/40 hover:bg-[#2d5f3d] hover:scale-105'
+                          : 'bg-white/90 border-[#347048]/20 hover:bg-[#347048] hover:border-[#B9CF32] hover:shadow-[#347048]/40 hover:scale-105'
+                      }`}
                       aria-label={favoriteClubIds.has(Number(club.id)) ? 'Quitar de favoritos' : 'Guardar en favoritos'}
                       title={favoriteClubIds.has(Number(club.id)) ? 'Quitar de favoritos' : 'Guardar en favoritos'}
                     >
                       <Heart
                         size={16}
-                        className={favoriteClubIds.has(Number(club.id)) ? 'text-[#B9CF32] fill-[#B9CF32]' : 'text-[#347048]/70'}
+                        className={
+                          favoriteClubIds.has(Number(club.id))
+                            ? 'text-[#B9CF32] fill-[#B9CF32] drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)] transition-all duration-200 group-hover/fav:scale-110'
+                            : 'text-[#347048]/80 transition-all duration-200 group-hover/fav:text-[#B9CF32] group-hover/fav:fill-[#B9CF32] group-hover/fav:scale-110'
+                        }
                       />
                     </button>
                     {club.clubImageUrl ? (

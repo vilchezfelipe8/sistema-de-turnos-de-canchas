@@ -225,4 +225,92 @@ export class AuthController {
             res.status(500).json({ error: error.message });
         }
     };
+
+    /** PATCH /me: actualiza datos básicos del perfil autenticado. */
+    updateMe = async (req: Request, res: Response) => {
+        const payload = (req as any).user;
+        if (!payload?.userId) {
+            return res.status(401).json({ error: 'No autorizado' });
+        }
+
+        const updateSchema = z.object({
+            firstName: z.string().trim().min(1, 'El nombre es obligatorio'),
+            lastName: z.string().trim().min(1, 'El apellido es obligatorio'),
+            phoneNumber: z.string().trim().optional(),
+            phoneCountryCode: z.string().trim().optional(),
+            phoneNumberLocal: z.string().trim().optional(),
+            dni: z.string().trim().optional().nullable()
+        }).superRefine((value, ctx) => {
+            const hasFullPhone = String(value.phoneNumber || '').trim().length > 0;
+            const hasLocal = String(value.phoneNumberLocal || '').trim().length > 0;
+            if (!hasFullPhone && !hasLocal) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: ['phoneNumber'],
+                    message: 'Debes ingresar un teléfono'
+                });
+            }
+        });
+
+        const parsed = updateSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: parsed.error.format() });
+        }
+
+        const { firstName, lastName, phoneNumber, phoneCountryCode, phoneNumberLocal, dni } = parsed.data;
+        const normalizedPhoneNumber = normalizeIdentityPhone({
+            phone: phoneNumber,
+            countryCode: phoneCountryCode,
+            phoneNumberLocal
+        });
+        if (!normalizedPhoneNumber) {
+            return res.status(400).json({ error: 'Número de teléfono inválido' });
+        }
+
+        const sanitizedDni = String(dni ?? '').trim();
+        if (sanitizedDni && sanitizedDni.length < 7) {
+            return res.status(400).json({ error: 'Si cargás DNI, debe tener al menos 7 dígitos' });
+        }
+
+        try {
+            const user = await prisma.user.update({
+                where: { id: payload.userId },
+                data: {
+                    firstName,
+                    lastName,
+                    phoneNumber: normalizedPhoneNumber,
+                    dni: sanitizedDni || null
+                },
+                select: { id: true, firstName: true, lastName: true, email: true, phoneNumber: true, role: true, dni: true }
+            });
+
+            const memberships = await getMembershipsForUser(user.id);
+            let preferredClubId: number | undefined;
+            try {
+                preferredClubId = getPreferredClubIdFromRequest(req);
+            } catch (error: any) {
+                return res.status(400).json({ error: error?.message || 'Contexto de club inválido' });
+            }
+            const activeMembership = await resolveActiveMembership(user.id, preferredClubId);
+            const clubId = activeMembership?.clubId ?? null;
+            const club = activeMembership?.club ?? null;
+
+            return res.json({
+                id: user.id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                phoneNumber: user.phoneNumber,
+                role: user.role,
+                clubId,
+                memberships,
+                activeClubId: clubId,
+                activeMembership,
+                dni: user.dni,
+                club
+            });
+        } catch (error: any) {
+            return res.status(500).json({ error: error.message || 'No se pudo actualizar el perfil' });
+        }
+    };
 }

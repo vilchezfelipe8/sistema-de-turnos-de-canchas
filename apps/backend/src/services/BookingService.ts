@@ -29,6 +29,7 @@ import { RefundService } from './RefundService';
 import { DiscountService } from './DiscountService';
 import { generateDisplayCode } from '../utils/displayCode';
 import { getPhoneIdentityVariants, normalizeIdentityPhone, toDialablePhoneNumber } from '../utils/phone';
+import { recordUserClientLinkAuditTx, UserClientLinkReason } from './UserClientLinkAudit';
 
 type CancelBookingReason = 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED';
 type CancelBookingOptions = {
@@ -819,6 +820,33 @@ export class BookingService {
         const safeDni = this.normalizeDni(input.dni);
         const safeEmail = String(input.email ?? '').trim().toLowerCase();
         const safeUserId = Number.isInteger(Number(input.userId)) && Number(input.userId) > 0 ? Number(input.userId) : null;
+        const findMatchingSignal = (client: any): UserClientLinkReason => {
+            const clientDni = this.normalizeDni(client?.dni);
+            const clientPhone = this.normalizePhone(client?.phone);
+            const clientEmail = String(client?.email || '').trim().toLowerCase();
+            if (safeDni && clientDni && safeDni === clientDni) return 'EXACT_DNI_MATCH';
+            if (safePhone && clientPhone) {
+                const inputVariants = new Set(getPhoneIdentityVariants(safePhone));
+                const clientVariants = getPhoneIdentityVariants(clientPhone);
+                if (clientVariants.some((value) => inputVariants.has(value))) return 'EXACT_PHONE_MATCH';
+            }
+            if (safeEmail && clientEmail && safeEmail === clientEmail) return 'EXACT_EMAIL_MATCH';
+            return 'ALREADY_LINKED';
+        };
+        const collectMismatchSignals = (client: any): string[] => {
+            const mismatches: string[] = [];
+            const clientDni = this.normalizeDni(client?.dni);
+            const clientPhone = this.normalizePhone(client?.phone);
+            const clientEmail = String(client?.email || '').trim().toLowerCase();
+            if (safeDni && clientDni && safeDni !== clientDni) mismatches.push('DNI');
+            if (safePhone && clientPhone) {
+                const inputVariants = new Set(getPhoneIdentityVariants(safePhone));
+                const hasPhoneMatch = getPhoneIdentityVariants(clientPhone).some((value) => inputVariants.has(value));
+                if (!hasPhoneMatch) mismatches.push('PHONE');
+            }
+            if (safeEmail && clientEmail && safeEmail !== clientEmail) mismatches.push('EMAIL');
+            return mismatches;
+        };
 
         if (safeUserId) {
             const existingByUser = await tx.client.findFirst({
@@ -829,16 +857,14 @@ export class BookingService {
             });
 
             if (existingByUser) {
-                return tx.client.update({
-                    where: { id: existingByUser.id },
-                    data: {
-                        name: safeName,
-                        phone: safePhone || existingByUser.phone || null,
-                        email: safeEmail || existingByUser.email || null,
-                        dni: safeDni || existingByUser.dni || null,
-                        userId: safeUserId
-                    }
+                await recordUserClientLinkAuditTx(tx, {
+                    clubId: input.clubId,
+                    userId: safeUserId,
+                    clientId: String(existingByUser.id),
+                    reason: 'ALREADY_LINKED',
+                    source: 'BOOKING'
                 });
+                return existingByUser;
             }
         }
 
@@ -905,23 +931,63 @@ export class BookingService {
             : null;
 
         if (existingByIdentity) {
-            return tx.client.update({
-                where: { id: existingByIdentity.id },
-                data: {
-                    name: safeName,
-                    phone: safePhone || existingByIdentity.phone || null,
-                    email: safeEmail || existingByIdentity.email || null,
-                    dni: safeDni || existingByIdentity.dni || null,
-                    userId: safeUserId || existingByIdentity.userId || null
-                }
-            });
+            const mismatchSignals = collectMismatchSignals(existingByIdentity);
+            if (mismatchSignals.length > 0) {
+                const conflictError: any = new Error('CLIENT_POSSIBLE_DUPLICATE');
+                conflictError.code = 'CLIENT_POSSIBLE_DUPLICATE';
+                conflictError.details = {
+                    clubId: input.clubId,
+                    userId: safeUserId,
+                    candidateClientIds: [existingByIdentity.id],
+                    reasonType: 'LINKING_CONFLICT',
+                    mismatchSignals,
+                    signals: {
+                        dni: safeDni || null,
+                        phone: safePhone || null,
+                        email: safeEmail || null
+                    }
+                };
+                throw conflictError;
+            }
+            if (safeUserId && existingByIdentity.userId && Number(existingByIdentity.userId) !== safeUserId) {
+                const conflictError: any = new Error('CLIENT_POSSIBLE_DUPLICATE');
+                conflictError.code = 'CLIENT_POSSIBLE_DUPLICATE';
+                conflictError.details = {
+                    clubId: input.clubId,
+                    userId: safeUserId,
+                    candidateClientIds: [existingByIdentity.id],
+                    reasonType: 'LINKING_CONFLICT',
+                    signals: {
+                        dni: safeDni || null,
+                        phone: safePhone || null,
+                        email: safeEmail || null
+                    },
+                    linkedToOtherUserId: Number(existingByIdentity.userId)
+                };
+                throw conflictError;
+            }
+            if (safeUserId && !existingByIdentity.userId) {
+                const updated = await tx.client.update({
+                    where: { id: existingByIdentity.id },
+                    data: { userId: safeUserId }
+                });
+                await recordUserClientLinkAuditTx(tx, {
+                    clubId: input.clubId,
+                    userId: safeUserId,
+                    clientId: String(updated.id),
+                    reason: findMatchingSignal(existingByIdentity),
+                    source: 'BOOKING'
+                });
+                return updated;
+            }
+            return existingByIdentity;
         }
 
         if (!safePhone) {
             throw new Error('El teléfono es obligatorio para crear un nuevo cliente.');
         }
 
-        return tx.client.create({
+        const created = await tx.client.create({
             data: {
                 clubId: input.clubId,
                 name: safeName,
@@ -931,6 +997,16 @@ export class BookingService {
                 userId: safeUserId
             }
         });
+        if (safeUserId) {
+            await recordUserClientLinkAuditTx(tx, {
+                clubId: input.clubId,
+                userId: safeUserId,
+                clientId: String(created.id),
+                reason: 'CREATED_CLIENT',
+                source: 'BOOKING'
+            });
+        }
+        return created;
     }
 
     private formatBookingDateTime(date: Date, timeZone: string) {

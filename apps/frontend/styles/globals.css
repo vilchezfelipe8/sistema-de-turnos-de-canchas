@@ -52,6 +52,16 @@
   .club-times-scrollbar::-webkit-scrollbar-thumb:hover {
     background-color: rgba(52, 112, 72, 0.35);
   }
+
+  .bg-vibrant-brand {
+    background-color: #347048;
+    background-image:
+      radial-gradient(circle at 12% 18%, rgba(185, 207, 50, 0.18), transparent 42%),
+      radial-gradient(circle at 88% 22%, rgba(146, 102, 153, 0.16), transparent 44%),
+      radial-gradient(circle at 35% 82%, rgba(185, 207, 50, 0.1), transparent 38%),
+      linear-gradient(165deg, #2d6240 0%, #347048 48%, #2a5c3b 100%);
+    background-attachment: fixed;
+  }
 }
 
 /* Paleta B/N global */

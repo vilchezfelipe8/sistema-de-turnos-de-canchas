@@ -21,7 +21,8 @@ import {
   Share2,
   Trophy,
   Star,
-  Check // 👉 Agregamos Check y sacamos Heart
+  Check,
+  Heart
 } from 'lucide-react';
 
 const formatClubAddress = (club: Club) => {
@@ -46,6 +47,9 @@ export default function ClubPage() {
   const [reviewCtaLoading, setReviewCtaLoading] = useState(false);
   const [canReviewClub, setCanReviewClub] = useState(false);
   const [hasExistingClubReview, setHasExistingClubReview] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [favoriteBusy, setFavoriteBusy] = useState(false);
+  const [favoriteFeedback, setFavoriteFeedback] = useState<string | null>(null);
   
   // 👉 1. Estado para el botón de compartir
   const [isCopied, setIsCopied] = useState(false);
@@ -151,6 +155,70 @@ export default function ClubPage() {
     }
   };
 
+  useEffect(() => {
+    const loadFavoriteState = async () => {
+      if (!authChecked || !user?.id || !club?.id) {
+        setIsFavorite(false);
+        return;
+      }
+      try {
+        const favorites = await ClubService.getMyFavorites();
+        const clubId = Number(club.id);
+        setIsFavorite(
+          Array.isArray(favorites) && favorites.some((item: any) => Number(item?.clubId) === clubId)
+        );
+      } catch {
+        setIsFavorite(false);
+      }
+    };
+    void loadFavoriteState();
+  }, [authChecked, user?.id, club?.id]);
+
+  const resolveLinkingMessage = (linking: { status?: string; reason?: string } | null | undefined) => {
+    const status = String(linking?.status || '');
+    if (status === 'linked_existing_client') return 'Favorito guardado y cliente vinculado.';
+    if (status === 'created_client') return 'Favorito guardado y cliente creado.';
+    if (status === 'already_linked') return 'Favorito guardado. Ya estabas vinculado en este club.';
+    if (status === 'duplicate_detected_no_link') return 'Favorito guardado. Detectamos posible duplicado y no vinculamos automáticamente.';
+    if (status === 'insufficient_data_no_link') {
+      const reason = String(linking?.reason || '');
+      if (reason === 'missing_phone') return 'Favorito guardado. No se pudo vincular cliente: falta teléfono.';
+      if (reason === 'missing_name') return 'Favorito guardado. No se pudo vincular cliente: falta nombre.';
+      return 'Favorito guardado. No se pudo vincular cliente: faltan datos de identidad.';
+    }
+    return 'Favorito guardado.';
+  };
+
+  const handleToggleFavorite = async () => {
+    if (!club?.id || favoriteBusy) return;
+    if (!user?.id) {
+      setFavoriteFeedback('Iniciá sesión para guardar favoritos.');
+      return;
+    }
+
+    const clubId = Number(club.id);
+    if (!Number.isFinite(clubId) || clubId <= 0) return;
+
+    setFavoriteBusy(true);
+    setFavoriteFeedback(null);
+    try {
+      if (isFavorite) {
+        await ClubService.unmarkFavorite(clubId);
+        setIsFavorite(false);
+        setFavoriteFeedback('Favorito eliminado.');
+      } else {
+        const result = await ClubService.markFavorite(clubId);
+        setIsFavorite(true);
+        setFavoriteFeedback(resolveLinkingMessage(result?.linking));
+      }
+    } catch (error) {
+      reportUiError({ area: 'ClubPage', action: 'toggleFavorite' }, error);
+      setFavoriteFeedback('No se pudo actualizar favorito.');
+    } finally {
+      setFavoriteBusy(false);
+    }
+  };
+
   const slugReady = router.isReady && slug && typeof slug === 'string';
   const stillLoading = !slugReady || loadingClub;
   const pageTitle = club?.name ? `${club.name} | TuCancha` : 'TuCancha';
@@ -161,7 +229,7 @@ export default function ClubPage() {
         <Head>
           <title>{pageTitle}</title>
         </Head>
-        <main className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center p-4 bg-[#347048] text-[#D4C5B0]">
+        <main className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center p-4 bg-vibrant-brand text-[#D4C5B0]">
           <div className="flex flex-col items-center gap-4">
             <div className="h-10 w-10 rounded-full border-2 border-emerald-500/40 border-t-emerald-400 animate-spin" />
             <p className="text-[#D4C5B0]/80 text-sm">Cargando club...</p>
@@ -177,7 +245,7 @@ export default function ClubPage() {
         <Head>
           <title>{pageTitle}</title>
         </Head>
-        <main className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center p-4 bg-[#347048] text-[#D4C5B0]">
+        <main className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center p-4 bg-vibrant-brand text-[#D4C5B0]">
           <div className="text-center">
             <h1 className="text-2xl font-bold text-[#D4C5B0] mb-4">Club no encontrado</h1>
             <p className="text-[#D4C5B0]/80 mb-4">{error || 'El club solicitado no existe'}</p>
@@ -198,7 +266,7 @@ export default function ClubPage() {
       <Head>
         <title>{pageTitle}</title>
       </Head>
-      <main className="min-h-screen relative bg-[#347048] text-[#D4C5B0]">
+      <main className="min-h-screen relative bg-vibrant-brand text-[#D4C5B0]">
 
       {/* Contenido (Z-10 para que esté sobre el fondo) */}
       <div className="absolute top-0 left-0 w-full z-50"> 
@@ -292,6 +360,26 @@ export default function ClubPage() {
 
               {/* 👉 3. BOTONES DE ACCIÓN (Corregidos) */}
               <div className="flex gap-3 shrink-0 relative">
+                <button
+                  onClick={handleToggleFavorite}
+                  disabled={favoriteBusy}
+                  className={`group/fav relative h-12 w-12 rounded-2xl border-2 flex items-center justify-center transition-all backdrop-blur-md shadow-md disabled:opacity-60 ${
+                    isFavorite
+                      ? 'bg-[#347048] text-[#B9CF32] border-[#B9CF32] hover:bg-[#2d5f3d]'
+                      : 'border-[#EBE1D8]/35 text-[#EBE1D8] bg-[#347048]/55 hover:bg-[#347048] hover:text-[#B9CF32] hover:border-[#B9CF32]'
+                  }`}
+                  title={isFavorite ? 'Quitar de favoritos' : 'Guardar en favoritos'}
+                  aria-label={isFavorite ? 'Quitar de favoritos' : 'Guardar en favoritos'}
+                >
+                  <Heart
+                    size={22}
+                    className={
+                      isFavorite
+                        ? 'fill-[#B9CF32] text-[#B9CF32] transition-all duration-200 group-hover/fav:scale-110'
+                        : 'transition-all duration-200 group-hover/fav:text-[#B9CF32] group-hover/fav:fill-[#B9CF32] group-hover/fav:scale-110'
+                    }
+                  />
+                </button>
                 <button 
                   onClick={handleShare}
                   className={`relative h-12 w-12 rounded-2xl border-2 flex items-center justify-center transition-all backdrop-blur-md ${
@@ -313,6 +401,13 @@ export default function ClubPage() {
               </div>
 
             </div> {/* Cierre Contenido */}
+            {favoriteFeedback ? (
+              <div className="relative z-10 px-8 md:px-10 pb-6">
+                <div className="inline-flex rounded-xl bg-black/30 border border-white/20 px-3 py-2 text-xs font-bold text-[#EBE1D8]">
+                  {favoriteFeedback}
+                </div>
+              </div>
+            ) : null}
           </div> {/* Cierre Tarjeta principal */}
         </header>
 
@@ -423,7 +518,7 @@ export default function ClubPage() {
         {/* FOOTER */}
         <footer className="mt-16 mb-8 text-center border-t border-white/10 pt-8">
           <p className="text-xs text-[#D4C5B0]/70 font-medium">
-            Sistema de Reservas 2026 v1.0 - Todos los derechos reservados
+            TuCancha - Todos los derechos reservados
           </p>
         </footer>
       </div>

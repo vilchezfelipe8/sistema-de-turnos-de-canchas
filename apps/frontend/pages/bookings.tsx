@@ -301,10 +301,9 @@ export default function MyBookingsPage() {
       <Head>
         <title>Mis turnos | TuCancha</title>
       </Head>
-      <div className="min-h-screen bg-[#347048] relative overflow-hidden text-[#D4C5B0]">
+      <div className="min-h-screen bg-vibrant-brand relative overflow-hidden text-[#D4C5B0]">
       {/* Fondo Decorativo */}
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none opacity-20">
-        <div className="absolute top-[-10%] right-[-10%] w-[420px] h-[420px] bg-[#B9CF32]/30 rounded-full"></div>
         <div className="absolute bottom-[-10%] left-[-10%] w-[360px] h-[360px] bg-[#926699]/30 rounded-full"></div>
       </div>
 

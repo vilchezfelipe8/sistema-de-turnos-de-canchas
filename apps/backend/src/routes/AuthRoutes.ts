@@ -9,6 +9,6 @@ const authController = new AuthController();
 router.post('/register', registerLimiter, authController.register);
 router.post('/login', loginLimiter, authController.login);
 router.get('/me', authMiddleware, authController.getMe);
+router.patch('/me', authMiddleware, authController.updateMe);
 
 export default router;
-

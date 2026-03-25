@@ -5,9 +5,10 @@ import { ClientService } from '../services/ClientService';
 import { ClubAdminService } from '../services/ClubAdminService';
 import { ClubService } from '../services/ClubService';
 import { getAccountById, registerPayment } from '../services/AccountService';
-import { Phone, DollarSign, Users, Trophy, Search, X, CheckCircle, Receipt, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Phone, DollarSign, Users, Trophy, Search, X, CheckCircle, Receipt, Plus, Pencil, Trash2, Copy } from 'lucide-react';
 import PaymentCalculator, { type PaymentCalculatorResult } from './PaymentCalculator';
 import AppModal from './AppModal';
+import { APP_NOTICE_EVENT } from '../pages/_app';
 import { getActiveClubSlug, normalizeSessionUser } from '../utils/session';
 import { reportUiError } from '../utils/uiError';
 import { buildCanonicalPhone, DEFAULT_PHONE_COUNTRY_ISO2, normalizePhoneCountryIso2, PHONE_COUNTRY_OPTIONS, splitCanonicalPhone } from '../utils/phone';
@@ -335,7 +336,13 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
       } else {
         throw new Error('Clipboard no disponible');
       }
-      showInfo(`${label} copiado: ${text}`, 'Copiado');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent(APP_NOTICE_EVENT, {
+            detail: { message: `${label} copiado.` }
+          })
+        );
+      }
     } catch {
       showError(`No se pudo copiar ${label.toLowerCase()}.`);
     }
@@ -594,7 +601,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
-      
+
       {/* TARJETAS KPI */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-white border-4 border-white p-6 rounded-[2rem] shadow-xl flex items-center justify-between">
@@ -651,9 +658,9 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                 <Plus size={14} />
               </button>
             </div>
-            <div className="relative w-full md:w-80 group">
+            <div className="relative w-full md:w-64 group rounded-xl border-2 border-transparent bg-white shadow-sm transition-all focus-within:border-[#B9CF32]">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none transition-colors group-focus-within:text-[#B9CF32] text-[#347048]/40"><Search size={18} strokeWidth={2.5} /></div>
-                <input type="text" className="block w-full pl-12 pr-4 py-3 border-2 border-transparent focus:border-[#B9CF32] rounded-xl bg-white text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none transition-all shadow-sm" placeholder="Buscar por Nombre, DNI o Tel..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                <input type="text" className="block w-full pl-12 pr-4 py-2 rounded-xl bg-transparent text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0" placeholder="Nombre, DNI o teléfono" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                 {searchTerm && (
                   <button
                     onClick={() => setSearchTerm('')}
@@ -708,10 +715,11 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                                         event.stopPropagation();
                                         void copyToClipboard(String(dniFinal), 'DNI');
                                       }}
-                                      className="bg-[#347048]/5 border border-[#347048]/10 px-2 py-1 rounded-lg text-[#347048] font-bold text-xs hover:bg-[#347048]/10 transition-colors cursor-copy"
+                                      className="group/copy inline-flex items-center gap-2 whitespace-nowrap bg-[#347048]/5 border border-[#347048]/15 px-2 py-1 rounded-lg text-[#347048] font-bold text-xs hover:bg-[#347048]/10 hover:border-[#347048]/25 hover:shadow-sm transition-all cursor-pointer active:scale-[0.98]"
                                       title="Copiar DNI"
                                     >
-                                        {dniFinal}
+                                        <span>{dniFinal}</span>
+                                        <Copy size={12} className="opacity-70 group-hover/copy:opacity-100 transition-opacity" />
                                     </button>
                                 ) : (
                                     <span className="opacity-20">-</span>
@@ -726,11 +734,12 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                                       event.stopPropagation();
                                       void copyToClipboard(String(client.phone), 'Teléfono');
                                     }}
-                                    className="flex items-center gap-2 hover:text-[#347048] transition-colors cursor-copy"
+                                    className="group/copy inline-flex items-center gap-2 bg-[#347048]/5 border border-[#347048]/15 px-2 py-1 rounded-lg text-[#347048] font-bold text-xs hover:bg-[#347048]/10 hover:border-[#347048]/25 hover:shadow-sm transition-all cursor-pointer active:scale-[0.98]"
                                     title="Copiar teléfono"
                                   >
-                                    <Phone size={12} className="text-[#B9CF32]" />
-                                    {client.phone}
+                                    <Phone size={12} className="opacity-90 group-hover/copy:opacity-100 transition-opacity" />
+                                    <span>{client.phone}</span>
+                                    <Copy size={12} className="opacity-70 group-hover/copy:opacity-100 transition-opacity" />
                                   </button>
                                 ) : '-'}
                             </td>

@@ -101,3 +101,42 @@ export const getToken = () => {
 };
 
 export const getActiveClubId = () => getEffectiveActiveClubId();
+
+export const updateMyProfile = async (payload: {
+  firstName: string;
+  lastName: string;
+  phoneNumber?: string;
+  phoneCountryCode?: string;
+  phoneNumberLocal?: string;
+  dni?: string;
+}) => {
+  const token = getToken();
+  if (!token) throw new Error('Debes iniciar sesión.');
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`
+  };
+  const activeClubId = getActiveClubId();
+  if (activeClubId) headers['x-active-club-id'] = String(activeClubId);
+
+  const response = await fetch(`${apiBase()}/auth/me`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify(payload)
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data?.error || data?.message || 'No se pudo actualizar el perfil');
+  }
+
+  if (data) {
+    persistSessionUser(data);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event(AUTH_LOGIN_EVENT));
+    }
+  }
+
+  return data;
+};

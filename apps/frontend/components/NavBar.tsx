@@ -8,12 +8,24 @@ import { NotificationService, NotificationItem } from '../services/NotificationS
 import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser } from '../utils/session';
 import { reportUiError } from '../utils/uiError';
 import AppModal from './AppModal';
-import { Menu, Home, Calendar, Settings, LogOut, Phone, Mail, Check, Lock, MapPin, Bell } from 'lucide-react'; 
+import { Menu, Home, Calendar, Settings, LogOut, Phone, Mail, Check, Lock, MapPin, Bell, User } from 'lucide-react'; 
 
 interface NavbarProps {
   onMenuClick?: () => void;
   onNavClick?: () => void;
 }
+
+const countActiveBookings = (rows: any[]): number => {
+  const now = Date.now();
+  return rows.filter((booking: any) => {
+    const status = String(booking?.status || '').toUpperCase();
+    if (status === 'CANCELLED' || status === 'COMPLETED') return false;
+    const endValue = booking?.endDateTime || booking?.startDateTime;
+    const endTs = new Date(endValue).getTime();
+    if (!Number.isFinite(endTs)) return true;
+    return endTs >= now;
+  }).length;
+};
 
 const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
   const router = useRouter();
@@ -106,9 +118,7 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
       }
       try {
         const bookings = await getMyBookings(user.id);
-        const active = Array.isArray(bookings)
-          ? bookings.filter((booking: any) => !['CANCELLED', 'COMPLETED'].includes(booking.status)).length
-          : 0;
+        const active = Array.isArray(bookings) ? countActiveBookings(bookings) : 0;
         setActiveBookingsCount(active);
       } catch (error) {
         reportUiError({ area: 'NavBar', action: 'loadActiveBookings' }, error);
@@ -212,6 +222,7 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
   };
   const isClubSlugView = router.pathname === '/club/[slug]';
   const isBookingsView = router.pathname === '/bookings';
+  const isProfileView = router.pathname === '/perfil';
   const isAdminView = router.pathname.startsWith('/admin') || router.pathname === '/club/[slug]/admin';
 
   const adminClubSlug = useMemo(() => {
@@ -273,6 +284,29 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
 
   const dropdownNavLinks = useMemo(() => {
     const links: Array<{ href: string; label: string; icon: any }> = [];
+    if (!isProfileView) {
+      links.push({ href: '/perfil', label: 'Mi Perfil', icon: <User size={18} strokeWidth={2.5} /> });
+    }
+
+    if (isProfileView) {
+      links.push({ href: '/', label: 'Inicio', icon: <Home size={18} strokeWidth={2.5} /> });
+      links.push({ href: '/bookings', label: 'Mis Reservas', icon: <Calendar size={18} strokeWidth={2.5} /> });
+      if (isAdmin) {
+        links.push({
+          href: '/admin/agenda',
+          label: 'Gestión',
+          icon: <Settings size={18} strokeWidth={2.5} />
+        });
+        if (effectiveAdminClubSlug) {
+          links.push({
+            href: `/club/${effectiveAdminClubSlug}`,
+            label: 'Mi Club',
+            icon: <MapPin size={18} strokeWidth={2.5} />
+          });
+        }
+      }
+      return links;
+    }
 
     if (isClubSlugView) {
       if (isAdmin) {
@@ -320,7 +354,7 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
     }
 
     return links;
-  }, [isClubSlugView, isAdmin, isBookingsView, isAdminView, effectiveAdminClubSlug]);
+  }, [isClubSlugView, isAdmin, isBookingsView, isProfileView, isAdminView, effectiveAdminClubSlug]);
 
   const userInitials = useMemo(() => {
     if (!user) return 'TU';
@@ -329,6 +363,13 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
     return `${first.charAt(0)}${last.charAt(0)}`.trim() || 'TU';
   }, [user]);
 
+  const navbarGradientStyle = useMemo(
+    () => ({
+      backgroundImage:
+        'radial-gradient(circle at 12% 18%, rgba(185, 207, 50, 0.12), transparent 40%), radial-gradient(circle at 88% 20%, rgba(146, 102, 153, 0.1), transparent 42%), linear-gradient(165deg, #2d6240 0%, #347048 48%, #2a5c3b 100%)'
+    }),
+    []
+  );
 
   return (
     <>
@@ -339,9 +380,10 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
           if (showNotifications) setShowNotifications(false);
           onNavClick?.();
         }}
-        className={`fixed top-0 left-0 right-0 z-[10000] transition-all duration-300 border-b border-[#EBE1D8]/10 ${
-          isScrolled ? 'py-2 bg-[#347048]/95 backdrop-blur-md shadow-lg' : 'py-3 bg-[#347048]'
+        className={`fixed top-0 left-0 right-0 z-[10000] transition-all duration-300 border-b border-[#EBE1D8]/10 h-16 md:h-[72px] ${
+          isScrolled ? 'backdrop-blur-md shadow-lg' : ''
         }`}
+        style={navbarGradientStyle}
       >
         {onMenuClick && (
           <button
@@ -357,7 +399,7 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
             <Menu size={32} strokeWidth={2.5} />
           </button>
         )}
-        <div className={`max-w-7xl mx-auto px-6 flex justify-between items-center ${onMenuClick ? 'pl-16' : ''}`}>
+        <div className={`max-w-7xl mx-auto px-6 h-full flex justify-between items-center ${onMenuClick ? 'pl-16' : ''}`}>
           
           {/* --- IZQUIERDA: LOGO + MENÚ --- */}
           <div className="relative flex items-center gap-4">
@@ -370,7 +412,7 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
 
             {/* 2. TEXTO "TUCANCHA" (Siempre fijo) */}
             <div className="flex flex-col leading-none min-w-0">
-              <span className="hidden md:inline text-2xl md:text-3xl font-black tracking-tighter text-[#EBE1D8] italic drop-shadow-sm leading-none mt-1 truncate">
+              <span className="hidden md:inline text-2xl md:text-3xl font-black tracking-tighter text-[#EBE1D8] italic drop-shadow-sm leading-none truncate">
                 TuCancha<span className="text-[#B9CF32] opacity-80"></span>
               </span>
             </div>
@@ -507,10 +549,17 @@ const Navbar = ({ onMenuClick, onNavClick }: NavbarProps) => {
                           <Link
                             key={`${link.href}-${link.label}`}
                             href={link.href}
-                            className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
+                            className="flex items-center justify-between gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
                             onClick={() => setShowUserMenu(false)}
                           >
-                            {link.icon} {link.label}
+                            <span className="flex items-center gap-3">
+                              {link.icon} {link.label}
+                            </span>
+                            {link.href === '/bookings' && activeBookingsCount > 0 ? (
+                              <span className="inline-flex items-center justify-center min-w-[22px] h-6 px-2 rounded-full bg-[#926699] text-white text-[10px] font-black">
+                                {activeBookingsCount}
+                              </span>
+                            ) : null}
                           </Link>
                         ))}
                         
