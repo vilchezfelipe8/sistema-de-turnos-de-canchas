@@ -2277,7 +2277,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
         await this.auditLogService.create({
             clubId,
-            userId: actorUserId,
+            userId: Number.isInteger(actorUserId) && actorUserId > 0 ? actorUserId : null,
             entity: 'Booking',
             entityId: String(bookingId),
             action: 'BOOKING_COMPLETE',
