@@ -21,7 +21,6 @@ import {
   Share2,
   Trophy,
   Star,
-  Check,
   Heart
 } from 'lucide-react';
 
@@ -50,9 +49,6 @@ export default function ClubPage() {
   const [isFavorite, setIsFavorite] = useState(false);
   const [favoriteBusy, setFavoriteBusy] = useState(false);
   const [favoriteFeedback, setFavoriteFeedback] = useState<string | null>(null);
-  
-  // 👉 1. Estado para el botón de compartir
-  const [isCopied, setIsCopied] = useState(false);
 
   useEffect(() => {
     const loadClub = async () => {
@@ -142,13 +138,15 @@ export default function ClubPage() {
     void loadReviewEligibility();
   }, [authChecked, slug, user?.id]);
 
-  // 👉 2. Función que copia la URL
   const handleShare = async () => {
     if (typeof window !== 'undefined') {
       try {
         await navigator.clipboard.writeText(window.location.href);
-        setIsCopied(true);
-        setTimeout(() => setIsCopied(false), 2000);
+        window.dispatchEvent(
+          new CustomEvent('app:notice', {
+            detail: { message: 'Enlace copiado correctamente.' }
+          })
+        );
       } catch (err) {
         reportUiError({ area: 'ClubPage', action: 'copyShareLink' }, err);
       }
@@ -382,25 +380,10 @@ export default function ClubPage() {
                 </button>
                 <button
                   onClick={handleShare}
-                  className={`group/share relative h-12 w-12 rounded-2xl border-2 flex items-center justify-center transition-all backdrop-blur-md shadow-md ${
-                    isCopied
-                      ? 'bg-[#B9CF32] text-[#347048] border-transparent scale-105'
-                      : 'border-[#EBE1D8]/35 text-[#EBE1D8] bg-[#347048]/55 hover:bg-[#347048] hover:text-[#B9CF32] hover:border-[#B9CF32]'
-                  }`}
+                  className="group/share relative h-12 w-12 rounded-2xl border-2 flex items-center justify-center transition-all backdrop-blur-md shadow-md border-[#EBE1D8]/35 text-[#EBE1D8] bg-[#347048]/55 hover:bg-[#347048] hover:text-[#B9CF32] hover:border-[#B9CF32]"
                   title="Copiar enlace"
                 >
-                    {isCopied ? (
-                      <Check size={22} strokeWidth={3} className="animate-in zoom-in" />
-                    ) : (
-                      <Share2 size={22} className="transition-all duration-200 group-hover/share:text-[#B9CF32] group-hover/share:scale-110" />
-                    )}
-                    
-                    {/* Cartelito flotante de copiado */}
-                    {isCopied && (
-                      <span className="absolute -top-10 bg-[#B9CF32] text-[#347048] text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg shadow-xl animate-in fade-in slide-in-from-bottom-2 whitespace-nowrap">
-                        ¡Copiado!
-                      </span>
-                    )}
+                    <Share2 size={22} className="transition-all duration-200 group-hover/share:text-[#B9CF32] group-hover/share:scale-110" />
                 </button>
               </div>
 

@@ -1990,16 +1990,16 @@ export default function AdminTabClub() {
               </div>
             </div>
 
-            {/* DESCRIPCIÃ“N */}
+            {/* DESCRIPCION */}
             <div className="space-y-2">
-              <label className={labelClass}>DescripciÃ³n del Club / InformaciÃ³n Adicional</label>
+              <label className={labelClass}>Descripcion del Club / Informacion Adicional</label>
               <textarea
                 value={clubForm.description}
                 onChange={(e) => setClubForm({ ...clubForm, description: e.target.value.slice(0, 100) })}
                 maxLength={50}
                 className="w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-[1.5rem] p-5 text-[#347048] font-bold placeholder-[#347048]/20 focus:outline-none shadow-sm transition-all resize-none"
                 rows={4}
-                placeholder="Escribe aquÃ­ las reglas del club, servicios (duchas, buffet, etc) o historia..."
+                placeholder="Escribe aqui las reglas del club, servicios (duchas, buffet, etc) o historia..."
               />
             </div>
 
