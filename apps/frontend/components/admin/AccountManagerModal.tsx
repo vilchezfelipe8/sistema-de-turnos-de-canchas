@@ -411,39 +411,39 @@ export default function AccountManagerModal({
 
                 <div className={cardClass}>
                   <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]/60 mb-2">Items pendientes</p>
-                  <div className="space-y-1 max-h-40 overflow-y-auto text-xs">
+                  <div className="space-y-2 max-h-40 overflow-y-auto text-xs text-[#24573A]">
                     {(detail.items || []).map((item: any) => (
-                      <div key={item.id} className="flex items-center justify-between border border-[#347048]/10 rounded-xl px-3 py-2 bg-white">
-                        <span className="font-bold">{item.description} · {formatItemType(item.type)}</span>
-                        <span className="text-[#347048]/70">
+                      <div key={item.id} className="flex items-center justify-between border border-[#347048]/20 rounded-xl px-3 py-2 bg-white shadow-sm">
+                        <span className="font-black text-[#1F4E32]">{item.description} · {formatItemType(item.type)}</span>
+                        <span className="font-black text-[#2B6843]">
                           Pendiente: ${Number(itemOutstandingMap.get(String(item.id)) || 0).toLocaleString()}
                         </span>
                       </div>
                     ))}
                     {(!detail.items || detail.items.length === 0) && (
-                      <div className="text-[#347048]/50">Sin items.</div>
+                      <div className="text-[#24573A]/75 font-bold">Sin items.</div>
                     )}
                   </div>
                 </div>
 
                 <div className={cardClass}>
                   <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]/60 mb-2">Historial de pagos y devoluciones</p>
-                  <div className="space-y-1 max-h-52 overflow-y-auto text-xs">
+                  <div className="space-y-2 max-h-52 overflow-y-auto text-xs text-[#24573A]">
                     {(detail.payments || []).map((entry: any) => {
                       const paymentId = String(entry?.id || '');
                       if (!paymentId) return null;
                       const amount = Number(entry?.amount || 0);
                       return (
-                        <div key={paymentId} className="flex items-center justify-between gap-2 border border-[#347048]/10 rounded-xl px-3 py-2 bg-white">
+                        <div key={paymentId} className="flex items-center justify-between gap-2 border border-[#347048]/20 rounded-xl px-3 py-2 bg-white shadow-sm">
                           <div className="min-w-0">
-                            <p className="font-black truncate">
+                            <p className="font-black text-[#1F4E32] truncate">
                               {formatPaymentCode(paymentId, entry?.displayCode)}
                             </p>
-                            <p className="text-[#347048]/70 truncate">
+                            <p className="font-semibold text-[#2B6843] truncate">
                               {formatPaymentMethod(entry.method)} · {formatPaymentChannel(entry.channel)} · {formatPaymentSource(entry.source)} · ${amount.toLocaleString()}
                             </p>
                             {(entry.collectorAccountLabel || entry.externalReference) && (
-                              <p className="text-[#347048]/50 truncate">
+                              <p className="text-[#24573A]/80 truncate">
                                 {entry.collectorAccountLabel ? `Cuenta: ${entry.collectorAccountLabel}` : ''}
                                 {entry.collectorAccountLabel && entry.externalReference ? ' · ' : ''}
                                 {entry.externalReference ? `Ref: ${entry.externalReference}` : ''}
@@ -463,7 +463,7 @@ export default function AccountManagerModal({
                       );
                     })}
                     {(!detail.payments || detail.payments.length === 0) && (
-                      <div className="text-[#347048]/50">Sin pagos.</div>
+                      <div className="text-[#24573A]/75 font-bold">Sin pagos.</div>
                     )}
                   </div>
                 </div>
