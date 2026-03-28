@@ -2,6 +2,7 @@ import { fetchWithAuth, isAuthSessionInvalidatedError } from '../utils/apiClient
 import { getApiUrl } from '../utils/apiUrl';
 
 const apiBase = () => `${getApiUrl()}/api`;
+const GUEST_FAVORITES_STORAGE_KEY = 'guest:favorite-clubs';
 
 export type FixedBookingActivityConfig = {
   fixedBookingDaysAhead: number;
@@ -72,6 +73,96 @@ export type ClubFavorite = {
 };
 
 export class ClubService {
+  private static guestFavoritesSyncInFlight: Promise<{ syncedCount: number }> | null = null;
+
+  private static canUseStorage() {
+    return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+  }
+
+  private static readGuestFavoriteIdsFromStorage(): number[] {
+    if (!this.canUseStorage()) return [];
+    try {
+      const raw = window.localStorage.getItem(GUEST_FAVORITES_STORAGE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return Array.from(
+        new Set(
+          parsed
+            .map((value) => Number(value))
+            .filter((value) => Number.isInteger(value) && value > 0)
+        )
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  private static writeGuestFavoriteIdsToStorage(ids: number[]) {
+    if (!this.canUseStorage()) return;
+    const safe = Array.from(
+      new Set(
+        ids
+          .map((value) => Number(value))
+          .filter((value) => Number.isInteger(value) && value > 0)
+      )
+    );
+    if (safe.length === 0) {
+      window.localStorage.removeItem(GUEST_FAVORITES_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(GUEST_FAVORITES_STORAGE_KEY, JSON.stringify(safe));
+  }
+
+  static getGuestFavoriteClubIds(): number[] {
+    return this.readGuestFavoriteIdsFromStorage();
+  }
+
+  static setGuestFavorite(clubId: number, nextIsFavorite: boolean) {
+    const safeClubId = Number(clubId);
+    if (!Number.isInteger(safeClubId) || safeClubId <= 0) {
+      return { isFavorite: false, ids: this.readGuestFavoriteIdsFromStorage() };
+    }
+    const current = new Set(this.readGuestFavoriteIdsFromStorage());
+    if (nextIsFavorite) current.add(safeClubId);
+    else current.delete(safeClubId);
+    const ids = Array.from(current.values());
+    this.writeGuestFavoriteIdsToStorage(ids);
+    return { isFavorite: nextIsFavorite, ids };
+  }
+
+  static async syncGuestFavoritesToAccount() {
+    if (this.guestFavoritesSyncInFlight) {
+      return this.guestFavoritesSyncInFlight;
+    }
+
+    const task = (async () => {
+    const ids = this.readGuestFavoriteIdsFromStorage();
+    if (!ids.length) return { syncedCount: 0 };
+
+    let syncedCount = 0;
+    const failedIds: number[] = [];
+    for (const clubId of ids) {
+      try {
+        await this.markFavorite(clubId);
+        syncedCount += 1;
+      } catch {
+        failedIds.push(clubId);
+      }
+    }
+
+    this.writeGuestFavoriteIdsToStorage(failedIds);
+
+    return { syncedCount };
+    })()
+      .finally(() => {
+        this.guestFavoritesSyncInFlight = null;
+      });
+
+    this.guestFavoritesSyncInFlight = task;
+    return task;
+  }
+
   static async getClubById(id: number): Promise<Club> {
     const response = await fetch(`${apiBase()}/clubs/${id}`);
     if (!response.ok) {

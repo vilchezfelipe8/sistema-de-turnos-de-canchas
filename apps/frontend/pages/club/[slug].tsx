@@ -52,6 +52,18 @@ export default function ClubPage() {
   const [favoriteFeedback, setFavoriteFeedback] = useState<string | null>(null);
 
   useEffect(() => {
+    const syncGuestFavorites = async () => {
+      if (!user?.id) return;
+      try {
+        await ClubService.syncGuestFavoritesToAccount();
+      } catch (error) {
+        reportUiError({ area: 'ClubPage', action: 'syncGuestFavorites' }, error);
+      }
+    };
+    void syncGuestFavorites();
+  }, [user?.id]);
+
+  useEffect(() => {
     const loadClub = async () => {
       if (!slug || typeof slug !== 'string') {
         setLoadingClub(false);
@@ -159,8 +171,13 @@ export default function ClubPage() {
 
   useEffect(() => {
     const loadFavoriteState = async () => {
-      if (!authChecked || !user?.id || !club?.id) {
+      if (!authChecked || !club?.id) {
         setIsFavorite(false);
+        return;
+      }
+      if (!user?.id) {
+        const guestIds = new Set<number>(ClubService.getGuestFavoriteClubIds());
+        setIsFavorite(guestIds.has(Number(club.id)));
         return;
       }
       try {
@@ -197,7 +214,12 @@ export default function ClubPage() {
   const handleToggleFavorite = async () => {
     if (!club?.id || favoriteBusy) return;
     if (!user?.id) {
-      setFavoriteFeedback('Iniciá sesión para guardar favoritos.');
+      const clubId = Number(club.id);
+      if (!Number.isFinite(clubId) || clubId <= 0) return;
+      const nextIsFavorite = !isFavorite;
+      ClubService.setGuestFavorite(clubId, nextIsFavorite);
+      setIsFavorite(nextIsFavorite);
+      setFavoriteFeedback(nextIsFavorite ? 'Favorito guardado (invitado).' : 'Favorito eliminado (invitado).');
       return;
     }
 
@@ -520,3 +542,4 @@ export default function ClubPage() {
     </>
   );
 }
+

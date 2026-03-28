@@ -334,6 +334,16 @@ export class ClubFavoriteService {
       const targetDni = normalizeDni(target.dni);
       const targetPhone = normalizeIdentityPhone(target.phone);
       const targetEmail = normalizeEmail(target.email);
+      const hasDniMatch = Boolean(normalizedDni.length >= 6 && targetDni && normalizedDni === targetDni);
+      const hasPhoneMatch = Boolean(
+        normalizedPhone &&
+        targetPhone &&
+        (() => {
+          const inputVariants = new Set(getPhoneIdentityVariants(normalizedPhone));
+          return getPhoneIdentityVariants(targetPhone).some((value) => inputVariants.has(value));
+        })()
+      );
+      const hasEmailMatch = Boolean(normalizedEmail.length > 3 && targetEmail.length > 3 && normalizedEmail === targetEmail);
       if (normalizedDni.length >= 6 && targetDni && normalizedDni !== targetDni) mismatchSignals.push('DNI');
       if (normalizedPhone && targetPhone) {
         const inputVariants = new Set(getPhoneIdentityVariants(normalizedPhone));
@@ -352,6 +362,21 @@ export class ClubFavoriteService {
             source: 'favorite_linking',
             reason: 'identity_signal_mismatch',
             mismatchSignals
+          }
+        });
+        return { status: 'duplicate_detected_no_link', clientId: null };
+      }
+      // Conservador: email por sí solo no alcanza para auto-linking.
+      if (!hasDniMatch && !hasPhoneMatch && hasEmailMatch) {
+        await this.registerDuplicateIncidentSafeTx(tx, {
+          clubId,
+          userId,
+          reasonType: 'LINKING_CONFLICT',
+          candidateClientIds: [target.id],
+          primaryClientId: target.id,
+          payload: {
+            source: 'favorite_linking',
+            reason: 'email_only_match'
           }
         });
         return { status: 'duplicate_detected_no_link', clientId: null };

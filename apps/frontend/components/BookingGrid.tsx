@@ -10,6 +10,7 @@ import AppModal from './AppModal';
 
 import { getApiUrl } from '../utils/apiUrl';
 import { ClubService, Club } from '../services/ClubService';
+import { buildCanonicalPhone } from '../utils/phone';
 import { extractErrorMessage, reportUiError } from '../utils/uiError';
 import { useAuth } from '../contexts/AuthContext';
 import { ChevronDown, Check, Calendar, Clock, MapPin, Zap, MousePointerClick, Hourglass, Moon, Ban, AlertCircle, Activity, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -38,6 +39,31 @@ type CourtSummary = {
 };
 
 const DEFAULT_DURATION_MINUTES = 90;
+
+const normalizeTextValue = (value: string) =>
+  String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
+const inferCountryIso2 = (country: string | null | undefined): string => {
+  const normalized = normalizeTextValue(String(country || ''));
+  if (!normalized) return 'AR';
+  if (normalized.includes('argentina')) return 'AR';
+  if (normalized.includes('uruguay')) return 'UY';
+  if (normalized.includes('chile')) return 'CL';
+  if (normalized.includes('brasil')) return 'BR';
+  if (normalized.includes('paraguay')) return 'PY';
+  if (normalized.includes('bolivia')) return 'BO';
+  if (normalized.includes('peru')) return 'PE';
+  if (normalized.includes('colombia')) return 'CO';
+  if (normalized.includes('mexico')) return 'MX';
+  if (normalized.includes('estados unidos') || normalized === 'usa' || normalized === 'us') return 'US';
+  if (normalized.includes('canada')) return 'CA';
+  if (normalized.includes('espana')) return 'ES';
+  return 'AR';
+};
 
 const normalizeActivityDurations = (raw: unknown, fallback: number) => {
   const parsed = Array.isArray(raw)
@@ -147,6 +173,13 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   const [queryApplied, setQueryApplied] = useState(false);
   const [isBooking, setIsBooking] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false); // Estado para el botón visual
+  const [guestFirstName, setGuestFirstName] = useState('');
+  const [guestLastName, setGuestLastName] = useState('');
+  const [guestEmail, setGuestEmail] = useState('');
+  const [guestPhone, setGuestPhone] = useState('');
+  const [guestDni, setGuestDni] = useState('');
+  const [guestModalOpen, setGuestModalOpen] = useState(false);
+  const [guestError, setGuestError] = useState('');
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
   const courtsSectionRef = useRef<HTMLDivElement | null>(null);
   const [modalState, setModalState] = useState<{
@@ -611,6 +644,29 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     };
   }, [selectedCourt?.price, selectedCourt?.basePrice, selectedCourt?.lightsExtraApplied]);
 
+  const getGuestPayload = () => {
+    const firstName = String(guestFirstName || '').trim();
+    const lastName = String(guestLastName || '').trim();
+    const name = `${firstName} ${lastName}`.trim();
+    const email = String(guestEmail || '').trim();
+    const rawPhone = String(guestPhone || '').trim();
+    const inferredCountryIso2 = inferCountryIso2(clubConfig?.country || null);
+    const localDigits = rawPhone.replace(/\D/g, '').replace(/^0+/, '');
+    const phone = rawPhone.startsWith('+')
+      ? buildCanonicalPhone({ fullPhone: rawPhone })
+      : buildCanonicalPhone({ countryIso2: inferredCountryIso2, localNumber: localDigits });
+    const dni = String(guestDni || '').trim().replace(/\./g, '');
+    return { firstName, lastName, name, email, phone, dni };
+  };
+
+  const isGuestPayloadValid = () => {
+    const payload = getGuestPayload();
+    if (payload.firstName.length < 2 || payload.lastName.length < 2) return false;
+    if (!payload.phone) return false;
+    if (payload.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) return false;
+    return true;
+  };
+
 const performBooking = async () => {
     
     if (!selectedDate || !selectedSlot || !selectedCourt) return;
@@ -629,12 +685,27 @@ const performBooking = async () => {
         return;
       }
 
+      const guestPayload = getGuestPayload();
+      const shouldBookAsGuest = !hasAuthSession;
       const createResult = await createBooking(
         selectedCourt.id,
         bookingActivityId,
         selectedDate,
         selectedSlot,
-        { durationMinutes: selectedDuration, applyDiscount: false }
+        {
+          durationMinutes: selectedDuration,
+          applyDiscount: false,
+          ...(shouldBookAsGuest
+            ? {
+                client: {
+                  name: guestPayload.name,
+                  phone: guestPayload.phone || undefined,
+                  email: guestPayload.email || undefined,
+                  dni: guestPayload.dni || undefined
+                }
+              }
+            : {})
+        }
       );
       const startDateTime = bookingDateTime;
       const endDateTime = new Date(startDateTime.getTime() + selectedDuration * 60000);
@@ -683,6 +754,9 @@ const performBooking = async () => {
       } catch (_) { /* noop */ }
 
       showInfo(bookingSummaryMessage, 'Reserva confirmada');
+      if (shouldBookAsGuest) {
+        setGuestModalOpen(false);
+      }
     } catch (error) {
       const message = extractErrorMessage(error, 'No se pudo completar la reserva.');
       reportUiError({ area: 'BookingGrid', action: 'handleBooking' }, error);
@@ -693,6 +767,11 @@ const performBooking = async () => {
         });
         return;
       }
+      if (!hasAuthSession && String(message).toLowerCase().includes('debes iniciar sesión')) {
+        setGuestModalOpen(true);
+        setGuestError('Completá tus datos para reservar como invitado.');
+        return;
+      }
       showError(message);
     } finally {
       setIsBooking(false);
@@ -701,15 +780,28 @@ const performBooking = async () => {
 
   const handleBooking = () => {
     if (!selectedDate || !selectedSlot || !selectedCourt) return;
-    if (!hasAuthSession || !isAuthenticated) {
+    if (!hasAuthSession) {
       setIsAuthenticated(false);
-      openLoginModal(() => {
-        performBooking();
-      });
+      if (!isGuestPayloadValid()) {
+        setGuestError('');
+        setGuestModalOpen(true);
+        return;
+      }
+      performBooking();
       return;
     }
     setIsAuthenticated(true);
     performBooking();
+  };
+
+  const handleGuestContinue = () => {
+    if (!isGuestPayloadValid()) {
+      setGuestError('Completá nombre, apellido y un teléfono válido para continuar.');
+      return;
+    }
+    setGuestError('');
+    setGuestModalOpen(false);
+    void performBooking();
   };
 
   // --- Cargar disabledSlots de localStorage ---
@@ -1181,6 +1273,69 @@ const performBooking = async () => {
           ) : null}
         </div>
       )}
+
+      <AppModal
+        show={guestModalOpen}
+        onClose={() => {
+          setGuestModalOpen(false);
+          setGuestError('');
+        }}
+        onCancel={() => {
+          setGuestModalOpen(false);
+          setGuestError('');
+        }}
+        title="Reserva como invitado"
+        message={
+          <div className="space-y-3 text-left">
+            <p className="text-sm text-[#347048]/80">Completá tus datos para confirmar la reserva sin iniciar sesión.</p>
+            {guestError ? (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+                {guestError}
+              </div>
+            ) : null}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input
+                type="text"
+                value={guestFirstName}
+                onChange={(e) => setGuestFirstName(e.target.value)}
+                placeholder="Nombre"
+                className="w-full rounded-xl border-2 border-[#347048]/15 bg-white px-3 py-2 text-sm font-bold text-[#347048] outline-none focus:border-[#B9CF32]"
+              />
+              <input
+                type="text"
+                value={guestLastName}
+                onChange={(e) => setGuestLastName(e.target.value)}
+                placeholder="Apellido"
+                className="w-full rounded-xl border-2 border-[#347048]/15 bg-white px-3 py-2 text-sm font-bold text-[#347048] outline-none focus:border-[#B9CF32]"
+              />
+            </div>
+            <input
+              type="tel"
+              value={guestPhone}
+              onChange={(e) => setGuestPhone(e.target.value)}
+              placeholder="Teléfono (ej: 11 2345 6789 o +549...)"
+              className="w-full rounded-xl border-2 border-[#347048]/15 bg-white px-3 py-2 text-sm font-bold text-[#347048] outline-none focus:border-[#B9CF32]"
+            />
+            <input
+              type="email"
+              value={guestEmail}
+              onChange={(e) => setGuestEmail(e.target.value)}
+              placeholder="Email (opcional)"
+              className="w-full rounded-xl border-2 border-[#347048]/15 bg-white px-3 py-2 text-sm font-bold text-[#347048] outline-none focus:border-[#B9CF32]"
+            />
+            <input
+              type="text"
+              value={guestDni}
+              onChange={(e) => setGuestDni(e.target.value)}
+              placeholder="DNI (opcional)"
+              className="w-full rounded-xl border-2 border-[#347048]/15 bg-white px-3 py-2 text-sm font-bold text-[#347048] outline-none focus:border-[#B9CF32]"
+            />
+          </div>
+        }
+        cancelText="Cancelar"
+        confirmText="Confirmar reserva"
+        onConfirm={handleGuestContinue}
+      />
 
       <AppModal
         show={modalState.show}

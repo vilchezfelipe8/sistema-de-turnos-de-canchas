@@ -392,10 +392,23 @@ export default function Home() {
   }, [user]);
 
   useEffect(() => {
+    const syncGuestFavorites = async () => {
+      if (!user?.id) return;
+      try {
+        await ClubService.syncGuestFavoritesToAccount();
+      } catch (error) {
+        reportUiError({ area: 'HomePage', action: 'syncGuestFavorites' }, error);
+      }
+    };
+    void syncGuestFavorites();
+  }, [user?.id]);
+
+  useEffect(() => {
     const loadFavorites = async () => {
       if (!user?.id) {
-        setFavoriteClubIds(new Set());
-        setFavoriteClubs([]);
+        const guestIds = new Set<number>(ClubService.getGuestFavoriteClubIds());
+        setFavoriteClubIds(guestIds);
+        setFavoriteClubs(clubs.filter((club) => guestIds.has(Number(club.id))));
         setFavoriteFeedback(null);
         return;
       }
@@ -415,7 +428,7 @@ export default function Home() {
       }
     };
     void loadFavorites();
-  }, [user?.id]);
+  }, [user?.id, clubs]);
 
   const resolveLinkingMessage = (linking: { status?: string; reason?: string } | null | undefined) => {
     const status = String(linking?.status || '');
@@ -437,7 +450,22 @@ export default function Home() {
     e.stopPropagation();
 
     if (!user?.id) {
-      setFavoriteFeedback('Iniciá sesión para guardar favoritos.');
+      const clubId = Number(club.id);
+      if (!Number.isFinite(clubId) || clubId <= 0) return;
+      const nextIsFavorite = !favoriteClubIds.has(clubId);
+      ClubService.setGuestFavorite(clubId, nextIsFavorite);
+      setFavoriteClubIds((prev) => {
+        const next = new Set(prev);
+        if (nextIsFavorite) next.add(clubId);
+        else next.delete(clubId);
+        return next;
+      });
+      setFavoriteClubs((prev) => {
+        const exists = prev.some((item) => Number(item.id) === clubId);
+        if (nextIsFavorite) return exists ? prev : [club, ...prev];
+        return prev.filter((item) => Number(item.id) !== clubId);
+      });
+      setFavoriteFeedback(nextIsFavorite ? 'Favorito guardado (invitado).' : 'Favorito eliminado (invitado).');
       return;
     }
 
@@ -1666,3 +1694,4 @@ const FAQItem = ({
     </div>
   );
 };
+

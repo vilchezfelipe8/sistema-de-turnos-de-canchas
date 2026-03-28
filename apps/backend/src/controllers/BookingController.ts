@@ -191,20 +191,25 @@ export class BookingController {
                 { defaultCountryIso2: String(courtCountry?.club?.country || '').trim() || null }
             );
 
-            const adminClientDraft = isAdmin
-                ? {
-                    name: sanitizedClient?.name || '',
-                    phone: normalizedDraftPhone || undefined,
-                    email: sanitizedClient?.email,
-                    dni: sanitizedClient?.dni
-                }
-                : undefined;
+            const incomingClientDraft = {
+                name: sanitizedClient?.name || '',
+                phone: normalizedDraftPhone || undefined,
+                email: sanitizedClient?.email,
+                dni: sanitizedClient?.dni
+            };
 
-            const hasAdminClientInput = Boolean(clientId || adminClientDraft?.name);
+            const hasClientDraftInput = Boolean(incomingClientDraft.name);
+            const hasGuestDraftInput = Boolean(incomingClientDraft.name || incomingClientDraft.phone);
+            const hasAdminClientInput = Boolean(clientId || hasClientDraftInput);
             const useAdminClientMode = Boolean(isAdmin && hasAdminClientInput);
-            const effectiveUserId = useAdminClientMode ? null : tokenUserId;
+            const useGuestClientMode = Boolean(!tokenUserId && !isAdmin && hasClientDraftInput);
+            const effectiveUserId = useAdminClientMode || useGuestClientMode ? null : tokenUserId;
 
-            if (!effectiveUserId && !useAdminClientMode) {
+            if (!tokenUserId && !isAdmin && hasGuestDraftInput && !incomingClientDraft.phone) {
+                return res.status(400).json({ error: 'El teléfono es obligatorio para reservar como invitado.' });
+            }
+
+            if (!effectiveUserId && !useAdminClientMode && !useGuestClientMode) {
                 if (resolveOptionalAuthState(req) === 'invalid_token') {
                     return sendAuthError(res, 401, 'AUTH_INVALID', 'Sesion invalida. Volve a iniciar sesion.');
                 }
@@ -222,8 +227,10 @@ export class BookingController {
                 {
                     applyDiscount: useAdminClientMode ? applyDiscount : false,
                     actorUserId: Number(user?.userId || 0) || null,
-                    clientId: clientId || null,
-                    clientDraft: useAdminClientMode && adminClientDraft?.name ? adminClientDraft : null
+                    clientId: useAdminClientMode ? (clientId || null) : null,
+                    clientDraft: (useAdminClientMode || useGuestClientMode) && incomingClientDraft.name
+                        ? incomingClientDraft
+                        : null
                 }
             );
 

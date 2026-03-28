@@ -214,14 +214,14 @@ test('listar favoritos del usuario', async () => {
 });
 
 test('marcar favorito con client ya vinculado', async () => {
-  const { service, tx, auditLogs } = buildHarness({
+  const { service, tx, clients, auditLogs } = buildHarness({
     clients: [
       {
         id: 'c-linked',
         clubId: 10,
         userId: 7,
-        name: 'Ada Lovelace',
-        phone: '+5493511234567',
+        name: 'Ada',
+        phone: '+5493517770000',
         email: 'ada@example.com',
         dni: '30111222'
       }
@@ -232,20 +232,29 @@ test('marcar favorito con client ya vinculado', async () => {
     const result = await service.markFavorite(7, 10);
     assert.equal(result.linking.status, 'already_linked');
     assert.equal(result.linking.clientId, 'c-linked');
+    assert.equal(clients.find((c) => c.id === 'c-linked')?.userId, 7);
     assert.equal(auditLogs.some((row) => row.payload?.reason === 'ALREADY_LINKED'), true);
   });
 });
 
-test('marcar favorito y vincular por match fuerte', async () => {
+test('marcar favorito y vincular por match fuerte de teléfono', async () => {
   const { service, tx, clients, auditLogs } = buildHarness({
+    user: {
+      id: 7,
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      phoneNumber: '+54 9 351-123-4567',
+      email: '',
+      dni: ''
+    },
     clients: [
       {
         id: 'c-strong',
         clubId: 10,
         userId: null,
-        name: 'Cliente',
+        name: 'Cliente Fuerte',
         phone: '+5493511234567',
-        email: null,
+        email: 'other@example.com',
         dni: null
       }
     ]
@@ -255,8 +264,7 @@ test('marcar favorito y vincular por match fuerte', async () => {
     const result = await service.markFavorite(7, 10);
     assert.equal(result.linking.status, 'linked_existing_client');
     assert.equal(result.linking.clientId, 'c-strong');
-    const updated = clients.find((c) => c.id === 'c-strong');
-    assert.equal(updated?.userId, 7);
+    assert.equal(clients.find((c) => c.id === 'c-strong')?.userId, 7);
     assert.equal(auditLogs.some((row) => row.payload?.reason === 'EXACT_PHONE_MATCH'), true);
   });
 });
@@ -292,7 +300,7 @@ test('marcar favorito y vincular por match fuerte de DNI único', async () => {
   });
 });
 
-test('marcar favorito y vincular por match fuerte de email único', async () => {
+test('marcar favorito no vincula por email-only', async () => {
   const { service, tx, clients, auditLogs } = buildHarness({
     user: {
       id: 7,
@@ -317,12 +325,11 @@ test('marcar favorito y vincular por match fuerte de email único', async () => 
 
   await withMockedTransaction(tx, async () => {
     const result = await service.markFavorite(7, 10);
-    assert.equal(result.linking.status, 'linked_existing_client');
-    assert.equal(clients.find((c) => c.id === 'c-email-unique')?.userId, 7);
-    assert.equal(auditLogs.some((row) => row.payload?.reason === 'EXACT_EMAIL_MATCH'), true);
+    assert.equal(result.linking.status, 'duplicate_detected_no_link');
+    assert.equal(clients.find((c) => c.id === 'c-email-unique')?.userId, null);
+    assert.equal(auditLogs.some((row) => row.payload?.reason === 'EXACT_EMAIL_MATCH'), false);
   });
 });
-
 test('marcar favorito y crear Client nuevo', async () => {
   const { service, tx, clients, auditLogs } = buildHarness({
     user: {
@@ -476,3 +483,4 @@ test('linking no sobrescribe datos del cliente', async () => {
     assert.equal(target?.userId, 7);
   });
 });
+
