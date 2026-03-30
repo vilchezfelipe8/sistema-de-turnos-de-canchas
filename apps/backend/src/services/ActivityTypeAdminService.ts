@@ -25,6 +25,40 @@ type UpsertScheduleExceptionInput = {
 };
 
 export class ActivityTypeAdminService {
+  private static readonly DEFAULT_TIME_ZONE = 'America/Argentina/Buenos_Aires';
+
+  private getDateKeyInTimeZone(timeZone: string, date = new Date()): string {
+    try {
+      const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      });
+      const parts = formatter.formatToParts(date);
+      const year = parts.find((part) => part.type === 'year')?.value;
+      const month = parts.find((part) => part.type === 'month')?.value;
+      const day = parts.find((part) => part.type === 'day')?.value;
+      if (year && month && day) return `${year}-${month}-${day}`;
+    } catch {
+      // noop: fallback UTC
+    }
+
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  private async getClubTodayDateKey(clubId: number): Promise<string> {
+    const club = await prisma.club.findUnique({
+      where: { id: clubId },
+      select: { settings: { select: { timeZone: true } } }
+    });
+    const timeZone = String(club?.settings?.timeZone || ActivityTypeAdminService.DEFAULT_TIME_ZONE).trim() || ActivityTypeAdminService.DEFAULT_TIME_ZONE;
+    return this.getDateKeyInTimeZone(timeZone);
+  }
+
   private assertScheduleExceptionsSupport() {
     const prismaAny = prisma as any;
     if (prismaAny?.activityScheduleException) return;
@@ -146,6 +180,10 @@ export class ActivityTypeAdminService {
     const activity = await this.ensureActivityOwnership(clubId, activityTypeId);
     this.assertScheduleExceptionsSupport();
     const { key, dbDate } = this.parseLocalDate(input.localDate);
+    const todayDateKey = await this.getClubTodayDateKey(clubId);
+    if (key < todayDateKey) {
+      throw new Error(`localDate no puede ser una fecha pasada (mínimo permitido: ${todayDateKey})`);
+    }
     const isClosed = Boolean(input.isClosed);
 
     const prismaAny = prisma as any;

@@ -124,6 +124,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return sessionResponse;
   }, []);
 
+  const tryRefreshSession = useCallback(async () => {
+    const headers = new Headers();
+    const activeClubId = getActiveClubId();
+    if (activeClubId) {
+      headers.set('x-active-club-id', String(activeClubId));
+    }
+
+    const refreshResponse = await fetch(`${apiBase()}/auth/session/refresh`, {
+      method: 'POST',
+      headers,
+      credentials: 'include'
+    });
+
+    return refreshResponse.ok;
+  }, []);
+
   const revalidateSession = useCallback(async () => {
     if (revalidateInFlightRef.current) {
       return revalidateInFlightRef.current;
@@ -157,6 +173,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         if (response.status === 401 || response.status === 403) {
           const code = await parseAuthCode(response);
+          if (code === 'AUTH_EXPIRED' || code === 'AUTH_INVALID' || code === 'AUTH_MISSING') {
+            try {
+              const refreshed = await tryRefreshSession();
+              if (refreshed) {
+                const retriedResponse = await requestSessionMe();
+                if (retriedResponse.ok) {
+                  const retriedPayload = (await retriedResponse.json()) as AuthUser;
+                  applyAuthenticated(retriedPayload);
+                  return;
+                }
+              }
+            } catch {
+              // Si falla refresh seguimos al flujo guest.
+            }
+          }
           if (isGuestAuthCode(code) || response.status === 401) {
             setGuest();
             return;
@@ -178,7 +209,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     revalidateInFlightRef.current = task;
     return task;
-  }, [applyAuthenticated, requestSessionMe, setGuest, status]);
+  }, [applyAuthenticated, requestSessionMe, setGuest, status, tryRefreshSession]);
 
   useEffect(() => {
     void revalidateSession();
