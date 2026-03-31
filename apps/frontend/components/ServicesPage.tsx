@@ -28,10 +28,10 @@ const ModalPortal = ({ children, onClose }: { children: ReactNode; onClose: () =
       }}
     >
       <div
-        className="relative z-10 w-full max-w-md bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden text-[#347048]"
+        className="density-compact relative z-10 w-full max-w-md bg-[#EBE1D8] border-2 border-white rounded-[2rem] shadow-2xl flex flex-col max-h-[93vh] overflow-hidden text-[#347048]"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="overflow-y-auto p-8">{children}</div>
+        <div className="overflow-y-auto p-5">{children}</div>
       </div>
     </div>,
     document.body
@@ -162,18 +162,18 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
     );
   });
 
-  const inputClass = 'w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all';
+  const inputClass = 'compact-field w-full h-10 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all';
   const labelClass = 'block text-[10px] font-black text-[#347048]/60 mb-1.5 uppercase tracking-widest ml-1';
 
   return (
     <>
-      <div className="flex flex-col sm:flex-row gap-6 justify-between items-start sm:items-center mb-8">
+      <div className="density-compact flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center mb-5">
         <div className="relative flex-1 w-full sm:max-w-md group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[#347048]/40 group-focus-within:text-[#B9CF32]" size={18} strokeWidth={2.5} />
           <input
             type="text"
             placeholder="Buscar por codigo o nombre..."
-            className="w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl pl-12 pr-4 py-3 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
+            className="compact-field w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl pl-12 pr-4 py-2.5 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -182,22 +182,22 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
         <button
           type="button"
           onClick={openNew}
-          className="w-full sm:w-auto px-6 py-3 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-[#347048]/20 uppercase tracking-widest text-xs italic"
+          className="compact-field w-full sm:w-auto px-5 py-2.5 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-[#347048]/20 uppercase tracking-widest text-xs italic"
         >
           <Plus size={18} strokeWidth={3} /> Nuevo servicio
         </button>
       </div>
 
-      <div className="bg-white/40 border-2 border-white rounded-[2rem] overflow-hidden shadow-sm">
+      <div className="density-compact bg-white/40 border-2 border-white rounded-[1.5rem] overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-separate border-spacing-y-2 px-4">
+          <table className="w-full text-left border-separate border-spacing-y-1.5 px-3">
             <thead>
               <tr className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]/40">
-                <th className="px-6 py-4">Codigo</th>
-                <th className="px-6 py-4">Servicio</th>
-                <th className="px-6 py-4">Precio</th>
-                <th className="px-6 py-4">Estado</th>
-                <th className="px-6 py-4 text-right">Acciones</th>
+                <th className="px-4 py-3">Codigo</th>
+                <th className="px-4 py-3">Servicio</th>
+                <th className="px-4 py-3">Precio</th>
+                <th className="px-4 py-3">Estado</th>
+                <th className="px-4 py-3 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="text-sm font-bold">
@@ -216,17 +216,17 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
               ) : (
                 filtered.map((service) => (
                   <tr key={service.id} className="bg-white/80 hover:bg-white transition-all shadow-sm">
-                    <td className="px-6 py-5 first:rounded-l-2xl text-[#926699] font-black uppercase">{service.code}</td>
-                    <td className="px-6 py-5 text-[#347048] font-black">{service.name}</td>
-                    <td className="px-6 py-5 text-lg font-black text-[#347048] italic tracking-tighter">
+                    <td className="px-4 py-3 first:rounded-l-2xl text-[#926699] font-black uppercase">{service.code}</td>
+                    <td className="px-4 py-3 text-[#347048] font-black">{service.name}</td>
+                    <td className="px-4 py-3 text-base font-black text-[#347048] italic tracking-tighter">
                       ${Number(service.price || 0).toLocaleString()}
                     </td>
-                    <td className="px-6 py-5">
+                    <td className="px-4 py-3">
                       <span className={`text-[10px] font-black px-3 py-1 rounded-full border uppercase tracking-widest ${service.isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-600 border-red-200'}`}>
                         {service.isActive ? 'Activo' : 'Inactivo'}
                       </span>
                     </td>
-                    <td className="px-6 py-5 last:rounded-r-2xl text-right">
+                    <td className="px-4 py-3 last:rounded-r-2xl text-right">
                       <div className="flex justify-end gap-3">
                         <button
                           type="button"
@@ -258,7 +258,7 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
 
       {isModalOpen && (
         <ModalPortal onClose={() => setIsModalOpen(false)}>
-          <div className="flex justify-between items-start mb-8 border-b border-[#347048]/10 pb-6">
+          <div className="flex justify-between items-start mb-5 border-b border-[#347048]/10 pb-4">
             <div>
               <h3 className="text-2xl font-black text-[#926699] flex items-center gap-3 uppercase italic tracking-tighter">
                 <div className="bg-[#926699] p-2 rounded-xl text-[#EBE1D8] shadow-lg shadow-[#926699]/20">
@@ -277,7 +277,7 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
             </button>
           </div>
 
-          <form onSubmit={submitForm} className="space-y-6">
+            <form onSubmit={submitForm} className="space-y-4">
             <div>
               <label className={labelClass}>Codigo del servicio</label>
               <div className="relative">
@@ -326,14 +326,14 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
               <textarea
                 value={form.description}
                 onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
-                className="w-full min-h-[100px] bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 py-3 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all resize-none"
+                className="w-full min-h-[88px] bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 py-3 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all resize-none"
                 placeholder="Detalle opcional del servicio"
               />
             </div>
 
             <button
               type="submit"
-              className="w-full h-12 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-xl uppercase tracking-widest text-xs"
+              className="compact-field w-full h-10 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-xl uppercase tracking-widest text-xs"
             >
               {editing ? 'Guardar cambios' : 'Crear servicio'}
             </button>

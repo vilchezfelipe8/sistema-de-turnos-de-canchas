@@ -62,6 +62,43 @@
       linear-gradient(165deg, #2d6240 0%, #347048 48%, #2a5c3b 100%);
     background-attachment: fixed;
   }
+
+  /* Compact density system for data-heavy views */
+  .density-compact {
+    --compact-field-height: 2.3rem;
+    --compact-radius: 0.7rem;
+  }
+
+  .density-compact .compact-card {
+    padding: 1rem !important;
+    border-radius: 1rem !important;
+  }
+
+  .density-compact .compact-stack {
+    gap: 0.75rem !important;
+  }
+
+  .density-compact .compact-grid {
+    gap: 0.75rem !important;
+  }
+
+  .density-compact .compact-field,
+  .density-compact input:not([type='checkbox']):not([type='radio']),
+  .density-compact select,
+  .density-compact textarea {
+    min-height: var(--compact-field-height);
+    border-radius: var(--compact-radius);
+    font-size: 0.875rem;
+  }
+
+  .density-compact .compact-title {
+    font-size: clamp(1.15rem, 2vw, 1.6rem) !important;
+    line-height: 1.15 !important;
+  }
+
+  .density-compact .compact-subtitle {
+    font-size: 0.8125rem !important;
+  }
 }
 
 /* Paleta B/N global */

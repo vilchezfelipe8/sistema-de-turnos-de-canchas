@@ -627,27 +627,27 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
   };
   
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
+    <div className="density-compact space-y-5 animate-in fade-in duration-300">
 
       {/* TARJETAS KPI */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white border-4 border-white p-6 rounded-[2rem] shadow-xl flex items-center justify-between">
-             <div><h3 className="text-[#347048]/40 text-[10px] font-black uppercase tracking-widest mb-1">Total Clientes</h3><p className="text-4xl font-black text-[#347048] italic tracking-tighter">{totalClients}</p></div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+         <div className="bg-white border-4 border-white p-4 rounded-[1.5rem] shadow-xl flex items-center justify-between">
+           <div><h3 className="text-[#347048]/40 text-[10px] font-black uppercase tracking-widest mb-1">Total Clientes</h3><p className="text-3xl font-black text-[#347048] italic tracking-tighter">{totalClients}</p></div>
              <div className="bg-[#347048]/5 p-4 rounded-2xl text-[#347048]"><Users size={28} /></div>
           </div>
-          <div className="bg-white border-4 border-white p-6 rounded-[2rem] shadow-xl flex items-center justify-between">
+         <div className="bg-white border-4 border-white p-4 rounded-[1.5rem] shadow-xl flex items-center justify-between">
              <div><h3 className="text-[#926699]/60 text-[10px] font-black uppercase tracking-widest mb-1">Más Fiel</h3><p className="text-xl font-black text-[#926699] italic tracking-tight truncate max-w-[150px] uppercase">{topClient.name}</p></div>
              <div className="bg-[#926699]/10 p-4 rounded-2xl text-[#926699]"><Trophy size={28} /></div>
           </div>
-          <div className={`border-4 p-6 rounded-[2rem] shadow-xl flex items-center justify-between transition-colors ${totalDebt > 0 ? 'bg-white border-red-100' : 'bg-white border-emerald-100'}`}>
-             <div><h3 className={`${totalDebt > 0 ? 'text-red-500' : 'text-emerald-600'} text-[10px] font-black uppercase tracking-widest mb-1`}>{totalDebt > 0 ? 'Fiado / A Cobrar' : 'Cuentas al Día'}</h3><p className={`text-4xl font-black italic tracking-tighter ${totalDebt > 0 ? 'text-red-600' : 'text-emerald-600'}`}>${totalDebt.toLocaleString()}</p></div>
+         <div className={`border-4 p-4 rounded-[1.5rem] shadow-xl flex items-center justify-between transition-colors ${totalDebt > 0 ? 'bg-white border-red-100' : 'bg-white border-emerald-100'}`}>
+           <div><h3 className={`${totalDebt > 0 ? 'text-red-500' : 'text-emerald-600'} text-[10px] font-black uppercase tracking-widest mb-1`}>{totalDebt > 0 ? 'Fiado / A Cobrar' : 'Cuentas al Día'}</h3><p className={`text-3xl font-black italic tracking-tighter ${totalDebt > 0 ? 'text-red-600' : 'text-emerald-600'}`}>${totalDebt.toLocaleString()}</p></div>
              <div className={`${totalDebt > 0 ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-600'} p-4 rounded-2xl`}><DollarSign size={28} strokeWidth={2.5} /></div>
           </div>
       </div>
 
       {/* TABLA + BUSCADOR */}
-      <div className="bg-white/40 backdrop-blur-sm border-2 border-white rounded-[2rem] p-6 overflow-hidden shadow-sm">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8 px-2">
+      <div className="bg-white/40 backdrop-blur-sm border-2 border-white rounded-[1.5rem] p-4 overflow-hidden shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5 px-1">
             <div className="flex flex-wrap items-center gap-3">
               <h2 className="text-xl font-black text-[#347048] flex items-center gap-3 uppercase italic tracking-tight">
                 <Receipt className="text-[#B9CF32]" /> Directorio de Clientes
@@ -700,17 +700,17 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
             </div>
         </div>
         
-        {loading ? <div className="py-20 flex justify-center"><div className="animate-spin rounded-full h-10 w-10 border-b-4 border-[#347048]"></div></div> : (
+        {loading ? <div className="py-12 flex justify-center"><div className="animate-spin rounded-full h-10 w-10 border-b-4 border-[#347048]"></div></div> : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-separate border-spacing-y-2">
+            <table className="w-full text-left border-separate border-spacing-y-1.5">
               <thead>
                 <tr className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]/40">
-                  <th className="px-6 py-2">Cliente</th>
-                  <th className="px-6 py-2">DNI</th>
-                  <th className="px-6 py-2">Contacto</th>
-                  <th className="px-6 py-2">Historial (Cuentas)</th>
-                  <th className="px-6 py-2">Saldo</th>
-                  <th className="px-6 py-2 text-right">Acciones</th>
+                  <th className="px-4 py-2">Cliente</th>
+                  <th className="px-4 py-2">DNI</th>
+                  <th className="px-4 py-2">Contacto</th>
+                  <th className="px-4 py-2">Historial (Cuentas)</th>
+                  <th className="px-4 py-2">Saldo</th>
+                  <th className="px-4 py-2 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -729,11 +729,11 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                           onClick={() => setSelectedClientDetail(client)}
                         >
                             
-                            <td className="px-6 py-4 font-black text-[#347048] first:rounded-l-2xl uppercase tracking-tight italic">
+                            <td className="px-4 py-3 font-black text-[#347048] first:rounded-l-2xl uppercase tracking-tight italic">
                               <span className="group-hover:text-[#2b6a43] transition-colors">{client.name}</span>
                             </td>
                             
-                            <td className="px-6 py-4">
+                            <td className="px-4 py-3">
                                 {/* 2. Y ACÁ LO MOSTRAMOS SÚPER FÁCIL */}
                                 {dniFinal ? (
                                     <button
@@ -753,7 +753,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                                 )}
                             </td>
                             
-                            <td className="px-6 py-4 text-[#347048]/70 font-bold text-xs uppercase">
+                            <td className="px-4 py-3 text-[#347048]/70 font-bold text-xs uppercase">
                                 {client.phone ? (
                                   <button
                                     type="button"
@@ -771,7 +771,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                                 ) : '-'}
                             </td>
                             
-                            <td className="px-6 py-4">
+                            <td className="px-4 py-3">
                               <div className="flex flex-wrap gap-2">
                                 <span className="inline-flex whitespace-nowrap text-[10px] font-black bg-[#926699]/10 text-[#926699] px-3 py-1 rounded-full border border-[#926699]/20 uppercase tracking-widest">
                                   {historyCount} Cuentas
@@ -784,7 +784,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                               </div>
                             </td>
                             
-                            <td className="px-6 py-4">
+                            <td className="px-4 py-3">
                               {client.totalDebt > 0 ? (
                                   <span className="inline-flex items-center gap-2 whitespace-nowrap bg-red-50 text-red-600 px-3 py-1.5 rounded-xl text-[10px] font-black border border-red-100 uppercase tracking-wider italic">DEBE: ${client.totalDebt.toLocaleString()}</span>
                               ) : (
@@ -792,7 +792,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                               )}
                             </td>
                             
-                            <td className="px-6 py-4 last:rounded-r-2xl">
+                            <td className="px-4 py-3 last:rounded-r-2xl">
                               <div className="flex flex-nowrap justify-end gap-3">
                                 <button
                                   type="button"
@@ -873,8 +873,8 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
             }
           }}
         >
-          <div className="bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl">
-            <div className="p-8 border-b border-[#347048]/10 flex items-center justify-between bg-[#EBE1D8]">
+          <div className="bg-[#EBE1D8] border-2 border-white rounded-[2rem] w-full max-w-2xl max-h-[92vh] overflow-hidden flex flex-col shadow-2xl">
+            <div className="p-5 border-b border-[#347048]/10 flex items-center justify-between bg-[#EBE1D8]">
               <div>
                 <h3 className="text-2xl font-black text-[#347048] flex items-center gap-3 uppercase italic tracking-tighter">
                   {selectedClientDetail.name}
@@ -895,7 +895,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
               </button>
             </div>
 
-            <div className="p-8 overflow-y-auto space-y-4 custom-scrollbar bg-white/40">
+            <div className="p-5 overflow-y-auto space-y-3 custom-scrollbar bg-white/40">
               <div className="rounded-2xl border border-[#347048]/10 bg-white/80 p-3">
                 <div className="text-[9px] font-black uppercase tracking-widest text-[#347048]/45 mb-2">Roles</div>
                 <div className="flex flex-wrap gap-2">
@@ -1030,8 +1030,8 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
             }
           }}
         >
-            <div className="bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh]">
-                <div className="p-8 border-b border-[#347048]/10 bg-[#EBE1D8] flex justify-between items-center">
+            <div className="bg-[#EBE1D8] border-2 border-white rounded-[2rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[92vh]">
+              <div className="p-5 border-b border-[#347048]/10 bg-[#EBE1D8] flex justify-between items-center">
                     <div>
                         <h3 className="text-2xl font-black text-[#347048] flex items-center gap-3 uppercase italic tracking-tighter">Deuda de {selectedDebtor.name}</h3>
                         <p className="text-[#347048]/60 text-xs font-bold mt-1 uppercase tracking-widest italic">Total Pendiente: <span className="text-red-600 font-black text-lg ml-2">${selectedDebtor.totalDebt}</span></p>
@@ -1045,7 +1045,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                     </button>
                 </div>
 
-                <div className="p-8 flex-1 min-h-0 overflow-y-auto custom-scrollbar space-y-4 bg-white/40">
+                <div className="p-5 flex-1 min-h-0 overflow-y-auto custom-scrollbar space-y-3 bg-white/40">
                   {selectedDebtorPendingEntries.length > 0 ? selectedDebtorPendingEntries.map((account: any) => {
                       const paymentStatus = String(account.paymentStatus || '');
                       const accountStatus = String(account.accountStatus || account.status || '');
@@ -1056,7 +1056,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                           key={account.id}
                           role="button"
                           onClick={() => openAccountDetail(account)}
-                          className="bg-white p-5 rounded-[1.5rem] border-2 border-[#347048]/5 flex justify-between items-center shadow-sm cursor-pointer hover:scale-[1.01] transition-transform"
+                          className="bg-white p-4 rounded-[1.25rem] border-2 border-[#347048]/5 flex justify-between items-center shadow-sm cursor-pointer hover:scale-[1.01] transition-transform"
                         >
                           <div className="flex flex-col flex-1">
                             <div className="flex items-center gap-3 mb-3">
@@ -1084,9 +1084,9 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                               </span>
                             </div>
                           </div>
-                          <div className="flex items-center gap-6 pl-8 border-l-2 border-dashed border-[#347048]/10">
+                          <div className="flex items-center gap-4 pl-5 border-l-2 border-dashed border-[#347048]/10">
                             <div className="text-right">
-                              <div className={`text-2xl font-black font-mono italic tracking-tighter ${isPending ? 'text-red-600' : 'text-emerald-600'}`}>
+                              <div className={`text-xl font-black font-mono italic tracking-tighter ${isPending ? 'text-red-600' : 'text-emerald-600'}`}>
                                 ${Number(account.amount || 0).toLocaleString()}
                               </div>
                               <div className="text-[9px] text-[#347048]/40 uppercase font-black tracking-widest">
@@ -1098,9 +1098,9 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                                 event.stopPropagation();
                                 handleOpenPayModal({ accountId: String(account.id) });
                               }}
-                              className="bg-[#B9CF32] hover:bg-[#aebd2b] text-[#347048] h-12 w-12 flex items-center justify-center rounded-2xl shadow-lg transition-all active:scale-95"
+                              className="bg-[#B9CF32] hover:bg-[#aebd2b] text-[#347048] h-10 w-10 flex items-center justify-center rounded-xl shadow-lg transition-all active:scale-95"
                             >
-                              <DollarSign size={24} strokeWidth={3} />
+                              <DollarSign size={20} strokeWidth={3} />
                             </button>
                           </div>
                         </div>
@@ -1161,8 +1161,8 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
             }
           }}
         >
-          <div className="bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl">
-            <div className="p-8 border-b border-[#347048]/10 flex items-center justify-between bg-[#EBE1D8]">
+          <div className="bg-[#EBE1D8] border-2 border-white rounded-[2rem] w-full max-w-2xl max-h-[92vh] overflow-hidden flex flex-col shadow-2xl">
+            <div className="p-5 border-b border-[#347048]/10 flex items-center justify-between bg-[#EBE1D8]">
               <div>
                 <h3 className="text-2xl font-black text-[#347048] flex items-center gap-3 uppercase italic tracking-tighter">Historial de cuentas: {selectedClientHistory.name}</h3>
                 <p className="text-[10px] font-black text-[#347048]/40 mt-1 uppercase tracking-widest">DNI: {selectedClientHistory.dni || '-'} · Tel: {selectedClientHistory.phone || '-'}</p>
@@ -1175,7 +1175,7 @@ export default function ClientsPage({ clubSlug }: ClientsPageProps = {}) {
                 <X size={20} strokeWidth={3} />
               </button>
             </div>
-            <div className="p-8 overflow-y-auto space-y-4 custom-scrollbar bg-white/40">
+            <div className="p-5 overflow-y-auto space-y-3 custom-scrollbar bg-white/40">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="rounded-2xl border border-[#347048]/10 bg-white/80 p-3">
                   <div className="text-[9px] font-black uppercase tracking-widest text-[#347048]/45">Próxima reserva</div>

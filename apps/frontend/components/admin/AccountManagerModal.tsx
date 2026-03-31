@@ -159,15 +159,15 @@ export default function AccountManagerModal({
     ? 'grid grid-cols-1 md:grid-cols-4 gap-3'
     : 'grid grid-cols-1 md:grid-cols-2 gap-3';
   const inputClass =
-    'w-full h-12 bg-white border-2 border-[#347048]/10 focus:border-[#B9CF32] rounded-xl px-4 text-sm font-bold text-[#347048] outline-none transition-all shadow-sm';
+    'compact-field w-full h-11 bg-white border-2 border-[#347048]/10 focus:border-[#B9CF32] rounded-xl px-4 text-sm font-bold text-[#347048] outline-none transition-all shadow-sm';
   const selectClass = `${inputClass} pr-10 appearance-none`;
   const labelClass =
     'block text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]/60 mb-1.5';
-  const cardClass = 'rounded-2xl border border-white/60 bg-white/40 p-4';
+  const cardClass = 'compact-card rounded-2xl border border-white/60 bg-white/40 p-4';
   const primaryButtonClass =
-    'h-12 rounded-xl bg-[#347048] text-[#EBE1D8] text-xs font-black uppercase tracking-widest shadow-lg shadow-[#347048]/20 hover:bg-[#B9CF32] hover:text-[#347048] transition-all disabled:opacity-60 disabled:cursor-not-allowed';
+    'compact-field h-11 rounded-xl bg-[#347048] text-[#EBE1D8] text-xs font-black uppercase tracking-widest shadow-lg shadow-[#347048]/20 hover:bg-[#B9CF32] hover:text-[#347048] transition-all disabled:opacity-60 disabled:cursor-not-allowed';
   const accentButtonClass =
-    'h-12 rounded-xl bg-[#926699] text-[#EBE1D8] text-xs font-black uppercase tracking-widest shadow-lg shadow-[#926699]/20 hover:brightness-110 transition-all';
+    'compact-field h-11 rounded-xl bg-[#926699] text-[#EBE1D8] text-xs font-black uppercase tracking-widest shadow-lg shadow-[#926699]/20 hover:brightness-110 transition-all';
   const sourceLabel =
     payment.source === 'ONLINE'
       ? 'En linea (ONLINE)'
@@ -181,7 +181,7 @@ export default function AccountManagerModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-6xl bg-[#EBE1D8] border-4 border-white/50 rounded-[2rem] shadow-2xl p-5"
+        className="density-compact w-full max-w-6xl bg-[#EBE1D8] border-4 border-white/50 rounded-[1.5rem] shadow-2xl p-4"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3 mb-4">
@@ -212,9 +212,9 @@ export default function AccountManagerModal({
             Cargando cuenta...
           </div>
         ) : (
-          <div className="max-h-[calc(100vh-12rem)] overflow-y-auto pr-1">
-            <div className="grid grid-cols-12 gap-6">
-              <div className="col-span-12 lg:col-span-7 lg:pr-6 lg:border-r lg:border-[#347048]/10 space-y-5">
+          <div className="max-h-[calc(100vh-10rem)] overflow-y-auto pr-1">
+            <div className="grid grid-cols-12 gap-4">
+              <div className="col-span-12 lg:col-span-7 lg:pr-4 lg:border-r lg:border-[#347048]/10 space-y-4">
                 {!isClosed && (
                   <div className={cardClass}>
                     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]/60 mb-3">Cargar consumos</p>

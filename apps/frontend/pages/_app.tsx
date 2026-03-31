@@ -184,7 +184,9 @@ export default function MyApp({ Component, pageProps }: AppProps) {
       </Head>
       <ActiveClubProvider>
         <AuthProvider>
-          <Component {...pageProps} />
+          <div className="density-compact">
+            <Component {...pageProps} />
+          </div>
         </AuthProvider>
       </ActiveClubProvider>
       {notices.length > 0 && (

@@ -272,16 +272,16 @@ export default function LoginPage() {
         <div className="absolute bottom-0 right-0 w-[500px] h-[500px] rounded-full bg-[#926699] blur-[150px]"></div>
       </div>
 
-      <div className="w-full max-w-md relative z-10 animate-in fade-in zoom-in duration-300">
+      <div className="density-compact w-full max-w-md relative z-10 animate-in fade-in zoom-in duration-300">
 
         {/* Card Principal Beige Wimbledon */}
-        <div className="bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] shadow-2xl shadow-black/40 p-8 md:p-10 relative overflow-hidden">
+        <div className="bg-[#EBE1D8] border-4 border-white rounded-[1.75rem] shadow-2xl shadow-black/40 p-5 md:p-6 relative overflow-hidden">
           
-          <div className="text-center mb-8">
+          <div className="text-center mb-5">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[#347048] text-[#B9CF32] shadow-inner mb-4">
                {isLogin ? <Lock size={32} strokeWidth={2.5} /> : <UserPlus size={32} strokeWidth={2.5} />}
             </div>
-            <h2 className="text-3xl font-black text-[#347048] uppercase italic tracking-tighter">
+            <h2 className="text-2xl font-black text-[#347048] uppercase italic tracking-tighter">
               {isLogin ? 'Iniciar Sesión' : 'Crear Cuenta'}
             </h2>
             <p className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest mt-2">
@@ -304,7 +304,7 @@ export default function LoginPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-4">
             {!isLogin && (
               <div className="grid grid-cols-2 gap-4">
                 

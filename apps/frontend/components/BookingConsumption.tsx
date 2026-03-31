@@ -300,7 +300,7 @@ export default function BookingConsumption(
   };
 
   return (
-    <div className="space-y-6 text-[#347048]">
+    <div className="density-compact space-y-4 text-[#347048]">
       <div className="flex justify-between items-start mb-2">
         <div>
           <h2 className="text-2xl font-black text-[#926699] uppercase italic tracking-tighter">
@@ -320,11 +320,11 @@ export default function BookingConsumption(
       </div>
 
       {/* SECCIÓN: AGREGAR CONSUMO */}
-      <div className="bg-[#347048]/5 p-5 rounded-2xl border border-[#347048]/10 relative z-50">
+      <div className="bg-[#347048]/5 p-4 rounded-2xl border border-[#347048]/10 relative z-50">
         <h3 className="text-[#926699] font-black flex items-center gap-2 mb-4 text-xs uppercase tracking-[0.1em]">
           <ShoppingCart size={16} strokeWidth={3} /> Agregar Consumo / Extra
         </h3>
-        <div className="flex gap-3 relative">
+        <div className="flex gap-2.5 relative">
             <div className="flex-1">
               <ProductSearch
                 products={products || []}
@@ -341,7 +341,7 @@ export default function BookingConsumption(
 
             <input 
                 type="number" min="1" 
-                className="w-20 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-2 text-center text-[#347048] font-black shadow-sm outline-none"
+              className="compact-field w-16 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-2 text-center text-[#347048] font-black shadow-sm outline-none"
                 value={quantity} onChange={(e) => setQuantity(Number(e.target.value))}
             />
             <div className="bg-[#926699] text-[#EBE1D8] p-3 rounded-xl opacity-40 select-none">
@@ -407,8 +407,8 @@ export default function BookingConsumption(
       </div>
 
       {/* TICKET FINAL */}
-      <div className="bg-white border-4 border-[#B9CF32]/30 rounded-[2rem] p-6 shadow-sm relative overflow-hidden z-0">
-        <div className="space-y-2 mb-5">
+      <div className="bg-white border-4 border-[#B9CF32]/30 rounded-[1.5rem] p-4 shadow-sm relative overflow-hidden z-0">
+        <div className="space-y-1.5 mb-4">
           <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest opacity-60">
             <span>Alquiler Cancha</span>
             <div className="flex items-center gap-3">
@@ -468,22 +468,22 @@ export default function BookingConsumption(
           </div>
         </div>
 
-        <div className="flex justify-between items-end pt-4 border-t-2 border-dashed border-[#347048]/10">
+          <div className="flex justify-between items-end pt-3 border-t-2 border-dashed border-[#347048]/10">
           <span className="text-[#347048]/50 font-black text-[10px] uppercase tracking-[0.2em] mb-1">Total a registrar</span>
-          <span className="text-5xl font-black text-[#347048] tracking-tighter leading-none italic">
+          <span className="text-4xl font-black text-[#347048] tracking-tighter leading-none italic">
             ${finalTotal.toLocaleString()}
           </span>
         </div>
       </div>
 
       {/* BOTONES DE ACCIÓN */}
-      <div className="grid grid-cols-1 gap-4 pt-2 relative z-0">
+      <div className="grid grid-cols-1 gap-3 pt-1 relative z-0">
         <button 
           onClick={() => {
             setShowPaymentModal(true);
           }} 
           disabled={saving || !hasPendingCharges || isCancelled}
-          className="flex flex-col items-center justify-center gap-1 py-4 bg-[#B9CF32] text-[#347048] font-black uppercase text-[10px] tracking-widest rounded-2xl shadow-xl shadow-[#B9CF32]/20 transition-all hover:-translate-y-1 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed"
+          className="compact-field flex flex-col items-center justify-center gap-1 py-3 bg-[#B9CF32] text-[#347048] font-black uppercase text-[10px] tracking-widest rounded-2xl shadow-xl shadow-[#B9CF32]/20 transition-all hover:-translate-y-1 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed"
         >
           <div className="flex items-center gap-2"><Banknote size={18} strokeWidth={2.5} /> Registrar pago</div>
         </button>

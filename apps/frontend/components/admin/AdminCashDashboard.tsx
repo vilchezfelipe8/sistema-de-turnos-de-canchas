@@ -253,6 +253,7 @@ const AdminCashDashboard = () => {
   const clientWrapperRef = useRef<HTMLDivElement | null>(null);
   const [selectedMovement, setSelectedMovement] = useState<Movement | null>(null);
   const [showMovementModal, setShowMovementModal] = useState(false);
+  const [cashPanelView, setCashPanelView] = useState<'caja' | 'ingresos'>('caja');
   const [actionFeedback, setActionFeedback] = useState<{ show: boolean; title: string; message: string }>({
     show: false,
     title: '',
@@ -1249,26 +1250,57 @@ const AdminCashDashboard = () => {
 
   return (
     <>
-    <div className="space-y-8 animate-in fade-in duration-500">
+    <div className="density-compact space-y-6 animate-in fade-in duration-500">
       
-      {/* TÍTULO DE SECCIÓN */}
-      <div className="flex items-center justify-between mb-2">
-        <div>
-           <h2 className="text-3xl font-black text-[#EBE1D8] flex items-center gap-3 uppercase italic tracking-tighter">
-          <div className="bg-[#B9CF32] text-[#347048] p-2 rounded-xl shadow-lg shadow-[#B9CF32]/20">
-            <Wallet size={28} strokeWidth={3} />
-          </div>
-          Caja y Movimientos
-        </h2>
-            <p className="text-[#EBE1D8]/60 text-xs font-bold uppercase tracking-[0.2em] mt-1 ml-14">Resumen diario y control de flujo</p>
-        </div>
-        <div className="bg-[#347048]/40 border border-[#EBE1D8]/10 px-4 py-2 rounded-2xl backdrop-blur-sm">
-            <span className="text-[#EBE1D8] font-black text-sm uppercase italic">{new Date().toLocaleDateString('es-AR', { day: '2-digit', month: 'long' })}</span>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-xl sm:text-2xl font-black text-[#EBE1D8] uppercase italic tracking-tight">Caja y movimientos</h2>
+        <div className="inline-flex items-center gap-2 rounded-full border border-[#EBE1D8]/20 bg-[#347048]/35 px-3 py-1.5">
+          <Wallet size={14} strokeWidth={2.5} className="text-[#B9CF32]" />
+          <span className="text-[#EBE1D8] font-black text-[10px] uppercase tracking-widest">
+            {new Date().toLocaleDateString('es-AR', { day: '2-digit', month: 'long' })}
+          </span>
         </div>
       </div>
 
+      <div className="space-y-2">
+        <div
+          role="tablist"
+          aria-label="Subsecciones de caja"
+          className="relative grid grid-cols-2 w-full max-w-[340px] rounded-full border border-white/40 bg-white/15 p-1 shadow-[inset_0_1px_2px_rgba(255,255,255,0.2)] backdrop-blur-sm overflow-hidden"
+        >
+          <span
+            className={`pointer-events-none absolute top-1 bottom-1 w-[calc(50%-0.25rem)] rounded-full bg-[#EBE1D8] shadow-[0_6px_20px_rgba(0,0,0,0.2)] transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform ${cashPanelView === 'caja' ? 'translate-x-0.5' : 'translate-x-[calc(100%+0.05rem)]'}`}
+          />
+          <button
+            type="button"
+            role="tab"
+            aria-selected={cashPanelView === 'caja'}
+            onClick={() => setCashPanelView('caja')}
+            className={`relative z-10 h-9 px-3 rounded-full text-[10px] font-black uppercase tracking-widest transition-all duration-300 ease-out flex items-center justify-center gap-1.5 ${cashPanelView === 'caja' ? 'text-[#347048] scale-[1.02]' : 'text-[#EBE1D8]/80 hover:text-[#EBE1D8]'}`}
+          >
+            <Wallet size={13} strokeWidth={2.8} />
+            Caja
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={cashPanelView === 'ingresos'}
+            onClick={() => setCashPanelView('ingresos')}
+            className={`relative z-10 h-9 px-3 rounded-full text-[10px] font-black uppercase tracking-widest transition-all duration-300 ease-out flex items-center justify-center gap-1.5 ${cashPanelView === 'ingresos' ? 'text-[#347048] scale-[1.02]' : 'text-[#EBE1D8]/80 hover:text-[#EBE1D8]'}`}
+          >
+            <Receipt size={13} strokeWidth={2.8} />
+            Ingresos
+          </button>
+        </div>
+        <p className="text-[10px] font-black uppercase tracking-widest text-[#EBE1D8]/55">
+          {cashPanelView === 'caja' ? 'Apertura, cierre y estado de caja' : 'Movimientos, registros y ventas'}
+        </p>
+      </div>
+
+      {cashPanelView === 'caja' && (
+      <>
       {lastClosedReport && !currentShift && (
-        <div className="bg-[#EBE1D8] border-4 border-white p-6 rounded-[2.5rem] shadow-2xl">
+        <div className="bg-[#EBE1D8] border-4 border-white p-4 rounded-[1.5rem] shadow-2xl">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
             <div>
               <p className="text-[10px] font-black text-[#347048]/60 uppercase tracking-widest">Último cierre de caja</p>
@@ -1351,7 +1383,7 @@ const AdminCashDashboard = () => {
         </div>
       )}
 
-      <div className="bg-[#EBE1D8] border-4 border-white p-6 rounded-[2.5rem] shadow-2xl">
+      <div className="bg-[#EBE1D8] border-4 border-white p-4 rounded-[1.5rem] shadow-2xl">
         {shiftLoading ? (
           <p className="text-xs font-black uppercase tracking-widest text-[#347048]/60">Cargando estado de caja...</p>
         ) : currentShift ? (
@@ -1382,7 +1414,7 @@ const AdminCashDashboard = () => {
                   onWheel={(event) => {
                     event.currentTarget.blur();
                   }}
-                  className="w-full h-14 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl px-4 text-[#347048] font-black focus:outline-none shadow-sm transition-all"
+                  className="compact-field w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black focus:outline-none shadow-sm transition-all"
                   value={closeShiftForm.countedCash}
                   onChange={(e) => setCloseShiftForm({ countedCash: e.target.value })}
                 />
@@ -1390,7 +1422,7 @@ const AdminCashDashboard = () => {
               <button
                 type="submit"
                 disabled={closingShift}
-                className="h-14 px-8 bg-[#926699] hover:bg-[#347048] text-[#EBE1D8] font-black rounded-[1.2rem] shadow-xl transition-all uppercase tracking-widest text-xs italic disabled:opacity-70"
+                className="compact-field h-11 px-7 bg-[#926699] hover:bg-[#347048] text-[#EBE1D8] font-black rounded-xl shadow-xl transition-all uppercase tracking-widest text-xs italic disabled:opacity-70"
               >
                 {closingShift ? 'Cerrando...' : 'Cerrar caja'}
               </button>
@@ -1446,7 +1478,7 @@ const AdminCashDashboard = () => {
                       min={0}
                       step="0.01"
                       placeholder="0"
-                      className="w-full h-14 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl px-4 text-[#347048] font-black focus:outline-none shadow-sm transition-all"
+                      className="compact-field w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black focus:outline-none shadow-sm transition-all"
                       value={openShiftForm.openingAmount}
                       onChange={(e) => setOpenShiftForm((prev) => ({ ...prev, openingAmount: e.target.value }))}
                     />
@@ -1471,15 +1503,15 @@ const AdminCashDashboard = () => {
       </div>
 
       {/* HEADER DE BALANCE (TARJETAS BLANCAS) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         
         {/* BALANCE TOTAL */}
-        <div className="bg-white border-4 border-white p-6 rounded-[2.5rem] shadow-xl flex flex-col justify-between relative overflow-hidden group">
+        <div className="bg-white border-4 border-white p-4 rounded-[1.5rem] shadow-xl flex flex-col justify-between relative overflow-hidden group">
           <div className="flex items-center justify-between mb-4">
             <div className="p-3 bg-[#347048]/5 rounded-2xl text-[#347048]"><Wallet size={24} strokeWidth={2.5} /></div>
             <span className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest">Balance Período</span>
           </div>
-          <p className="text-4xl font-black text-[#347048] italic tracking-tighter mb-4">
+          <p className="text-3xl font-black text-[#347048] italic tracking-tighter mb-3">
             ${(balance?.total || 0).toLocaleString()}
           </p>
           <div className="flex gap-2 text-[9px] font-black uppercase tracking-wider">
@@ -1493,35 +1525,39 @@ const AdminCashDashboard = () => {
         </div>
 
         {/* EFECTIVO EN CAJA */}
-        <div className="bg-white border-4 border-white p-6 rounded-[2.5rem] shadow-xl flex flex-col justify-between">
+        <div className="bg-white border-4 border-white p-4 rounded-[1.5rem] shadow-xl flex flex-col justify-between">
           <div className="flex items-center justify-between mb-4">
             <div className="p-3 bg-emerald-50 rounded-2xl text-emerald-600"><Banknote size={24} strokeWidth={2.5} /></div>
             <span className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest">Efectivo Físico</span>
           </div>
-          <p className="text-4xl font-black text-[#347048] italic tracking-tighter mb-4">
+          <p className="text-3xl font-black text-[#347048] italic tracking-tighter mb-3">
             ${(balance?.cash || 0).toLocaleString()}
           </p>
           <p className="text-[10px] font-bold text-[#347048]/40 uppercase italic tracking-widest">Dinero en caja fuerte</p>
         </div>
 
         {/* BANCO / TRANSFERENCIAS */}
-        <div className="bg-white border-4 border-white p-6 rounded-[2.5rem] shadow-xl flex flex-col justify-between">
+        <div className="bg-white border-4 border-white p-4 rounded-[1.5rem] shadow-xl flex flex-col justify-between">
           <div className="flex items-center justify-between mb-4">
             <div className="p-3 bg-blue-50 rounded-2xl text-blue-600"><CreditCard size={24} strokeWidth={2.5} /></div>
             <span className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest">Banco / Transferencias</span>
           </div>
-          <p className="text-4xl font-black text-[#347048] italic tracking-tighter mb-4">
+          <p className="text-3xl font-black text-[#347048] italic tracking-tighter mb-3">
             ${(balance?.digital || 0).toLocaleString()}
           </p>
           <p className="text-[10px] font-bold text-[#347048]/40 uppercase italic tracking-widest">Billeteras virtuales y bancos</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      </>
+      )}
+
+      {cashPanelView === 'ingresos' && (
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         
         {/* LISTA DE MOVIMIENTOS */}
-        <div className="lg:col-span-2 bg-[#EBE1D8] border-4 border-white/50 rounded-[2.5rem] overflow-hidden shadow-2xl shadow-[#347048]/20 flex flex-col min-h-[500px]">
-          <div className="p-6 border-b border-[#347048]/10 flex justify-between items-center bg-[#EBE1D8]">
+        <div className="lg:col-span-2 bg-[#EBE1D8] border-4 border-white/50 rounded-[1.5rem] overflow-hidden shadow-2xl shadow-[#347048]/20 flex flex-col min-h-[420px]">
+          <div className="p-4 border-b border-[#347048]/10 flex justify-between items-center bg-[#EBE1D8]">
             <h3 className="text-xl font-black text-[#347048] flex items-center gap-3 uppercase italic tracking-tight">
                 <History size={20} className="text-[#926699]" /> Actividad Reciente
             </h3>
@@ -1656,18 +1692,18 @@ const AdminCashDashboard = () => {
 
         <div className="space-y-6">
   {/* FORMULARIO AGREGAR RÁPIDO */}
-        <div className="bg-[#EBE1D8] border-4 border-white p-6 rounded-[2.5rem] shadow-2xl h-fit">
-          <h3 className="text-xl font-black text-[#926699] mb-8 flex items-center gap-3 uppercase italic tracking-tight">
+        <div className="bg-[#EBE1D8] border-4 border-white p-4 rounded-[1.5rem] shadow-2xl h-fit">
+          <h3 className="text-xl font-black text-[#926699] mb-5 flex items-center gap-3 uppercase italic tracking-tight">
             <Plus size={24} strokeWidth={3} className="bg-[#926699] text-[#EBE1D8] rounded-lg p-1" /> Nuevo Registro
           </h3>
           
-          <form onSubmit={handleAddMovement} className="space-y-6">
+          <form onSubmit={handleAddMovement} className="space-y-4">
             <div>
               <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Concepto / Detalle</label>
               <input 
                 type="text" 
                 placeholder="Ej: Retiro, Compra Insumos..."
-                className="w-full h-14 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl px-4 text-[#347048] font-bold focus:outline-none shadow-sm placeholder-[#347048]/20 transition-all"
+                className="compact-field w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold focus:outline-none shadow-sm placeholder-[#347048]/20 transition-all"
                 value={newMove.description}
                 onChange={e => setNewMove({...newMove, description: e.target.value})}
               />
@@ -1679,7 +1715,7 @@ const AdminCashDashboard = () => {
                 <input 
                   type="number" 
                   placeholder="0"
-                  className="w-full h-14 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl px-4 text-[#347048] font-black focus:outline-none shadow-sm transition-all"
+                  className="compact-field w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-black focus:outline-none shadow-sm transition-all"
                   value={newMove.amount}
                   onChange={e => setNewMove({...newMove, amount: e.target.value})}
                 />
@@ -1701,7 +1737,7 @@ const AdminCashDashboard = () => {
             <button
               type="submit"
               disabled={!canSubmitMovement}
-              className="w-full py-4 bg-[#B9CF32] hover:bg-[#aebd2b] text-[#347048] font-black rounded-[1.5rem] shadow-xl shadow-[#B9CF32]/20 transition-all hover:-translate-y-1 active:scale-95 uppercase tracking-widest text-sm italic mt-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+              className="compact-field w-full py-3 bg-[#B9CF32] hover:bg-[#aebd2b] text-[#347048] font-black rounded-xl shadow-xl shadow-[#B9CF32]/20 transition-all hover:-translate-y-1 active:scale-95 uppercase tracking-widest text-sm italic mt-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
             >
               Registrar Movimiento
             </button>
@@ -1715,18 +1751,18 @@ const AdminCashDashboard = () => {
         </div>
 
         {/* FORMULARIO VENTA DE PRODUCTOS */}
-        <div className="bg-[#EBE1D8] border-4 border-white p-6 rounded-[2.5rem] shadow-2xl h-fit">
-          <h3 className="text-xl font-black text-[#347048] mb-8 flex items-center gap-3 uppercase italic tracking-tight">
+        <div className="bg-[#EBE1D8] border-4 border-white p-4 rounded-[1.5rem] shadow-2xl h-fit">
+          <h3 className="text-xl font-black text-[#347048] mb-5 flex items-center gap-3 uppercase italic tracking-tight">
             <Receipt size={22} strokeWidth={3} className="text-[#B9CF32]" /> Venta de productos
           </h3>
 
-          <form onSubmit={handleProductSale} className="space-y-6">
+          <form onSubmit={handleProductSale} className="space-y-4">
             <div className="relative z-30" ref={clientWrapperRef}>
               <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Cliente</label>
               <input
                 type="text"
                 placeholder="Buscar por nombre, DNI o teléfono..."
-                className="w-full h-14 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl px-4 text-[#347048] font-bold placeholder-[#347048]/20 focus:outline-none shadow-sm transition-all"
+                className="compact-field w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/20 focus:outline-none shadow-sm transition-all"
                 value={productSale.clientQuery}
                 onChange={(e) => handleClientSearchChange(e.target.value)}
               />
@@ -2077,6 +2113,7 @@ const AdminCashDashboard = () => {
 
         </div>
       </div>
+      )}
     </div>
       <AppModal
         show={showCreateClientModal}

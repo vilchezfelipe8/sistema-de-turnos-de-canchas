@@ -37,10 +37,10 @@ const ModalPortal = ({ children, onClose }: { children: ReactNode, onClose: () =
   >
       {/* Tarjeta Flotante Beige con bordes blancos */}
       <div
-        className="relative z-10 w-full max-w-md bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200 overflow-hidden text-[#347048]"
+        className="density-compact relative z-10 w-full max-w-md bg-[#EBE1D8] border-2 border-white rounded-[2rem] shadow-2xl flex flex-col max-h-[93vh] animate-in zoom-in-95 duration-200 overflow-hidden text-[#347048]"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="overflow-y-auto p-8 custom-scrollbar">
+        <div className="overflow-y-auto p-5 custom-scrollbar">
             {children}
         </div>
       </div>
@@ -237,20 +237,20 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
   );
 
   // Estilos Wimbledon para los inputs del Modal
-  const inputClass ="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all";
+  const inputClass ="compact-field w-full h-10 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all";
   const labelClass = 'block text-[10px] font-black text-[#347048]/60 mb-1.5 uppercase tracking-widest ml-1';
   const comboComponentOptions = products.filter((product) => !editingProduct || product.id !== editingProduct.id);
 
   return (
     <>
-      <div className="flex flex-col sm:flex-row gap-6 justify-between items-start sm:items-center mb-8">
+      <div className="density-compact flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center mb-5">
         {/* BUSCADOR */}
         <div className="relative flex-1 w-full sm:max-w-md group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[#347048]/40 group-focus-within:text-[#B9CF32] transition-colors" size={18} strokeWidth={2.5} />
           <input
             type="text"
             placeholder="Buscar por nombre de producto..."
-            className="w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl pl-12 pr-4 py-3 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
+            className="compact-field w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl pl-12 pr-4 py-2.5 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -260,24 +260,24 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
         <button
           type="button"
           onClick={openNew}
-          className="w-full sm:w-auto px-6 py-3 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-[#347048]/20 uppercase tracking-widest text-xs italic"
+          className="compact-field w-full sm:w-auto px-5 py-2.5 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-[#347048]/20 uppercase tracking-widest text-xs italic"
         >
           <Plus size={18} strokeWidth={3} /> Nuevo producto
         </button>
       </div>
 
       {/* TABLA DE PRODUCTOS */}
-      <div className="bg-white/40 border-2 border-white rounded-[2rem] overflow-hidden shadow-sm">
+      <div className="density-compact bg-white/40 border-2 border-white rounded-[1.5rem] overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
-            <table className="w-full text-left border-separate border-spacing-y-2 px-4">
+            <table className="w-full text-left border-separate border-spacing-y-1.5 px-3">
               <thead>
                 <tr className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]/40">
-                  <th className="px-6 py-4">Producto</th>
-                  <th className="px-6 py-4">Tipo</th>
-                  <th className="px-6 py-4">Categoría</th>
-                  <th className="px-6 py-4">Stock Actual</th>
-                  <th className="px-6 py-4">Precio Venta</th>
-                  <th className="px-6 py-4 text-right">Acciones</th>
+                  <th className="px-4 py-3">Producto</th>
+                  <th className="px-4 py-3">Tipo</th>
+                  <th className="px-4 py-3">Categoría</th>
+                  <th className="px-4 py-3">Stock Actual</th>
+                  <th className="px-4 py-3">Precio Venta</th>
+                  <th className="px-4 py-3 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="text-sm font-bold">
@@ -297,20 +297,20 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
                 ) : (
                   filteredProducts.map((product) => (
                     <tr key={product.id} className="bg-white/80 hover:bg-white transition-all shadow-sm group">
-                      <td className="px-6 py-5 first:rounded-l-2xl font-black text-[#347048] uppercase tracking-tight italic">
+                      <td className="px-4 py-3 first:rounded-l-2xl font-black text-[#347048] uppercase tracking-tight italic">
                         {product.name}
                       </td>
-                      <td className="px-6 py-5">
+                      <td className="px-4 py-3">
                         <span className={`text-[10px] font-black px-3 py-1 rounded-full border uppercase tracking-widest ${product.isCombo ? 'bg-[#347048]/10 text-[#347048] border-[#347048]/20' : 'bg-[#926699]/10 text-[#926699] border-[#926699]/20'}`}>
                           {product.isCombo ? 'Combo' : 'Simple'}
                         </span>
                       </td>
-                      <td className="px-6 py-5">
+                      <td className="px-4 py-3">
                         <span className="text-[10px] font-black bg-[#926699]/10 text-[#926699] px-3 py-1 rounded-full border border-[#926699]/20 uppercase tracking-widest">
                             {product.category || 'General'}
                         </span>
                       </td>
-                      <td className="px-6 py-5">
+                      <td className="px-4 py-3">
                         <span
                           className={`inline-flex px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border ${
                             product.stock < 5 ? 'bg-red-50 text-red-600 border-red-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'
@@ -319,10 +319,10 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
                           {product.stock} unidades
                         </span>
                       </td>
-                      <td className="px-6 py-5 text-lg font-black text-[#347048] italic tracking-tighter">
+                      <td className="px-4 py-3 text-base font-black text-[#347048] italic tracking-tighter">
                         ${product.price?.toLocaleString?.() ?? product.price}
                       </td>
-                      <td className="px-6 py-5 last:rounded-r-2xl text-right">
+                      <td className="px-4 py-3 last:rounded-r-2xl text-right">
                         <div className="flex justify-end gap-3">
                           <button
                             type="button"
@@ -354,7 +354,7 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
       {isModalOpen && (
         <ModalPortal onClose={() => setIsModalOpen(false)}>
             
-            <div className="flex justify-between items-start mb-8 border-b border-[#347048]/10 pb-6">
+            <div className="flex justify-between items-start mb-5 border-b border-[#347048]/10 pb-4">
               <div>
                 <h3 className="text-2xl font-black text-[#926699] flex items-center gap-3 uppercase italic tracking-tighter">
                     <div className="bg-[#926699] p-2 rounded-xl text-[#EBE1D8] shadow-lg shadow-[#926699]/20">
@@ -374,7 +374,7 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-4">
               {/* NOMBRE */}
               <div className="space-y-1.5">
                 <label className={labelClass}>Nombre del Producto</label>
@@ -398,14 +398,14 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
                   <button
                     type="button"
                     onClick={() => setFormData((prev) => ({ ...prev, isCombo: false }))}
-                    className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${!formData.isCombo ? 'bg-[#347048] border-[#347048] text-[#B9CF32]' : 'bg-white border-transparent text-[#347048]/40'}`}
+                    className={`compact-field py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${!formData.isCombo ? 'bg-[#347048] border-[#347048] text-[#B9CF32]' : 'bg-white border-transparent text-[#347048]/40'}`}
                   >
                     Producto simple
                   </button>
                   <button
                     type="button"
                     onClick={() => setFormData((prev) => ({ ...prev, isCombo: true }))}
-                    className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${formData.isCombo ? 'bg-[#347048] border-[#347048] text-[#B9CF32]' : 'bg-white border-transparent text-[#347048]/40'}`}
+                    className={`compact-field py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${formData.isCombo ? 'bg-[#347048] border-[#347048] text-[#B9CF32]' : 'bg-white border-transparent text-[#347048]/40'}`}
                   >
                     Combo
                   </button>
@@ -479,7 +479,7 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
                     {formData.components.map((component, index) => (
                       <div key={index} className="grid grid-cols-12 gap-2 items-center">
                         <select
-                          className="col-span-7 h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold focus:outline-none shadow-sm"
+                          className="compact-field col-span-7 h-10 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold focus:outline-none shadow-sm"
                           value={component.componentProductId}
                           onChange={(e) => updateComponentRow(index, 'componentProductId', e.target.value)}
                         >
@@ -491,14 +491,14 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
                         <input
                           type="number"
                           min="1"
-                          className="col-span-3 h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold focus:outline-none shadow-sm"
+                          className="compact-field col-span-3 h-10 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold focus:outline-none shadow-sm"
                           value={component.quantity}
                           onChange={(e) => updateComponentRow(index, 'quantity', e.target.value)}
                         />
                         <button
                           type="button"
                           onClick={() => removeComponentRow(index)}
-                          className="col-span-2 h-11 rounded-xl bg-red-50 border border-red-100 text-red-500 hover:bg-red-500 hover:text-white transition"
+                          className="compact-field col-span-2 h-10 rounded-xl bg-red-50 border border-red-100 text-red-500 hover:bg-red-500 hover:text-white transition"
                         >
                           <X size={16} className="mx-auto" />
                         </button>
@@ -508,7 +508,7 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
                   <button
                     type="button"
                     onClick={addComponentRow}
-                    className="w-full py-2.5 bg-white border-2 border-[#347048]/10 text-[#347048] rounded-xl text-[10px] font-black uppercase tracking-widest"
+                    className="compact-field w-full py-2.5 bg-white border-2 border-[#347048]/10 text-[#347048] rounded-xl text-[10px] font-black uppercase tracking-widest"
                   >
                     + Agregar componente
                   </button>
@@ -519,7 +519,7 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
               <div className="pt-4">
                 <button
                   type="submit"
-                  className="w-full py-4 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-2xl shadow-xl shadow-[#347048]/20 transition-all uppercase tracking-[0.2em] text-sm italic"
+                  className="compact-field w-full py-3 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-2xl shadow-xl shadow-[#347048]/20 transition-all uppercase tracking-[0.2em] text-sm italic"
                 >
                   {editingProduct ? 'Guardar Cambios' : 'Confirmar Ingreso'}
                 </button>

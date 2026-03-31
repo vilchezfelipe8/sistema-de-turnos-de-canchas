@@ -110,11 +110,11 @@ export default function PerfilPage() {
       </Head>
       <div className="min-h-screen bg-vibrant-brand text-[#EBE1D8]">
         <Navbar />
-        <main className="max-w-3xl mx-auto px-6 pt-28 pb-14">
-          <div className="bg-[#EBE1D8] border-4 border-white rounded-[2rem] p-8 shadow-2xl shadow-[#1f4b33]/30 text-[#347048]">
-            <div className="flex items-center justify-between gap-4 flex-wrap border-b border-[#347048]/10 pb-6 mb-6">
+        <main className="density-compact max-w-3xl mx-auto px-4 sm:px-5 pt-24 pb-10">
+          <div className="bg-[#EBE1D8] border-4 border-white rounded-[1.5rem] p-5 shadow-2xl shadow-[#1f4b33]/30 text-[#347048]">
+            <div className="flex items-center justify-between gap-4 flex-wrap border-b border-[#347048]/10 pb-4 mb-4">
               <div>
-                <h1 className="text-3xl font-black uppercase italic tracking-tight text-[#926699]">Mi Perfil</h1>
+                <h1 className="text-2xl font-black uppercase italic tracking-tight text-[#926699]">Mi Perfil</h1>
                 <p className="text-sm font-bold text-[#347048]/70 mt-1">Editá los datos de tu cuenta</p>
               </div>
             </div>

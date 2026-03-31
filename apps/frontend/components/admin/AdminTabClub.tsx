@@ -1817,33 +1817,32 @@ export default function AdminTabClub() {
 
   return (
     <>
-      <div className="bg-[#EBE1D8] border-4 border-white rounded-[2rem] p-8 mb-8 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
-        {/* ENCABEZADO */}
-        <div className="mb-8 pb-6 border-b border-[#347048]/10">
+      <div className="density-compact bg-[#EBE1D8] border-4 border-white rounded-[1.5rem] p-5 mb-6 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
+        <div className="mb-5 pb-4 border-b border-[#347048]/10">
           <h2 className="text-2xl font-black text-[#926699] flex items-center gap-3 uppercase italic tracking-tight">
             <div className="bg-[#926699] text-[#EBE1D8] p-2 rounded-xl text-xl shadow-lg shadow-[#926699]/20">
-              <Settings size={24} strokeWidth={3} />
+              <Settings size={22} strokeWidth={3} />
             </div>
             Configuración del Club
           </h2>
-          <p className="text-[#347048] text-sm font-bold opacity-70 mt-2 ml-1">Personaliza la identidad y reglas de tu establecimiento.</p>
+          <p className="text-[#347048] text-sm font-bold opacity-70 mt-2 ml-1">Personaliza identidad, reglas operativas y experiencia del club.</p>
         </div>
 
         {loadingClub ? (
-          <div className="space-y-6 py-10">
+          <div className="space-y-4 py-6">
             <div className="h-12 bg-white/50 animate-pulse rounded-2xl w-full"></div>
             <div className="h-12 bg-white/50 animate-pulse rounded-2xl w-full"></div>
             <div className="h-12 bg-white/50 animate-pulse rounded-2xl w-full"></div>
           </div>
         ) : club ? (
-          <form onSubmit={handleUpdateClub} className="space-y-8 relative z-10 pb-24">
-            <div className="space-y-6 rounded-[1.75rem] border-2 border-[#347048]/20 bg-white/30 p-5">
+          <form onSubmit={handleUpdateClub} className="space-y-5 relative z-10 pb-14">
+            <div className="space-y-4 rounded-[1.25rem] border-2 border-[#347048]/20 bg-white/30 p-4">
               <div className="rounded-2xl border border-[#347048]/15 bg-white/40 p-4">
                 <p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#347048]/70">Bloque de identidad (bajo riesgo)</p>
                 <p className="text-[12px] font-bold text-[#347048]/70 mt-1">Datos públicos del club: slug, nombre, ubicación y contacto.</p>
               </div>
             {/* GRID DE DATOS BÁSICOS */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className={labelClass}>Slug (Identificador URL)</label>
                 <input type="text" value={clubForm.slug} onChange={(e) => setClubForm({ ...clubForm, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })}
@@ -1895,9 +1894,9 @@ export default function AdminTabClub() {
             </div>
 
             {/* SECCIÓN DE LOGO */}
-            <div className="bg-white/40 p-6 rounded-[1.5rem] border-2 border-white shadow-sm">
+            <div className="bg-white/40 p-4 rounded-[1.25rem] border-2 border-white shadow-sm">
               <label className={labelClass}>Identidad Visual (Logo)</label>
-              <div className="flex flex-col sm:flex-row items-center gap-6 mt-2">
+              <div className="flex flex-col sm:flex-row items-center gap-4 mt-2">
                 <div className="w-24 h-24 rounded-2xl overflow-hidden border-4 border-white bg-white shadow-md flex items-center justify-center relative group">
                   {logoPreview ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -1929,9 +1928,9 @@ export default function AdminTabClub() {
             </div>
 
             {/* SECCIÓN DE IMAGEN DEL CLUB */}
-            <div className="bg-white/40 p-6 rounded-[1.5rem] border-2 border-white shadow-sm">
+            <div className="bg-white/40 p-4 rounded-[1.25rem] border-2 border-white shadow-sm">
               <label className={labelClass}>Imagen del Club (Portada)</label>
-              <div className="flex flex-col lg:flex-row items-start lg:items-center gap-6 mt-2">
+              <div className="flex flex-col lg:flex-row items-start lg:items-center gap-4 mt-2">
                 <div className="w-full lg:w-64 h-36 rounded-2xl overflow-hidden border-4 border-white bg-white shadow-md flex items-center justify-center relative group">
                   {clubImagePreview ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -1966,7 +1965,7 @@ export default function AdminTabClub() {
             </div>
 
             {/* REDES SOCIALES */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1.5">
                 <label className={labelClass}>Instagram URL</label>
                 <div className="relative group">
@@ -2005,7 +2004,7 @@ export default function AdminTabClub() {
 
             </div>
 
-            <div className="space-y-6 rounded-[1.75rem] border-2 border-[#926699]/35 bg-[#926699]/5 p-5">
+            <div className="space-y-4 rounded-[1.25rem] border-2 border-[#926699]/35 bg-[#926699]/5 p-4">
               <div className="rounded-2xl border-2 border-[#926699]/30 bg-[#926699]/10 p-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
@@ -2022,7 +2021,7 @@ export default function AdminTabClub() {
                 </div>
               </div>
 
-            <div className="bg-white/10 p-6 rounded-[1.5rem] border-2 border-white/10">
+            <div className="bg-white/10 p-4 rounded-[1.25rem] border-2 border-white/10">
               <h3 className="text-xs font-black uppercase tracking-[0.2em] text-[#347048] mb-3">Días de apertura</h3>
               <p className="text-[12px] text-[#347048]/70 mb-3">Seleccioná los días en los que el club está abierto (si no se selecciona ninguno, se entiende &quot;abre todos los días&quot;).</p>
               <div className="flex gap-2 flex-wrap">
@@ -2038,7 +2037,7 @@ export default function AdminTabClub() {
               </div>
             </div>
 
-            <div className="bg-white/10 p-6 rounded-[1.5rem] border-2 border-white/10 space-y-4">
+            <div className="bg-white/10 p-4 rounded-[1.25rem] border-2 border-white/10 space-y-3">
               <h3 className="text-xs font-black uppercase tracking-[0.2em] text-[#347048]">Estado operativo</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {CLUB_OPERATIONAL_STATUS_OPTIONS.map((option) => {

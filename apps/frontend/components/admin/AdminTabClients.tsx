@@ -6,10 +6,10 @@ import AdminDuplicateIncidents from './AdminDuplicateIncidents';
 export default function AdminTabClients() {
   return (
     // CONTENEDOR PRINCIPAL: Tarjeta Beige sólida con bordes blancos y sombra profunda
-    <div className="bg-[#EBE1D8] border-4 border-white rounded-[2rem] p-8 mb-8 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
+    <div className="density-compact bg-[#EBE1D8] border-4 border-white rounded-[1.5rem] p-5 mb-6 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
       
       {/* ENCABEZADO DE LA SECCIÓN */}
-      <div className="mb-8 pb-6 border-b border-[#347048]/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="mb-5 pb-4 border-b border-[#347048]/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-black text-[#926699] flex items-center gap-3 uppercase italic tracking-tight">
             <div className="bg-[#926699] text-[#EBE1D8] p-2 rounded-xl shadow-lg shadow-[#926699]/20">
@@ -31,7 +31,7 @@ export default function AdminTabClients() {
         <ClientsPage />
       </div>
 
-      <div className="relative z-10 mt-10 pt-8 border-t border-[#347048]/15">
+      <div className="relative z-10 mt-7 pt-5 border-t border-[#347048]/15">
         <AdminDuplicateIncidents />
       </div>
 

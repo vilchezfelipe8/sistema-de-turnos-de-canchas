@@ -116,8 +116,8 @@ export default function AdminDuplicateIncidents() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-2xl border border-white/20 bg-[#0f3f2e]/60 p-5">
+    <div className="density-compact space-y-4">
+      <div className="rounded-2xl border border-white/20 bg-[#0f3f2e]/60 p-4">
         <h1 className="text-xl font-black tracking-wide uppercase">Posibles clientes duplicados</h1>
         <p className="mt-1 text-sm text-[#EBE1D8]/80">
           Incidentes abiertos: <span className="font-bold">{openCount}</span>
@@ -127,18 +127,18 @@ export default function AdminDuplicateIncidents() {
       {error ? <div className="rounded-xl border border-red-300/50 bg-red-900/30 p-3 text-sm">{error}</div> : null}
       {feedback ? <div className="rounded-xl border border-lime-300/50 bg-lime-900/30 p-3 text-sm">{feedback}</div> : null}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="rounded-2xl border border-white/20 bg-[#174f3a]/60 p-4 lg:col-span-1">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+        <div className="rounded-2xl border border-white/20 bg-[#174f3a]/60 p-3 lg:col-span-1">
           <h2 className="mb-3 text-sm font-bold uppercase tracking-wide">Bandeja</h2>
           {loading ? <p className="text-sm text-[#EBE1D8]/80">Cargando...</p> : null}
           {!loading && incidents.length === 0 ? <p className="text-sm text-[#EBE1D8]/80">No hay incidentes abiertos.</p> : null}
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {incidents.map((incident) => (
               <button
                 key={incident.id}
                 type="button"
                 onClick={() => setSelectedId(incident.id)}
-                className={`w-full rounded-lg border p-3 text-left transition ${
+                className={`w-full rounded-lg border p-2.5 text-left transition ${
                   selectedId === incident.id ? 'border-lime-300 bg-[#1f6b4f]' : 'border-white/20 bg-[#1b5a42]/70 hover:bg-[#1f6b4f]'
                 }`}
               >
@@ -156,21 +156,21 @@ export default function AdminDuplicateIncidents() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-white/20 bg-[#174f3a]/60 p-4 lg:col-span-2">
+        <div className="rounded-2xl border border-white/20 bg-[#174f3a]/60 p-3 lg:col-span-2">
           <h2 className="mb-3 text-sm font-bold uppercase tracking-wide">Detalle</h2>
           {!selectedId ? <p className="text-sm text-[#EBE1D8]/80">Seleccioná un incidente.</p> : null}
           {selectedId && busy && !detail ? <p className="text-sm text-[#EBE1D8]/80">Cargando detalle...</p> : null}
           {detail ? (
-            <div className="space-y-4">
-              <div className="rounded-lg border border-white/20 bg-black/10 p-3 text-sm">
+            <div className="space-y-3">
+              <div className="rounded-lg border border-white/20 bg-black/10 p-2.5 text-sm">
                 <p><span className="font-bold">Origen:</span> {detail.sourceType}</p>
                 <p><span className="font-bold">Motivo:</span> {detail.reasonType}</p>
                 <p><span className="font-bold">Usuario:</span> {formatUserName(detail.user)}</p>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {(detail.candidateClients || []).map((client) => (
-                  <div key={client.id} className="rounded-lg border border-white/20 bg-black/10 p-3 text-sm">
+                  <div key={client.id} className="rounded-lg border border-white/20 bg-black/10 p-2.5 text-sm">
                     <p className="font-bold">{client.name || 'Sin nombre'}</p>
                     <p>Tel: {client.phone || '—'}</p>
                     <p>Email: {client.email || '—'}</p>

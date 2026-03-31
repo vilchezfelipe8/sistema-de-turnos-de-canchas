@@ -147,6 +147,15 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   };
+  const formatDateTime = (date: Date) =>
+    date.toLocaleString('es-AR', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
   
   // Inicializar con la fecha de hoy sin problemas de zona horaria
   const getTodayDate = () => {
@@ -667,6 +676,15 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     return true;
   };
 
+  const resetGuestForm = () => {
+    setGuestFirstName('');
+    setGuestLastName('');
+    setGuestEmail('');
+    setGuestPhone('');
+    setGuestDni('');
+    setGuestError('');
+  };
+
 const performBooking = async () => {
     
     if (!selectedDate || !selectedSlot || !selectedCourt) return;
@@ -755,6 +773,7 @@ const performBooking = async () => {
 
       showInfo(bookingSummaryMessage, 'Reserva confirmada');
       if (shouldBookAsGuest) {
+        resetGuestForm();
         setGuestModalOpen(false);
       }
     } catch (error) {
@@ -782,12 +801,9 @@ const performBooking = async () => {
     if (!selectedDate || !selectedSlot || !selectedCourt) return;
     if (!hasAuthSession) {
       setIsAuthenticated(false);
-      if (!isGuestPayloadValid()) {
-        setGuestError('');
-        setGuestModalOpen(true);
-        return;
-      }
-      performBooking();
+      // Siempre pedimos datos en modal para evitar reutilizar automáticamente datos previos.
+      resetGuestForm();
+      setGuestModalOpen(true);
       return;
     }
     setIsAuthenticated(true);
@@ -803,6 +819,17 @@ const performBooking = async () => {
     setGuestModalOpen(false);
     void performBooking();
   };
+
+  const selectedTimes = (() => {
+    if (!selectedDate || !selectedSlot) return null;
+    const [hours, minutes] = selectedSlot.split(':').map(Number);
+    const start = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), hours, minutes, 0, 0);
+    const end = new Date(start.getTime() + selectedDuration * 60000);
+    return {
+      startLabel: formatDateTime(start),
+      endLabel: formatDateTime(end)
+    };
+  })();
 
   // --- Cargar disabledSlots de localStorage ---
   useEffect(() => {
@@ -999,14 +1026,14 @@ const performBooking = async () => {
   // --- RENDERIZADO VISUAL ---
   // --- RENDERIZADO VISUAL ---
   return (
-    <div className="w-full max-w-4xl mx-auto bg-[#EBE1D8] p-6 sm:p-8 rounded-[2rem] shadow-2xl shadow-[#347048]/50 border-4 border-[#d4c5b0]/50 relative overflow-hidden">
+    <div className="density-compact w-full max-w-4xl mx-auto bg-[#EBE1D8] p-4 sm:p-5 rounded-[1.5rem] shadow-2xl shadow-[#347048]/50 border-4 border-[#d4c5b0]/50 relative overflow-hidden">
     
-      <div className="text-center mb-8">
-        <h2 className="text-4xl font-black text-[#926699] mb-2 tracking-tighter uppercase italic">Reservar Cancha</h2>
-        <p className="text-[#347048] font-bold text-sm tracking-wide opacity-80">Elige tu día y horario ideal</p>
+      <div className="text-center mb-5">
+        <h2 className="compact-title font-black text-[#926699] mb-1 tracking-tighter uppercase italic">Reservar Cancha</h2>
+        <p className="compact-subtitle text-[#347048] font-bold tracking-wide opacity-80">Elige tu día y horario ideal</p>
       </div>
 
-      <div className="mb-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="mb-5 grid grid-cols-1 md:grid-cols-3 gap-3">
         
         {/* COLUMNA 1: Tipo de Cancha */}
         <div className="relative focus-within:z-[100] z-20">
@@ -1039,7 +1066,7 @@ const performBooking = async () => {
           </label>
 
           {/* CAJA BLANCA (El "Input" interactivo) */}
-          <div className="flex items-center justify-between bg-white rounded-xl px-2 py-2.5 border border-transparent shadow-sm h-[46px]">
+          <div className="compact-field flex items-center justify-between bg-white rounded-xl px-2 py-2 border border-transparent shadow-sm h-[42px]">
             
             {/* Botón Atrás */}
             <button
@@ -1105,19 +1132,19 @@ const performBooking = async () => {
       )}
 
       {!loading && availableSlots.length > 0 && (
-        <div className="mb-10">
+        <div className="mb-6">
           <label className="block text-xs font-black text-[#926699] mb-4 ml-1 flex items-center gap-2 uppercase tracking-wider">
             <span className="text-[#B9CF32]"><Clock size={20} strokeWidth={3} /></span>
             <span>Horarios Disponibles</span>
           </label>
 
           {!selectedActivityFilter ? (
-            <div className="text-center py-10 bg-[#347048]/5 rounded-2xl border border-dashed border-[#347048]/20 text-[#347048]/60 font-bold">
+            <div className="text-center py-7 bg-[#347048]/5 rounded-2xl border border-dashed border-[#347048]/20 text-[#347048]/60 font-bold">
               Elegí un deporte para ver los horarios disponibles.
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2.5">
                 {availableSlots.map((slot) => {
                   const isSelected = selectedSlot === slot.slotTime;
                   return (
@@ -1128,7 +1155,7 @@ const performBooking = async () => {
                         setSelectedSlot(slot.slotTime);
                         setSelectedCourt(null);
                       }}
-                      className={`py-3 rounded-xl text-sm font-black transition-all duration-200 border-2 ${
+                      className={`compact-field py-2 rounded-xl text-sm font-black transition-all duration-200 border-2 ${
                         isSelected
                           ? 'bg-[#B9CF32] text-[#347048] border-[#B9CF32] shadow-lg'
                           : 'bg-white text-[#347048] border-[#347048]/10 hover:border-[#B9CF32] hover:text-[#B9CF32]'
@@ -1149,13 +1176,13 @@ const performBooking = async () => {
       )}
 
       {selectedSlot && (
-        <div ref={courtsSectionRef} className="mb-10">
+        <div ref={courtsSectionRef} className="mb-6">
           <label className="block text-xs font-black text-[#926699] mb-4 ml-1 flex items-center gap-2 uppercase tracking-wider">
             <span className="text-[#B9CF32]"><MapPin size={20} strokeWidth={3} /></span>
             <span>Reservar una cancha</span>
           </label>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {(availableSlots.find((slot) => slot.slotTime === selectedSlot)?.courts || []).map((court) => {
               if (!selectedDate) return null;
               const dateString = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(
@@ -1183,7 +1210,7 @@ const performBooking = async () => {
                   key={court.id}
                   type="button"
                   onClick={handleSelectCourt}
-                  className={`w-full text-left p-4 rounded-2xl border-2 transition-all shadow-sm ${
+                  className={`w-full text-left p-3 rounded-2xl border-2 transition-all shadow-sm ${
                     isSelected
                       ? 'bg-[#B9CF32]/20 border-[#B9CF32] text-[#347048] shadow-lg'
                       : 'bg-white border-[#347048]/10 text-[#347048] hover:border-[#B9CF32]'
@@ -1206,7 +1233,7 @@ const performBooking = async () => {
       )}
 
       {!loading && selectedActivityFilter && availableSlots.length === 0 && selectedDate && (
-        <div className="text-center py-12 bg-[#347048]/5 rounded-2xl border border-dashed border-[#347048]/20 mb-8 flex items-center justify-center gap-3 text-[#347048]/60 font-bold">
+        <div className="text-center py-8 bg-[#347048]/5 rounded-2xl border border-dashed border-[#347048]/20 mb-6 flex items-center justify-center gap-3 text-[#347048]/60 font-bold">
             {(() => {
               const now = new Date();
               const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -1222,7 +1249,7 @@ const performBooking = async () => {
         ref={confirmButtonRef}
         onClick={handleBooking}
         disabled={isBooking || !selectedSlot || !selectedCourt}
-        className={`w-full py-4 rounded-2xl font-black text-lg uppercase tracking-widest transition-all shadow-xl flex items-center justify-center gap-2
+        className={`compact-field w-full py-3 rounded-2xl font-black text-base uppercase tracking-widest transition-all shadow-xl flex items-center justify-center gap-2
             ${(isBooking || !selectedSlot || !selectedCourt) 
                 ? 'bg-[#347048]/10 text-[#347048]/40 cursor-not-allowed border border-[#347048]/5' 
                 : 'bg-[#347048] text-[#EBE1D8] hover:bg-[#B9CF32] hover:text-[#347048] hover:-translate-y-1 hover:shadow-[#B9CF32]/30'}`}
@@ -1278,62 +1305,113 @@ const performBooking = async () => {
         show={guestModalOpen}
         onClose={() => {
           setGuestModalOpen(false);
-          setGuestError('');
+          resetGuestForm();
         }}
         onCancel={() => {
           setGuestModalOpen(false);
-          setGuestError('');
+          resetGuestForm();
         }}
         title="Reserva como invitado"
         message={
-          <div className="space-y-3 text-left">
-            <p className="text-sm text-[#347048]/80">Completá tus datos para confirmar la reserva sin iniciar sesión.</p>
+          <div className="space-y-4 text-left">
+            <div className="space-y-2">
+              <h4 className="text-sm font-black text-[#926699] uppercase tracking-wider">Datos de reserva</h4>
+              {selectedTimes ? (
+                <div className="grid grid-cols-1 gap-2 rounded-xl border border-[#926699]/20 bg-[#fdfaff] p-3 text-sm text-[#347048]">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-[#926699] uppercase text-xs">Inicia:</span>
+                    <span className="text-[#347048] font-black">{selectedTimes.startLabel}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-[#926699] uppercase text-xs">Termina:</span>
+                    <span className="text-[#347048] font-black">{selectedTimes.endLabel}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-[#926699] uppercase text-xs">Precio:</span>
+                    <span className="text-[#347048] font-black text-lg">${priceInfo.final.toLocaleString()}</span>
+                  </div>
+                  {priceInfo.hasLights && clubConfig ? (
+                    <div className="flex items-center justify-between text-xs text-[#347048]/60">
+                      <span>Detalle:</span>
+                      <span>${priceInfo.base.toLocaleString()} cancha + ${priceInfo.extra.toLocaleString()} luces</span>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-sm text-[#347048]/80">Completá tus datos para confirmar la reserva sin iniciar sesión.</p>
+              )}
+            </div>
+
+            <h4 className="text-sm font-black text-[#926699] uppercase tracking-wider">Datos de contacto</h4>
+
             {guestError ? (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+              <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 flex items-center gap-2">
+                <AlertCircle size={14} strokeWidth={2.5} className="shrink-0" />
                 {guestError}
               </div>
             ) : null}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Nombre</label>
+                <input
+                  type="text"
+                  value={guestFirstName}
+                  onChange={(e) => setGuestFirstName(e.target.value)}
+                  placeholder="Nombre"
+                  className="w-full rounded-xl border-2 border-[#347048]/15 bg-white px-3 py-2 text-sm font-bold text-[#347048] outline-none focus:border-[#B9CF32]"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Apellido</label>
+                <input
+                  type="text"
+                  value={guestLastName}
+                  onChange={(e) => setGuestLastName(e.target.value)}
+                  placeholder="Apellido"
+                  className="w-full rounded-xl border-2 border-[#347048]/15 bg-white px-3 py-2 text-sm font-bold text-[#347048] outline-none focus:border-[#B9CF32]"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Teléfono</label>
               <input
-                type="text"
-                value={guestFirstName}
-                onChange={(e) => setGuestFirstName(e.target.value)}
-                placeholder="Nombre"
-                className="w-full rounded-xl border-2 border-[#347048]/15 bg-white px-3 py-2 text-sm font-bold text-[#347048] outline-none focus:border-[#B9CF32]"
-              />
-              <input
-                type="text"
-                value={guestLastName}
-                onChange={(e) => setGuestLastName(e.target.value)}
-                placeholder="Apellido"
+                type="tel"
+                value={guestPhone}
+                onChange={(e) => setGuestPhone(e.target.value)}
+                placeholder="11 2345 6789 o +549..."
                 className="w-full rounded-xl border-2 border-[#347048]/15 bg-white px-3 py-2 text-sm font-bold text-[#347048] outline-none focus:border-[#B9CF32]"
               />
             </div>
-            <input
-              type="tel"
-              value={guestPhone}
-              onChange={(e) => setGuestPhone(e.target.value)}
-              placeholder="Teléfono (ej: 11 2345 6789 o +549...)"
-              className="w-full rounded-xl border-2 border-[#347048]/15 bg-white px-3 py-2 text-sm font-bold text-[#347048] outline-none focus:border-[#B9CF32]"
-            />
-            <input
-              type="email"
-              value={guestEmail}
-              onChange={(e) => setGuestEmail(e.target.value)}
-              placeholder="Email (opcional)"
-              className="w-full rounded-xl border-2 border-[#347048]/15 bg-white px-3 py-2 text-sm font-bold text-[#347048] outline-none focus:border-[#B9CF32]"
-            />
-            <input
-              type="text"
-              value={guestDni}
-              onChange={(e) => setGuestDni(e.target.value)}
-              placeholder="DNI (opcional)"
-              className="w-full rounded-xl border-2 border-[#347048]/15 bg-white px-3 py-2 text-sm font-bold text-[#347048] outline-none focus:border-[#B9CF32]"
-            />
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Email (opcional)</label>
+                <input
+                  type="email"
+                  value={guestEmail}
+                  onChange={(e) => setGuestEmail(e.target.value)}
+                  placeholder="tu@email.com"
+                  className="w-full rounded-xl border-2 border-[#347048]/15 bg-white px-3 py-2 text-sm font-bold text-[#347048] outline-none focus:border-[#B9CF32]"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60">DNI (opcional)</label>
+                <input
+                  type="text"
+                  value={guestDni}
+                  onChange={(e) => setGuestDni(e.target.value)}
+                  placeholder="DNI"
+                  className="w-full rounded-xl border-2 border-[#347048]/15 bg-white px-3 py-2 text-sm font-bold text-[#347048] outline-none focus:border-[#B9CF32]"
+                />
+              </div>
+            </div>
           </div>
         }
         cancelText="Cancelar"
         confirmText="Confirmar reserva"
+        confirmDisabled={isBooking || !isGuestPayloadValid()}
         onConfirm={handleGuestContinue}
       />
 

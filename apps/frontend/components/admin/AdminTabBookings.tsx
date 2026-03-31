@@ -51,10 +51,10 @@ const normalizeActivityDurations = (raw: unknown, fallback: number) => {
 };
 
 // Layout constants
-const HEADER_HEIGHT = 64; // px reserved for court names header
-const ROW_HEIGHT = 120; // px per hour row
-const H_GAP_PX = 12; // horizontal gap between booking cards (px)
-const V_GAP_PX = 10; // vertical gap between booking cards (px)
+const HEADER_HEIGHT = 52; // px reserved for court names header
+const ROW_HEIGHT = 84; // px per hour row
+const H_GAP_PX = 10; // horizontal gap between booking cards (px)
+const V_GAP_PX = 8; // vertical gap between booking cards (px)
 
 const toMinutes = (timeValue?: string | null) => {
   if (!timeValue) return null;
@@ -305,6 +305,11 @@ const WEEKDAY_LABELS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'V
 
 export default function AdminTabBookings() {
   const router = useRouter();
+  const [bookingPanelView, setBookingPanelView] = useState<'create' | 'agenda'>(() => {
+    if (typeof window === 'undefined') return 'agenda';
+    const stored = window.localStorage.getItem('admin-bookings-panel-view');
+    return stored === 'create' ? 'create' : 'agenda';
+  });
   const [courts, setCourts] = useState<any[]>([]);
   const [scheduleDate, setScheduleDate] = useState(() => getTodayLocalDate());
   const [scheduleBookings, setScheduleBookings] = useState<any[]>([]);
@@ -346,6 +351,11 @@ export default function AdminTabBookings() {
   });
   const [selectedClientIsProfessor, setSelectedClientIsProfessor] = useState(false);
   const [clubPhoneCountryIso2, setClubPhoneCountryIso2] = useState(DEFAULT_PHONE_COUNTRY_ISO2);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('admin-bookings-panel-view', bookingPanelView);
+  }, [bookingPanelView]);
 
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -447,19 +457,13 @@ export default function AdminTabBookings() {
   };
 
   const scheduleSlots = useMemo(() => {
-    const slotTimes = Array.from(
-      new Set(
-        scheduleBookings
-          .map((slot) => String(slot?.slotTime || ''))
-          .filter((slotTime) => /^\d{2}:\d{2}$/.test(slotTime))
-      )
-    );
+    const slotTimes = scheduleBookings
+      .map((slot) => String(slot?.slotTime || ''))
+      .filter((slotTime) => /^\d{2}:\d{2}$/.test(slotTime));
 
-    if (slotTimes.length === 0) {
-      return CLUB_TIME_SLOTS;
-    }
-
-    return slotTimes.sort((a, b) => (toMinutes(a) ?? 0) - (toMinutes(b) ?? 0));
+    // Mantener un rango amplio de jornada aunque haya pocos turnos cargados.
+    const merged = Array.from(new Set([...CLUB_TIME_SLOTS, ...slotTimes]));
+    return merged.sort((a, b) => (toMinutes(a) ?? 0) - (toMinutes(b) ?? 0));
   }, [scheduleBookings]);
 
   
@@ -1249,6 +1253,7 @@ export default function AdminTabBookings() {
       );
       await loadSchedule();
       resetManualForm();
+      setBookingPanelView('agenda');
     };
     try {
         const canonicalPhone = buildCanonicalPhone({
@@ -1305,6 +1310,7 @@ export default function AdminTabBookings() {
             );
             await loadSchedule();
             resetManualForm();
+            setBookingPanelView('agenda');
         }
     } catch (error: any) {
       const canProceedFixedOverlap = Boolean(manualBooking.isFixed && error?.details?.canProceed);
@@ -1445,18 +1451,38 @@ export default function AdminTabBookings() {
   return (
     <>
       {/* --- TARJETA DE CREACION DE RESERVA (BEIGE WIMBLEDON) --- */}
-      <div className="bg-[#EBE1D8] border-4 border-white/50 rounded-[2rem] p-8 mb-8 shadow-2xl shadow-[#347048]/30 relative overflow-visible transition-all">
-        <h2 className="text-2xl font-black text-[#926699] flex items-center gap-3 uppercase italic tracking-tight">
-          <span className="bg-[#926699] text-[#EBE1D8] p-2.5 rounded-xl shadow-lg shadow-[#926699]/20">
-            {manualBooking.isFixed ? <Repeat size={24} strokeWidth={3} /> : <CalendarPlus size={24} strokeWidth={3} />}
-          </span>
-          {manualBooking.isFixed ? 'Nuevo Turno Fijo' : 'Nueva Reserva Simple'}
-          <span className="ml-2 text-[10px] px-3 py-1 rounded-full bg-[#347048] text-[#EBE1D8] font-black tracking-widest not-italic shadow-sm">
-            {manualBooking.isFixed ? 'SERIE' : 'SIMPLE'}
-          </span>
-        </h2>
+      {bookingPanelView === 'create' && (
+      <div className="density-compact bg-[#EBE1D8] border-4 border-white/50 rounded-[1.5rem] p-5 mb-6 shadow-2xl shadow-[#347048]/30 relative overflow-visible transition-all">
+        <div className="mb-4 pb-4 border-b border-[#347048]/10 flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="bg-[#347048] text-[#EBE1D8] p-2 rounded-xl shadow-md shadow-[#347048]/20">
+              {manualBooking.isFixed ? <Repeat size={18} strokeWidth={3} /> : <CalendarPlus size={18} strokeWidth={3} />}
+            </span>
+            <div>
+              <h2 className="text-lg font-black text-[#347048] uppercase tracking-tight">
+                {manualBooking.isFixed ? 'Nueva serie fija' : 'Nueva reserva'}
+              </h2>
+              <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/45 mt-1">
+                {manualBooking.isFixed ? 'Programacion semanal automatica' : 'Carga rapida de turno'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] px-2.5 py-1 rounded-full bg-white border border-[#347048]/15 text-[#347048]/70 font-black uppercase tracking-widest">
+              {manualBooking.isFixed ? 'Serie' : 'Simple'}
+            </span>
+            <button
+              type="button"
+              onClick={() => setBookingPanelView('agenda')}
+              className="h-8 px-2.5 rounded-lg border border-[#347048]/20 bg-white text-[10px] font-black uppercase tracking-widest text-[#347048] hover:border-[#B9CF32] shadow-sm transition-all flex items-center gap-1"
+            >
+              <ChevronLeft size={12} strokeWidth={3} />
+              Agenda
+            </button>
+          </div>
+        </div>
 
-        <form onSubmit={handleCreateBooking} className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+        <form onSubmit={handleCreateBooking} className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
           
           {/* BUSCADOR CLIENTE (Usa focus-within para saltar al frente al escribir) */}
           <div className={`relative ${showDropdown ? 'z-[300]' : 'z-20'}`} ref={wrapperRef}>
@@ -1465,7 +1491,7 @@ export default function AdminTabBookings() {
                   type="text" 
                   value={manualBooking.clientFirstName} 
                   onChange={handleGuestFirstNameChange}
-                  className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all relative z-10"
+                  className="compact-field w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all relative z-10"
                   placeholder="Escribe para buscar..." 
                   required autoComplete="off"
               />
@@ -1496,7 +1522,7 @@ export default function AdminTabBookings() {
           <div className="relative z-10">
             <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Apellido</label>
             <input type="text" value={manualBooking.clientLastName} onChange={(e) => setManualBooking({ ...manualBooking, clientId: '', clientLastName: e.target.value })} 
-            className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all" placeholder="Ingresa el apellido" required />
+            className="compact-field w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all" placeholder="Ingresa el apellido" required />
           </div>
 
           <div className="relative z-10">
@@ -1505,7 +1531,7 @@ export default function AdminTabBookings() {
               <select
                 value={manualBooking.clientPhoneCountryIso2}
                 onChange={(e) => setManualBooking({ ...manualBooking, clientId: '', clientPhoneCountryIso2: normalizePhoneCountryIso2(e.target.value) })}
-                className="h-12 w-28 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-2 text-xs font-black text-[#347048] focus:outline-none shadow-sm transition-all"
+                className="compact-field h-11 w-28 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-2 text-xs font-black text-[#347048] focus:outline-none shadow-sm transition-all"
               >
                 {PHONE_COUNTRY_OPTIONS.map((option) => (
                   <option key={option.iso2} value={option.iso2}>
@@ -1517,7 +1543,7 @@ export default function AdminTabBookings() {
                 type="tel"
                 value={manualBooking.clientPhone}
                 onChange={(e) => setManualBooking({ ...manualBooking, clientId: '', clientPhone: e.target.value.replace(/[^\d]/g, '') })}
-                className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
+                className="compact-field w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
                 placeholder="Número local"
                 required
               />
@@ -1527,18 +1553,18 @@ export default function AdminTabBookings() {
           <div className="relative z-10">
             <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">DNI</label>
             <input type="text" value={manualBooking.clientDni} onChange={(e) => setManualBooking({ ...manualBooking, clientId: '', clientDni: e.target.value })} 
-            className="w-full h-12 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all" placeholder="Número de documento" />
+            className="compact-field w-full h-11 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all" placeholder="Número de documento" />
           </div>
 
           {/* FECHA (Usa focus-within para tapar TODO al abrirse) */}
           <div className="relative focus-within:z-[100] z-20">
             <label className="block text-xs font-black text-[#347048]/60 uppercase tracking-wider mb-2 ml-1">Fecha</label>
             {manualBooking.isFixed ? (
-              <div className="h-12 bg-white/50 border-2 border-dashed border-[#347048]/20 rounded-xl px-4 flex items-center">
+              <div className="compact-field h-11 bg-white/50 border-2 border-dashed border-[#347048]/20 rounded-xl px-4 flex items-center">
                 <span className="text-[#347048]/40 font-bold text-sm">Selecciona día abajo</span>
               </div>
             ) : (
-              <div className="relative flex items-center justify-between bg-white rounded-xl px-2 py-2.5 border border-transparent shadow-sm h-[46px]">
+              <div className="compact-field relative flex items-center justify-between bg-white rounded-xl px-2 py-2 border border-transparent shadow-sm h-[42px]">
                 <button
                   type="button"
                   onClick={handleManualPrevDay}
@@ -1570,7 +1596,7 @@ export default function AdminTabBookings() {
                     maxDate={manualBooking.isFixed || !adminSimpleMaxDate ? undefined : adminSimpleMaxDate}
                     showIcon={false}
                     variant="light"
-                    inputClassName="w-full h-[46px] opacity-0 cursor-pointer"
+                    inputClassName="w-full h-[42px] opacity-0 cursor-pointer"
                   />
                 </div>
               </div>
@@ -1642,8 +1668,8 @@ export default function AdminTabBookings() {
           )}
 
           {/* BOTON CHECKBOX Y SUBMIT */}
-          <div className="relative z-0 md:col-span-2 flex flex-col sm:flex-row gap-6 items-center justify-between mt-4 p-6 bg-[#347048]/5 rounded-[1.5rem] border border-[#347048]/10">
-            <div className="flex flex-wrap items-center gap-6">
+          <div className="relative z-0 md:col-span-2 flex flex-col sm:flex-row gap-4 items-center justify-between mt-2 p-4 bg-[#347048]/5 rounded-[1.5rem] border border-[#347048]/10">
+            <div className="flex flex-wrap items-center gap-4">
               <label className="flex items-center gap-3 text-[#347048] font-black cursor-pointer group">
                 <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${manualBooking.isFixed ? 'bg-[#B9CF32] border-[#B9CF32]' : 'border-[#347048]/20 bg-white'}`}>
                     {manualBooking.isFixed && <Check size={16} className="text-[#347048]" strokeWidth={4} />}
@@ -1653,25 +1679,36 @@ export default function AdminTabBookings() {
               </label>
             </div>
 
-            <button type="submit" className="w-full sm:w-auto px-10 py-4 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-2xl transition-all shadow-xl shadow-[#347048]/20 uppercase tracking-widest text-sm flex items-center justify-center gap-3 group">
+            <button type="submit" className="compact-field w-full sm:w-auto px-8 py-3 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-2xl transition-all shadow-xl shadow-[#347048]/20 uppercase tracking-widest text-sm flex items-center justify-center gap-3 group">
               {manualBooking.isFixed ? <RefreshCw size={18} className="group-hover:rotate-180 transition-transform duration-500" /> : <CalendarIcon size={18} />}
               {manualBooking.isFixed ? 'Crear Serie' : 'Crear Reserva'}
             </button>
           </div>
         </form>
       </div>
+      )}
 
       {/* --- TABLA DE HORARIOS --- */}
-      <div className="bg-[#EBE1D8] border-4 border-white/50 rounded-[2rem] p-8 mb-8 shadow-2xl shadow-[#347048]/20 overflow-hidden relative z-0">
-        <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-6 mb-8">
+      {bookingPanelView === 'agenda' && (
+      <div className="density-compact bg-[#EBE1D8] border-4 border-white/50 rounded-[1.5rem] p-5 mb-6 shadow-2xl shadow-[#347048]/20 overflow-hidden relative z-0">
+        <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-4 mb-5">
           <h2 className="text-2xl font-black text-[#347048] uppercase italic tracking-tight flex items-center gap-3">
              <div className="w-2 h-8 bg-[#B9CF32] rounded-full"></div>
               Agenda del Día
           </h2>
-          <div className="flex flex-wrap items-center gap-4 bg-white/40 p-2 rounded-2xl border border-white/60">
+          <div className="flex flex-wrap items-center gap-3 bg-white/40 p-2 rounded-2xl border border-white/60">
+            <button
+              type="button"
+              onClick={() => setBookingPanelView('create')}
+              className="h-9 w-9 rounded-full border border-[#347048]/20 bg-white text-[#347048] flex items-center justify-center shadow-sm hover:border-[#B9CF32] hover:text-[#926699] transition-all"
+              title="Nueva reserva"
+              aria-label="Nueva reserva"
+            >
+              <CalendarPlus size={16} strokeWidth={3} />
+            </button>
             <div className="flex items-center gap-2 px-3">
               <span className="text-[10px] font-black text-[#347048]/50 uppercase tracking-widest">Fecha:</span>
-              <div className="relative flex items-center justify-between bg-white rounded-xl px-2 py-2.5 border border-transparent shadow-sm h-[46px] min-w-[280px]">
+              <div className="compact-field relative flex items-center justify-between bg-white rounded-xl px-2 py-2 border border-transparent shadow-sm h-[42px] min-w-[260px]">
                 <button
                   type="button"
                   onClick={handleSchedulePrevDay}
@@ -1698,7 +1735,7 @@ export default function AdminTabBookings() {
                     }}
                     showIcon={false}
                     variant="light"
-                    inputClassName="w-full h-[46px] opacity-0 cursor-pointer"
+                    inputClassName="w-full h-[42px] opacity-0 cursor-pointer"
                   />
                 </div>
               </div>
@@ -1726,13 +1763,13 @@ export default function AdminTabBookings() {
         </div>
 
         {loadingSchedule ? (
-          <div className="space-y-4 py-10">
-              <div className="h-16 bg-[#347048]/5 animate-pulse rounded-2xl w-full"></div>
-              <div className="h-16 bg-[#347048]/5 animate-pulse rounded-2xl w-full"></div>
+          <div className="space-y-3 py-7">
+              <div className="h-12 bg-[#347048]/5 animate-pulse rounded-2xl w-full"></div>
+              <div className="h-12 bg-[#347048]/5 animate-pulse rounded-2xl w-full"></div>
           </div>
         ) : gridSlots.length > 0 ? (
           <div className="overflow-x-auto -mx-8">
-            <div ref={gridScrollRef} className="min-w-[900px] pl-16 pr-8 max-h-[65vh] overflow-y-auto">
+            <div ref={gridScrollRef} className="min-w-[900px] pl-14 pr-6 max-h-[78vh] overflow-y-auto">
               <div
                 className="relative"
                 // Reservar espacio para cabecera con nombres de canchas
@@ -1768,7 +1805,7 @@ export default function AdminTabBookings() {
                     className="absolute left-0 right-0 border-t border-[#347048]/10"
                     style={{ top: index * ROW_HEIGHT + HEADER_HEIGHT + (V_GAP_PX / 2) }}
                   >
-                    <span className="absolute -left-14 -top-3 px-2 text-[11px] font-black text-[#347048]/70">
+                    <span className="absolute -left-12 -top-2 px-2 text-[10px] font-black text-[#347048]/70">
                       {time}
                     </span>
                   </div>
@@ -1820,7 +1857,7 @@ export default function AdminTabBookings() {
                   const rowHeight = ROW_HEIGHT; // px por 1 hora
                   const pixelsPerMinute = rowHeight / 60;
                   const rawHeight = (durationMinutes ?? DEFAULT_DURATION_MINUTES) * pixelsPerMinute;
-                  const height = Math.max(rawHeight - V_GAP_PX, 40);
+                  const height = Math.max(rawHeight - V_GAP_PX, 34);
 
                   const bookingName = slot.booking?.client?.name ?? 'Sin cliente vinculado';
                   const pendingByInsufficientPayment = Boolean(
@@ -1849,22 +1886,22 @@ export default function AdminTabBookings() {
                           });
                         }
                       }}
-                      className={`absolute rounded-3xl border-l-[6px] ${getBookingBarClass(
+                      className={`absolute rounded-2xl border-l-4 ${getBookingBarClass(
                         slot
-                      )} bg-white/95 p-3 text-left shadow-xl ring-1 ring-white/70 transition hover:shadow-2xl flex flex-col cursor-pointer`}
+                      )} bg-white/95 p-2.5 text-left shadow-lg ring-1 ring-white/70 transition hover:shadow-xl flex flex-col cursor-pointer`}
                       style={{
                         top,
                         left,
                         width,
                         height,
-                        minHeight: 80,
+                        minHeight: 56,
                       }}
                     >
-                      <div className="text-xs font-black text-[#347048] uppercase tracking-wide truncate">
+                      <div className="text-[11px] font-black text-[#347048] uppercase tracking-wide truncate">
                         {bookingName}
                       </div>
 
-                      <div className="mt-1 text-[10px] font-bold text-[#347048]/60">
+                      <div className="mt-0.5 text-[9px] font-bold text-[#347048]/60">
                         {getBookingTimeRange(slot)}
                       </div>
 
@@ -1875,20 +1912,20 @@ export default function AdminTabBookings() {
                       ) : null}
 
                       {slot.booking?.fixedBookingId && (
-                        <div className="absolute top-2 right-2 bg-[#347048] text-[#B9CF32] text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest">
+                        <div className="absolute top-1.5 right-1.5 bg-[#347048] text-[#B9CF32] text-[8px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-widest">
                           Fijo
                         </div>
                       )}
-                      <div className="absolute bottom-3 right-3 flex items-center gap-2">
+                      <div className="absolute bottom-2 right-2 flex items-center gap-1.5">
                         <button
                           onClick={(event) => {
                             event.stopPropagation();
                             handleCancelBooking(slot.booking);
                           }}
-                          className="p-2 rounded-xl bg-red-50 border border-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                          className="p-1.5 rounded-lg bg-red-50 border border-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all"
                           title="Cancelar"
                         >
-                          <Trash2 size={14} strokeWidth={2.5} />
+                          <Trash2 size={12} strokeWidth={2.5} />
                         </button>
                       </div>
                     </div>
@@ -1901,6 +1938,7 @@ export default function AdminTabBookings() {
           <div className="text-center py-16 border-4 border-dashed border-[#347048]/10 rounded-[2rem]"><p className="text-[#347048]/40 font-black uppercase tracking-widest">Sin datos cargados para esta fecha</p></div>
         )}
       </div>
+      )}
 
       {selectedBookingDetail && (
         <ModalPortal onClose={() => setSelectedBookingDetail(null)} maxWidthClass="max-w-5xl">

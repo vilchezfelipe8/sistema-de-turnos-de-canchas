@@ -13,7 +13,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, activeTab }
       <Sidebar activeTab={activeTab} />
       
       {/* Área de contenido principal */}
-      <main className="flex-1 ml-56 p-12 bg-surface-95">
+      <main className="density-compact flex-1 ml-56 p-6 lg:p-8 bg-surface-95">
         <div className="max-w-7xl mx-auto">
           {children}
         </div>

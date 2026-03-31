@@ -8,10 +8,10 @@ interface AdminTabProductsProps {
 export default function AdminTabProducts({ clubSlug }: AdminTabProductsProps) {
   return (
     // CONTENEDOR PRINCIPAL: Tarjeta Beige Wimbledon con borde blanco y sombra
-    <div className="bg-[#EBE1D8] border-4 border-white rounded-[2rem] p-8 mb-8 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
+    <div className="density-compact bg-[#EBE1D8] border-4 border-white rounded-[1.5rem] p-5 mb-6 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
       
       {/* ENCABEZADO DE LA SECCIÓN */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-5">
           
           <div className="flex flex-col">
             <h2 className="text-2xl font-black text-[#926699] flex items-center gap-3 uppercase italic tracking-tight">

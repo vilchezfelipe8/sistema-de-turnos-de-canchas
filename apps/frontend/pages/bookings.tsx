@@ -318,23 +318,23 @@ export default function MyBookingsPage() {
       <div className="relative z-10 flex flex-col min-h-screen">
         <Navbar />
 
-        <div className="flex-1 max-w-7xl mx-auto w-full px-4 py-8 md:py-12 mt-16">
+        <div className="density-compact flex-1 max-w-7xl mx-auto w-full px-4 py-6 md:py-8 mt-16">
           
           {/* Header */}
-          <div className="flex items-center gap-4 mb-8 animate-in slide-in-from-top-4 duration-500">
+          <div className="flex items-center gap-3 mb-5 animate-in slide-in-from-top-4 duration-500">
             <div className="bg-[#EBE1D8] p-3 rounded-2xl text-[#347048] shadow-lg">
               <Ticket size={32} strokeWidth={2.5} />
             </div>
             <div>
-              <h1 className="text-4xl font-black text-[#EBE1D8] uppercase italic tracking-tighter">Mis Reservas</h1>
+              <h1 className="text-3xl font-black text-[#EBE1D8] uppercase italic tracking-tighter">Mis Reservas</h1>
               <p className="text-[#B9CF32] font-bold text-sm tracking-widest uppercase">Historial y próximos partidos</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-8 h-full">
+          <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-5 h-full">
             
             {/* PANEL IZQUIERDO: LISTA */}
-            <div className="bg-[#EBE1D8] rounded-[2.5rem] p-6 md:p-8 shadow-2xl border-4 border-white/50 flex flex-col min-h-[600px] md:min-h-[700px] animate-in slide-in-from-left-4 duration-500 delay-100">
+            <div className="bg-[#EBE1D8] rounded-[1.5rem] p-4 md:p-5 shadow-2xl border-4 border-white/50 flex flex-col min-h-[520px] md:min-h-[620px] animate-in slide-in-from-left-4 duration-500 delay-100">
               
               {/* TABS PILDORA */}
               <div className="flex p-1 bg-[#347048]/10 rounded-2xl mb-6 relative">
@@ -433,12 +433,12 @@ export default function MyBookingsPage() {
             {/* PANEL DERECHO: DETALLE (STICKY) */}
             <div className="relative animate-in slide-in-from-right-4 duration-500 delay-200">
               {selectedBooking ? (
-                <div ref={(el) => { selectedDetailRef.current = el; }} tabIndex={-1} className="bg-white rounded-[2.5rem] p-8 shadow-2xl border-8 border-[#EBE1D8] h-fit sticky top-24">
+                <div ref={(el) => { selectedDetailRef.current = el; }} tabIndex={-1} className="bg-white rounded-[1.5rem] p-5 shadow-2xl border-4 border-[#EBE1D8] h-fit sticky top-20">
                   <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#347048] text-[#EBE1D8] px-6 py-2 rounded-full font-black text-xs uppercase tracking-widest shadow-lg flex items-center gap-2">
                     <Ticket size={14} /> Ticket de Reserva
                   </div>
 
-                  <div className="text-center mt-6 mb-8 border-b-2 border-dashed border-[#347048]/10 pb-8">
+                  <div className="text-center mt-4 mb-5 border-b-2 border-dashed border-[#347048]/10 pb-5">
                     <h2 className="text-2xl md:text-3xl font-black text-[#347048] italic tracking-tighter uppercase mb-2">
                       {selectedBooking.court?.name}
                     </h2>
@@ -447,7 +447,7 @@ export default function MyBookingsPage() {
                     </span>
                   </div>
 
-                  <div className="space-y-6">
+                  <div className="space-y-4">
                     <div className="flex items-center gap-4">
                       <div className="bg-[#347048]/5 p-3 rounded-xl text-[#347048]"><Calendar size={20} /></div>
                       <div>
@@ -484,7 +484,7 @@ export default function MyBookingsPage() {
                     </div>
                   </div>
 
-                  <div className="mt-10 pt-6 border-t-2 border-[#347048]/10 flex flex-col gap-4">
+                  <div className="mt-6 pt-4 border-t-2 border-[#347048]/10 flex flex-col gap-3">
                     <div className="flex justify-between items-end">
                       <span className="font-black text-[#347048]/40 text-xs uppercase tracking-widest mb-1">Total Pagado</span>
                       <span className="font-black text-[#347048] text-3xl tracking-tight">{formatCurrency(selectedBooking.price || 0)}</span>
@@ -501,7 +501,7 @@ export default function MyBookingsPage() {
                     {activeTab === 'ACTIVE' && (
                       <button 
                         onClick={() => handleCancel(selectedBooking.id)}
-                        className="w-full mt-2 py-4 rounded-xl border-2 border-red-100 bg-red-50 text-red-500 font-bold text-xs uppercase tracking-widest hover:bg-red-500 hover:text-white hover:border-red-500 transition-all flex justify-center items-center gap-2"
+                        className="compact-field w-full mt-2 py-3 rounded-xl border-2 border-red-100 bg-red-50 text-red-500 font-bold text-xs uppercase tracking-widest hover:bg-red-500 hover:text-white hover:border-red-500 transition-all flex justify-center items-center gap-2"
                       >
                         <XCircle size={16} /> Cancelar Reserva
                       </button>
@@ -512,14 +512,14 @@ export default function MyBookingsPage() {
                           {String(selectedBooking?.status || '') === 'COMPLETED' && (
                             <button
                               onClick={() => handleOpenReviewModal(selectedBooking)}
-                              className="w-full mt-2 py-4 rounded-xl border-2 border-[#B9CF32]/40 bg-[#B9CF32]/10 text-[#347048] font-bold text-xs uppercase tracking-widest hover:bg-[#B9CF32] hover:text-[#347048] transition-all flex justify-center items-center gap-2 text-center"
+                              className="compact-field w-full mt-2 py-3 rounded-xl border-2 border-[#B9CF32]/40 bg-[#B9CF32]/10 text-[#347048] font-bold text-xs uppercase tracking-widest hover:bg-[#B9CF32] hover:text-[#347048] transition-all flex justify-center items-center gap-2 text-center"
                             >
                               <MessageSquare size={16} /> Dejar / Editar reseña del club
                             </button>
                           )}
                           <Link 
                               href={`/club/${selectedBooking.court.club.slug}`}
-                              className="w-full mt-2 py-4 rounded-xl bg-[#347048] text-[#EBE1D8] font-bold text-xs uppercase tracking-widest hover:bg-[#B9CF32] hover:text-[#347048] transition-all flex justify-center items-center gap-2 text-center"
+                                className="compact-field w-full mt-2 py-3 rounded-xl bg-[#347048] text-[#EBE1D8] font-bold text-xs uppercase tracking-widest hover:bg-[#B9CF32] hover:text-[#347048] transition-all flex justify-center items-center gap-2 text-center"
                           >
                               <CheckCircle2 size={16} /> Volver a Reservar
                           </Link>
@@ -528,7 +528,7 @@ export default function MyBookingsPage() {
                   </div>
                 </div>
               ) : (
-                <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-center p-8 bg-[#EBE1D8]/10 border-4 border-dashed border-[#EBE1D8]/30 rounded-[2.5rem]">
+                <div className="h-full min-h-[320px] flex flex-col items-center justify-center text-center p-6 bg-[#EBE1D8]/10 border-4 border-dashed border-[#EBE1D8]/30 rounded-[1.5rem]">
                   <Ticket size={64} className="text-[#EBE1D8] mb-4 opacity-50" />
                   <p className="text-[#EBE1D8] font-black uppercase tracking-widest text-sm opacity-80">Seleccioná un partido<br/>para ver el ticket</p>
                 </div>
@@ -568,7 +568,7 @@ export default function MyBookingsPage() {
           }}
         >
           <div
-            className="w-full max-w-lg bg-[#EBE1D8] rounded-[2rem] p-6 md:p-8 shadow-2xl border-4 border-white/60"
+            className="density-compact w-full max-w-lg bg-[#EBE1D8] rounded-[1.5rem] p-4 md:p-5 shadow-2xl border-4 border-white/60"
             onClick={(event) => event.stopPropagation()}
           >
             <h3 className="text-2xl font-black text-[#347048] uppercase italic tracking-tight mb-2">Tu reseña del club</h3>
@@ -615,11 +615,11 @@ export default function MyBookingsPage() {
               </div>
             )}
 
-            <div className="mt-6 flex gap-3">
+            <div className="mt-5 flex gap-2.5">
               <button
                 type="button"
                 onClick={() => setReviewModalOpen(false)}
-                className="flex-1 h-12 rounded-xl border-2 border-[#347048]/20 text-[#347048] font-black text-xs uppercase tracking-widest"
+                className="flex-1 h-10 rounded-xl border-2 border-[#347048]/20 text-[#347048] font-black text-xs uppercase tracking-widest"
               >
                 Cancelar
               </button>
@@ -627,7 +627,7 @@ export default function MyBookingsPage() {
                 type="button"
                 onClick={handleSubmitReview}
                 disabled={reviewLoading || reviewSaving}
-                className="flex-1 h-12 rounded-xl bg-[#347048] text-[#EBE1D8] font-black text-xs uppercase tracking-widest disabled:opacity-60"
+                className="flex-1 h-10 rounded-xl bg-[#347048] text-[#EBE1D8] font-black text-xs uppercase tracking-widest disabled:opacity-60"
               >
                 {reviewSaving ? 'Guardando...' : 'Guardar reseña'}
               </button>

@@ -644,7 +644,7 @@ export default function PaymentCalculator({
             type="button"
             onClick={handleOpenConfirmModal}
             disabled={!canConfirmPayment}
-            className="w-full py-4 rounded-2xl bg-[#347048] text-[#EBE1D8] font-black uppercase tracking-widest text-xs transition-all hover:bg-[#2d5f3d] disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full h-10 rounded-2xl bg-[#347048] text-[#EBE1D8] font-black uppercase tracking-widest text-xs transition-all hover:bg-[#2d5f3d] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Confirmar pago
           </button>
@@ -656,7 +656,7 @@ export default function PaymentCalculator({
           type="button"
           onClick={onClose}
           disabled={submitting}
-          className="w-full mt-3 mb-6 px-6 sm:px-7 text-[#347048]/40 hover:text-[#347048] text-[10px] font-black uppercase tracking-widest hover:underline transition-all"
+          className="w-full mt-3 mb-3 px-6 sm:px-7 text-[#347048]/40 hover:text-[#347048] text-[10px] font-black uppercase tracking-widest hover:underline transition-all"
         >
           Cancelar operación
         </button>
@@ -664,22 +664,22 @@ export default function PaymentCalculator({
 
       {showConfirmModal && (
         <div className="fixed inset-0 z-[2147483500] bg-[#347048]/60 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-md max-h-[92vh] bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-[#347048]/10 flex justify-between items-center bg-[#EBE1D8]">
-              <h4 className="text-2xl font-black uppercase italic tracking-tighter text-[#347048]">
+          <div className="w-full max-w-md max-h-[94vh] bg-[#EBE1D8] border-2 border-white rounded-[2rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-4 border-b border-[#347048]/10 flex justify-between items-center bg-[#EBE1D8]">
+              <h4 className="text-xl font-black uppercase italic tracking-tighter text-[#347048]">
                 Confirmar pago
               </h4>
               <button
                 type="button"
                 onClick={() => setShowConfirmModal(false)}
                 disabled={submitting}
-                className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100 disabled:opacity-50"
+                className="bg-red-50 p-2 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100 disabled:opacity-50"
                 title="Cerrar ventana"
               >
-                <X size={20} strokeWidth={3} />
+                <X size={18} strokeWidth={3} />
               </button>
             </div>
-            <div className="p-6 sm:p-8 bg-white/40 flex-1 min-h-0 flex flex-col gap-5 overflow-y-auto text-[#347048]">
+            <div className="p-4 sm:p-5 bg-white/40 flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto text-[#347048]">
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#347048]/70">¿Registramos este pago?</p>
               <div className="space-y-2 text-sm font-bold">
                 <div className="flex items-center justify-between">
@@ -700,7 +700,7 @@ export default function PaymentCalculator({
                   type="button"
                   disabled={submitting}
                   onClick={() => setShowConfirmModal(false)}
-                  className="h-11 rounded-xl border-2 border-[#347048]/20 text-[#347048]/80 hover:text-[#347048] hover:bg-white font-black uppercase text-[10px] tracking-widest transition-all"
+                  className="h-10 rounded-xl border-2 border-[#347048]/20 text-[#347048]/80 hover:text-[#347048] hover:bg-white font-black uppercase text-[10px] tracking-widest transition-all"
                 >
                   Volver
                 </button>
@@ -708,7 +708,7 @@ export default function PaymentCalculator({
                   type="button"
                   disabled={submitting}
                   onClick={handleSubmitPayment}
-                  className="h-11 rounded-xl bg-[#347048] text-[#EBE1D8] hover:bg-[#B9CF32] hover:text-[#347048] font-black uppercase text-[10px] tracking-widest transition-all disabled:opacity-60"
+                  className="h-10 rounded-xl bg-[#347048] text-[#EBE1D8] hover:bg-[#B9CF32] hover:text-[#347048] font-black uppercase text-[10px] tracking-widest transition-all disabled:opacity-60"
                 >
                   {submitting ? 'Registrando...' : 'Confirmar'}
                 </button>
@@ -720,10 +720,10 @@ export default function PaymentCalculator({
 
       {showSuccessModal && lastRegisteredPayment && (
         <div className="fixed inset-0 z-[2147483500] bg-[#347048]/60 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-md max-h-[92vh] bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-[#347048]/10 flex justify-between items-center bg-[#EBE1D8]">
-              <h4 className="text-2xl font-black uppercase italic tracking-tighter text-[#347048] flex items-center gap-3">
-                <CheckCircle2 size={26} strokeWidth={2.8} className="text-[#B9CF32]" />
+          <div className="w-full max-w-md max-h-[94vh] bg-[#EBE1D8] border-2 border-white rounded-[2rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-4 border-b border-[#347048]/10 flex justify-between items-center bg-[#EBE1D8]">
+              <h4 className="text-xl font-black uppercase italic tracking-tighter text-[#347048] flex items-center gap-2.5">
+                <CheckCircle2 size={22} strokeWidth={2.8} className="text-[#B9CF32]" />
                 Pago registrado
               </h4>
               <button
@@ -732,13 +732,13 @@ export default function PaymentCalculator({
                   setShowSuccessModal(false);
                   onClose();
                 }}
-                className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
+                className="bg-red-50 p-2 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
                 title="Cerrar ventana"
               >
-                <X size={20} strokeWidth={3} />
+                <X size={18} strokeWidth={3} />
               </button>
             </div>
-            <div className="p-6 sm:p-8 bg-white/40 flex-1 min-h-0 flex flex-col gap-5 overflow-y-auto text-[#347048]">
+            <div className="p-4 sm:p-5 bg-white/40 flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto text-[#347048]">
               <div className="space-y-2 text-sm font-bold">
                 <div className="flex items-center justify-between">
                   <span className="text-[#347048]/70">Monto</span>
@@ -760,7 +760,7 @@ export default function PaymentCalculator({
                     setShowSuccessModal(false);
                     onClose();
                   }}
-                  className="h-11 rounded-xl bg-[#347048] text-[#EBE1D8] hover:bg-[#B9CF32] hover:text-[#347048] font-black uppercase text-[10px] tracking-widest transition-all"
+                  className="h-10 rounded-xl bg-[#347048] text-[#EBE1D8] hover:bg-[#B9CF32] hover:text-[#347048] font-black uppercase text-[10px] tracking-widest transition-all"
                 >
                   Cerrar
                 </button>

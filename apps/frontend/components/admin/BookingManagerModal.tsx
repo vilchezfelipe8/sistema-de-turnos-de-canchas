@@ -574,10 +574,11 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
     }
   };
 
-  const bookingTitle = courtName || booking?.court?.name || 'Cancha';
-  const clientName = booking?.client?.name || 'Sin cliente vinculado';
-  const clientPhone = booking?.client?.phone || '';
-
+  const reservationClientName = String(booking?.client?.name || 'Sin cliente vinculado');
+  const reservationStartTimeLabel = bookingStart
+    ? bookingStart.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+    : 'Sin horario';
+  const bookingHeaderTitle = `${reservationClientName} · ${reservationStartTimeLabel}`;
   const handleManualConfirm = async () => {
     if (!canManualConfirm) return;
     try {
@@ -596,81 +597,30 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
   };
 
   return (
-    <div className="relative text-[#347048]">
-      <div className="flex items-start justify-between gap-4 mb-6">
-        <div>
-          <h3 className="text-2xl font-black uppercase italic tracking-tight">Ficha del Turno</h3>
-          <p className="text-xs font-bold uppercase tracking-widest text-[#347048]/50 mt-1">{bookingTitle}</p>
+    <div className="density-compact relative text-[#347048]">
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div className="min-w-0">
+          <h3 className="text-xl font-black uppercase italic tracking-tight truncate">{bookingHeaderTitle}</h3>
         </div>
         <button
           onClick={onClose}
-          className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
+          className="bg-red-50 p-2 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
           title="Cerrar"
         >
-          <X size={20} strokeWidth={3} />
+          <X size={18} strokeWidth={3} />
         </button>
       </div>
 
-      <div className="grid grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 xl:gap-5 items-start max-w-[1180px] mx-auto">
         {/* IZQUIERDA: CUENTA */}
-        <div className="col-span-12 lg:col-span-7 lg:pr-6 lg:border-r lg:border-[#347048]/10 space-y-5">
-          <div className="rounded-2xl border border-[#347048]/10 bg-white p-4">
-            <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50">Reservante</p>
-            <p className="text-lg font-black mt-1">{clientName}</p>
-            {clientPhone ? <p className="text-xs font-bold text-[#347048]/60 mt-1">{clientPhone}</p> : null}
-            {booking?.client?.email ? <p className="text-xs font-bold text-[#347048]/60">{String(booking.client.email)}</p> : null}
-            {booking?.client?.dni ? <p className="text-xs font-bold text-[#347048]/60">DNI: {String(booking.client.dni)}</p> : null}
-          </div>
-
-          <div className="rounded-2xl border border-[#347048]/10 bg-white p-4">
-            <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50">Datos de la reserva</p>
-            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-              <div className="flex items-center justify-between gap-3">
-                <span className="font-black uppercase tracking-widest text-[#347048]/50">Estado</span>
-                <span className="font-black">{formatBookingStatus(bookingStatus)}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="font-black uppercase tracking-widest text-[#347048]/50">Actividad</span>
-                <span className="font-black text-right">{String(booking?.activity?.name || booking?.activityType?.name || 'Actividad')}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3 sm:col-span-2">
-                <span className="font-black uppercase tracking-widest text-[#347048]/50">Fecha</span>
-                <span className="font-black text-right">{bookingStart ? bookingStart.toLocaleDateString('es-AR') : '-'}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3 sm:col-span-2">
-                <span className="font-black uppercase tracking-widest text-[#347048]/50">Horario</span>
-                <span className="font-black text-right">
-                  {bookingStart ? bookingStart.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--'}
-                  {' - '}
-                  {bookingEnd ? bookingEnd.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="font-black uppercase tracking-widest text-[#347048]/50">Duración</span>
-                <span className="font-black">{Number.isFinite(bookingDurationMinutes) && bookingDurationMinutes > 0 ? `${bookingDurationMinutes} min` : '-'}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="font-black uppercase tracking-widest text-[#347048]/50">Precio reserva</span>
-                <span className="font-black">{formatMoney(Number(booking?.price || 0))}</span>
-              </div>
-              {bookingNightSurcharge.applied ? (
-                <div className="flex items-center justify-between gap-3 sm:col-span-2 text-amber-700">
-                  <span className="font-black uppercase tracking-widest">Recargo nocturno</span>
-                  <span className="font-black text-right">
-                    Aplicado (+{formatMoney(bookingNightSurcharge.amount)})
-                    {bookingNightSurcharge.fromHour ? ` desde ${bookingNightSurcharge.fromHour}` : ''}
-                  </span>
-                </div>
-              ) : null}
-            </div>
-          </div>
+        <div className="w-full space-y-4">
 
           {canManageConsumptions ? (
             <div className="bg-white/40 p-4 rounded-2xl border border-white/60">
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]/60 mb-3">
                 Agregar consumos / extras
               </p>
-              <div className="flex gap-3 items-center">
+              <div className="flex gap-2.5 items-center">
                 <div className="flex-1">
                   <ProductSearch
                     key={`product-search-${productSearchKey}`}
@@ -693,14 +643,14 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
                   min={1}
                   value={quantity}
                   onChange={(e) => setQuantity(Number(e.target.value))}
-                  className="w-20 h-12 bg-white border-2 border-[#347048]/10 focus:border-[#B9CF32] rounded-xl px-2 text-center text-[#347048] font-black shadow-sm outline-none"
+                  className="compact-field w-16 h-10 bg-white border-2 border-[#347048]/10 focus:border-[#B9CF32] rounded-xl px-2 text-center text-[#347048] font-black shadow-sm outline-none"
                   disabled={saving || isCancelled}
                 />
               <button
                 type="button"
                 onClick={() => void handleAddSelectedProduct()}
                 disabled={saving || isCancelled || !selectedProduct}
-                  className="h-12 px-4 rounded-xl bg-[#347048] text-white font-black uppercase tracking-widest text-[10px] shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#B9CF32] hover:text-[#347048]"
+                  className="compact-field h-10 px-4 rounded-xl bg-[#347048] text-white font-black uppercase tracking-widest text-[10px] shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#B9CF32] hover:text-[#347048]"
                 >
                   Agregar
                 </button>
@@ -762,7 +712,7 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
               </div>
 
               {cartItems.length === 0 ? (
-                <div className="p-6 text-center opacity-40">
+                <div className="p-4 text-center opacity-40">
                   <Receipt size={24} className="mx-auto mb-2" />
                   <p className="text-[10px] font-black uppercase tracking-widest">Sin consumos cargados</p>
                 </div>
@@ -844,8 +794,8 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
         </div>
 
         {/* DERECHA: RESUMEN / PAGO */}
-        <div className="col-span-12 lg:col-span-5">
-          <div className="bg-white/50 border border-white/60 rounded-[2rem] p-6">
+        <div className="w-full max-w-[560px] xl:max-w-none mx-auto">
+          <div className="bg-white/50 border border-white/60 rounded-[1.5rem] p-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/60 mb-4">Estado de cuenta</p>
 
             <div className="space-y-2">
@@ -980,9 +930,9 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
                   <span>{formatMoney(draftTotal)}</span>
                 </div>
               ) : null}
-              <div className="mt-4 pt-4 border-t border-[#347048]/10 flex items-end justify-between">
+              <div className="mt-3 pt-3 border-t border-[#347048]/10 flex items-end justify-between">
                 <span className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50">Total a registrar</span>
-                <span className="text-4xl font-black italic tracking-tighter text-[#347048]">
+                <span className="text-3xl font-black italic tracking-tighter text-[#347048]">
                   {formatMoney(grandTotalToRegister)}
                 </span>
               </div>
@@ -1063,13 +1013,13 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
               </div>
             ) : null}
 
-            <div className="mt-6 space-y-3">
+            <div className="mt-4 space-y-2.5">
               {canManualConfirm ? (
                 <button
                   type="button"
                   onClick={handleManualConfirm}
                   disabled={confirming || saving}
-                  className="w-full flex items-center justify-center gap-2 bg-[#926699] hover:bg-[#B9CF32] text-white hover:text-[#347048] py-3 rounded-2xl font-black uppercase tracking-widest transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="compact-field w-full flex items-center justify-center gap-2 bg-[#926699] hover:bg-[#B9CF32] text-white hover:text-[#347048] py-2.5 rounded-xl font-black uppercase tracking-widest transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {confirming ? 'Confirmando...' : 'Confirmar reserva'}
                 </button>
@@ -1079,7 +1029,7 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
                 type="button"
                 onClick={handleSaveDraftItems}
                 disabled={saving || isCancelled || !canManageConsumptions || !hasDraftItems}
-                className="w-full flex items-center justify-center gap-2 bg-white border border-[#347048]/20 hover:border-[#347048]/35 text-[#347048] py-3 rounded-2xl font-black uppercase tracking-widest transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                className="compact-field w-full flex items-center justify-center gap-2 bg-white border border-[#347048]/20 hover:border-[#347048]/35 text-[#347048] py-2.5 rounded-xl font-black uppercase tracking-widest transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Guardar consumos
               </button>
@@ -1091,7 +1041,7 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
                   setShowPaymentCalculator(true);
                 }}
                 disabled={saving || !canRegisterPayment}
-                className="w-full flex items-center justify-center gap-2 bg-[#347048] hover:bg-[#B9CF32] text-white hover:text-[#347048] py-4 rounded-2xl font-black uppercase tracking-widest transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                className="compact-field w-full flex items-center justify-center gap-2 bg-[#347048] hover:bg-[#B9CF32] text-white hover:text-[#347048] py-3 rounded-xl font-black uppercase tracking-widest transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Banknote size={18} strokeWidth={2.5} /> Registrar pago
               </button>
@@ -1104,7 +1054,7 @@ export default function BookingManagerModal({ booking, clubSlug, courtName, onCl
               <button
                 type="button"
                 onClick={() => onCancelBooking(booking)}
-                className="w-full py-3 text-red-600 text-xs font-black uppercase tracking-widest border border-red-200 bg-red-50 rounded-2xl"
+                className="compact-field w-full py-2.5 text-red-600 text-xs font-black uppercase tracking-widest border border-red-200 bg-red-50 rounded-xl"
               >
                 Cancelar reserva
               </button>

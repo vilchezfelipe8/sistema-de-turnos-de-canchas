@@ -168,29 +168,16 @@ export default function AdminTabStatistics({ slugProp }: Props) {
 
   // 6. UI Principal
   return (
-    <div className="p-6 space-y-8 animate-in fade-in duration-500 pb-20">
+    <div className="density-compact p-4 space-y-6 animate-in fade-in duration-500 pb-12">
       
-      {/* TÍTULO DE SECCIÓN (Ahora más limpio, solo título y refresh) */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-8">
-        <div>
-          <h2 className="text-3xl font-black text-[#EBE1D8] flex items-center gap-3 uppercase italic tracking-tighter">
-            <div className="bg-[#B9CF32] text-[#347048] p-2 rounded-xl shadow-lg shadow-[#B9CF32]/20">
-              <Activity size={28} strokeWidth={3} />
-            </div>
-            Estadísticas y Métricas
-          </h2>
-          <p className="text-[#EBE1D8]/60 text-xs font-bold uppercase tracking-[0.2em] mt-1 ml-14">
-            Resumen de rendimiento
-          </p>
-        </div>
-
-        {/* REFRESH SOLAMENTE */}
-        <button 
+      <div className="flex items-center justify-between gap-3 mb-5">
+        <h2 className="text-xl sm:text-2xl font-black text-[#EBE1D8] uppercase italic tracking-tight">Estadísticas y métricas</h2>
+        <button
           onClick={loadStats}
-          className="bg-[#B9CF32] text-[#347048] p-3 rounded-2xl shadow-lg hover:scale-105 transition-transform shrink-0"
+          className="h-9 w-9 rounded-full border border-[#EBE1D8]/20 bg-[#347048]/35 text-[#B9CF32] flex items-center justify-center shadow-sm hover:shadow-md hover:border-[#B9CF32]/60 transition-all shrink-0"
           title="Actualizar datos"
         >
-          <RefreshCw size={20} strokeWidth={3} className={loading ? "animate-spin" : ""} />
+          <RefreshCw size={16} strokeWidth={3} className={loading ? "animate-spin" : ""} />
         </button>
       </div>
 
@@ -201,9 +188,9 @@ export default function AdminTabStatistics({ slugProp }: Props) {
       )}
 
       {/* KPI CARDS (Se mantienen iguales) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* ... (Tus tarjetas siguen aquí tal cual) ... */}
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-[#347048]/5 hover:shadow-md transition-all group relative overflow-hidden">
+        <div className="bg-white p-4 rounded-[1.5rem] shadow-sm border border-[#347048]/5 hover:shadow-md transition-all group relative overflow-hidden">
            {/* ... Contenido Card 1 ... */}
            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><DollarSign size={100} className="text-[#347048]" /></div>
            <div className="flex justify-between items-start mb-4 relative z-10">
@@ -211,33 +198,33 @@ export default function AdminTabStatistics({ slugProp }: Props) {
              <span className="text-[10px] font-black uppercase tracking-widest text-[#347048] bg-[#347048]/10 px-2 py-1 rounded-lg">{activePeriod === 'hoy' ? 'Hoy' : activePeriod === 'semana' ? 'Semana' : 'Mes'}</span>
            </div>
            <p className="text-[#347048]/60 text-xs font-black uppercase tracking-widest mb-1 relative z-10">Facturación Total</p>
-           <h3 className="text-4xl font-black text-[#347048] relative z-10">${stats?.totalRevenue?.toLocaleString('es-AR') || 0}</h3>
+           <h3 className="text-3xl font-black text-[#347048] relative z-10">${stats?.totalRevenue?.toLocaleString('es-AR') || 0}</h3>
         </div>
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-[#347048]/5 hover:shadow-md transition-all group relative overflow-hidden">
+        <div className="bg-white p-4 rounded-[1.5rem] shadow-sm border border-[#347048]/5 hover:shadow-md transition-all group relative overflow-hidden">
            {/* ... Contenido Card 2 ... */}
            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><Calendar size={100} className="text-[#347048]" /></div>
            <div className="flex justify-between items-start mb-4 relative z-10">
              <div className="p-3 bg-[#EBE1D8] rounded-xl text-[#347048] group-hover:bg-[#347048] group-hover:text-white transition-colors"><Calendar size={24} strokeWidth={2.5} /></div>
            </div>
            <p className="text-[#347048]/60 text-xs font-black uppercase tracking-widest mb-1 relative z-10">Turnos Finalizados</p>
-           <h3 className="text-4xl font-black text-[#347048] relative z-10">{stats?.totalBookings || 0}</h3>
+           <h3 className="text-3xl font-black text-[#347048] relative z-10">{stats?.totalBookings || 0}</h3>
         </div>
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-[#347048]/5 hover:shadow-md transition-all group relative overflow-hidden">
+        <div className="bg-white p-4 rounded-[1.5rem] shadow-sm border border-[#347048]/5 hover:shadow-md transition-all group relative overflow-hidden">
            {/* ... Contenido Card 3 ... */}
            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><TrendingUp size={100} className="text-[#347048]" /></div>
            <div className="flex justify-between items-start mb-4 relative z-10">
              <div className="p-3 bg-[#EBE1D8] rounded-xl text-[#347048] group-hover:bg-[#347048] group-hover:text-white transition-colors"><TrendingUp size={24} strokeWidth={2.5} /></div>
            </div>
            <p className="text-[#347048]/60 text-xs font-black uppercase tracking-widest mb-1 relative z-10">Ticket Promedio</p>
-           <h3 className="text-4xl font-black text-[#347048] relative z-10">${averageTicket?.toLocaleString('es-AR') || 0}</h3>
+           <h3 className="text-3xl font-black text-[#347048] relative z-10">${averageTicket?.toLocaleString('es-AR') || 0}</h3>
         </div>
       </div>
 
       {/* SECCIÓN DE GRÁFICOS */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         
         {/* Gráfico 1: Evolución (CON TODO EL PANEL DE CONTROL INTEGRADO) */}
-        <div className="bg-white p-8 rounded-[2.5rem] shadow-sm lg:col-span-2 border border-[#347048]/5 relative overflow-hidden">
+        <div className="bg-white p-5 rounded-[1.5rem] shadow-sm lg:col-span-2 border border-[#347048]/5 relative overflow-hidden">
           
           <div className="flex flex-wrap items-center justify-between gap-4 mb-6 border-b border-[#347048]/10 pb-4">
             <h3 className="text-lg font-black text-[#347048] uppercase tracking-tight flex items-center gap-2">
@@ -268,7 +255,7 @@ export default function AdminTabStatistics({ slugProp }: Props) {
             </div>
           </div>
 
-          <div className="h-80 w-full">
+          <div className="h-72 w-full">
              <ResponsiveContainer width="100%" height="100%">
                 {/* ... tu BarChart ... */}
                 <BarChart data={stats?.dailyEvolution || []} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
@@ -285,11 +272,11 @@ export default function AdminTabStatistics({ slugProp }: Props) {
         </div>
 
         {/* Gráfico 2: Métodos de Pago */}
-        <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-[#347048]/5 flex flex-col">
+        <div className="bg-white p-5 rounded-[1.5rem] shadow-sm border border-[#347048]/5 flex flex-col">
           <h3 className="text-lg font-black text-[#347048] mb-6 uppercase tracking-tight flex items-center gap-2 border-b border-[#347048]/10 pb-2">
             <CreditCard size={20} /> Métodos de Pago
           </h3>
-          <div className="h-80 w-full relative flex-grow">
+          <div className="h-72 w-full relative flex-grow">
              {/* ... tu PieChart ... */}
              <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -309,9 +296,9 @@ export default function AdminTabStatistics({ slugProp }: Props) {
       </div>
 
       {/* SECCIÓN: PRODUCTOS VENDIDOS */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Resumen + listas */}
-        <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-[#347048]/5 flex flex-col">
+        <div className="bg-white p-5 rounded-[1.5rem] shadow-sm border border-[#347048]/5 flex flex-col">
           <h3 className="text-lg font-black text-[#347048] mb-6 uppercase tracking-tight flex items-center gap-2 border-b border-[#347048]/10 pb-2">
             <ShoppingBag size={20} /> Productos vendidos
           </h3>
@@ -346,7 +333,7 @@ export default function AdminTabStatistics({ slugProp }: Props) {
         </div>
 
         {/* Ranking */}
-        <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-[#347048]/5 lg:col-span-2 relative overflow-hidden">
+        <div className="bg-white p-5 rounded-[1.5rem] shadow-sm border border-[#347048]/5 lg:col-span-2 relative overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-4 mb-6 border-b border-[#347048]/10 pb-4">
             <div>
               <h3 className="text-lg font-black text-[#347048] uppercase tracking-tight flex items-center gap-2">
@@ -382,7 +369,7 @@ export default function AdminTabStatistics({ slugProp }: Props) {
             </div>
           </div>
 
-          <div className="h-80 w-full">
+          <div className="h-72 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={Array.isArray(stats?.products?.top) ? stats.products.top : []}

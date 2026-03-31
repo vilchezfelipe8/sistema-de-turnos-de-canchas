@@ -567,10 +567,10 @@ export default function AdminAccountsPage() {
 
   const pageCardClass = 'rounded-2xl border border-white/60 bg-white/40 p-4';
   const fieldClass =
-    'w-full h-12 bg-white border-2 border-[#347048]/10 focus:border-[#B9CF32] rounded-xl px-4 text-sm font-bold text-[#347048] outline-none transition-all shadow-sm';
+    'compact-field w-full h-10 bg-white border-2 border-[#347048]/10 focus:border-[#B9CF32] rounded-xl px-4 text-sm font-bold text-[#347048] outline-none transition-all shadow-sm';
   const selectClass = `${fieldClass} pr-10 appearance-none`;
   const primaryButtonClass =
-    'w-full h-12 rounded-xl bg-[#347048] text-[#EBE1D8] font-black text-xs uppercase tracking-widest shadow-lg shadow-[#347048]/20 hover:bg-[#B9CF32] hover:text-[#347048] transition-all';
+    'compact-field w-full h-10 rounded-xl bg-[#347048] text-[#EBE1D8] font-black text-xs uppercase tracking-widest shadow-lg shadow-[#347048]/20 hover:bg-[#B9CF32] hover:text-[#347048] transition-all';
 
   return (
     <AdminLayout>
@@ -578,7 +578,7 @@ export default function AdminAccountsPage() {
         <title>Cuentas | TuCancha Admin</title>
       </Head>
 
-      <div className="bg-[#EBE1D8] border-4 border-white/50 rounded-[2rem] p-8 shadow-2xl text-[#347048] space-y-6">
+      <div className="density-compact bg-[#EBE1D8] border-4 border-white/50 rounded-[1.5rem] p-5 shadow-2xl text-[#347048] space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <h1 className="text-2xl font-black uppercase italic">Cuentas</h1>
           <div className="text-xs font-black uppercase tracking-widest text-[#347048]/60">
