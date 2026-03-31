@@ -15,6 +15,29 @@ const fixedBookingActivityConfigSchema = z.object({
 const CLOSURE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CLUB_OPERATIONAL_STATUS_VALUES = ['OPEN', 'TEMPORARY_CLOSED', 'PERMANENTLY_CLOSED'] as const;
 type ClubOperationalStatus = typeof CLUB_OPERATIONAL_STATUS_VALUES[number];
+const DEFAULT_CLUB_TIMEZONE = 'America/Argentina/Buenos_Aires';
+
+const getDateKeyInTimeZone = (timeZone: string, date = new Date()): string => {
+    try {
+        const formatter = new Intl.DateTimeFormat('en-CA', {
+            timeZone,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        });
+        const parts = formatter.formatToParts(date);
+        const year = parts.find((part) => part.type === 'year')?.value;
+        const month = parts.find((part) => part.type === 'month')?.value;
+        const day = parts.find((part) => part.type === 'day')?.value;
+        if (year && month && day) return `${year}-${month}-${day}`;
+    } catch {
+        // noop: fallback abajo
+    }
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
 
 const validateClosureDates = (closureDates: unknown): string[] => {
     if (closureDates == null) return [];
@@ -37,6 +60,17 @@ const validateClosureDates = (closureDates: unknown): string[] => {
     return [];
 };
 
+const validateClosureDatesNoPast = (closureDates: unknown, minimumDateKey: string): string[] => {
+    if (!Array.isArray(closureDates)) return [];
+    const pastDate = closureDates
+        .map((raw) => String(raw || '').trim())
+        .find((value) => CLOSURE_DATE_RE.test(value) && value < minimumDateKey);
+    if (pastDate) {
+        return [`closureDates contiene ${pastDate}, que es una fecha pasada (mínimo permitido: ${minimumDateKey})`];
+    }
+    return [];
+};
+
 const normalizeDateOnly = (value: unknown): string | null => {
     if (value == null) return null;
     const normalized = String(value).trim();
@@ -50,6 +84,11 @@ const validateClubClosurePolicy = (params: {
     temporaryClosureStartDate?: string | null;
     temporaryClosureEndDate?: string | null;
     closureDates?: string[] | null;
+    minimumDateKey?: string | null;
+    allowPastTemporaryRangeIfUnchanged?: {
+        previousStartDate?: string | null;
+        previousEndDate?: string | null;
+    } | null;
 }): string[] => {
     const errors: string[] = [];
     const status = params.clubOperationalStatus;
@@ -68,6 +107,20 @@ const validateClubClosurePolicy = (params: {
             errors.push('TEMPORARY_CLOSED requiere temporaryClosureStartDate y temporaryClosureEndDate');
         } else if (startDate > endDate) {
             errors.push('temporaryClosureStartDate no puede ser mayor a temporaryClosureEndDate');
+        }
+
+        const minimumDateKey = String(params.minimumDateKey || '').trim();
+        if (CLOSURE_DATE_RE.test(minimumDateKey)) {
+            const previousStartDate = normalizeDateOnly(params.allowPastTemporaryRangeIfUnchanged?.previousStartDate);
+            const previousEndDate = normalizeDateOnly(params.allowPastTemporaryRangeIfUnchanged?.previousEndDate);
+            const startChanged = startDate !== previousStartDate;
+            const endChanged = endDate !== previousEndDate;
+            if (startDate && startDate < minimumDateKey && startChanged) {
+                errors.push(`temporaryClosureStartDate no puede ser una fecha pasada (mínimo permitido: ${minimumDateKey})`);
+            }
+            if (endDate && endDate < minimumDateKey && endChanged) {
+                errors.push(`temporaryClosureEndDate no puede ser una fecha pasada (mínimo permitido: ${minimumDateKey})`);
+            }
         }
     }
 
@@ -160,11 +213,18 @@ export class ClubController {
             if (closureDateErrors.length > 0) {
                 return res.status(400).json({ error: closureDateErrors.join(' | ') });
             }
+            const resolvedCreateTimeZone = String(timeZone || DEFAULT_CLUB_TIMEZONE).trim() || DEFAULT_CLUB_TIMEZONE;
+            const todayDateKey = getDateKeyInTimeZone(resolvedCreateTimeZone);
+            const closureDateNoPastErrors = validateClosureDatesNoPast(closureDates, todayDateKey);
+            if (closureDateNoPastErrors.length > 0) {
+                return res.status(400).json({ error: closureDateNoPastErrors.join(' | ') });
+            }
             const closurePolicyErrors = validateClubClosurePolicy({
                 clubOperationalStatus: (clubOperationalStatus ?? 'OPEN') as ClubOperationalStatus,
                 temporaryClosureStartDate,
                 temporaryClosureEndDate,
-                closureDates: Array.isArray(closureDates) ? closureDates : null
+                closureDates: Array.isArray(closureDates) ? closureDates : null,
+                minimumDateKey: todayDateKey
             });
             if (closurePolicyErrors.length > 0) {
                 return res.status(400).json({ error: closurePolicyErrors.join(' | ') });
@@ -400,6 +460,25 @@ export class ClubController {
             if (closureDateErrors.length > 0) {
                 return res.status(400).json({ error: closureDateErrors.join(' | ') });
             }
+            const resolvedTimeZone = String(timeZone ?? previousClub.timeZone ?? DEFAULT_CLUB_TIMEZONE).trim() || DEFAULT_CLUB_TIMEZONE;
+            const todayDateKey = getDateKeyInTimeZone(resolvedTimeZone);
+            if (Array.isArray(closureDates)) {
+                const previousClosureDatesSet = new Set(
+                    Array.isArray(previousClub.closureDates)
+                        ? previousClub.closureDates
+                            .map((raw: unknown) => String(raw || '').trim())
+                            .filter((value: string) => CLOSURE_DATE_RE.test(value))
+                        : []
+                );
+                const newlyAddedPastDate = closureDates
+                    .map((raw) => String(raw || '').trim())
+                    .find((value) => CLOSURE_DATE_RE.test(value) && value < todayDateKey && !previousClosureDatesSet.has(value));
+                if (newlyAddedPastDate) {
+                    return res.status(400).json({
+                        error: `closureDates contiene ${newlyAddedPastDate}, que es una fecha pasada (mínimo permitido: ${todayDateKey})`
+                    });
+                }
+            }
             const resolvedClubOperationalStatus =
                 (clubOperationalStatus ?? previousClub.clubOperationalStatus ?? 'OPEN') as ClubOperationalStatus;
             const resolvedTemporaryClosureStartDate =
@@ -419,7 +498,12 @@ export class ClubController {
                 clubOperationalStatus: resolvedClubOperationalStatus,
                 temporaryClosureStartDate: resolvedTemporaryClosureStartDate,
                 temporaryClosureEndDate: resolvedTemporaryClosureEndDate,
-                closureDates: resolvedClosureDates
+                closureDates: resolvedClosureDates,
+                minimumDateKey: todayDateKey,
+                allowPastTemporaryRangeIfUnchanged: {
+                    previousStartDate: previousClub.temporaryClosureStartDate ?? null,
+                    previousEndDate: previousClub.temporaryClosureEndDate ?? null
+                }
             });
             if (closurePolicyErrors.length > 0) {
                 return res.status(400).json({ error: closurePolicyErrors.join(' | ') });

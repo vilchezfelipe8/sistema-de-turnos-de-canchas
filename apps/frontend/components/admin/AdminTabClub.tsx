@@ -1058,9 +1058,12 @@ export default function AdminTabClub() {
   const queueScheduleExceptionDraft = async (activity: ClubActivityType, form: ActivityScheduleExceptionFormValue) => {
     const localDate = String(form.localDate || '').trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(localDate)) {
-      throw new Error('La fecha de excepción debe tener formato YYYY-MM-DD.');
+      throw new Error('La fecha de excepcion debe tener formato YYYY-MM-DD.');
     }
-
+    const todayDateKey = getTodayDateKey();
+    if (localDate < todayDateKey) {
+      throw new Error(`La fecha de excepcion no puede ser pasada (minimo permitido: ${todayDateKey}).`);
+    }
     if (form.isClosed) {
       upsertPendingScheduleExceptionMutation({
         activityId: activity.id,
@@ -1289,11 +1292,33 @@ export default function AdminTabClub() {
           showError('La fecha de inicio del cierre temporal no puede ser mayor a la fecha de fin.');
           return;
         }
+        const todayDateKey = getTodayDateKey();
+        const previousTemporaryClosureStartDate = String(club.temporaryClosureStartDate || '').trim();
+        const previousTemporaryClosureEndDate = String(club.temporaryClosureEndDate || '').trim();
+        if (normalizedClosureStartDate < todayDateKey && normalizedClosureStartDate !== previousTemporaryClosureStartDate) {
+          showError(`La fecha de inicio del cierre temporal no puede ser pasada (minimo permitido: ${todayDateKey}).`);
+          return;
+        }
+        if (normalizedClosureEndDate < todayDateKey && normalizedClosureEndDate !== previousTemporaryClosureEndDate) {
+          showError(`La fecha de fin del cierre temporal no puede ser pasada (minimo permitido: ${todayDateKey}).`);
+          return;
+        }
         const overlapsExceptionalDates = closureDatesSet.some((date) => date >= normalizedClosureStartDate && date <= normalizedClosureEndDate);
         if (overlapsExceptionalDates) {
           showError('Hay fechas de cierre puntual que se superponen con el cierre temporal. Eliminá las superpuestas para continuar.');
           return;
         }
+      }
+      const todayDateKeyForClosureDates = getTodayDateKey();
+      const previousClosureDatesSet = new Set(
+        Array.isArray(club.closureDates)
+          ? club.closureDates.map((raw) => String(raw || '').trim()).filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+          : []
+      );
+      const newlyAddedPastClosureDate = closureDatesSet.find((date) => date < todayDateKeyForClosureDates && !previousClosureDatesSet.has(date));
+      if (newlyAddedPastClosureDate) {
+        showError(`No podes agregar cierres puntuales en fechas pasadas (${newlyAddedPastClosureDate}). Minimo permitido: ${todayDateKeyForClosureDates}.`);
+        return;
       }
       if (clubForm.clubOperationalStatus === 'PERMANENTLY_CLOSED' && closureDatesSet.length > 0) {
         showError('No podés guardar fechas de cierre puntual cuando el club está en cierre permanente.');
@@ -1481,6 +1506,11 @@ export default function AdminTabClub() {
     const localDate = String(exceptionModalNewDate || '').trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(localDate)) {
       showError('La fecha nueva debe tener formato YYYY-MM-DD.');
+      return;
+    }
+    const todayDateKey = getTodayDateKey();
+    if (localDate < todayDateKey) {
+      showError(`La fecha nueva no puede ser pasada (minimo permitido: ${todayDateKey}).`);
       return;
     }
     const base = activityScheduleForm[exceptionModalActivity.id];
@@ -1769,6 +1799,11 @@ export default function AdminTabClub() {
     const value = String(closureDateInput || '').trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
       showError('La fecha de cierre debe tener formato YYYY-MM-DD.');
+      return;
+    }
+    const todayDateKey = getTodayDateKey();
+    if (value < todayDateKey) {
+      showError(`No podes agregar una fecha de cierre pasada. Minimo permitido: ${todayDateKey}.`);
       return;
     }
     if (
@@ -2076,6 +2111,7 @@ export default function AdminTabClub() {
                         <DatePickerDark
                           selected={parseLocalDate(clubForm.temporaryClosureStartDate)}
                           onChange={(date: Date | null) => setClubForm((prev) => ({ ...prev, temporaryClosureStartDate: date ? formatLocalDate(date) : '' }))}
+                          minDate={parseLocalDate(getTodayDateKey()) || undefined}
                           showIcon={false}
                           variant="light"
                           popperPlacement="bottom"
@@ -2096,6 +2132,7 @@ export default function AdminTabClub() {
                         <DatePickerDark
                           selected={parseLocalDate(clubForm.temporaryClosureEndDate)}
                           onChange={(date: Date | null) => setClubForm((prev) => ({ ...prev, temporaryClosureEndDate: date ? formatLocalDate(date) : '' }))}
+                          minDate={parseLocalDate(getTodayDateKey()) || undefined}
                           showIcon={false}
                           variant="light"
                           popperPlacement="bottom"
@@ -2130,6 +2167,7 @@ export default function AdminTabClub() {
                     <DatePickerDark
                       selected={parseLocalDate(closureDateInput)}
                       onChange={(date: Date | null) => setClosureDateInput(date ? formatLocalDate(date) : '')}
+                      minDate={parseLocalDate(getTodayDateKey()) || undefined}
                       showIcon={false}
                       variant="light"
                       popperPlacement="bottom"
@@ -2927,6 +2965,7 @@ export default function AdminTabClub() {
                   <div className="flex flex-wrap gap-2">
                     <input
                       type="date"
+                      min={getTodayDateKey()}
                       value={exceptionModalNewDate}
                       onChange={(e) => setExceptionModalNewDate(e.target.value)}
                       className="h-10 bg-white border-2 border-[#347048]/15 focus:border-[#B9CF32] rounded-lg px-3 text-[#347048] font-black text-sm"

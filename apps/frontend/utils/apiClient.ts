@@ -58,7 +58,8 @@ const formatMessage = (message: string, fallback: string) => {
   return safe.charAt(0).toUpperCase() + safe.slice(1);
 };
 
-const isRefreshTriggerCode = (code: ApiErrorCode | null) => code === 'AUTH_EXPIRED' || code === 'AUTH_INVALID';
+const isRefreshTriggerCode = (code: ApiErrorCode | null) =>
+  code === 'AUTH_EXPIRED' || code === 'AUTH_INVALID' || code === 'AUTH_MISSING';
 
 const isSessionInvalidCode = (code: ApiErrorCode | null) =>
   code === 'AUTH_INVALID' || code === 'AUTH_EXPIRED' || code === 'AUTH_REVOKED' || code === 'AUTH_MISSING';
