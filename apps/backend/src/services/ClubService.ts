@@ -213,6 +213,91 @@ export class ClubService {
         }));
     }
 
+    async searchParticipants(clubId: number, query?: string) {
+        const search = String(query || '').trim();
+        if (!search) return [];
+
+        const prismaAny = prisma as any;
+        const clients: any[] = await prismaAny.client.findMany({
+            where: {
+                clubId,
+                OR: [
+                    { name: { contains: search, mode: 'insensitive' } },
+                    { phone: { contains: search, mode: 'insensitive' } },
+                    { dni: { contains: search, mode: 'insensitive' } },
+                    { email: { contains: search, mode: 'insensitive' } }
+                ]
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 8
+        });
+
+        const clientResults = clients.map((client) => ({
+            id: `client-${client.id}`,
+            name: client.name,
+            phone: client.phone || '',
+            email: client.email || '',
+            dni: client.dni || '',
+            isProfessor: Boolean(client.isProfessor),
+            sourceType: 'clubClient' as const,
+            userId: client.userId || null
+        }));
+
+        const linkedUserIds = new Set<number>(
+            clientResults
+                .map((item) => Number(item.userId))
+                .filter((value) => Number.isInteger(value) && value > 0)
+        );
+
+        const users: any[] = await prismaAny.user.findMany({
+            where: {
+                AND: [
+                    {
+                        OR: [
+                            { memberships: { some: { clubId } } },
+                            { clients: { some: { clubId } } }
+                        ]
+                    },
+                    {
+                        OR: [
+                            { firstName: { contains: search, mode: 'insensitive' } },
+                            { lastName: { contains: search, mode: 'insensitive' } },
+                            { email: { contains: search, mode: 'insensitive' } },
+                            { phoneNumber: { contains: search, mode: 'insensitive' } }
+                        ]
+                    }
+                ]
+            },
+            select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                phoneNumber: true
+            },
+            orderBy: { id: 'desc' },
+            take: 8
+        });
+
+        const systemUserResults = users
+            .filter((user) => !linkedUserIds.has(Number(user.id)))
+            .map((user) => {
+                const fullName = `${String(user.firstName || '').trim()} ${String(user.lastName || '').trim()}`.trim();
+                return {
+                    id: `user-${user.id}`,
+                    name: fullName || String(user.email || '').trim() || `Usuario ${user.id}`,
+                    phone: String(user.phoneNumber || '').trim(),
+                    email: String(user.email || '').trim(),
+                    dni: '',
+                    isProfessor: false,
+                    sourceType: 'systemUser' as const,
+                    userId: user.id
+                };
+            });
+
+        return [...clientResults, ...systemUserResults];
+    }
+
     async createClient(clubId: number, input: {
         name: string;
         phone?: string | null;

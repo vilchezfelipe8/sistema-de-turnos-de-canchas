@@ -448,6 +448,28 @@ export class ClubAdminService {
     return res.json();
   }
 
+  static async rescheduleBooking(
+    clubSlug: string,
+    bookingId: number,
+    data: {
+      courtId: number;
+      startDateTime: string;
+      durationMinutes?: number;
+    }
+  ) {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/bookings/${bookingId}/reschedule`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || error.message || 'Error al mover reserva');
+    }
+    return res.json();
+  }
+
   /**
    * Crear reserva fija
    */

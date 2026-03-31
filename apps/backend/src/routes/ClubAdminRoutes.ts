@@ -382,6 +382,13 @@ router.post('/:slug/admin/bookings/:id/complete',
     bookingController.completeBooking
 );
 
+router.patch('/:slug/admin/bookings/:id/reschedule',
+    authMiddleware,
+    verifyClubAccess,
+    requireRole('ADMIN'),
+    bookingController.rescheduleBooking
+);
+
 // 1. Obtener todos los productos del club
 router.get('/:slug/admin/products',
     authMiddleware,

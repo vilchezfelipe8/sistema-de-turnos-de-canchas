@@ -126,6 +126,66 @@ export class BookingService {
         return context.clubId;
     }
 
+    async rescheduleBooking(input: {
+        bookingId: number;
+        clubId: number;
+        courtId: number;
+        startDateTime: Date;
+        durationMinutes?: number;
+    }) {
+        const booking = await prisma.booking.findFirst({
+            where: { id: input.bookingId, clubId: input.clubId },
+            include: { activity: true }
+        });
+        if (!booking) {
+            throw new Error('Reserva no encontrada');
+        }
+        if (booking.status === 'CANCELLED') {
+            throw new Error('No se puede mover una reserva cancelada');
+        }
+
+        const targetCourt = await prisma.court.findFirst({
+            where: { id: input.courtId, clubId: input.clubId },
+            include: { activityType: true }
+        });
+        if (!targetCourt) {
+            throw new Error('Cancha destino inválida');
+        }
+
+        const durationFromRange = booking.endDateTime && booking.startDateTime
+            ? Math.round((new Date(booking.endDateTime).getTime() - new Date(booking.startDateTime).getTime()) / 60000)
+            : 0;
+        const duration = Number(input.durationMinutes || durationFromRange || booking.activity?.defaultDurationMinutes || 60);
+        const safeDuration = Number.isFinite(duration) && duration > 0 ? Math.floor(duration) : 60;
+        const endDateTime = new Date(input.startDateTime.getTime() + safeDuration * 60000);
+
+        try {
+            const updated = await prisma.booking.update({
+                where: { id: input.bookingId },
+                data: {
+                    courtId: targetCourt.id,
+                    activityId: Number(targetCourt.activityTypeId || booking.activityId),
+                    startDateTime: input.startDateTime,
+                    endDateTime
+                },
+                include: {
+                    user: true,
+                    client: true,
+                    court: { include: { club: { include: { settings: true } } } },
+                    activity: true
+                }
+            });
+            return updated;
+        } catch (error: unknown) {
+            if (this.isOverlapConstraintError(error)) {
+                const e: any = new Error('El nuevo horario se superpone con otra reserva.');
+                e.code = 'BOOKING_OVERLAP';
+                throw e;
+            }
+            throw error;
+        }
+    }
+
     private defaultFixedSlots = [
         "08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:30", "19:00", "20:30", "22:00"
     ];

@@ -679,6 +679,43 @@ export class BookingController {
             res.status(500).json({ error: getErrorMessage(error, 'Error interno al cargar agenda') });
         }
     }
+
+    rescheduleBooking = async (req: Request, res: Response) => {
+        try {
+            const paramsSchema = z.object({
+                id: z.preprocess((v) => Number(v), z.number().int().positive())
+            });
+            const bodySchema = z.object({
+                courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                startDateTime: z.string().refine((s) => !Number.isNaN(Date.parse(s)), { message: 'startDateTime inválido' }),
+                durationMinutes: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional())
+            });
+
+            const p = paramsSchema.safeParse(req.params);
+            const b = bodySchema.safeParse(req.body || {});
+            if (!p.success) return res.status(400).json({ error: p.error.format() });
+            if (!b.success) return res.status(400).json({ error: b.error.format() });
+
+            const clubId = Number((req as any).clubId);
+            if (!Number.isInteger(clubId) || clubId <= 0) {
+                return res.status(400).json({ error: 'Club inválido' });
+            }
+
+            const updated = await this.bookingService.rescheduleBooking({
+                bookingId: p.data.id,
+                clubId,
+                courtId: b.data.courtId,
+                startDateTime: new Date(b.data.startDateTime),
+                durationMinutes: b.data.durationMinutes
+            });
+            return res.json({ booking: updated });
+        } catch (error: any) {
+            if (error?.code === 'BOOKING_OVERLAP') {
+                return res.status(409).json({ error: error.message || 'Superposición detectada' });
+            }
+            return res.status(400).json({ error: error?.message || 'No se pudo mover la reserva' });
+        }
+    }
     
     createFixed = async (req: Request, res: Response) => {
         try {

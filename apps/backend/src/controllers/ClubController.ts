@@ -672,7 +672,7 @@ export class ClubController {
             return res.json([]); 
         }
 
-        const filtered = await this.clubService.getClients(club.id, query);
+        const filtered = await this.clubService.searchParticipants(club.id, query);
         res.json(filtered);
 
     } catch (error: any) {
