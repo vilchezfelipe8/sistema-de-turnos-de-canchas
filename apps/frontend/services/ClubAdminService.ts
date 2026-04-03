@@ -1,5 +1,6 @@
 import { fetchWithAuth } from '../utils/apiClient';
 import { getApiUrl } from '../utils/apiUrl';
+import { parseApiErrorResponse, throwApiErrorFromResponse } from '../utils/apiError';
 
 const apiBase = () => `${getApiUrl()}/api`;
 
@@ -43,6 +44,26 @@ export type ActivityScheduleException = {
   scheduleFixedSlots?: ActivityFixedSlot[] | null;
   createdAt?: string;
   updatedAt?: string;
+};
+
+export type BookingBillingConfig = {
+  bookingId: number;
+  clubId: number;
+  chargeMode: 'INDIVIDUAL' | 'SHARED';
+  chargeResponsibleRef?: string;
+  assignments: Array<{
+    id: string;
+    participantRef: string;
+    isChargeable: boolean;
+    assignedAmount: number;
+    participantLinkState?: 'ACTIVE' | 'ARCHIVED_REFERENCE';
+  }>;
+  metadata?: {
+    schemaVersion: 1;
+    source: 'DEFAULTED' | 'PERSISTED';
+    [key: string]: unknown;
+  };
+  updatedAt: string;
 };
 
 export type DiscountPolicyScope = 'BOOKING' | 'PRODUCT' | 'SERVICE' | 'ALL';
@@ -162,8 +183,7 @@ export class ClubAdminService {
     });
 
     if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.error || error.message || 'Error al cargar la agenda');
+      await throwApiErrorFromResponse(res, 'Error al cargar la agenda');
     }
     return res.json();
   }
@@ -414,8 +434,7 @@ export class ClubAdminService {
     });
 
     if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.error || error.message || 'Error al cancelar reserva');
+      await throwApiErrorFromResponse(res, 'Error al cancelar reserva');
     }
     return res.json();
   }
@@ -428,8 +447,7 @@ export class ClubAdminService {
     });
 
     if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.error || error.message || 'Error al confirmar reserva');
+      await throwApiErrorFromResponse(res, 'Error al confirmar reserva');
     }
     return res.json();
   }
@@ -442,8 +460,7 @@ export class ClubAdminService {
     });
 
     if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.error || error.message || 'Error al completar reserva');
+      await throwApiErrorFromResponse(res, 'Error al completar reserva');
     }
     return res.json();
   }
@@ -464,10 +481,87 @@ export class ClubAdminService {
     });
 
     if (!res.ok) {
-      const error = await res.json().catch(() => ({}));
-      throw new Error(error.error || error.message || 'Error al mover reserva');
+      await throwApiErrorFromResponse(res, 'Error al mover reserva');
     }
     return res.json();
+  }
+
+  static async getBookingBillingConfig(clubSlug: string, bookingId: number): Promise<BookingBillingConfig> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/bookings/${bookingId}/billing-config`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) {
+      await throwApiErrorFromResponse(res, 'Error al obtener configuracion de cobro');
+    }
+    const payload = await res.json();
+    return {
+      bookingId: Number(payload?.bookingId || bookingId),
+      clubId: Number(payload?.clubId || 0),
+      chargeMode: payload?.chargeMode === 'SHARED' ? 'SHARED' : 'INDIVIDUAL',
+      chargeResponsibleRef: payload?.chargeResponsibleRef ? String(payload.chargeResponsibleRef) : undefined,
+      assignments: Array.isArray(payload?.assignments)
+        ? payload.assignments.map((assignment: any) => ({
+            id: String(assignment?.id || ''),
+            participantRef: String(assignment?.participantRef || ''),
+            isChargeable: Boolean(assignment?.isChargeable),
+            assignedAmount: Number(assignment?.assignedAmount || 0),
+            participantLinkState:
+              assignment?.participantLinkState === 'ARCHIVED_REFERENCE'
+                ? 'ARCHIVED_REFERENCE'
+                : 'ACTIVE',
+          }))
+        : [],
+      metadata: payload?.metadata || undefined,
+      updatedAt: String(payload?.updatedAt || new Date().toISOString()),
+    };
+  }
+
+  static async updateBookingBillingConfig(
+    clubSlug: string,
+    bookingId: number,
+    data: {
+      chargeMode: 'INDIVIDUAL' | 'SHARED';
+      chargeResponsibleRef?: string;
+      assignments: Array<{
+        id: string;
+        participantRef: string;
+        isChargeable: boolean;
+        assignedAmount: number;
+        participantLinkState?: 'ACTIVE' | 'ARCHIVED_REFERENCE';
+      }>;
+      metadata?: Record<string, unknown>;
+    }
+  ): Promise<BookingBillingConfig> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/bookings/${bookingId}/billing-config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      await throwApiErrorFromResponse(res, 'Error al guardar configuracion de cobro');
+    }
+    const payload = await res.json();
+    return {
+      bookingId: Number(payload?.bookingId || bookingId),
+      clubId: Number(payload?.clubId || 0),
+      chargeMode: payload?.chargeMode === 'SHARED' ? 'SHARED' : 'INDIVIDUAL',
+      chargeResponsibleRef: payload?.chargeResponsibleRef ? String(payload.chargeResponsibleRef) : undefined,
+      assignments: Array.isArray(payload?.assignments)
+        ? payload.assignments.map((assignment: any) => ({
+            id: String(assignment?.id || ''),
+            participantRef: String(assignment?.participantRef || ''),
+            isChargeable: Boolean(assignment?.isChargeable),
+            assignedAmount: Number(assignment?.assignedAmount || 0),
+            participantLinkState:
+              assignment?.participantLinkState === 'ARCHIVED_REFERENCE'
+                ? 'ARCHIVED_REFERENCE'
+                : 'ACTIVE',
+          }))
+        : [],
+      metadata: payload?.metadata || undefined,
+      updatedAt: String(payload?.updatedAt || new Date().toISOString()),
+    };
   }
 
   /**
@@ -482,9 +576,9 @@ export class ClubAdminService {
     });
 
     if (!res.ok) {
-      const error = await res.json();
-      const err: any = new Error(error.error || error.message || 'Error al crear reserva fija');
-      err.details = error;
+      const parsed = await parseApiErrorResponse(res, 'Error al crear reserva fija');
+      const err = parsed as any;
+      err.details = parsed.meta || {};
       throw err;
     }
     return res.json();
@@ -501,8 +595,7 @@ export class ClubAdminService {
     });
 
     if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.error || error.message || 'Error al cancelar reserva fija');
+      await throwApiErrorFromResponse(res, 'Error al cancelar reserva fija');
     }
     return res.json();
   }
@@ -938,3 +1031,4 @@ export class ClubAdminService {
     return Array.isArray(rows) ? rows : [];
   }
 }
+

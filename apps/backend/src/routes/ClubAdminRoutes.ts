@@ -389,6 +389,20 @@ router.patch('/:slug/admin/bookings/:id/reschedule',
     bookingController.rescheduleBooking
 );
 
+router.get('/:slug/admin/bookings/:id/billing-config',
+    authMiddleware,
+    verifyClubAccess,
+    requireRole('ADMIN'),
+    bookingController.getBookingBillingConfig
+);
+
+router.put('/:slug/admin/bookings/:id/billing-config',
+    authMiddleware,
+    verifyClubAccess,
+    requireRole('ADMIN'),
+    bookingController.upsertBookingBillingConfig
+);
+
 // 1. Obtener todos los productos del club
 router.get('/:slug/admin/products',
     authMiddleware,

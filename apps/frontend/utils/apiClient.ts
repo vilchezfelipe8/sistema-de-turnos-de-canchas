@@ -35,10 +35,20 @@ const LOGOUT_INVALIDATION_COOLDOWN_MS = 6000;
 const parseApiError = async (res: Response): Promise<ParsedApiError> => {
   try {
     const data = await res.clone().json();
-    const code = typeof data?.code === 'string' ? data.code : null;
+    const nested = data?.error && typeof data.error === 'object' ? data.error : null;
+    const code =
+      typeof data?.code === 'string'
+        ? data.code
+        : typeof nested?.code === 'string'
+          ? nested.code
+          : null;
     const message =
       typeof data?.error === 'string'
         ? data.error
+        : typeof nested?.message === 'string'
+          ? nested.message
+          : typeof nested?.error === 'string'
+            ? nested.error
         : typeof data?.message === 'string'
           ? data.message
           : '';

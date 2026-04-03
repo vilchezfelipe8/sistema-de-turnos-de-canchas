@@ -4,9 +4,10 @@ import { fetchWithAuth, isAuthSessionInvalidatedError } from '../utils/apiClient
 
 import { getApiUrl } from '../utils/apiUrl';
 import { ClubService } from './ClubService';
-import { ClubAdminService } from './ClubAdminService';
+import { ClubAdminService, type BookingBillingConfig } from './ClubAdminService';
 import { hasAdminAccess, normalizeSessionUser } from '../utils/session';
 import { getOrCreateBookingAccount, getAccountSummary, getAccountById, registerPayment } from './AccountService';
+import { parseApiErrorPayload, throwApiErrorFromResponse } from '../utils/apiError';
 
 const apiBase = () => `${getApiUrl()}/api`;
 
@@ -53,14 +54,34 @@ export type BookingQuote = {
   }>;
 };
 
+export type BookingBillingConfigPayload = {
+  chargeMode: 'INDIVIDUAL' | 'SHARED';
+  chargeResponsibleRef?: string;
+  assignments: Array<{
+    id: string;
+    participantRef: string;
+    isChargeable: boolean;
+    assignedAmount: number;
+    participantLinkState?: 'ACTIVE' | 'ARCHIVED_REFERENCE';
+  }>;
+  metadata?: Record<string, unknown>;
+};
+
+export type BookingDomainEvent = {
+  id: string;
+  type: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+  processed: boolean;
+};
+
 export const getBookingById = async (bookingId: number) => {
   const res = await fetchWithAuth(`${apiBase()}/bookings/${bookingId}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' }
   });
   if (!res.ok) {
-    const error = await res.json().catch(() => ({}));
-    throw new Error(error.error || error.message || 'No se pudo obtener la reserva');
+    await throwApiErrorFromResponse(res, 'No se pudo obtener la reserva');
   }
   const payload = await res.json();
   return payload?.booking ?? payload;
@@ -104,10 +125,7 @@ export const createBooking = async (
   });
 
   if (!response.ok) {
-    const errorData = await response.json();
-    const err: any = new Error(errorData.error || errorData.message || 'Error al reservar');
-    err.details = errorData;
-    throw err;
+    await throwApiErrorFromResponse(response, 'Error al reservar');
   }
 
   return response.json();
@@ -148,8 +166,7 @@ export const getBookingQuote = async (input: {
   });
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || errorData.message || 'No se pudo cotizar la reserva');
+    await throwApiErrorFromResponse(response, 'No se pudo cotizar la reserva');
   }
 
   const payload = await response.json();
@@ -178,8 +195,9 @@ export const getMyBookings = async (userId: number) => {
 
       if (!res.ok) {
           try {
-            const payload = await res.clone().json();
-            const code = String(payload?.code || '').trim();
+            const payload = await res.clone().json().catch(() => null);
+            const parsed = parseApiErrorPayload(payload, '');
+            const code = String(parsed?.code || '').trim();
             if (code === 'AUTH_MISSING' || code === 'AUTH_INVALID' || code === 'AUTH_EXPIRED' || code === 'AUTH_REVOKED') {
               return [];
             }
@@ -194,6 +212,35 @@ export const getMyBookings = async (userId: number) => {
       }
       throw error;
     }
+};
+
+export const getBookingTimelineEvents = async (
+  bookingId: number,
+  options?: { take?: number }
+): Promise<BookingDomainEvent[]> => {
+  const query = new URLSearchParams();
+  query.set('bookingId', String(bookingId));
+  if (Number.isFinite(options?.take) && Number(options?.take) > 0) {
+    query.set('take', String(Number(options?.take)));
+  }
+
+  const res = await fetchWithAuth(`${apiBase()}/events?${query.toString()}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!res.ok) {
+    await throwApiErrorFromResponse(res, 'No se pudo cargar el historial de eventos de la reserva');
+  }
+
+  const payload = await res.json();
+  if (!Array.isArray(payload)) return [];
+  return payload.map((event: any) => ({
+    id: String(event?.id || ''),
+    type: String(event?.type || ''),
+    payload: event?.payload && typeof event.payload === 'object' ? event.payload : {},
+    createdAt: String(event?.createdAt || ''),
+    processed: Boolean(event?.processed)
+  }));
 };
 
 // --- 3. CANCELAR UNA RESERVA ---
@@ -228,8 +275,7 @@ export const cancelBooking = async (
   });
 
     if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.message || 'No se pudo cancelar el turno');
+        await throwApiErrorFromResponse(res, 'No se pudo cancelar el turno');
     }
     return res.json();
 };
@@ -316,8 +362,7 @@ export const getBookingFinancialSummary = async (bookingId: number) => {
   });
 
   if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.error || error.message || 'No se pudo obtener el resumen financiero de la reserva');
+    await throwApiErrorFromResponse(res, 'No se pudo obtener el resumen financiero de la reserva');
   }
 
   const payload = await res.json();
@@ -395,6 +440,8 @@ export const createFixedBooking = async (
     };
     allowOverlappingSeries?: boolean;
     durationMinutes?: number;
+    everyDays?: number;
+    repetitions?: number;
   }
 ) => {
   const rawUser = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
@@ -417,6 +464,8 @@ export const createFixedBooking = async (
     ...(options?.clientId ? { clientId: options.clientId } : {}),
     ...(options?.client ? { client: options.client } : {}),
     ...(Number.isFinite(options?.durationMinutes) ? { durationMinutes: Number(options?.durationMinutes) } : {}),
+    ...(Number.isFinite(options?.everyDays) ? { everyDays: Number(options?.everyDays) } : {}),
+    ...(Number.isFinite(options?.repetitions) ? { repetitions: Number(options?.repetitions) } : {}),
     ...(options?.allowOverlappingSeries ? { allowOverlappingSeries: true } : {})
   });
 };
@@ -438,6 +487,33 @@ export const cancelFixedBooking = async (fixedBookingId: number) => {
   return ClubAdminService.cancelFixedBooking(club.slug, fixedBookingId);
 };
 
+export const getBookingBillingConfig = async (bookingId: number): Promise<BookingBillingConfig> => {
+  const rawUser = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+  if (!rawUser) throw new Error('No se pudo resolver el club activo del administrador.');
+  const parsed = normalizeSessionUser(JSON.parse(rawUser || '{}'));
+  const adminClubId = Number(parsed?.activeClubId);
+  if (!hasAdminAccess(parsed) || !Number.isFinite(adminClubId) || adminClubId <= 0) {
+    throw new Error('No se pudo resolver el club activo del administrador.');
+  }
+  const club = await ClubService.getClubById(adminClubId);
+  return ClubAdminService.getBookingBillingConfig(club.slug, bookingId);
+};
+
+export const updateBookingBillingConfig = async (
+  bookingId: number,
+  payload: BookingBillingConfigPayload
+): Promise<BookingBillingConfig> => {
+  const rawUser = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+  if (!rawUser) throw new Error('No se pudo resolver el club activo del administrador.');
+  const parsed = normalizeSessionUser(JSON.parse(rawUser || '{}'));
+  const adminClubId = Number(parsed?.activeClubId);
+  if (!hasAdminAccess(parsed) || !Number.isFinite(adminClubId) || adminClubId <= 0) {
+    throw new Error('No se pudo resolver el club activo del administrador.');
+  }
+  const club = await ClubService.getClubById(adminClubId);
+  return ClubAdminService.updateBookingBillingConfig(club.slug, bookingId, payload);
+};
+
 export const searchClients = async (slug: string, query: string) => {
     const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/clients-list?q=${encodeURIComponent(query)}`, {
         method: 'GET',
@@ -445,8 +521,7 @@ export const searchClients = async (slug: string, query: string) => {
     });
 
     if (!res.ok) {
-        const error = await res.json().catch(() => ({}));
-        throw new Error(error.error || error.message || 'No se pudo buscar clientes');
+        await throwApiErrorFromResponse(res, 'No se pudo buscar clientes');
     }
 
     const payload = await res.json();

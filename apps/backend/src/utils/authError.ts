@@ -14,6 +14,14 @@ export const sendAuthError = (
   code: AuthErrorCode,
   error: string
 ) => {
-  return res.status(status).json({ error, code });
+  const requestId = String((res as any)?.req?.requestId || '').trim();
+  return res.status(status).json({
+    error,
+    message: error,
+    code,
+    blocking: true,
+    field: 'general',
+    retryable: status >= 500,
+    ...(requestId ? { requestId } : {})
+  });
 };
-

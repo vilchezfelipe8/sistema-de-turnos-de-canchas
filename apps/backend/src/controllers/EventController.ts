@@ -14,19 +14,61 @@ export class EventController {
           return String(v) === 'true';
         }, z.boolean().optional()),
         type: z.string().trim().min(1).optional(),
-        take: z.preprocess((v) => (v == null || v === '' ? undefined : Number(v)), z.number().int().positive().max(500).optional())
+        take: z.preprocess((v) => (v == null || v === '' ? undefined : Number(v)), z.number().int().positive().max(500).optional()),
+        bookingId: z.preprocess((v) => (v == null || v === '' ? undefined : Number(v)), z.number().int().positive().optional())
       });
 
       const parsed = querySchema.safeParse(req.query);
       if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
 
       const clubId = Number((req as any).clubId);
+      const where: any = {
+        clubId,
+        ...(parsed.data.type ? { type: parsed.data.type } : {}),
+        ...(parsed.data.processed === undefined ? {} : { processed: parsed.data.processed })
+      };
+
+      if (parsed.data.bookingId) {
+        const bookingId = Number(parsed.data.bookingId);
+        const booking = await prisma.booking.findFirst({
+          where: {
+            id: bookingId,
+            court: { clubId }
+          },
+          select: { id: true }
+        });
+        if (!booking) return res.status(404).json({ error: 'Reserva no encontrada en el club activo' });
+
+        const bookingAccounts = await prisma.account.findMany({
+          where: {
+            clubId,
+            sourceType: 'BOOKING',
+            sourceId: String(bookingId)
+          },
+          select: { id: true }
+        });
+
+        const bookingEventOrFilters: any[] = [
+          { payload: { path: ['bookingId'], equals: bookingId } },
+          { payload: { path: ['bookingId'], equals: String(bookingId) } },
+          { payload: { path: ['sourceBookingId'], equals: bookingId } },
+          { payload: { path: ['sourceBookingId'], equals: String(bookingId) } }
+        ];
+
+        bookingAccounts.forEach((account) => {
+          bookingEventOrFilters.push({
+            payload: {
+              path: ['accountId'],
+              equals: account.id
+            }
+          });
+        });
+
+        where.AND = [{ OR: bookingEventOrFilters }];
+      }
+
       const events = await prisma.event.findMany({
-        where: {
-          clubId,
-          ...(parsed.data.type ? { type: parsed.data.type } : {}),
-          ...(parsed.data.processed === undefined ? {} : { processed: parsed.data.processed })
-        },
+        where,
         orderBy: { createdAt: 'desc' },
         take: parsed.data.take ?? 100
       });

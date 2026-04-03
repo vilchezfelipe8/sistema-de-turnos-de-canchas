@@ -11,7 +11,7 @@ import { User } from '../entities/User';
 import { Club } from '../entities/Club';
 import { Court as CourtEntity } from '../entities/Court';
 import { ActivityType } from '../entities/ActivityType';
-import { BookingStatus, Prisma, RefundReasonType } from '@prisma/client';
+import { BookingStatus, ChargeMode, Prisma, RefundReasonType } from '@prisma/client';
 import { CashRepository } from '../repositories/CashRepository';
 import { ProductRepository } from '../repositories/ProductRepository';
 import { buildSlotsFromSchedule, normalizeSchedule } from '../utils/ActivityScheduleHelper';
@@ -72,6 +72,8 @@ type CreateFixedBookingOptions = {
     allowOverlappingSeries?: boolean;
     durationMinutes?: number;
     weeksToGenerate?: number;
+    everyDays?: number;
+    repetitions?: number;
 };
 
 type BookingPriceQuoteInput = {
@@ -98,6 +100,44 @@ type BookingPriceQuote = {
         policyName: string;
         discountAmount: number;
     }>;
+};
+
+export type BookingBillingParticipantRef = string;
+
+export type BookingBillingAssignmentDTO = {
+    id: string;
+    participantRef: BookingBillingParticipantRef;
+    isChargeable: boolean;
+    assignedAmount: number;
+    participantLinkState?: 'ACTIVE' | 'ARCHIVED_REFERENCE';
+};
+
+export type BookingBillingConfigDTO = {
+    bookingId: number;
+    clubId: number;
+    chargeMode: 'INDIVIDUAL' | 'SHARED';
+    chargeResponsibleRef?: BookingBillingParticipantRef;
+    assignments: BookingBillingAssignmentDTO[];
+    metadata: {
+        schemaVersion: 1;
+        source: 'DEFAULTED' | 'PERSISTED';
+    };
+    updatedAt: string;
+};
+
+type UpsertBookingBillingConfigInput = {
+    bookingId: number;
+    clubId: number;
+    actorUserId?: number | null;
+    chargeMode: 'INDIVIDUAL' | 'SHARED';
+    chargeResponsibleRef?: string | null;
+    assignments: BookingBillingAssignmentDTO[];
+    metadata?: Record<string, unknown> | null;
+};
+
+type PersistedBillingAssignmentsJson = {
+    schemaVersion: 1;
+    assignments: BookingBillingAssignmentDTO[];
 };
 
 export class BookingService {
@@ -132,6 +172,7 @@ export class BookingService {
         courtId: number;
         startDateTime: Date;
         durationMinutes?: number;
+        actorUserId?: number | null;
     }) {
         const booking = await prisma.booking.findFirst({
             where: { id: input.bookingId, clubId: input.clubId },
@@ -142,6 +183,9 @@ export class BookingService {
         }
         if (booking.status === 'CANCELLED') {
             throw new Error('No se puede mover una reserva cancelada');
+        }
+        if (new Date(input.startDateTime).getTime() < Date.now()) {
+            throw new Error('No se pueden reservar turnos en el pasado.');
         }
 
         const targetCourt = await prisma.court.findFirst({
@@ -160,20 +204,37 @@ export class BookingService {
         const endDateTime = new Date(input.startDateTime.getTime() + safeDuration * 60000);
 
         try {
-            const updated = await prisma.booking.update({
-                where: { id: input.bookingId },
-                data: {
+            const updated = await prisma.$transaction(async (tx) => {
+                const persisted = await tx.booking.update({
+                    where: { id: input.bookingId },
+                    data: {
+                        courtId: targetCourt.id,
+                        activityId: Number(targetCourt.activityTypeId || booking.activityId),
+                        startDateTime: input.startDateTime,
+                        endDateTime
+                    },
+                    include: {
+                        user: true,
+                        client: true,
+                        court: { include: { club: { include: { settings: true } } } },
+                        activity: true
+                    }
+                });
+
+                await this.eventService.bookingRescheduled(input.clubId, {
+                    bookingId: input.bookingId,
+                    actorUserId: input.actorUserId ?? null,
+                    previousCourtId: booking.courtId,
+                    previousActivityId: booking.activityId,
+                    previousStartDateTime: booking.startDateTime?.toISOString?.() || null,
+                    previousEndDateTime: booking.endDateTime?.toISOString?.() || null,
                     courtId: targetCourt.id,
                     activityId: Number(targetCourt.activityTypeId || booking.activityId),
-                    startDateTime: input.startDateTime,
-                    endDateTime
-                },
-                include: {
-                    user: true,
-                    client: true,
-                    court: { include: { club: { include: { settings: true } } } },
-                    activity: true
-                }
+                    startDateTime: input.startDateTime?.toISOString?.() || null,
+                    endDateTime: endDateTime?.toISOString?.() || null,
+                }, tx as any);
+
+                return persisted;
             });
             return updated;
         } catch (error: unknown) {
@@ -184,6 +245,505 @@ export class BookingService {
             }
             throw error;
         }
+    }
+
+    private roundCurrency(value: unknown) {
+        const numeric = Number(value || 0);
+        if (!Number.isFinite(numeric)) return 0;
+        return Number(Math.max(0, numeric).toFixed(2));
+    }
+
+    private resolveBookingResponsibleRef(booking: { clientId?: string | null; userId?: number | null }) {
+        if (booking.clientId) return `booking-client:${String(booking.clientId)}`;
+        if (booking.userId && Number.isFinite(Number(booking.userId))) return `booking-user:${Number(booking.userId)}`;
+        return 'guest:booking-responsible';
+    }
+
+    private normalizeBillingAssignments(raw: unknown): BookingBillingAssignmentDTO[] {
+        const payload = (raw || {}) as Partial<PersistedBillingAssignmentsJson>;
+        const items = Array.isArray(payload.assignments) ? payload.assignments : [];
+        const map = new Map<string, BookingBillingAssignmentDTO>();
+
+        for (const item of items) {
+            const assignment = item as Partial<BookingBillingAssignmentDTO>;
+            const id = String(assignment?.id || '').trim();
+            const participantRef = String(assignment?.participantRef || '').trim();
+            if (!id || !participantRef) continue;
+            map.set(id, {
+                id,
+                participantRef,
+                isChargeable: Boolean(assignment?.isChargeable),
+                assignedAmount: this.roundCurrency(assignment?.assignedAmount),
+                participantLinkState:
+                    assignment?.participantLinkState === 'ARCHIVED_REFERENCE'
+                        ? 'ARCHIVED_REFERENCE'
+                        : 'ACTIVE',
+            });
+        }
+
+        return Array.from(map.values());
+    }
+
+    private collectActiveParticipantRefs(assignments: BookingBillingAssignmentDTO[]): string[] {
+        const refs = new Set<string>();
+        for (const assignment of assignments) {
+            const participantRef = String(assignment?.participantRef || '').trim();
+            if (!participantRef) continue;
+            const isArchivedReference = assignment?.participantLinkState === 'ARCHIVED_REFERENCE';
+            if (isArchivedReference) continue;
+            refs.add(participantRef);
+        }
+        return Array.from(refs.values());
+    }
+
+    private normalizeAssignmentsForComparison(assignments: BookingBillingAssignmentDTO[]) {
+        return [...(assignments || [])]
+            .map((assignment) => ({
+                participantRef: String(assignment?.participantRef || '').trim(),
+                isChargeable: Boolean(assignment?.isChargeable),
+                assignedAmount: this.roundCurrency(assignment?.assignedAmount),
+                participantLinkState:
+                    assignment?.participantLinkState === 'ARCHIVED_REFERENCE'
+                        ? 'ARCHIVED_REFERENCE'
+                        : 'ACTIVE',
+            }))
+            .sort((left, right) => {
+                const byRef = left.participantRef.localeCompare(right.participantRef);
+                if (byRef !== 0) return byRef;
+                if (left.isChargeable !== right.isChargeable) return left.isChargeable ? -1 : 1;
+                const byAmount = left.assignedAmount - right.assignedAmount;
+                if (Math.abs(byAmount) > 0.009) return byAmount;
+                return left.participantLinkState.localeCompare(right.participantLinkState);
+            });
+    }
+
+    private extractSidebarNotesFromMetadata(metadata: Record<string, unknown> | null | undefined) {
+        if (!metadata || typeof metadata !== 'object') return '';
+        if (typeof metadata.sidebarNotes === 'string') return metadata.sidebarNotes.trim();
+        const sidebar = metadata.sidebar;
+        if (sidebar && typeof sidebar === 'object') {
+            const notes = (sidebar as Record<string, unknown>).notes;
+            if (typeof notes === 'string') return notes.trim();
+        }
+        return '';
+    }
+
+    private validateBillingConfig(input: {
+        chargeMode: 'INDIVIDUAL' | 'SHARED';
+        chargeResponsibleRef?: string | null;
+        assignments: BookingBillingAssignmentDTO[];
+        chargeableTotal: number;
+    }) {
+        if (!Array.isArray(input.assignments) || input.assignments.length === 0) {
+            throw new Error('Debe enviar al menos una asignación.');
+        }
+
+        const seenIds = new Set<string>();
+        for (const assignment of input.assignments) {
+            if (!assignment.id || !assignment.participantRef) {
+                throw new Error('Asignación inválida: id y participantRef son obligatorios.');
+            }
+            if (seenIds.has(assignment.id)) {
+                throw new Error('Asignación inválida: hay ids duplicados.');
+            }
+            seenIds.add(assignment.id);
+            if (Number(assignment.assignedAmount) < 0) {
+                throw new Error('Asignación inválida: assignedAmount no puede ser negativo.');
+            }
+        }
+
+        const chargeableAssignments = input.assignments.filter((assignment) => assignment.isChargeable);
+        if (input.chargeMode === 'INDIVIDUAL') {
+            const responsible = String(input.chargeResponsibleRef || '').trim();
+            if (!responsible) {
+                throw new Error('En modo INDIVIDUAL falta chargeResponsibleRef.');
+            }
+            if (chargeableAssignments.length !== 1) {
+                throw new Error('En modo INDIVIDUAL debe existir exactamente una asignación cobrable.');
+            }
+            if (chargeableAssignments[0].participantRef !== responsible) {
+                throw new Error('En modo INDIVIDUAL la asignación cobrable debe coincidir con chargeResponsibleRef.');
+            }
+        } else {
+            if (chargeableAssignments.length === 0) {
+                throw new Error('En modo SHARED debe existir al menos una asignación cobrable.');
+            }
+        }
+
+        const sumAssigned = this.roundCurrency(
+            input.assignments.reduce((sum, assignment) => {
+                if (!assignment.isChargeable) return sum;
+                return sum + Number(assignment.assignedAmount || 0);
+            }, 0)
+        );
+        const expected = this.roundCurrency(input.chargeableTotal);
+        if (Math.abs(sumAssigned - expected) > 0.01) {
+            throw new Error('La suma de asignaciones cobrables no coincide con el monto cobrable actual de la reserva.');
+        }
+    }
+
+    private buildDefaultBillingConfig(booking: {
+        id: number;
+        clubId: number;
+        clientId?: string | null;
+        userId?: number | null;
+        price?: unknown;
+        createdAt?: Date | null;
+        updatedAt?: Date | null;
+    }): BookingBillingConfigDTO {
+        const responsibleRef = this.resolveBookingResponsibleRef(booking);
+        const amount = this.roundCurrency(booking.price);
+        return {
+            bookingId: booking.id,
+            clubId: booking.clubId,
+            chargeMode: 'INDIVIDUAL',
+            chargeResponsibleRef: responsibleRef,
+            assignments: [
+                {
+                    id: 'asg-booking-responsible',
+                    participantRef: responsibleRef,
+                    isChargeable: true,
+                    assignedAmount: amount,
+                    participantLinkState: 'ACTIVE',
+                },
+            ],
+            metadata: {
+                schemaVersion: 1,
+                source: 'DEFAULTED',
+            },
+            updatedAt: (booking.updatedAt || booking.createdAt || new Date()).toISOString(),
+        };
+    }
+
+    async getBookingBillingConfig(bookingId: number, clubId: number): Promise<BookingBillingConfigDTO> {
+        const booking = await prisma.booking.findFirst({
+            where: { id: bookingId, clubId },
+            select: {
+                id: true,
+                clubId: true,
+                clientId: true,
+                userId: true,
+                price: true,
+                createdAt: true,
+                startDateTime: true,
+                endDateTime: true,
+            },
+        });
+        if (!booking) {
+            throw new Error('Reserva no encontrada');
+        }
+
+        const persisted = await prisma.bookingBillingConfig.findUnique({
+            where: { bookingId: booking.id },
+            select: {
+                bookingId: true,
+                clubId: true,
+                chargeMode: true,
+                chargeResponsibleRef: true,
+                assignmentsJson: true,
+                metadataJson: true,
+                updatedAt: true,
+            },
+        });
+
+        if (!persisted) {
+            const summary = await prisma.$transaction((tx) =>
+                this.bookingDomainService.getBookingFinancialSummaryTx(tx as any, booking.id, clubId)
+            );
+            const bookingResponsibleRef = this.resolveBookingResponsibleRef({
+                clientId: booking.clientId,
+                userId: booking.userId
+            });
+            const initializedAssignments: PersistedBillingAssignmentsJson = {
+                schemaVersion: 1,
+                assignments: [
+                    {
+                        id: 'asg-booking-responsible',
+                        participantRef: bookingResponsibleRef,
+                        isChargeable: true,
+                        assignedAmount: this.roundCurrency(summary?.total ?? booking.price),
+                        participantLinkState: 'ACTIVE'
+                    }
+                ]
+            };
+            const initializedMetadata = {
+                schemaVersion: 1 as const,
+                source: 'PERSISTED' as const,
+                initializedBy: 'AUTO_INITIALIZE_ON_READ'
+            };
+
+            const initialized = await prisma.bookingBillingConfig.upsert({
+                where: { bookingId: booking.id },
+                create: {
+                    bookingId: booking.id,
+                    clubId,
+                    chargeMode: ChargeMode.INDIVIDUAL,
+                    chargeResponsibleRef: bookingResponsibleRef,
+                    assignmentsJson: initializedAssignments as unknown as Prisma.InputJsonValue,
+                    metadataJson: initializedMetadata as unknown as Prisma.InputJsonValue,
+                    createdByUserId: null,
+                    updatedByUserId: null
+                },
+                update: {
+                    chargeMode: ChargeMode.INDIVIDUAL,
+                    chargeResponsibleRef: bookingResponsibleRef,
+                    assignmentsJson: initializedAssignments as unknown as Prisma.InputJsonValue,
+                    metadataJson: initializedMetadata as unknown as Prisma.InputJsonValue,
+                    updatedByUserId: null
+                },
+                select: {
+                    bookingId: true,
+                    clubId: true,
+                    chargeMode: true,
+                    chargeResponsibleRef: true,
+                    assignmentsJson: true,
+                    metadataJson: true,
+                    updatedAt: true
+                }
+            });
+
+            return {
+                bookingId: initialized.bookingId,
+                clubId: initialized.clubId,
+                chargeMode: String(initialized.chargeMode) === 'SHARED' ? 'SHARED' : 'INDIVIDUAL',
+                chargeResponsibleRef: initialized.chargeResponsibleRef || undefined,
+                assignments: this.normalizeBillingAssignments(initialized.assignmentsJson),
+                metadata: {
+                    schemaVersion: 1,
+                    source: 'PERSISTED',
+                    ...((initialized.metadataJson || {}) as Record<string, unknown>)
+                } as BookingBillingConfigDTO['metadata'],
+                updatedAt: initialized.updatedAt.toISOString()
+            };
+        }
+
+        const assignments = this.normalizeBillingAssignments(persisted.assignmentsJson);
+        const metadata = (persisted.metadataJson || {}) as Record<string, unknown>;
+
+        return {
+            bookingId: persisted.bookingId,
+            clubId: persisted.clubId,
+            chargeMode: String(persisted.chargeMode) === 'SHARED' ? 'SHARED' : 'INDIVIDUAL',
+            chargeResponsibleRef: persisted.chargeResponsibleRef || undefined,
+            assignments,
+            metadata: {
+                schemaVersion: 1,
+                source: 'PERSISTED',
+                ...(metadata || {}),
+            } as BookingBillingConfigDTO['metadata'],
+            updatedAt: persisted.updatedAt.toISOString(),
+        };
+    }
+
+    async upsertBookingBillingConfig(input: UpsertBookingBillingConfigInput): Promise<BookingBillingConfigDTO> {
+        return prisma.$transaction(async (tx) => {
+            const booking = await tx.booking.findFirst({
+                where: { id: input.bookingId, clubId: input.clubId },
+                select: {
+                    id: true,
+                    clubId: true,
+                    clientId: true,
+                    userId: true,
+                    price: true,
+                    createdAt: true,
+                },
+            });
+            if (!booking) {
+                throw new Error('Reserva no encontrada');
+            }
+
+            const summary = await this.bookingDomainService.getBookingFinancialSummaryTx(tx as any, booking.id, input.clubId);
+            const chargeableTotal = Number(summary?.total || booking.price || 0);
+            const defaultResponsibleRef = this.resolveBookingResponsibleRef({
+                clientId: booking.clientId,
+                userId: booking.userId
+            });
+            let normalizedAssignments = this.normalizeBillingAssignments({
+                schemaVersion: 1,
+                assignments: input.assignments || [],
+            } satisfies PersistedBillingAssignmentsJson);
+            const currentConfig = await tx.bookingBillingConfig.findUnique({
+                where: { bookingId: booking.id },
+                select: {
+                    assignmentsJson: true,
+                    metadataJson: true,
+                    chargeMode: true,
+                    chargeResponsibleRef: true,
+                },
+            });
+            const previousConfig = currentConfig
+                ? {
+                    chargeMode: String(currentConfig.chargeMode) === 'SHARED' ? 'SHARED' as const : 'INDIVIDUAL' as const,
+                    chargeResponsibleRef: currentConfig.chargeResponsibleRef || undefined,
+                    assignments: this.normalizeBillingAssignments(currentConfig.assignmentsJson),
+                    metadata: ((currentConfig.metadataJson || {}) as Record<string, unknown>),
+                }
+                : this.buildDefaultBillingConfig(booking);
+            const previousAssignments = previousConfig.assignments;
+            const previousActiveRefs = new Set(this.collectActiveParticipantRefs(previousAssignments));
+            const nextActiveRefs = this.collectActiveParticipantRefs(normalizedAssignments);
+            const addedParticipantRefs = nextActiveRefs.filter((ref) => !previousActiveRefs.has(ref));
+            const removedParticipantRefs = Array.from(previousActiveRefs.values()).filter((ref) => !nextActiveRefs.includes(ref));
+            const effectiveChargeResponsibleRef = (() => {
+                const explicit = String(input.chargeResponsibleRef || '').trim();
+                if (explicit) return explicit;
+                if (input.chargeMode !== 'INDIVIDUAL') return undefined;
+                if (defaultResponsibleRef) return defaultResponsibleRef;
+                const chargeableAssignments = normalizedAssignments.filter((assignment) => assignment.isChargeable);
+                if (chargeableAssignments.length !== 1) return undefined;
+                const inferred = String(chargeableAssignments[0]?.participantRef || '').trim();
+                return inferred || undefined;
+            })();
+            if (input.chargeMode === 'INDIVIDUAL' && effectiveChargeResponsibleRef) {
+                const normalizedTotalAmount = this.roundCurrency(chargeableTotal);
+                const hasResponsibleAssignment = normalizedAssignments.some(
+                    (assignment) => assignment.participantRef === effectiveChargeResponsibleRef
+                );
+                normalizedAssignments = normalizedAssignments.map((assignment) => {
+                    const isResponsibleAssignment = assignment.participantRef === effectiveChargeResponsibleRef;
+                    return {
+                        ...assignment,
+                        isChargeable: isResponsibleAssignment,
+                        assignedAmount: isResponsibleAssignment ? normalizedTotalAmount : 0,
+                    };
+                });
+                if (!hasResponsibleAssignment) {
+                    const responsibleToken =
+                        String(effectiveChargeResponsibleRef)
+                            .replace(/[^a-zA-Z0-9]+/g, '-')
+                            .replace(/^-+|-+$/g, '')
+                            .slice(0, 32) || 'booking-responsible';
+                    normalizedAssignments.push({
+                        id: `asg-${responsibleToken}`,
+                        participantRef: effectiveChargeResponsibleRef,
+                        isChargeable: true,
+                        assignedAmount: normalizedTotalAmount,
+                        participantLinkState: 'ACTIVE',
+                    });
+                }
+            }
+            const previousAssignmentsComparable = this.normalizeAssignmentsForComparison(previousAssignments);
+            const nextAssignmentsComparable = this.normalizeAssignmentsForComparison(normalizedAssignments);
+            const previousChargeableComparable = previousAssignmentsComparable
+                .filter((assignment) => assignment.isChargeable)
+                .sort((left, right) => left.participantRef.localeCompare(right.participantRef));
+            const nextChargeableComparable = nextAssignmentsComparable
+                .filter((assignment) => assignment.isChargeable)
+                .sort((left, right) => left.participantRef.localeCompare(right.participantRef));
+            const chargeModeChanged = previousConfig.chargeMode !== input.chargeMode;
+            const chargeResponsibleChanged =
+                String(previousConfig.chargeResponsibleRef || '').trim() !==
+                String(effectiveChargeResponsibleRef || '').trim();
+            const chargeRulesChanged =
+                JSON.stringify(previousChargeableComparable) !== JSON.stringify(nextChargeableComparable);
+            const billingConfigChanged =
+                chargeModeChanged ||
+                chargeResponsibleChanged ||
+                chargeRulesChanged;
+            const previousNotes = this.extractSidebarNotesFromMetadata(previousConfig.metadata as Record<string, unknown>);
+            const nextNotes = this.extractSidebarNotesFromMetadata((input.metadata || {}) as Record<string, unknown>);
+            const notesChanged = previousNotes !== nextNotes;
+
+            this.validateBillingConfig({
+                chargeMode: input.chargeMode,
+                chargeResponsibleRef: effectiveChargeResponsibleRef,
+                assignments: normalizedAssignments,
+                chargeableTotal,
+            });
+
+            const assignmentsPayload: PersistedBillingAssignmentsJson = {
+                schemaVersion: 1,
+                assignments: normalizedAssignments,
+            };
+            const metadataPayload = {
+                schemaVersion: 1 as const,
+                source: 'PERSISTED' as const,
+                ...(input.metadata || {}),
+            };
+
+            const persisted = await tx.bookingBillingConfig.upsert({
+                where: { bookingId: booking.id },
+                create: {
+                    bookingId: booking.id,
+                    clubId: input.clubId,
+                    chargeMode: input.chargeMode === 'SHARED' ? ChargeMode.SHARED : ChargeMode.INDIVIDUAL,
+                    chargeResponsibleRef: effectiveChargeResponsibleRef || null,
+                    assignmentsJson: assignmentsPayload as unknown as Prisma.InputJsonValue,
+                    metadataJson: metadataPayload as unknown as Prisma.InputJsonValue,
+                    createdByUserId: input.actorUserId || null,
+                    updatedByUserId: input.actorUserId || null,
+                },
+                update: {
+                    chargeMode: input.chargeMode === 'SHARED' ? ChargeMode.SHARED : ChargeMode.INDIVIDUAL,
+                    chargeResponsibleRef: effectiveChargeResponsibleRef || null,
+                    assignmentsJson: assignmentsPayload as unknown as Prisma.InputJsonValue,
+                    metadataJson: metadataPayload as unknown as Prisma.InputJsonValue,
+                    updatedByUserId: input.actorUserId || null,
+                },
+                select: {
+                    bookingId: true,
+                    clubId: true,
+                    chargeMode: true,
+                    chargeResponsibleRef: true,
+                    assignmentsJson: true,
+                    metadataJson: true,
+                    updatedAt: true,
+                },
+            });
+
+            if (addedParticipantRefs.length > 0) {
+                await this.eventService.bookingParticipantAdded(input.clubId, {
+                    bookingId: booking.id,
+                    addedParticipantRefs,
+                    addedParticipantsCount: addedParticipantRefs.length,
+                    actorUserId: input.actorUserId || null,
+                    chargeMode: input.chargeMode,
+                }, tx as any);
+            }
+            if (removedParticipantRefs.length > 0) {
+                await this.eventService.bookingParticipantRemoved(input.clubId, {
+                    bookingId: booking.id,
+                    removedParticipantRefs,
+                    removedParticipantsCount: removedParticipantRefs.length,
+                    actorUserId: input.actorUserId || null,
+                    chargeMode: input.chargeMode,
+                }, tx as any);
+            }
+            if (billingConfigChanged) {
+                await this.eventService.bookingBillingConfigUpdated(input.clubId, {
+                    bookingId: booking.id,
+                    actorUserId: input.actorUserId || null,
+                    previousChargeMode: previousConfig.chargeMode,
+                    chargeMode: input.chargeMode,
+                    previousChargeResponsibleRef: previousConfig.chargeResponsibleRef || null,
+                    chargeResponsibleRef: effectiveChargeResponsibleRef || null,
+                    addedParticipantsCount: addedParticipantRefs.length,
+                    removedParticipantsCount: removedParticipantRefs.length,
+                }, tx as any);
+            }
+            if (notesChanged) {
+                await this.eventService.bookingNotesUpdated(input.clubId, {
+                    bookingId: booking.id,
+                    actorUserId: input.actorUserId || null,
+                    previousNotes: previousNotes || '',
+                    notes: nextNotes || '',
+                }, tx as any);
+            }
+
+            return {
+                bookingId: persisted.bookingId,
+                clubId: persisted.clubId,
+                chargeMode: String(persisted.chargeMode) === 'SHARED' ? 'SHARED' : 'INDIVIDUAL',
+                chargeResponsibleRef: persisted.chargeResponsibleRef || undefined,
+                assignments: this.normalizeBillingAssignments(persisted.assignmentsJson),
+                metadata: {
+                    schemaVersion: 1,
+                    source: 'PERSISTED',
+                    ...((persisted.metadataJson || {}) as Record<string, unknown>),
+                },
+                updatedAt: persisted.updatedAt.toISOString(),
+            };
+        });
     }
 
     private defaultFixedSlots = [
@@ -1799,6 +2359,47 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         saved = refreshed;
                     }
                 }
+                const bookingResponsibleRef = this.resolveBookingResponsibleRef({
+                    clientId: saved.clientId,
+                    userId: saved.userId
+                });
+                const initialBillingAssignments: PersistedBillingAssignmentsJson = {
+                    schemaVersion: 1,
+                    assignments: [
+                        {
+                            id: 'asg-booking-responsible',
+                            participantRef: bookingResponsibleRef,
+                            isChargeable: true,
+                            assignedAmount: this.roundCurrency(saved.price),
+                            participantLinkState: 'ACTIVE'
+                        }
+                    ]
+                };
+                const initialBillingMetadata = {
+                    schemaVersion: 1 as const,
+                    source: 'PERSISTED' as const,
+                    initializedBy: 'BOOKING_CREATED'
+                };
+                await tx.bookingBillingConfig.upsert({
+                    where: { bookingId: saved.id },
+                    create: {
+                        bookingId: saved.id,
+                        clubId: bookingClubId,
+                        chargeMode: ChargeMode.INDIVIDUAL,
+                        chargeResponsibleRef: bookingResponsibleRef,
+                        assignmentsJson: initialBillingAssignments as unknown as Prisma.InputJsonValue,
+                        metadataJson: initialBillingMetadata as unknown as Prisma.InputJsonValue,
+                        createdByUserId: Number(options?.actorUserId || user?.id || 0) || null,
+                        updatedByUserId: Number(options?.actorUserId || user?.id || 0) || null
+                    },
+                    update: {
+                        chargeMode: ChargeMode.INDIVIDUAL,
+                        chargeResponsibleRef: bookingResponsibleRef,
+                        assignmentsJson: initialBillingAssignments as unknown as Prisma.InputJsonValue,
+                        metadataJson: initialBillingMetadata as unknown as Prisma.InputJsonValue,
+                        updatedByUserId: Number(options?.actorUserId || user?.id || 0) || null
+                    }
+                });
 
                 await this.eventService.bookingCreated(bookingClubId, {
                     bookingId: saved.id,
@@ -1807,6 +2408,14 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     courtId,
                     activityId,
                     amount: Number(saved.price || 0)
+                }, tx);
+                await this.eventService.bookingParticipantAdded(bookingClubId, {
+                    bookingId: saved.id,
+                    addedParticipantRefs: [bookingResponsibleRef],
+                    addedParticipantsCount: 1,
+                    actorUserId: Number(options?.actorUserId || user?.id || 0) || null,
+                    participantRole: 'BOOKING_RESPONSIBLE',
+                    source: 'BOOKING_CREATED'
                 }, tx);
 
                 const clientName = String(
@@ -2285,7 +2894,15 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 actorUserId
             });
 
-            return this.bookingDomainService.confirmBookingManuallyTx(tx, { bookingId, clubId });
+            const nextStatus = await this.bookingDomainService.confirmBookingManuallyTx(tx, { bookingId, clubId });
+            await this.eventService.bookingConfirmed(clubId, {
+                bookingId,
+                actorUserId,
+                source: 'MANUAL',
+                previousStatus: booking.status,
+                status: nextStatus
+            }, tx as any);
+            return nextStatus;
         });
 
         await this.auditLogService.create({
@@ -2328,6 +2945,12 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 where: { id: bookingId },
                 data: { status: 'COMPLETED' }
             });
+            await this.eventService.bookingCompleted(clubId, {
+                bookingId,
+                actorUserId: Number.isInteger(actorUserId) && actorUserId > 0 ? actorUserId : null,
+                previousStatus: booking.status,
+                status: 'COMPLETED'
+            }, tx as any);
             // Mantener la cuenta abierta tras finalizar la reserva permite
             // seguir cargando consumos post-cancha (ej. bar) hasta cierre manual.
             await this.projectionService.refreshAccountSummary(account.id, tx);
@@ -3010,11 +3633,19 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         const fixedConfig = this.resolveFixedBookingConfig(clubConfigForFixed, activity ?? null);
 
         const explicitWeeks = Number(options?.weeksToGenerate);
+        const explicitEveryDays = Number(options?.everyDays);
+        const explicitRepetitions = Number(options?.repetitions);
         const hasExplicitWeeks = Number.isFinite(explicitWeeks) && explicitWeeks > 0;
-        const generationFrequencyDays = Math.max(1, fixedConfig.fixedBookingGenerationFrequencyDays);
-        const totalOccurrences = hasExplicitWeeks
-            ? Math.max(1, Math.ceil((explicitWeeks * 7) / generationFrequencyDays))
-            : Math.max(1, Math.ceil(fixedConfig.fixedBookingDaysAhead / generationFrequencyDays));
+        const hasExplicitEveryDays = Number.isFinite(explicitEveryDays) && explicitEveryDays > 0;
+        const hasExplicitRepetitions = Number.isFinite(explicitRepetitions) && explicitRepetitions > 0;
+        const generationFrequencyDays = hasExplicitEveryDays
+            ? Math.max(1, Math.floor(explicitEveryDays))
+            : Math.max(1, fixedConfig.fixedBookingGenerationFrequencyDays);
+        const totalOccurrences = hasExplicitRepetitions
+            ? Math.max(1, Math.floor(explicitRepetitions))
+            : hasExplicitWeeks
+                ? Math.max(1, Math.ceil((explicitWeeks * 7) / generationFrequencyDays))
+                : Math.max(1, Math.ceil(fixedConfig.fixedBookingDaysAhead / generationFrequencyDays));
 
         const clubTimeZone = clubConfigForFixed.timeZone ?? 'America/Argentina/Buenos_Aires';
         const localStart = TimeHelper.utcToLocal(startDateTime, clubTimeZone);
@@ -3032,86 +3663,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             throw new Error('El club está cerrado ese día');
         }
 
-        const existingFixed = await prisma.fixedBooking.findMany({
-            where: {
-                courtId,
-                dayOfWeek,
-                status: { not: 'CANCELLED' }
-            },
-            include: {
-                user: true,
-                client: true,
-                court: true,
-                activity: true
-            }
-        });
-
-        const conflictingFixed = existingFixed.filter((fixed) => {
-            const fixedStart = Number((fixed as any).startTimeMinutes);
-            const fixedEnd = Number((fixed as any).endTimeMinutes);
-            if (!Number.isFinite(fixedStart) || !Number.isFinite(fixedEnd)) return false;
-            return startTimeMinutes < fixedEnd && endTimeMinutes > fixedStart;
-        });
-        const overlapsFixed = conflictingFixed.length > 0;
-        const allowOverlappingSeries = Boolean(options?.allowOverlappingSeries);
-
-        if (overlapsFixed && !allowOverlappingSeries) {
-            const fixedError: any = new Error("Ya existe un turno fijo en ese horario para esta cancha.");
-            fixedError.code = 'FIXED_BOOKING_OVERLAP';
-            const overlapsByOccurrence: Array<{
-                fixedBookingId: number;
-                requestedStartDateTime: Date;
-                dayOfWeek: number;
-                startTimeMinutes: number;
-                endTimeMinutes: number;
-                courtName: string;
-                activityName: string;
-                clientName: string;
-            }> = [];
-
-            for (let i = 0; i < totalOccurrences; i++) {
-                const currentStart = new Date(startDateTime);
-                currentStart.setDate(startDateTime.getDate() + (i * generationFrequencyDays));
-
-                for (const fixed of conflictingFixed) {
-                    const fixedDay = Number(fixed?.dayOfWeek);
-                    const currentDay = currentStart.getDay();
-                    if (Number.isFinite(fixedDay) && fixedDay !== currentDay) {
-                        continue;
-                    }
-
-                    overlapsByOccurrence.push({
-                        fixedBookingId: Number(fixed?.id),
-                        requestedStartDateTime: currentStart,
-                        dayOfWeek: Number(fixed?.dayOfWeek ?? dayOfWeek),
-                        startTimeMinutes: Number((fixed as any)?.startTimeMinutes ?? 0),
-                        endTimeMinutes: Number((fixed as any)?.endTimeMinutes ?? 0),
-                        courtName: fixed?.court?.name || '',
-                        activityName: fixed?.activity?.name || '',
-                        clientName: fixed?.client?.name
-                            || `${fixed?.user?.firstName || ''} ${fixed?.user?.lastName || ''}`.trim()
-                            || 'Cliente'
-                    });
-                }
-            }
-
-            fixedError.overlaps = overlapsByOccurrence.length > 0
-                ? overlapsByOccurrence
-                : conflictingFixed.map((fixed) => ({
-                    fixedBookingId: Number(fixed?.id),
-                    requestedStartDateTime: startDateTime,
-                    dayOfWeek: Number(fixed?.dayOfWeek ?? dayOfWeek),
-                    startTimeMinutes: Number((fixed as any)?.startTimeMinutes ?? 0),
-                    endTimeMinutes: Number((fixed as any)?.endTimeMinutes ?? 0),
-                    courtName: fixed?.court?.name || '',
-                    activityName: fixed?.activity?.name || '',
-                    clientName: fixed?.client?.name
-                        || `${fixed?.user?.firstName || ''} ${fixed?.user?.lastName || ''}`.trim()
-                        || 'Cliente'
-                }));
-            fixedError.canProceed = true;
-            throw fixedError;
-        }
+        // Importante: no bloquear por "plantillas" de turnos fijos.
+        // La validación de superposición se hace únicamente contra ocurrencias reales (bookings).
 
         const firstStart = new Date(startDateTime);
         const lastStart = new Date(firstStart);
@@ -3219,8 +3772,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 where: {
                     courtId,
                     status: { not: 'CANCELLED' },
-                    startDateTime: { gte: firstStart },
-                    endDateTime: { lte: lastEnd }
+                    startDateTime: { lt: lastEnd },
+                    endDateTime: { gt: firstStart }
                 },
                 include: {
                     user: true,

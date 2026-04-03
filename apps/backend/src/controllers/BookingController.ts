@@ -10,6 +10,7 @@ import { getPreferredClubIdFromRequest } from '../utils/clubContext';
 import { sanitizeString } from '../utils/sanitize';
 import { normalizeIdentityPhone } from '../utils/phone';
 import { sendAuthError } from '../utils/authError';
+import { ApiError, sendApiError } from '../utils/apiError';
 
 const getErrorMessage = (error: unknown, fallback: string) =>
     error instanceof Error && String(error.message || '').trim().length > 0
@@ -25,6 +26,170 @@ const resolveOptionalAuthState = (req: Request): OptionalAuthState => {
     const raw = String((req as any).authState || 'guest').trim();
     if (raw === 'authenticated' || raw === 'invalid_token') return raw;
     return 'guest';
+};
+
+const createBookingApiError = (error: unknown): ApiError => {
+    const known = (error || {}) as any;
+    const rawCode = String(known?.code || '').trim();
+    const message = getErrorMessage(error, 'No se pudo crear la reserva.');
+    const normalizedMessage = message
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+
+    if (rawCode === 'CLIENT_POSSIBLE_DUPLICATE' || message === 'CLIENT_POSSIBLE_DUPLICATE') {
+        return new ApiError({
+            statusCode: 409,
+            code: 'CLIENT_POSSIBLE_DUPLICATE',
+            field: 'owner',
+            blocking: true,
+            message: 'Se detectaron datos que podrian corresponder a mas de un cliente. Revisa y selecciona el cliente correcto.'
+        });
+    }
+
+    if (rawCode === 'BOOKING_OVERLAP') {
+        const overlaps = Array.isArray(known?.overlaps) ? known.overlaps : [];
+        return new ApiError({
+            statusCode: 409,
+            code: 'BOOKING_OVERLAP',
+            field: 'time',
+            blocking: true,
+            message: 'El horario se superpone con reservas existentes.',
+            meta: { overlaps }
+        });
+    }
+
+    if (message === 'SLOT_ALREADY_BOOKED') {
+        return new ApiError({
+            statusCode: 409,
+            code: 'SLOT_ALREADY_BOOKED',
+            field: 'time',
+            blocking: true,
+            message: 'El horario acaba de ser reservado por otro jugador.'
+        });
+    }
+
+    if (message.includes('pasado')) {
+        return new ApiError({
+            statusCode: 400,
+            code: 'BOOKING_IN_PAST',
+            field: 'time',
+            blocking: true,
+            message
+        });
+    }
+
+    if (normalizedMessage.includes('duracion no permitida')) {
+        return new ApiError({
+            statusCode: 400,
+            code: 'DURATION_NOT_ALLOWED',
+            field: 'duration',
+            blocking: true,
+            message
+        });
+    }
+
+    if (normalizedMessage.includes('horario no permitido')) {
+        return new ApiError({
+            statusCode: 400,
+            code: 'SLOT_NOT_ALLOWED',
+            field: 'time',
+            blocking: true,
+            message
+        });
+    }
+
+    if (normalizedMessage.includes('club esta cerrado')) {
+        return new ApiError({
+            statusCode: 400,
+            code: 'CLUB_CLOSED',
+            field: 'date',
+            blocking: true,
+            message
+        });
+    }
+
+    if (normalizedMessage.includes('limite de anticipacion')) {
+        return new ApiError({
+            statusCode: 400,
+            code: 'ADVANCE_LIMIT_EXCEEDED',
+            field: 'date',
+            blocking: true,
+            message
+        });
+    }
+
+    return new ApiError({
+        statusCode: 400,
+        code: rawCode || 'BOOKING_CREATE_FAILED',
+        field: 'general',
+        blocking: true,
+        message
+    });
+};
+
+const createBillingConfigApiError = (error: unknown): ApiError => {
+    const known = (error || {}) as any;
+    const rawCode = String(known?.code || '').trim();
+    const message = getErrorMessage(error, 'No se pudo guardar la configuracion de cobro.');
+    const lower = message
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+
+    if (lower.includes('chargeresponsibleref')) {
+        return new ApiError({
+            statusCode: 400,
+            code: rawCode || 'BILLING_MISSING_RESPONSIBLE',
+            field: 'payment',
+            blocking: true,
+            message
+        });
+    }
+    if (lower.includes('exactamente una asignacion cobrable')) {
+        return new ApiError({
+            statusCode: 400,
+            code: rawCode || 'BILLING_INVALID_ASSIGNMENTS',
+            field: 'payment',
+            blocking: true,
+            message
+        });
+    }
+    if (lower.includes('debe enviar al menos una asignacion')) {
+        return new ApiError({
+            statusCode: 400,
+            code: rawCode || 'BILLING_ASSIGNMENTS_REQUIRED',
+            field: 'participants',
+            blocking: true,
+            message
+        });
+    }
+    if (lower.includes('reserva no encontrada')) {
+        return new ApiError({
+            statusCode: 404,
+            code: rawCode || 'BOOKING_NOT_FOUND',
+            field: 'general',
+            blocking: true,
+            message
+        });
+    }
+    if (lower.includes('club invalido')) {
+        return new ApiError({
+            statusCode: 400,
+            code: rawCode || 'CLUB_INVALID',
+            field: 'general',
+            blocking: true,
+            message
+        });
+    }
+
+    return new ApiError({
+        statusCode: 400,
+        code: rawCode || 'BILLING_CONFIG_UPDATE_FAILED',
+        field: 'payment',
+        blocking: true,
+        message
+    });
 };
 
 export class BookingController {
@@ -132,7 +297,14 @@ export class BookingController {
             const parsed = createSchema.safeParse(dataToValidate);
 
             if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
+                return sendApiError(res, {
+                    statusCode: 400,
+                    code: 'VALIDATION_ERROR',
+                    field: 'general',
+                    blocking: true,
+                    message: 'Datos invalidos para crear la reserva.',
+                    meta: { issues: parsed.error.flatten() }
+                });
             }
 
             let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, clientId, client, applyDiscount } = parsed.data;
@@ -156,26 +328,57 @@ export class BookingController {
                     const court = await prisma.court.findUnique({ where: { id: Number(courtId) }, include: { club: { include: { settings: true } } } });
                     const tz = String(court?.club?.settings?.timeZone || '').trim();
                     if (!tz) {
-                        return res.status(400).json({ error: 'Configuración de club inválida: timeZone es obligatorio' });
+                        return sendApiError(res, {
+                            statusCode: 400,
+                            code: 'CLUB_CONFIG_INVALID',
+                            field: 'general',
+                            blocking: true,
+                            message: 'Configuracion de club invalida: timeZone es obligatorio.'
+                        });
                     }
                     startDate = TimeHelper.localSlotToUtc(dateStr, slotTime, tz);
                 } catch (e) {
-                    return res.status(400).json({ error: 'Combinación fecha/horario inválida o zona horaria del club faltante' });
+                    return sendApiError(res, {
+                        statusCode: 400,
+                        code: 'INVALID_DATE_TIME',
+                        field: 'time',
+                        blocking: true,
+                        message: 'Combinacion fecha/horario invalida o zona horaria del club faltante.'
+                    });
                 }
             } else if (startDateTime) {
                 startDate = new Date(String(startDateTime));
-                if (Number.isNaN(startDate.getTime())) return res.status(400).json({ error: 'startDateTime inválido' });
+                if (Number.isNaN(startDate.getTime())) {
+                    return sendApiError(res, {
+                        statusCode: 400,
+                        code: 'INVALID_DATE_TIME',
+                        field: 'time',
+                        blocking: true,
+                        message: 'startDateTime invalido.'
+                    });
+                }
             } else {
-                return res.status(400).json({ error: 'Debe enviar startDateTime o (date y slotTime)' });
+                return sendApiError(res, {
+                    statusCode: 400,
+                    code: 'MISSING_DATE_TIME',
+                    field: 'time',
+                    blocking: true,
+                    message: 'Debe enviar startDateTime o (date y slotTime).'
+                });
             }
-            
             const userRole = user?.role;
             const membershipRole = String((req as any).membershipRole || '');
             const isAdmin = userRole === 'ADMIN' || membershipRole === 'OWNER' || membershipRole === 'ADMIN';
             const tokenUserId = userIdFromToken ? Number(userIdFromToken) : null;
             const now = new Date();
             if (startDate.getTime() < now.getTime()) {
-                return res.status(400).json({ error: "No se pueden reservar turnos en el pasado." });
+                return sendApiError(res, {
+                    statusCode: 400,
+                    code: 'BOOKING_IN_PAST',
+                    field: 'time',
+                    blocking: true,
+                    message: 'No se pueden reservar turnos en el pasado.'
+                });
             }
 
             const courtCountry = await prisma.court.findUnique({
@@ -230,7 +433,13 @@ export class BookingController {
             const courtWithClub = await prisma.court.findUnique({ where: { id: Number(courtId) }, include: { club: { include: { settings: true } } } });
             const clubTimeZone = String(courtWithClub?.club?.settings?.timeZone || '').trim();
             if (!clubTimeZone) {
-                return res.status(400).json({ error: 'Configuración de club inválida: timeZone es obligatorio' });
+                return sendApiError(res, {
+                    statusCode: 400,
+                    code: 'CLUB_CONFIG_INVALID',
+                    field: 'general',
+                    blocking: true,
+                    message: 'Configuracion de club invalida: timeZone es obligatorio.'
+                });
             }
 
             // Retornamos la respuesta al cliente
@@ -244,22 +453,9 @@ export class BookingController {
             console.error(error);
             if (error?.code === 'CLIENT_POSSIBLE_DUPLICATE' || error?.message === 'CLIENT_POSSIBLE_DUPLICATE') {
                 await this.registerDuplicateIncidentFromBookingError(req, 'BOOKING', error);
-                return res.status(409).json({
-                    error: 'Se detectaron datos que podrían corresponder a más de un cliente. Revisá y seleccioná el cliente correcto.'
-                });
             }
-            if (error?.code === 'BOOKING_OVERLAP') {
-                return res.status(409).json({
-                    error: 'El horario se superpone con reservas existentes.',
-                    overlaps: Array.isArray(error?.overlaps) ? error.overlaps : []
-                });
-            }
-            if (error?.message === 'SLOT_ALREADY_BOOKED') {
-                return res.status(409).json({
-                    error: 'El horario acaba de ser reservado por otro jugador'
-                });
-            }
-            res.status(400).json({ error: error.message || "Error desconocido" });
+            const mapped = createBookingApiError(error);
+            return sendApiError(res, mapped);
         }
     }
 
@@ -300,7 +496,14 @@ export class BookingController {
 
             const parsed = quoteSchema.safeParse(req.body ?? {});
             if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
+                return sendApiError(res, {
+                    statusCode: 400,
+                    code: 'VALIDATION_ERROR',
+                    field: 'general',
+                    blocking: true,
+                    message: 'Datos invalidos para cotizar la reserva.',
+                    meta: { issues: parsed.error.flatten() }
+                });
             }
 
             const {
@@ -335,7 +538,13 @@ export class BookingController {
                 Boolean(String(clientPhone || '').trim()) ||
                 Boolean(String(clientPhoneNumberLocal || '').trim());
             if (hasAnyClientPhoneInput && !normalizedClientPhone) {
-                return res.status(400).json({ error: 'Teléfono inválido para cotización' });
+                return sendApiError(res, {
+                    statusCode: 400,
+                    code: 'INVALID_CLIENT_PHONE',
+                    field: 'owner',
+                    blocking: true,
+                    message: 'Telefono invalido para cotizacion.'
+                });
             }
 
             let resolvedStart: Date;
@@ -343,14 +552,34 @@ export class BookingController {
                 const court = await prisma.court.findUnique({ where: { id: Number(courtId) }, include: { club: { include: { settings: true } } } });
                 const tz = String(court?.club?.settings?.timeZone || '').trim();
                 if (!tz) {
-                    return res.status(400).json({ error: 'Configuración de club inválida: timeZone es obligatorio' });
+                    return sendApiError(res, {
+                        statusCode: 400,
+                        code: 'CLUB_CONFIG_INVALID',
+                        field: 'general',
+                        blocking: true,
+                        message: 'Configuracion de club invalida: timeZone es obligatorio.'
+                    });
                 }
                 resolvedStart = TimeHelper.localSlotToUtc(dateStr, slotTime, tz);
             } else if (startDateTime) {
                 resolvedStart = new Date(String(startDateTime));
-                if (Number.isNaN(resolvedStart.getTime())) return res.status(400).json({ error: 'startDateTime inválido' });
+                if (Number.isNaN(resolvedStart.getTime())) {
+                    return sendApiError(res, {
+                        statusCode: 400,
+                        code: 'INVALID_DATE_TIME',
+                        field: 'time',
+                        blocking: true,
+                        message: 'startDateTime invalido.'
+                    });
+                }
             } else {
-                return res.status(400).json({ error: 'Debe enviar startDateTime o (date y slotTime)' });
+                return sendApiError(res, {
+                    statusCode: 400,
+                    code: 'MISSING_DATE_TIME',
+                    field: 'time',
+                    blocking: true,
+                    message: 'Debe enviar startDateTime o (date y slotTime).'
+                });
             }
 
             const tokenUserId = Number((req as any).user?.userId || 0);
@@ -376,7 +605,16 @@ export class BookingController {
                 authState: resolveOptionalAuthState(req)
             });
         } catch (error: any) {
-            return res.status(400).json({ error: error?.message || 'No se pudo cotizar la reserva' });
+            const mapped = createBookingApiError(error);
+            return sendApiError(res, new ApiError({
+                statusCode: mapped.statusCode,
+                code: mapped.code === 'BOOKING_CREATE_FAILED' ? 'BOOKING_QUOTE_FAILED' : mapped.code,
+                field: mapped.field,
+                blocking: mapped.blocking,
+                message: getErrorMessage(error, 'No se pudo cotizar la reserva.'),
+                meta: mapped.meta,
+                retryable: mapped.retryable
+            }));
         }
     }
 
@@ -693,12 +931,36 @@ export class BookingController {
 
             const p = paramsSchema.safeParse(req.params);
             const b = bodySchema.safeParse(req.body || {});
-            if (!p.success) return res.status(400).json({ error: p.error.format() });
-            if (!b.success) return res.status(400).json({ error: b.error.format() });
+            if (!p.success) {
+                return sendApiError(res, {
+                    statusCode: 400,
+                    code: 'VALIDATION_ERROR',
+                    field: 'general',
+                    blocking: true,
+                    message: 'Parametros invalidos para mover la reserva.',
+                    meta: { issues: p.error.flatten() }
+                });
+            }
+            if (!b.success) {
+                return sendApiError(res, {
+                    statusCode: 400,
+                    code: 'VALIDATION_ERROR',
+                    field: 'time',
+                    blocking: true,
+                    message: 'Datos invalidos para mover la reserva.',
+                    meta: { issues: b.error.flatten() }
+                });
+            }
 
             const clubId = Number((req as any).clubId);
             if (!Number.isInteger(clubId) || clubId <= 0) {
-                return res.status(400).json({ error: 'Club inválido' });
+                return sendApiError(res, {
+                    statusCode: 400,
+                    code: 'CLUB_INVALID',
+                    field: 'general',
+                    blocking: true,
+                    message: 'Club invalido.'
+                });
             }
 
             const updated = await this.bookingService.rescheduleBooking({
@@ -706,14 +968,148 @@ export class BookingController {
                 clubId,
                 courtId: b.data.courtId,
                 startDateTime: new Date(b.data.startDateTime),
-                durationMinutes: b.data.durationMinutes
+                durationMinutes: b.data.durationMinutes,
+                actorUserId: Number((req as any)?.user?.userId || 0) || null
             });
             return res.json({ booking: updated });
         } catch (error: any) {
             if (error?.code === 'BOOKING_OVERLAP') {
-                return res.status(409).json({ error: error.message || 'Superposición detectada' });
+                return sendApiError(res, new ApiError({
+                    statusCode: 409,
+                    code: 'BOOKING_OVERLAP',
+                    field: 'time',
+                    blocking: true,
+                    message: getErrorMessage(error, 'Superposicion detectada'),
+                    meta: Array.isArray(error?.overlaps) ? { overlaps: error.overlaps } : undefined
+                }));
             }
-            return res.status(400).json({ error: error?.message || 'No se pudo mover la reserva' });
+            return sendApiError(res, new ApiError({
+                statusCode: 400,
+                code: 'BOOKING_RESCHEDULE_FAILED',
+                field: 'general',
+                blocking: true,
+                message: getErrorMessage(error, 'No se pudo mover la reserva.')
+            }));
+        }
+    }
+
+    getBookingBillingConfig = async (req: Request, res: Response) => {
+        try {
+            const paramsSchema = z.object({
+                id: z.preprocess((v) => Number(v), z.number().int().positive())
+            });
+            const parsed = paramsSchema.safeParse(req.params);
+            if (!parsed.success) {
+                return sendApiError(res, {
+                    statusCode: 400,
+                    code: 'VALIDATION_ERROR',
+                    field: 'general',
+                    blocking: true,
+                    message: 'Parametros invalidos para leer la configuracion de cobro.',
+                    meta: { issues: parsed.error.flatten() }
+                });
+            }
+
+            const clubId = Number((req as any).clubId);
+            if (!Number.isInteger(clubId) || clubId <= 0) {
+                return sendApiError(res, {
+                    statusCode: 400,
+                    code: 'CLUB_INVALID',
+                    field: 'general',
+                    blocking: true,
+                    message: 'Club invalido.'
+                });
+            }
+
+            const config = await this.bookingService.getBookingBillingConfig(parsed.data.id, clubId);
+            return res.json(config);
+        } catch (error: any) {
+            return sendApiError(res, new ApiError({
+                statusCode: 400,
+                code: 'BILLING_CONFIG_FETCH_FAILED',
+                field: 'payment',
+                blocking: true,
+                message: getErrorMessage(error, 'No se pudo obtener la configuracion de cobro.')
+            }));
+        }
+    }
+
+    upsertBookingBillingConfig = async (req: Request, res: Response) => {
+        try {
+            const paramsSchema = z.object({
+                id: z.preprocess((v) => Number(v), z.number().int().positive())
+            });
+            const bodySchema = z.object({
+                chargeMode: z.enum(['INDIVIDUAL', 'SHARED']),
+                chargeResponsibleRef: z.preprocess(
+                    (v) => (typeof v === 'string' && v.trim().length === 0 ? undefined : v),
+                    z.string().trim().optional()
+                ),
+                assignments: z.array(
+                    z.object({
+                        id: z.string().trim().min(1),
+                        participantRef: z.string().trim().min(1),
+                        isChargeable: z.boolean(),
+                        assignedAmount: z.preprocess((v) => Number(v), z.number().min(0)),
+                        participantLinkState: z.enum(['ACTIVE', 'ARCHIVED_REFERENCE']).optional()
+                    })
+                ).min(1),
+                metadata: z.record(z.unknown()).optional()
+            });
+
+            const p = paramsSchema.safeParse(req.params);
+            const b = bodySchema.safeParse(req.body || {});
+            if (!p.success) {
+                return sendApiError(res, {
+                    statusCode: 400,
+                    code: 'VALIDATION_ERROR',
+                    field: 'general',
+                    blocking: true,
+                    message: 'Parametros invalidos para guardar configuracion de cobro.',
+                    meta: { issues: p.error.flatten() }
+                });
+            }
+            if (!b.success) {
+                return sendApiError(res, {
+                    statusCode: 400,
+                    code: 'VALIDATION_ERROR',
+                    field: 'payment',
+                    blocking: true,
+                    message: 'Datos invalidos para guardar configuracion de cobro.',
+                    meta: { issues: b.error.flatten() }
+                });
+            }
+
+            const clubId = Number((req as any).clubId);
+            if (!Number.isInteger(clubId) || clubId <= 0) {
+                return sendApiError(res, {
+                    statusCode: 400,
+                    code: 'CLUB_INVALID',
+                    field: 'general',
+                    blocking: true,
+                    message: 'Club invalido.'
+                });
+            }
+
+            const actorUserId = Number((req as any)?.user?.userId || 0) || null;
+            const config = await this.bookingService.upsertBookingBillingConfig({
+                bookingId: p.data.id,
+                clubId,
+                actorUserId,
+                chargeMode: b.data.chargeMode,
+                chargeResponsibleRef: b.data.chargeResponsibleRef || null,
+                assignments: b.data.assignments.map((assignment) => ({
+                    id: assignment.id,
+                    participantRef: assignment.participantRef,
+                    isChargeable: assignment.isChargeable,
+                    assignedAmount: Number(assignment.assignedAmount),
+                    participantLinkState: assignment.participantLinkState || 'ACTIVE'
+                })),
+                metadata: b.data.metadata || null
+            });
+            return res.json(config);
+        } catch (error: any) {
+            return sendApiError(res, createBillingConfigApiError(error));
         }
     }
     
@@ -749,13 +1145,15 @@ export class BookingController {
                     ),
                     dni: optionalTrimmedString()
                 }).optional(),
-                allowOverlappingSeries: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
+                allowOverlappingSeries: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional(),
+                everyDays: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
+                repetitions: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional())
             });
             const parsed = createFixedSchema.safeParse(req.body);
             if (!parsed.success) {
                 return res.status(400).json({ error: parsed.error.format() });
             }
-            const { userId, courtId, activityId, startDateTime, durationMinutes, clientId, client, allowOverlappingSeries } = parsed.data;
+            const { userId, courtId, activityId, startDateTime, durationMinutes, clientId, client, allowOverlappingSeries, everyDays, repetitions } = parsed.data;
             const user = (req as any).user;
             const membershipRole = String((req as any).membershipRole || '');
             const isAdmin = user?.role === 'ADMIN' || membershipRole === 'OWNER' || membershipRole === 'ADMIN';
@@ -792,7 +1190,9 @@ export class BookingController {
                     clubId,
                     actorUserId: Number(user?.userId || 0) || null,
                     allowOverlappingSeries: Boolean(allowOverlappingSeries),
-                    durationMinutes
+                    durationMinutes,
+                    everyDays,
+                    repetitions
                 }
             );
             
@@ -892,8 +1292,8 @@ export class BookingController {
 
             return res.json(newItem);
 
-    } catch (error: any) { // 👇 Le ponemos 'any' para poder leer el mensaje
-        console.error("❌ Error en addItem:", error);
+    } catch (error: any) { // �Y'? Le ponemos 'any' para poder leer el mensaje
+        console.error("�O Error en addItem:", error);
         // Devolvemos el error real para verlo en el frontend
         return res.status(500).json({ 
             error: "Error al agregar item: " + (error.message || "Desconocido") 
