@@ -107,6 +107,49 @@ const getCashDateRange = (period: CashPeriod, offset = 0) => {
 
 const formatMoney = (value: number) => `$${Number(value || 0).toLocaleString('es-AR')}`;
 
+const shortId = (value: unknown) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (raw.length <= 8) return raw;
+  return `${raw.slice(0, 4)}...${raw.slice(-4)}`;
+};
+
+const formatMovementConcept = (movement: any) => {
+  const rawConcept = String(movement?.concept || '').trim();
+  const sourceType = String(movement?.sourceType || '').toUpperCase();
+  const accountId = String(movement?.accountId || '').trim();
+  const paymentId = String(movement?.paymentId || '').trim();
+  const refundId = String(movement?.refundId || '').trim();
+  const booking = movement?.booking;
+
+  const paymentMatch = rawConcept.match(/^pago\s+cuenta\s+(.+)$/i);
+  if (paymentMatch) {
+    if (sourceType === 'BOOKING' && booking) {
+      const court = String(booking?.courtName || '').trim();
+      const client = String(booking?.clientName || '').trim();
+      if (court && client) return `Pago reserva ${court} - ${client}`;
+      if (court) return `Pago reserva ${court}`;
+      if (client) return `Pago reserva - ${client}`;
+      return 'Pago de reserva';
+    }
+
+    if (sourceType === 'BAR') {
+      return 'Pago de consumos';
+    }
+
+    return `Pago de cuenta ${accountId ? `#${shortId(accountId)}` : ''}`.trim();
+  }
+
+  const refundMatch = rawConcept.match(/^refund\s+pago\s+(.+)$/i);
+  if (refundMatch) {
+    const reference = refundId || paymentId || refundMatch[1];
+    return `Reintegro de pago ${reference ? `#${shortId(reference)}` : ''}`.trim();
+  }
+
+  if (!rawConcept) return 'Movimiento de caja';
+  return rawConcept;
+};
+
 const movementMethodLabel = (method: Movement['method']) => {
   if (method === 'CASH') return 'Efectivo';
   if (method === 'CARD') return 'Tarjeta';
@@ -191,7 +234,7 @@ export default function AdminCashPlayground2Page() {
           date: String(item?.createdAt || ''),
           type: normalizedType,
           amount: Number(item?.amount || 0),
-          description: String(item?.concept || 'Movimiento'),
+          description: formatMovementConcept(item),
           method: (['CASH', 'TRANSFER', 'CARD'].includes(String(item?.method))
             ? item.method
             : 'CASH') as Movement['method'],
@@ -664,7 +707,7 @@ export default function AdminCashPlayground2Page() {
                         <button
                           type="button"
                           onClick={() => setSidebarView('movement_create')}
-                          className="h-8 rounded-lg border border-[#dce2ee] bg-white px-2.5 text-[12px] font-semibold text-[#4e5870] transition hover:bg-[#f8f9fd]"
+                          className="h-8 rounded-lg bg-[#3053e2] px-2.5 text-[12px] font-semibold text-white shadow-[0_6px_16px_rgba(48,83,226,0.24)] transition hover:bg-[#2746c9]"
                         >
                           Nuevo movimiento
                         </button>
