@@ -1,14 +1,28 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { login, register } from '../services/AuthService';
+import { login, register, requestMagicLink, verifyMagicLink } from '../services/AuthService';
 import { ClubService } from '../services/ClubService';
-import { Mail, Lock, User, Phone, UserPlus, LogIn, AlertCircle, Loader2 } from 'lucide-react';
+import { Mail, Lock, User, Phone, UserPlus, LogIn, AlertCircle, Loader2, IdCard, CheckCircle, Eye, EyeOff } from 'lucide-react'; // Agregamos IdCard y Eye
+import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser } from '../utils/session';
+import { buildCanonicalPhone, DEFAULT_PHONE_COUNTRY_ISO2, normalizePhoneCountryIso2, PHONE_COUNTRY_OPTIONS, resolveCallingCodeByIso2 } from '../utils/phone';
+import { useAuth } from '../contexts/AuthContext';
+
+type PostLoginRedirectIntent = {
+  sourceUser?: any;
+};
 
 export default function LoginPage() {
   const router = useRouter();
+  const { status, user: authUser, revalidateSession } = useAuth();
   const returnTo = typeof router.query.from === 'string' && router.query.from.startsWith('/') && !router.query.from.startsWith('//')
     ? router.query.from
     : null;
+  const openRegisterMode =
+    router.query.mode === 'register' ||
+    router.query.view === 'register' ||
+    router.query.register === '1' ||
+    router.query.register === 'true';
 
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
@@ -16,60 +30,207 @@ export default function LoginPage() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [phoneCountryIso2, setPhoneCountryIso2] = useState(DEFAULT_PHONE_COUNTRY_ISO2);
+  const [dni, setDni] = useState(''); // Estado del DNI listo
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [magicLoading, setMagicLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [redirectIntent, setRedirectIntent] = useState<PostLoginRedirectIntent | null>(null);
+  const redirectingRef = useRef(false);
 
-  const isPhoneValid = (phone: string) => {
-    if (!phone) return false;
-    if (!phone.startsWith('+549')) return false;
-    const digits = phone.replace(/\D/g, '');
-    if (!digits.startsWith('549')) return false;
-    const nationalDigits = digits.slice(3);
-    if (nationalDigits.length !== 10) return false;
-    return /^\+549\d+$/.test(phone);
-  };
+  const resolvePostLoginDestination = useCallback(async (sourceUser?: any) => {
+    const normalizedUser = normalizeSessionUser(sourceUser || authUser);
+    const safeReturnTo =
+      returnTo &&
+      returnTo !== '/login' &&
+      !returnTo.startsWith('/login?') &&
+      !returnTo.startsWith('/login#')
+        ? returnTo
+        : null;
 
-  const formatPhoneDigits = (digits: string) => {
-    const clean = digits.slice(0, 10);
-    const part1 = clean.slice(0, 3);
-    const part2 = clean.slice(3, 6);
-    const part3 = clean.slice(6, 10);
-    return [part1, part2, part3].filter(Boolean).join(' ');
-  };
+    if (hasAdminAccess(normalizedUser)) {
+      return '/admin/agenda';
+    }
+    if (safeReturnTo) {
+      return safeReturnTo;
+    }
+
+    const activeSlug = getActiveClubSlug(normalizedUser);
+    if (activeSlug) {
+      return `/club/${activeSlug}`;
+    }
+
+    const activeClubId = Number(normalizedUser?.activeClubId || normalizedUser?.clubId || normalizedUser?.club?.id || 0);
+    if (Number.isInteger(activeClubId) && activeClubId > 0) {
+      try {
+        const club = await ClubService.getClubById(activeClubId);
+        if (club?.slug) {
+          return `/club/${club.slug}`;
+        }
+      } catch {
+      }
+    }
+
+    return '/';
+  }, [authUser, returnTo]);
+
+  const navigateAfterAuth = useCallback(async (sourceUser?: any) => {
+    if (redirectingRef.current) return;
+    redirectingRef.current = true;
+    try {
+      const target = await resolvePostLoginDestination(sourceUser);
+      await router.replace(target);
+    } finally {
+      window.setTimeout(() => {
+        redirectingRef.current = false;
+      }, 250);
+    }
+  }, [resolvePostLoginDestination, router]);
+
+  useEffect(() => {
+    setIsLogin(!openRegisterMode);
+  }, [openRegisterMode]);
+
+  useEffect(() => {
+    if (router.pathname !== '/login') return;
+    if (loading || magicLoading) return;
+
+    if (!redirectIntent && status === 'authenticated') {
+      setRedirectIntent({ sourceUser: authUser });
+      return;
+    }
+    if (!redirectIntent) return;
+
+    void navigateAfterAuth(redirectIntent.sourceUser || authUser).finally(() => {
+      setRedirectIntent(null);
+    });
+  }, [authUser, loading, magicLoading, navigateAfterAuth, redirectIntent, router.pathname, status]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const userRaw = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+        const parsedUser = userRaw ? normalizeSessionUser(JSON.parse(userRaw)) : null;
+        const activeClubId = Number(parsedUser?.activeClubId || parsedUser?.clubId || parsedUser?.club?.id || 0);
+        if (!Number.isInteger(activeClubId) || activeClubId <= 0) return;
+        const club = await ClubService.getClubById(activeClubId);
+        if (cancelled) return;
+        setPhoneCountryIso2(normalizePhoneCountryIso2(club?.country));
+      } catch {
+        if (!cancelled) setPhoneCountryIso2(DEFAULT_PHONE_COUNTRY_ISO2);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const rawHash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
+    if (!rawHash) return;
+    const hashParams = new URLSearchParams(rawHash);
+    const magicToken = String(hashParams.get('magic_token') || '').trim();
+    const magicError = String(hashParams.get('magic_error') || '').trim();
+    if (!magicToken && !magicError) return;
+
+    const clearMagicHash = () => {
+      const cleanUrl = `${window.location.pathname}${window.location.search}`;
+      window.history.replaceState({}, document.title, cleanUrl);
+    };
+
+    if (magicError) {
+      clearMagicHash();
+      setIsLogin(true);
+      setError(
+        magicError === 'internal_error'
+          ? 'No se pudo validar el enlace en este momento. Probá nuevamente.'
+          : 'El enlace es inválido, ya se usó o expiró. Solicitá uno nuevo.'
+      );
+      return;
+    }
+
+    let cancelled = false;
+    setIsLogin(true);
+    setLoading(true);
+    setError('');
+    setSuccessMessage('');
+
+    (async () => {
+      try {
+        const data = await verifyMagicLink(magicToken);
+        if (cancelled) return;
+
+        await revalidateSession();
+        setRedirectIntent({ sourceUser: data?.user });
+      } catch (err: any) {
+        if (!cancelled) {
+          setError(err?.message || 'No se pudo iniciar sesión con el enlace.');
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+        clearMagicHash();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [navigateAfterAuth, revalidateSession, returnTo, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccessMessage('');
     setLoading(true);
 
     try {
       if (isLogin) {
         const data = await login(email, password);
-        if (data?.user?.role === 'ADMIN') {
-          window.location.href = '/admin/agenda';
-        } else if (returnTo) {
-          window.location.href = returnTo;
-        } else if (data?.user?.clubId) {
-          const club = await ClubService.getClubById(data.user.clubId);
-          window.location.href = `/club/${club.slug}`;
-        } else {
-          window.location.href = '/';
-        }
+        await revalidateSession();
+        setRedirectIntent({ sourceUser: data?.user });
       } else {
-        const phoneDigits = phoneNumber.replace(/\D/g, '').slice(0, 10);
-        const fullPhone = phoneDigits ? `+549${phoneDigits}` : '';
-        if (!phoneDigits) {
+        const localPhone = String(phoneNumber || '').replace(/[^\d]/g, '');
+        const fullPhone = buildCanonicalPhone({
+          countryIso2: phoneCountryIso2,
+          localNumber: localPhone
+        });
+
+        if (!localPhone) {
           setError('Ingresá un teléfono para completar el registro.');
           return;
         }
-        if (!isPhoneValid(fullPhone)) {
+        if (!fullPhone) {
           setError('Ingresá un teléfono con formato válido.');
           return;
         }
-        await register(firstName, lastName, email, password, fullPhone, 'MEMBER');
-        setError('Usuario registrado exitosamente. Ahora puedes iniciar sesión.');
+        const safeDni = String(dni || '').trim();
+        if (safeDni && safeDni.length < 7) {
+          setError('Si cargás DNI, debe tener al menos 7 dígitos.');
+          return;
+        }
+
+        await register(
+          firstName,
+          lastName,
+          email,
+          password,
+          fullPhone,
+          'MEMBER',
+          safeDni || undefined,
+          resolveCallingCodeByIso2(phoneCountryIso2),
+          localPhone
+        );
+        
+        setSuccessMessage('Usuario registrado exitosamente. Ahora podés iniciar sesión.');
         setIsLogin(true);
-        setFirstName(''); setLastName(''); setPhoneNumber('');
+        // Limpiamos los campos
+        setFirstName(''); setLastName(''); setPhoneNumber(''); setDni(''); 
       }
     } catch (err: any) {
       setError(err.message || (isLogin ? 'Credenciales inválidas' : 'Error al registrar'));
@@ -78,8 +239,32 @@ export default function LoginPage() {
     }
   };
 
+  const handleRequestMagicLink = async () => {
+    const safeEmail = String(email || '').trim();
+    if (!safeEmail) {
+      setError('Ingresá tu correo para enviarte el enlace.');
+      return;
+    }
+
+    setError('');
+    setSuccessMessage('');
+    setMagicLoading(true);
+    try {
+      const data = await requestMagicLink(safeEmail);
+      setSuccessMessage(data?.message || 'Si el email es válido, te enviamos un enlace para ingresar.');
+    } catch (err: any) {
+      setError(err?.message || 'No se pudo enviar el enlace en este momento.');
+    } finally {
+      setMagicLoading(false);
+    }
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center p-4 relative overflow-hidden bg-[#347048]">
+    <>
+      <Head>
+        <title>Ingresar | TuCancha</title>
+      </Head>
+      <div className="flex min-h-screen items-center justify-center p-4 relative overflow-hidden bg-vibrant-brand">
       
       {/* Decoración de Fondo (Estilo Wimbledon) */}
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none opacity-20">
@@ -87,16 +272,16 @@ export default function LoginPage() {
         <div className="absolute bottom-0 right-0 w-[500px] h-[500px] rounded-full bg-[#926699] blur-[150px]"></div>
       </div>
 
-      <div className="w-full max-w-md relative z-10 animate-in fade-in zoom-in duration-300">
+      <div className="density-compact w-full max-w-md relative z-10 animate-in fade-in zoom-in duration-300">
 
         {/* Card Principal Beige Wimbledon */}
-        <div className="bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] shadow-2xl shadow-black/40 p-8 md:p-10 relative overflow-hidden">
+        <div className="bg-[#EBE1D8] border-4 border-white rounded-[1.75rem] shadow-2xl shadow-black/40 p-5 md:p-6 relative overflow-hidden">
           
-          <div className="text-center mb-8">
+          <div className="text-center mb-5">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[#347048] text-[#B9CF32] shadow-inner mb-4">
                {isLogin ? <Lock size={32} strokeWidth={2.5} /> : <UserPlus size={32} strokeWidth={2.5} />}
             </div>
-            <h2 className="text-3xl font-black text-[#347048] uppercase italic tracking-tighter">
+            <h2 className="text-2xl font-black text-[#347048] uppercase italic tracking-tighter">
               {isLogin ? 'Iniciar Sesión' : 'Crear Cuenta'}
             </h2>
             <p className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest mt-2">
@@ -111,9 +296,19 @@ export default function LoginPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          {/* 👉 NUEVO CARTEL DE ÉXITO */}
+          {successMessage && (
+            <div className="mb-6 p-4 bg-[#B9CF32]/20 border border-[#B9CF32] text-[#347048] rounded-2xl text-xs font-bold flex items-start gap-3 shadow-sm animate-in slide-in-from-top-2">
+              <CheckCircle size={18} className="shrink-0 mt-0.5 text-[#347048]" strokeWidth={2.5} />
+              <span>{successMessage}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4">
             {!isLogin && (
               <div className="grid grid-cols-2 gap-4">
+                
+                {/* Nombre */}
                 <div>
                   <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Nombre</label>
                   <div className="relative">
@@ -122,6 +317,8 @@ export default function LoginPage() {
                       className="w-full pl-11 pr-4 py-3.5 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl text-[#347048] font-bold focus:outline-none transition-all shadow-sm placeholder-[#347048]/20" placeholder="Ej: Juan" />
                   </div>
                 </div>
+                
+                {/* Apellido */}
                 <div>
                   <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Apellido</label>
                   <div className="relative">
@@ -130,22 +327,57 @@ export default function LoginPage() {
                       className="w-full pl-11 pr-4 py-3.5 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl text-[#347048] font-bold focus:outline-none transition-all shadow-sm placeholder-[#347048]/20" placeholder="Ej: Pérez" />
                   </div>
                 </div>
+
+                {/* DNI (NUEVO CAMPO) */}
+                <div className="col-span-2">
+                  <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">DNI</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-[#347048]/40">
+                      <IdCard size={16} strokeWidth={3} />
+                    </div>
+                    <input 
+                      type="number" 
+                      value={dni} 
+                      onChange={(e) => setDni(e.target.value)}
+                      className="w-full pl-11 pr-4 py-3.5 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl text-[#347048] font-bold focus:outline-none transition-all shadow-sm placeholder-[#347048]/20" 
+                      placeholder="Opcional. Ej: 35123456" 
+                    />
+                  </div>
+                </div>
                 
+                {/* Teléfono */}
                 <div className="col-span-2">
                   <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Teléfono</label>
                   <div className="relative flex items-stretch bg-white border-2 border-transparent focus-within:border-[#B9CF32] rounded-2xl transition-all shadow-sm overflow-hidden min-h-[56px]">
-                    <div className="pl-4 pr-3 py-0 flex items-center bg-[#347048]/5 text-[#347048]/60 border-r border-[#347048]/10 shrink-0 self-stretch">
-                      <Phone size={16} strokeWidth={3} className="mr-2 text-[#347048]/40" />
-                      <span className="font-black text-sm whitespace-nowrap">+54 9</span>
+                    <div className="pl-3 pr-2 py-0 flex items-center bg-[#347048]/5 text-[#347048]/60 border-r border-[#347048]/10 shrink-0 self-stretch gap-2">
+                      <Phone size={16} strokeWidth={3} className="text-[#347048]/40" />
+                      <select
+                        value={phoneCountryIso2}
+                        onChange={(e) => setPhoneCountryIso2(normalizePhoneCountryIso2(e.target.value))}
+                        className="bg-transparent text-[#347048] font-black text-xs focus:outline-none"
+                      >
+                        {PHONE_COUNTRY_OPTIONS.map((option) => (
+                          <option key={option.iso2} value={option.iso2}>
+                            {option.callingCode} {option.iso2}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                    <input type="tel" required maxLength={12} value={formatPhoneDigits(phoneNumber)}
-                      onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ''))}
-                      className="w-full px-4 py-3.5 bg-transparent text-[#347048] font-bold focus:outline-none placeholder-[#347048]/20 h-full" placeholder="351 123 4567" />
+                    <input
+                      type="tel"
+                      required
+                      maxLength={20}
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value.replace(/[^\d]/g, ''))}
+                      className="w-full px-4 py-3.5 bg-transparent text-[#347048] font-bold focus:outline-none placeholder-[#347048]/20 h-full"
+                      placeholder="Número local"
+                    />
                   </div>
                 </div>
               </div>
             )}
             
+            {/* Email */}
             <div>
               <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Correo Electrónico</label>
               <div className="relative">
@@ -157,14 +389,30 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {/* Contraseña */}
             <div>
               <label className="block text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2 ml-1">Contraseña</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-[#347048]/40">
                   <Lock size={16} strokeWidth={3} />
                 </div>
-                <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3.5 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl text-[#347048] font-bold focus:outline-none transition-all shadow-sm placeholder-[#347048]/20" placeholder="••••••••" />
+                <input type={showPassword ? 'text' : 'password'} required={isLogin} value={password} onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-11 pr-14 py-3.5 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-2xl text-[#347048] font-bold focus:outline-none transition-all shadow-sm placeholder-[#347048]/20" placeholder="••••••••" />
+
+                <button
+                  type="button"
+                  aria-label="Mantener pulsado para ver la contraseña"
+                  onMouseDown={() => setShowPassword(true)}
+                  onMouseUp={() => setShowPassword(false)}
+                  onMouseLeave={() => setShowPassword(false)}
+                  onTouchStart={() => setShowPassword(true)}
+                  onTouchEnd={() => setShowPassword(false)}
+                  onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') setShowPassword(true); }}
+                  onKeyUp={(e) => { if (e.key === ' ' || e.key === 'Enter') setShowPassword(false); }}
+                  className="absolute inset-y-0 right-3 flex items-center text-[#347048]/60 hover:text-[#347048] transition-colors"
+                >
+                  {showPassword ? <EyeOff size={18} strokeWidth={2.5} /> : <Eye size={18} strokeWidth={2.5} />}
+                </button>
               </div>
             </div>
 
@@ -177,6 +425,27 @@ export default function LoginPage() {
                 isLogin ? <><LogIn size={18} strokeWidth={3} /> Ingresar</> : <><UserPlus size={18} strokeWidth={3} /> Registrarse</>
               )}
             </button>
+
+            {isLogin && (
+              <>
+                <div className="relative my-2">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t border-[#347048]/15" />
+                  </div>
+                  <div className="relative flex justify-center text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]/45">
+                    <span className="bg-[#EBE1D8] px-3">o</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRequestMagicLink}
+                  disabled={magicLoading || loading || !String(email || '').trim()}
+                  className="w-full py-3.5 bg-white text-[#347048] border-2 border-[#347048]/20 font-black text-xs uppercase tracking-widest rounded-2xl hover:border-[#347048]/40 hover:bg-[#f9f7f4] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {magicLoading ? 'Enviando enlace...' : 'Enviar enlace de acceso'}
+                </button>
+              </>
+            )}
           </form>
 
           <div className="mt-8 text-center border-t border-[#347048]/10 pt-6">
@@ -188,6 +457,7 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

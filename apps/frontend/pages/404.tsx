@@ -1,5 +1,13 @@
+import Head from 'next/head';
 import NotFound from '../components/NotFound';
 
 export default function Custom404() {
-  return <NotFound title="Página no encontrada" message="La ruta que ingresaste no existe." />;
+  return (
+    <>
+      <Head>
+        <title>Pagina no encontrada | TuCancha</title>
+      </Head>
+      <NotFound title="Pagina no encontrada" message="La ruta que ingresaste no existe." />
+    </>
+  );
 }

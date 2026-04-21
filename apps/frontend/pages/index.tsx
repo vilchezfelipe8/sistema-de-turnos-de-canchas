@@ -1,13 +1,37 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
+import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { ClubService, Club } from '../services/ClubService';
 import { getApiUrl } from '../utils/apiUrl';
 import { LocationService, Location } from '../services/LocationService';
 import DatePickerDark from '../components/ui/DatePickerDark';
-import { Search, MapPin, Calendar, TrendingUp, ShieldCheck, ArrowRight, Menu, X, Phone, Mail, Instagram, Activity, ChevronRight, ChevronLeft, MousePointerClick, CalendarCheck, PlayCircle, Coffee, Droplets, Lightbulb, Trophy, ChevronDown, LogOut, Check } from 'lucide-react';
+import AppModal from '../components/AppModal';
+import { Search, MapPin, Calendar, TrendingUp, ShieldCheck, ArrowRight, Menu, X, Phone, Mail, Instagram, Activity, ChevronRight, ChevronLeft, MousePointerClick, CalendarCheck, PlayCircle, Coffee, Droplets, Lightbulb, Trophy, ChevronDown, LogOut, Check, MessageSquare, Calculator, Users, Heart } from 'lucide-react';
 import Link from 'next/link';
 import { logout } from '../services/AuthService';
 import { getMyBookings } from '../services/BookingService';
+import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser } from '../utils/session';
+import { reportUiError } from '../utils/uiError';
+import { useAuth } from '../contexts/AuthContext';
+import { isAuthSessionInvalidatedError } from '../utils/apiClient';
+// Importamos los íconos de la librería
+import { FaTableTennis } from "react-icons/fa"; // Paleta (Perfecta para Pádel)
+import { IoFootballOutline } from "react-icons/io5"; // Pelota de fútbol limpia
+import { IoTennisballOutline } from "react-icons/io5"; // Pelota de tenis limpia
+
+const countActiveBookings = (rows: any[]): number => {
+  const now = Date.now();
+  return rows.filter((booking: any) => {
+    const status = String(booking?.status || '').toUpperCase();
+    if (status === 'CANCELLED' || status === 'COMPLETED') return false;
+    const endValue = booking?.endDateTime || booking?.startDateTime;
+    const endTs = new Date(endValue).getTime();
+    if (!Number.isFinite(endTs)) return true;
+    return endTs >= now;
+  }).length;
+};
+
+// ReactDOM portal removed: menu will be rendered inside the sidebar to keep positioning stable under zoom
 
 // --- COMPONENTE DE ANIMACIÓN AL SCROLLEAR ---
 const RevealOnScroll = ({ children, delay = 0, className = "" }: { children: React.ReactNode, delay?: number, className?: string }) => {
@@ -54,11 +78,6 @@ type LocationSuggestion = {
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
 const LOCATION_LIMIT = 6;
 const DEFAULT_RADIUS_KM = 20;
-const ACTIVITY_IDS_BY_SPORT: Record<string, number> = {
-  padel: 1,
-  tenis: 2,
-  futbol: 3
-};
 
 const normalizeText = (text: string) =>
   text
@@ -66,6 +85,18 @@ const normalizeText = (text: string) =>
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
+
+const sportAliases: Record<string, string[]> = {
+  padel: ['padel', 'pádel'],
+  tenis: ['tenis', 'tennis'],
+  futbol: ['futbol', 'fútbol', 'football']
+};
+
+const matchesSport = (activityName: string, sport: string) => {
+  const normalizedActivity = normalizeText(activityName);
+  const aliases = sportAliases[sport] || [sport];
+  return aliases.some((alias) => normalizedActivity.includes(normalizeText(alias)));
+};
 
 const fetchLocations = async (
   query: string,
@@ -116,16 +147,40 @@ const formatClubAddress = (club: Club) => {
 
 export default function Home() {
   const router = useRouter();
+  const { user: authUser } = useAuth();
   const [clubs, setClubs] = useState<Club[]>([]);
   const [loadingClubs, setLoadingClubs] = useState(true);
   const [locations, setLocations] = useState<Location[]>([]);
   const [loadingLocations, setLoadingLocations] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [showContact, setShowContact] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [activeBookingsCount, setActiveBookingsCount] = useState(0);
+  const [favoriteClubIds, setFavoriteClubIds] = useState<Set<number>>(new Set());
+  const [favoriteClubs, setFavoriteClubs] = useState<Club[]>([]);
+  const [favoriteFeedback, setFavoriteFeedback] = useState<string | null>(null);
+  const [favoriteBusyByClub, setFavoriteBusyByClub] = useState<Record<number, boolean>>({});
+  // track which FAQ item is currently open (null if none)
+  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
+  const faqRefs = useRef<Array<HTMLDivElement | null>>([]);
+
+  // close open FAQ when clicking outside the open item's box
+  useEffect(() => {
+    const handler = (evt: MouseEvent) => {
+      if (openFaqIndex === null) return;
+      const currentRef = faqRefs.current[openFaqIndex];
+      if (currentRef && !currentRef.contains(evt.target as Node)) {
+        setOpenFaqIndex(null);
+      }
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [openFaqIndex]);
   const resultsRef = useRef<HTMLElement>(null);
-  const apiUrl = useMemo(() => getApiUrl(), []);
+  const searchBarRef = useRef<HTMLDivElement | null>(null);
+  const sidebarRef = useRef<HTMLDivElement | null>(null);
+  const apiBase = useMemo(() => `${getApiUrl()}/api`, []);
 
   // Estados del Buscador
   const [searchCity, setSearchCity] = useState('');
@@ -134,6 +189,7 @@ export default function Home() {
   const [selectedLocation, setSelectedLocation] = useState<LocationSuggestion | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [displayedClubs, setDisplayedClubs] = useState<Club[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
   const [clubCoords, setClubCoords] = useState<Record<number, { lat: number; lon: number } | null>>({});
 
   const [searchSport, setSearchSport] = useState('padel');
@@ -147,6 +203,80 @@ export default function Home() {
   const [searchDate, setSearchDate] = useState(() => formatLocalDate(getEffectiveToday()));
   const [lastSearchLabel, setLastSearchLabel] = useState<string>('');
   const [availableTimesByClub, setAvailableTimesByClub] = useState<Record<number, string[]>>({});
+  const searchRequestIdRef = useRef(0);
+
+  // Menú de acciones para contactos (abrir / copiar)
+  const [contactMenu, setContactMenu] = useState<{
+    type: 'whatsapp' | 'email' | 'instagram';
+    top: number;
+    left: number;
+    href: string;
+    copyText: string;
+  } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handleDocClick = (e: MouseEvent) => {
+      if (!menuRef.current) return;
+      const target = e.target as Node;
+      if (menuRef.current && !menuRef.current.contains(target)) {
+        setContactMenu(null);
+      }
+    };
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setContactMenu(null);
+    };
+    document.addEventListener('mousedown', handleDocClick);
+    document.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('mousedown', handleDocClick);
+      document.removeEventListener('keydown', handleEsc);
+    };
+  }, []);
+
+  const openContactMenu = (e: React.MouseEvent, type: 'whatsapp' | 'email' | 'instagram') => {
+    e.preventDefault();
+    const target = e.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    // If the sidebar ref exists, position the menu relative to the sidebar container
+    let top = rect.bottom + 8;
+    let left = rect.left;
+    if (sidebarRef.current) {
+      const sidebarRect = sidebarRef.current.getBoundingClientRect();
+      top = rect.bottom - sidebarRect.top + 8; // relative to sidebar
+      left = rect.left - sidebarRect.left;
+    }
+    let href = '#';
+    let copyText = '';
+    if (type === 'whatsapp') {
+      href = 'https://wa.me/5493513436163';
+      copyText = '+5493513436163';
+    } else if (type === 'email') {
+      href = 'mailto:soporte.tucancha@gmail.com';
+      copyText = 'soporte.tucancha@gmail.com';
+    } else if (type === 'instagram') {
+      href = 'https://www.instagram.com/tucancha.app_/';
+      copyText = '@tucancha.app_';
+    }
+    setContactMenu({ type, top: Math.max(top, 10), left: Math.max(left, 10), href, copyText });
+  };
+
+  const handleOpenHref = (href: string) => {
+    window.open(href, '_blank');
+    setContactMenu(null);
+  };
+
+  const handleCopy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      reportUiError({ area: 'HomePage', action: 'copyContactData' }, err);
+    }
+    setContactMenu(null);
+  };
 
   const userInitials = useMemo(() => {
     if (!user) return 'TU';
@@ -155,77 +285,66 @@ export default function Home() {
     const initials = `${first.charAt(0)}${last.charAt(0)}`.trim();
     return initials || 'TU';
   }, [user]);
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin = hasAdminAccess(user);
+  const adminClubSlug = useMemo(() => {
+    if (!user || !isAdmin) return null;
+
+    const normalizedUser = normalizeSessionUser(user);
+    const activeSlug = getActiveClubSlug(normalizedUser);
+    if (activeSlug) return activeSlug;
+
+    const fallbackClubId = Number(normalizedUser?.activeClubId || normalizedUser?.clubId || normalizedUser?.club?.id);
+    if (!Number.isFinite(fallbackClubId) || fallbackClubId <= 0) return null;
+
+    const club = clubs.find((item) => Number(item.id) === fallbackClubId);
+    return club?.slug || null;
+  }, [clubs, isAdmin, user]);
 
   const sportOptions = useMemo(() => ([
-    {
-      value: 'padel',
-      label: 'Pádel',
-      icon: (
-        <svg viewBox="0 0 20 20" className="h-4 w-4" aria-hidden="true">
-          <g>
-            <circle cx="12.41" cy="3.19" r="0.62" fill="currentColor" />
-            <circle cx="14.17" cy="4.99" r="0.62" fill="currentColor" />
-            <circle cx="15.94" cy="6.8" r="0.62" fill="currentColor" />
-            <circle cx="10.61" cy="4.96" r="0.62" fill="currentColor" />
-            <circle cx="12.37" cy="6.75" r="0.62" fill="currentColor" />
-            <circle cx="14.14" cy="8.56" r="0.62" fill="currentColor" />
-            <circle cx="8.81" cy="6.72" r="0.62" fill="currentColor" />
-            <circle cx="10.56" cy="8.52" r="0.62" fill="currentColor" />
-            <circle cx="12.34" cy="10.33" r="0.62" fill="currentColor" />
-            <path
-              fill="currentColor"
-              d="M17.94,9.89a4.1,4.1,0,0,0,1.11-3.43A5.72,5.72,0,0,0,18,4l-.75-1-1-1-.15-.16A7.65,7.65,0,0,0,14.39.59,4.17,4.17,0,0,0,9.53,1,14.21,14.21,0,0,0,7.91,2.59,9.38,9.38,0,0,0,6,5.77c-.2.54-.28,1.12-.45,1.72-.42,1.36-.77,2.69-1.15,4a1.61,1.61,0,0,1-.42.74L2.77,13.47a.3.3,0,0,1-.41,0h0a.3.3,0,0,0-.43,0L.3,15.06a1,1,0,0,0,0,1.39l2.13,2.18a1,1,0,0,0,1.39,0L5.45,17a.32.32,0,0,0,0-.45h0a.29.29,0,0,1,0-.38L6.66,15a1.93,1.93,0,0,1,.78-.43l4-1,.3-.06a12.76,12.76,0,0,0,1.51-.36A11.46,11.46,0,0,0,17.94,9.89ZM3.3,17.54a.37.37,0,0,1-.52,0h0L1.4,16.12a.37.37,0,0,1,0-.52h0l.85-.84a.36.36,0,0,1,.51,0h0a.23.23,0,0,0,.29,0l1.57-1.52a.36.36,0,0,1,.51,0h0l.61.62a.37.37,0,0,1,0,.52h0L4.17,15.88a.24.24,0,0,0,0,.3h0a.37.37,0,0,1,0,.51Zm4.2-4.26A1.18,1.18,0,0,1,6.39,13L6,12.62a1.37,1.37,0,0,1-.26-1.12c.1-.38.2-.77.32-1.15A6.59,6.59,0,0,0,8.69,13ZM12.83,12a4.3,4.3,0,0,1-3.41,0A4.38,4.38,0,0,1,7.11,6.25,10.13,10.13,0,0,1,8.85,3.43c.27-.26.5-.55.75-.82A5,5,0,0,1,11,1.55a3,3,0,0,1,2.59.09,8.65,8.65,0,0,1,2.57,2.05,7.32,7.32,0,0,1,1.31,1.9A3,3,0,0,1,17,9,10.36,10.36,0,0,1,12.83,12Z"
-            />
-          </g>
-        </svg>
-      )
-    },
-    {
-      value: 'futbol',
-      label: 'Fútbol',
-      icon: (
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 7l3 2-1 4h-4l-1-4 3-2z" />
-          <path d="M7 9l-3 2 2 4" />
-          <path d="M17 9l3 2-2 4" />
-        </svg>
-      )
-    },
-    {
-      value: 'tenis',
-      label: 'Tenis',
-      icon: (
-        <svg viewBox="0 0 69.447 69.447" className="h-4 w-4" aria-hidden="true">
-          <g transform="translate(-1271.769 -1574.648)">
-            <path
-              d="M1341.208,1609.372a34.719,34.719,0,1,1-34.72-34.724A34.724,34.724,0,0,1,1341.208,1609.372Z"
-              fill="currentColor"
-            />
-            <path
-              d="M1311.144,1574.993a35.139,35.139,0,0,0-4.61-.344,41.069,41.069,0,0,1-34.369,29.735,34.3,34.3,0,0,0-.381,4.635l.183-.026a45.921,45.921,0,0,0,39.149-33.881Zm29.721,34.692a45.487,45.487,0,0,0-33.488,34.054l-.071.313a34.54,34.54,0,0,0,4.818-.455,41.218,41.218,0,0,1,28.686-29.194,36.059,36.059,0,0,0,.388-4.8Z"
-              fill="currentColor"
-              opacity="0.55"
-            />
-          </g>
-        </svg>
-      )
-    }
-  ]), []);
+  {
+    value: 'padel',
+    label: 'Pádel',
+    icon: (
+      <svg viewBox="0 0 20 20" className="h-5 w-5" aria-hidden="true">
+        <g>
+          <circle cx="12.41" cy="3.19" r="0.62" fill="currentColor" />
+          <circle cx="14.17" cy="4.99" r="0.62" fill="currentColor" />
+          <circle cx="15.94" cy="6.8" r="0.62" fill="currentColor" />
+          <circle cx="10.61" cy="4.96" r="0.62" fill="currentColor" />
+          <circle cx="12.37" cy="6.75" r="0.62" fill="currentColor" />
+          <circle cx="14.14" cy="8.56" r="0.62" fill="currentColor" />
+          <circle cx="8.81" cy="6.72" r="0.62" fill="currentColor" />
+          <circle cx="10.56" cy="8.52" r="0.62" fill="currentColor" />
+          <circle cx="12.34" cy="10.33" r="0.62" fill="currentColor" />
+          <path
+            fill="currentColor"
+            d="M17.94,9.89a4.1,4.1,0,0,0,1.11-3.43A5.72,5.72,0,0,0,18,4l-.75-1-1-1-.15-.16A7.65,7.65,0,0,0,14.39.59,4.17,4.17,0,0,0,9.53,1,14.21,14.21,0,0,0,7.91,2.59,9.38,9.38,0,0,0,6,5.77c-.2.54-.28,1.12-.45,1.72-.42,1.36-.77,2.69-1.15,4a1.61,1.61,0,0,1-.42.74L2.77,13.47a.3.3,0,0,1-.41,0h0a.3.3,0,0,0-.43,0L.3,15.06a1,1,0,0,0,0,1.39l2.13,2.18a1,1,0,0,0,1.39,0L5.45,17a.32.32,0,0,0,0-.45h0a.29.29,0,0,1,0-.38L6.66,15a1.93,1.93,0,0,1,.78-.43l4-1,.3-.06a12.76,12.76,0,0,0,1.51-.36A11.46,11.46,0,0,0,17.94,9.89ZM3.3,17.54a.37.37,0,0,1-.52,0h0L1.4,16.12a.37.37,0,0,1,0-.52h0l.85-.84a.36.36,0,0,1,.51,0h0a.23.23,0,0,0,.29,0l1.57-1.52a.36.36,0,0,1,.51,0h0l.61.62a.37.37,0,0,1,0,.52h0L4.17,15.88a.24.24,0,0,0,0,.3h0a.37.37,0,0,1,0,.51Zm4.2-4.26A1.18,1.18,0,0,1,6.39,13L6,12.62a1.37,1.37,0,0,1-.26-1.12c.1-.38.2-.77.32-1.15A6.59,6.59,0,0,0,8.69,13ZM12.83,12a4.3,4.3,0,0,1-3.41,0A4.38,4.38,0,0,1,7.11,6.25,10.13,10.13,0,0,1,8.85,3.43c.27-.26.5-.55.75-.82A5,5,0,0,1,11,1.55a3,3,0,0,1,2.59.09,8.65,8.65,0,0,1,2.57,2.05,7.32,7.32,0,0,1,1.31,1.9A3,3,0,0,1,17,9,10.36,10.36,0,0,1,12.83,12Z"
+          />
+        </g>
+      </svg>
+    )
+  },
+  {
+    value: 'futbol',
+    label: 'Fútbol',
+    icon: <IoFootballOutline className="h-5 w-5" /> // Dejás la de la librería que estaba buena
+  },
+  {
+    value: 'tenis',
+    label: 'Tenis',
+    icon: <IoTennisballOutline className="h-5 w-5" /> // Dejás la de la librería
+  }
+]), []);
 
   const selectedSport = sportOptions.find((sport) => sport.value === searchSport) || sportOptions[0];
 
   useEffect(() => {
-    const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
-    if (userStr) { try { setUser(JSON.parse(userStr)); } catch {} }
-
     const loadClubs = async () => {
       try {
         const allClubs = await ClubService.getAllClubs();
         setClubs(allClubs);
       } catch (error) {
-        console.error('Error al cargar clubes:', error);
+        reportUiError({ area: 'HomePage', action: 'loadClubs' }, error);
       } finally {
         setLoadingClubs(false);
       }
@@ -235,7 +354,7 @@ export default function Home() {
         const allLocations = await LocationService.getAllLocations();
         setLocations(allLocations);
       } catch (error) {
-        console.error('Error al cargar ubicaciones:', error);
+        reportUiError({ area: 'HomePage', action: 'loadLocations' }, error);
       } finally {
         setLoadingLocations(false);
       }
@@ -245,6 +364,13 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    setUser(authUser ? normalizeSessionUser(authUser as any) : null);
+    if (!authUser) {
+      setShowUserMenu(false);
+    }
+  }, [authUser]);
+
+  useEffect(() => {
     const loadActiveBookings = async () => {
       if (!user?.id) {
         setActiveBookingsCount(0);
@@ -252,17 +378,132 @@ export default function Home() {
       }
       try {
         const bookings = await getMyBookings(user.id);
-        const active = Array.isArray(bookings)
-          ? bookings.filter((booking: any) => !['CANCELLED', 'COMPLETED'].includes(booking.status)).length
-          : 0;
+        const active = Array.isArray(bookings) ? countActiveBookings(bookings) : 0;
         setActiveBookingsCount(active);
       } catch (error) {
-        console.error('Error al cargar reservas activas:', error);
+        if (isAuthSessionInvalidatedError(error)) {
+          return;
+        }
+        reportUiError({ area: 'HomePage', action: 'loadActiveBookings' }, error);
       }
     };
 
     loadActiveBookings();
   }, [user]);
+
+  useEffect(() => {
+    const syncGuestFavorites = async () => {
+      if (!user?.id) return;
+      try {
+        await ClubService.syncGuestFavoritesToAccount();
+      } catch (error) {
+        reportUiError({ area: 'HomePage', action: 'syncGuestFavorites' }, error);
+      }
+    };
+    void syncGuestFavorites();
+  }, [user?.id]);
+
+  useEffect(() => {
+    const loadFavorites = async () => {
+      if (!user?.id) {
+        const guestIds = new Set<number>(ClubService.getGuestFavoriteClubIds());
+        setFavoriteClubIds(guestIds);
+        setFavoriteClubs(clubs.filter((club) => guestIds.has(Number(club.id))));
+        setFavoriteFeedback(null);
+        return;
+      }
+      try {
+        const favorites = await ClubService.getMyFavorites();
+        const nextIds = new Set<number>(favorites.map((item) => Number(item.clubId)));
+        const nextClubs = favorites
+          .map((item) => item.club)
+          .filter((club): club is Club => Boolean(club && club.id));
+        setFavoriteClubIds(nextIds);
+        setFavoriteClubs(nextClubs);
+      } catch (error) {
+        if (isAuthSessionInvalidatedError(error)) {
+          return;
+        }
+        reportUiError({ area: 'HomePage', action: 'loadFavorites' }, error);
+      }
+    };
+    void loadFavorites();
+  }, [user?.id, clubs]);
+
+  const resolveLinkingMessage = (linking: { status?: string; reason?: string } | null | undefined) => {
+    const status = String(linking?.status || '');
+    if (status === 'linked_existing_client') return 'Favorito guardado y cliente vinculado.';
+    if (status === 'created_client') return 'Favorito guardado y cliente creado.';
+    if (status === 'already_linked') return 'Favorito guardado. Ya estabas vinculado en este club.';
+    if (status === 'duplicate_detected_no_link') return 'Favorito guardado. Detectamos posible duplicado y no vinculamos automáticamente.';
+    if (status === 'insufficient_data_no_link') {
+      const reason = String(linking?.reason || '');
+      if (reason === 'missing_phone') return 'Favorito guardado. No se pudo vincular cliente: falta teléfono.';
+      if (reason === 'missing_name') return 'Favorito guardado. No se pudo vincular cliente: falta nombre.';
+      return 'Favorito guardado. No se pudo vincular cliente: faltan datos de identidad.';
+    }
+    return null;
+  };
+
+  const handleToggleFavorite = async (e: React.MouseEvent, club: Club) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!user?.id) {
+      const clubId = Number(club.id);
+      if (!Number.isFinite(clubId) || clubId <= 0) return;
+      const nextIsFavorite = !favoriteClubIds.has(clubId);
+      ClubService.setGuestFavorite(clubId, nextIsFavorite);
+      setFavoriteClubIds((prev) => {
+        const next = new Set(prev);
+        if (nextIsFavorite) next.add(clubId);
+        else next.delete(clubId);
+        return next;
+      });
+      setFavoriteClubs((prev) => {
+        const exists = prev.some((item) => Number(item.id) === clubId);
+        if (nextIsFavorite) return exists ? prev : [club, ...prev];
+        return prev.filter((item) => Number(item.id) !== clubId);
+      });
+      setFavoriteFeedback(nextIsFavorite ? 'Favorito guardado (invitado).' : 'Favorito eliminado (invitado).');
+      return;
+    }
+
+    const clubId = Number(club.id);
+    if (!Number.isFinite(clubId) || clubId <= 0) return;
+    if (favoriteBusyByClub[clubId]) return;
+
+    setFavoriteBusyByClub((prev) => ({ ...prev, [clubId]: true }));
+    try {
+      if (favoriteClubIds.has(clubId)) {
+        await ClubService.unmarkFavorite(clubId);
+        setFavoriteClubIds((prev) => {
+          const next = new Set(prev);
+          next.delete(clubId);
+          return next;
+        });
+        setFavoriteClubs((prev) => prev.filter((item) => Number(item.id) !== clubId));
+        setFavoriteFeedback('Favorito eliminado.');
+      } else {
+        const result = await ClubService.markFavorite(clubId);
+        setFavoriteClubIds((prev) => {
+          const next = new Set(prev);
+          next.add(clubId);
+          return next;
+        });
+        setFavoriteClubs((prev) => {
+          const exists = prev.some((item) => Number(item.id) === clubId);
+          return exists ? prev : [club, ...prev];
+        });
+        setFavoriteFeedback(resolveLinkingMessage(result?.linking) || 'Favorito guardado.');
+      }
+    } catch (error) {
+      reportUiError({ area: 'HomePage', action: 'toggleFavorite' }, error);
+      setFavoriteFeedback('No se pudo actualizar favorito.');
+    } finally {
+      setFavoriteBusyByClub((prev) => ({ ...prev, [clubId]: false }));
+    }
+  };
 
   useEffect(() => {
     setDisplayedClubs(clubs);
@@ -288,6 +529,9 @@ export default function Home() {
   useEffect(() => {
     if (!searchCity.trim()) {
       setLocationSuggestions([]);
+      if (selectedLocation) {
+        setSelectedLocation(null);
+      }
       return;
     }
 
@@ -349,129 +593,200 @@ export default function Home() {
     return prev >= min;
   };
 
+  const scrollToSearchBarTop = () => {
+    if (!searchBarRef.current) return;
+    const top = window.scrollY + searchBarRef.current.getBoundingClientRect().top;
+    const navbarOffset = 18;
+    window.scrollTo({ top: Math.max(top - navbarOffset, 0), behavior: 'smooth' });
+  };
+
   const handleSearch = async () => {
+    const requestId = ++searchRequestIdRef.current;
+    const isCurrentRequest = () => searchRequestIdRef.current === requestId;
+
+    scrollToSearchBarTop();
+    setIsSearching(true);
     setShowCityDropdown(false);
     setSearchError(null);
+    setDisplayedClubs([]);
+    setAvailableTimesByClub({});
 
-    if (locationOptions.length === 0 && searchCity.trim()) {
-      setSearchError('No hay ubicaciones cargadas para validar la búsqueda.');
-      setLastSearchLabel('');
-      setDisplayedClubs([]);
-      if (resultsRef.current) {
-        resultsRef.current.scrollIntoView({ behavior: 'smooth' });
+    try {
+      if (locationOptions.length === 0 && searchCity.trim()) {
+        if (!isCurrentRequest()) return;
+        setSearchError('No hay ubicaciones cargadas para validar la búsqueda.');
+        setLastSearchLabel('');
+        scrollToSearchBarTop();
+        return;
       }
-      return;
-    }
 
-    let location = selectedLocation;
-    if (!location && searchCity.trim()) {
-      const normalized = normalizeText(searchCity);
-      const exact = locationOptions.find(
-        (option) => normalizeText(option.label) === normalized || normalizeText(option.query) === normalized
-      );
-      if (exact) {
-        location = exact;
-        setSelectedLocation(exact);
-        setSearchCity(exact.label);
-      }
-    }
-
-    if (!location) {
-      setDisplayedClubs(clubs);
-      if (searchCity.trim()) {
-        setSearchError('Seleccioná una ubicación del listado para buscar clubes cercanos.');
-      }
-      setLastSearchLabel('');
-      if (resultsRef.current) {
-        resultsRef.current.scrollIntoView({ behavior: 'smooth' });
-      }
-      return;
-    }
-
-    const coordsResults = await fetchLocations(location.query, 1);
-    const locationCoords = coordsResults[0];
-    if (!locationCoords) {
-      setSearchError('No pudimos ubicar esa ciudad. Probá con otra.');
-      setDisplayedClubs([]);
-      setLastSearchLabel('');
-      if (resultsRef.current) {
-        resultsRef.current.scrollIntoView({ behavior: 'smooth' });
-      }
-      return;
-    }
-
-    const filtered: { club: Club; distance: number }[] = [];
-    for (const club of clubs) {
-      const coords = await resolveClubCoords(club);
-      if (!coords) continue;
-      const distance = calculateDistanceKm({ lat: locationCoords.lat, lon: locationCoords.lon }, coords);
-      if (distance <= DEFAULT_RADIUS_KM) {
-        filtered.push({ club, distance });
-      }
-    }
-
-    filtered.sort((a, b) => a.distance - b.distance);
-    let finalClubs = filtered.map(item => item.club);
-
-    if (searchDate) {
-      const activityIds = searchSport
-        ? [ACTIVITY_IDS_BY_SPORT[searchSport]].filter(Boolean)
-        : Object.values(ACTIVITY_IDS_BY_SPORT);
-
-      if (activityIds.length > 0) {
-        const availabilityChecks = await Promise.all(
-          finalClubs.map(async (club) => {
-            try {
-              let hasSlots = false;
-              const times: string[] = [];
-              for (const activityId of activityIds) {
-                const res = await fetch(
-                  `${apiUrl}/api/bookings/availability-with-courts?activityId=${activityId}&date=${searchDate}&clubSlug=${encodeURIComponent(club.slug)}&t=${Date.now()}`,
-                  { cache: 'no-store' }
-                );
-                if (!res.ok) continue;
-                const data = await res.json();
-                const slots = Array.isArray(data?.slotsWithCourts)
-                  ? data.slotsWithCourts.filter((slot: any) => Array.isArray(slot.availableCourts) && slot.availableCourts.length > 0)
-                  : [];
-                if (slots.length > 0) {
-                  hasSlots = true;
-                  slots.forEach((slot: any) => {
-                    if (slot?.slotTime) times.push(String(slot.slotTime));
-                  });
-                }
-              }
-              if (!hasSlots) return { hasSlots: false, times: [] };
-              const uniqueTimes = Array.from(new Set(times)).sort();
-              return { hasSlots: true, times: uniqueTimes };
-            } catch (error) {
-              console.error('Error al validar disponibilidad:', error);
-            }
-            return { hasSlots: false, times: [] };
-          })
+      let location = searchCity.trim() ? selectedLocation : null;
+      if (!location && searchCity.trim()) {
+        const normalized = normalizeText(searchCity);
+        const exact = locationOptions.find(
+          (option) => normalizeText(option.label) === normalized || normalizeText(option.query) === normalized
         );
-
-        const filteredClubs: Club[] = [];
-        const timesMap: Record<number, string[]> = {};
-        availabilityChecks.forEach((result, index) => {
-          if (result.hasSlots) {
-            const club = finalClubs[index];
-            filteredClubs.push(club);
-            timesMap[club.id] = result.times;
-          }
-        });
-        finalClubs = filteredClubs;
-        setAvailableTimesByClub(timesMap);
+        if (exact) {
+          location = exact;
+          setSelectedLocation(exact);
+          setSearchCity(exact.label);
+        }
       }
-    } else {
+
+      if (!location) {
+        if (!isCurrentRequest()) return;
+        setDisplayedClubs(clubs);
+        if (searchCity.trim()) {
+          setSearchError('Seleccioná una ubicación del listado para buscar clubes cercanos.');
+        }
+        setLastSearchLabel('');
+        scrollToSearchBarTop();
+        return;
+      }
+
+      const coordsResults = await fetchLocations(location.query, 1);
+      const locationCoords = coordsResults[0];
+      if (!locationCoords) {
+        if (!isCurrentRequest()) return;
+        setSearchError('No pudimos ubicar esa ciudad. Probá con otra.');
+        setDisplayedClubs([]);
+        setLastSearchLabel('');
+        scrollToSearchBarTop();
+        return;
+      }
+
+      const filtered: { club: Club; distance: number }[] = (await Promise.all(
+        clubs.map(async (club) => {
+          const coords = await resolveClubCoords(club);
+          if (!coords) return null;
+          const distance = calculateDistanceKm({ lat: locationCoords.lat, lon: locationCoords.lon }, coords);
+          if (distance > DEFAULT_RADIUS_KM) return null;
+          return { club, distance };
+        })
+      )).filter((row): row is { club: Club; distance: number } => Boolean(row));
+
+      filtered.sort((a, b) => a.distance - b.distance);
+      let finalClubs = filtered.map(item => item.club);
+
+      if (searchDate) {
+        try {
+          if (/^\d{4}-\d{2}-\d{2}$/.test(searchDate)) {
+            const [year, month, day] = searchDate.split('-').map(Number);
+            const parsed = new Date(year, month - 1, day);
+            if (!isNaN(parsed.getTime())) {
+              const dayOfWeek = parsed.getDay(); // 0 (Dom) .. 6 (Sab)
+              finalClubs = finalClubs.filter((club) => {
+                const closureDates = Array.isArray((club as any).closureDates)
+                  ? (club as any).closureDates.map((value: unknown) => String(value || '').trim())
+                  : [];
+                const clubOperationalStatus = String((club as any).clubOperationalStatus || 'OPEN');
+                const temporaryClosureStartDate = String((club as any).temporaryClosureStartDate || '').trim();
+                const temporaryClosureEndDate = String((club as any).temporaryClosureEndDate || '').trim();
+
+                if (clubOperationalStatus === 'PERMANENTLY_CLOSED') return false;
+                if (
+                  clubOperationalStatus === 'TEMPORARY_CLOSED' &&
+                  /^\d{4}-\d{2}-\d{2}$/.test(temporaryClosureStartDate) &&
+                  /^\d{4}-\d{2}-\d{2}$/.test(temporaryClosureEndDate) &&
+                  searchDate >= temporaryClosureStartDate &&
+                  searchDate <= temporaryClosureEndDate
+                ) {
+                  return false;
+                }
+
+                if (closureDates.includes(searchDate)) return false;
+                if (!Array.isArray(club.openingDays) || club.openingDays.length === 0) return true; // no config => open all days
+                return club.openingDays.includes(dayOfWeek);
+              });
+            }
+          }
+        } catch (e) { /* noop */ }
+
+        if (searchSport) {
+          const availabilityChecks = await Promise.all(
+            finalClubs.map(async (club) => {
+              try {
+                const courtsRes = await fetch(`${apiBase}/courts?clubSlug=${encodeURIComponent(club.slug)}`, {
+                  cache: 'no-store'
+                });
+                if (!courtsRes.ok) return { hasSlots: false, times: [] };
+
+                const courts = await courtsRes.json();
+                const activityIds = Array.from(
+                  new Set(
+                    (Array.isArray(courts) ? courts : [])
+                      .filter((court: any) => matchesSport(String(court?.activityType?.name || ''), searchSport))
+                      .map((court: any) => Number(court?.activityType?.id))
+                      .filter((activityId: number) => Number.isFinite(activityId) && activityId > 0)
+                  )
+                );
+
+                if (activityIds.length === 0) return { hasSlots: false, times: [] };
+
+                const times: string[] = [];
+                const results = await Promise.all(
+                  activityIds.map(async (activityId) => {
+                    const res = await fetch(
+                      `${apiBase}/bookings/availability-with-courts?activityId=${activityId}&date=${searchDate}&clubSlug=${encodeURIComponent(club.slug)}&t=${Date.now()}`,
+                      { cache: 'no-store' }
+                    );
+                    if (!res.ok) return [];
+                    const data = await res.json();
+                    const slots = Array.isArray(data?.slotsWithCourts)
+                      ? data.slotsWithCourts.filter((slot: any) => Array.isArray(slot.availableCourts) && slot.availableCourts.length > 0)
+                      : [];
+                    return slots
+                      .map((slot: any) => (slot?.slotTime ? String(slot.slotTime) : null))
+                      .filter((slotTime: string | null): slotTime is string => Boolean(slotTime));
+                  })
+                );
+
+                results.forEach((slotTimes) => times.push(...slotTimes));
+                const hasSlots = times.length > 0;
+                if (!hasSlots) return { hasSlots: false, times: [] };
+                const uniqueTimes = Array.from(new Set(times)).sort();
+                return { hasSlots: true, times: uniqueTimes };
+              } catch (error) {
+                reportUiError({ area: 'HomePage', action: 'validateClubAvailability' }, error);
+              }
+              return { hasSlots: false, times: [] };
+            })
+          );
+
+          if (!isCurrentRequest()) return;
+
+          const filteredClubs: Club[] = [];
+          const timesMap: Record<number, string[]> = {};
+          availabilityChecks.forEach((result, index) => {
+            if (result.hasSlots) {
+              const club = finalClubs[index];
+              filteredClubs.push(club);
+              timesMap[club.id] = result.times;
+            }
+          });
+          finalClubs = filteredClubs;
+          setAvailableTimesByClub(timesMap);
+        }
+      } else {
+        setAvailableTimesByClub({});
+      }
+
+      if (!isCurrentRequest()) return;
+
+      setDisplayedClubs(finalClubs);
+      setLastSearchLabel(location.label);
+      scrollToSearchBarTop();
+    } catch (error) {
+      if (!isCurrentRequest()) return;
+      reportUiError({ area: 'HomePage', action: 'handleSearch' }, error);
+      setSearchError('No pudimos completar la búsqueda. Intentá de nuevo.');
+      setDisplayedClubs([]);
+      setLastSearchLabel('');
       setAvailableTimesByClub({});
-    }
-
-    setDisplayedClubs(finalClubs);
-    setLastSearchLabel(location.label);
-
-    if (resultsRef.current) {
-      resultsRef.current.scrollIntoView({ behavior: 'smooth' });
+    } finally {
+      if (isCurrentRequest()) {
+        setIsSearching(false);
+      }
     }
   };
 
@@ -501,34 +816,29 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen relative overflow-x-hidden bg-[#347048] text-[#D4C5B0] selection:bg-[#B9CF32] selection:text-[#347048]" onClick={() => {
-      setShowCityDropdown(false);
-      setShowSportDropdown(false);
-      setShowUserMenu(false);
-    }}>
+    <>
+      <Head>
+        <title>Inicio | TuCancha</title>
+      </Head>
+      <div className="min-h-screen relative overflow-x-hidden bg-vibrant-brand text-[#D4C5B0] selection:bg-[#B9CF32] selection:text-[#347048]" onClick={() => {
+        setShowCityDropdown(false);
+        setShowSportDropdown(false);
+        setShowUserMenu(false);
+      }}>
       
       {/* NAVBAR */}
-      <nav className="absolute top-0 left-0 right-0 z-50 px-6 py-6 flex justify-between items-center max-w-7xl mx-auto">
+      <nav className="absolute top-0 left-0 right-0 z-50 px-6 py-4 flex justify-between items-center max-w-7xl mx-auto">
         <div className="flex items-center gap-2">
             <span className="text-2xl font-black tracking-tighter text-[#D4C5B0] italic opacity-90 hover:opacity-100 transition-opacity cursor-pointer">
                 TuCancha
             </span>
         </div>
         <div className="flex items-center gap-4 relative">
+            <button onClick={() => setShowContact(true)} className="hidden md:flex items-center gap-2 px-5 py-2 rounded-full border border-[#D4C5B0]/30 text-[#D4C5B0] font-bold text-sm hover:bg-[#D4C5B0] hover:text-[#347048] transition-all">
+                <span>Contacto</span>
+            </button>
             {user ? (
               <>
-                {!isAdmin && (
-                  <div className="hidden sm:flex items-center gap-1 p-1 rounded-full bg-[#EBE1D8]/10">
-                    <Link
-                      href="/bookings"
-                      className="flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest transition-all border-2 bg-[#EBE1D8] text-[#347048] border-[#EBE1D8]"
-                      onClick={() => setShowUserMenu(false)}
-                    >
-                      <Calendar size={16} strokeWidth={2.5} />
-                      Mis Turnos
-                    </Link>
-                  </div>
-                )}
                 <div className="relative">
                   <button
                     onClick={(e) => {
@@ -551,7 +861,7 @@ export default function Home() {
                   </button>
 
                   {showUserMenu && (
-                    <div className="absolute right-0 mt-4 w-[280px] md:w-[320px] bg-[#EBE1D8] rounded-3xl shadow-2xl shadow-[#347048]/50 border border-[#347048]/10 overflow-hidden z-[120]" onClick={(e) => e.stopPropagation()}>
+                    <div className="absolute right-0 mt-4 w-[280px] md:w-[320px] bg-[#EBE1D8] rounded-3xl shadow-2xl shadow-[#347048]/50 border border-[#347048]/10 overflow-hidden z-[120] max-[767px]:fixed max-[767px]:top-[74px] max-[767px]:right-6 max-[767px]:!left-auto max-[767px]:mt-0 max-[767px]:w-[min(320px,calc(100vw-3rem))]" onClick={(e) => e.stopPropagation()}>
                       <div className="p-6 flex flex-col items-center text-center">
                         <div className="relative mb-4">
                           <div className="h-20 w-20 rounded-full bg-[#347048] flex items-center justify-center text-[#EBE1D8] text-xl font-black shadow-inner">
@@ -562,7 +872,7 @@ export default function Home() {
                           </span>
                         </div>
                         <h3 className="text-xl font-black text-[#347048] italic tracking-tight">{user.firstName || user.name || 'Usuario'}</h3>
-                        <p className="text-[#347048]/60 text-xs font-bold uppercase tracking-widest mt-1">Miembro</p>
+                        <p className="text-[#347048]/60 text-xs font-bold uppercase tracking-widest mt-1">{isAdmin ? 'Administrador' : 'Miembro'}</p>
                       </div>
                       <div className="border-t border-[#347048]/10 px-6 py-5 bg-[#347048]/5">
                         <p className="text-[#347048]/40 font-black text-[10px] uppercase tracking-widest mb-3">Mis Datos</p>
@@ -578,21 +888,54 @@ export default function Home() {
                         </div>
                       </div>
                       <div className="border-t border-[#347048]/10 px-6 py-4 space-y-2 font-bold">
+                        {isAdmin && (
+                          <Link
+                            href="/admin/agenda"
+                            className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
+                            onClick={() => setShowUserMenu(false)}
+                          >
+                            <ShieldCheck size={18} strokeWidth={2.5} /> Gestión
+                          </Link>
+                        )}
+                        {isAdmin && adminClubSlug && (
+                          <Link
+                            href={`/club/${adminClubSlug}`}
+                            className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
+                            onClick={() => setShowUserMenu(false)}
+                          >
+                            <MapPin size={18} strokeWidth={2.5} /> Mi club
+                          </Link>
+                        )}
+                        {router.pathname !== '/perfil' && (
+                          <Link
+                            href="/perfil"
+                            className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
+                            onClick={() => setShowUserMenu(false)}
+                          >
+                            <Users size={18} strokeWidth={2.5} /> Mi Perfil
+                          </Link>
+                        )}
                         <Link
                           href="/bookings"
-                          className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
+                          className="flex items-center justify-between gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
                           onClick={() => setShowUserMenu(false)}
                         >
-                          <Calendar size={18} strokeWidth={2.5} /> Mis Reservas
+                          <span className="flex items-center gap-3">
+                            <Calendar size={18} strokeWidth={2.5} /> Mis Reservas
+                          </span>
+                          {activeBookingsCount > 0 ? (
+                            <span className="inline-flex items-center justify-center min-w-[22px] h-6 px-2 rounded-full bg-[#926699] text-white text-[10px] font-black">
+                              {activeBookingsCount}
+                            </span>
+                          ) : null}
                         </Link>
                         <button
                           type="button"
                           className="flex items-center gap-3 text-red-500 hover:text-red-600 w-full text-left p-2 rounded-xl hover:bg-red-50 transition-colors"
                           onClick={() => {
-                            logout();
-                            setUser(null);
+                            // Cerrar sesión sin forzar redirección.
+                            setShowLogoutModal(true);
                             setShowUserMenu(false);
-                            router.push('/');
                           }}
                         >
                           <LogOut size={18} strokeWidth={2.5} /> Cerrar sesión
@@ -602,11 +945,7 @@ export default function Home() {
                   )}
                 </div>
               </>
-            ) : (
-              <button onClick={() => setShowContact(true)} className="hidden md:flex items-center gap-2 px-5 py-2 rounded-full border border-[#D4C5B0]/30 text-[#D4C5B0] font-bold text-sm hover:bg-[#D4C5B0] hover:text-[#347048] transition-all">
-                  <span>Contacto</span>
-              </button>
-            )}
+            ) : null}
             {!user && (
                 <Link href="/login" className="px-5 py-2 rounded-full bg-[#D4C5B0] text-[#347048] font-bold hover:bg-[#B9CF32] transition-all text-sm shadow-lg shadow-[#347048]/50">
                     Ingresar
@@ -640,7 +979,8 @@ export default function Home() {
         </p>
 
         {/* BARRA DE BÚSQUEDA */}
-    <div 
+    <div
+      ref={searchBarRef}
       className="w-full max-w-5xl bg-[#EBE1D8] rounded-[2rem] p-2 shadow-2xl shadow-[#347048]/50 flex flex-col md:flex-row items-center divide-y md:divide-y-0 md:divide-x divide-[#347048]/10 relative z-50"
             onClick={(e) => e.stopPropagation()} 
         >
@@ -665,7 +1005,11 @@ export default function Home() {
               className="bg-transparent border-none outline-none text-[#347048] font-bold placeholder-[#347048]/40 w-full p-0 leading-5 truncate h-full cursor-pointer"
                             value={searchCity}
                             onChange={(e) => {
-                                setSearchCity(e.target.value);
+                                const nextValue = e.target.value;
+                                setSearchCity(nextValue);
+                                if (!nextValue.trim()) {
+                                  setSelectedLocation(null);
+                                }
                                 setShowCityDropdown(true);
                             }}
               onMouseDown={(e) => {
@@ -738,34 +1082,57 @@ export default function Home() {
               <span className="truncate">{selectedSport.label}</span>
             </div>
           </div>
-          <ChevronRight size={14} className="text-[#B9CF32] transition-transform group-hover:translate-x-0.5" />
         </div>
 
-        {showSportDropdown && (
-          <div className="absolute top-full left-0 w-full md:w-[240px] mt-4 bg-white rounded-2xl shadow-xl border border-[#347048]/10 overflow-hidden z-[100] animate-in fade-in zoom-in-95 duration-200">
-            <div className="p-3 bg-[#EBE1D8]/30 border-b border-[#347048]/5">
-              <span className="text-xs font-bold text-[#347048] uppercase tracking-wider">Elegí deporte</span>
+       {showSportDropdown && (
+  <div className="absolute top-full left-0 w-full md:w-[240px] mt-4 bg-[#Fdfbf7] rounded-3xl shadow-xl border border-[#347048]/10 overflow-hidden z-[100] animate-in fade-in zoom-in-95 duration-200">
+    
+    {/* ENCABEZADO CENTRADO COMO EN LA FOTO */}
+    <div className="py-5 border-b border-[#347048]/5 flex justify-center">
+      <span className="text-xs font-black text-[#347048] uppercase tracking-widest">
+        Elegí deporte
+      </span>
+    </div>
+
+    {/* LISTA DE DEPORTES */}
+    <ul className="max-h-60 overflow-y-auto flex flex-col py-2">
+      {sportOptions.map((sport) => {
+        // Comparamos el valor actual con el del loop para saber si está seleccionado
+        const isSelected = searchSport === sport.value; 
+
+        return (
+          <li
+            key={sport.value || 'all'}
+            onClick={() => {
+              setSearchSport(sport.value);
+              setShowSportDropdown(false);
+            }}
+            className="px-6 py-3.5 hover:bg-[#347048]/5 cursor-pointer flex items-center transition-colors border-b border-[#347048]/5 last:border-0"
+          >
+            <div className="flex items-center gap-4">
+              {/* CÍRCULO DEL ÍCONO CON COLOR DINÁMICO */}
+              <div 
+                className={`flex items-center justify-center w-10 h-10 rounded-full transition-colors ${
+                  isSelected 
+                    ? 'bg-[#347048] text-[#Fdfbf7]' // Seleccionado: Fondo verde oscuro, ícono claro
+                    : 'bg-[#EBE1D8] text-[#347048]' // Normal: Fondo beige, ícono verde oscuro
+                }`}
+              >
+                {sport.icon}
+              </div>
+              
+              {/* NOMBRE DEL DEPORTE */}
+              <span className={`text-[16px] text-[#347048] ${isSelected ? 'font-bold' : 'font-medium'}`}>
+                {sport.label}
+              </span>
             </div>
-            <ul className="max-h-60 overflow-y-auto">
-              {sportOptions.map((sport) => (
-                <li
-                  key={sport.value || 'all'}
-                  onClick={() => {
-                    setSearchSport(sport.value);
-                    setShowSportDropdown(false);
-                  }}
-                  className="px-4 py-3 hover:bg-[#B9CF32]/10 cursor-pointer flex items-center justify-between group transition-colors border-b border-gray-50 last:border-0"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="bg-[#EBE1D8] p-1.5 rounded-full text-[#347048]">{sport.icon}</div>
-                    <span className="text-[#347048] font-medium text-sm">{sport.label}</span>
-                  </div>
-                  <ChevronRight size={14} className="text-[#B9CF32] opacity-0 group-hover:opacity-100 transition-opacity transform group-hover:translate-x-1" />
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+
+          </li>
+        );
+      })}
+    </ul>
+  </div>
+)}
       </div>
 
   <div className="flex-1 w-full relative group">
@@ -776,44 +1143,49 @@ export default function Home() {
           <Calendar className="text-[#347048] group-hover:text-[#B9CF32] transition-colors shrink-0" size={20} />
           <div className="flex flex-col items-start text-left w-full overflow-hidden min-h-[38px] justify-center gap-1">
             <label className="text-[10px] font-bold text-[#347048]/60 uppercase tracking-wider h-3 leading-3">Fecha</label>
-                    <div className="flex items-center gap-2">
+                    <div className="w-full grid grid-cols-1 md:grid-cols-[28px,1fr,28px] items-center">
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); changeDateBy(-1); }}
                         disabled={!canGoPrev()}
-                        className={`p-2 rounded-md transition-colors ${canGoPrev() ? 'bg-white/10 hover:bg-white/20' : 'opacity-40 cursor-not-allowed'}`}
+                        className="hidden md:flex p-1 rounded-lg text-[#347048] disabled:opacity-20 disabled:cursor-not-allowed hover:bg-[#347048]/10 transition-colors"
                         aria-label="Fecha anterior"
                       >
-                        <ChevronLeft size={16} />
+                        <ChevronLeft className="w-5 h-5" />
                       </button>
 
-                      <DatePickerDark
-                        selected={
-                          searchDate
-                            ? (() => {
-                                const [y, m, d] = searchDate.split('-').map(Number);
-                                return new Date(y, m - 1, d);
-                              })()
-                            : null
-                        }
-                        onChange={(date: Date | null) => {
-                          if (!date) { setSearchDate(''); return; }
-                          setSearchDate(formatLocalDate(date));
-                        }}
-                        minDate={getEffectiveToday()}
-                        showIcon={false}
-                        inputSize="compact"
-                        inputClassName="bg-transparent border-none outline-none text-[#347048] font-bold text-sm w-full p-0 leading-5 uppercase cursor-pointer placeholder-[#347048]/40 h-auto px-0 py-0 focus:ring-0 focus:border-transparent truncate"
-                        variant="light"
-                      />
+                      <div className="flex justify-start md:justify-center">
+                        <DatePickerDark
+                          selected={
+                            searchDate
+                              ? (() => {
+                                  const [y, m, d] = searchDate.split('-').map(Number);
+                                  return new Date(y, m - 1, d);
+                                })()
+                              : null
+                          }
+                          onChange={(date: Date | null) => {
+                            if (!date) { setSearchDate(''); return; }
+                            setSearchDate(formatLocalDate(date));
+                          }}
+                          minDate={getEffectiveToday()}
+                          showIcon={false}
+                          inputSize="compact"
+                          // AGREGÁ ESTA LÍNEA ACÁ ABAJO:
+                          dateFormat="EEE dd MMM yyyy" 
+                          // ---------------------------
+                          inputClassName="bg-transparent border-none outline-none text-[#347048] font-bold text-sm w-full md:w-[132px] text-left md:text-center p-0 leading-5 uppercase cursor-pointer placeholder-[#347048]/40 h-auto px-0 py-0 focus:ring-0 focus:border-transparent"
+                          variant="light"
+                        />
+                      </div>
 
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); changeDateBy(1); }}
-                        className="p-2 rounded-md bg-white/10 hover:bg-white/20 transition-colors"
+                        className="hidden md:flex p-1 rounded-lg text-[#347048] hover:bg-[#347048]/10 transition-colors"
                         aria-label="Fecha siguiente"
                       >
-                        <ChevronRight size={16} />
+                        <ChevronRight className="w-5 h-5" />
                       </button>
                     </div>
           </div>
@@ -823,10 +1195,15 @@ export default function Home() {
             <div className="p-2 w-full md:w-auto">
                 <button 
                     onClick={handleSearch}
-                    className="w-full md:w-auto bg-[#347048] hover:bg-[#B9CF32] hover:text-[#347048] text-[#EBE1D8] font-black py-4 px-8 rounded-full transition-all shadow-lg flex items-center justify-center gap-2 group"
+                    disabled={isSearching}
+                    className={`w-full md:w-auto text-[#EBE1D8] font-black py-4 px-8 rounded-full transition-all shadow-lg flex items-center justify-center gap-2 ${
+                      isSearching
+                        ? 'bg-[#347048]/70 cursor-not-allowed'
+                        : 'bg-[#347048] hover:bg-[#B9CF32] hover:text-[#347048] group'
+                    }`}
                 >
-                    <Search size={20} strokeWidth={3} className="group-hover:scale-110 transition-transform"/>
-                    <span className="md:hidden lg:inline">Buscar</span>
+                    <Search size={20} strokeWidth={3} className={isSearching ? '' : 'group-hover:scale-110 transition-transform'} />
+                    <span className="md:hidden lg:inline">{isSearching ? 'Buscando...' : 'Buscar'}</span>
                 </button>
             </div>
         </div>
@@ -841,6 +1218,30 @@ export default function Home() {
           </h2>
         </RevealOnScroll>
 
+        {user?.id && favoriteClubs.length > 0 && (
+          <RevealOnScroll delay={40}>
+            <div className="mb-5 flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-black uppercase tracking-widest text-[#D4C5B0]/70">Favoritos</span>
+              {favoriteClubs.slice(0, 5).map((club) => (
+                <Link
+                  key={`favorite-chip-${club.id}`}
+                  href={`/club/${club.slug}`}
+                  className="inline-flex items-center gap-1 rounded-full bg-[#B9CF32]/20 border border-[#B9CF32]/50 px-3 py-1 text-[11px] font-black text-[#D4C5B0]"
+                >
+                  <Heart size={12} className="fill-[#B9CF32] text-[#B9CF32]" />
+                  {club.name}
+                </Link>
+              ))}
+            </div>
+          </RevealOnScroll>
+        )}
+
+        {favoriteFeedback && (
+          <RevealOnScroll delay={50}>
+            <div className="mb-5 text-xs text-[#D4C5B0]/85 font-semibold">{favoriteFeedback}</div>
+          </RevealOnScroll>
+        )}
+
         {searchError && (
           <RevealOnScroll delay={100}><div className="mb-6 text-sm text-[#B9CF32] font-semibold">{searchError}</div></RevealOnScroll>
         )}
@@ -851,12 +1252,40 @@ export default function Home() {
                 <div key={i} className="h-64 bg-[#D4C5B0]/5 rounded-3xl animate-pulse border border-[#D4C5B0]/10"></div>
              ))}
            </div>
+        ) : isSearching ? (
+          <RevealOnScroll delay={100}>
+            <div className="text-center py-20 bg-[#D4C5B0]/5 rounded-3xl border border-dashed border-[#D4C5B0]/20 flex flex-col items-center justify-center gap-4">
+              <div className="h-10 w-10 rounded-full border-4 border-[#D4C5B0]/25 border-t-[#B9CF32] animate-spin" />
+              <p className="text-[#D4C5B0]/80 font-semibold">Buscando canchas...</p>
+            </div>
+          </RevealOnScroll>
         ) : displayedClubs.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {displayedClubs.map((club, index) => (
               <RevealOnScroll key={club.id} delay={index * 100} className="h-full block">
                 <Link href={`/club/${club.slug}`} className="group relative h-full bg-[#EBE1D8] border border-transparent rounded-3xl overflow-hidden hover:scale-[1.02] transition-all shadow-xl hover:shadow-[#B9CF32]/20 flex flex-col">
                   <div className="h-40 shrink-0 w-full bg-[#dcd0c5] relative border-b border-[#347048]/10 rounded-t-3xl">
+                    <button
+                      type="button"
+                      onClick={(event) => handleToggleFavorite(event, club)}
+                      disabled={Boolean(favoriteBusyByClub[Number(club.id)])}
+                      className={`group/fav absolute top-3 right-3 z-20 rounded-xl p-2 border transition-all duration-200 shadow-md disabled:opacity-60 ${
+                        favoriteClubIds.has(Number(club.id))
+                          ? 'bg-[#347048] border-[#B9CF32] shadow-[#347048]/40 hover:bg-[#2d5f3d] hover:scale-105'
+                          : 'bg-white/90 border-[#347048]/20 hover:bg-[#347048] hover:border-[#B9CF32] hover:shadow-[#347048]/40 hover:scale-105'
+                      }`}
+                      aria-label={favoriteClubIds.has(Number(club.id)) ? 'Quitar de favoritos' : 'Guardar en favoritos'}
+                      title={favoriteClubIds.has(Number(club.id)) ? 'Quitar de favoritos' : 'Guardar en favoritos'}
+                    >
+                      <Heart
+                        size={16}
+                        className={
+                          favoriteClubIds.has(Number(club.id))
+                            ? 'text-[#B9CF32] fill-[#B9CF32] drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)] transition-all duration-200 group-hover/fav:scale-110'
+                            : 'text-[#347048]/80 transition-all duration-200 group-hover/fav:text-[#B9CF32] group-hover/fav:fill-[#B9CF32] group-hover/fav:scale-110'
+                        }
+                      />
+                    </button>
                     {club.clubImageUrl ? (
                       <>
                         <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 rounded-t-3xl" style={{ backgroundImage: `url(${club.clubImageUrl})` }} />
@@ -918,7 +1347,19 @@ export default function Home() {
           <RevealOnScroll delay={100}>
             <div className="text-center py-20 bg-[#D4C5B0]/5 rounded-3xl border border-dashed border-[#D4C5B0]/20">
               <p className="text-[#D4C5B0]/60">No encontramos canchas con ese criterio.</p>
-              <button onClick={() => setSearchCity('')} className="mt-4 text-[#B9CF32] font-bold hover:underline">Ver todos</button>
+              <button
+                onClick={() => {
+                  setSearchCity('');
+                  setSelectedLocation(null);
+                  setSearchError(null);
+                  setLastSearchLabel('');
+                  setAvailableTimesByClub({});
+                  setDisplayedClubs(clubs);
+                }}
+                className="mt-4 text-[#B9CF32] font-bold hover:underline"
+              >
+                Ver todos
+              </button>
             </div>
           </RevealOnScroll>
         )}
@@ -983,18 +1424,45 @@ export default function Home() {
             <div className="absolute bottom-0 left-0 w-96 h-96 bg-[#926699]/10 rounded-full blur-[100px] pointer-events-none" />
             
             <div className="relative z-10">
-              <div className="text-center mb-16">
-                <h2 className="text-4xl md:text-5xl font-black text-[#347048] italic tracking-tighter mb-4 uppercase">Más que una cancha</h2>
-                <p className="text-[#347048]/70 font-bold max-w-2xl mx-auto uppercase tracking-widest text-sm">Disfrutá de instalaciones de primer nivel diseñadas para brindarte la mejor experiencia.</p>
-              </div>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-                <RevealOnScroll delay={100}><div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white"><div className="bg-[#926699]/10 text-[#926699] p-4 rounded-2xl mb-4"><Coffee size={32} strokeWidth={2} /></div><h4 className="text-[#347048] font-black text-lg mb-2">El 3er Tiempo</h4><p className="text-[#347048]/70 text-sm font-medium">Buffet completo con bebidas frías, snacks y el mejor ambiente post-partido.</p></div></RevealOnScroll>
-                <RevealOnScroll delay={200}><div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white"><div className="bg-[#347048]/10 text-[#347048] p-4 rounded-2xl mb-4"><Trophy size={32} strokeWidth={2} /></div><h4 className="text-[#347048] font-black text-lg mb-2">Pistas de Blindex</h4><p className="text-[#347048]/70 text-sm font-medium">Césped sintético profesional de última generación y medidas reglamentarias.</p></div></RevealOnScroll>
-                <RevealOnScroll delay={300}><div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white"><div className="bg-[#B9CF32]/20 text-[#347048] p-4 rounded-2xl mb-4"><Lightbulb size={32} strokeWidth={2} /></div><h4 className="text-[#347048] font-black text-lg mb-2">Iluminación Pro</h4><p className="text-[#347048]/70 text-sm font-medium">Focos LED de alta potencia para que juegues de noche sin puntos ciegos.</p></div></RevealOnScroll>
-                <RevealOnScroll delay={400}><div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white"><div className="bg-blue-50 text-blue-500 p-4 rounded-2xl mb-4"><Droplets size={32} strokeWidth={2} /></div><h4 className="text-[#347048] font-black text-lg mb-2">Vestuarios Premium</h4><p className="text-[#347048]/70 text-sm font-medium">Duchas amplias con agua caliente garantizada y lockers de seguridad.</p></div></RevealOnScroll>
-              </div>
+            <div className="text-center mb-16">
+              <h2 className="text-4xl md:text-5xl font-black text-[#347048] italic tracking-tighter mb-4 uppercase">Gestión inteligente</h2>
+              <p className="text-[#347048]/70 font-bold max-w-2xl mx-auto uppercase tracking-widest text-sm">La herramienta definitiva diseñada para potenciar la administración de tu complejo.</p>
             </div>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+              <RevealOnScroll delay={100}>
+                <div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white">
+                  <div className="bg-[#926699]/10 text-[#926699] p-4 rounded-2xl mb-4"><MessageSquare size={32} strokeWidth={2} /></div>
+                  <h4 className="text-[#347048] font-black text-lg mb-2">WhatsApp Bot</h4>
+                  <p className="text-[#347048]/70 text-sm font-medium">Notificaciones automáticas para confirmar reservas y reducir ausencias de clientes.</p>
+                </div>
+              </RevealOnScroll>
+
+              <RevealOnScroll delay={200}>
+                <div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white">
+                  <div className="bg-[#347048]/10 text-[#347048] p-4 rounded-2xl mb-4"><Calendar size={32} strokeWidth={2} /></div>
+                  <h4 className="text-[#347048] font-black text-lg mb-2">Reserva en línea</h4>
+                  <p className="text-[#347048]/70 text-sm font-medium">Sistema de turnos disponible las 24 horas para que tus clientes reserven en segundos.</p>
+                </div>
+              </RevealOnScroll>
+
+              <RevealOnScroll delay={300}>
+                <div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white">
+                  <div className="bg-[#B9CF32]/20 text-[#347048] p-4 rounded-2xl mb-4"><Calculator size={32} strokeWidth={2} /></div>
+                  <h4 className="text-[#347048] font-black text-lg mb-2">Caja y Stock</h4>
+                  <p className="text-[#347048]/70 text-sm font-medium">Control total de ingresos, ventas de buffet y stock de productos en tiempo real.</p>
+                </div>
+              </RevealOnScroll>
+
+              <RevealOnScroll delay={400}>
+                <div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white">
+                  <div className="bg-blue-50 text-blue-500 p-4 rounded-2xl mb-4"><Users size={32} strokeWidth={2} /></div>
+                  <h4 className="text-[#347048] font-black text-lg mb-2">Panel de administración</h4>
+                  <p className="text-[#347048]/70 text-sm font-medium">Gestioná canchas, precios y base de datos de usuarios desde cualquier dispositivo.</p>
+                </div>
+              </RevealOnScroll>
+            </div>
+          </div>
           </div>
         </RevealOnScroll>
       </section>
@@ -1018,7 +1486,7 @@ export default function Home() {
                 </p>
                 
                 <ul className="space-y-4 mb-10">
-                  <FeatureItem icon={<Calendar className="text-[#926699]" />} text="Reservas Online 24/7." />
+                  <FeatureItem icon={<Calendar className="text-[#926699]" />} text="Reservas en línea 24/7." />
                   <FeatureItem icon={<ShieldCheck className="text-[#926699]" />} text="Adiós a los deudores." />
                 </ul>
 
@@ -1064,7 +1532,7 @@ export default function Home() {
       </section>
 
       {/* SECCIÓN: PREGUNTAS FRECUENTES (FAQ) */}
-      <section className="py-20 px-4 max-w-3xl mx-auto relative z-10 pb-32 overflow-hidden">
+      <section onClick={() => setOpenFaqIndex(null)} className="py-20 px-4 max-w-3xl mx-auto relative z-10 pb-32 overflow-hidden">
         <RevealOnScroll delay={0}>
           <div className="text-center mb-12">
             <span className="text-[#B9CF32] font-black tracking-wider uppercase text-sm mb-3 block">Dudas Comunes</span>
@@ -1072,10 +1540,25 @@ export default function Home() {
           </div>
         </RevealOnScroll>
         <div className="space-y-4">
-           <RevealOnScroll delay={100}><FAQItem question="¿Con cuánto tiempo de anticipación puedo reservar?" answer="Podés reservar tu cancha hasta con 30 días de anticipación utilizando nuestro calendario interactivo. Te recomendamos asegurar tu lugar temprano, ¡especialmente en horarios pico (18:00 a 22:00)!" /></RevealOnScroll>
-           <RevealOnScroll delay={200}><FAQItem question="¿Puedo cancelar o reprogramar mi turno?" answer="Sí, podés cancelar tu turno desde tu panel de usuario o comunicándote con el club. El sistema devuelve automáticamente tu dinero en la caja si la cancelación se realiza dentro del margen de tiempo permitido por cada club." /></RevealOnScroll>
-           <RevealOnScroll delay={300}><FAQItem question="¿Cuáles son los medios de pago aceptados?" answer="Aceptamos transferencias bancarias, Mercado Pago y efectivo directamente en el club. Al momento de confirmar la reserva, podrás ver todas las opciones disponibles." /></RevealOnScroll>
-           <RevealOnScroll delay={400}><FAQItem question="¿Tienen servicio de alquiler de paletas o pelotas?" answer="¡Por supuesto! En la recepción del club vas a poder alquilar paletas de primera calidad y comprar pelotas nuevas para que no te falte nada a la hora de jugar." /></RevealOnScroll>
+           {[
+             { q: "¿Con cuánto tiempo de anticipación puedo reservar?", a: "Podés reservar tu cancha hasta con 30 días de anticipación utilizando nuestro calendario interactivo. Te recomendamos asegurar tu lugar temprano, ¡especialmente en horarios pico (18:00 a 22:00)!" },
+             { q: "¿Puedo cancelar o reprogramar mi turno?", a: "Sí, podés cancelar tu turno desde tu panel de usuario o comunicándote con el club. El sistema devuelve automáticamente tu dinero en la caja si la cancelación se realiza dentro del margen de tiempo permitido por cada club." },
+             { q: "¿Cómo recibo los avisos de nuevas reservas?", a: "El sistema envía una notificación automática e instantánea a través de WhatsApp tanto al dueño del complejo como al cliente, asegurando que el turno quede confirmado sin esfuerzo manual." },
+             { q: "¿Puedo gestionar más de una cancha y diferentes deportes?", a: "Sí, la plataforma es totalmente flexible. Podés configurar múltiples canchas, definir horarios diferenciados por día y establecer precios específicos para cada actividad deportiva." },
+             { q: "¿El sistema me ayuda a controlar las ventas del buffet?", a: "¡Exacto! Contamos con un módulo de Caja y Stock integrado donde podés registrar cada venta de productos, gestionar tu inventario en tiempo real y tener un cierre de caja diario preciso." },
+             { q: "¿Es necesario instalar algún programa en mi computadora?", a: "No, nuestra solución es 100% basada en la nube. Podés acceder a tu panel de administración desde cualquier dispositivo (celular, tablet o PC) con conexión a internet, en cualquier momento y lugar." }
+           ].map((item, idx) => (
+             <RevealOnScroll delay={100 * (idx + 1)} key={idx}>
+               <div ref={(el) => { faqRefs.current[idx] = el; }}>
+                 <FAQItem
+                   question={item.q}
+                   answer={item.a}
+                   isOpen={openFaqIndex === idx}
+                   onToggle={() => setOpenFaqIndex(openFaqIndex === idx ? null : idx)}
+                 />
+               </div>
+             </RevealOnScroll>
+           ))}
         </div>
       </section>
 
@@ -1086,11 +1569,11 @@ export default function Home() {
       
       {/* SIDEBAR DE CONTACTO (OFF-CANVAS) */}
       <div 
-  className={`fixed inset-0 bg-black/50 backdrop-blur-[2px] z-[60] transition-opacity duration-300 ${showContact ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+  className={`fixed inset-0 bg-black/60 z-[60] transition-opacity duration-300 ${showContact ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onClick={() => setShowContact(false)}
       />
 
-      <div className={`fixed top-0 right-0 h-full w-full max-w-sm bg-[#EBE1D8] z-[70] shadow-2xl transform transition-transform duration-300 ease-out ${showContact ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div ref={sidebarRef} className={`fixed top-0 right-0 h-full w-full max-w-sm bg-[#EBE1D8] z-[70] shadow-2xl transform transition-transform duration-300 ease-out ${showContact ? 'translate-x-0' : 'translate-x-full'}`}>
             <div className="p-6 flex justify-between items-center border-b border-[#347048]/10">
                 <h2 className="text-2xl font-black text-[#347048]">Contacto</h2>
                 <button 
@@ -1105,35 +1588,70 @@ export default function Home() {
                 <p className="text-[#347048]/80 font-medium leading-relaxed">
                     ¿Tenés dudas sobre el sistema o querés dar de alta tu club? Escribinos, respondemos al toque.
                 </p>
-        <a href="https://wa.me/543513436150" target="_blank" rel="noreferrer" className="flex items-center gap-4 p-4 bg-white rounded-2xl shadow-sm border border-[#347048]/5 hover:border-[#B9CF32] hover:shadow-md transition-all group">
-                    <div className="bg-[#B9CF32] h-12 w-12 rounded-full flex items-center justify-center text-[#347048] group-hover:scale-110 transition-transform">
+        <button type="button" onClick={(e) => openContactMenu(e, 'whatsapp')} className="flex items-center gap-4 px-4 py-3 bg-white rounded-2xl shadow-sm border border-[#347048]/5 hover:border-[#B9CF32] hover:shadow-md transition-all group">
+              <div className="bg-[#B9CF32] h-12 w-12 rounded-full flex items-center justify-center text-[#347048] group-hover:scale-110 transition-transform shrink-0">
                         <Phone size={20} fill="currentColor" className="text-[#347048]" />
                     </div>
                     <div>
                         <p className="text-[#347048]/50 text-xs font-bold uppercase tracking-wider">WhatsApp</p>
-            <p className="text-[#347048] font-bold text-lg">+54 351 343 6150</p>
+            <p className="text-[#347048] font-bold text-lg">+54 351 343 6163</p>
                     </div>
-                </a>
-                <a href="mailto:hola@tucancha.app" className="flex items-center gap-4 p-4 bg-white rounded-2xl shadow-sm border border-[#347048]/5 hover:border-[#B9CF32] hover:shadow-md transition-all group">
-                    <div className="bg-[#347048] h-12 w-12 rounded-full flex items-center justify-center text-[#EBE1D8] group-hover:scale-110 transition-transform">
+              </button>
+                <button type="button" onClick={(e) => openContactMenu(e, 'email')} className="w-full flex items-center gap-4 px-4 py-3 bg-white rounded-2xl shadow-sm border border-[#347048]/5 hover:border-[#B9CF32] hover:shadow-md transition-all group">
+                      <div className="bg-[#347048] h-12 w-12 rounded-full flex items-center justify-center text-[#EBE1D8] group-hover:scale-110 transition-transform shrink-0">
                         <Mail size={20} />
-                    </div>
-                    <div>
+                      </div>
+                      <div className="flex-1 min-w-0">
                         <p className="text-[#347048]/50 text-xs font-bold uppercase tracking-wider">Email</p>
-                        <p className="text-[#347048] font-bold text-lg">hola@tucancha.app</p>
-                    </div>
-                </a>
+                        <p className="text-[#347048] font-bold text-lg truncate">soporte.tucancha@gmail.com</p>
+                      </div>
+                    </button>
                 <div className="mt-8 pt-8 border-t border-[#347048]/10">
                     <p className="text-[#347048]/60 text-sm font-bold mb-4 text-center">Seguinos en redes</p>
                     <div className="flex justify-center gap-4">
-                        <a href="#" className="p-3 bg-[#347048] text-[#EBE1D8] rounded-full hover:bg-[#B9CF32] hover:text-[#347048] transition-colors">
-                            <Instagram size={20} />
-                        </a>
+                      <button type="button" onClick={(e) => openContactMenu(e, 'instagram')} className="flex items-center gap-4 px-4 py-3 bg-[#347048] text-[#EBE1D8] rounded-full hover:bg-[#B9CF32] hover:text-[#347048] transition-colors">
+                        <Instagram size={20} className="shrink-0" />
+                        <span className="hidden sm:inline text-[#EBE1D8] font-bold">@tucancha.app_</span>
+                      </button>
                     </div>
                 </div>
             </div>
+        {contactMenu && (
+          <div
+            ref={menuRef}
+            role="dialog"
+            aria-label="Acciones de contacto"
+            style={{ position: 'absolute', top: contactMenu.top, left: contactMenu.left }}
+            className="z-[90] bg-white rounded-lg shadow-lg border p-2 w-52"
+          >
+            <button
+              onClick={() => handleOpenHref(contactMenu.href)}
+              className="w-full text-left px-3 py-3 hover:bg-[#f3f4f6] rounded text-sm text-[#111827] font-medium"
+            >Abrir</button>
+            <button
+              onClick={() => handleCopy(contactMenu.copyText)}
+              className="w-full text-left px-3 py-3 hover:bg-[#f3f4f6] rounded text-sm text-[#111827] font-medium"
+            >{copied ? 'Copiado!' : 'Copiar'}</button>
+          </div>
+        )}
+        <AppModal
+          show={showLogoutModal}
+          title="Cerrar sesión"
+          message="¿Seguro que querés cerrar sesión?"
+          isWarning
+          confirmText="Salir"
+          cancelText="Cancelar"
+          onConfirm={() => {
+            setShowLogoutModal(false);
+            logout();
+            setUser(null);
+          }}
+          onClose={() => setShowLogoutModal(false)}
+          onCancel={() => setShowLogoutModal(false)}
+        />
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -1146,11 +1664,27 @@ const FeatureItem = ({ icon, text }: { icon: React.ReactNode; text: string }) =>
   </li>
 );
 
-const FAQItem = ({ question, answer }: { question: string, answer: string }) => {
-  const [isOpen, setIsOpen] = useState(false);
+// FAQ item now controlled by parent via props
+const FAQItem = ({
+  question,
+  answer,
+  isOpen,
+  onToggle
+}: {
+  question: string;
+  answer: string;
+  isOpen: boolean;
+  onToggle: () => void;
+}) => {
   return (
     <div className="bg-[#D4C5B0]/5 border border-[#D4C5B0]/10 rounded-2xl overflow-hidden transition-all duration-300 hover:bg-[#D4C5B0]/10">
-      <button onClick={() => setIsOpen(!isOpen)} className="w-full px-6 py-5 text-left flex justify-between items-center focus:outline-none">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+        className="w-full px-6 py-5 text-left flex justify-between items-center focus:outline-none"
+      >
         <span className="font-bold text-[#EBE1D8] pr-4">{question}</span>
         <ChevronDown className={`text-[#B9CF32] shrink-0 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
@@ -1158,5 +1692,6 @@ const FAQItem = ({ question, answer }: { question: string, answer: string }) => 
         <p className="text-[#EBE1D8]/70 text-sm leading-relaxed">{answer}</p>
       </div>
     </div>
-  )
+  );
 };
+

@@ -3,24 +3,31 @@ import { Court } from './Court';
 import { ActivityType } from './ActivityType';
 import { BookingStatus } from './Enums';
 
+export type BookingClient = {
+    id: string;
+    name: string;
+    dni?: string | null;
+    phone?: string | null;
+    email?: string | null;
+};
+
 export class Booking {
     id: number;
+    displayCode?: string | null;
     startDateTime: Date;
     endDateTime: Date;
+    listPrice: number;
     price: number;
     createdAt: Date;
     status: BookingStatus;
     cancelledBy?: number;
     cancelledAt?: Date;
 
-    // Relaciones
     user?: User | null;
     court: Court;
     activity: ActivityType;
-    guestIdentifier?: string;
-    guestName?: string;
-    guestEmail?: string;
-    guestPhone?: string;
+    clientId: string;
+    client?: BookingClient | null;
 
     constructor(
         id: number,
@@ -31,25 +38,21 @@ export class Booking {
         court: Court,
         activity: ActivityType,
         status: BookingStatus,
-        guestIdentifier?: string,
-        guestName?: string,
-        guestEmail?: string,
-        guestPhone?: string,
-        public fixedBookingId?: number | null
+        clientId: string,
+        public fixedBookingId?: number | null,
+        client?: BookingClient | null
     ) {
         this.id = id;
         this.startDateTime = startDateTime;
         this.endDateTime = endDateTime;
+        this.listPrice = price;
         this.price = price;
         this.user = user || null;
         this.court = court;
         this.activity = activity;
         this.status = status;
         this.createdAt = new Date();
-        if (guestIdentifier) this.guestIdentifier = guestIdentifier;
-        if (guestName) this.guestName = guestName;
-        if (guestEmail) this.guestEmail = guestEmail;
-        if (guestPhone) this.guestPhone = guestPhone;
+        this.clientId = clientId;
+        this.client = client ?? null;
     }
 }
-

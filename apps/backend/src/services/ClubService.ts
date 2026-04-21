@@ -1,7 +1,10 @@
 import { ClubRepository } from '../repositories/ClubRepository';
 import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
 import { Club } from '../entities/Club';
+import type { ClubOperationalStatus, FixedBookingSettingsByActivity } from '../entities/Club';
 import { Court } from '../entities/Court';
+import { Prisma } from '@prisma/client';
+import { normalizeIdentityPhone } from '../utils/phone';
 
 // 👇 1. USAMOS TUS IMPORTS CORRECTOS
 import { prisma } from '../prisma'; 
@@ -27,17 +30,30 @@ export class ClubService {
         facebookUrl?: string,
         websiteUrl?: string,
         description?: string,
+        timeZone: string = 'America/Argentina/Buenos_Aires',
         lightsEnabled: boolean = false,
         lightsExtraAmount?: number | null,
         lightsFromHour?: string | null,
-        professorDiscountEnabled: boolean = false,
-        professorDiscountPercent?: number | null,
-        scheduleMode?: string,
-        scheduleOpenTime?: string | null,
-        scheduleCloseTime?: string | null,
-        scheduleIntervalMinutes?: number | null,
-        scheduleDurations?: number[] | null,
-        scheduleFixedSlots?: string[] | null
+        professorDurationOverrideEnabled: boolean = true,
+        professorDurationOverrideMinutes: number = 60,
+        fixedBookingSettingsByActivity?: FixedBookingSettingsByActivity | null,
+        bookingConfirmationMode: 'AUTOMATIC' | 'MANUAL' | 'DEPOSIT_REQUIRED' = 'MANUAL',
+        bookingDepositPercent?: number | null,
+        allowManualConfirmationOverride: boolean = true,
+        autoCancelPendingBookingsEnabled: boolean = false,
+        autoCancelPendingBookingsMinutesBefore?: number | null,
+        autoCancelPendingBookingsOnlyIfUnpaid: boolean = true,
+        autoCancelPendingWarningEnabled: boolean = false,
+        autoCancelPendingWarningMinutesBefore?: number | null,
+        enforceCashShiftCloseWithOpenAccounts: boolean = false,
+        bookingSimpleAdvanceDaysUser: number = 30,
+        bookingSimpleAdvanceDaysAdmin: number = 30,
+        allowAdminSkipSimpleAdvanceLimit: boolean = false,
+        closureDates?: string[] | null,
+        openingDays?: number[] | null,
+        clubOperationalStatus: ClubOperationalStatus = 'OPEN',
+        temporaryClosureStartDate?: string | null,
+        temporaryClosureEndDate?: string | null
     ) {
         return await this.clubRepo.createClub(
             slug,
@@ -54,17 +70,30 @@ export class ClubService {
             facebookUrl,
             websiteUrl,
             description,
+            timeZone,
             lightsEnabled,
             lightsExtraAmount,
             lightsFromHour,
-            professorDiscountEnabled,
-            professorDiscountPercent,
-            scheduleMode,
-            scheduleOpenTime,
-            scheduleCloseTime,
-            scheduleIntervalMinutes,
-            scheduleDurations,
-            scheduleFixedSlots
+            professorDurationOverrideEnabled,
+            professorDurationOverrideMinutes,
+            fixedBookingSettingsByActivity,
+            bookingConfirmationMode,
+            bookingDepositPercent,
+            allowManualConfirmationOverride,
+            autoCancelPendingBookingsEnabled,
+            autoCancelPendingBookingsMinutesBefore,
+            autoCancelPendingBookingsOnlyIfUnpaid,
+            autoCancelPendingWarningEnabled,
+            autoCancelPendingWarningMinutesBefore,
+            enforceCashShiftCloseWithOpenAccounts,
+            bookingSimpleAdvanceDaysUser,
+            bookingSimpleAdvanceDaysAdmin,
+            allowAdminSkipSimpleAdvanceLimit,
+            closureDates,
+            openingDays,
+            clubOperationalStatus,
+            temporaryClosureStartDate,
+            temporaryClosureEndDate
         );
     }
 
@@ -101,17 +130,30 @@ export class ClubService {
             facebookUrl?: string | null;
             websiteUrl?: string | null;
             description?: string | null;
+            timeZone?: string;
             lightsEnabled?: boolean;
             lightsExtraAmount?: number | null;
             lightsFromHour?: string | null;
-            professorDiscountEnabled?: boolean;
-            professorDiscountPercent?: number | null;
-            scheduleMode?: string;
-            scheduleOpenTime?: string | null;
-            scheduleCloseTime?: string | null;
-            scheduleIntervalMinutes?: number | null;
-            scheduleDurations?: number[] | null;
-            scheduleFixedSlots?: string[] | null;
+            professorDurationOverrideEnabled?: boolean;
+            professorDurationOverrideMinutes?: number;
+            fixedBookingSettingsByActivity?: FixedBookingSettingsByActivity | null;
+            bookingConfirmationMode?: 'AUTOMATIC' | 'MANUAL' | 'DEPOSIT_REQUIRED';
+            bookingDepositPercent?: number | null;
+            allowManualConfirmationOverride?: boolean;
+            autoCancelPendingBookingsEnabled?: boolean;
+            autoCancelPendingBookingsMinutesBefore?: number | null;
+            autoCancelPendingBookingsOnlyIfUnpaid?: boolean;
+            autoCancelPendingWarningEnabled?: boolean;
+            autoCancelPendingWarningMinutesBefore?: number | null;
+            enforceCashShiftCloseWithOpenAccounts?: boolean;
+            bookingSimpleAdvanceDaysUser?: number;
+            bookingSimpleAdvanceDaysAdmin?: number;
+            allowAdminSkipSimpleAdvanceLimit?: boolean;
+            closureDates?: string[] | null;
+            openingDays?: number[] | null;
+            clubOperationalStatus?: ClubOperationalStatus;
+            temporaryClosureStartDate?: string | null;
+            temporaryClosureEndDate?: string | null;
         }
     ): Promise<Club> {
         const club = await this.clubRepo.findClubById(id);
@@ -119,73 +161,154 @@ export class ClubService {
         return await this.clubRepo.updateClub(id, data);
     }
 
-    async registerCourt(clubId: number, name: string, surface: string, activityIds: number[]) {
+    async registerCourt(clubId: number, name: string, surface: string, activityTypeId: number | number[]) {
         const club = await this.clubRepo.findClubById(clubId);
         if (!club) throw new Error("Club no encontrado");
 
-    const court = new Court(0, name, false, surface, club, false, null);
-
-        for (const actId of activityIds) {
-            const activity = await this.activityRepo.findById(actId);
-            if (activity) {
-                court.supportedActivities.push(activity);
-            }
+        const normalizedActivityTypeId = Array.isArray(activityTypeId)
+            ? Number(activityTypeId[0])
+            : Number(activityTypeId);
+        if (!Number.isInteger(normalizedActivityTypeId) || normalizedActivityTypeId <= 0) {
+            throw new Error("Actividad inválida");
         }
+
+        const activity = await this.activityRepo.findById(normalizedActivityTypeId);
+        if (!activity) throw new Error("Actividad no encontrada");
+        if (activity.clubId && Number(activity.clubId) !== Number(clubId)) {
+            throw new Error("La actividad no pertenece a este club");
+        }
+
+        const court = new Court(0, name, false, surface, club, false, activity);
 
         return await this.clubRepo.saveCourt(court);
     }
 
-    // 👇 2. NUEVO MÉTODO AGREGADO (Para el Buscador Inteligente)
-    async getClients(clubId: number) {
-    
-    // Buscamos todas las reservas de ese club (incluyendo CANCELLED para mantener historial)
-    const bookings: any[] = await prisma.booking.findMany({
-        where: {
-            court: { clubId: clubId },
-        },
-        select: {
-            guestName: true,
-            guestPhone: true,
-            guestDni: true,
-            user: {
-                select: {
-                    firstName: true,
-                    lastName: true,
-                    phoneNumber: true,
-                    isProfessor: true
+    async getClients(clubId: number, query?: string) {
+        const search = (query || '').trim();
+        const prismaAny = prisma as any;
+        const clients: any[] = await prismaAny.client.findMany({
+            where: {
+                clubId,
+                ...(search
+                    ? {
+                        OR: [
+                            { name: { contains: search, mode: 'insensitive' } },
+                            { phone: { contains: search, mode: 'insensitive' } },
+                            { dni: { contains: search, mode: 'insensitive' } },
+                            { email: { contains: search, mode: 'insensitive' } }
+                        ]
+                    }
+                    : {})
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+
+        return clients.map((client) => ({
+            id: client.id,
+            name: client.name,
+            phone: client.phone || '',
+            email: client.email || '',
+            dni: client.dni || '',
+            isProfessor: Boolean(client.isProfessor)
+        }));
+    }
+
+    async createClient(clubId: number, input: {
+        name: string;
+        phone?: string | null;
+        dni?: string | null;
+        email?: string | null;
+        isProfessor?: boolean;
+    }) {
+        const club = await prisma.club.findUnique({
+            where: { id: clubId },
+            select: { country: true }
+        });
+        const normalizedName = String(input.name || '').trim();
+        const normalizedPhone = normalizeIdentityPhone(
+            { phone: input.phone ?? null },
+            { defaultCountryIso2: String(club?.country || '').trim() || null }
+        );
+        const normalizedDni = String(input.dni || '').replace(/\D/g, '');
+        const normalizedEmail = String(input.email || '').trim().toLowerCase();
+
+        if (normalizedName.length < 2) throw new Error('Nombre inválido');
+        if (input.phone && !normalizedPhone) throw new Error('Teléfono inválido');
+        if (normalizedDni && normalizedDni.length < 6) throw new Error('DNI inválido');
+
+        try {
+            return await prisma.client.create({
+                data: {
+                    clubId,
+                    name: normalizedName,
+                    phone: normalizedPhone,
+                    dni: normalizedDni || null,
+                    email: normalizedEmail || null,
+                    isProfessor: Boolean(input.isProfessor)
                 }
+            });
+        } catch (error: any) {
+            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+                throw new Error('Ya existe un cliente con ese DNI, teléfono o email');
             }
-        },
-        orderBy: { startDateTime: 'desc' }
-    } as any);
-
-    const uniqueClients = new Map();
-
-    bookings.forEach(b => {
-        // Lógica para decidir si es User o Guest
-        const name = b.user ? `${b.user.firstName} ${b.user.lastName}` : b.guestName;
-        const phone = b.user ? b.user.phoneNumber : b.guestPhone;
-        
-        // El DNI lo sacamos del guestDni (el de la reserva)
-        const dni = b.guestDni; 
-
-        if (name) {
-            // Usamos DNI como clave única si existe, sino el nombre
-            const key = dni ? `dni_${dni}` : `name_${name.toLowerCase().trim()}`;
-
-            if (!uniqueClients.has(key)) {
-                uniqueClients.set(key, {
-                    // Mapeamos para que el Frontend lo entienda
-                    firstName: name, // El front se encarga de separar nombre/apellido si viene junto
-                    lastName: '', 
-                    phoneNumber: phone, // Importante: usar 'phoneNumber' para que coincida con tu front
-                    dni: dni,
-                    isProfessor: b.user?.isProfessor ?? false
-                });
-            }
+            throw error;
         }
-    });
+    }
 
-    return Array.from(uniqueClients.values());
-}
+    async updateClient(clubId: number, clientId: string, input: {
+        name: string;
+        phone?: string | null;
+        dni?: string | null;
+        email?: string | null;
+        isProfessor?: boolean;
+    }) {
+        const existing = await prisma.client.findFirst({ where: { id: clientId, clubId } });
+        if (!existing) throw new Error('Cliente no encontrado');
+        const club = await prisma.club.findUnique({
+            where: { id: clubId },
+            select: { country: true }
+        });
+
+        const normalizedName = String(input.name || '').trim();
+        const normalizedPhone = normalizeIdentityPhone(
+            { phone: input.phone ?? null },
+            { defaultCountryIso2: String(club?.country || '').trim() || null }
+        );
+        const normalizedDni = String(input.dni || '').replace(/\D/g, '');
+        const normalizedEmail = String(input.email || '').trim().toLowerCase();
+
+        if (normalizedName.length < 2) throw new Error('Nombre inválido');
+        if (input.phone && !normalizedPhone) throw new Error('Teléfono inválido');
+        if (normalizedDni && normalizedDni.length < 6) throw new Error('DNI inválido');
+
+        try {
+            return await prisma.client.update({
+                where: { id: clientId },
+                data: {
+                    name: normalizedName,
+                    phone: normalizedPhone,
+                    dni: normalizedDni || null,
+                    email: normalizedEmail || null,
+                    isProfessor: Boolean(input.isProfessor)
+                }
+            });
+        } catch (error: any) {
+            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+                throw new Error('Ya existe un cliente con ese DNI, teléfono o email');
+            }
+            throw error;
+        }
+    }
+
+    async deleteClient(clubId: number, clientId: string) {
+        const existing = await prisma.client.findFirst({ where: { id: clientId, clubId } });
+        if (!existing) throw new Error('Cliente no encontrado');
+
+        const hasLinkedBookings = await prisma.booking.count({ where: { clubId, clientId } });
+        if (hasLinkedBookings > 0) {
+            throw new Error('No se puede eliminar: el cliente tiene reservas asociadas');
+        }
+
+        await prisma.client.delete({ where: { id: clientId } });
+    }
 }

@@ -30,7 +30,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
       </div>
 
       {/* Contenido: z-10 para estar sobre el fondo fijo */}
-      <main className="relative z-10 pt-28 px-6 pb-20 transition-all duration-300">
+      <main className="density-compact relative z-10 pt-24 px-4 sm:px-5 pb-12 transition-all duration-300">
         <div className="max-w-6xl mx-auto">
           {children}
         </div>

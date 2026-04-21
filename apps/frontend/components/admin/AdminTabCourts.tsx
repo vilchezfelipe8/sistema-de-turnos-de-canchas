@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { getCourts, suspendCourt, reactivateCourt, updateCourtPrice } from '../../services/CourtService';
+import { isAuthSessionInvalidatedError } from '../../utils/apiClient';
 import AppModal from '../AppModal';
 import { Plus, LayoutGrid, Activity, Power, Ban } from 'lucide-react';
 
@@ -28,20 +29,27 @@ export default function AdminTabCourts() {
     onConfirm: wrapAction(options.onConfirm), onCancel: options.onCancel ? wrapAction(options.onCancel) : undefined
   });
 
-  const loadCourts = async () => {
-    const data = await getCourts();
-    setCourts(data);
-    setPriceEdits((prev) => {
-      const next = { ...prev };
-      data.forEach((court: any) => {
-        if (next[court.id] === undefined) {
-          next[court.id] = court.price !== undefined && court.price !== null ? String(court.price) : '';
-        }
+  const loadCourts = useCallback(async () => {
+    try {
+      const data = await getCourts();
+      setCourts(data);
+      setPriceEdits((prev) => {
+        const next = { ...prev };
+        data.forEach((court: any) => {
+          if (next[court.id] === undefined) {
+            next[court.id] = court.price !== undefined && court.price !== null ? String(court.price) : '';
+          }
+        });
+        return next;
       });
-      return next;
-    });
-  };
-  useEffect(() => { loadCourts(); }, []);
+    } catch (error: any) {
+      if (isAuthSessionInvalidatedError(error)) {
+        return;
+      }
+      showError('Error: ' + error.message);
+    }
+  }, []);
+  useEffect(() => { loadCourts(); }, [loadCourts]);
 
   // ✅ Alta de canchas deshabilitada por seguridad: se gestiona desde base de datos.
 
@@ -75,10 +83,35 @@ export default function AdminTabCourts() {
     }
   };
 
+  const getCourtTypeLabel = (court: any) => {
+    const activityName = String(court?.activityType?.name || '').trim();
+    if (activityName) return activityName;
+    return String(court?.sport || court?.surface || '-');
+  };
+
+  const getPriceReferenceMinutes = (court: any) => {
+    const activityName = String(court?.activityType?.name || court?.sport || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .trim();
+
+    if (activityName === 'FUTBOL' || activityName === 'TENIS') {
+      return 60;
+    }
+
+    const rawDefault = Number(court?.activityType?.defaultDurationMinutes);
+    if (Number.isFinite(rawDefault) && rawDefault > 0) {
+      return rawDefault;
+    }
+
+    return 90;
+  };
+
   return (
     <>
       {/* --- ALTA DESHABILITADA (SE GESTIONA POR DB) --- */}
-      <div className="bg-[#EBE1D8] border-4 border-white rounded-[2rem] p-6 mb-8 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
+      <div className="density-compact bg-[#EBE1D8] border-4 border-white rounded-[1.5rem] p-4 mb-6 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
         <div className="flex items-center gap-3 text-[#926699]">
           <div className="bg-[#926699] text-[#EBE1D8] p-2 rounded-xl text-xl shadow-lg shadow-[#926699]/20">
             <Plus size={20} strokeWidth={3} />
@@ -91,8 +124,8 @@ export default function AdminTabCourts() {
       </div>
 
       {/* --- LISTADO Y ESTADOS (DISEÑO PREMIUM) --- */}
-      <div className="bg-[#EBE1D8] border-4 border-white rounded-[2rem] p-8 mb-8 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
-        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-8">
+      <div className="density-compact bg-[#EBE1D8] border-4 border-white rounded-[1.5rem] p-5 mb-6 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-5">
           <h2 className="text-2xl font-black text-[#347048] uppercase italic tracking-tighter flex items-center gap-3">
              <div className="w-2 h-8 bg-[#B9CF32] rounded-full"></div>
              Estado de Canchas
@@ -102,34 +135,44 @@ export default function AdminTabCourts() {
           </div>
         </div>
 
-        <div className="overflow-x-auto -mx-8 sm:mx-0">
-          <table className="w-full text-left border-separate border-spacing-y-2">
+        <div className="overflow-x-auto -mx-5 sm:mx-0">
+          <div className="mx-5 sm:mx-0 mb-3 rounded-2xl border border-[#347048]/15 bg-white/60 p-3">
+            <p className="text-[11px] font-black uppercase tracking-wider text-[#347048]">Cómo se calcula el precio</p>
+            <p className="text-[11px] text-[#347048]/75 font-bold mt-1">
+              El precio que definís en cada cancha se toma como precio base para la duración por defecto de su actividad.
+              Si la reserva es más corta o más larga, el sistema lo ajusta de forma proporcional.
+            </p>
+            <p className="text-[10px] text-[#347048]/60 font-bold mt-2">
+              Regla actual: para Fútbol y Tenis la base de cálculo es siempre 60 min.
+            </p>
+          </div>
+            <table className="w-full text-left border-separate border-spacing-y-1.5">
             <thead>
               <tr className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]/40">
-                <th className="px-6 py-2">ID</th>
-                <th className="px-6 py-2">Nombre Cancha</th>
-                <th className="px-6 py-2">Disciplina</th>
-                <th className="px-6 py-2">Precio</th>
-                <th className="px-6 py-2 text-center">Estado Operativo</th>
-                <th className="px-6 py-2 text-right">Controles</th>
+                <th className="px-4 py-2">ID</th>
+                <th className="px-4 py-2">Nombre Cancha</th>
+                <th className="px-4 py-2">Disciplina</th>
+                <th className="px-4 py-2">Precio</th>
+                <th className="px-4 py-2 text-center">Estado Operativo</th>
+                <th className="px-4 py-2 text-right">Controles</th>
               </tr>
             </thead>
             <tbody className="text-sm">
               {courts.map((c) => (
                 <tr key={c.id} className="bg-white/60 hover:bg-white transition-all shadow-sm group">
-                  <td className="px-6 py-5 first:rounded-l-2xl font-black text-[#347048]/40 italic">#{c.id.toString().padStart(3, '0')}</td>
-                  <td className="px-6 py-5 font-black text-[#347048] uppercase tracking-tight">{c.name}</td>
-                  <td className="px-6 py-5">
+                  <td className="px-4 py-3 first:rounded-l-2xl font-black text-[#347048]/40 italic">#{c.id.toString().padStart(3, '0')}</td>
+                  <td className="px-4 py-3 font-black text-[#347048] uppercase tracking-tight">{c.name}</td>
+                  <td className="px-4 py-3">
                     <span className="text-[10px] font-black bg-[#926699]/10 text-[#926699] px-3 py-1 rounded-full border border-[#926699]/20 uppercase tracking-widest">
-                        {c.sport || c.surface || '-'}
+                        {getCourtTypeLabel(c)}
                     </span>
                   </td>
-                  <td className="px-6 py-5">
+                  <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       <input
                         type="number"
                         min={0}
-                        className="w-28 h-10 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold focus:outline-none shadow-sm transition-all appearance-none no-spinner"
+                        className="compact-field w-24 h-9 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold focus:outline-none shadow-sm transition-all appearance-none no-spinner"
                         value={priceEdits[c.id] ?? ''}
                         onChange={(e) => setPriceEdits((prev) => ({ ...prev, [c.id]: e.target.value }))}
                       />
@@ -141,8 +184,11 @@ export default function AdminTabCourts() {
                         Guardar
                       </button>
                     </div>
+                    <p className="text-[10px] font-bold text-[#347048]/55 mt-1">
+                      Base para {getPriceReferenceMinutes(c)} min
+                    </p>
                   </td>
-                  <td className="px-6 py-5 text-center">
+                  <td className="px-4 py-3 text-center">
                     {c.isUnderMaintenance ? (
                       <span className="inline-flex items-center gap-2 text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-wider border bg-red-50 text-red-600 border-red-200">
                         <div className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse"></div>
@@ -155,7 +201,7 @@ export default function AdminTabCourts() {
                       </span>
                     )}
                   </td>
-                  <td className="px-6 py-5 last:rounded-r-2xl text-right">
+                  <td className="px-4 py-3 last:rounded-r-2xl text-right">
                     {c.isUnderMaintenance ? (
                       <button 
                         onClick={() => handleReactivate(c.id)} 

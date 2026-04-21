@@ -21,6 +21,7 @@ const getCpuSnapshot = () => {
 
 export const getSystemHealth = async (req: Request, res: Response) => {
   try {
+    const includeDetails = process.env.HEALTH_INCLUDE_DETAILS === 'true';
     // 1. Medir CPU (Comparando con la última foto)
     const currentCpu = getCpuSnapshot();
     let cpuUsagePercent = 0;
@@ -44,23 +45,33 @@ export const getSystemHealth = async (req: Request, res: Response) => {
     // 3. Memoria
     const memoryUsage = process.memoryUsage();
     
-    res.json({
+    const basePayload = {
       status: 'OK',
       timestamp: new Date().toISOString(),
       database: {
-        status: 'Connected',
+        status: 'Connected'
+      },
+      uptime: formatUptime(process.uptime())
+    };
+
+    if (!includeDetails) {
+      return res.json(basePayload);
+    }
+
+    return res.json({
+      ...basePayload,
+      database: {
+        ...basePayload.database,
         latency: `${dbLatencyMs} ms`
       },
       server: {
-        uptime: formatUptime(process.uptime()),
         memory: {
           rss: `${(memoryUsage.rss / 1024 / 1024).toFixed(2)} MB`,
           heap: `${(memoryUsage.heapUsed / 1024 / 1024).toFixed(2)} MB`
         },
         cpu: {
-            usage: `${cpuUsagePercent}%`, // <--- El dato nuevo
-            cores: os.cpus().length,
-            model: os.cpus()[0].model
+          usage: `${cpuUsagePercent}%`,
+          cores: os.cpus().length
         },
         platform: `${os.type()} ${os.release()} (${os.arch()})`
       }

@@ -1,29 +1,22 @@
-import { getToken } from './AuthService';
 import { fetchWithAuth } from '../utils/apiClient';
 import { getApiUrl } from '../utils/apiUrl';
 
-const API_URL = getApiUrl();
+const apiBase = () => `${getApiUrl()}/api`;
 
 export const getCourts = async () => {
-    const res = await fetchWithAuth(`${API_URL}/api/courts`);
+    const res = await fetchWithAuth(`${apiBase()}/courts`);
     if (!res.ok) throw new Error('Error al cargar canchas');
     return res.json();
 };
 
 export const createCourt = async (name: string, sport: string) => {
-    if (!getToken()) throw new Error('No hay token. Tenés que loguearte de nuevo.');
-    const res = await fetchWithAuth(`${API_URL}/api/courts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, surface: sport, clubId: 1 })
-    });
-    if (!res.ok) throw new Error('Error al crear cancha');
-    return res.json();
+    void name;
+    void sport;
+    throw new Error('La creacion de canchas esta deshabilitada en esta version.');
 };
 
 export const suspendCourt = async (courtId: number) => {
-    if (!getToken()) throw new Error('No hay token. Tenés que loguearte de nuevo.');
-    const res = await fetchWithAuth(`${API_URL}/api/courts/${courtId}/suspend`, {
+    const res = await fetchWithAuth(`${apiBase()}/courts/${courtId}/suspend`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isUnderMaintenance: true })
@@ -33,8 +26,7 @@ export const suspendCourt = async (courtId: number) => {
 };
 
 export const reactivateCourt = async (courtId: number) => {
-    if (!getToken()) throw new Error('No hay token. Tenés que loguearte de nuevo.');
-    const res = await fetchWithAuth(`${API_URL}/api/courts/${courtId}/reactivate`, {
+    const res = await fetchWithAuth(`${apiBase()}/courts/${courtId}/reactivate`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isUnderMaintenance: false })
@@ -44,8 +36,7 @@ export const reactivateCourt = async (courtId: number) => {
 };
 
 export const updateCourtPrice = async (courtId: number, price: number) => {
-    if (!getToken()) throw new Error('No hay token. Tenés que loguearte de nuevo.');
-    const res = await fetchWithAuth(`${API_URL}/api/courts/${courtId}`, {
+    const res = await fetchWithAuth(`${apiBase()}/courts/${courtId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ price })
@@ -55,8 +46,7 @@ export const updateCourtPrice = async (courtId: number, price: number) => {
 };
 
 export const deleteCourt = async (courtId: number) => {
-    if (!getToken()) throw new Error('No autenticado');
-    const res = await fetchWithAuth(`${API_URL}/api/courts/${courtId}`, {
+    const res = await fetchWithAuth(`${apiBase()}/courts/${courtId}`, {
         method: 'DELETE'
     });
     if (!res.ok) throw new Error('Error al eliminar cancha');

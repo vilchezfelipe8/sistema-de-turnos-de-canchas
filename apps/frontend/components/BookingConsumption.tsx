@@ -1,6 +1,12 @@
-import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { ClubAdminService } from '../services/ClubAdminService';
-import { Trash2, Plus, ShoppingCart, Receipt, Lock, ChevronDown, Check, X, Banknote, CreditCard, FileText, Star } from 'lucide-react';
+import { getBookingFinancialSummary, registerBookingPartialPayment, type BookingFinancialSummary } from '../services/BookingService';
+import { Trash2, Plus, ShoppingCart, Receipt, Lock, X, Banknote, Star } from 'lucide-react';
+import PaymentCalculator, { type PaymentCalculatorResult } from './PaymentCalculator';
+import ProductSearch, { type ProductSearchItem } from './ui/ProductSearch';
+import { formatTime24 } from '../utils/dateTime';
+import AppModal from './AppModal';
+import { extractErrorMessage, reportUiError } from '../utils/uiError';
 // import { BookingTicket } from './BookingTicket'; // Si no lo usás, podés borrar esta línea
 
 interface Props {
@@ -8,131 +14,98 @@ interface Props {
   slug: string;
   courtPrice?: number;
   baseCourtPrice?: number | null;
-  paymentStatus: string;
+  bookingStatus?: string;
+  paymentStatus?: string;
   onClose: () => void;
   onConfirm: () => void;
+  onPaymentModalStateChange?: (open: boolean) => void;
 }
 
 interface CartItem {
-  id?: number;
+  id?: string;
   tempId?: string;
   productId: number;
   productName: string;
   quantity: number;
   price: number;
+  type?: 'BOOKING' | 'PRODUCT' | 'SERVICE' | 'ADJUSTMENT';
+  paymentMethod?: 'CASH' | 'TRANSFER' | 'CARD' | 'OTHER' | null;
   isNew: boolean;
 }
 
-export type BookingConsumptionHandle = {
-  persistDraft: () => Promise<void>;
-};
-
-// --- COMPONENTE DROPDOWN CUSTOM (ESTILO WIMBLEDON LANDING) ---
-const CustomSelect = ({ value, options, onChange, placeholder }: any) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  const selectedOption = options.find((o: any) => o.value === value);
-
-  return (
-    <div className="relative flex-1 z-[60]" ref={wrapperRef}>
-      <div 
-        className={`w-full h-full min-h-[48px] bg-white border-2 transition-all rounded-xl px-4 flex items-center justify-between shadow-sm cursor-pointer ${
-          isOpen ? 'border-[#B9CF32] ring-2 ring-[#B9CF32]/20' : 'border-transparent hover:border-[#B9CF32]/50'
-        }`}
-        onClick={() => setIsOpen(!isOpen)}
-      >
-        <span className={`font-bold text-sm ${!selectedOption ? 'text-[#347048]/40' : 'text-[#347048]'}`}>
-          {selectedOption ? selectedOption.label : placeholder}
-        </span>
-        <ChevronDown size={18} className={`transition-transform duration-300 ${isOpen ? 'rotate-180 text-[#B9CF32]' : 'text-[#347048]/40'}`} strokeWidth={3} />
-      </div>
-
-      {isOpen && (
-        <div className="absolute z-[70] w-full mt-2 bg-white border-2 border-[#347048]/10 rounded-2xl shadow-2xl max-h-48 overflow-y-auto custom-scrollbar overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-          <ul className="flex flex-col py-2">
-            {options.length === 0 ? (
-                <li className="px-4 py-3 text-[#347048]/40 text-xs font-bold text-center">Cargando productos...</li>
-            ) : (
-                options.map((option: any) => (
-                <li 
-                    key={option.value}
-                    onClick={() => {
-                    if (!option.disabled) {
-                        onChange(option.value);
-                        setIsOpen(false);
-                    }
-                    }}
-                    className={`px-4 py-3 flex items-center justify-between transition-colors ${
-                    option.disabled 
-                        ? 'opacity-40 cursor-not-allowed bg-gray-50' 
-                        : 'cursor-pointer hover:bg-[#B9CF32]/20'
-                    } ${value === option.value ? 'bg-[#347048]/5 text-[#347048]' : 'text-[#347048]'}`}
-                >
-                    <span className="font-black text-xs">{option.label}</span>
-                    {option.disabled && <span className="text-[9px] font-black text-red-500 uppercase tracking-widest border border-red-500/20 bg-red-50 px-2 py-0.5 rounded-md">Sin Stock</span>}
-                    {!option.disabled && value === option.value && <Check size={14} className="text-[#347048]" strokeWidth={4} />}
-                </li>
-                ))
-            )}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-};
-
-
-const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function BookingConsumption(
-  { bookingId, slug, courtPrice = 0, baseCourtPrice, paymentStatus, onClose, onConfirm },
-  ref
+export default function BookingConsumption(
+  { bookingId, slug, courtPrice = 0, baseCourtPrice, bookingStatus, paymentStatus, onClose, onConfirm, onPaymentModalStateChange }: Props
 ) {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [itemsToDelete, setItemsToDelete] = useState<number[]>([]);
+  const [itemsToDelete, setItemsToDelete] = useState<string[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const paymentBackdropMouseDownRef = useRef(false);
-  const skipDraftPersistRef = useRef(false);
+  const [feedbackModal, setFeedbackModal] = useState<{
+    show: boolean;
+    title: string;
+    message: string;
+    isWarning?: boolean;
+  }>({ show: false, title: 'Información', message: '' });
+  const [financialSummary, setFinancialSummary] = useState<BookingFinancialSummary | null>(null);
+  const [bookingChargeItemId, setBookingChargeItemId] = useState<string | null>(null);
+  const [bookingIsPendingLocal, setBookingIsPendingLocal] = useState(bookingStatus === 'PENDING');
+  const paymentInFlightRef = useRef(false);
+
+  const showErrorModal = (message: string) => {
+    setFeedbackModal({
+      show: true,
+      title: 'Error',
+      message,
+      isWarning: true
+    });
+  };
+
+  const showInfoModal = (message: string) => {
+    setFeedbackModal({
+      show: true,
+      title: 'Información',
+      message
+    });
+  };
 
   // Formulario
-  const [selectedProductId, setSelectedProductId] = useState<string>('');
   const [quantity, setQuantity] = useState(1);
 
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [productsData, currentItems] = await Promise.all([
+      const [productsData, currentItems, summary] = await Promise.all([
         ClubAdminService.getProducts(slug),
-        ClubAdminService.getBookingItems(bookingId)
+        ClubAdminService.getBookingItems(bookingId),
+        getBookingFinancialSummary(bookingId)
       ]);
 
       setProducts(productsData || []);
 
-      const formattedItems = (currentItems || []).map((item: any) => ({
+      const bookingChargeItem = (currentItems || []).find((item: any) => String(item?.type || '') === 'BOOKING');
+      setBookingChargeItemId(bookingChargeItem?.id ? String(bookingChargeItem.id) : null);
+
+      const formattedItems = (currentItems || [])
+        .filter((item: any) => String(item?.type || '') !== 'BOOKING')
+        .map((item: any) => ({
         id: item.id,
         productId: item.productId,
-        productName: item.product.name,
-        quantity: item.quantity,
-        price: item.price,
+        productName: item.product?.name ?? item.productName ?? item.description ?? 'Producto',
+        quantity: Number(item.quantity || 1),
+        price: Number(item.price || 0),
+        type: item.type,
+        paymentMethod: item.paymentMethod ?? null,
         isNew: false
       }));
       
       setCartItems(formattedItems);
+      setFinancialSummary(summary || null);
       setItemsToDelete([]); 
     } catch (error) {
-      console.error(error);
+      reportUiError({ area: 'BookingConsumption', action: 'loadData' }, error);
+      showErrorModal(extractErrorMessage(error, 'No se pudo cargar la información del turno.'));
     } finally {
       setLoading(false);
     }
@@ -142,76 +115,73 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
     loadData();
   }, [loadData]);
 
-  const handleAddToDraft = () => {
-    if (!selectedProductId) return;
-    const product = products.find(p => p.id === Number(selectedProductId));
-    if (!product) return;
+  useEffect(() => {
+    setBookingIsPendingLocal(bookingStatus === 'PENDING');
+  }, [bookingStatus]);
+
+  useEffect(() => {
+    onPaymentModalStateChange?.(showPaymentModal);
+  }, [onPaymentModalStateChange, showPaymentModal]);
+
+  const handleAddProductToDraft = (product: ProductSearchItem) => {
+    if (!product?.id) return;
+    const qty = Number(quantity);
+    if (!Number.isFinite(qty) || qty <= 0) return;
 
     const newItem: CartItem = {
       tempId: `new-${Date.now()}`,
       productId: product.id,
       productName: product.name,
-      quantity: quantity,
-      price: product.price,
+      quantity: qty,
+      price: Number(product.price || 0),
       isNew: true
     };
 
-    setCartItems([...cartItems, newItem]);
+    setCartItems((prev) => [...prev, newItem]);
     setQuantity(1);
-    setSelectedProductId('');
   };
 
   const handleRemoveFromDraft = (item: CartItem) => {
     if (!item.isNew && item.id) {
-      setItemsToDelete([...itemsToDelete, item.id]);
+      setItemsToDelete([...itemsToDelete, String(item.id)]);
     }
     setCartItems(cartItems.filter(i => item.isNew ? i.tempId !== item.tempId : i.id !== item.id));
   };
 
-  const handleSaveChanges = async (targetBookingStatus: 'PAID' | 'DEBT' | 'PARTIAL', itemPaymentMethod: 'CASH' | 'DEBT' | 'TRANSFER') => {
-    try {
-      setSaving(true);
-      skipDraftPersistRef.current = true;
-      await ClubAdminService.updateBookingPaymentStatus(bookingId, targetBookingStatus);
-      const deletePromises = itemsToDelete.map(id => ClubAdminService.removeItemFromBooking(id));
-      const newItems = cartItems.filter(i => i.isNew);
-      const addPromises = newItems.map(item => 
-        ClubAdminService.addItemToBooking(bookingId, item.productId, item.quantity, itemPaymentMethod)
-      );
-      await Promise.all([...deletePromises, ...addPromises]);
-      onConfirm(); 
-      onClose();
-    } catch (error: any) {
-      alert("Error: " + (error.message || "Intente nuevamente"));
-    } finally {
-      setSaving(false);
-    }
+  const isCancelled = bookingStatus === 'CANCELLED';
+
+  const courtTotal = Number(financialSummary?.courtTotal || 0);
+  const itemsTotal = Number(financialSummary?.itemsTotal || 0);
+  const paidTotal = Number(financialSummary?.paid || 0);
+  const remainingTotal = Number(financialSummary?.remaining || 0);
+
+  const courtPriceToPay = Math.max(0, remainingTotal);
+  const hasCourtPaid = paidTotal > 0.01;
+  const hasCourtDebtInAccount = remainingTotal > 0.01;
+  const hasCourtPendingToRegister = remainingTotal > 0.01;
+  const isCourtFullyPaid = remainingTotal <= 0.01;
+  const isCourtOnlyPending = !hasCourtPaid && remainingTotal > 0.01;
+  const isCourtOnlyInAccount = false;
+  const basePrice = Number(baseCourtPrice ?? 0);
+  const lightsExtra = basePrice > 0 ? Math.max(courtTotal - basePrice, 0) : 0;
+  const courtBaseWithoutLights = lightsExtra > 0 ? Math.max(0, Number((courtTotal - lightsExtra).toFixed(2))) : courtTotal;
+  const courtPayments: Array<{ id: number; amount: number; method: string; description?: string; date: string }> = [];
+
+  const formatMethodLabel = (method?: string) => {
+    if (method === 'CASH') return 'Efectivo';
+    if (method === 'TRANSFER') return 'Transferencia';
+    if (method === 'CARD') return 'Tarjeta';
+    if (method === 'OTHER') return 'Otro';
+    if (!method) return 'Sin método';
+    return method
+      .toLowerCase()
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (char) => char.toUpperCase());
   };
 
-  const persistDraft = useCallback(async () => {
-    if (skipDraftPersistRef.current || saving) return;
-    const newItems = cartItems.filter(item => item.isNew);
-    if (newItems.length === 0) return;
-    try {
-      setSaving(true);
-      await Promise.all(
-        newItems.map(item =>
-          ClubAdminService.addItemToBooking(bookingId, item.productId, item.quantity, 'DEBT')
-        )
-      );
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setSaving(false);
-    }
-  }, [bookingId, cartItems, saving]);
-
-  useImperativeHandle(ref, () => ({ persistDraft }));
-
-  const isCourtResolved = paymentStatus === 'PAID' || paymentStatus === 'PARTIAL' || paymentStatus === 'DEBT';
-  const courtPriceToPay = isCourtResolved ? 0 : (courtPrice || 0);
-  const basePrice = Number(baseCourtPrice ?? 0);
-  const lightsExtra = basePrice > 0 ? Math.max((courtPrice || 0) - basePrice, 0) : 0;
+  const formatPaymentTime = (dateValue?: string) => {
+    return formatTime24(dateValue, { fallback: '--:--' });
+  };
 
   const consumptionTotal = cartItems
     .filter(item => item.isNew)
@@ -220,27 +190,117 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
   const finalTotal = courtPriceToPay + consumptionTotal;
   const hasPendingCharges = finalTotal > 0;
 
-  const handlePaymentConfirm = (method: 'CASH' | 'TRANSFER') => {
-      let nextStatus: 'PAID' | 'PARTIAL' | 'DEBT' = 'PAID';
-      if (paymentStatus === 'DEBT') {
-          nextStatus = 'PARTIAL';
-      } 
-      else if (paymentStatus === 'PARTIAL') {
-          nextStatus = 'PARTIAL';
+  const handleCalculatedPaymentConfirm = async (result: PaymentCalculatorResult) => {
+    if (paymentInFlightRef.current) {
+      return;
+    }
+
+    paymentInFlightRef.current = true;
+
+    try {
+      setSaving(true);
+
+      const deletePromises = itemsToDelete.map((id) => ClubAdminService.removeItemFromBooking(id));
+      const newItems = cartItems.filter((item) => item.isNew);
+      const allocationByKey = new Map(
+        (result.itemAllocations || [])
+          .map((entry) => [String(entry.key), Number(entry.amount || 0)] as const)
+          .filter(([, amount]) => amount > 0.009)
+      );
+      const selectedItems = newItems.filter((item) =>
+        allocationByKey.has(String(item.tempId || item.id || ''))
+      );
+
+      await Promise.all(deletePromises);
+      setItemsToDelete([]);
+
+      const persistedSelectedItems: CartItem[] = [];
+      const itemAllocations: Array<{ accountItemId: string; amount: number }> = [];
+
+      for (const item of selectedItems) {
+        const created = await ClubAdminService.addItemToBooking(bookingId, item.productId, item.quantity, result.method);
+        const createdId = created?.id ? String(created.id) : '';
+        const itemAllocatedAmount = Number(
+          allocationByKey.get(String(item.tempId || item.id || '')) || 0
+        );
+        if (createdId && itemAllocatedAmount > 0) {
+          itemAllocations.push({
+            accountItemId: createdId,
+            amount: Number(itemAllocatedAmount.toFixed(2))
+          });
+        }
+        persistedSelectedItems.push({
+          id: createdId || undefined,
+          productId: item.productId,
+          productName: item.productName,
+          quantity: item.quantity,
+          price: item.price,
+          type: 'PRODUCT',
+          paymentMethod: result.method,
+          isNew: false
+        });
       }
-      handleSaveChanges(nextStatus, method);
-      setShowPaymentModal(false);
+
+      const paidItemsAmount = Number(
+        (result.itemAllocations || []).reduce((sum, entry) => sum + Number(entry.amount || 0), 0).toFixed(2)
+      );
+      const courtPortion = Math.max(0, Number(result.courtAmount || 0));
+      const expectedAmount = paidItemsAmount + courtPortion;
+      if (Math.abs(expectedAmount - result.amount) > 0.01) {
+        throw new Error('El monto registrado no coincide con los conceptos seleccionados. Reintentá.');
+      }
+      const paymentAmount = Math.max(0, Number(result.amount || 0));
+      if (paymentAmount > 0.01) {
+        const hasBookingItemForCourt = courtPortion <= 0.01 || Boolean(bookingChargeItemId);
+        const allocations = [
+          ...itemAllocations,
+          ...(courtPortion > 0.01 && bookingChargeItemId
+            ? [{ accountItemId: bookingChargeItemId, amount: Number(courtPortion.toFixed(2)) }]
+            : [])
+        ];
+        await registerBookingPartialPayment(
+          bookingId,
+          paymentAmount,
+          result.method,
+          result.channel,
+          hasBookingItemForCourt ? allocations : undefined
+        );
+        setBookingIsPendingLocal(false);
+      }
+
+      const selectedTempKeys = new Set(selectedItems.map((item) => String(item.tempId || item.id || '')));
+      setCartItems((prev) => {
+        const remaining = prev.filter((item) => !item.isNew || !selectedTempKeys.has(String(item.tempId || item.id || '')));
+        return [...remaining, ...persistedSelectedItems];
+      });
+
+      const updatedSummary = await getBookingFinancialSummary(bookingId);
+      setFinancialSummary(updatedSummary || null);
+      onConfirm();
+    } catch (error) {
+      const message = extractErrorMessage(error, 'No se pudo registrar el pago');
+
+      if (String(message).toLowerCase().includes('saldo pendiente')) {
+        try {
+          const refreshedSummary = await getBookingFinancialSummary(bookingId);
+          setFinancialSummary(refreshedSummary || null);
+        } catch {
+        }
+        setShowPaymentModal(false);
+        onConfirm();
+        showInfoModal('Ese saldo ya fue cancelado. Se actualizo el estado del turno.');
+      } else {
+        reportUiError({ area: 'BookingConsumption', action: 'confirmPayment' }, error);
+        showErrorModal(message);
+      }
+    } finally {
+      setSaving(false);
+      paymentInFlightRef.current = false;
+    }
   };
 
-  // Convertimos los productos cargados en opciones para el CustomSelect
-  const productOptions = products.map(p => ({
-      value: p.id.toString(),
-      label: `${p.name} ($${p.price.toLocaleString()})`,
-      disabled: p.stock <= 0
-  }));
-
   return (
-    <div className="space-y-6 text-[#347048]">
+    <div className="density-compact space-y-4 text-[#347048]">
       <div className="flex justify-between items-start mb-2">
         <div>
           <h2 className="text-2xl font-black text-[#926699] uppercase italic tracking-tighter">
@@ -260,31 +320,33 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
       </div>
 
       {/* SECCIÓN: AGREGAR CONSUMO */}
-      <div className="bg-[#347048]/5 p-5 rounded-2xl border border-[#347048]/10 relative z-50">
+      <div className="bg-[#347048]/5 p-4 rounded-2xl border border-[#347048]/10 relative z-50">
         <h3 className="text-[#926699] font-black flex items-center gap-2 mb-4 text-xs uppercase tracking-[0.1em]">
           <ShoppingCart size={16} strokeWidth={3} /> Agregar Consumo / Extra
         </h3>
-        <div className="flex gap-3 relative">
-            
-            {/* 👇 ACÁ VA EL NUEVO DROPDOWN 👇 */}
-            <CustomSelect 
-                value={selectedProductId}
-                onChange={(val: string) => setSelectedProductId(val)}
-                placeholder="Seleccionar producto..."
-                options={productOptions}
-            />
+        <div className="flex gap-2.5 relative">
+            <div className="flex-1">
+              <ProductSearch
+                products={products || []}
+                autoFocus
+                placeholder={loading ? 'Cargando productos...' : 'Agregar producto (ej: Gatorade)...'}
+                disabled={loading || isCancelled}
+                onSelect={(product) => {
+                  const outOfStock = Number((product as any)?.stock ?? 1) <= 0;
+                  if (outOfStock) return;
+                  handleAddProductToDraft(product);
+                }}
+              />
+            </div>
 
             <input 
                 type="number" min="1" 
-                className="w-20 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-2 text-center text-[#347048] font-black shadow-sm outline-none"
+              className="compact-field w-16 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-2 text-center text-[#347048] font-black shadow-sm outline-none"
                 value={quantity} onChange={(e) => setQuantity(Number(e.target.value))}
             />
-            <button 
-                onClick={handleAddToDraft} disabled={!selectedProductId}
-                className="bg-[#926699] hover:bg-[#7a5580] disabled:opacity-30 text-[#EBE1D8] p-3 rounded-xl transition-all shadow-md active:scale-95 z-0"
-            >
-                <Plus size={24} strokeWidth={3} />
-            </button>
+            <div className="bg-[#926699] text-[#EBE1D8] p-3 rounded-xl opacity-40 select-none">
+              <Plus size={24} strokeWidth={3} />
+            </div>
         </div>
       </div>
 
@@ -311,7 +373,24 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
                         <Star size={10} strokeWidth={2.5} /> Pendiente de cobro
                       </span>
                     ) : (
-                      <span className="flex items-center gap-1 text-[9px] text-[#347048]/40 font-black uppercase tracking-widest"><Lock size={8} /> Ya cargado en cuenta</span>
+                      <span className={`flex items-center gap-1 text-[9px] font-black uppercase tracking-widest ${
+                        item.paymentMethod === 'TRANSFER'
+                            ? 'text-blue-700'
+                            : item.paymentMethod === 'CASH'
+                              ? 'text-emerald-700'
+                                : item.paymentMethod === 'CARD'
+                                  ? 'text-violet-700'
+                              : 'text-[#347048]/40'
+                      }`}>
+                        <Lock size={8} />
+                        {item.paymentMethod === 'TRANSFER'
+                            ? 'Pagado transferencia'
+                            : item.paymentMethod === 'CASH'
+                              ? 'Pagado efectivo'
+                                : item.paymentMethod === 'CARD'
+                                  ? 'Pagado tarjeta'
+                              : 'Estado no disponible'}
+                      </span>
                     )}
                   </div>
                 </div>
@@ -328,26 +407,58 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
       </div>
 
       {/* TICKET FINAL */}
-      <div className="bg-white border-4 border-[#B9CF32]/30 rounded-[2rem] p-6 shadow-sm relative overflow-hidden z-0">
-        <div className="space-y-2 mb-5">
+      <div className="bg-white border-4 border-[#B9CF32]/30 rounded-[1.5rem] p-4 shadow-sm relative overflow-hidden z-0">
+        <div className="space-y-1.5 mb-4">
           <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest opacity-60">
             <span>Alquiler Cancha</span>
             <div className="flex items-center gap-3">
-                {isCourtResolved && (
-                    <span className={`px-2 py-0.5 rounded-md font-black border ${paymentStatus === 'DEBT' ? 'bg-yellow-100 text-yellow-700 border-yellow-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
-                        {paymentStatus === 'DEBT' ? 'EN CUENTA' : 'PAGADO'}
-                    </span>
-                )}
-                <span className={isCourtResolved ? "line-through opacity-50" : ""}>
-                    ${(courtPrice || 0).toLocaleString()}
-                </span>
+              {isCourtFullyPaid ? (
+                <span className="px-2 py-0.5 rounded-md font-black border bg-emerald-100 text-emerald-700 border-emerald-200">PAGADO</span>
+              ) : isCourtOnlyInAccount ? (
+                <span className="px-2 py-0.5 rounded-md font-black border bg-yellow-100 text-yellow-700 border-yellow-200">EN CUENTA</span>
+              ) : isCourtOnlyPending ? (
+                <span className="px-2 py-0.5 rounded-md font-black border bg-slate-100 text-slate-700 border-slate-200">PENDIENTE</span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-md font-black border bg-blue-100 text-blue-700 border-blue-200">PARCIAL</span>
+              )}
+              <span className={isCourtFullyPaid ? "line-through opacity-50" : ""}>
+                ${courtTotal.toLocaleString()}
+              </span>
             </div>
           </div>
-          
           {lightsExtra > 0 && (
-            <div className="flex justify-between text-[10px] font-black text-[#926699] uppercase tracking-widest">
-              <span>+ Extra por luces</span>
-              <span>${lightsExtra.toLocaleString()}</span>
+            <>
+              <div className="flex justify-between text-[10px] font-black text-[#347048]/70 uppercase tracking-widest">
+                <span>Cancha base</span>
+                <span>${courtBaseWithoutLights.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-[10px] font-black text-[#926699] uppercase tracking-widest">
+                <span>Recargo por luces</span>
+                <span>+${lightsExtra.toLocaleString()}</span>
+              </div>
+            </>
+          )}
+          <div className="flex justify-between text-[10px] font-black text-[#347048]/70 uppercase tracking-widest">
+            <span>Cancha pagado</span>
+            <span>${paidTotal.toLocaleString()}</span>
+          </div>
+          <div className="flex justify-between text-[10px] font-black text-[#347048]/70 uppercase tracking-widest">
+            <span>Consumos registrados</span>
+            <span>${itemsTotal.toLocaleString()}</span>
+          </div>
+          <div className="flex justify-between text-[10px] font-black text-[#926699] uppercase tracking-widest">
+            <span>Cancha pendiente (sin registrar)</span>
+            <span>${remainingTotal.toLocaleString()}</span>
+          </div>
+          {courtPayments.length > 0 && (
+            <div className="rounded-xl bg-white/70 border border-[#347048]/10 p-2 space-y-1">
+              <p className="text-[9px] font-black uppercase tracking-widest text-[#347048]/50">Detalle pagos cancha</p>
+              {courtPayments.map((payment) => (
+                <div key={payment.id} className="flex justify-between items-center text-[10px] font-black text-[#347048]">
+                  <span>{formatPaymentTime(payment.date)} • {formatMethodLabel(payment.method)}</span>
+                  <span>${Number(payment.amount || 0).toLocaleString()}</span>
+                </div>
+              ))}
             </div>
           )}
           
@@ -357,100 +468,66 @@ const BookingConsumption = forwardRef<BookingConsumptionHandle, Props>(function 
           </div>
         </div>
 
-        <div className="flex justify-between items-end pt-4 border-t-2 border-dashed border-[#347048]/10">
-          <span className="text-[#347048]/50 font-black text-[10px] uppercase tracking-[0.2em] mb-1">Total a Cobrar</span>
-          <span className="text-5xl font-black text-[#347048] tracking-tighter leading-none italic">
+          <div className="flex justify-between items-end pt-3 border-t-2 border-dashed border-[#347048]/10">
+          <span className="text-[#347048]/50 font-black text-[10px] uppercase tracking-[0.2em] mb-1">Total a registrar</span>
+          <span className="text-4xl font-black text-[#347048] tracking-tighter leading-none italic">
             ${finalTotal.toLocaleString()}
           </span>
         </div>
       </div>
 
       {/* BOTONES DE ACCIÓN */}
-      <div className="grid grid-cols-2 gap-4 pt-2 relative z-0">
+      <div className="grid grid-cols-1 gap-3 pt-1 relative z-0">
         <button 
           onClick={() => {
-              const nextStatus = (paymentStatus === 'PAID' || paymentStatus === 'PARTIAL') ? 'PARTIAL' : 'DEBT';
-              handleSaveChanges(nextStatus, 'DEBT');
-          }}
-          disabled={saving || !hasPendingCharges}
-          className="flex flex-col items-center justify-center gap-1 py-4 bg-[#EBE1D8] border-2 border-[#347048]/20 text-[#347048] font-black uppercase text-[10px] tracking-widest rounded-2xl transition-all hover:bg-white shadow-sm disabled:opacity-30 disabled:cursor-not-allowed"
+            setShowPaymentModal(true);
+          }} 
+          disabled={saving || !hasPendingCharges || isCancelled}
+          className="compact-field flex flex-col items-center justify-center gap-1 py-3 bg-[#B9CF32] text-[#347048] font-black uppercase text-[10px] tracking-widest rounded-2xl shadow-xl shadow-[#B9CF32]/20 transition-all hover:-translate-y-1 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed"
         >
-          <div className="flex items-center gap-2"><FileText size={18} strokeWidth={2.5} /> Dejar en Cuenta</div>
-        </button>
-        
-        <button 
-          onClick={() => setShowPaymentModal(true)} 
-          disabled={saving || !hasPendingCharges}
-          className="flex flex-col items-center justify-center gap-1 py-4 bg-[#B9CF32] text-[#347048] font-black uppercase text-[10px] tracking-widest rounded-2xl shadow-xl shadow-[#B9CF32]/20 transition-all hover:-translate-y-1 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed"
-        >
-          <div className="flex items-center gap-2"><Banknote size={18} strokeWidth={2.5} /> Cobrar Total</div>
+          <div className="flex items-center gap-2"><Banknote size={18} strokeWidth={2.5} /> Registrar pago</div>
         </button>
       </div>
 
       {/* MODAL DE COBRO */}
       {showPaymentModal && (
-  <div
-    className="fixed inset-0 bg-[#347048]/80 backdrop-blur-[2px] flex items-center justify-center z-[9999] p-4 animate-in fade-in duration-200"
-    onMouseDown={(event) => {
-      paymentBackdropMouseDownRef.current = event.target === event.currentTarget;
-    }}
-    onTouchStart={(event) => {
-      paymentBackdropMouseDownRef.current = event.target === event.currentTarget;
-    }}
-    onClick={(event) => {
-      const startedOnBackdrop = paymentBackdropMouseDownRef.current;
-      paymentBackdropMouseDownRef.current = false;
-      if (startedOnBackdrop && event.target === event.currentTarget) {
-        setShowPaymentModal(false);
-      }
-    }}
-  >
-            <div
-              className="bg-[#EBE1D8] border-4 border-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full relative"
-              onClick={(event) => event.stopPropagation()}
-            >
-                <button 
-                  onClick={() => setShowPaymentModal(false)}
-                  className="absolute top-6 right-6 bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
-                  title="Cerrar ventana"
-                >
-                  <X size={20} strokeWidth={3} />
-                </button>
-
-                <h3 className="text-2xl font-black text-[#347048] mb-2 text-center uppercase tracking-tight italic">Cobrar Total</h3>
-                <p className="text-[#347048]/60 text-xs font-bold mb-8 text-center uppercase tracking-widest">
-                  Total: <span className="text-[#347048] text-lg font-black">${finalTotal.toLocaleString()}</span>
-                </p>
-                
-                <div className="grid grid-cols-2 gap-4 mb-6">
-                    <button
-                      onClick={() => handlePaymentConfirm('CASH')}
-                      className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-3xl text-[#347048] transition-all hover:scale-[1.02] shadow-sm group"
-                    >
-                      <Banknote size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
-                      <span className="font-black text-[10px] uppercase tracking-widest">Efectivo</span>
-                    </button>
-
-                    <button
-                      onClick={() => handlePaymentConfirm('TRANSFER')}
-                      className="flex flex-col items-center justify-center p-6 bg-white border-2 border-transparent hover:border-[#B9CF32] rounded-3xl text-[#347048] transition-all hover:scale-[1.02] shadow-sm group"
-                    >
-                      <CreditCard size={36} strokeWidth={2} className="mb-2 group-hover:scale-110 transition-transform text-[#347048]" />
-                      <span className="font-black text-[10px] uppercase tracking-widest">Digital</span>
-                    </button>
-                </div>
-                
-                <button 
-                    onClick={() => setShowPaymentModal(false)}
-                    className="w-full text-[#347048]/40 hover:text-[#347048] text-[10px] font-black uppercase tracking-widest hover:underline transition-all"
-                >
-                    Cancelar operación
-                </button>
-            </div>
-        </div>
+        <PaymentCalculator
+          courtPending={courtPriceToPay}
+          courtBaseTotal={courtTotal}
+          courtBreakdown={
+            lightsExtra > 0
+              ? {
+                  baseAmount: Number(courtBaseWithoutLights || 0),
+                  lightsExtraAmount: Number(lightsExtra || 0),
+                  totalAmount: Number(courtTotal || 0),
+                  lightsFromHour: null
+                }
+              : undefined
+          }
+          cartItems={cartItems.filter((item) => item.isNew).map((item) => ({
+            id: item.id,
+            tempId: item.tempId,
+            productName: item.productName,
+            quantity: item.quantity,
+            price: item.price
+          }))}
+          alreadyPaid={0}
+          grandTotal={finalTotal}
+          onClose={() => setShowPaymentModal(false)}
+          onConfirm={handleCalculatedPaymentConfirm}
+          submitting={saving}
+        />
       )}
+
+      <AppModal
+        show={feedbackModal.show}
+        onClose={() => setFeedbackModal((prev) => ({ ...prev, show: false }))}
+        title={feedbackModal.title}
+        message={feedbackModal.message}
+        cancelText=""
+        confirmText="Aceptar"
+        isWarning={feedbackModal.isWarning}
+      />
     </div>
   );
-});
-
-export default BookingConsumption;
+}

@@ -33,7 +33,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab }) => {
   return (
     <aside className="w-56 bg-gradient-to-b from-surface-80 to-surface-90 backdrop-blur-lg border-r border-border/50 shadow-xl fixed left-0 top-0 h-full z-40">
       <div className="p-6">
-        <h2 className="text-xl font-bold text-text mb-8">Panel Admin</h2>
+        <h2 className="text-xl font-bold text-text mb-8">Panel de administración</h2>
         <nav className="space-y-2">
           {menuItems.map((item) => (
             <Link key={item.id} href={item.href}>

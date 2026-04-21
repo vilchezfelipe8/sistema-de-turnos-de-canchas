@@ -3,17 +3,26 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql" // <--- CAMBIO IMPORTANTE: Antes decía "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
-  // directUrl es opcional, solo necesario para connection pooling avanzado
-  // directUrl = env("DIRECT_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
-// --- ENUMS (Ahora sí son nativos en Postgres) ---
+//
+// ENUMS
+//
+
 enum Role {
   ADMIN
   MEMBER
   GUEST
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  STAFF
+  CUSTOMER
 }
 
 enum BookingStatus {
@@ -23,11 +32,16 @@ enum BookingStatus {
   COMPLETED
 }
 
-enum PaymentStatus {
-  PENDING // Recién creado, no se sabe nada
-  PAID // Pagado total
-  PARTIAL // Pagó una seña (para el futuro)
-  DEBT // Quedó debiendo (Fiado/Cuenta Corriente)
+enum BookingConfirmationMode {
+  AUTOMATIC
+  MANUAL
+  DEPOSIT_REQUIRED
+}
+
+enum ClubOperationalStatus {
+  OPEN
+  TEMPORARY_CLOSED
+  PERMANENTLY_CLOSED
 }
 
 enum ScheduleMode {
@@ -35,70 +49,340 @@ enum ScheduleMode {
   RANGE
 }
 
-// --- MODELOS ---
+enum FixedBookingStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+}
+
+enum AccountSource {
+  BOOKING
+  BAR
+  TABLE
+  MANUAL
+}
+
+enum AccountStatus {
+  OPEN
+  CLOSED
+}
+
+enum AccountItemType {
+  BOOKING
+  PRODUCT
+  SERVICE
+  ADJUSTMENT
+}
+
+enum PaymentMethod {
+  CASH
+  TRANSFER
+  CARD
+  OTHER
+}
+
+enum PaymentSource {
+  POS
+  ONLINE
+  BACKOFFICE
+}
+
+enum PaymentChannel {
+  AUTO
+  CASH_DRAWER
+  BANK_ACCOUNT
+  CARD_TERMINAL
+  VIRTUAL_WALLET
+  OTHER
+}
+
+enum CashMovementMethod {
+  CASH
+  TRANSFER
+  CARD
+}
+
+enum LedgerEntryType {
+  ACCOUNT_ITEM
+  PAYMENT
+  REFUND
+  ADJUSTMENT
+}
+
+enum LedgerReferenceType {
+  ACCOUNT
+  ACCOUNT_ITEM
+  PAYMENT
+  REFUND
+  BOOKING
+  MANUAL
+}
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+enum LedgerAccount {
+  CASH
+  BANK
+  CARD_CLEARING
+  ONLINE_GATEWAY
+  ACCOUNTS_RECEIVABLE
+  BOOKING_REVENUE
+  BAR_REVENUE
+  ADJUSTMENTS
+  EXPENSE
+}
+
+enum CashShiftStatus {
+  OPEN
+  CLOSED
+}
+
+enum CashMovementPosType {
+  PAYMENT_IN
+  REFUND
+  WITHDRAW
+  DEPOSIT
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+}
+
+enum RefundStatus {
+  REQUESTED
+  APPROVED
+  READY_TO_EXECUTE
+  EXECUTED
+  FAILED
+  CANCELLED
+}
+
+enum RefundExecutionMethod {
+  CASH
+  TRANSFER
+  CARD_REVERSAL
+  CREDIT_NOTE
+  OTHER
+}
+
+enum RefundReasonType {
+  FULL
+  PARTIAL_COMMERCIAL
+  PARTIAL_SERVICE_FAILURE
+  PARTIAL_PRICING_ERROR
+  OTHER
+}
+
+enum DiscountScope {
+  BOOKING
+  PRODUCT
+  SERVICE
+  ALL
+}
+
+enum DiscountAmountType {
+  PERCENT
+  FIXED
+}
+
+enum DiscountApplyMode {
+  INCLUDE_ONLY
+  EXCLUDE_LIST
+}
+
+enum ClubReviewStatus {
+  PUBLISHED
+  HIDDEN
+}
+
+enum AuthSessionStatus {
+  ACTIVE
+  ROTATED
+  REVOKED
+  EXPIRED
+}
+
+//
+// MODELOS
+//
 
 model User {
   id            Int            @id @default(autoincrement())
   email         String         @unique
-  password      String // <--- AGREGAR ESTO (Guardará la contraseña encriptada)
+  password      String
   firstName     String
   lastName      String
   phoneNumber   String
+  emailVerifiedAt DateTime?    @db.Timestamptz(3)
+  lastLoginAt    DateTime?     @db.Timestamptz(3)
   role          Role           @default(MEMBER)
-  isProfessor   Boolean        @default(false)
-  clubId        Int?
-  club          Club?          @relation(fields: [clubId], references: [id])
+  dni       String?
+
   bookings      Booking[]
+  clients       Client[]
   fixedBookings FixedBooking[]
+  memberships   Membership[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+  cashShiftsOpened CashShift[] @relation("CashShiftOpenedBy")
+  cashShiftsClosed CashShift[] @relation("CashShiftClosedBy")
+  ledgerEntries LedgerEntry[]
+  ledgerTransactionsCreated LedgerTransaction[]
+  cashMovementsCreated CashMovement[]
+  refundsCreated Refund[]
+  refundsApproved Refund[] @relation("RefundApprovedBy")
+  refundsExecuted Refund[] @relation("RefundExecutedBy")
+  refundsCancelled Refund[] @relation("RefundCancelledBy")
+  clientDiscountAssignmentsCreated ClientDiscountAssignment[]
+  accountItemDiscountsApplied AccountItemDiscount[]
+  clubReviews ClubReview[]
+  clubFavorites ClubFavorite[]
+  duplicateIncidents ClientDuplicateIncident[] @relation("DuplicateIncidentUser")
+  duplicateIncidentsResolved ClientDuplicateIncident[] @relation("DuplicateIncidentResolvedBy")
+  sessions      AuthSession[]
+}
+
+model MagicLoginToken {
+  id        String    @id @default(cuid())
+  email     String
+  tokenHash String    @unique
+  expiresAt DateTime  @db.Timestamptz(3)
+  consumedAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  ip        String?
+  userAgent String?
+
+  @@index([email])
+  @@index([expiresAt])
+}
+
+model AuthSession {
+  id                String            @id @default(cuid())
+  userId            Int
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  refreshTokenHash  String            @unique
+  familyId          String
+  parentSessionId   String?
+  status            AuthSessionStatus @default(ACTIVE)
+
+  ip                String?
+  userAgent         String?
+  deviceLabel       String?
+
+  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
+  lastSeenAt        DateTime          @default(now()) @db.Timestamptz(3)
+  rotatedAt         DateTime?         @db.Timestamptz(3)
+  revokedAt         DateTime?         @db.Timestamptz(3)
+  expiresAt         DateTime          @db.Timestamptz(3)
+  absoluteExpiresAt DateTime          @db.Timestamptz(3)
+
+  @@index([userId, status])
+  @@index([familyId])
+  @@index([expiresAt])
 }
 
 model Club {
-  id           Int       @id @default(autoincrement())
-  slug         String    @unique // Slug único para URLs (ej: "las-tejas", "club-central")
-  name         String
-  addressLine  String
-  city         String
-  province     String
-  country      String
-  locationId   Int?
-  location     Location? @relation(fields: [locationId], references: [id])
-  contactInfo  String // Email de contacto general
-  phone        String? // Teléfono del club
-  logoUrl      String? // URL del logo del club
-  clubImageUrl String? // URL de la imagen/foto del club
-  instagramUrl String? // URL de Instagram
-  facebookUrl  String? // URL de Facebook
-  websiteUrl   String? // URL del sitio web
-  description  String? // Descripción del club
-  // Configuración de precios y luces
-  lightsEnabled      Boolean @default(false) // Si el club cobra extra por luces
-  lightsExtraAmount  Float?               // Monto extra por luces (opcional)
-  lightsFromHour     String?              // Hora local a partir de la cual se cobra (ej: "20:00")
-  professorDiscountEnabled Boolean @default(false) // Si aplica descuento a profesores
-  professorDiscountPercent Float? // Porcentaje de descuento (0-100)
-  // Configuracion de turnos
-  scheduleMode           ScheduleMode @default(FIXED)
-  scheduleOpenTime       String?
-  scheduleCloseTime      String?
-  scheduleIntervalMinutes Int?
-  scheduleDurations      Json?
-  scheduleFixedSlots     Json?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  courts       Court[]
-  users        User[]
-  products     Product[]
+  id            Int       @id @default(autoincrement())
+  slug          String    @unique
+  name          String
+  addressLine   String
+  city          String
+  province      String
+  country       String
+
+  locationId    Int?
+  location      Location? @relation(fields: [locationId], references: [id])
+
+  contactInfo   String
+  phone         String?
+  logoUrl       String?
+  clubImageUrl  String?
+  instagramUrl  String?
+  facebookUrl   String?
+  websiteUrl    String?
+  description   String?
+
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  // Configuración técnica/operativa movida a ClubSettings
+  settings      ClubSettings? 
+
+  // Relaciones
+  courts        Court[]
+  activities    ActivityType[]
+  clients       Client[]
+  bookings      Booking[]
+  products      Product[]
+  servicesCatalog ClubServiceCatalog[]
   cashMovements CashMovement[]
+  memberships   Membership[]
+  fixedBookings FixedBooking[]
+  accounts      Account[]
+  notifications Notification[]
+  courtPriceRules CourtPriceRule[]
+  auditLogs     AuditLog[]
+  events        Event[]
+  outboxMessages OutboxMessage[]
+  cashRegisters CashRegister[]
+  cashShifts    CashShift[]
+  ledgerEntries LedgerEntry[]
+  ledgerTransactions LedgerTransaction[]
+  refunds       Refund[]
+  discountPolicies DiscountPolicy[]
+  clientDiscountAssignments ClientDiscountAssignment[]
+  accountItemDiscounts AccountItemDiscount[]
+  reviews       ClubReview[]
+  favorites     ClubFavorite[]
+  duplicateIncidents ClientDuplicateIncident[]
+}
+
+model ClubFavorite {
+  id        String   @id @default(cuid())
+  clubId    Int
+  userId    Int
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  club      Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([clubId, userId])
+  @@index([userId, createdAt])
+}
+
+model Membership {
+  id     String         @id @default(cuid())
+  userId Int
+  clubId Int
+  role   MembershipRole
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, clubId])
+  @@index([clubId])
+  @@index([userId])
 }
 
 model Location {
-  id       Int      @id @default(autoincrement())
-  city     String
-  province String
-  country  String
-  clubs    Club[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id        Int      @id @default(autoincrement())
+  city      String
+  province  String
+  country   String
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  clubs     Club[]
 
   @@unique([city, province, country])
 }
@@ -109,17 +393,40 @@ model Court {
   isIndoor           Boolean
   surface            String
   isUnderMaintenance Boolean @default(false)
-  price              Float   @default(0)
+  price              Decimal @default(0) @db.Decimal(10, 2)
 
   activityTypeId Int?
-  activityType   ActivityType? @relation("CourtActivityType", fields: [activityTypeId], references: [id])
+  activityType   ActivityType? @relation(fields: [activityTypeId], references: [id])
 
   clubId Int
   club   Club @relation(fields: [clubId], references: [id])
 
-  activities    ActivityType[]
   bookings      Booking[]
   fixedBookings FixedBooking[]
+  priceRules    CourtPriceRule[]
+
+  @@index([clubId])
+}
+
+model CourtPriceRule {
+  id           Int      @id @default(autoincrement())
+
+  courtId      Int
+  court        Court    @relation(fields: [courtId], references: [id], onDelete: Cascade)
+
+  clubId       Int
+  club         Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  dayOfWeek    Int
+  startMinutes Int
+  endMinutes   Int
+  price        Decimal @db.Decimal(10, 2)
+
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([courtId])
+  @@index([clubId])
+  @@index([courtId, dayOfWeek])
 }
 
 model ActivityType {
@@ -127,28 +434,146 @@ model ActivityType {
   name                   String
   description            String
   defaultDurationMinutes Int
-  primaryCourts          Court[]        @relation("CourtActivityType")
+
+  clubId                 Int
+  club                   Club           @relation(fields: [clubId], references: [id])
+
+  scheduleMode           ScheduleMode   @default(FIXED)
+  scheduleOpenTime       String?
+  scheduleCloseTime      String?
+  scheduleIntervalMinutes Int?
+  scheduleWindows        Json?
+  scheduleDurations      Json?
+  scheduleFixedSlots     Json?
+  scheduleExceptions     ActivityScheduleException[]
+
   courts                 Court[]
   bookings               Booking[]
   fixedBookings          FixedBooking[]
+  discountTargets        DiscountPolicyTarget[]
+
+  @@index([clubId])
+}
+
+model ActivityScheduleException {
+  id                      Int          @id @default(autoincrement())
+  activityTypeId          Int
+  activityType            ActivityType @relation(fields: [activityTypeId], references: [id], onDelete: Cascade)
+  localDate               DateTime     @db.Date
+
+  // Si está cerrado, esta excepción bloquea todo el día para la actividad.
+  isClosed                Boolean      @default(false)
+
+  // Configuración opcional para reemplazar agenda base de la actividad en ese día.
+  scheduleMode            ScheduleMode?
+  scheduleOpenTime        String?
+  scheduleCloseTime       String?
+  scheduleIntervalMinutes Int?
+  scheduleWindows         Json?
+  scheduleDurations       Json?
+  scheduleFixedSlots      Json?
+
+  createdAt               DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime     @updatedAt @db.Timestamptz(3)
+
+  @@unique([activityTypeId, localDate])
+  @@index([localDate])
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  clubId    Int
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  name      String
+  dni       String?
+  phone     String?
+  email     String?
+  isProfessor Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings  Booking[]
+  fixedBookings FixedBooking[]
+  discountAssignments ClientDiscountAssignment[]
+  accountItemDiscounts AccountItemDiscount[]
+  duplicateIncidentsPrimary ClientDuplicateIncident[] @relation("DuplicateIncidentPrimaryClient")
+  duplicateIncidentsResolvedTarget ClientDuplicateIncident[] @relation("DuplicateIncidentResolvedClient")
+
+  @@index([clubId])
+  @@index([userId])
+  @@unique([clubId, email])
+  @@unique([clubId, phone])
+  @@index([clubId, dni])
+  @@unique([clubId, dni])
+  @@unique([clubId, userId])
+}
+
+enum ClientDuplicateIncidentStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+model ClientDuplicateIncident {
+  id        String   @id @default(cuid())
+  clubId    Int
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  userId    Int?
+  user      User?    @relation("DuplicateIncidentUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  status    ClientDuplicateIncidentStatus @default(OPEN)
+  reasonType String
+  sourceType String
+  dedupeKey String?
+
+  primaryClientId String?
+  primaryClient   Client? @relation("DuplicateIncidentPrimaryClient", fields: [primaryClientId], references: [id], onDelete: SetNull)
+
+  candidateClientIds Json
+  payload            Json?
+
+  resolutionType     String?
+  resolutionNotes    String?
+  resolvedClientId   String?
+  resolvedClient     Client? @relation("DuplicateIncidentResolvedClient", fields: [resolvedClientId], references: [id], onDelete: SetNull)
+  resolvedByUserId   Int?
+  resolvedByUser     User?   @relation("DuplicateIncidentResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  resolvedAt         DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([clubId, status, createdAt])
+  @@index([clubId, dedupeKey, status])
 }
 
 model Booking {
   id              Int           @id @default(autoincrement())
-  startDateTime   DateTime
-  endDateTime     DateTime
-  cancelledBy     Int?
-  cancelledAt     DateTime?
-  price           Float
-  createdAt       DateTime      @default(now())
-  status          BookingStatus @default(PENDING) // <--- Enum nativo
-  guestIdentifier String?
-  guestName       String?
-  guestEmail      String?
-  guestPhone      String?
-  guestDni        String?
+  displayCode     String?       @unique
 
-  // Permitir reservas de invitados: userId opcional + guestIdentifier
+  startDateTime   DateTime      @db.Timestamptz(3)
+  endDateTime     DateTime      @db.Timestamptz(3)
+
+  cancelledBy     Int?
+  cancelledAt     DateTime?     @db.Timestamptz(3)
+  autoCancelWarningSentAt DateTime? @db.Timestamptz(3)
+  autoCancelledAt         DateTime? @db.Timestamptz(3)
+  autoCancelReason        String?
+
+  listPrice       Decimal @default(0) @db.Decimal(10, 2)
+  price           Decimal @db.Decimal(10, 2)
+  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
+
+  status          BookingStatus @default(PENDING)
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
   userId Int?
   user   User? @relation(fields: [userId], references: [id])
 
@@ -158,37 +583,484 @@ model Booking {
   activityId Int
   activity   ActivityType @relation(fields: [activityId], references: [id])
 
-  fixedBooking   FixedBooking?  @relation(fields: [fixedBookingId], references: [id])
+  clubId Int
+  club   Club @relation(fields: [clubId], references: [id])
+
   fixedBookingId Int?
-  items          BookingItem[]
-  paymentStatus  PaymentStatus  @default(PENDING)
-  cashMovements CashMovement[]
+  fixedBooking   FixedBooking? @relation(fields: [fixedBookingId], references: [id])
+  reviews        ClubReview[]
+
+  @@index([courtId, startDateTime], map: "booking_court_day")
+  @@index([courtId, endDateTime])
+  @@index([clubId, startDateTime], map: "booking_club_day")
+  @@index([activityId, startDateTime], map: "booking_activity_day")
+  @@index([startDateTime])
+  @@index([status, startDateTime, autoCancelledAt], map: "booking_pending_autocancel_idx")
+}
+
+model ClubReview {
+  id        String           @id @default(cuid())
+  clubId    Int
+  club      Club             @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  bookingId Int
+  booking   Booking          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  userId    Int
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  rating    Int
+  comment   String?
+  status    ClubReviewStatus @default(PUBLISHED)
+
+  createdAt DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime         @updatedAt @db.Timestamptz(3)
+
+  @@unique([clubId, userId])
+  @@index([clubId, status, createdAt])
+  @@index([userId, createdAt])
 }
 
 model FixedBooking {
   id        Int      @id @default(autoincrement())
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
 
-  // Datos de la regla
-  dayOfWeek  Int // 0 = Domingo, 1 = Lunes, etc.
-  startTime  String // Ej: "20:00"
-  endTime    String // Ej: "21:30"
-  startDate  DateTime // Desde cuándo empieza el fijo
-  status     String   @default("ACTIVE")
-  guestPhone String?
-  guestDni   String?
+  dayOfWeek Int
+  startTimeMinutes Int
+  endTimeMinutes   Int
+  startDate DateTime @db.Timestamptz(3)
 
-  // Relaciones
-  user       User?        @relation(fields: [userId], references: [id])
+  status     FixedBookingStatus @default(ACTIVE)
+  clientId   String
+  client     Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
   userId     Int?
-  guestName  String?
-  court      Court        @relation(fields: [courtId], references: [id])
-  courtId    Int
-  activity   ActivityType @relation(fields: [activityId], references: [id])
-  activityId Int
+  user       User? @relation(fields: [userId], references: [id])
 
-  // Todas las reservas hijas generadas por este fijo
+  courtId    Int
+  court      Court @relation(fields: [courtId], references: [id])
+
+  activityId Int
+  activity   ActivityType @relation(fields: [activityId], references: [id])
+
+  clubId Int
+  club   Club @relation(fields: [clubId], references: [id])
+
   bookings Booking[]
+
+  @@index([courtId, dayOfWeek])
+  @@index([clubId])
+  @@index([clientId])
+}
+
+model Account {
+  id           String       @id @default(cuid())
+  displayCode  String?      @unique
+  clubId       Int
+  club         Club          @relation(fields: [clubId], references: [id], onDelete: Restrict)
+
+  sourceType   AccountSource
+  sourceId     String
+  idempotencyKey String?
+  status        AccountStatus @default(OPEN)
+  totalAmount   Decimal       @default(0) @db.Decimal(10, 2)
+  paidAmount    Decimal       @default(0) @db.Decimal(10, 2)
+
+  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
+  closedAt      DateTime?     @db.Timestamptz(3)
+
+  items         AccountItem[]
+  payments      Payment[]
+  paymentAllocations PaymentAllocation[]
+  refunds       Refund[]
+  ledgerEntries LedgerEntry[]
+
+  @@index([clubId])
+  @@index([sourceType, sourceId])
+  @@index([status, createdAt])
+  @@unique([clubId, sourceType, sourceId])
+  @@index([idempotencyKey])
+}
+
+model AccountItem {
+  id          String    @id @default(cuid())
+  accountId   String
+  account     Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  type        AccountItemType
+
+  productId   Int?
+  product     Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  description String
+  quantity    Int
+  unitPrice   Decimal   @db.Decimal(10, 2)
+  total       Decimal   @db.Decimal(10, 2)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  ledgerEntries LedgerEntry[]
+  paymentAllocations PaymentAllocation[]
+  discounts AccountItemDiscount[]
+
+  @@index([accountId])
+  @@index([productId])
+}
+
+model DiscountPolicy {
+  id          String             @id @default(cuid())
+  clubId      Int
+  club        Club               @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  scope       DiscountScope
+  amountType  DiscountAmountType
+  amountValue Decimal            @db.Decimal(10, 2)
+  applyMode   DiscountApplyMode  @default(INCLUDE_ONLY)
+  isStackable Boolean            @default(false)
+  priority    Int                @default(100)
+  isActive    Boolean            @default(true)
+  startsAt    DateTime?          @db.Timestamptz(3)
+  endsAt      DateTime?          @db.Timestamptz(3)
+
+  createdAt   DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime           @updatedAt @db.Timestamptz(3)
+
+  targets     DiscountPolicyTarget[]
+  assignments ClientDiscountAssignment[]
+  appliedItemDiscounts AccountItemDiscount[]
+
+  @@index([clubId, isActive, priority])
+  @@index([clubId, scope, isActive])
+}
+
+model DiscountPolicyTarget {
+  id            String         @id @default(cuid())
+  policyId      String
+  policy        DiscountPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  activityTypeId Int?
+  activityType   ActivityType? @relation(fields: [activityTypeId], references: [id], onDelete: SetNull)
+
+  productId     Int?
+  product       Product?       @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productCategory String?
+  serviceCode   String?
+
+  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
+
+  @@index([policyId])
+  @@index([activityTypeId])
+  @@index([productId])
+}
+
+model ClientDiscountAssignment {
+  id              String         @id @default(cuid())
+  clubId          Int
+  club            Club           @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  clientId        String
+  client          Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  policyId        String
+  policy          DiscountPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  notes           String?
+  isActive        Boolean        @default(true)
+  startsAt        DateTime?      @db.Timestamptz(3)
+  endsAt          DateTime?      @db.Timestamptz(3)
+
+  createdByUserId Int?
+  createdByUser   User?          @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @db.Timestamptz(3)
+
+  @@index([clubId, clientId, isActive])
+  @@index([policyId, isActive])
+}
+
+model AccountItemDiscount {
+  id              String             @id @default(cuid())
+  clubId          Int
+  club            Club               @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  accountItemId   String
+  accountItem     AccountItem        @relation(fields: [accountItemId], references: [id], onDelete: Cascade)
+
+  clientId        String?
+  client          Client?            @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  policyId        String
+  policy          DiscountPolicy     @relation(fields: [policyId], references: [id], onDelete: Restrict)
+
+  scope           DiscountScope
+  amountType      DiscountAmountType
+  amountValue     Decimal            @db.Decimal(10, 2)
+
+  baseAmount      Decimal            @db.Decimal(10, 2)
+  discountAmount  Decimal            @db.Decimal(10, 2)
+  finalAmount     Decimal            @db.Decimal(10, 2)
+
+  appliedByUserId Int?
+  appliedByUser   User?              @relation(fields: [appliedByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime           @default(now()) @db.Timestamptz(3)
+
+  @@index([clubId, createdAt])
+  @@index([accountItemId])
+  @@index([clientId])
+  @@index([policyId])
+  @@unique([accountItemId, policyId])
+}
+
+model Payment {
+  id        String   @id @default(cuid())
+  displayCode String? @unique
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  amount    Decimal  @db.Decimal(10, 2)
+  method    PaymentMethod
+  channel   PaymentChannel @default(AUTO)
+  collectorAccountLabel String?
+  externalReference String?
+  source    PaymentSource @default(POS)
+  idempotencyKey String?
+
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  cashShiftId String?
+  cashShift   CashShift? @relation(fields: [cashShiftId], references: [id], onDelete: SetNull)
+
+  cashMovement CashMovement?
+  allocations  PaymentAllocation[]
+  refunds      Refund[]
+  ledgerEntries LedgerEntry[]
+
+  @@index([accountId])
+  @@index([channel])
+  @@index([externalReference])
+  @@index([source])
+  @@index([cashShiftId])
+  @@index([idempotencyKey])
+  @@unique([accountId, idempotencyKey])
+}
+
+model PaymentAllocation {
+  id           String    @id @default(cuid())
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  amount       Decimal   @db.Decimal(10, 2)
+
+  accountId    String
+  account      Account   @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  paymentId    String
+  payment      Payment   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  accountItemId String
+  accountItem   AccountItem @relation(fields: [accountItemId], references: [id], onDelete: Restrict)
+
+  @@index([accountId, createdAt])
+  @@index([accountItemId, createdAt])
+  @@index([paymentId, createdAt])
+  @@unique([paymentId, accountItemId])
+}
+
+model LedgerTransaction {
+  id              String            @id @default(cuid())
+  clubId          Int
+  club            Club              @relation(fields: [clubId], references: [id], onDelete: Restrict)
+
+  type            LedgerEntryType
+  referenceType   LedgerReferenceType
+  referenceId     String
+
+  createdByUserId Int?
+  createdByUser   User?             @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+
+  entries         LedgerEntry[]
+
+  @@index([clubId, createdAt])
+  @@index([referenceType, referenceId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  title     String
+  message   String
+  channel   String?
+  isRead    Boolean  @default(false)
+  status    String?
+  sentAt    DateTime? @db.Timestamptz(3)
+
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  clubId Int
+  club   Club @relation(fields: [clubId], references: [id], onDelete: Restrict)
+
+  @@index([clubId])
+  @@index([clubId, createdAt])
+  @@index([userId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+
+  clubId    Int
+  club      Club     @relation(fields: [clubId], references: [id])
+
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id])
+
+  entity    String
+  entityId  String
+  action    String
+  payload   Json?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([clubId])
+  @@index([entity, entityId])
+}
+
+model Event {
+  id        String   @id @default(cuid())
+
+  clubId    Int
+  club      Club     @relation(fields: [clubId], references: [id])
+
+  type      String
+  payload   Json
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  processed Boolean  @default(false)
+
+  @@index([clubId])
+  @@index([type])
+}
+
+model OutboxMessage {
+  id            String       @id @default(cuid())
+  clubId        Int
+  club          Club         @relation(fields: [clubId], references: [id], onDelete: Restrict)
+  type          String
+  aggregateType String?
+  aggregateId   String?
+  payload       Json
+  dedupeKey     String?      @unique
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  availableAt   DateTime     @default(now()) @db.Timestamptz(3)
+  claimedAt     DateTime?    @db.Timestamptz(3)
+  claimedBy     String?
+  processedAt   DateTime?    @db.Timestamptz(3)
+  lastError     String?
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime     @updatedAt @db.Timestamptz(3)
+
+  @@index([clubId, createdAt])
+  @@index([type, status])
+  @@index([status, availableAt, createdAt])
+}
+
+model AccountSummaryProjection {
+  accountId    String        @id
+  clubId       Int
+  sourceType   AccountSource
+  sourceId     String
+  status       AccountStatus
+  totalAmount  Decimal       @db.Decimal(10, 2)
+  paidAmount   Decimal       @db.Decimal(10, 2)
+  remaining    Decimal       @db.Decimal(10, 2)
+  updatedAt    DateTime      @updatedAt @db.Timestamptz(3)
+
+  @@index([clubId, status])
+  @@index([clubId, updatedAt])
+}
+
+model CashShiftSummaryProjection {
+  shiftId        String          @id
+  clubId         Int
+  cashRegisterId String
+  status         CashShiftStatus
+  openingAmount  Decimal         @db.Decimal(10, 2)
+  expectedCash   Decimal?        @db.Decimal(10, 2)
+  countedCash    Decimal?        @db.Decimal(10, 2)
+  difference     Decimal?        @db.Decimal(10, 2)
+  paymentIn      Decimal         @default(0) @db.Decimal(10, 2)
+  deposit        Decimal         @default(0) @db.Decimal(10, 2)
+  withdraw       Decimal         @default(0) @db.Decimal(10, 2)
+  refund         Decimal         @default(0) @db.Decimal(10, 2)
+  updatedAt      DateTime        @updatedAt @db.Timestamptz(3)
+
+  @@index([clubId, status])
+  @@index([clubId, updatedAt])
+}
+
+model DailyCashSummaryProjection {
+  clubId     Int
+  day        DateTime @db.Date
+  cashIn     Decimal  @default(0) @db.Decimal(10, 2)
+  cashOut    Decimal  @default(0) @db.Decimal(10, 2)
+  netCash    Decimal  @default(0) @db.Decimal(10, 2)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+
+  @@id([clubId, day])
+  @@index([day])
+}
+
+model ClubSettings {
+  id                        Int      @id @default(autoincrement())
+  clubId                    Int      @unique
+  club                      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  // Zona horaria IANA
+  timeZone                  String   @default("America/Argentina/Buenos_Aires")
+  
+  // Días de apertura: [0, 1, 2, 3, 4, 5, 6]
+  openingDays               Json?    
+
+  // Fechas de cierre excepcionales (YYYY-MM-DD) en horario local del club
+  closureDates              Json?
+
+  // Estado operativo global del club
+  clubOperationalStatus     ClubOperationalStatus @default(OPEN)
+
+  // Cierre temporal continuo (útil para semanas o meses)
+  temporaryClosureStartDate DateTime? @db.Date
+  temporaryClosureEndDate   DateTime? @db.Date
+
+  // Configuración de Luces
+  lightsEnabled             Boolean  @default(false)
+  lightsExtraAmount         Decimal? @db.Decimal(10, 2)
+  lightsFromHour            String?  // Ej: "19:00"
+
+  // Configuración de Profesores (regla operativa de agenda)
+  professorDurationOverrideEnabled Boolean @default(true)
+  professorDurationOverrideMinutes Int @default(60)
+
+  // Configuración avanzada (Agregado para centralizar)
+  fixedBookingSettingsByActivity Json?
+
+  // Política de confirmación de reservas
+  bookingConfirmationMode       BookingConfirmationMode @default(MANUAL)
+  bookingDepositPercent         Decimal?                @db.Decimal(5, 2)
+  allowManualConfirmationOverride Boolean               @default(true)
+  bookingSimpleAdvanceDaysUser  Int                     @default(30)
+  bookingSimpleAdvanceDaysAdmin Int                     @default(30)
+  allowAdminSkipSimpleAdvanceLimit Boolean              @default(false)
+
+  // Política de auto-cancelación de reservas pendientes
+  autoCancelPendingBookingsEnabled      Boolean @default(false)
+  autoCancelPendingBookingsMinutesBefore Int?
+  autoCancelPendingBookingsOnlyIfUnpaid Boolean @default(true)
+  autoCancelPendingWarningEnabled       Boolean @default(false)
+  autoCancelPendingWarningMinutesBefore Int?
+  enforceCashShiftCloseWithOpenAccounts Boolean @default(false)
+
+  createdAt                 DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt                 DateTime @updatedAt @db.Timestamptz(3)
 }
 
 model Product {
@@ -197,44 +1069,228 @@ model Product {
   category String?
   price    Decimal @db.Decimal(10, 2)
   stock    Int     @default(0)
+  isCombo  Boolean @default(false)
   minStock Int     @default(5)
   isActive Boolean @default(true)
 
   clubId Int
   club   Club @relation(fields: [clubId], references: [id])
 
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  bookingItems BookingItem[]
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  components  ProductComponent[] @relation("ComboParent")
+  usedInCombos ProductComponent[] @relation("ComboComponent")
+  accountItems AccountItem[]
+  discountTargets DiscountPolicyTarget[]
 
   @@index([clubId])
+  @@map("Product")
 }
 
-model BookingItem {
+model ClubServiceCatalog {
+  id          Int      @id @default(autoincrement())
+  code        String
+  name        String
+  description String?
+  price       Decimal  @db.Decimal(10, 2)
+  isActive    Boolean  @default(true)
+
+  clubId      Int
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([clubId, code])
+  @@index([clubId, isActive])
+}
+
+// Constraint: stock >= 0
+// Agregar en migración SQL:
+// ALTER TABLE "Product" ADD CONSTRAINT product_stock_non_negative CHECK (stock >= 0);
+
+model ProductComponent {
   id Int @id @default(autoincrement())
 
-  bookingId Int
-  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  parentProductId Int
+  parentProduct Product @relation("ComboParent", fields: [parentProductId], references: [id], onDelete: Cascade)
 
-  productId Int
-  product   Product @relation(fields: [productId], references: [id])
+  componentProductId Int
+  componentProduct Product @relation("ComboComponent", fields: [componentProductId], references: [id], onDelete: Cascade)
 
-  quantity Int // Cuántos compró (ej: 2)
-  price    Float // A cuánto se vendió en ese momento (por si mañana subís el precio)
+  quantity Int
+
+  @@unique([parentProductId, componentProductId])
+  @@index([parentProductId])
+  @@index([componentProductId])
 }
 
 model CashMovement {
   id          Int      @id @default(autoincrement())
-  date        DateTime @default(now())
-  type        String // 'INCOME' (Ingreso) o 'EXPENSE' (Gasto/Retiro)
-  amount      Float // Monto
-  description String // Ej: "Turno Juan", "Venta Gatorade", "Pago Luz"
-  method      String // 'CASH' (Efectivo), 'TRANSFER' (Transferencia), 'CARD' (Tarjeta)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
 
-  // Opcional: Relaciones para saber de dónde vino
-  bookingId Int?
-  booking   Booking? @relation(fields: [bookingId], references: [id])
+  type        CashMovementPosType
+  method      CashMovementMethod
+  amount      Decimal  @db.Decimal(10, 2)
+  concept     String
 
-  clubId      Int      @default(1) // Le ponemos default 1 para que no falle con datos viejos
-  club        Club     @relation(fields: [clubId], references: [id])
+  cashShiftId String
+  cashShift   CashShift @relation(fields: [cashShiftId], references: [id], onDelete: Restrict)
+
+  createdByUserId Int?
+  createdByUser   User? @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  paymentId   String?  @unique
+  payment     Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  refundId    String?  @unique
+  refund      Refund?  @relation(fields: [refundId], references: [id], onDelete: SetNull)
+
+  clubId Int
+  club   Club @relation(fields: [clubId], references: [id])
+
+  @@index([clubId, createdAt])
+  @@index([paymentId])
+  @@index([refundId])
+  @@index([cashShiftId])
+}
+
+model LedgerEntry {
+  id              String            @id @default(cuid())
+  transactionId   String
+  transaction     LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  clubId          Int
+  club            Club              @relation(fields: [clubId], references: [id], onDelete: Restrict)
+
+  type            LedgerEntryType
+  referenceType   LedgerReferenceType
+  referenceId     String
+
+  accountId       String?
+  accountRef      Account?          @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  accountItemId   String?
+  accountItem     AccountItem?      @relation(fields: [accountItemId], references: [id], onDelete: SetNull)
+
+  paymentId       String?
+  payment         Payment?          @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  refundId        String?
+  refund          Refund?           @relation(fields: [refundId], references: [id], onDelete: SetNull)
+
+  amount          Decimal           @db.Decimal(10, 2)
+  account         LedgerAccount
+  direction       LedgerDirection
+  description     String
+
+  createdByUserId Int?
+  createdByUser   User?             @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+
+  @@index([transactionId])
+  @@index([account, createdAt])
+  @@index([clubId, createdAt])
+  @@index([accountId, createdAt])
+  @@index([referenceType, referenceId])
+}
+
+model CashRegister {
+  id     String @id @default(cuid())
+
+  clubId Int
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Restrict)
+
+  name   String
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  shifts CashShift[]
+
+  @@index([clubId])
+  @@unique([clubId, name])
+}
+
+model CashShift {
+  id String @id @default(cuid())
+  cashRegisterId String
+  cashRegister   CashRegister @relation(fields: [cashRegisterId], references: [id], onDelete: Restrict)
+
+  clubId         Int
+  club           Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  openedByUserId Int?
+  openedByUser   User? @relation("CashShiftOpenedBy", fields: [openedByUserId], references: [id], onDelete: SetNull)
+  closedByUserId Int?
+  closedByUser   User? @relation("CashShiftClosedBy", fields: [closedByUserId], references: [id], onDelete: SetNull)
+
+  openedAt DateTime @default(now()) @db.Timestamptz(3)
+  closedAt DateTime? @db.Timestamptz(3)
+
+  openingAmount Decimal @db.Decimal(10,2)
+  expectedCash Decimal? @db.Decimal(10,2)
+  countedCash  Decimal? @db.Decimal(10,2)
+  difference   Decimal? @db.Decimal(10,2)
+  status CashShiftStatus @default(OPEN)
+
+  payments  Payment[]
+  refunds   Refund[]
+  movements CashMovement[]
+
+  @@index([cashRegisterId])
+  @@index([status])
+  @@index([clubId])
+  @@index([openedAt])
+  @@index([clubId, status])
+}
+
+model Refund {
+  id              String   @id @default(cuid())
+  displayCode     String?  @unique
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  amount          Decimal  @db.Decimal(10, 2)
+  reason          String?
+  reasonType      RefundReasonType @default(OTHER)
+  status          RefundStatus @default(REQUESTED)
+  executionMethod RefundExecutionMethod?
+
+  paymentId       String
+  payment         Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  accountId       String
+  account         Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  clubId          Int
+  club            Club     @relation(fields: [clubId], references: [id], onDelete: Restrict)
+
+  cashShiftId     String?
+  cashShift       CashShift? @relation(fields: [cashShiftId], references: [id], onDelete: SetNull)
+
+  cashMovement    CashMovement?
+  ledgerEntries   LedgerEntry[]
+
+  createdByUserId Int?
+  createdByUser   User?    @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  approvedAt      DateTime? @db.Timestamptz(3)
+  approvedByUserId Int?
+  approvedByUser  User? @relation("RefundApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  executedAt      DateTime? @db.Timestamptz(3)
+  executedByUserId Int?
+  executedByUser  User? @relation("RefundExecutedBy", fields: [executedByUserId], references: [id], onDelete: SetNull)
+  cancelledAt     DateTime? @db.Timestamptz(3)
+  cancelledByUserId Int?
+  cancelledByUser User? @relation("RefundCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  cancelReason    String?
+  executionReference String?
+  executionNotes  String?
+  failedAt        DateTime? @db.Timestamptz(3)
+  failedReason    String?
+
+  @@index([paymentId])
+  @@index([accountId])
+  @@index([clubId, createdAt])
+  @@index([cashShiftId])
+  @@index([status, createdAt])
 }

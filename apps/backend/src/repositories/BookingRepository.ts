@@ -6,41 +6,45 @@ import { Club } from '../entities/Club';
 import { ActivityType } from '../entities/ActivityType';
 import { BookingStatus, Role } from '../entities/Enums';
 import { TimeHelper } from '../utils/TimeHelper';
+import { generateDisplayCode } from '../utils/displayCode';
 
 export class BookingRepository {
 
     async save(booking: Booking): Promise<Booking> {
+        if (!booking.clientId) {
+            throw new Error('No se puede guardar una reserva sin clientId');
+        }
         const data: any = {
+            displayCode: generateDisplayCode('RES'),
             startDateTime: booking.startDateTime,
             endDateTime: booking.endDateTime,
+            listPrice: booking.listPrice,
             price: booking.price,
             status: booking.status,
-            // user puede ser null para reservas de invitado
-            userId: booking.user ? booking.user.id : undefined,
-            guestIdentifier: booking.guestIdentifier,
-            guestName: booking.guestName,
-            guestEmail: booking.guestEmail,
-            guestPhone: booking.guestPhone,
+            // user puede ser null para reservas creadas por admin sin vínculo a cuenta global
+            userId: booking.user ? booking.user.id : null,
+            clientId: booking.clientId,
             courtId: booking.court.id,
-            activityId: booking.activity.id
+            activityId: booking.activity.id,
+            clubId: booking.court.club.id
         };
 
         const saved = await prisma.booking.create({
             data,
-            include: { user: true, court: { include: { club: true } }, activity: true }
+            include: { user: true, client: true, court: { include: { club: { include: { settings: true } } } }, activity: true }
         });
         return this.mapToEntity(saved);
     }
 
-    async findByCourtAndDate(courtId: number, date: Date): Promise<Booking[]> {
-        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date);
+    async findByCourtAndDate(courtId: number, date: Date, timeZone: string): Promise<Booking[]> {
+        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date, timeZone);
 
         const found = await prisma.booking.findMany({
             where: {
                 courtId: courtId,
                 startDateTime: { gte: startUtc, lte: endUtc }
             },
-            include: { user: true, court: { include: { club: true } }, activity: true }
+            include: { user: true, client: true, court: { include: { club: { include: { settings: true } } } }, activity: true }
         });
 
         return found.map((b: any) => this.mapToEntity(b));
@@ -62,7 +66,7 @@ export class BookingRepository {
     async findById(id: number): Promise<Booking | undefined> {
         const found = await prisma.booking.findUnique({
             where: { id },
-            include: { user: true, court: { include: { club: true } }, activity: true }
+            include: { user: true, client: true, court: { include: { club: { include: { settings: true } } } }, activity: true }
         });
         if (!found) return undefined;
         return this.mapToEntity(found);
@@ -71,14 +75,14 @@ export class BookingRepository {
     async findByUserId(userId: number): Promise<Booking[]> {
         const found = await prisma.booking.findMany({
             where: { userId },
-            include: { user: true, court: { include: { club: true } }, activity: true }
+            include: { user: true, client: true, court: { include: { club: { include: { settings: true } } } }, activity: true }
         });
         return found.map((b: any) => this.mapToEntity(b));
     }
 
     async findAll(): Promise<Booking[]> {
         const found = await prisma.booking.findMany({
-            include: { user: true, court: { include: { club: true } }, activity: true }
+            include: { user: true, client: true, court: { include: { club: { include: { settings: true } } } }, activity: true }
         });
         return found.map((b: any) => this.mapToEntity(b));
     }
@@ -95,17 +99,19 @@ export class BookingRepository {
         });
     }
 
-    async findAllByDate(date: Date) {
-        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date);
+    async findAllByDate(date: Date, timeZone: string, clubId?: number) {
+        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date, timeZone);
 
         const bookings = await prisma.booking.findMany({
             where: {
                 startDateTime: { gte: startUtc, lte: endUtc },
-                status: { not: 'CANCELLED' }
+                status: { not: 'CANCELLED' },
+                ...(clubId ? { clubId } : {})
             },
             include: {
                 user: true,
-                court: { include: { club: true } },
+                client: true,
+                court: { include: { club: { include: { settings: true } } } },
                 activity: true
             },
             orderBy: {
@@ -116,20 +122,19 @@ export class BookingRepository {
         return bookings.map((b: any) => this.mapToEntity(b));
     }
 
-    async findAllByDateAndClub(date: Date, clubId: number) {
-        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date);
+    async findAllByDateAndClub(date: Date, clubId: number, timeZone: string) {
+        const { startUtc, endUtc } = TimeHelper.getUtcRangeForLocalDate(date, timeZone);
 
         const bookings = await prisma.booking.findMany({
             where: {
                 startDateTime: { gte: startUtc, lte: endUtc },
                 status: { not: 'CANCELLED' },
-                court: {
-                    clubId: clubId
-                }
+                clubId
             },
             include: {
                 user: true,
-                court: { include: { club: true } },
+                client: true,
+                court: { include: { club: { include: { settings: true } } } },
                 activity: true
             },
             orderBy: {
@@ -149,56 +154,105 @@ export class BookingRepository {
                 dbItem.user.lastName,
                 dbItem.user.email,
                 dbItem.user.phoneNumber,
-                dbItem.user.role as Role,
-                (dbItem.user as any).isProfessor ?? false
+                dbItem.user.role as Role
             )
             : null;
+        const c = dbItem.court.club;
+        const s = c.settings ?? null;
         const club = new Club(
-            dbItem.court.club.id,
-            dbItem.court.club.slug,
-            dbItem.court.club.name,
-            dbItem.court.club.addressLine,
-            dbItem.court.club.city,
-            dbItem.court.club.province,
-            dbItem.court.club.country,
-            dbItem.court.club.contactInfo,
-            dbItem.court.club.phone || undefined,
-            dbItem.court.club.logoUrl || undefined,
-            dbItem.court.club.clubImageUrl || undefined,
-            dbItem.court.club.instagramUrl || undefined,
-            dbItem.court.club.facebookUrl || undefined,
-            dbItem.court.club.websiteUrl || undefined,
-            dbItem.court.club.description || undefined,
-            dbItem.court.club.lightsEnabled ?? false,
-            dbItem.court.club.lightsExtraAmount ?? null,
-                dbItem.court.club.lightsFromHour ?? null,
-                dbItem.court.club.professorDiscountEnabled ?? false,
-                dbItem.court.club.professorDiscountPercent ?? null,
-            dbItem.court.club.createdAt,
-            dbItem.court.club.updatedAt
+            c.id,
+            c.slug,
+            c.name,
+            c.addressLine,
+            c.city,
+            c.province,
+            c.country,
+            c.contactInfo,
+            c.phone || undefined,
+            c.logoUrl || undefined,
+            c.clubImageUrl || undefined,
+            c.instagramUrl || undefined,
+            c.facebookUrl || undefined,
+            c.websiteUrl || undefined,
+            c.description || undefined,
+            s?.timeZone ?? 'America/Argentina/Buenos_Aires',
+            s?.lightsEnabled ?? false,
+            s?.lightsExtraAmount != null ? Number(s.lightsExtraAmount) : null,
+            s?.lightsFromHour != null ? String(s.lightsFromHour) : null,
+            s?.professorDurationOverrideEnabled ?? true,
+            s?.professorDurationOverrideMinutes != null ? Number(s.professorDurationOverrideMinutes) : 60,
+            (s?.fixedBookingSettingsByActivity ?? null) as any,
+            s?.bookingConfirmationMode ?? 'MANUAL',
+            s?.bookingDepositPercent != null ? Number(s.bookingDepositPercent) : null,
+            s?.allowManualConfirmationOverride ?? true,
+            s?.autoCancelPendingBookingsEnabled ?? false,
+            s?.autoCancelPendingBookingsMinutesBefore != null ? Number(s.autoCancelPendingBookingsMinutesBefore) : null,
+            s?.autoCancelPendingBookingsOnlyIfUnpaid ?? true,
+            s?.autoCancelPendingWarningEnabled ?? false,
+            s?.autoCancelPendingWarningMinutesBefore != null ? Number(s.autoCancelPendingWarningMinutesBefore) : null,
+            s?.enforceCashShiftCloseWithOpenAccounts ?? false,
+            Array.isArray(s?.openingDays) ? s.openingDays : null,
+            Array.isArray(s?.closureDates)
+                ? s.closureDates
+                    .map((date: unknown) => String(date || '').trim())
+                    .filter((date: string) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+                : null,
+            c.createdAt,
+            c.updatedAt,
+            Number.isFinite(Number(s?.bookingSimpleAdvanceDaysUser)) ? Math.max(0, Math.floor(Number(s?.bookingSimpleAdvanceDaysUser))) : 30,
+            Number.isFinite(Number(s?.bookingSimpleAdvanceDaysAdmin)) ? Math.max(0, Math.floor(Number(s?.bookingSimpleAdvanceDaysAdmin))) : 30,
+            s?.allowAdminSkipSimpleAdvanceLimit ?? false,
+            s?.clubOperationalStatus === 'TEMPORARY_CLOSED' || s?.clubOperationalStatus === 'PERMANENTLY_CLOSED'
+                ? s.clubOperationalStatus
+                : 'OPEN',
+            s?.temporaryClosureStartDate ? new Date(s.temporaryClosureStartDate).toISOString().slice(0, 10) : null,
+            s?.temporaryClosureEndDate ? new Date(s.temporaryClosureEndDate).toISOString().slice(0, 10) : null
         );
     const court = new Court(dbItem.court.id, dbItem.court.name, dbItem.court.isIndoor, dbItem.court.surface, club, dbItem.court.isUnderMaintenance, null);
-        const activity = new ActivityType(dbItem.activity.id, dbItem.activity.name, dbItem.activity.description, dbItem.activity.defaultDurationMinutes);
+        const activity = new ActivityType(
+            dbItem.activity.id,
+            dbItem.activity.name,
+            dbItem.activity.description,
+            dbItem.activity.defaultDurationMinutes,
+            dbItem.activity.clubId,
+            dbItem.activity.scheduleMode,
+            dbItem.activity.scheduleOpenTime,
+            dbItem.activity.scheduleCloseTime,
+            dbItem.activity.scheduleIntervalMinutes,
+            Array.isArray((dbItem.activity as any).scheduleWindows) ? (dbItem.activity as any).scheduleWindows : null,
+            Array.isArray(dbItem.activity.scheduleDurations) ? dbItem.activity.scheduleDurations : null,
+            Array.isArray(dbItem.activity.scheduleFixedSlots) ? dbItem.activity.scheduleFixedSlots : null
+        );
+
+        const client = dbItem.client
+            ? {
+                id: dbItem.client.id,
+                name: dbItem.client.name,
+                dni: dbItem.client.dni ?? null,
+                phone: dbItem.client.phone ?? null,
+                email: dbItem.client.email ?? null
+            }
+            : null;
 
         const booking = new Booking(
             dbItem.id,
             dbItem.startDateTime,
             dbItem.endDateTime,
-            dbItem.price,
+            Number(dbItem.price || 0),
             user,
             court,
             activity,
             dbItem.status as BookingStatus,
-            dbItem.guestIdentifier,
-            dbItem.guestName,
-            dbItem.guestEmail,
-            dbItem.guestPhone,
-            dbItem.fixedBookingId || null 
+            dbItem.clientId,
+            dbItem.fixedBookingId || null,
+            client
         );
+        booking.listPrice = Number(dbItem.listPrice || dbItem.price || 0);
+        booking.displayCode = dbItem.displayCode ?? null;
         if (dbItem.cancelledBy) booking.cancelledBy = dbItem.cancelledBy;
         if (dbItem.cancelledAt) booking.cancelledAt = dbItem.cancelledAt;
+        if (dbItem.createdAt) booking.createdAt = dbItem.createdAt;
 
         return booking;
     }
 }
-

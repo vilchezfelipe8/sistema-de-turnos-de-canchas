@@ -2,13 +2,13 @@ import React from 'react';
 // Asegurate de que la ruta de importación sea correcta
 import AdminLayout from '../../components/AdminLayout';
 import AdminDevDashboard from '../../components/admin/AdminDevDashboard';
-import Head from 'next/dist/shared/lib/head';
+import Head from 'next/head';
 
 const MetricsPage = () => {
   return (
     <AdminLayout>
       <Head>
-          <title>Metricas | Admin Panel</title>
+          <title>Metricas | TuCancha Admin</title>
         </Head>
       <div className="p-6">
         {/* Título de la sección */}

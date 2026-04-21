@@ -17,13 +17,11 @@ const cashController = new CashController(cashService);
 
 // --- RUTAS ---
 
-// GET: Ver balance y movimientos
-// Solo ADMIN puede ver cuánto se ganó en total
 router.get(
-    '/', 
-    authMiddleware, 
-    requireRole('ADMIN'), 
-    setAdminClubFromUser, 
+    '/summary',
+    authMiddleware,
+    setAdminClubFromUser,
+    requireRole('ADMIN'),
     cashController.getSummary
 );
 
@@ -32,8 +30,8 @@ router.get(
 router.post(
     '/', 
     authMiddleware, 
-    requireRole('ADMIN'), // O requireRole(['ADMIN', 'STAFF']) si soportas array
     setAdminClubFromUser, 
+    requireRole('ADMIN'), // O requireRole(['ADMIN', 'STAFF']) si soportas array
     cashController.createMovement
 );
 
@@ -41,8 +39,8 @@ router.post(
 router.get(
     '/products',
     authMiddleware,
-    requireRole('ADMIN'),
     setAdminClubFromUser,
+    requireRole('ADMIN'),
     cashController.getProducts
 );
 
@@ -50,9 +48,17 @@ router.get(
 router.post(
     '/product-sale',
     authMiddleware,
-    requireRole('ADMIN'),
     setAdminClubFromUser,
+    requireRole('ADMIN'),
     cashController.createProductSale
+);
+
+router.post(
+    '/product-sale/quote',
+    authMiddleware,
+    setAdminClubFromUser,
+    requireRole('ADMIN'),
+    cashController.quoteProductSale
 );
 
 export default router;

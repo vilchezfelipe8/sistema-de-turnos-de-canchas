@@ -1,36 +1,89 @@
-import { prisma } from '../prisma'; // Ajusta la ruta a tu cliente prisma
+import { Prisma } from '@prisma/client';
+import { prisma } from '../prisma';
+
+type CashCreateInput = {
+  clubId: number;
+  cashShiftId: string;
+  type: 'PAYMENT_IN' | 'REFUND' | 'WITHDRAW' | 'DEPOSIT';
+  method: 'CASH' | 'TRANSFER' | 'CARD';
+  amount: number;
+  concept: string;
+  paymentId?: string;
+  createdByUserId?: number;
+};
 
 export class CashRepository {
-    async create(data: any) {
-    // 1. Desestructuramos para sacar los IDs y dejar los datos limpios en 'rest'
-    const { bookingId, clubId, ...rest } = data;
-
-    // 2. Armamos el objeto de Prisma usando 'connect'
-    const prismaData = {
-        ...rest, // descripción, monto, fecha, método...
-
-        // Conexión con la Reserva (si existe)
-        booking: bookingId ? { connect: { id: Number(bookingId) } } : undefined,
-
-        club: clubId ? { connect: { id: Number(clubId) } } : undefined
-    };
-
-    // 3. Guardamos
-    return prisma.cashMovement.create({ 
-        data: prismaData 
+  async create(data: CashCreateInput) {
+    return prisma.cashMovement.create({
+      data: {
+        clubId: data.clubId,
+        cashShiftId: data.cashShiftId,
+        type: data.type,
+        method: data.method,
+        amount: new Prisma.Decimal(data.amount),
+        concept: data.concept,
+        paymentId: data.paymentId,
+        createdByUserId: data.createdByUserId
+      }
     });
-}
+  }
 
-    async findAllByDateRange(startDate: Date, endDate: Date, clubId?: number) {
-        return prisma.cashMovement.findMany({
-            where: {
-                date: {
-                    gte: startDate,
-                    lte: endDate
-                },
-                ...(clubId ? { clubId } : {})
+  async findAllByDateRange(startDate: Date, endDate: Date, clubId?: number) {
+    return prisma.cashMovement.findMany({
+      where: {
+        createdAt: {
+          gte: startDate,
+          lte: endDate
+        },
+        ...(clubId ? { clubId } : {})
+      },
+      include: {
+        payment: {
+          include: {
+            account: {
+              select: {
+                id: true,
+                sourceType: true,
+                sourceId: true
+              }
             },
-            orderBy: { date: 'desc' }
-        });
-    }
+            allocations: {
+              select: {
+                accountItemId: true,
+                amount: true,
+                accountItem: {
+                  select: {
+                    type: true,
+                    description: true,
+                    quantity: true,
+                    unitPrice: true,
+                    total: true
+                  }
+                }
+              }
+            }
+          }
+        },
+        refund: {
+          include: {
+            account: {
+              select: {
+                id: true,
+                sourceType: true,
+                sourceId: true
+              }
+            },
+            payment: {
+              select: {
+                id: true,
+                channel: true,
+                method: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
 }

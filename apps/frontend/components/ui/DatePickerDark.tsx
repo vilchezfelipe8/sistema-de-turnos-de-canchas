@@ -15,7 +15,16 @@ type DatePickerDarkProps = DatePickerProps & {
 
 // 👇 SOLUCIÓN: Usamos directamente DatePickerProps sin inventar interfaces nuevas.
 // Esto evita el conflicto de tipos con el 'onChange' original.
-const DatePickerDark = ({ className, inputClassName, showIcon = true, variant = 'dark', inputSize = 'default', ...props }: DatePickerDarkProps) => {
+const DatePickerDark = ({
+  className,
+  inputClassName,
+  showIcon = true,
+  variant = 'dark',
+  inputSize = 'default',
+  popperClassName,
+  popperPlacement,
+  ...props
+}: DatePickerDarkProps) => {
   const popperContainer = ({ children }: { children: React.ReactNode }) => {
     if (typeof document === 'undefined') return <>{children}</>;
     return createPortal(children, document.body);
@@ -137,10 +146,10 @@ const DatePickerDark = ({ className, inputClassName, showIcon = true, variant = 
         <DatePicker
           {...props}
           locale="es"
-          dateFormat="dd MMM yyyy"
+          dateFormat={props.dateFormat || "dd MMM yyyy"}
           showPopperArrow={false}
-          popperPlacement="bottom-start"
-          popperClassName="react-datepicker-popper"
+          popperPlacement={popperPlacement || 'bottom-start'}
+          popperClassName={['react-datepicker-popper', popperClassName].filter(Boolean).join(' ')}
           popperContainer={popperContainer}
           // Combinamos tus estilos con los props que vengan
           className={`${sizingClass} focus:outline-none transition-all ${baseInputClass} ${focusClass} ${className || ''} ${inputClassName || ''}`}

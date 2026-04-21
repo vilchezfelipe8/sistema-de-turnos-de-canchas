@@ -7,7 +7,7 @@ const CashPage = () => {
   return (
     <AdminLayout>
       <Head>
-        <title>Caja | Admin Panel</title>
+        <title>Caja | TuCancha Admin</title>
       </Head>
       
      

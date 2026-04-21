@@ -8,8 +8,6 @@ export class User {
         public email: string,
         public phoneNumber: string,
         public role: Role,
-        public isProfessor: boolean = false,
         public password?: string
     ) {}
 }
-

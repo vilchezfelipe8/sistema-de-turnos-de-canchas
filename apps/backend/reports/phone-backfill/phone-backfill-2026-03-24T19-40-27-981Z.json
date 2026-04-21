@@ -1,0 +1,93 @@
+{
+  "generatedAt": "2026-03-24T19:40:27.980Z",
+  "mode": "dry-run",
+  "scanned": {
+    "clients": 5,
+    "users": 6
+  },
+  "summary": {
+    "clients": {
+      "DRY_RUN_UPDATE": 5
+    },
+    "users": {
+      "DRY_RUN_UPDATE": 2,
+      "INVALID_PHONE": 2,
+      "ALREADY_CANONICAL": 2
+    }
+  },
+  "conflicts": {
+    "clients": [],
+    "users": []
+  },
+  "ambiguousUsers": [],
+  "invalid": {
+    "clients": [],
+    "users": [
+      {
+        "id": 2,
+        "currentPhone": "000-000000",
+        "normalizedPhone": null,
+        "status": "INVALID_PHONE"
+      },
+      {
+        "id": 3,
+        "currentPhone": "000-000001",
+        "normalizedPhone": null,
+        "status": "INVALID_PHONE"
+      }
+    ]
+  },
+  "plannedOrAppliedUpdates": {
+    "clients": [
+      {
+        "id": "cmn217y31000bjh96l6eetb7a",
+        "clubId": 1,
+        "currentPhone": "5493513436150",
+        "normalizedPhone": "+5493513436150",
+        "status": "DRY_RUN_UPDATE"
+      },
+      {
+        "id": "cmn217y39000djh96ismeqr80",
+        "clubId": 1,
+        "currentPhone": "5493570000001",
+        "normalizedPhone": "+5493570000001",
+        "status": "DRY_RUN_UPDATE"
+      },
+      {
+        "id": "cmn217y3g000fjh96t8x8x9f2",
+        "clubId": 2,
+        "currentPhone": "555202020",
+        "normalizedPhone": "+555202020",
+        "status": "DRY_RUN_UPDATE"
+      },
+      {
+        "id": "cmn217y3k000hjh96upnrlgn8",
+        "clubId": 2,
+        "currentPhone": "5491100000002",
+        "normalizedPhone": "+5491100000002",
+        "status": "DRY_RUN_UPDATE"
+      },
+      {
+        "id": "cmn217y3o000jjh96oh0nt9yg",
+        "clubId": 3,
+        "currentPhone": "34600111222",
+        "normalizedPhone": "+34600111222",
+        "status": "DRY_RUN_UPDATE"
+      }
+    ],
+    "users": [
+      {
+        "id": 1,
+        "currentPhone": "555-101010",
+        "normalizedPhone": "+555101010",
+        "status": "DRY_RUN_UPDATE"
+      },
+      {
+        "id": 5,
+        "currentPhone": "555-202020",
+        "normalizedPhone": "+555202020",
+        "status": "DRY_RUN_UPDATE"
+      }
+    ]
+  }
+}

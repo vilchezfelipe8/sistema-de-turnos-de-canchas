@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, CheckCircle2, Info, X } from 'lucide-react';
+import { lockBodyScroll } from '../utils/bodyScrollLock';
 
 type AppModalProps = {
   show: boolean;
@@ -21,6 +22,8 @@ type AppModalProps = {
   confirmDisabled?: boolean;
   closeOnBackdrop?: boolean;
   closeOnEscape?: boolean;
+  zIndexClass?: string;
+  hideCloseButton?: boolean;
 };
 
 /**
@@ -45,7 +48,9 @@ export default function AppModal({
   holdDuration = 1200,
   confirmDisabled = false,
   closeOnBackdrop = true,
-  closeOnEscape = true
+  closeOnEscape = true,
+  zIndexClass = 'z-[2147483200]',
+  hideCloseButton = false
 }: AppModalProps) {
   const [mounted, setMounted] = useState(false);
   const [inputText, setInputText] = useState(inputValue);
@@ -75,11 +80,10 @@ export default function AppModal({
       }
     };
     document.addEventListener('keydown', onKeyDown);
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const releaseBodyScrollLock = lockBodyScroll();
     return () => {
       document.removeEventListener('keydown', onKeyDown);
-      document.body.style.overflow = previousOverflow;
+      releaseBodyScrollLock();
     };
   }, [show, onClose, closeOnEscape]);
 
@@ -149,7 +153,7 @@ export default function AppModal({
     <div
       role="dialog"
       aria-modal="true"
-  className="fixed inset-0 z-[99999] bg-[#347048]/80 backdrop-blur-[2px] flex items-center justify-center p-4 animate-in fade-in duration-200"
+      className={`fixed inset-0 ${zIndexClass} bg-[#347048]/60 flex items-center justify-center p-4 animate-in fade-in duration-200`}
       onMouseDown={(event) => {
         if (!closeOnBackdrop) return;
         backdropMouseDownRef.current = event.target === event.currentTarget;
@@ -172,12 +176,12 @@ export default function AppModal({
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-md bg-[#EBE1D8] border-4 border-white rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+        className="density-compact w-full max-w-xl max-h-[92vh] bg-[#EBE1D8] border-4 border-white rounded-[2rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
       >
         
         {/* CABECERA WIMBLEDON */}
-        <div className={`p-6 border-b border-[#347048]/10 flex justify-between items-center ${isWarning ? 'bg-red-50' : 'bg-[#EBE1D8]'}`}>
-          <h3 className={`text-2xl font-black flex items-center gap-3 uppercase italic tracking-tighter ${isWarning ? 'text-red-600' : 'text-[#347048]'}`}>
+        <div className={`p-4 sm:p-5 border-b border-[#347048]/10 flex justify-between items-center ${isWarning ? 'bg-red-50' : 'bg-[#EBE1D8]'}`}>
+          <h3 className={`compact-title font-black flex items-center gap-2 uppercase italic tracking-tighter ${isWarning ? 'text-red-600' : 'text-[#347048]'}`}>
             {isWarning ? (
                 <AlertTriangle size={28} className="text-red-500" strokeWidth={2.5} />
             ) : title.toLowerCase().includes('éxito') || title.toLowerCase().includes('listo') ? (
@@ -187,17 +191,19 @@ export default function AppModal({
             )}
             {title}
           </h3>
-          <button 
-            onClick={onClose} 
-            className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
-            title="Cerrar ventana"
-          >
-            <X size={20} strokeWidth={3} />
-          </button>
+          {!hideCloseButton ? (
+            <button 
+              onClick={onClose} 
+              className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
+              title="Cerrar ventana"
+            >
+              <X size={20} strokeWidth={3} />
+            </button>
+          ) : null}
         </div>
 
         {/* CUERPO DEL MODAL */}
-        <div className="p-8 bg-white/40 flex flex-col gap-4">
+        <div className="p-4 sm:p-5 bg-white/40 flex-1 min-h-0 flex flex-col gap-3 overflow-y-auto">
           <div className="text-[#347048] text-base font-bold leading-relaxed">
             {typeof message === 'string' ? <p className="m-0">{message}</p> : message}
           </div>
@@ -215,7 +221,7 @@ export default function AppModal({
                 }
               }}
               autoFocus
-              className={`w-full px-4 py-3.5 text-sm font-black text-[#347048] bg-white border-2 rounded-xl outline-none shadow-sm transition-all placeholder-[#347048]/30 ${inputFocused ? 'border-[#B9CF32]' : 'border-transparent hover:border-[#B9CF32]/50'}`}
+              className={`compact-field w-full px-4 text-sm font-black text-[#347048] bg-white border-2 rounded-xl outline-none shadow-sm transition-all placeholder-[#347048]/30 ${inputFocused ? 'border-[#B9CF32]' : 'border-transparent hover:border-[#B9CF32]/50'}`}
               onFocus={() => setInputFocused(true)}
               onBlur={() => setInputFocused(false)}
             />
@@ -223,12 +229,12 @@ export default function AppModal({
         </div>
 
         {/* PIE Y BOTONES DE ACCIÓN */}
-        <div className="p-6 border-t border-[#347048]/10 bg-[#EBE1D8] flex justify-end gap-3">
+        <div className="p-4 sm:p-5 border-t border-[#347048]/10 bg-[#EBE1D8] flex justify-end gap-2.5">
           {cancelText && (
             <button
               type="button"
               onClick={onCancel ?? onClose}
-              className="px-6 py-3.5 rounded-xl text-xs font-black uppercase tracking-widest bg-white border-2 border-transparent hover:border-[#347048]/20 text-[#347048]/60 hover:text-[#347048] transition-all shadow-sm active:scale-95"
+              className="px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest bg-white border-2 border-transparent hover:border-[#347048]/20 text-[#347048]/60 hover:text-[#347048] transition-all shadow-sm active:scale-95"
             >
               {cancelText}
             </button>
@@ -244,7 +250,7 @@ export default function AppModal({
             onTouchCancel={holdToConfirm ? releaseHold : undefined}
             onMouseLeave={() => { if (holdToConfirm) releaseHold(); }}
             disabled={disabled}
-            className={`relative overflow-hidden px-8 py-3.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-xl transition-all flex items-center gap-2 ${
+            className={`relative overflow-hidden px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest shadow-xl transition-all flex items-center gap-2 ${
                 disabled 
                     ? 'opacity-40 cursor-not-allowed bg-gray-300 text-gray-500 shadow-none' 
                     : isWarning 

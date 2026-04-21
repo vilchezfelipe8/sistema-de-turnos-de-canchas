@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { Calendar, Users, Package, DollarSign, LayoutGrid, BarChart3, Settings, LogOut } from 'lucide-react';
+import { Calendar, Users, Package, DollarSign, LayoutGrid, BarChart3, Settings, Wallet, RotateCcw, Wrench } from 'lucide-react';
 
 interface AdminSidebarProps {
   isOpen: boolean;
@@ -25,7 +25,11 @@ const AdminSidebar = ({ isOpen, onClose }: AdminSidebarProps) => {
     { name: 'Turnos', path: '/admin/agenda', icon: <Calendar size={20} /> },
     { name: 'Clientes', path: '/admin/clientes', icon: <Users size={20} /> },
     { name: 'Productos & Stock', path: '/admin/products', icon: <Package size={20} /> },
+    { name: 'Servicios', path: '/admin/services', icon: <Wrench size={20} /> },
+    { name: 'Cuentas', path: '/admin/cuentas', icon: <Wallet size={20} /> },
+    { name: 'Devoluciones', path: '/admin/devoluciones', icon: <RotateCcw size={20} /> },
     { name: 'Caja y Movimientos', path: '/admin/cash', icon: <DollarSign size={20} /> },
+    { name: 'Estadísticas', path: '/admin/statistics', icon: <BarChart3 size={20} /> },
     { name: 'Canchas', path: '/admin/canchas', icon: <LayoutGrid size={20} /> },
     { name: 'Métricas', path: '/admin/metrics', icon: <BarChart3 size={20} /> }, 
     { name: 'Configuración', path: '/admin/settings', icon: <Settings size={20} /> },
@@ -35,7 +39,7 @@ const AdminSidebar = ({ isOpen, onClose }: AdminSidebarProps) => {
     <>
       {/* 1. BACKDROP OSCURO (Fondo negro transparente) */}
       <div 
-        className={`fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        className={`fixed inset-0 bg-black/60 z-[60] transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onClick={onClose}
       />
 
@@ -48,7 +52,7 @@ const AdminSidebar = ({ isOpen, onClose }: AdminSidebarProps) => {
         <div className="p-6 flex justify-between items-center border-b border-[#347048]/10 bg-[#EBE1D8]">
           <div>
             <h2 className="text-2xl font-black text-[#926699] tracking-tighter italic uppercase">
-                Panel Admin
+                Panel de administración
             </h2>
             <p className="text-[#347048] text-[10px] font-bold uppercase tracking-widest opacity-60">
                 Gestión del Club
@@ -86,7 +90,7 @@ const AdminSidebar = ({ isOpen, onClose }: AdminSidebarProps) => {
             <div className="flex items-center gap-3 px-4 py-3 bg-[#347048]/5 rounded-xl border border-[#347048]/5">
                 <div className="w-2 h-2 rounded-full bg-[#0bbd49] animate-pulse shrink-0" />
                 <span className="text-xs font-bold text-[#347048]/60 uppercase tracking-wider">
-                    Sistema Online
+                    Sistema en línea
                 </span>
             </div>
         </div>

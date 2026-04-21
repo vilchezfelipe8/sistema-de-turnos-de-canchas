@@ -1,0 +1,2 @@
+ALTER TABLE "ClubSettings"
+ADD COLUMN IF NOT EXISTS "closureDates" JSONB;

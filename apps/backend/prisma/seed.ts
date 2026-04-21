@@ -1,296 +1,435 @@
 /// <reference types="node" />
-import { PrismaClient, Role } from '@prisma/client'; 
+import { PrismaClient, Role, MembershipRole } from '@prisma/client'; 
 import bcrypt from 'bcryptjs';
 import process from 'process';
 
 const prisma = new PrismaClient();
 const prismaAny = prisma as any;
 
+const generateDisplayCode = (prefix: string) => {
+  const safePrefix = String(prefix || '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .toUpperCase()
+    .slice(0, 4) || 'COD';
+  const token = Math.random().toString(36).slice(2, 10).toUpperCase();
+  return `${safePrefix}-${token}`;
+};
+
 if (process.env.NODE_ENV === 'production' && process.env.ALLOW_SEED !== 'true') {
   console.error('❌ Seed bloqueado en producción. Define ALLOW_SEED=true para ejecutarlo conscientemente.');
   process.exit(1);
 }
 
+async function ensureSchemaReady() {
+  try {
+    await prisma.$queryRaw`SELECT 1 FROM "Club" LIMIT 1`;
+  } catch (error: any) {
+    if (
+      error?.code === 'P2021' ||
+      (error?.code === 'P2010' && (error?.meta?.code === '42P01' || String(error?.meta?.message || '').includes('does not exist')))
+    ) {
+      throw new Error('La base no tiene el esquema aplicado. Ejecutá primero: npx prisma migrate deploy');
+    }
+    throw error;
+  }
+}
+
 async function main() {
   console.log('🌱 Iniciando carga de datos de prueba...');
+  await ensureSchemaReady();
 
-  // 1. Actividad (Aquí SÍ dejamos el ID fijo porque actúa como un catálogo fijo)
-  const padel = await prisma.activityType.upsert({
-    where: { id: 1 },
-    update: {},
-    create: {
-      id: 1, 
-      name: 'Pádel',
-      description: 'Deporte de paleta',
-      defaultDurationMinutes: 90
-    },
-  });
-  console.log('✅ Actividad creada: Pádel');
-
-  const tenis = await prisma.activityType.upsert({
-    where: { id: 2 },
-    update: {},
-    create: {
-      id: 2,
-      name: 'Tenis',
-      description: 'Deporte de raqueta',
-      defaultDurationMinutes: 90
-    }
-  });
-  console.log('✅ Actividad creada: Tenis');
-
-  const futbol = await prisma.activityType.upsert({
-    where: { id: 3 },
-    update: {},
-    create: {
-      id: 3,
-      name: 'Fútbol',
-      description: 'Deporte de equipo',
-      defaultDurationMinutes: 60
-    }
-  });
-  console.log('✅ Actividad creada: Fútbol');
-
-  // 2. Ubicaciones
+  // 2. Ubicaciones (¡Agregamos Madrid!)
   const locationRíoTercero = await prismaAny.location.upsert({
     where: { city_province_country: { city: 'Río Tercero', province: 'Córdoba', country: 'Argentina' } },
-    update: {},
-    create: { city: 'Río Tercero', province: 'Córdoba', country: 'Argentina' }
+    update: {}, create: { city: 'Río Tercero', province: 'Córdoba', country: 'Argentina' }
   });
 
   const locationCaba = await prismaAny.location.upsert({
     where: { city_province_country: { city: 'Ciudad Autónoma de Buenos Aires', province: 'Buenos Aires', country: 'Argentina' } },
-    update: {},
-    create: { city: 'Ciudad Autónoma de Buenos Aires', province: 'Buenos Aires', country: 'Argentina' }
+    update: {}, create: { city: 'Ciudad Autónoma de Buenos Aires', province: 'Buenos Aires', country: 'Argentina' }
   });
 
-  // 3. Clubes (Múltiples clubes para demostrar funcionalidad multi-club)
+  const locationMadrid = await prismaAny.location.upsert({
+    where: { city_province_country: { city: 'Madrid', province: 'Madrid', country: 'España' } },
+    update: {}, create: { city: 'Madrid', province: 'Madrid', country: 'España' }
+  });
+
+  // 3. Clubes
   const club1 = await prismaAny.club.upsert({
     where: { slug: 'las-tejas' },
     update: {
-      name: 'Las Tejas Pádel',
-      addressLine: 'Sarmiento 60',
-      city: 'Río Tercero',
-      province: 'Córdoba',
-      country: 'Argentina',
-      locationId: locationRíoTercero.id,
-      contactInfo: 'contacto@lastejas.com',
-      phone: '+54 9 357 135 9791',
-      logoUrl: '/logo1.svg',
-      instagramUrl: 'https://www.instagram.com/lastejaspadel/',
-      description: 'Complejo deportivo Las Tejas Pádel'
+      name: 'Las Tejas Pádel', addressLine: 'Sarmiento 60', city: 'Río Tercero', province: 'Córdoba', country: 'Argentina',
+      locationId: locationRíoTercero.id, contactInfo: 'contacto@lastejas.com', phone: '+54 9 357 135 9791',
+      logoUrl: '/logo1.svg', instagramUrl: 'https://www.instagram.com/lastejaspadel/', description: 'Complejo deportivo Las Tejas Pádel'
     },
     create: {
-      slug: 'las-tejas',
-      name: 'Las Tejas Pádel',
-      addressLine: 'Sarmiento 60',
-      city: 'Río Tercero',
-      province: 'Córdoba',
-      country: 'Argentina',
-      locationId: locationRíoTercero.id,
-      contactInfo: 'contacto@lastejas.com',
-      phone: '+54 9 357 135 9791',
-      logoUrl: '/logo1.svg',
-      instagramUrl: 'https://www.instagram.com/lastejaspadel/',
-      description: 'Complejo deportivo Las Tejas Pádel'
+      slug: 'las-tejas', name: 'Las Tejas Pádel', addressLine: 'Sarmiento 60', city: 'Río Tercero', province: 'Córdoba', country: 'Argentina',
+      locationId: locationRíoTercero.id, contactInfo: 'contacto@lastejas.com', phone: '+54 9 357 135 9791',
+      logoUrl: '/logo1.svg', instagramUrl: 'https://www.instagram.com/lastejaspadel/', description: 'Complejo deportivo Las Tejas Pádel'
     }
   });
-  console.log(`✅ Club creado: ${club1.name} (ID: ${club1.id}, Slug: ${club1.slug})`);
+  console.log(`✅ Club: ${club1.name}`);
 
   const club2 = await prismaAny.club.upsert({
     where: { slug: 'club-central' },
     update: {
-      name: 'Club Deportivo Central',
-      addressLine: 'Av. Siempre Viva 742',
-      city: 'Ciudad Autónoma de Buenos Aires',
-      province: 'Buenos Aires',
-      country: 'Argentina',
-      locationId: locationCaba.id,
-      contactInfo: 'contacto@clubcentral.com',
-      phone: '+54 9 11 1234 5678',
-      description: 'Club deportivo con múltiples canchas'
+      name: 'Club Deportivo Central', addressLine: 'Av. Siempre Viva 742', city: 'Ciudad Autónoma de Buenos Aires', province: 'Buenos Aires', country: 'Argentina',
+      locationId: locationCaba.id, contactInfo: 'contacto@clubcentral.com', phone: '+54 9 11 1234 5678', description: 'Club deportivo con múltiples canchas'
     },
     create: {
-      slug: 'club-central',
-      name: 'Club Deportivo Central',
-      addressLine: 'Av. Siempre Viva 742',
-      city: 'Ciudad Autónoma de Buenos Aires',
-      province: 'Buenos Aires',
-      country: 'Argentina',
-      locationId: locationCaba.id,
-      contactInfo: 'contacto@clubcentral.com',
-      phone: '+54 9 11 1234 5678',
-      description: 'Club deportivo con múltiples canchas'
+      slug: 'club-central', name: 'Club Deportivo Central', addressLine: 'Av. Siempre Viva 742', city: 'Ciudad Autónoma de Buenos Aires', province: 'Buenos Aires', country: 'Argentina',
+      locationId: locationCaba.id, contactInfo: 'contacto@clubcentral.com', phone: '+54 9 11 1234 5678', description: 'Club deportivo con múltiples canchas'
     }
   });
-  console.log(`✅ Club creado: ${club2.name} (ID: ${club2.id}, Slug: ${club2.slug})`);
+  console.log(`✅ Club: ${club2.name}`);
 
-  // 3. Canchas
-  await prismaAny.court.create({
-    data: {
-      name: 'Cancha 1',
-      clubId: club1.id,
-      isIndoor: true,
-      surface: 'Sintético',
-      price: 28000,
-      activityTypeId: padel.id,
-      activities: { connect: { id: padel.id } }
-    } as any,
+  const club3 = await prismaAny.club.upsert({
+    where: { slug: 'madrid-padel-center' },
+    update: {
+      name: 'Madrid Pádel Center', addressLine: 'Calle de Alcalá 500', city: 'Madrid', province: 'Madrid', country: 'España',
+      locationId: locationMadrid.id, contactInfo: 'hola@madridpadel.es', phone: '+34 600 123 456', logoUrl: '/logo2.svg',
+      instagramUrl: 'https://www.instagram.com/madridpadelcenter/', description: 'El mejor complejo de pádel en la capital española'
+    },
+    create: {
+      slug: 'madrid-padel-center', name: 'Madrid Pádel Center', addressLine: 'Calle de Alcalá 500', city: 'Madrid', province: 'Madrid', country: 'España',
+      locationId: locationMadrid.id, contactInfo: 'hola@madridpadel.es', phone: '+34 600 123 456', logoUrl: '/logo2.svg',
+      instagramUrl: 'https://www.instagram.com/madridpadelcenter/', description: 'El mejor complejo de pádel en la capital española'
+    }
   });
-  console.log('✅ Cancha creada: Cancha 1 (Las Tejas)');
+  console.log(`✅ Club: ${club3.name} (TimeZone: Europe/Madrid)`);
 
-  await prismaAny.court.create({
-    data: {
-      name: 'Cancha 2',
-      clubId: club1.id,
-      isIndoor: false,
-      surface: 'Césped',
-      price: 28000,
-      activityTypeId: padel.id,
-      activities: { connect: { id: padel.id } }
-    } as any,
+  const upsertClubSettings = async (club: { id: number }, timeZone: string) => {
+    await prisma.clubSettings.upsert({
+      where: { clubId: club.id },
+      update: {
+        timeZone,
+        openingDays: [1, 2, 3, 4, 5, 6],
+        lightsEnabled: true,
+        lightsExtraAmount: 5000,
+        lightsFromHour: '20:00',
+        bookingSimpleAdvanceDaysUser: 30,
+        bookingSimpleAdvanceDaysAdmin: 30,
+        allowAdminSkipSimpleAdvanceLimit: false
+      },
+      create: {
+        clubId: club.id,
+        timeZone,
+        openingDays: [1, 2, 3, 4, 5, 6],
+        lightsEnabled: true,
+        lightsExtraAmount: 5000,
+        lightsFromHour: '20:00',
+        bookingSimpleAdvanceDaysUser: 30,
+        bookingSimpleAdvanceDaysAdmin: 30,
+        allowAdminSkipSimpleAdvanceLimit: false
+      }
+    });
+  };
+
+  await upsertClubSettings(club1, 'America/Argentina/Buenos_Aires');
+  await upsertClubSettings(club2, 'America/Argentina/Buenos_Aires');
+  await upsertClubSettings(club3, 'Europe/Madrid');
+  console.log('✅ ClubSettings creado/actualizado');
+
+  // 4. Actividades por club (multi-tenant)
+  const ensureActivityType = async (clubId: number, name: string, description: string, defaultDurationMinutes: number) => {
+    const existing = await prisma.activityType.findFirst({
+      where: { clubId, name }
+    });
+
+    if (existing) {
+      return prisma.activityType.update({
+        where: { id: existing.id },
+        data: { description, defaultDurationMinutes }
+      });
+    }
+
+    return prisma.activityType.create({
+      data: { clubId, name, description, defaultDurationMinutes }
+    });
+  };
+
+  const padelClub1 = await ensureActivityType(club1.id, 'Pádel', 'Deporte de paleta', 90);
+  const tenisClub1 = await ensureActivityType(club1.id, 'Tenis', 'Deporte de raqueta', 90);
+  const futbolClub1 = await ensureActivityType(club1.id, 'Fútbol', 'Deporte de equipo', 60);
+
+  const padelClub2 = await ensureActivityType(club2.id, 'Pádel', 'Deporte de paleta', 90);
+  const tenisClub2 = await ensureActivityType(club2.id, 'Tenis', 'Deporte de raqueta', 90);
+  const futbolClub2 = await ensureActivityType(club2.id, 'Fútbol', 'Deporte de equipo', 60);
+
+  const padelClub3 = await ensureActivityType(club3.id, 'Pádel', 'Deporte de paleta', 90);
+  const tenisClub3 = await ensureActivityType(club3.id, 'Tenis', 'Deporte de raqueta', 90);
+  const futbolClub3 = await ensureActivityType(club3.id, 'Fútbol', 'Deporte de equipo', 60);
+
+  const lasTejasPadelFixedSlots = [
+    '08:00',
+    '09:30',
+    '11:00',
+    '12:30',
+    '14:00',
+    '15:30',
+    '17:30',
+    '19:00',
+    '20:30',
+    '22:00'
+  ].map((start) => ({
+    start,
+    duration: 90
+  }));
+
+  await Promise.all([
+    padelClub1.id,
+    tenisClub1.id,
+    futbolClub1.id
+  ].map((activityTypeId) =>
+    prisma.activityType.update({
+      where: { id: activityTypeId },
+      data: {
+        scheduleMode: 'FIXED',
+        scheduleFixedSlots: lasTejasPadelFixedSlots,
+        scheduleOpenTime: null,
+        scheduleCloseTime: null,
+        scheduleIntervalMinutes: null
+      }
+    })
+  ));
+
+  console.log('✅ Actividades creadas/actualizadas por club');
+
+  // 5. Canchas (idempotente por id fijo)
+  await prisma.court.upsert({
+    where: { id: 101 },
+    update: { name: 'Cancha 1', clubId: club1.id, isIndoor: true, surface: 'Sintético', price: 28000, activityTypeId: padelClub1.id },
+    create: { id: 101, name: 'Cancha 1', clubId: club1.id, isIndoor: true, surface: 'Sintético', price: 28000, activityTypeId: padelClub1.id }
   });
-  console.log('✅ Cancha creada: Cancha 2 (Las Tejas)');
-
-  await prismaAny.court.create({
-    data: {
-      name: 'Cancha Central',
-      clubId: club2.id,
-      isIndoor: true,
-      surface: 'Sintético',
-      price: 30000,
-      activityTypeId: padel.id,
-      activities: { connect: { id: padel.id } }
-    } as any,
+  await prisma.court.upsert({
+    where: { id: 102 },
+    update: { name: 'Cancha 2', clubId: club1.id, isIndoor: false, surface: 'Césped', price: 28000, activityTypeId: padelClub1.id },
+    create: { id: 102, name: 'Cancha 2', clubId: club1.id, isIndoor: false, surface: 'Césped', price: 28000, activityTypeId: padelClub1.id }
   });
-  console.log('✅ Cancha creada: Cancha Central (Club Central)');
-
-  await prismaAny.court.create({
-    data: {
-      name: 'Cancha Tenis 1',
-      clubId: club1.id,
-      isIndoor: false,
-      surface: 'Polvo de ladrillo',
-      price: 32000,
-      activityTypeId: tenis.id,
-      activities: { connect: { id: tenis.id } }
-    } as any,
+  await prisma.court.upsert({
+    where: { id: 103 },
+    update: { name: 'Cancha Central', clubId: club2.id, isIndoor: true, surface: 'Sintético', price: 30000, activityTypeId: padelClub2.id },
+    create: { id: 103, name: 'Cancha Central', clubId: club2.id, isIndoor: true, surface: 'Sintético', price: 30000, activityTypeId: padelClub2.id }
   });
-  console.log('✅ Cancha creada: Cancha Tenis 1 (Las Tejas)');
-
-  await prismaAny.court.create({
-    data: {
-      name: 'Cancha Fútbol 5',
-      clubId: club2.id,
-      isIndoor: false,
-      surface: 'Césped sintético',
-      price: 35000,
-      activityTypeId: futbol.id,
-      activities: { connect: { id: futbol.id } }
-    } as any,
+  await prisma.court.upsert({
+    where: { id: 104 },
+    update: { name: 'Cancha Tenis 1', clubId: club1.id, isIndoor: false, surface: 'Polvo de ladrillo', price: 32000, activityTypeId: tenisClub1.id },
+    create: { id: 104, name: 'Cancha Tenis 1', clubId: club1.id, isIndoor: false, surface: 'Polvo de ladrillo', price: 32000, activityTypeId: tenisClub1.id }
   });
-  console.log('✅ Cancha creada: Cancha Fútbol 5 (Club Central)');
+  await prisma.court.upsert({
+    where: { id: 105 },
+    update: { name: 'Cancha Fútbol 5', clubId: club2.id, isIndoor: false, surface: 'Césped sintético', price: 35000, activityTypeId: futbolClub2.id },
+    create: { id: 105, name: 'Cancha Fútbol 5', clubId: club2.id, isIndoor: false, surface: 'Césped sintético', price: 35000, activityTypeId: futbolClub2.id }
+  });
+  await prisma.court.upsert({
+    where: { id: 106 },
+    update: { name: 'Pista Central WPT', clubId: club3.id, isIndoor: true, surface: 'Sintético', price: 40000, activityTypeId: padelClub3.id },
+    create: { id: 106, name: 'Pista Central WPT', clubId: club3.id, isIndoor: true, surface: 'Sintético', price: 40000, activityTypeId: padelClub3.id }
+  });
+  console.log('✅ Canchas creadas');
 
-  // 4. Usuarios (asociados a clubes)
+  const upsertProduct = async (clubId: number, name: string, price: number, stock: number, category: string) => {
+    const existing = await prisma.product.findFirst({ where: { clubId, name } });
+    if (existing) {
+      return prisma.product.update({
+        where: { id: existing.id },
+        data: { price, stock, category, isActive: true }
+      });
+    }
+    return prisma.product.create({
+      data: { clubId, name, price, stock, category, isActive: true }
+    });
+  };
+
+  await upsertProduct(club1.id, 'Gaseosa 500ml', 2500, 50, 'Bebidas');
+  await upsertProduct(club1.id, 'Agua 500ml', 1800, 60, 'Bebidas');
+  await upsertProduct(club1.id, 'Pelota de Pádel', 9000, 20, 'Insumos');
+
+  await upsertProduct(club2.id, 'Gatorade', 3000, 40, 'Bebidas');
+  await upsertProduct(club2.id, 'Toalla deportiva', 7000, 12, 'Insumos');
+
+  await upsertProduct(club3.id, 'Isotónica', 3500, 35, 'Bebidas');
+  await upsertProduct(club3.id, 'Grip over', 6000, 30, 'Insumos');
+  console.log('✅ Productos creados/actualizados');
+
+  // 6. Usuarios
   const hashedPassword = await bcrypt.hash('123456', 10);
-  const userEmail = 'lio@messi.com';
-
-  // Usuario miembro SIN club asignado (como quien se registra por su cuenta)
-  await prisma.user.upsert({
-    where: { email: userEmail },
-    update: {
-      firstName: 'Lionel',
-      lastName: 'Messi',
-      password: hashedPassword,
-      phoneNumber: '555-101010',
-      role: Role.MEMBER,
-      clubId: null
-    },
-    create: {
-      firstName: 'Lionel',
-      lastName: 'Messi',
-      email: userEmail,
-      password: hashedPassword,
-      phoneNumber: '555-101010',
-      role: Role.MEMBER
-      // clubId no se asigna: usuarios que se registran no tienen club
-    },
-  });
-  console.log('✅ Usuario creado o actualizado: Lionel Messi (sin club)');
-  
-  // Admin del club 1 (Las Tejas)
   const adminPassword = await bcrypt.hash('admin123', 10);
-  const adminEmail = 'admin@lastejas.com';
 
-  await prisma.user.upsert({
-    where: { email: adminEmail },
-    update: {
-      firstName: 'Admin',
-      lastName: 'Las Tejas',
-      password: adminPassword,
-      phoneNumber: '000-000000',
-      role: Role.ADMIN,
-      clubId: club1.id
-    },
-    create: {
-      firstName: 'Admin',
-      lastName: 'Las Tejas',
-      email: adminEmail,
-      password: adminPassword,
-      phoneNumber: '000-000000',
-      role: Role.ADMIN,
-      clubId: club1.id
-    },
+  // Usuario Sin Club
+  const lioUser = await prisma.user.upsert({
+    where: { email: 'lio@messi.com' },
+    update: { firstName: 'Lionel', lastName: 'Messi', password: hashedPassword, phoneNumber: '555-101010', role: Role.MEMBER },
+    create: { firstName: 'Lionel', lastName: 'Messi', email: 'lio@messi.com', password: hashedPassword, phoneNumber: '555-101010', role: Role.MEMBER },
   });
-  console.log('✅ Usuario admin creado o actualizado:', adminEmail, '(Las Tejas)');
 
-  // Admin del club 2 (Club Central)
-  const admin2Email = 'admin@clubcentral.com';
-  await prisma.user.upsert({
-    where: { email: admin2Email },
-    update: {
-      firstName: 'Admin',
-      lastName: 'Central',
-      password: adminPassword,
-      phoneNumber: '000-000001',
-      role: Role.ADMIN,
-      clubId: club2.id
-    },
-    create: {
-      firstName: 'Admin',
-      lastName: 'Central',
-      email: admin2Email,
-      password: adminPassword,
-      phoneNumber: '000-000001',
-      role: Role.ADMIN,
-      clubId: club2.id
-    },
+  // Admin Tejas
+  const adminTejas = await prisma.user.upsert({
+    where: { email: 'admin@lastejas.com' },
+    update: { firstName: 'Admin', lastName: 'Las Tejas', password: adminPassword, phoneNumber: '000-000000', role: Role.ADMIN },
+    create: { firstName: 'Admin', lastName: 'Las Tejas', email: 'admin@lastejas.com', password: adminPassword, phoneNumber: '000-000000', role: Role.ADMIN },
   });
-  console.log('✅ Usuario admin creado o actualizado:', admin2Email, '(Club Central)');
 
-  // Usuario miembro del club 2
-  const user2Email = 'usuario@clubcentral.com';
-  await prisma.user.upsert({
-    where: { email: user2Email },
-    update: {
-      firstName: 'Juan',
-      lastName: 'Pérez',
-      password: hashedPassword,
-      phoneNumber: '555-202020',
-      role: Role.MEMBER,
-      clubId: club2.id
-    },
-    create: {
-      firstName: 'Juan',
-      lastName: 'Pérez',
-      email: user2Email,
-      password: hashedPassword,
-      phoneNumber: '555-202020',
-      role: Role.MEMBER,
-      clubId: club2.id
-    },
+  // Admin Central
+  const adminCentral = await prisma.user.upsert({
+    where: { email: 'admin@clubcentral.com' },
+    update: { firstName: 'Admin', lastName: 'Central', password: adminPassword, phoneNumber: '000-000001', role: Role.ADMIN },
+    create: { firstName: 'Admin', lastName: 'Central', email: 'admin@clubcentral.com', password: adminPassword, phoneNumber: '000-000001', role: Role.ADMIN },
   });
-  console.log('✅ Usuario creado o actualizado: Juan Pérez (Club Central)');
+
+  // Admin Madrid (¡NUEVO!)
+  const adminMadrid = await prisma.user.upsert({
+    where: { email: 'admin@madridpadel.es' },
+    update: { firstName: 'Admin', lastName: 'Madrid', password: adminPassword, phoneNumber: '+34600000000', role: Role.ADMIN },
+    create: { firstName: 'Admin', lastName: 'Madrid', email: 'admin@madridpadel.es', password: adminPassword, phoneNumber: '+34600000000', role: Role.ADMIN },
+  });
+
+  // Miembro Central
+  const memberCentral = await prisma.user.upsert({
+    where: { email: 'usuario@clubcentral.com' },
+    update: { firstName: 'Juan', lastName: 'Pérez', password: hashedPassword, phoneNumber: '555-202020', role: Role.MEMBER },
+    create: { firstName: 'Juan', lastName: 'Pérez', email: 'usuario@clubcentral.com', password: hashedPassword, phoneNumber: '555-202020', role: Role.MEMBER },
+  });
+
+  // 7. Memberships (fuente de verdad multi-club)
+  const upsertMembership = async (userId: number, clubId: number, role: MembershipRole) => {
+    await prisma.membership.upsert({
+      where: { userId_clubId: { userId, clubId } },
+      update: { role },
+      create: { userId, clubId, role }
+    });
+  };
+
+  await upsertMembership(adminTejas.id, club1.id, MembershipRole.OWNER);
+  await upsertMembership(adminCentral.id, club2.id, MembershipRole.OWNER);
+  await upsertMembership(adminMadrid.id, club3.id, MembershipRole.OWNER);
+  await upsertMembership(memberCentral.id, club2.id, MembershipRole.CUSTOMER);
+
+  // Membership opcional para pruebas cross-club
+  await upsertMembership(lioUser.id, club1.id, MembershipRole.CUSTOMER);
+
+  console.log('✅ Usuarios y memberships creados');
+
+  const normalizePhone = (value?: string) => {
+    if (!value) return null;
+    const digits = value.replace(/\D/g, '');
+    if (!digits) return null;
+    if (digits.startsWith('549') && digits.length >= 12) return digits;
+    if (digits.startsWith('54') && digits.length >= 12) return `549${digits.slice(2)}`;
+    if (digits.length === 10) return `549${digits}`;
+    if (digits.startsWith('0') && digits.length === 11) return `549${digits.slice(1)}`;
+    return digits.length >= 8 ? digits : null;
+  };
+
+  const normalizeDni = (value?: string) => {
+    if (!value) return null;
+    const digits = value.replace(/\D/g, '');
+    return digits.length >= 6 ? digits : null;
+  };
+
+  const upsertClient = async (
+    clubId: number,
+    name: string,
+    phone?: string,
+    email?: string,
+    dni?: string,
+    userId?: number,
+    isProfessor: boolean = false
+  ) => {
+    const normalizedPhone = normalizePhone(phone);
+    const normalizedDni = normalizeDni(dni);
+    const safeEmail = email?.trim().toLowerCase() || null;
+
+    let existing = null;
+
+    if (userId) {
+      existing = await prismaAny.client.findFirst({ where: { clubId, userId } });
+    }
+
+    if (!existing && normalizedDni) {
+      existing = await prismaAny.client.findFirst({ where: { clubId, dni: normalizedDni } });
+    }
+
+    if (!existing && normalizedPhone) {
+      existing = await prismaAny.client.findFirst({ where: { clubId, phone: normalizedPhone } });
+    }
+
+    if (!existing && safeEmail) {
+      existing = await prismaAny.client.findFirst({ where: { clubId, email: safeEmail } });
+    }
+
+    if (!existing) {
+      existing = await prismaAny.client.findFirst({ where: { clubId, name } });
+    }
+
+    const upsertPayload = {
+      name,
+      phone: normalizedPhone,
+      email: safeEmail,
+      dni: normalizedDni,
+      userId: userId ?? null,
+      isProfessor: Boolean(isProfessor)
+    };
+
+    if (existing) {
+      return prismaAny.client.update({
+        where: { id: existing.id },
+        data: upsertPayload
+      });
+    }
+
+    return prismaAny.client.create({
+      data: {
+        clubId,
+        ...upsertPayload
+      }
+    });
+  };
+
+  await upsertClient(club1.id, 'Lionel Messi', '555-101010', 'lio@messi.com', '30123123', lioUser.id, true);
+  await upsertClient(club1.id, 'Cliente Mostrador Tejas', '+54 9 357 000 0001', 'cliente.tejas@example.com', '30999001');
+  await upsertClient(club2.id, 'Juan Perez', '555-202020', 'usuario@clubcentral.com', '30999002', memberCentral.id);
+  await upsertClient(club2.id, 'Cliente Mostrador Central', '+54 9 11 0000 0002', 'cliente.central@example.com', '30999003', undefined, true);
+  await upsertClient(club3.id, 'Cliente Mostrador Madrid', '+34 600 111 222', 'cliente.madrid@example.com', '30999004');
+  console.log('✅ Clientes creados/actualizados');
+
+  const upsertCashRegister = async (clubId: number) => {
+    return prisma.cashRegister.upsert({
+      where: { clubId_name: { clubId, name: 'Caja Principal' } },
+      update: {},
+      create: {
+        clubId,
+        name: 'Caja Principal'
+      }
+    });
+  };
+
+  const register1 = await upsertCashRegister(club1.id);
+  const register2 = await upsertCashRegister(club2.id);
+  const register3 = await upsertCashRegister(club3.id);
+
+  const ensureOpenShift = async (cashRegisterId: string, openedByUserId: number, clubId: number) => {
+    const openShift = await prisma.cashShift.findFirst({
+      where: { cashRegisterId, status: 'OPEN' }
+    });
+
+    if (openShift) return openShift;
+
+    return prisma.cashShift.create({
+      data: {
+        cashRegisterId,
+        clubId,
+        openedByUserId,
+        openingAmount: 50000,
+        status: 'OPEN'
+      }
+    });
+  };
+
+  await ensureOpenShift(register1.id, adminTejas.id, register1.clubId);
+  await ensureOpenShift(register2.id, adminCentral.id, register2.clubId);
+  await ensureOpenShift(register3.id, adminMadrid.id, register3.clubId);
+  console.log('✅ Caja principal y turnos de caja abiertos');
 }
 
 main()
@@ -301,4 +440,3 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
-

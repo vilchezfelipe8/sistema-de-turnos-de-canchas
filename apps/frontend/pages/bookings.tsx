@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import Head from 'next/head';
 import { useRouter } from 'next/router';
 import Navbar from '../components/NavBar';
 import { getMyBookings, cancelBooking } from '../services/BookingService';
+import { getMyReviewForBooking, upsertMyClubReview } from '../services/ClubReviewService';
 import AppModal from '../components/AppModal';
 import { useValidateAuth } from '../hooks/useValidateAuth';
+import { getPendingLogoutRedirect } from '../services/AuthService';
 import Link from 'next/link';
-import { Calendar, Clock, MapPin, Ticket, ArrowRight, Search, XCircle, AlertCircle, CheckCircle2 } from 'lucide-react';
+import RouteTransitionScreen from '../components/RouteTransitionScreen';
+import { Calendar, Clock, MapPin, Ticket, ArrowRight, Search, XCircle, AlertCircle, CheckCircle2, Star, MessageSquare } from 'lucide-react';
 
 export default function MyBookingsPage() {
   const router = useRouter();
@@ -13,6 +17,8 @@ export default function MyBookingsPage() {
   const [bookings, setBookings] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'ACTIVE' | 'PAST' | 'CANCELLED'>('ACTIVE');
   const [selectedBooking, setSelectedBooking] = useState<any | null>(null);
+  const bookingRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const selectedDetailRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [modalState, setModalState] = useState<{
@@ -24,6 +30,12 @@ export default function MyBookingsPage() {
     isWarning?: boolean;
     onConfirm?: () => Promise<void> | void;
   }>({ show: false });
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewSaving, setReviewSaving] = useState(false);
+  const reviewBackdropMouseDownRef = useRef(false);
   
   // Mantenemos las refs para no romper el useEffect original, aunque cambiemos el estilo visual
   const tabRefs = useRef<Record<'ACTIVE' | 'PAST' | 'CANCELLED', HTMLButtonElement | null>>({
@@ -88,6 +100,12 @@ export default function MyBookingsPage() {
     loadData();
   }, [authChecked, user, loadData]);
 
+  useEffect(() => {
+    if (!authChecked || user) return;
+    if (getPendingLogoutRedirect()) return;
+    void router.replace(`/login?from=${encodeURIComponent(router.asPath || '/bookings')}`);
+  }, [authChecked, user, router]);
+
   const { activeBookings, pastBookings, cancelledBookings } = useMemo(() => {
     const now = new Date();
     const active: any[] = [];
@@ -134,6 +152,31 @@ export default function MyBookingsPage() {
       setSelectedBooking(null);
     }
   }, [bookings, selectedBooking]);
+
+  useEffect(() => {
+    if (!reviewModalOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !reviewSaving) {
+        setReviewModalOpen(false);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [reviewModalOpen, reviewSaving]);
+
+  useEffect(() => {
+    if (!selectedBooking) return;
+    const el = selectedDetailRef.current;
+    if (!el) return;
+    try {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.focus({ preventScroll: true });
+    } catch (_) {
+      el.scrollIntoView();
+    }
+  }, [selectedBooking]);
 
   const formatDayLabel = (date: Date) =>
     date.toLocaleDateString('es-AR', {
@@ -198,37 +241,100 @@ export default function MyBookingsPage() {
     });
   };
 
-  if (!authChecked || !user) return null;
+  const handleOpenReviewModal = async (booking: any) => {
+    const clubSlug = String(booking?.court?.club?.slug || '').trim();
+    const bookingId = Number(booking?.id || 0);
+    if (!clubSlug || !Number.isInteger(bookingId) || bookingId <= 0) {
+      showError('No se pudo preparar la reseña para esta reserva');
+      return;
+    }
+
+    setReviewModalOpen(true);
+    setReviewLoading(true);
+    try {
+      const existing = await getMyReviewForBooking(clubSlug, bookingId);
+      if (existing) {
+        setReviewRating(Number(existing.rating || 5));
+        setReviewComment(String(existing.comment || ''));
+      } else {
+        setReviewRating(5);
+        setReviewComment('');
+      }
+    } catch (error: any) {
+      showError(error?.message || 'No se pudo cargar tu reseña');
+      setReviewModalOpen(false);
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
+  const handleSubmitReview = async () => {
+    if (!selectedBooking) return;
+    const clubSlug = String(selectedBooking?.court?.club?.slug || '').trim();
+    const bookingId = Number(selectedBooking?.id || 0);
+    if (!clubSlug || !Number.isInteger(bookingId) || bookingId <= 0) {
+      showError('No se pudo identificar la reserva para guardar la reseña');
+      return;
+    }
+
+    try {
+      setReviewSaving(true);
+      await upsertMyClubReview(clubSlug, {
+        bookingId,
+        rating: reviewRating,
+        comment: reviewComment.trim() || null
+      });
+      setReviewModalOpen(false);
+      setReviewComment('');
+      showConfirm({
+        title: 'Reseña guardada',
+        message: 'Tu reseña fue guardada correctamente.',
+        confirmText: 'Aceptar',
+        cancelText: '',
+        isWarning: false,
+        onConfirm: async () => {}
+      });
+    } catch (error: any) {
+      showError(error?.message || 'No se pudo guardar la reseña');
+    } finally {
+      setReviewSaving(false);
+    }
+  };
+
+  if (!authChecked || !user) return <RouteTransitionScreen message={authChecked ? 'Redirigiendo...' : 'Validando sesion...'} />;
 
   // --- RENDERIZADO VISUAL PREMIUM ---
   return (
-    <div className="min-h-screen bg-[#347048] relative overflow-hidden text-[#D4C5B0]">
+    <>
+      <Head>
+        <title>Mis turnos | TuCancha</title>
+      </Head>
+      <div className="min-h-screen bg-vibrant-brand relative overflow-hidden text-[#D4C5B0]">
       {/* Fondo Decorativo */}
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none opacity-20">
-        <div className="absolute top-[-10%] right-[-10%] w-[600px] h-[600px] bg-[#B9CF32] rounded-full blur-[120px]"></div>
-        <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-[#926699] rounded-full blur-[120px]"></div>
+        <div className="absolute bottom-[-10%] left-[-10%] w-[360px] h-[360px] bg-[#926699]/30 rounded-full"></div>
       </div>
 
       <div className="relative z-10 flex flex-col min-h-screen">
         <Navbar />
 
-        <div className="flex-1 max-w-7xl mx-auto w-full px-4 py-8 md:py-12 mt-16">
+        <div className="density-compact flex-1 max-w-7xl mx-auto w-full px-4 py-6 md:py-8 mt-16">
           
           {/* Header */}
-          <div className="flex items-center gap-4 mb-8 animate-in slide-in-from-top-4 duration-500">
+          <div className="flex items-center gap-3 mb-5 animate-in slide-in-from-top-4 duration-500">
             <div className="bg-[#EBE1D8] p-3 rounded-2xl text-[#347048] shadow-lg">
               <Ticket size={32} strokeWidth={2.5} />
             </div>
             <div>
-              <h1 className="text-4xl font-black text-[#EBE1D8] uppercase italic tracking-tighter">Mis Reservas</h1>
+              <h1 className="text-3xl font-black text-[#EBE1D8] uppercase italic tracking-tighter">Mis Reservas</h1>
               <p className="text-[#B9CF32] font-bold text-sm tracking-widest uppercase">Historial y próximos partidos</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-8 h-full">
+          <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-5 h-full">
             
             {/* PANEL IZQUIERDO: LISTA */}
-            <div className="bg-[#EBE1D8] rounded-[2.5rem] p-6 md:p-8 shadow-2xl border-4 border-white/50 flex flex-col min-h-[600px] md:min-h-[700px] animate-in slide-in-from-left-4 duration-500 delay-100">
+            <div className="bg-[#EBE1D8] rounded-[1.5rem] p-4 md:p-5 shadow-2xl border-4 border-white/50 flex flex-col min-h-[520px] md:min-h-[620px] animate-in slide-in-from-left-4 duration-500 delay-100">
               
               {/* TABS PILDORA */}
               <div className="flex p-1 bg-[#347048]/10 rounded-2xl mb-6 relative">
@@ -283,6 +389,8 @@ export default function MyBookingsPage() {
                     return (
                       <div 
                         key={booking.id}
+                        ref={(el) => { bookingRefs.current[booking.id] = el; }}
+                        tabIndex={-1}
                         onClick={() => setSelectedBooking(booking)}
                         className={`group cursor-pointer relative p-5 rounded-2xl border-2 transition-all duration-300 hover:shadow-lg ${
                           isSelected
@@ -325,12 +433,12 @@ export default function MyBookingsPage() {
             {/* PANEL DERECHO: DETALLE (STICKY) */}
             <div className="relative animate-in slide-in-from-right-4 duration-500 delay-200">
               {selectedBooking ? (
-                <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl border-8 border-[#EBE1D8] h-fit sticky top-24">
+                <div ref={(el) => { selectedDetailRef.current = el; }} tabIndex={-1} className="bg-white rounded-[1.5rem] p-5 shadow-2xl border-4 border-[#EBE1D8] h-fit sticky top-20">
                   <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#347048] text-[#EBE1D8] px-6 py-2 rounded-full font-black text-xs uppercase tracking-widest shadow-lg flex items-center gap-2">
                     <Ticket size={14} /> Ticket de Reserva
                   </div>
 
-                  <div className="text-center mt-6 mb-8 border-b-2 border-dashed border-[#347048]/10 pb-8">
+                  <div className="text-center mt-4 mb-5 border-b-2 border-dashed border-[#347048]/10 pb-5">
                     <h2 className="text-2xl md:text-3xl font-black text-[#347048] italic tracking-tighter uppercase mb-2">
                       {selectedBooking.court?.name}
                     </h2>
@@ -339,7 +447,7 @@ export default function MyBookingsPage() {
                     </span>
                   </div>
 
-                  <div className="space-y-6">
+                  <div className="space-y-4">
                     <div className="flex items-center gap-4">
                       <div className="bg-[#347048]/5 p-3 rounded-xl text-[#347048]"><Calendar size={20} /></div>
                       <div>
@@ -360,26 +468,23 @@ export default function MyBookingsPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-4">
+                   <div className="flex items-center gap-4">
                       <div className="bg-[#347048]/5 p-3 rounded-xl text-[#347048]"><MapPin size={20} /></div>
                       <div>
                         <p className="text-[10px] font-black text-[#347048]/40 uppercase tracking-widest">Ubicación</p>
                         <p className="font-bold text-[#347048] text-sm leading-tight">
-                            {[
-       // 👇 Acá probamos todas las variantes posibles por si acaso
-       selectedBooking.court?.club?.addressLine, 
-       selectedBooking.court?.club?.address,
-       selectedBooking.court?.club?.street, 
-       selectedBooking.court?.club?.city
-     ]
-     .filter(Boolean) // Esto borra los nulos
-     .join(', ') || 'Dirección no disponible'}
+                          {Array.from(new Set([
+                            selectedBooking.court?.club?.addressLine, 
+                            selectedBooking.court?.club?.address,
+                            selectedBooking.court?.club?.street, 
+                            selectedBooking.court?.club?.city
+                          ].filter(Boolean))).join(', ') || 'Dirección no disponible'}
                         </p>
                       </div>
                     </div>
                   </div>
 
-                  <div className="mt-10 pt-6 border-t-2 border-[#347048]/10 flex flex-col gap-4">
+                  <div className="mt-6 pt-4 border-t-2 border-[#347048]/10 flex flex-col gap-3">
                     <div className="flex justify-between items-end">
                       <span className="font-black text-[#347048]/40 text-xs uppercase tracking-widest mb-1">Total Pagado</span>
                       <span className="font-black text-[#347048] text-3xl tracking-tight">{formatCurrency(selectedBooking.price || 0)}</span>
@@ -396,24 +501,34 @@ export default function MyBookingsPage() {
                     {activeTab === 'ACTIVE' && (
                       <button 
                         onClick={() => handleCancel(selectedBooking.id)}
-                        className="w-full mt-2 py-4 rounded-xl border-2 border-red-100 bg-red-50 text-red-500 font-bold text-xs uppercase tracking-widest hover:bg-red-500 hover:text-white hover:border-red-500 transition-all flex justify-center items-center gap-2"
+                        className="compact-field w-full mt-2 py-3 rounded-xl border-2 border-red-100 bg-red-50 text-red-500 font-bold text-xs uppercase tracking-widest hover:bg-red-500 hover:text-white hover:border-red-500 transition-all flex justify-center items-center gap-2"
                       >
                         <XCircle size={16} /> Cancelar Reserva
                       </button>
                     )}
                     
                     {(activeTab === 'PAST' || activeTab === 'CANCELLED') && selectedBooking.court?.club?.slug && (
-                        <Link 
-                            href={`/club/${selectedBooking.court.club.slug}`}
-                            className="w-full mt-2 py-4 rounded-xl bg-[#347048] text-[#EBE1D8] font-bold text-xs uppercase tracking-widest hover:bg-[#B9CF32] hover:text-[#347048] transition-all flex justify-center items-center gap-2 text-center"
-                        >
-                            <CheckCircle2 size={16} /> Volver a Reservar
-                        </Link>
+                        <>
+                          {String(selectedBooking?.status || '') === 'COMPLETED' && (
+                            <button
+                              onClick={() => handleOpenReviewModal(selectedBooking)}
+                              className="compact-field w-full mt-2 py-3 rounded-xl border-2 border-[#B9CF32]/40 bg-[#B9CF32]/10 text-[#347048] font-bold text-xs uppercase tracking-widest hover:bg-[#B9CF32] hover:text-[#347048] transition-all flex justify-center items-center gap-2 text-center"
+                            >
+                              <MessageSquare size={16} /> Dejar / Editar reseña del club
+                            </button>
+                          )}
+                          <Link 
+                              href={`/club/${selectedBooking.court.club.slug}`}
+                                className="compact-field w-full mt-2 py-3 rounded-xl bg-[#347048] text-[#EBE1D8] font-bold text-xs uppercase tracking-widest hover:bg-[#B9CF32] hover:text-[#347048] transition-all flex justify-center items-center gap-2 text-center"
+                          >
+                              <CheckCircle2 size={16} /> Volver a Reservar
+                          </Link>
+                        </>
                     )}
                   </div>
                 </div>
               ) : (
-                <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-center p-8 bg-[#EBE1D8]/10 border-4 border-dashed border-[#EBE1D8]/30 rounded-[2.5rem]">
+                <div className="h-full min-h-[320px] flex flex-col items-center justify-center text-center p-6 bg-[#EBE1D8]/10 border-4 border-dashed border-[#EBE1D8]/30 rounded-[1.5rem]">
                   <Ticket size={64} className="text-[#EBE1D8] mb-4 opacity-50" />
                   <p className="text-[#EBE1D8] font-black uppercase tracking-widest text-sm opacity-80">Seleccioná un partido<br/>para ver el ticket</p>
                 </div>
@@ -434,6 +549,94 @@ export default function MyBookingsPage() {
         isWarning={modalState.isWarning}
         onConfirm={modalState.onConfirm}
       />
-    </div>
+
+      {reviewModalOpen && (
+        <div
+          className="fixed inset-0 z-[2147483300] bg-[#347048]/60 p-4 flex items-center justify-center"
+          onMouseDown={(event) => {
+            reviewBackdropMouseDownRef.current = event.target === event.currentTarget;
+          }}
+          onTouchStart={(event) => {
+            reviewBackdropMouseDownRef.current = event.target === event.currentTarget;
+          }}
+          onClick={(event) => {
+            const startedOnBackdrop = reviewBackdropMouseDownRef.current;
+            reviewBackdropMouseDownRef.current = false;
+            if (startedOnBackdrop && event.target === event.currentTarget && !reviewSaving) {
+              setReviewModalOpen(false);
+            }
+          }}
+        >
+          <div
+            className="density-compact w-full max-w-lg bg-[#EBE1D8] rounded-[1.5rem] p-4 md:p-5 shadow-2xl border-4 border-white/60"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 className="text-2xl font-black text-[#347048] uppercase italic tracking-tight mb-2">Tu reseña del club</h3>
+            <p className="text-sm font-bold text-[#347048]/70 mb-5">
+              {selectedBooking?.court?.club?.name || 'Club'} · {selectedBooking?.court?.name || 'Cancha'}
+            </p>
+
+            {reviewLoading ? (
+              <div className="py-10 text-center text-[#347048]/70 font-bold">Cargando reseña...</div>
+            ) : (
+              <div className="space-y-5">
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-widest text-[#347048]/60 mb-2">Calificación</p>
+                  <div className="flex gap-2">
+                    {[1, 2, 3, 4, 5].map((value) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setReviewRating(value)}
+                        className={`h-10 w-10 rounded-xl border-2 flex items-center justify-center transition-all ${
+                          reviewRating >= value
+                            ? 'bg-[#B9CF32] border-[#B9CF32] text-[#347048]'
+                            : 'bg-white border-[#347048]/20 text-[#347048]/40'
+                        }`}
+                        aria-label={`Calificar con ${value}`}
+                      >
+                        <Star size={16} className="fill-current" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-widest text-[#347048]/60 mb-2">Comentario (opcional)</p>
+                  <textarea
+                    value={reviewComment}
+                    onChange={(event) => setReviewComment(event.target.value.slice(0, 220))}
+                    rows={4}
+                    className="w-full rounded-xl border-2 border-[#347048]/20 focus:border-[#B9CF32] bg-white px-4 py-3 text-sm font-semibold text-[#347048] outline-none resize-none"
+                    placeholder="Contá tu experiencia..."
+                  />
+                  <p className="mt-1 text-[11px] text-[#347048]/50 font-bold text-right">{reviewComment.length}/220</p>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-5 flex gap-2.5">
+              <button
+                type="button"
+                onClick={() => setReviewModalOpen(false)}
+                className="flex-1 h-10 rounded-xl border-2 border-[#347048]/20 text-[#347048] font-black text-xs uppercase tracking-widest"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitReview}
+                disabled={reviewLoading || reviewSaving}
+                className="flex-1 h-10 rounded-xl bg-[#347048] text-[#EBE1D8] font-black text-xs uppercase tracking-widest disabled:opacity-60"
+              >
+                {reviewSaving ? 'Guardando...' : 'Guardar reseña'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      </div>
+    </>
   );
 }
+

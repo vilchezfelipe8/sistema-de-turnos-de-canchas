@@ -1,0 +1,1 @@
+Todas las migraciones posteriores a la init fueron agrupadas aquí. El contenido de las migraciones eliminadas fue pegado al final de migration.sql para trazabilidad.

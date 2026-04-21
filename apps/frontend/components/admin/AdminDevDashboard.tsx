@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Activity, Database, Server, Cpu, HardDrive, Clock, AlertTriangle } from 'lucide-react';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+import { getApiUrl } from '../../utils/apiUrl';
+import { reportUiError } from '../../utils/uiError';
 
 const AdminDevDashboard = () => {
   const [metrics, setMetrics] = useState<any>(null);
@@ -10,13 +10,13 @@ const AdminDevDashboard = () => {
 
   const fetchMetrics = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/health`);
-      if (!res.ok) throw new Error('Error fetching health');
+      const res = await fetch(`${getApiUrl()}/api/health`);
+      if (!res.ok) throw new Error('Error al obtener el estado de salud del sistema');
       const data = await res.json();
       setMetrics(data);
       setError(false);
     } catch (err) {
-      console.error(err);
+      reportUiError({ area: 'AdminDevDashboard', action: 'fetchMetrics' }, err);
       setError(true);
     } finally {
       setLoading(false);

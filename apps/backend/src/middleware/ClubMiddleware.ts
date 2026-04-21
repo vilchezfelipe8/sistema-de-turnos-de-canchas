@@ -1,5 +1,19 @@
-import { Request, Response, NextFunction } from 'express';
+﻿import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../prisma';
+import { getUserClubContext } from '../utils/getUserClubContext';
+import { getPreferredClubIdFromRequest } from '../utils/clubContext';
+import { sendAuthError } from '../utils/authError';
+
+const handleClubContextError = (error: unknown, res: Response, fallbackMessage: string) => {
+    const message = error instanceof Error ? error.message : fallbackMessage;
+    if (message.includes('x-active-club-id')) {
+        return sendAuthError(res, 400, 'AUTH_CONTEXT_INVALID', message);
+    }
+    if (message.includes('Debe seleccionar un club activo')) {
+        return sendAuthError(res, 400, 'AUTH_CONTEXT_INVALID', message);
+    }
+    return sendAuthError(res, 403, 'AUTH_FORBIDDEN', fallbackMessage);
+};
 
 /**
  * Middleware para verificar que el usuario autenticado pertenece al club especificado en el slug
@@ -23,23 +37,21 @@ export const verifyClubAccess = async (req: Request, res: Response, next: NextFu
             return res.status(404).json({ error: 'Club no encontrado' });
         }
 
-        // Obtener el usuario completo de la base de datos
-        const fullUser = await prisma.user.findUnique({
-            where: { id: user.userId }
-        });
-
-        if (!fullUser) {
-            return res.status(401).json({ error: 'Usuario no encontrado' });
+        let context;
+        try {
+            context = await getUserClubContext(Number(user.userId), club.id);
+        } catch (error) {
+            return handleClubContextError(error, res, 'No tienes acceso a este club');
         }
 
-        // Verificar que el usuario pertenece al club
-        if (fullUser.clubId !== club.id) {
-            return res.status(403).json({ error: 'No tienes acceso a este club' });
+        if (!context || context.clubId !== club.id) {
+            return sendAuthError(res, 403, 'AUTH_FORBIDDEN', 'No tienes acceso a este club');
         }
 
-        // Agregar el club al request para uso posterior
         (req as any).club = club;
         (req as any).clubId = club.id;
+        (req as any).membershipRole = context.role;
+        (req as any).setLogContext?.({ clubId: club.id });
 
         next();
     } catch (error: any) {
@@ -60,21 +72,20 @@ export const verifyClubAccessById = async (req: Request, res: Response, next: Ne
             return res.status(400).json({ error: 'ID de club inválido' });
         }
 
-        // Obtener el usuario completo de la base de datos
-        const fullUser = await prisma.user.findUnique({
-            where: { id: user.userId }
-        });
-
-        if (!fullUser) {
-            return res.status(401).json({ error: 'Usuario no encontrado' });
+        let context;
+        try {
+            context = await getUserClubContext(Number(user.userId), parsed);
+        } catch (error) {
+            return handleClubContextError(error, res, 'No tienes acceso a este club');
         }
 
-        // Verificar que el usuario pertenece al club
-        if (fullUser.clubId !== parsed) {
-            return res.status(403).json({ error: 'No tienes acceso a este club' });
+        if (!context || context.clubId !== parsed) {
+            return sendAuthError(res, 403, 'AUTH_FORBIDDEN', 'No tienes acceso a este club');
         }
 
         (req as any).clubId = parsed;
+        (req as any).membershipRole = context.role;
+        (req as any).setLogContext?.({ clubId: parsed });
         next();
     } catch (error: any) {
         res.status(500).json({ error: error.message });
@@ -91,19 +102,19 @@ export const setAdminClubFromUser = async (req: Request, res: Response, next: Ne
     try {
         const user = (req as any).user;
         if (!user?.userId) {
-            return res.status(401).json({ error: 'No autorizado' });
+            return sendAuthError(res, 401, 'AUTH_MISSING', 'No autorizado');
         }
-        const fullUser = await prisma.user.findUnique({
-            where: { id: user.userId },
-            select: { clubId: true }
-        });
-        if (!fullUser) {
-            return res.status(401).json({ error: 'Usuario no encontrado' });
+        let context;
+        try {
+            const preferredClubId = getPreferredClubIdFromRequest(req);
+            context = await getUserClubContext(Number(user.userId), preferredClubId);
+        } catch (error) {
+            return handleClubContextError(error, res, 'No tienes un club asignado');
         }
-        if (fullUser.clubId == null) {
-            return res.status(403).json({ error: 'No tienes un club asignado' });
-        }
-        (req as any).clubId = fullUser.clubId;
+
+        (req as any).clubId = context.clubId;
+        (req as any).membershipRole = context.role;
+        (req as any).setLogContext?.({ clubId: context.clubId });
         next();
     } catch (error: any) {
         res.status(500).json({ error: error.message });
@@ -117,12 +128,17 @@ export const setAdminClubFromUser = async (req: Request, res: Response, next: Ne
 export const optionalSetAdminClubFromUser = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = (req as any).user;
-        if (!user?.userId || user.role !== 'ADMIN') return next();
-        const fullUser = await prisma.user.findUnique({
-            where: { id: user.userId },
-            select: { clubId: true }
-        });
-        if (fullUser?.clubId != null) (req as any).clubId = fullUser.clubId;
+        if (!user?.userId) return next();
+        try {
+            const preferredClubId = getPreferredClubIdFromRequest(req);
+            const context = await getUserClubContext(Number(user.userId), preferredClubId);
+            if (context?.clubId != null) {
+                (req as any).clubId = context.clubId;
+                (req as any).membershipRole = context.role;
+                (req as any).setLogContext?.({ clubId: context.clubId });
+            }
+        } catch {
+        }
         next();
     } catch (error: any) {
         res.status(500).json({ error: error.message });

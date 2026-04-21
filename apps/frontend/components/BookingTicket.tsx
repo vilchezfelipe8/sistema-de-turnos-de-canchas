@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatBookingCode } from '../utils/displayCode';
 
 interface TicketProps {
   booking: any; // O tu tipo 'Booking' completo si lo tenés importado
@@ -33,7 +34,7 @@ export const BookingTicket: React.FC<TicketProps> = ({ booking, currentItems }) 
     <div className="bg-gray-800/50 p-4 rounded-xl border border-gray-700 font-mono text-sm shadow-inner">
       <div className="text-center mb-4 border-b border-gray-700 pb-2">
         <h3 className="text-white font-bold text-lg">RESUMEN DE CUENTA</h3>
-        <p className="text-gray-500 text-xs">Reserva #{booking.id}</p>
+        <p className="text-gray-500 text-xs">Reserva {formatBookingCode(booking.id, booking?.displayCode)}</p>
       </div>
 
       {/* DETALLE */}
