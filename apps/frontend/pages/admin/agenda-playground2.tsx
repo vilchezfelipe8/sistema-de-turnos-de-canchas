@@ -1523,7 +1523,6 @@ export default function AdminAgendaPlaygroundPage() {
   const { authChecked, user } = useValidateAuth({ requireAdmin: true });
 
   const [sportFilter, setSportFilter] = useState<SportFilter>('Todos');
-  const [searchTerm, setSearchTerm] = useState('');
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [courtsData, setCourtsData] = useState<Court[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -2498,14 +2497,86 @@ export default function AdminAgendaPlaygroundPage() {
   const visibleCourts = useMemo(() => {
     return effectiveCourts.filter((court) => {
       const bySport = sportFilter === 'Todos' || court.sport === sportFilter;
-      const bySearch = searchTerm.trim().length === 0 || court.name.toLowerCase().includes(searchTerm.toLowerCase());
-      return bySport && bySearch;
+      return bySport;
     });
-  }, [effectiveCourts, sportFilter, searchTerm]);
+  }, [effectiveCourts, sportFilter]);
 
   const visibleCourtIds = useMemo(() => new Set(visibleCourts.map((court) => court.id)), [visibleCourts]);
 
   const visibleBookings = useMemo(() => bookings.filter((booking) => visibleCourtIds.has(booking.courtId)), [bookings, visibleCourtIds]);
+
+  const openQuickCreateBooking = useCallback(
+    (preferredCourtId?: string) => {
+      const fallbackCourtId =
+        (preferredCourtId && effectiveCourts.some((court) => court.id === preferredCourtId) ? preferredCourtId : '') ||
+        (selectedCourtId && effectiveCourts.some((court) => court.id === selectedCourtId) ? selectedCourtId : '') ||
+        effectiveCourts[0]?.id ||
+        '';
+
+      if (!fallbackCourtId) {
+        showCalendarNotice('Primero cargá al menos una cancha para crear una reserva.');
+        return;
+      }
+
+      const now = new Date();
+      const isSelectedDateToday =
+        now.getFullYear() === selectedDate.getFullYear() &&
+        now.getMonth() === selectedDate.getMonth() &&
+        now.getDate() === selectedDate.getDate();
+
+      const slotSpan = Math.max(1, selectedEndSlot - selectedStartSlot);
+      const suggestedStartSlot = isSelectedDateToday
+        ? Math.max(
+            0,
+            Math.min(totalSlots - 1, Math.ceil((now.getHours() * 60 + now.getMinutes() - startHour * 60) / slotMinutes))
+          )
+        : Math.max(0, Math.min(totalSlots - 1, selectedStartSlot));
+      const suggestedEndSlot = Math.max(
+        suggestedStartSlot + 1,
+        Math.min(totalSlots, suggestedStartSlot + slotSpan)
+      );
+
+      setEditingBookingId(null);
+      setEditingBaseline(null);
+      setBookingKind('regular');
+      setBlockingTitle('');
+      setSelectedCourtId(fallbackCourtId);
+      setSelectedStartSlot(suggestedStartSlot);
+      setSelectedEndSlot(suggestedEndSlot);
+      setParticipants(initialParticipants.map((participant) => ({ ...participant })));
+      setPaymentMode('Único');
+      setSimplifiedSidebarSection('DETAILS');
+      setParticipantPriceDraftById({});
+      bookingFinancialRequestSeqRef.current += 1;
+      bookingTimelineRequestSeqRef.current += 1;
+      remoteBillingConfigRequestSeqRef.current += 1;
+      setIsBookingFinancialLoading(false);
+      setIsRemoteBillingConfigLoading(false);
+      setBookingTimelineLoading(false);
+      setBookingTimelineError('');
+      setBookingTimelineEvents([]);
+      setBookingFinancial(null);
+      setRemoteBillingConfig(null);
+      setIsBillingConfigHydrated(false);
+      setBillingConfigLoadError('');
+      setBillingConfigTouchedByUser(false);
+      setQuotedListPrice(null);
+      setQuotedFinalPrice(null);
+      setQuotedDiscountAmount(0);
+      setQuoteError('');
+      setDrawerOpen(true);
+      setScheduleInputsDirty(false);
+      setFormError('');
+    },
+    [
+      effectiveCourts,
+      selectedCourtId,
+      selectedDate,
+      selectedEndSlot,
+      selectedStartSlot,
+      showCalendarNotice,
+    ]
+  );
 
   const selectedCourt = effectiveCourts.find((court) => court.id === selectedCourtId) ?? null;
   const selectedRecurringCourts = useMemo(
@@ -6709,35 +6780,28 @@ export default function AdminAgendaPlaygroundPage() {
             )}
             <div className="h-full min-w-0">
               <div className="h-full flex flex-col p-4 lg:p-6 gap-4">
-                <div className="rounded-2xl border border-[#e5e7eb] bg-white px-4 py-3 flex flex-col gap-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {availableSports.map((sport) => (
-                      <button
-                        key={sport}
-                        type="button"
-                        onClick={() => setSportFilter(sport)}
-                        className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                          sportFilter === sport
-                            ? 'bg-[#1d2248] text-white shadow-sm'
-                            : 'bg-[#f5f6f8] text-[#6b7280] hover:bg-[#edf0f4]'
-                        }`}
-                      >
-                        {sport}
-                      </button>
-                    ))}
+                <div className="rounded-2xl border border-[#e5e7eb] bg-white px-4 py-3 flex items-center gap-3">
+                  <div className="min-w-0 flex-1 overflow-x-auto">
+                    <div className="flex w-max items-center gap-2 pr-1">
+                      {availableSports.map((sport) => (
+                        <button
+                          key={sport}
+                          type="button"
+                          onClick={() => setSportFilter(sport)}
+                          className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                            sportFilter === sport
+                              ? 'bg-[#1d2248] text-white shadow-sm'
+                              : 'bg-[#f5f6f8] text-[#6b7280] hover:bg-[#edf0f4]'
+                          }`}
+                        >
+                          {sport}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="relative w-full max-w-[320px]">
-                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#98a1b2]" />
-                      <input
-                        value={searchTerm}
-                        onChange={(event) => setSearchTerm(event.target.value)}
-                        placeholder="Buscar en calendario"
-                        className="h-9 w-full rounded-lg border border-[#e5e7eb] bg-[#fafbfc] pl-9 pr-3 text-sm outline-none focus:border-[#2f4fd8]"
-                      />
-                    </div>
-                    <div className="ml-auto flex items-center gap-1">
+                  <div className="shrink-0">
+                    <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => moveDate(-1)}
@@ -6796,6 +6860,14 @@ export default function AdminAgendaPlaygroundPage() {
                         className="h-9 w-9 rounded-lg border border-[#e5e7eb] grid place-items-center text-[#727b8d] hover:bg-[#f7f8fb]"
                       >
                         <ChevronRight size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openQuickCreateBooking(visibleCourts[0]?.id)}
+                        className="h-9 rounded-lg bg-[#2f4fd8] px-3 text-sm font-semibold text-white inline-flex items-center gap-1.5 hover:bg-[#2746c1]"
+                      >
+                        <Plus size={14} />
+                        Crear reserva
                       </button>
                     </div>
                   </div>

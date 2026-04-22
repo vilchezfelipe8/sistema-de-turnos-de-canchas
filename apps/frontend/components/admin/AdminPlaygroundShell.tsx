@@ -5,7 +5,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  LogOut,
+  X,
 } from 'lucide-react';
 import { logout } from '../../services/AuthService';
 import { normalizeSessionUser, setActiveClubId } from '../../utils/session';
@@ -16,6 +16,27 @@ type AdminPlaygroundShellProps = {
   children: ReactNode;
   contentMuted?: boolean;
   user: any;
+};
+
+const HELP_WHATSAPP_URL = 'https://wa.me/5493513436163';
+const HELP_EMAIL_URL = 'mailto:soporte.tucancha@gmail.com';
+
+const HELP_TIPS_BY_SECTION: Record<string, string[]> = {
+  Calendario: [
+    'Click en un bloque horario para crear una reserva rápida.',
+    'Arrastrá una reserva para mover horario o cancha cuando haya disponibilidad.',
+    'Usá las flechas de fecha para revisar días anteriores o próximos.',
+  ],
+  Clientes: [
+    'Buscá clientes por nombre o teléfono para editar más rápido.',
+    'Completá datos clave para evitar errores al cobrar o contactar.',
+    'Revisá historial antes de crear duplicados.',
+  ],
+  Pagos: [
+    'Registrá pagos parciales cuando no se abone el total.',
+    'Verificá el responsable de cobro antes de confirmar.',
+    'Usá la trazabilidad para auditar ajustes y movimientos.',
+  ],
 };
 
 const humanizeClubSlug = (value: unknown) => {
@@ -37,8 +58,12 @@ export default function AdminPlaygroundShell({
   const router = useRouter();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [clubMenuOpen, setClubMenuOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [selectedClubId, setSelectedClubId] = useState<number>(0);
   const clubMenuRef = useRef<HTMLDivElement | null>(null);
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
 
   const normalizedUser = useMemo(() => normalizeSessionUser(user || null), [user]);
   const clubOptions = useMemo(
@@ -89,6 +114,39 @@ export default function AdminPlaygroundShell({
     };
   }, [clubMenuOpen]);
 
+  useEffect(() => {
+    if (!profileMenuOpen) return;
+
+    const onDocumentMouseDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (target && profileMenuRef.current && !profileMenuRef.current.contains(target)) {
+        setProfileMenuOpen(false);
+      }
+    };
+
+    const onDocumentKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setProfileMenuOpen(false);
+    };
+
+    document.addEventListener('mousedown', onDocumentMouseDown);
+    document.addEventListener('keydown', onDocumentKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onDocumentMouseDown);
+      document.removeEventListener('keydown', onDocumentKeyDown);
+    };
+  }, [profileMenuOpen]);
+
+  useEffect(() => {
+    if (!helpOpen) return;
+    const onDocumentKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setHelpOpen(false);
+    };
+    document.addEventListener('keydown', onDocumentKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onDocumentKeyDown);
+    };
+  }, [helpOpen]);
+
   useLayoutEffect(() => {
     const nextLeft = isSidebarCollapsed ? '66px' : '168px';
     document.documentElement.style.setProperty('--admin-playground-sidebar-left', nextLeft);
@@ -107,6 +165,7 @@ export default function AdminPlaygroundShell({
       .trim()
       .charAt(0)
       .toUpperCase() || 'U';
+  const sectionHelpTips = HELP_TIPS_BY_SECTION[activeItem] || HELP_TIPS_BY_SECTION.Calendario;
 
   const handleChangeActiveClub = (clubId: number) => {
     if (!Number.isInteger(clubId) || clubId <= 0) return;
@@ -145,6 +204,7 @@ export default function AdminPlaygroundShell({
           <div className="ml-auto flex items-center gap-2">
             <button
               type="button"
+              onClick={() => setHelpOpen(true)}
               className="h-9 rounded-lg px-3 text-sm font-semibold text-[#4a5eaa] hover:bg-[#f3f6ff]"
             >
               Ayuda
@@ -203,22 +263,57 @@ export default function AdminPlaygroundShell({
               )}
             </div>
 
-            <button
-              type="button"
-              className="grid h-9 w-9 place-items-center rounded-full border border-[#e5e7eb] bg-white text-sm font-bold text-[#2a3348]"
-              title="Usuario actual"
-            >
-              {userInitial}
-            </button>
-            <button
-              type="button"
-              onClick={() => logout({ redirectTo: '/login' })}
-              className="grid h-9 w-9 place-items-center rounded-lg border border-[#e5e7eb] bg-white text-[#58627a] hover:bg-[#f8f9fc]"
-              title="Cerrar sesión"
-              aria-label="Cerrar sesión"
-            >
-              <LogOut size={16} />
-            </button>
+            <div ref={profileMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setProfileMenuOpen((previous) => !previous)}
+                aria-haspopup="menu"
+                aria-expanded={profileMenuOpen}
+                className={`grid h-9 w-9 place-items-center rounded-full border bg-white text-sm font-bold transition ${
+                  profileMenuOpen
+                    ? 'border-[#bac8e5] text-[#1f2a44] ring-2 ring-[#ebf0ff]'
+                    : 'border-[#e5e7eb] text-[#2a3348] hover:border-[#cfd7e6]'
+                }`}
+                title="Cuenta"
+                aria-label="Abrir menú de cuenta"
+              >
+                {userInitial}
+              </button>
+              {profileMenuOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 z-40 mt-2 w-[220px] rounded-xl border border-[#dbe2ef] bg-white p-1 shadow-xl"
+                >
+                  <button
+                    type="button"
+                    className="block w-full cursor-default rounded-lg px-3 py-2 text-left text-[13px] text-[#8a93a7]"
+                  >
+                    Mi perfil (próximamente)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileMenuOpen(false);
+                      void router.push('/admin/ajustes');
+                    }}
+                    className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-[#3a435b] transition hover:bg-[#f5f7fb]"
+                  >
+                    Configuración
+                  </button>
+                  <div className="my-1 h-px bg-[#eef1f6]" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileMenuOpen(false);
+                      setLogoutConfirmOpen(true);
+                    }}
+                    className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-semibold text-[#b42346] transition hover:bg-[#fff5f8]"
+                  >
+                    Cerrar sesión
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
@@ -280,6 +375,126 @@ export default function AdminPlaygroundShell({
           </main>
         </div>
       </div>
+      {helpOpen && (
+        <div
+          className="fixed inset-0 z-[2147483200] bg-[#0f172a]/40 backdrop-blur-[1px] flex items-center justify-center p-4"
+          onClick={() => setHelpOpen(false)}
+          role="presentation"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Centro de ayuda"
+            className="w-full max-w-[680px] rounded-2xl border border-[#dbe2ef] bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-[#eef1f6] px-5 py-4">
+              <div>
+                <h2 className="text-[21px] font-bold tracking-[-0.01em] text-[#1f2a44]">Centro de ayuda</h2>
+                <p className="mt-1 text-[12px] text-[#6f7890]">Sección actual: {activeItem}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHelpOpen(false)}
+                className="grid h-8 w-8 place-items-center rounded-full border border-[#dce3ef] text-[#76819b] hover:bg-[#f6f8fc]"
+                aria-label="Cerrar ayuda"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div className="space-y-4 px-5 py-5">
+              <section className="rounded-xl border border-[#e7ebf4] bg-[#f8faff] px-4 py-3">
+                <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-[#5670d1]">
+                  Qué podés hacer acá
+                </p>
+                <ul className="mt-2 space-y-2 text-[14px] text-[#2e3b57]">
+                  {sectionHelpTips.map((tip) => (
+                    <li key={tip} className="flex items-start gap-2">
+                      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[#5670d1]" />
+                      <span>{tip}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+
+              <section className="rounded-xl border border-[#eceff5] bg-white px-4 py-3">
+                <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-[#5f6b85]">
+                  Problemas frecuentes
+                </p>
+                <ul className="mt-2 space-y-2 text-[13px] text-[#42506d]">
+                  <li>Si no te deja continuar, revisá fecha, cancha y horario antes de cobros o participantes.</li>
+                  <li>Si no ves una reserva, verificá filtros activos y club seleccionado.</li>
+                  <li>Ante inconsistencias, recargá la pantalla y reintentá la operación.</li>
+                </ul>
+              </section>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#eef1f6] px-5 py-4">
+              <a
+                href={HELP_EMAIL_URL}
+                className="h-10 rounded-xl border border-[#dbe2ef] bg-white px-4 text-sm font-semibold text-[#4e5870] inline-flex items-center"
+              >
+                Enviar email
+              </a>
+              <a
+                href={HELP_WHATSAPP_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="h-10 rounded-xl bg-[#3053e2] px-4 text-sm font-bold text-white inline-flex items-center hover:bg-[#2748cc]"
+              >
+                Contactar por WhatsApp
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+      {logoutConfirmOpen && (
+        <div
+          className="fixed inset-0 z-[2147483200] bg-[#0f172a]/40 backdrop-blur-[1px] flex items-center justify-center p-4"
+          onClick={() => setLogoutConfirmOpen(false)}
+          role="presentation"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirmar cierre de sesión"
+            className="w-full max-w-[420px] rounded-2xl border border-[#e3e7f0] bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-[#eef1f6] px-5 py-4">
+              <h2 className="text-[19px] font-bold tracking-[-0.01em] text-[#1f2a44]">Cerrar sesión</h2>
+              <button
+                type="button"
+                onClick={() => setLogoutConfirmOpen(false)}
+                className="grid h-8 w-8 place-items-center rounded-full border border-[#dce3ef] text-[#76819b] hover:bg-[#f6f8fc]"
+                aria-label="Cerrar confirmación de cierre de sesión"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div className="px-5 py-5">
+              <p className="text-[14px] text-[#44506b]">
+                ¿Querés cerrar sesión ahora? Vas a volver a la pantalla de login.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-[#eef1f6] px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setLogoutConfirmOpen(false)}
+                className="h-10 rounded-xl border border-[#dbe2ef] bg-white px-4 text-sm font-semibold text-[#4e5870] hover:bg-[#f7f9fc]"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => logout({ redirectTo: '/login' })}
+                className="h-10 rounded-xl bg-[#cf3f57] px-4 text-sm font-bold text-white hover:bg-[#b8354b]"
+              >
+                Sí, cerrar sesión
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
