@@ -8,7 +8,7 @@ import RouteTransitionScreen from '../../components/RouteTransitionScreen';
 import AdminPlaygroundShell from '../../components/admin/AdminPlaygroundShell';
 import { getPendingLogoutRedirect } from '../../services/AuthService';
 import { ClubAdminService, type BookingBillingConfig } from '../../services/ClubAdminService';
-import { cancelBooking, confirmBooking, createBooking, createFixedBooking, getAdminSchedule, getBookingBillingConfig, getBookingById, getBookingFinancialSummary, getBookingQuote, getBookingTimelineEvents, registerBookingPartialPayment, updateBookingBillingConfig, type BookingDomainEvent } from '../../services/BookingService';
+import { cancelBooking, cancelFixedBooking, confirmBooking, createBooking, createFixedBooking, getAdminSchedule, getBookingBillingConfig, getBookingById, getBookingFinancialSummary, getBookingQuote, getBookingTimelineEvents, registerBookingPartialPayment, rescheduleFixedBooking, updateBookingBillingConfig, type BookingDomainEvent } from '../../services/BookingService';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
 import { reportUiError } from '../../utils/uiError';
 import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser } from '../../utils/session';
@@ -37,6 +37,7 @@ type Booking = {
   state: 'pending' | 'confirmed' | 'completed' | 'blocked';
   paymentState: 'paid' | 'unpaid';
   isRecurring?: boolean;
+  fixedBookingId?: number;
   clientId?: string;
   userId?: number;
   hoverPayment?: {
@@ -82,6 +83,7 @@ type BookingDropPreview = {
 };
 
 type PaymentMode = 'Único' | 'Dividido';
+type EditSeriesScope = 'THIS_OCCURRENCE' | 'NEXT_OCCURRENCES' | 'ALL_OCCURRENCES';
 
 type RecurringOverlapItem = {
   courtName: string;
@@ -91,6 +93,42 @@ type RecurringOverlapItem = {
   conflictingTimeLabel?: string;
   activityName?: string;
   clientName?: string;
+};
+
+type RecurringCreatedItem = {
+  bookingId?: number;
+  courtName: string;
+  requestedDateLabel: string;
+  requestedTimeLabel: string;
+  activityName?: string;
+  sortStartMs?: number;
+};
+
+type SeriesScopePreviewSummary = {
+  scope: EditSeriesScope;
+  totalCandidates: number;
+  applicableCount: number;
+  applicableItems: RecurringCreatedItem[];
+  skippedCount: number;
+  overlapItems: RecurringOverlapItem[];
+  failureMessages: string[];
+};
+
+type SeriesOperationResult = {
+  mode: 'edit' | 'delete';
+  title: string;
+  detail: string;
+  appliedCount: number;
+  appliedItems: RecurringCreatedItem[];
+  skippedCount: number;
+  overlapItems: RecurringOverlapItem[];
+};
+
+type RecurringExecutionPlan = {
+  recurrenceDays: number[];
+  frequencyDays: number;
+  repetitionsPerDay?: number;
+  error?: string;
 };
 
 type DraggingBookingMeta = {
@@ -140,7 +178,7 @@ type ParticipantSuggestion = {
   contact?: string;
 };
 
-type BookingKind = 'regular' | 'recurring' | 'privateClass' | 'courseClass' | 'block';
+type BookingKind = 'regular' | 'recurringV2' | 'privateClass' | 'courseClass' | 'block';
 type RecurringFrequencyPreset = 'weekly' | 'biweekly' | 'custom';
 type ComboOption = { value: string; label: string; secondary?: string };
 type SimplifiedSidebarSection = 'DETAILS' | 'BILLING' | 'HISTORY';
@@ -184,9 +222,9 @@ const bookingKindOptions: Array<{
     icon: CalendarDays,
   },
   {
-    value: 'recurring',
+    value: 'recurringV2',
     label: 'Serie recurrente',
-    description: 'Para reservas que se repiten con una frecuencia. Reservas en múltiples pistas permitidas.',
+    description: 'Reservas que se repiten con una frecuencia.',
     icon: Repeat,
   },
   {
@@ -334,6 +372,8 @@ function PlaygroundCombo({
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const optionsListRef = useRef<HTMLDivElement | null>(null);
+  const optionRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const selected = options.find((option) => option.value === value) ?? options[0];
 
   useEffect(() => {
@@ -354,6 +394,16 @@ function PlaygroundCombo({
     };
   }, []);
 
+  useEffect(() => {
+    if (!open) return;
+    const frameId = window.requestAnimationFrame(() => {
+      const selectedOptionNode = optionRefs.current[value] || null;
+      if (!selectedOptionNode) return;
+      selectedOptionNode.scrollIntoView({ block: 'center' });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [open, value]);
+
   return (
     <div ref={containerRef} className={`playground-combo ${className}`}>
       <button
@@ -372,12 +422,15 @@ function PlaygroundCombo({
             variant === 'participant' ? 'playground-combo-menu-participant' : ''
           }`}
         >
-          <div className="max-h-64 overflow-y-auto py-1">
+          <div ref={optionsListRef} className="max-h-64 overflow-y-auto py-1">
             {options.map((option) => {
               const active = option.value === value;
               return (
                 <button
                   key={option.value}
+                  ref={(node) => {
+                    optionRefs.current[option.value] = node;
+                  }}
                   type="button"
                   onClick={() => {
                     onChange(option.value);
@@ -952,6 +1005,7 @@ function parseScheduleSlotToBooking(slot: any): Booking | null {
     state,
     paymentState,
     isRecurring: Number(booking?.fixedBookingId || 0) > 0,
+    fixedBookingId: Number.isFinite(Number(booking?.fixedBookingId)) ? Number(booking.fixedBookingId) : undefined,
     clientId: booking?.client?.id ? String(booking.client.id) : undefined,
     userId: Number(booking?.userId || booking?.user?.id || 0) || undefined,
     hoverPayment: {
@@ -1621,11 +1675,22 @@ export default function AdminAgendaPlaygroundPage() {
   const [customEndAfterExpanded, setCustomEndAfterExpanded] = useState<boolean>(false);
   const [customEndAfterReservations, setCustomEndAfterReservations] = useState<number>(8);
   const [recurringCourtIds, setRecurringCourtIds] = useState<string[]>([]);
-  const [recurringResult, setRecurringResult] = useState<{ generatedCount: number; skippedCount: number; courtsCount: number } | null>(null);
+  const [recurringResult, setRecurringResult] = useState<{
+    generatedCount: number;
+    skippedCount: number;
+    courtsCount: number;
+    hasExplicitLimit: boolean;
+  } | null>(null);
+  const [recurringCreatedItems, setRecurringCreatedItems] = useState<RecurringCreatedItem[]>([]);
   const [recurringOverlapItems, setRecurringOverlapItems] = useState<RecurringOverlapItem[]>([]);
   const [recurringOverlapModalOpen, setRecurringOverlapModalOpen] = useState(false);
   const [recurringCreateConfirmOpen, setRecurringCreateConfirmOpen] = useState(false);
-  const [recurringCreateConfirmed, setRecurringCreateConfirmed] = useState(false);
+  const [recurringPreviewSummary, setRecurringPreviewSummary] = useState<{
+    generatedCount: number;
+    skippedCount: number;
+    courtsCount: number;
+  } | null>(null);
+  const isRecurringKind = bookingKind === 'recurringV2';
   const [deleteBookingConfirmOpen, setDeleteBookingConfirmOpen] = useState(false);
   const [deleteParticipantConfirm, setDeleteParticipantConfirm] = useState<{
     open: boolean;
@@ -1635,6 +1700,17 @@ export default function AdminAgendaPlaygroundPage() {
   const [blockingErrorModalOpen, setBlockingErrorModalOpen] = useState(false);
   const [bookingCreatedModalOpen, setBookingCreatedModalOpen] = useState(false);
   const [bookingKindMenuOpen, setBookingKindMenuOpen] = useState(false);
+  const [editSeriesScopeModalOpen, setEditSeriesScopeModalOpen] = useState(false);
+  const [pendingSeriesScopeSave, setPendingSeriesScopeSave] = useState<EditSeriesScope | null>(null);
+  const [seriesEditPreviewLoading, setSeriesEditPreviewLoading] = useState(false);
+  const [seriesEditPreviewScope, setSeriesEditPreviewScope] = useState<EditSeriesScope | null>(null);
+  const [seriesEditPreviewSummary, setSeriesEditPreviewSummary] = useState<SeriesScopePreviewSummary | null>(null);
+  const [deleteSeriesScopeModalOpen, setDeleteSeriesScopeModalOpen] = useState(false);
+  const [seriesDeletePreviewLoading, setSeriesDeletePreviewLoading] = useState(false);
+  const [seriesDeletePreviewScope, setSeriesDeletePreviewScope] = useState<EditSeriesScope | null>(null);
+  const [seriesDeletePreviewSummary, setSeriesDeletePreviewSummary] = useState<SeriesScopePreviewSummary | null>(null);
+  const [seriesOperationResult, setSeriesOperationResult] = useState<SeriesOperationResult | null>(null);
+  const [seriesOperationResultOpen, setSeriesOperationResultOpen] = useState(false);
   const [scheduleInputsDirty, setScheduleInputsDirty] = useState(false);
   const [paymentInFlightId, setPaymentInFlightId] = useState<string | null>(null);
   const [participantUiState, setParticipantUiState] = useState<ParticipantUiState>({
@@ -1852,35 +1928,35 @@ export default function AdminAgendaPlaygroundPage() {
   }, []);
 
   useEffect(() => {
-    if (bookingKind !== 'recurring') return;
+    if (!isRecurringKind) return;
     setRecurringDayOfWeek(selectedDate.getDay());
-  }, [bookingKind, selectedDate]);
+  }, [isRecurringKind, selectedDate]);
 
   useEffect(() => {
-    if (bookingKind === 'recurring') return;
+    if (isRecurringKind) return;
     setRecurringResult(null);
+    setRecurringCreatedItems([]);
     setRecurringOverlapItems([]);
     setRecurringOverlapModalOpen(false);
     setRecurringCreateConfirmOpen(false);
-    setRecurringCreateConfirmed(false);
-  }, [bookingKind]);
+  }, [isRecurringKind]);
 
   useEffect(() => {
-    if (bookingKind !== 'recurring') return;
+    if (!isRecurringKind) return;
     if (recurringFrequencyPreset !== 'custom') return;
     if (customRecurrenceDays.length === 0) {
       setCustomRecurrenceDays([recurringDayOfWeek]);
     }
-  }, [bookingKind, recurringDayOfWeek, recurringFrequencyPreset, customRecurrenceDays]);
+  }, [customRecurrenceDays, isRecurringKind, recurringDayOfWeek, recurringFrequencyPreset]);
 
   useEffect(() => {
-    if (bookingKind !== 'recurring') return;
+    if (!isRecurringKind) return;
     if (!selectedCourtId) return;
     setRecurringCourtIds((previous) => {
       if (previous.length > 0) return previous;
       return [selectedCourtId];
     });
-  }, [bookingKind, selectedCourtId]);
+  }, [isRecurringKind, selectedCourtId]);
 
   useEffect(() => {
     const activeClubId = Number(normalizedUser?.activeClubId || 0);
@@ -1954,6 +2030,33 @@ export default function AdminAgendaPlaygroundPage() {
     setScheduleInputsDirty(false);
     setFormError('');
   }, [resolveParticipantsForBooking]);
+  const resetRecurringDraft = useCallback((baseDate: Date, fallbackCourtId?: string) => {
+    const baseDay = baseDate.getDay();
+    const firstCourtId =
+      (fallbackCourtId && courtsData.some((court) => court.id === fallbackCourtId) ? fallbackCourtId : '') ||
+      (selectedCourtId && courtsData.some((court) => court.id === selectedCourtId) ? selectedCourtId : '') ||
+      courtsData[0]?.id ||
+      '';
+
+    setRecurringDayOfWeek(baseDay);
+    setRecurringEveryDays(7);
+    setRecurringFrequencyPreset('weekly');
+    setRecurringRepetitions(8);
+    setCustomRecurrenceDays([baseDay]);
+    setCustomRepeatEveryWeeks(1);
+    setCustomEndAfterEnabled(true);
+    setCustomEndAfterExpanded(false);
+    setCustomEndAfterReservations(8);
+    setCustomRecurrenceModalOpen(false);
+    setRecurringCourtsMenuOpen(false);
+    setRecurringCreateConfirmOpen(false);
+    setRecurringPreviewSummary(null);
+    setRecurringCreatedItems([]);
+    setRecurringOverlapItems([]);
+    setRecurringOverlapModalOpen(false);
+    setRecurringResult(null);
+    setRecurringCourtIds(firstCourtId ? [firstCourtId] : []);
+  }, [courtsData, selectedCourtId]);
 
   const effectiveCourts = courtsData;
   const availableSports = useMemo(() => {
@@ -2142,9 +2245,18 @@ export default function AdminAgendaPlaygroundPage() {
       pendingParticipantSaveNoticeRef.current = '';
       setRecurringResult(null);
       setDeleteBookingConfirmOpen(false);
+      setDeleteSeriesScopeModalOpen(false);
       setDeleteParticipantConfirm({ open: false, participantId: null, participantName: '' });
       setBlockingErrorModalOpen(false);
       setBookingCreatedModalOpen(false);
+      setSeriesEditPreviewLoading(false);
+      setSeriesEditPreviewScope(null);
+      setSeriesEditPreviewSummary(null);
+      setSeriesDeletePreviewLoading(false);
+      setSeriesDeletePreviewScope(null);
+      setSeriesDeletePreviewSummary(null);
+      setSeriesOperationResult(null);
+      setSeriesOperationResultOpen(false);
       bookingDrawerDispatch({ type: 'CLEAR' });
       bookingDrawerFormSyncSignatureRef.current = '';
       drawerCloseCleanupTimerRef.current = null;
@@ -2277,6 +2389,12 @@ export default function AdminAgendaPlaygroundPage() {
     remoteBillingConfig?.metadata,
     remoteBillingConfig?.updatedAt,
   ]);
+
+  useEffect(() => {
+    if (drawerOpen) return;
+    setEditSeriesScopeModalOpen(false);
+    setPendingSeriesScopeSave(null);
+  }, [drawerOpen]);
 
   useEffect(() => {
     if (!drawerOpen || bookingKind === 'block') return;
@@ -2442,9 +2560,12 @@ export default function AdminAgendaPlaygroundPage() {
       const openDrawerWithSelection = () => {
         setEditingBookingId(null);
         setEditingBaseline(null);
+        setBookingKind('regular');
+        setBlockingTitle('');
         setSelectedCourtId(draftSelectionSnapshot.courtId);
         setSelectedStartSlot(range.start);
         setSelectedEndSlot(range.end);
+        resetRecurringDraft(selectedDate, draftSelectionSnapshot.courtId);
         setParticipants(initialParticipants.map((participant) => ({ ...participant })));
         setPaymentMode('Único');
         setSimplifiedSidebarSection('DETAILS');
@@ -2488,6 +2609,7 @@ export default function AdminAgendaPlaygroundPage() {
     dragSelection,
     isDragging,
     openBookingInDrawer,
+    resetRecurringDraft,
     persistBookingMove,
     reloadSchedule,
     selectedDate,
@@ -2543,6 +2665,7 @@ export default function AdminAgendaPlaygroundPage() {
       setSelectedCourtId(fallbackCourtId);
       setSelectedStartSlot(suggestedStartSlot);
       setSelectedEndSlot(suggestedEndSlot);
+      resetRecurringDraft(selectedDate, fallbackCourtId);
       setParticipants(initialParticipants.map((participant) => ({ ...participant })));
       setPaymentMode('Único');
       setSimplifiedSidebarSection('DETAILS');
@@ -2575,6 +2698,7 @@ export default function AdminAgendaPlaygroundPage() {
       selectedEndSlot,
       selectedStartSlot,
       showCalendarNotice,
+      resetRecurringDraft,
     ]
   );
 
@@ -2605,13 +2729,127 @@ export default function AdminAgendaPlaygroundPage() {
       .map((day) => CUSTOM_DAY_OPTIONS.find((item) => item.value === day)?.short || String(day))
       .join(', ');
   }, [customRecurrenceDays]);
+  const recurringExecutionPlan = useMemo<RecurringExecutionPlan>(() => {
+    const recurrenceDays =
+      recurringFrequencyPreset === 'custom'
+        ? Array.from(new Set(customRecurrenceDays)).sort((a, b) => a - b)
+        : [recurringDayOfWeek];
+
+    if (recurrenceDays.length === 0) {
+      return {
+        recurrenceDays: [],
+        frequencyDays: 0,
+        error: 'Seleccioná al menos un día para la recurrencia.',
+      };
+    }
+
+    const frequencyDays =
+      recurringFrequencyPreset === 'custom'
+        ? Math.max(1, Math.floor(customRepeatEveryWeeks || 0)) * 7
+        : Math.max(1, Math.floor(recurringEveryDays || 0));
+
+    if (!Number.isFinite(frequencyDays) || frequencyDays <= 0) {
+      return {
+        recurrenceDays: [],
+        frequencyDays: 0,
+        error: 'Indicá cada cuántos días querés repetir la serie.',
+      };
+    }
+
+    if (recurringFrequencyPreset === 'custom') {
+      if (!customEndAfterEnabled) {
+        return { recurrenceDays, frequencyDays };
+      }
+
+      const customTotalReservations = Math.max(1, Math.floor(customEndAfterReservations || 0));
+      if (!Number.isFinite(customTotalReservations) || customTotalReservations <= 0) {
+        return {
+          recurrenceDays: [],
+          frequencyDays: 0,
+          error: 'Indicá cuántas repeticiones querés generar.',
+        };
+      }
+
+      return {
+        recurrenceDays,
+        frequencyDays,
+        repetitionsPerDay: Math.max(1, Math.ceil(customTotalReservations / recurrenceDays.length)),
+      };
+    }
+
+    const repetitionsPerDay = Math.max(1, Math.floor(recurringRepetitions || 0));
+    if (!Number.isFinite(repetitionsPerDay) || repetitionsPerDay <= 0) {
+      return {
+        recurrenceDays: [],
+        frequencyDays: 0,
+        error: 'Indicá cuántas repeticiones querés generar.',
+      };
+    }
+
+    return {
+      recurrenceDays,
+      frequencyDays,
+      repetitionsPerDay,
+    };
+  }, [
+    customEndAfterEnabled,
+    customEndAfterReservations,
+    customRecurrenceDays,
+    customRepeatEveryWeeks,
+    recurringDayOfWeek,
+    recurringEveryDays,
+    recurringFrequencyPreset,
+    recurringRepetitions,
+  ]);
+  const recurringEstimatedOccurrencesPerCourt = useMemo(() => {
+    if (!Number.isFinite(recurringExecutionPlan?.repetitionsPerDay)) return null;
+    return recurringExecutionPlan.recurrenceDays.length * Number(recurringExecutionPlan.repetitionsPerDay);
+  }, [recurringExecutionPlan]);
+  const recurringEstimatedOccurrencesTotal = useMemo(() => {
+    if (!Number.isFinite(recurringEstimatedOccurrencesPerCourt)) return null;
+    return Number(recurringEstimatedOccurrencesPerCourt) * selectedRecurringCourts.length;
+  }, [recurringEstimatedOccurrencesPerCourt, selectedRecurringCourts.length]);
+  const recurringCadenceSummary = useMemo(() => {
+    if (recurringExecutionPlan.error) return recurringExecutionPlan.error;
+    const daysLabel =
+      recurringExecutionPlan.recurrenceDays.length > 0
+        ? recurringExecutionPlan.recurrenceDays
+            .map((day) => WEEKDAY_OPTIONS.find((option) => option.value === day)?.label || String(day))
+            .join(', ')
+        : 'Sin días';
+    const repetitionsLabel = Number.isFinite(recurringExecutionPlan.repetitionsPerDay)
+      ? `${Number(recurringExecutionPlan.repetitionsPerDay)} repeticiones por día`
+      : 'sin límite manual (usa horizonte del club)';
+    return `${daysLabel} · cada ${recurringExecutionPlan.frequencyDays} días · ${repetitionsLabel}`;
+  }, [recurringExecutionPlan]);
+  const recurringCadenceShortSummary = useMemo(() => {
+    if (recurringExecutionPlan.error) return recurringExecutionPlan.error;
+    const daysLabel =
+      recurringExecutionPlan.recurrenceDays.length > 0
+        ? recurringExecutionPlan.recurrenceDays
+            .map((day) => WEEKDAY_OPTIONS.find((option) => option.value === day)?.label || String(day))
+            .join(', ')
+        : 'Sin días';
+    return `${daysLabel} · cada ${recurringExecutionPlan.frequencyDays} días`;
+  }, [recurringExecutionPlan]);
+  const recurringCreationCountSummary = useMemo(() => {
+    if (!Number.isFinite(recurringEstimatedOccurrencesPerCourt)) {
+      return 'Se crearán turnos según el horizonte configurado del club.';
+    }
+    const perCourtCount = Number(recurringEstimatedOccurrencesPerCourt);
+    const courtsCount = selectedRecurringCourts.length;
+    if (courtsCount > 1 && Number.isFinite(recurringEstimatedOccurrencesTotal)) {
+      return `Se crearán ${Number(recurringEstimatedOccurrencesTotal)} turnos en ${courtsCount} canchas.`;
+    }
+    return `Se crearán ${perCourtCount} turnos.`;
+  }, [recurringEstimatedOccurrencesPerCourt, recurringEstimatedOccurrencesTotal, selectedRecurringCourts.length]);
 
   const selectionMinutes = Math.max((selectedEndSlot - selectedStartSlot) * slotMinutes, slotMinutes);
   const selectionStartDateTime = useMemo(
     () => buildSelectionDateTime(selectedDate, selectedStartSlot),
     [selectedDate, selectedStartSlot]
   );
-  const shouldValidatePastSelection = bookingKind !== 'recurring' && bookingKind !== 'block';
+  const shouldValidatePastSelection = !isRecurringKind && bookingKind !== 'block';
   const isSelectionInPast = useMemo(
     () => shouldValidatePastSelection && selectionStartDateTime.getTime() < Date.now(),
     [selectionStartDateTime, shouldValidatePastSelection]
@@ -2762,25 +3000,25 @@ export default function AdminAgendaPlaygroundPage() {
     const charged = participants.filter((participant) => chargedParticipantIdSet.has(participant.id));
     const manual = charged.filter((participant) => participant.customPrice != null);
     const auto = charged.filter((participant) => participant.customPrice == null);
-    const manualSum = roundMoney(
-      manual.reduce((sum, participant) => sum + clampParticipantPrice(Number(participant.customPrice || 0)), 0)
-    );
-    const remaining = roundMoney(Math.max(0, totalPrice - manualSum));
-    const baseShare = auto.length > 0 ? roundMoney(remaining / auto.length) : 0;
-    let remainder = auto.length > 0 ? roundMoney(remaining - baseShare * auto.length) : 0;
+    const totalCents = Math.max(0, Math.round(Number(totalPrice || 0) * 100));
+    let manualCents = 0;
 
     participants.forEach((participant) => map.set(participant.id, 0));
     manual.forEach((participant) => {
-      map.set(participant.id, clampParticipantPrice(Number(participant.customPrice || 0)));
+      const cents = Math.max(0, Math.round(clampParticipantPrice(Number(participant.customPrice || 0)) * 100));
+      manualCents += cents;
+      map.set(participant.id, Number((cents / 100).toFixed(2)));
     });
+    const remainingCents = Math.max(0, totalCents - manualCents);
+    const baseShareCents = auto.length > 0 ? Math.floor(remainingCents / auto.length) : 0;
+    let remainderCents = auto.length > 0 ? remainingCents - (baseShareCents * auto.length) : 0;
     auto.forEach((participant) => {
-      let allocated = baseShare;
-      if (remainder > 0.009) {
-        const increment = Math.min(0.01, remainder);
-        allocated = roundMoney(baseShare + increment);
-        remainder = roundMoney(remainder - increment);
+      let allocatedCents = baseShareCents;
+      if (remainderCents > 0) {
+        allocatedCents += 1;
+        remainderCents -= 1;
       }
-      map.set(participant.id, allocated);
+      map.set(participant.id, Number((allocatedCents / 100).toFixed(2)));
     });
 
     return map;
@@ -3951,7 +4189,183 @@ export default function AdminAgendaPlaygroundPage() {
     }
   }, [applyBookingError, persistedEditingBookingId, refreshBookingFinancial, reloadSchedule, showCalendarNotice]);
 
-  const handleDeleteBooking = useCallback(async () => {
+  const mapSeriesImpactItem = useCallback((item: any, fallbackCourtName: string): RecurringOverlapItem => {
+    const requestedStartRaw = item?.requestedStartDateTime || item?.startDateTime || item?.date || null;
+    const requestedEndRaw = item?.requestedEndDateTime || item?.endDateTime || null;
+    const conflictingStartRaw = item?.conflictingStartDateTime || null;
+    const conflictingEndRaw = item?.conflictingEndDateTime || null;
+    const requestedStart = requestedStartRaw ? new Date(requestedStartRaw) : null;
+    const requestedEnd = requestedEndRaw ? new Date(requestedEndRaw) : null;
+    const conflictingStart = conflictingStartRaw ? new Date(conflictingStartRaw) : null;
+    const conflictingEnd = conflictingEndRaw ? new Date(conflictingEndRaw) : null;
+    const hasRequestedStart = requestedStart && !Number.isNaN(requestedStart.getTime());
+    const hasRequestedEnd = requestedEnd && !Number.isNaN(requestedEnd.getTime());
+    const hasConflictingStart = conflictingStart && !Number.isNaN(conflictingStart.getTime());
+    const hasConflictingEnd = conflictingEnd && !Number.isNaN(conflictingEnd.getTime());
+    const inferredRequestedEnd =
+      hasRequestedStart && !hasRequestedEnd
+        ? new Date((requestedStart as Date).getTime() + Math.max(15, selectionMinutes) * 60000)
+        : null;
+
+    return {
+      courtName: String(item?.courtName || item?.conflictingCourtName || fallbackCourtName || 'Cancha'),
+      requestedDateLabel: hasRequestedStart
+        ? (requestedStart as Date).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+        : selectedDate.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+      requestedTimeLabel: `${
+        hasRequestedStart
+          ? (requestedStart as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+          : slotToTime(selectedStartSlot)
+      } - ${
+        hasRequestedEnd
+          ? (requestedEnd as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+          : inferredRequestedEnd
+            ? inferredRequestedEnd.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+            : slotToTime(selectedEndSlot)
+      }`,
+      conflictingDateLabel: hasConflictingStart
+        ? (conflictingStart as Date).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+        : undefined,
+      conflictingTimeLabel:
+        hasConflictingStart && hasConflictingEnd
+          ? `${(conflictingStart as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })} - ${(conflictingEnd as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })}`
+          : undefined,
+      activityName: String(item?.reason || item?.conflictingActivityName || item?.activityName || '').trim() || undefined,
+      clientName: String(item?.conflictingClientName || item?.clientName || '').trim() || undefined,
+    };
+  }, [selectedDate, selectedEndSlot, selectedStartSlot, selectionMinutes]);
+
+  const mapSeriesAppliedItem = useCallback((item: any, fallbackCourtName: string): RecurringCreatedItem => {
+    const startRaw = item?.startDateTime || item?.requestedStartDateTime || item?.date || null;
+    const endRaw = item?.endDateTime || item?.requestedEndDateTime || null;
+    const startDate = startRaw ? new Date(startRaw) : null;
+    const endDate = endRaw ? new Date(endRaw) : null;
+    const hasStart = startDate && !Number.isNaN(startDate.getTime());
+    const hasEnd = endDate && !Number.isNaN(endDate.getTime());
+    const inferredEnd =
+      hasStart && !hasEnd
+        ? new Date((startDate as Date).getTime() + Math.max(15, selectionMinutes) * 60000)
+        : null;
+
+    return {
+      bookingId: Number.isFinite(Number(item?.bookingId)) ? Number(item.bookingId) : undefined,
+      courtName: String(item?.courtName || fallbackCourtName || 'Cancha'),
+      requestedDateLabel: hasStart
+        ? (startDate as Date).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+        : selectedDate.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+      requestedTimeLabel: `${
+        hasStart
+          ? (startDate as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+          : slotToTime(selectedStartSlot)
+      } - ${
+        hasEnd
+          ? (endDate as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+          : inferredEnd
+            ? inferredEnd.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+            : slotToTime(selectedEndSlot)
+      }`,
+      activityName: String(item?.activityName || '').trim() || undefined,
+      sortStartMs: hasStart ? (startDate as Date).getTime() : undefined,
+    };
+  }, [selectedDate, selectedEndSlot, selectedStartSlot, selectionMinutes]);
+
+  const previewSeriesEditScope = useCallback(async (scope: EditSeriesScope) => {
+    const fixedBookingId = Number(editingBooking?.fixedBookingId || 0);
+    const numericBookingId = Number(editingBookingId || 0);
+    const numericCourtId = Number(selectedCourtId || 0);
+    if (!Number.isFinite(fixedBookingId) || fixedBookingId <= 0) return;
+    if (!Number.isFinite(numericCourtId) || numericCourtId <= 0) {
+      setBlockingFieldError('court', 'Seleccioná una cancha válida para editar la serie.');
+      return;
+    }
+    try {
+      setSeriesEditPreviewScope(scope);
+      setSeriesEditPreviewSummary(null);
+      setSeriesEditPreviewLoading(true);
+      setFormError('');
+      const result: any = await rescheduleFixedBooking(fixedBookingId, {
+        scope,
+        occurrenceBookingId: Number.isFinite(numericBookingId) && numericBookingId > 0 ? numericBookingId : undefined,
+        courtId: numericCourtId,
+        startDateTime: buildStartDateTimeFromSlot(selectedDate, selectedStartSlot),
+        durationMinutes: Math.max(15, (selectedEndSlot - selectedStartSlot) * slotMinutes),
+        previewOnly: true,
+      });
+      const overlapItemsRaw = Array.isArray(result?.overlaps) ? result.overlaps : [];
+      const applicableItemsRaw = Array.isArray(result?.applicableItems) ? result.applicableItems : [];
+      const failureMessages = Array.isArray(result?.failures)
+        ? result.failures
+            .map((item: any) => String(item?.reason || '').trim())
+            .filter((value: string) => value.length > 0)
+        : [];
+      setSeriesEditPreviewSummary({
+        scope,
+        totalCandidates: Number(result?.totalCandidates || 0),
+        applicableCount: Number(result?.willUpdateCount || result?.updatedCount || 0),
+        applicableItems: applicableItemsRaw
+          .map((item: any) => mapSeriesAppliedItem(item, selectedCourt?.name || 'Cancha'))
+          .sort((a, b) => (Number(a.sortStartMs || 0) - Number(b.sortStartMs || 0))),
+        skippedCount: overlapItemsRaw.length + failureMessages.length,
+        overlapItems: overlapItemsRaw.map((item: any) => mapSeriesImpactItem(item, selectedCourt?.name || 'Cancha')),
+        failureMessages,
+      });
+    } catch (error: any) {
+      setSeriesEditPreviewScope(null);
+      applyBookingError(error, 'No se pudo previsualizar la edición de la serie.');
+    } finally {
+      setSeriesEditPreviewLoading(false);
+    }
+  }, [applyBookingError, editingBooking?.fixedBookingId, editingBookingId, mapSeriesAppliedItem, mapSeriesImpactItem, selectedCourt?.name, selectedCourtId, selectedDate, selectedEndSlot, selectedStartSlot, setBlockingFieldError]);
+
+  const previewSeriesDeleteScope = useCallback(async (scope: EditSeriesScope) => {
+    const fixedBookingId = Number(editingBooking?.fixedBookingId || 0);
+    const numericBookingId = Number(editingBookingId || 0);
+    if (!Number.isFinite(fixedBookingId) || fixedBookingId <= 0) return;
+    try {
+      setSeriesDeletePreviewScope(scope);
+      setSeriesDeletePreviewSummary(null);
+      setSeriesDeletePreviewLoading(true);
+      setFormError('');
+      const result: any = await cancelFixedBooking(fixedBookingId, {
+        scope,
+        occurrenceBookingId: Number.isFinite(numericBookingId) && numericBookingId > 0 ? numericBookingId : undefined,
+        previewOnly: true,
+      });
+      const skippedRaw = Array.isArray(result?.skipped) ? result.skipped : [];
+      const applicableItemsRaw = Array.isArray(result?.applicableItems) ? result.applicableItems : [];
+      setSeriesDeletePreviewSummary({
+        scope,
+        totalCandidates: Number(result?.totalCandidates || 0),
+        applicableCount: Number(result?.cancelledCount || 0),
+        applicableItems: applicableItemsRaw
+          .map((item: any) => mapSeriesAppliedItem(item, selectedCourt?.name || 'Cancha'))
+          .sort((a, b) => (Number(a.sortStartMs || 0) - Number(b.sortStartMs || 0))),
+        skippedCount: skippedRaw.length,
+        overlapItems: skippedRaw.map((item: any) => mapSeriesImpactItem(item, selectedCourt?.name || 'Cancha')),
+        failureMessages: [],
+      });
+    } catch (error: any) {
+      setSeriesDeletePreviewScope(null);
+      applyBookingError(error, 'No se pudo previsualizar la cancelación de la serie.');
+    } finally {
+      setSeriesDeletePreviewLoading(false);
+    }
+  }, [applyBookingError, editingBooking?.fixedBookingId, editingBookingId, mapSeriesAppliedItem, mapSeriesImpactItem, selectedCourt?.name]);
+
+  const openDeleteBookingFlow = useCallback(() => {
+    const isEditingRecurringSeries = Number(editingBooking?.fixedBookingId || 0) > 0;
+    if (isEditingRecurringSeries) {
+      setDeleteSeriesScopeModalOpen(true);
+      setDeleteBookingConfirmOpen(false);
+      setSeriesDeletePreviewLoading(false);
+      setSeriesDeletePreviewScope(null);
+      setSeriesDeletePreviewSummary(null);
+      return;
+    }
+    setDeleteBookingConfirmOpen(true);
+  }, [editingBooking?.fixedBookingId]);
+
+  const handleDeleteBooking = useCallback(async (seriesScope?: EditSeriesScope) => {
     if (!editingBookingId) return;
 
     const numericBookingId = Number(editingBookingId);
@@ -3964,10 +4378,44 @@ export default function AdminAgendaPlaygroundPage() {
       return;
     }
 
+    const fixedBookingId = Number(editingBooking?.fixedBookingId || 0);
+    const isEditingRecurringSeries = Number.isFinite(fixedBookingId) && fixedBookingId > 0;
+
     try {
       setIsDeletingBooking(true);
       setFormError('');
-      await cancelBooking(numericBookingId);
+      if (isEditingRecurringSeries && seriesScope) {
+        const result: any = await cancelFixedBooking(fixedBookingId, {
+          scope: seriesScope,
+          occurrenceBookingId: Number.isFinite(numericBookingId) && numericBookingId > 0 ? numericBookingId : undefined,
+        });
+        const skippedRaw = Array.isArray(result?.skipped) ? result.skipped : [];
+        const cancelledItemsRaw = Array.isArray(result?.cancelledItems)
+          ? result.cancelledItems
+          : Array.isArray(result?.applicableItems)
+            ? result.applicableItems
+            : [];
+        const overlapItems = skippedRaw.map((item: any) => mapSeriesImpactItem(item, selectedCourt?.name || 'Cancha'));
+        const appliedItems = cancelledItemsRaw
+          .map((item: any) => mapSeriesAppliedItem(item, selectedCourt?.name || 'Cancha'))
+          .sort((a, b) => (Number(a.sortStartMs || 0) - Number(b.sortStartMs || 0)));
+        const cancelledCount = Number(result?.cancelledCount || 0);
+        setSeriesOperationResult({
+          mode: 'delete',
+          title: cancelledCount > 0 ? 'Serie cancelada' : 'No se cancelaron ocurrencias',
+          detail:
+            cancelledCount > 0
+              ? `Se cancelaron ${cancelledCount} turno(s) de la serie.`
+              : 'No se pudo cancelar ninguna ocurrencia con el alcance elegido.',
+          appliedCount: cancelledCount,
+          appliedItems,
+          skippedCount: skippedRaw.length,
+          overlapItems,
+        });
+        setSeriesOperationResultOpen(true);
+      } else {
+        await cancelBooking(numericBookingId);
+      }
       await reloadSchedule();
       setDrawerOpen(false);
       setEditingBookingId(null);
@@ -3977,7 +4425,7 @@ export default function AdminAgendaPlaygroundPage() {
     } finally {
       setIsDeletingBooking(false);
     }
-  }, [applyBookingError, editingBookingId, reloadSchedule]);
+  }, [applyBookingError, editingBooking?.fixedBookingId, editingBookingId, mapSeriesAppliedItem, mapSeriesImpactItem, reloadSchedule, selectedCourt?.name]);
 
   const hasOverlapForRange = useCallback((params: {
     courtId: string;
@@ -4101,6 +4549,10 @@ export default function AdminAgendaPlaygroundPage() {
     : paymentStatusLabel === 'Parcial'
       ? 'bg-[#fff4e5] text-[#9a5a00]'
       : 'bg-[#eef1f7] text-[#5c667f]';
+  const isEditingRecurringSeries = Boolean(
+    editingBookingId && Number(editingBooking?.fixedBookingId || 0) > 0
+  );
+  const shouldShowSeriesScopeHint = isEditingRecurringSeries && hasScheduleChanges;
   const canShowMainAction = Boolean(persistedEditingBookingId && bookingKind !== 'block');
   const showConfirmMainAction = canShowMainAction && isPaymentLockedByManualPending;
   const showCollectMainAction = canShowMainAction && !isPaymentLockedByManualPending && !isBookingFullyPaid;
@@ -4589,7 +5041,7 @@ export default function AdminAgendaPlaygroundPage() {
       });
     }
 
-    if (bookingKind === 'recurring') {
+    if (isRecurringKind) {
       rows.push({
         key: 'recurring-courts',
         label: 'Canchas seleccionadas para la serie',
@@ -4604,6 +5056,7 @@ export default function AdminAgendaPlaygroundPage() {
     bookingKind,
     hasDuplicateParticipants,
     hasValidOwner,
+    isRecurringKind,
     isSelectionInPastBlocking,
     quoteError,
     recurringCourtIds.length,
@@ -4617,7 +5070,7 @@ export default function AdminAgendaPlaygroundPage() {
   );
 
   const quickSummaryCourtsLabel = useMemo(() => {
-    if (bookingKind === 'recurring') {
+    if (isRecurringKind) {
       const selectedNames = effectiveCourts
         .filter((court) => recurringCourtIds.includes(court.id))
         .map((court) => court.name);
@@ -4625,7 +5078,7 @@ export default function AdminAgendaPlaygroundPage() {
       return selectedNames.join(', ');
     }
     return selectedCourt?.name || 'Cancha no definida';
-  }, [bookingKind, effectiveCourts, recurringCourtIds, selectedCourt?.name]);
+  }, [effectiveCourts, isRecurringKind, recurringCourtIds, selectedCourt?.name]);
 
   const quickSummaryDateLabel = useMemo(
     () =>
@@ -4641,23 +5094,23 @@ export default function AdminAgendaPlaygroundPage() {
   const primaryActionLabel = useMemo(() => {
     if (isSubmittingBooking) {
       if (editingBookingId) return 'Guardando cambios...';
-      if (bookingKind === 'recurring') return 'Creando serie...';
+      if (isRecurringKind) return 'Creando serie...';
       if (bookingKind === 'block') return 'Creando bloqueo...';
       return 'Creando reserva...';
     }
     if (editingBookingId) return 'Guardar cambios';
-    if (bookingKind === 'recurring') return 'Crear serie';
+    if (isRecurringKind) return 'Crear serie';
     if (bookingKind === 'block') return 'Crear bloqueo';
     return 'Crear reserva';
-  }, [bookingKind, editingBookingId, isSubmittingBooking]);
+  }, [bookingKind, editingBookingId, isRecurringKind, isSubmittingBooking]);
 
   const primaryActionMeta = useMemo(() => {
-    if (bookingKind === 'recurring') {
+    if (isRecurringKind) {
       if (recurringCourtIds.length <= 0) return 'sin canchas';
       return `${recurringCourtIds.length} cancha${recurringCourtIds.length === 1 ? '' : 's'}`;
     }
     return `${selectionMinutes} min`;
-  }, [bookingKind, recurringCourtIds.length, selectionMinutes]);
+  }, [isRecurringKind, recurringCourtIds.length, selectionMinutes]);
 
   const nowLineTop = useMemo(() => {
     const now = new Date(nowTick);
@@ -5257,9 +5710,17 @@ export default function AdminAgendaPlaygroundPage() {
         return nextParticipants[0]?.id ? String(nextParticipants[0].id) : undefined;
       })();
 
-      const totalChargeableAmount = Number(
+      let totalChargeableAmount = Number(
         Number(draft.billing.financialSummary.totalAmount || totalPrice || 0).toFixed(2)
       );
+      try {
+        const latestFinancial = await getBookingFinancialSummary(bookingId);
+        const latestTotal = Number(latestFinancial?.total || 0);
+        if (Number.isFinite(latestTotal) && latestTotal >= 0) {
+          totalChargeableAmount = Number(latestTotal.toFixed(2));
+        }
+      } catch {
+      }
       const assignmentRows = draft.billing.assignments.map((assignment) => ({
         id: String(assignment.id || `asg-${String(assignment.participantId)}`),
         participantId: String(assignment.participantId || ''),
@@ -5375,6 +5836,52 @@ export default function AdminAgendaPlaygroundPage() {
           };
         }
       }
+      const normalizedTotalCents = Math.max(0, Math.round(Number(totalChargeableAmount || 0) * 100));
+      let normalizedChargeableIndexes = payloadAssignments
+        .map((assignment, index) => ({ assignment, index }))
+        .filter(({ assignment }) => Boolean(assignment.isChargeable))
+        .map(({ index }) => index);
+      if (normalizedChargeableIndexes.length === 0 && payloadAssignments.length > 0) {
+        const fallbackIndex = payloadAssignments.findIndex(
+          (assignment) => assignment.participantLinkState !== 'ARCHIVED_REFERENCE'
+        );
+        const safeFallbackIndex = fallbackIndex >= 0 ? fallbackIndex : 0;
+        payloadAssignments[safeFallbackIndex] = {
+          ...payloadAssignments[safeFallbackIndex],
+          isChargeable: true,
+        };
+        normalizedChargeableIndexes = [safeFallbackIndex];
+      }
+      if (normalizedChargeableIndexes.length > 0) {
+        let assignedCents = 0;
+        payloadAssignments = payloadAssignments.map((assignment, index) => {
+          if (!normalizedChargeableIndexes.includes(index)) {
+            return {
+              ...assignment,
+              isChargeable: false,
+              assignedAmount: 0,
+            };
+          }
+          const nextCents = Math.max(0, Math.round(Number(assignment.assignedAmount || 0) * 100));
+          assignedCents += nextCents;
+          return {
+            ...assignment,
+            isChargeable: true,
+            assignedAmount: Number((nextCents / 100).toFixed(2)),
+          };
+        });
+        const deltaCents = normalizedTotalCents - assignedCents;
+        if (deltaCents !== 0) {
+          const firstIndex = normalizedChargeableIndexes[0];
+          const firstAssignment = payloadAssignments[firstIndex];
+          const firstCents = Math.max(0, Math.round(Number(firstAssignment?.assignedAmount || 0) * 100));
+          const nextCents = Math.max(0, firstCents + deltaCents);
+          payloadAssignments[firstIndex] = {
+            ...firstAssignment,
+            assignedAmount: Number((nextCents / 100).toFixed(2)),
+          };
+        }
+      }
       const sidebarParticipantsMetadata = buildSidebarParticipantsMetadata(nextParticipants);
 
       let backendPersisted = false;
@@ -5441,17 +5948,10 @@ export default function AdminAgendaPlaygroundPage() {
     [bookingDrawerState.draft, bookingKind, persistBillingConfig]
   );
 
-  const handleCreateBooking = async () => {
+  const handleCreateBooking = async (forceCreateRecurring = false, editSeriesScope?: EditSeriesScope) => {
     let recurringSummaryError = '';
+    let recurringResultModalShouldOpen = false;
     let createdBookingId: string | null = null;
-    if (bookingKind === 'recurring' && !recurringCreateConfirmed) {
-      setFormError('');
-      setRecurringCreateConfirmOpen(true);
-      return;
-    }
-    if (bookingKind === 'recurring' && recurringCreateConfirmed) {
-      setRecurringCreateConfirmed(false);
-    }
 
     const owner = participants.find((participant) => participant.isOwner);
 
@@ -5505,7 +6005,7 @@ export default function AdminAgendaPlaygroundPage() {
       return;
     }
 
-    if (bookingKind !== 'recurring' && hasConflict && (!editingBookingId || hasScheduleChanges)) {
+    if (!isRecurringKind && hasConflict && (!editingBookingId || hasScheduleChanges)) {
       setBlockingFieldError('time', 'Ya existe una reserva en ese rango horario para la cancha seleccionada.');
       return;
     }
@@ -5552,6 +6052,21 @@ export default function AdminAgendaPlaygroundPage() {
     }
 
     if (editingBookingId) {
+      const editingFixedBookingId = Number(editingBooking?.fixedBookingId || 0);
+      const isEditingRecurringSeries =
+        Number.isFinite(editingFixedBookingId) &&
+        editingFixedBookingId > 0;
+      const numericEditingBookingId = Number(editingBookingId);
+
+      if (isEditingRecurringSeries && hasScheduleChanges && !editSeriesScope) {
+        setPendingSeriesScopeSave(null);
+        setSeriesEditPreviewLoading(false);
+        setSeriesEditPreviewScope(null);
+        setSeriesEditPreviewSummary(null);
+        setEditSeriesScopeModalOpen(true);
+        return;
+      }
+
       if (!hasScheduleChanges && !hasUserBillingConfigChanges && !hasSidebarParticipantsChanges) {
         setDrawerOpen(false);
         setFormError('');
@@ -5563,11 +6078,34 @@ export default function AdminAgendaPlaygroundPage() {
         setIsSubmittingBooking(true);
         setIsWaitingQueuedPaymentConfirmation(false);
         bookingDrawerDispatch({ type: 'SAVE_START' });
-        const numericBookingId = Number(editingBookingId);
+        const numericBookingId = numericEditingBookingId;
         let operationalSaved = true;
         let billingSaved = true;
+        let recurringRescheduleResult: any = null;
         if (hasScheduleChanges) {
-          await persistBookingMove(editingBookingId, selectedCourtId, selectedStartSlot, selectedEndSlot);
+          if (isEditingRecurringSeries && editSeriesScope) {
+            const numericCourtId = Number(selectedCourtId);
+            if (!Number.isFinite(numericCourtId) || numericCourtId <= 0) {
+              setBlockingFieldError('court', 'Seleccioná una cancha válida para editar la serie.');
+              return;
+            }
+            const scopeStartDateTime = buildStartDateTimeFromSlot(selectedDate, selectedStartSlot);
+            const scopeDurationMinutes = Math.max(15, (selectedEndSlot - selectedStartSlot) * slotMinutes);
+            setPendingSeriesScopeSave(editSeriesScope);
+            recurringRescheduleResult = await rescheduleFixedBooking(editingFixedBookingId, {
+              scope: editSeriesScope,
+              occurrenceBookingId: Number.isFinite(numericBookingId) && numericBookingId > 0 ? numericBookingId : undefined,
+              courtId: numericCourtId,
+              startDateTime: scopeStartDateTime,
+              durationMinutes: scopeDurationMinutes,
+            });
+            setPendingSeriesScopeSave(null);
+            setEditSeriesScopeModalOpen(false);
+            setSeriesEditPreviewScope(null);
+            setSeriesEditPreviewSummary(null);
+          } else {
+            await persistBookingMove(editingBookingId, selectedCourtId, selectedStartSlot, selectedEndSlot);
+          }
         }
         if (Number.isFinite(numericBookingId) && numericBookingId > 0) {
           billingSaved = await persistBillingConfig(numericBookingId);
@@ -5667,6 +6205,35 @@ export default function AdminAgendaPlaygroundPage() {
         showCalendarNotice(
           pendingParticipantNotice ? `${baseSuccessMessage} ${pendingParticipantNotice}` : baseSuccessMessage
         );
+        if (isEditingRecurringSeries && editSeriesScope && recurringRescheduleResult) {
+          const overlapItemsRaw = Array.isArray(recurringRescheduleResult?.overlaps) ? recurringRescheduleResult.overlaps : [];
+          const updatedItemsRaw = Array.isArray(recurringRescheduleResult?.updatedItems)
+            ? recurringRescheduleResult.updatedItems
+            : Array.isArray(recurringRescheduleResult?.applicableItems)
+              ? recurringRescheduleResult.applicableItems
+              : [];
+          const overlapItems = overlapItemsRaw.map((item: any) => mapSeriesImpactItem(item, selectedCourt?.name || 'Cancha'));
+          const appliedItems = updatedItemsRaw
+            .map((item: any) => mapSeriesAppliedItem(item, selectedCourt?.name || 'Cancha'))
+            .sort((a, b) => (Number(a.sortStartMs || 0) - Number(b.sortStartMs || 0)));
+          const updatedCount = Number(
+            recurringRescheduleResult?.updatedCount ?? recurringRescheduleResult?.willUpdateCount ?? 0
+          );
+          const skippedCount = Number(recurringRescheduleResult?.skippedCount || overlapItems.length);
+          setSeriesOperationResult({
+            mode: 'edit',
+            title: updatedCount > 0 ? 'Serie editada correctamente' : 'No se aplicaron cambios en la serie',
+            detail:
+              updatedCount > 0
+                ? `Se actualizaron ${updatedCount} ocurrencia(s) de la serie.`
+                : 'Ninguna ocurrencia pudo reprogramarse con los datos elegidos.',
+            appliedCount: updatedCount,
+            appliedItems,
+            skippedCount,
+            overlapItems,
+          });
+          setSeriesOperationResultOpen(true);
+        }
         return;
       } catch (error: any) {
         const handled = applyBookingError(error, 'No se pudo actualizar la reserva.');
@@ -5686,45 +6253,140 @@ export default function AdminAgendaPlaygroundPage() {
       const slotTime = slotToTime(selectedStartSlot);
       const ownerPhone = resolvePlaygroundClientPhone(owner);
 
-      if (bookingKind === 'recurring') {
-        setRecurringOverlapItems([]);
+      if (isRecurringKind) {
         setRecurringOverlapModalOpen(false);
+        setRecurringCreatedItems([]);
 
-        if (!Number.isFinite(recurringEveryDays) || recurringEveryDays <= 0) {
-          setFormError('Indicá cada cuántos días querés repetir la serie.');
-          return;
-        }
-        if (
-          !(recurringFrequencyPreset === 'custom' && !customEndAfterEnabled) &&
-          (!Number.isFinite(recurringRepetitions) || recurringRepetitions <= 0)
-        ) {
-          setFormError('Indicá cuántas repeticiones querés generar.');
-          return;
-        }
         if (selectedRecurringCourts.length === 0) {
           setFormError('Seleccioná al menos una cancha para crear la serie.');
           return;
         }
-        const recurrenceDays =
-          recurringFrequencyPreset === 'custom'
-            ? Array.from(new Set(customRecurrenceDays)).sort((a, b) => a - b)
-            : [recurringDayOfWeek];
-        if (recurrenceDays.length === 0) {
-          setFormError('Seleccioná al menos un día para la recurrencia.');
+        if (recurringExecutionPlan.error) {
+          setFormError(recurringExecutionPlan.error);
           return;
         }
         const baseDate = new Date(selectedDate);
         baseDate.setHours(12, 0, 0, 0);
-        const frequencyDays = recurringFrequencyPreset === 'custom'
-          ? Math.max(1, Math.floor(customRepeatEveryWeeks)) * 7
-          : Math.max(1, Math.floor(recurringEveryDays));
-        const repetitionsPerDay = recurringFrequencyPreset === 'custom'
-          ? (
-            customEndAfterEnabled
-              ? Math.max(1, Math.ceil(Math.max(1, Math.floor(customEndAfterReservations)) / recurrenceDays.length))
-              : undefined
-          )
-          : Math.max(1, Math.floor(recurringRepetitions));
+        const recurrenceDays = recurringExecutionPlan.recurrenceDays;
+        const frequencyDays = recurringExecutionPlan.frequencyDays;
+        const repetitionsPerDay = recurringExecutionPlan.repetitionsPerDay;
+
+        if (!forceCreateRecurring) {
+          const previewOverlapDetails: RecurringOverlapItem[] = [];
+          const previewErrors: string[] = [];
+          let previewGeneratedCount = 0;
+          let previewSkippedCount = 0;
+
+          const pushPreviewOverlapDetail = (item: any, fallbackCourtName: string) => {
+            const requestedStartRaw = item?.requestedStartDateTime || item?.startDateTime || item?.date || null;
+            const requestedEndRaw = item?.requestedEndDateTime || item?.endDateTime || null;
+            const conflictingStartRaw = item?.conflictingStartDateTime || null;
+            const conflictingEndRaw = item?.conflictingEndDateTime || null;
+            const requestedStart = requestedStartRaw ? new Date(requestedStartRaw) : null;
+            const requestedEnd = requestedEndRaw ? new Date(requestedEndRaw) : null;
+            const conflictingStart = conflictingStartRaw ? new Date(conflictingStartRaw) : null;
+            const conflictingEnd = conflictingEndRaw ? new Date(conflictingEndRaw) : null;
+            const hasRequestedStart = requestedStart && !Number.isNaN(requestedStart.getTime());
+            const hasRequestedEnd = requestedEnd && !Number.isNaN(requestedEnd.getTime());
+            const hasConflictingStart = conflictingStart && !Number.isNaN(conflictingStart.getTime());
+            const hasConflictingEnd = conflictingEnd && !Number.isNaN(conflictingEnd.getTime());
+            const inferredRequestedEnd =
+              hasRequestedStart && !hasRequestedEnd
+                ? new Date((requestedStart as Date).getTime() + Math.max(15, selectionMinutes) * 60000)
+                : null;
+
+            previewOverlapDetails.push({
+              courtName: String(item?.courtName || item?.conflictingCourtName || fallbackCourtName || 'Cancha'),
+              requestedDateLabel: hasRequestedStart
+                ? (requestedStart as Date).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                : 'Fecha no disponible',
+              requestedTimeLabel: `${
+                hasRequestedStart
+                  ? (requestedStart as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+                  : slotToTime(selectedStartSlot)
+              } - ${
+                hasRequestedEnd
+                  ? (requestedEnd as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+                  : inferredRequestedEnd
+                    ? inferredRequestedEnd.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+                    : slotToTime(selectedEndSlot)
+              }`,
+              conflictingDateLabel: hasConflictingStart
+                ? (conflictingStart as Date).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                : undefined,
+              conflictingTimeLabel:
+                hasConflictingStart && hasConflictingEnd
+                  ? `${(conflictingStart as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })} - ${(conflictingEnd as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })}`
+                  : undefined,
+              activityName: String(item?.conflictingActivityName || item?.activityName || '').trim() || undefined,
+              clientName: String(item?.conflictingClientName || item?.clientName || '').trim() || undefined,
+            });
+          };
+
+          for (const court of selectedRecurringCourts) {
+            const activityId = Number(court.activityTypeId || 0);
+            if (!Number.isFinite(activityId) || activityId <= 0) {
+              previewErrors.push(`${court.name}: sin actividad configurada`);
+              continue;
+            }
+
+            for (const dayOfWeek of recurrenceDays) {
+              const firstOccurrence = getNextDateForDay(baseDate, dayOfWeek, slotTime);
+              try {
+                const preview = await createFixedBooking(Number(court.id), activityId, firstOccurrence, {
+                  durationMinutes: selectionMinutes,
+                  everyDays: frequencyDays,
+                  ...(Number.isFinite(repetitionsPerDay) ? { repetitions: repetitionsPerDay } : {}),
+                  client: {
+                    name: owner.name.trim(),
+                    phone: ownerPhone,
+                  },
+                  previewConflictsOnly: true,
+                });
+                previewGeneratedCount += Number(preview?.generatedCount || 0);
+                const skippedOccurrences = Array.isArray(preview?.skippedOccurrences) ? preview.skippedOccurrences : [];
+                previewSkippedCount += skippedOccurrences.length;
+                skippedOccurrences.forEach((item: any) => {
+                  pushPreviewOverlapDetail(item, court.name);
+                });
+              } catch (error: any) {
+                const overlaps = Array.isArray(error?.details?.overlaps)
+                  ? error.details.overlaps
+                  : Array.isArray(error?.meta?.overlaps)
+                    ? error.meta.overlaps
+                    : Array.isArray(error?.overlaps)
+                      ? error.overlaps
+                      : [];
+                if (overlaps.length > 0) {
+                  previewSkippedCount += overlaps.length;
+                  overlaps.forEach((item: any) => {
+                    pushPreviewOverlapDetail(item, court.name);
+                  });
+                  continue;
+                }
+                previewErrors.push(`${court.name}: ${toUserSafeMessage(error?.message, 'Error al previsualizar la serie')}`);
+              }
+            }
+          }
+
+          if (previewErrors.length > 0) {
+            setFormError(`No se pudo previsualizar la serie: ${previewErrors.join(' · ')}`);
+            return;
+          }
+
+          setRecurringOverlapItems(previewOverlapDetails);
+          setRecurringPreviewSummary({
+            generatedCount: previewGeneratedCount,
+            skippedCount: previewSkippedCount,
+            courtsCount: selectedRecurringCourts.length,
+          });
+          setRecurringCreateConfirmOpen(true);
+          setFormError('');
+          return;
+        }
+
+        setRecurringOverlapItems([]);
+        setRecurringPreviewSummary(null);
 
         const submitRecurring = async (
           courtId: string,
@@ -5745,6 +6407,7 @@ export default function AdminAgendaPlaygroundPage() {
         };
 
         const overlapDetails: RecurringOverlapItem[] = [];
+        const createdDetails: RecurringCreatedItem[] = [];
         const hardErrors: string[] = [];
         let recurringOverlapOnlyMessage = '';
         let generatedCount = 0;
@@ -5820,6 +6483,35 @@ export default function AdminAgendaPlaygroundPage() {
             try {
               const result = await submitRecurring(court.id, activityId, dayOfWeek);
               generatedCount += Number(result?.generatedCount || 0);
+              const createdOccurrences = Array.isArray(result?.createdOccurrences) ? result.createdOccurrences : [];
+              if (createdOccurrences.length > 0) {
+                createdOccurrences.forEach((item: any) => {
+                  const createdStartRaw = item?.startDateTime || null;
+                  const createdEndRaw = item?.endDateTime || null;
+                  const createdStart = createdStartRaw ? new Date(createdStartRaw) : null;
+                  const createdEnd = createdEndRaw ? new Date(createdEndRaw) : null;
+                  const hasCreatedStart = createdStart && !Number.isNaN(createdStart.getTime());
+                  const hasCreatedEnd = createdEnd && !Number.isNaN(createdEnd.getTime());
+                  createdDetails.push({
+                    bookingId: Number.isFinite(Number(item?.bookingId)) ? Number(item.bookingId) : undefined,
+                    courtName: String(item?.courtName || court.name || 'Cancha'),
+                    requestedDateLabel: hasCreatedStart
+                      ? (createdStart as Date).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                      : 'Fecha no disponible',
+                    requestedTimeLabel: `${
+                      hasCreatedStart
+                        ? (createdStart as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+                        : slotToTime(selectedStartSlot)
+                    } - ${
+                      hasCreatedEnd
+                        ? (createdEnd as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+                        : slotToTime(selectedEndSlot)
+                    }`,
+                    activityName: String(item?.activityName || '').trim() || undefined,
+                    sortStartMs: hasCreatedStart ? (createdStart as Date).getTime() : undefined,
+                  });
+                });
+              }
               const skippedOccurrences = Array.isArray(result?.skippedOccurrences) ? result.skippedOccurrences : [];
               skippedCount += skippedOccurrences.length;
               if (skippedOccurrences.length > 0) {
@@ -5877,20 +6569,34 @@ export default function AdminAgendaPlaygroundPage() {
           generatedCount,
           skippedCount,
           courtsCount: selectedRecurringCourts.length,
+          hasExplicitLimit: Number.isFinite(repetitionsPerDay),
         });
+        const hasOnlyOverlapSkips =
+          hardErrors.length === 0 &&
+          generatedCount === 0 &&
+          skippedCount > 0 &&
+          overlapDetails.length > 0;
+        const shouldOpenRecurringResultModal = generatedCount > 0 || hasOnlyOverlapSkips;
+        recurringResultModalShouldOpen = shouldOpenRecurringResultModal;
         if (hardErrors.length > 0) {
           recurringSummaryError = `Algunas canchas fallaron: ${hardErrors.join(' · ')}`;
           setFormError(recurringSummaryError);
-        } else if (generatedCount === 0 && skippedCount > 0 && recurringOverlapOnlyMessage) {
+        } else if (hasOnlyOverlapSkips) {
           recurringSummaryError = recurringOverlapOnlyMessage;
-          setFormError(recurringSummaryError);
+          setFormError('');
         } else {
           setFormError('');
         }
-        if (overlapDetails.length > 0) {
-          setRecurringOverlapItems(overlapDetails);
-          setRecurringOverlapModalOpen(true);
-        }
+        setRecurringOverlapItems(overlapDetails);
+        setRecurringCreatedItems(
+          [...createdDetails].sort((a, b) => {
+            const aStart = Number.isFinite(a.sortStartMs) ? Number(a.sortStartMs) : Number.MAX_SAFE_INTEGER;
+            const bStart = Number.isFinite(b.sortStartMs) ? Number(b.sortStartMs) : Number.MAX_SAFE_INTEGER;
+            if (aStart !== bStart) return aStart - bStart;
+            return a.courtName.localeCompare(b.courtName, 'es');
+          })
+        );
+        setRecurringOverlapModalOpen(shouldOpenRecurringResultModal);
       } else {
         const selectedActivityId = Number(selectedCourt?.activityTypeId || 0);
         if (!Number.isFinite(selectedActivityId) || selectedActivityId <= 0) {
@@ -5946,8 +6652,8 @@ export default function AdminAgendaPlaygroundPage() {
       }
 
       const refreshedBookings = await reloadSchedule();
-      if (bookingKind === 'recurring') {
-        if (recurringSummaryError) {
+      if (isRecurringKind) {
+        if (recurringSummaryError && !recurringResultModalShouldOpen) {
           setFormError(recurringSummaryError);
         }
         setEditingBookingId(null);
@@ -5971,6 +6677,7 @@ export default function AdminAgendaPlaygroundPage() {
       setEditingBookingId(null);
       setEditingBaseline(null);
     } catch (error: any) {
+      setPendingSeriesScopeSave(null);
       applyBookingError(error, 'No se pudo crear la reserva.');
       reportUiError({ area: 'AgendaPlayground', action: 'createBooking' }, error);
     } finally {
@@ -5990,12 +6697,30 @@ export default function AdminAgendaPlaygroundPage() {
   }, []);
 
   useEffect(() => {
+    if (!bookingKindMenuOpen) return;
+    const onDocumentMouseDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('[data-booking-kind-menu-root="true"]')) return;
+      setBookingKindMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocumentMouseDown);
+    return () => document.removeEventListener('mousedown', onDocumentMouseDown);
+  }, [bookingKindMenuOpen]);
+
+  useEffect(() => {
     const onDocumentKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setRecurringCourtsMenuOpen(false);
         setCustomRecurrenceModalOpen(false);
         setRecurringOverlapModalOpen(false);
         setRecurringCreateConfirmOpen(false);
+        setEditSeriesScopeModalOpen(false);
+        setDeleteSeriesScopeModalOpen(false);
+        setSeriesOperationResultOpen(false);
+        setSeriesEditPreviewScope(null);
+        setSeriesDeletePreviewScope(null);
+        setSeriesEditPreviewSummary(null);
+        setSeriesDeletePreviewSummary(null);
         setParticipantUiState({ mode: 'idle', participantId: null });
         setSimplifiedOwnerSuggestionsOpen(false);
         setSimplifiedOwnerSuggestionsPlacement(null);
@@ -6209,8 +6934,11 @@ export default function AdminAgendaPlaygroundPage() {
     selectedRecurringCourts.length === 0
       ? 'Seleccionar canchas'
       : selectedRecurringCourts.map((court) => court.name).join(', ');
-  const useSimplifiedBookingSidebar = true;
+  const useSimplifiedBookingSidebar = bookingKind === 'regular' || bookingKind === 'recurringV2';
   const simplifiedIsEditingReservation = Boolean(editingBookingId);
+  const simplifiedIsEditingRecurringSeries = Boolean(
+    editingBookingId && (editingBooking?.isRecurring || Number(editingBooking?.fixedBookingId || 0) > 0)
+  );
   const simplifiedHeaderDateLabel = selectedDate
     .toLocaleDateString('es-AR', {
       weekday: 'long',
@@ -6234,6 +6962,18 @@ export default function AdminAgendaPlaygroundPage() {
   );
   const simplifiedSummaryOwnerLabel = ownerParticipant?.name.trim() || 'Titular sin asignar';
   const simplifiedSummaryCourtLabel = selectedCourt?.name || 'Cancha no definida';
+  const sidebarTitle = (() => {
+    if (simplifiedIsEditingReservation) {
+      if (bookingKind === 'block') return 'Editar bloqueo';
+      if (simplifiedIsEditingRecurringSeries) return 'Editar serie recurrente';
+      return 'Editar reserva';
+    }
+
+    if (bookingKind === 'block') return 'Crear bloqueo';
+    if (bookingKind === 'recurringV2') return 'Crear serie recurrente';
+    if (useSimplifiedBookingSidebar) return `Crear reserva para ${simplifiedHeaderDateLabel}`;
+    return 'Crear reserva';
+  })();
   const simplifiedNamedParticipants = participants.filter((participant) => participant.name.trim().length > 0);
   const simplifiedNewParticipantHasLinkedSelection =
     String(simplifiedNewParticipantEntityRefDraft || '').trim().length > 0;
@@ -6945,11 +7685,15 @@ export default function AdminAgendaPlaygroundPage() {
 
                                   {(() => {
                                     const hasDragSelection = dragSelection && dragSelection.courtId === court.id;
+                                    const isEditingMovedBookingPreview =
+                                      Boolean(editingBookingId) &&
+                                      Boolean(hasScheduleChanges) &&
+                                      !hasDragSelection;
                                     const hasDrawerSelection =
                                       drawerOpen &&
-                                      !editingBookingId &&
                                       selectedCourtId === court.id &&
-                                      selectedEndSlot > selectedStartSlot;
+                                      selectedEndSlot > selectedStartSlot &&
+                                      (!editingBookingId || hasScheduleChanges);
                                     if (!hasDragSelection && !hasDrawerSelection) return null;
 
                                     const range = hasDragSelection
@@ -6959,20 +7703,65 @@ export default function AdminAgendaPlaygroundPage() {
                                     const height = (range.end - range.start) * slotHeight - 4;
                                     const durationMinutes = (range.end - range.start) * slotMinutes;
                                     const visibility = blockContentVisibility(height);
+                                    const drawerPreviewIsConflicted = isEditingMovedBookingPreview && hasConflict;
+                                    const editedState = editingBooking?.state || 'pending';
+                                    const editedPaymentState = editingBooking?.paymentState || 'unpaid';
                                     return (
                                       <div
-                                        className={`pointer-events-none absolute left-1 right-1 rounded-lg border border-[#2f4fd8] bg-[#2f4fd81a] overflow-hidden ${
+                                        className={`pointer-events-none absolute left-1 right-1 rounded-lg text-[10px] shadow-sm overflow-hidden ${
                                           visibility.showDurationOnly
-                                            ? 'px-1 py-0.5 flex items-center'
-                                            : 'p-2'
+                                            ? 'px-2 flex items-center'
+                                            : 'px-2 py-1.5 leading-tight'
+                                        } ${isEditingMovedBookingPreview
+                                          ? drawerPreviewIsConflicted
+                                            ? 'border border-[#d13d57] bg-[#ffe8ee] text-[#8b1f3a]'
+                                            : 'border border-[#2f4fd8] bg-[#2f4fd81a] text-[#1d2a66]'
+                                          : 'border border-[#2f4fd8] bg-[#2f4fd81a]'
                                         }`}
                                         style={{ top, height }}
                                       >
-                                        <p className="text-[10px] font-bold leading-none text-[#1d2a66]">{durationMinutes} min</p>
-                                        {!visibility.showDurationOnly && visibility.showTimeRange && (
-                                          <p className="text-[10px] text-[#1d2a66]/80">
-                                            {slotToTime(range.start)} - {slotToTime(range.end)}
-                                          </p>
+                                        {isEditingMovedBookingPreview ? (
+                                          visibility.showDurationOnly ? (
+                                            <p className="w-full truncate text-[11px] font-semibold leading-none">
+                                              {editingBooking?.title || 'Reserva'}
+                                            </p>
+                                          ) : (
+                                            <>
+                                              {visibility.showBadge && (
+                                                <div className="mb-0.5 flex flex-wrap gap-1">
+                                                  {editingBooking?.isRecurring && (
+                                                    <Repeat size={12} className="text-current" />
+                                                  )}
+                                                  <div className={`inline-flex rounded-full px-1.5 py-0.5 text-[9px] font-bold ${bookingBadgeColor(editedState)}`}>
+                                                    {bookingStatusLabel(editedState)}
+                                                  </div>
+                                                  <div className={`inline-flex rounded-full px-1.5 py-0.5 text-[9px] font-bold ${bookingPaymentBadgeColor(editedPaymentState)}`}>
+                                                    {bookingPaymentLabel(editedPaymentState)}
+                                                  </div>
+                                                </div>
+                                              )}
+                                              {visibility.showTitle && (
+                                                <p className="font-semibold truncate">{editingBooking?.title || 'Reserva'}</p>
+                                              )}
+                                              {drawerPreviewIsConflicted && visibility.showTimeRange && (
+                                                <p className="font-semibold text-[#b42346]">Superposición</p>
+                                              )}
+                                              {visibility.showTimeRange && (
+                                                <p className="opacity-70">
+                                                  {slotToTime(range.start)} - {slotToTime(range.end)}
+                                                </p>
+                                              )}
+                                            </>
+                                          )
+                                        ) : (
+                                          <>
+                                            <p className="text-[10px] font-bold leading-none text-[#1d2a66]">{durationMinutes} min</p>
+                                            {!visibility.showDurationOnly && visibility.showTimeRange && (
+                                              <p className="text-[10px] text-[#1d2a66]/80">
+                                                {slotToTime(range.start)} - {slotToTime(range.end)}
+                                              </p>
+                                            )}
+                                          </>
                                         )}
                                       </div>
                                     );
@@ -7033,6 +7822,7 @@ export default function AdminAgendaPlaygroundPage() {
 
                                   {courtBookings.map((booking) => {
                                     if (draggingBookingId === booking.id) return null;
+                                    if (drawerOpen && editingBookingId && hasScheduleChanges && String(booking.id) === String(editingBookingId)) return null;
                                     const top = booking.startSlot * slotHeight + 2;
                                     const height = (booking.endSlot - booking.startSlot) * slotHeight - 4;
                                     const durationMinutes = (booking.endSlot - booking.startSlot) * slotMinutes;
@@ -7373,7 +8163,7 @@ export default function AdminAgendaPlaygroundPage() {
                 className="fixed inset-0 z-[2147483200] bg-[#11162a]/35 flex items-center justify-center p-4"
                 onClick={() => {
                   setRecurringCreateConfirmOpen(false);
-                  setRecurringCreateConfirmed(false);
+                  setRecurringPreviewSummary(null);
                 }}
               >
                 <div
@@ -7386,7 +8176,7 @@ export default function AdminAgendaPlaygroundPage() {
                       type="button"
                       onClick={() => {
                         setRecurringCreateConfirmOpen(false);
-                        setRecurringCreateConfirmed(false);
+                        setRecurringPreviewSummary(null);
                       }}
                       className="h-8 w-8 rounded-full border border-[#e2e6ef] grid place-items-center text-[#7a8398] hover:bg-[#f7f9fc]"
                     >
@@ -7395,32 +8185,70 @@ export default function AdminAgendaPlaygroundPage() {
                   </div>
                   <div className="px-5 py-5 space-y-4">
                     <div className="rounded-xl border border-[#dce7ff] bg-[#f4f7ff] px-3 py-2 text-[13px] text-[#2f4fd8]">
-                      Se crearán todas las ocurrencias válidas de la serie.
+                      Previsualización lista: revisá superposiciones antes de crear la serie.
                     </div>
-                    <div className="rounded-xl border border-[#f0e3d1] bg-[#fff8ef] px-3 py-2 text-[13px] text-[#8a622f]">
-                      Si alguna fecha se superpone, se omitirá automáticamente. Nunca se reemplaza una reserva existente.
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded-lg bg-[#f7f8fc] px-3 py-2 text-xs text-[#5c6478] flex justify-between">
+                        <span>Disponibles para crear</span>
+                        <strong>{recurringPreviewSummary?.generatedCount ?? 0}</strong>
+                      </div>
+                      <div className="rounded-lg bg-[#fff4f6] px-3 py-2 text-xs text-[#8f2f46] flex justify-between">
+                        <span>Superpuestas</span>
+                        <strong>{recurringPreviewSummary?.skippedCount ?? recurringOverlapItems.length}</strong>
+                      </div>
                     </div>
+                    {recurringOverlapItems.length > 0 ? (
+                      <div>
+                        <p className="text-[13px] font-semibold text-[#4e5870] mb-2">
+                          Detalle de superposiciones ({recurringOverlapItems.length})
+                        </p>
+                        <div className="max-h-56 overflow-y-auto rounded-xl border border-[#e3e8f2] bg-white divide-y divide-[#eef1f6]">
+                          {recurringOverlapItems.map((item, index) => (
+                            <div key={`preview-overlap-item-${index}`} className="px-3 py-2">
+                              <p className="text-[13px] font-semibold text-[#27314b]">{item.courtName}</p>
+                              <p className="text-[12px] text-[#68738e]">
+                                Solicitada: {item.requestedDateLabel} · {item.requestedTimeLabel}
+                              </p>
+                              {(item.conflictingDateLabel || item.conflictingTimeLabel) && (
+                                <p className="text-[11px] text-[#8a93a7]">
+                                  Ocupada: {item.conflictingDateLabel || item.requestedDateLabel}
+                                  {item.conflictingTimeLabel ? ` · ${item.conflictingTimeLabel}` : ''}
+                                </p>
+                              )}
+                              {(item.clientName || item.activityName) && (
+                                <p className="text-[11px] text-[#8a93a7]">
+                                  En conflicto con: {[item.clientName, item.activityName].filter(Boolean).join(' · ')}
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-[#d5ebdc] bg-[#eefbf2] px-3 py-2 text-[13px] text-[#237247]">
+                        No se detectaron superposiciones.
+                      </div>
+                    )}
                     <div className="flex items-center justify-end gap-2 pt-1">
                       <button
                         type="button"
                         onClick={() => {
                           setRecurringCreateConfirmOpen(false);
-                          setRecurringCreateConfirmed(false);
+                          setRecurringPreviewSummary(null);
                         }}
                         className="h-10 rounded-xl border border-[#dbe2ef] bg-white px-4 text-sm font-semibold text-[#4e5870] hover:bg-[#f7f9fc]"
                       >
-                        Cancelarar
+                        Cancelar
                       </button>
                       <button
                         type="button"
                         onClick={() => {
                           setRecurringCreateConfirmOpen(false);
-                          setRecurringCreateConfirmed(true);
-                          void handleCreateBooking();
+                          void handleCreateBooking(true);
                         }}
                         className="h-10 rounded-xl bg-[#3053e2] px-5 text-white text-sm font-bold hover:bg-[#2748cc]"
                       >
-                        Crear serie
+                        {recurringOverlapItems.length > 0 ? 'Crear serie igualmente' : 'Crear serie'}
                       </button>
                     </div>
                   </div>
@@ -7438,7 +8266,13 @@ export default function AdminAgendaPlaygroundPage() {
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between px-5 py-4 border-b border-[#edf1f6]">
-                    <h3 className="text-[23px] font-bold tracking-[-0.01em] text-[#222a3d]">Serie con superposiciones</h3>
+                    <h3 className="text-[23px] font-bold tracking-[-0.01em] text-[#222a3d]">
+                      {(recurringResult?.generatedCount ?? 0) === 0
+                        ? 'No se pudo crear la serie'
+                        : (recurringResult?.skippedCount ?? 0) > 0
+                          ? 'Serie creada con superposiciones'
+                          : 'Serie creada correctamente'}
+                    </h3>
                     <button
                       type="button"
                       onClick={() => setRecurringOverlapModalOpen(false)}
@@ -7449,44 +8283,74 @@ export default function AdminAgendaPlaygroundPage() {
                   </div>
                   <div className="px-5 py-5 space-y-4">
                     <div className="rounded-xl border border-[#dce7ff] bg-[#f4f7ff] px-3 py-2 text-[13px] text-[#2f4fd8]">
-                      Se creó la serie solo en ocurrencias válidas. Las que se superponen fueron omitidas automáticamente.
+                      {(recurringResult?.generatedCount ?? 0) === 0
+                        ? 'No se creó ningún turno porque todos los horarios se superponen.'
+                        : (recurringResult?.skippedCount ?? 0) > 0
+                          ? 'Se creó la serie en las ocurrencias válidas y se omitieron las superpuestas.'
+                          : 'La serie se creó correctamente.'}
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
                       <div className="rounded-lg bg-[#f7f8fc] px-3 py-2 text-xs text-[#5c6478] flex justify-between">
                         <span>Creadas</span>
                         <strong>{recurringResult?.generatedCount ?? 0}</strong>
                       </div>
-                      <div className="rounded-lg bg-[#fff4f6] px-3 py-2 text-xs text-[#8f2f46] flex justify-between">
-                        <span>Omitidas por superposición</span>
-                        <strong>{recurringResult?.skippedCount ?? recurringOverlapItems.length}</strong>
-                      </div>
+                      {(recurringResult?.skippedCount ?? 0) > 0 && (
+                        <div className="rounded-lg bg-[#fff4f6] px-3 py-2 text-xs text-[#8f2f46] flex justify-between">
+                          <span>Omitidas por superposición</span>
+                          <strong>{recurringResult?.skippedCount ?? recurringOverlapItems.length}</strong>
+                        </div>
+                      )}
                     </div>
-                    <div>
-                      <p className="text-[13px] font-semibold text-[#4e5870] mb-2">
-                        Detalle ({recurringOverlapItems.length})
-                      </p>
-                      <div className="max-h-64 overflow-y-auto rounded-xl border border-[#e3e8f2] bg-white divide-y divide-[#eef1f6]">
-                        {recurringOverlapItems.map((item, index) => (
-                          <div key={`overlap-item-${index}`} className="px-3 py-2">
-                            <p className="text-[13px] font-semibold text-[#27314b]">{item.courtName}</p>
-                            <p className="text-[12px] text-[#68738e]">
-                              Solicitada: {item.requestedDateLabel} · {item.requestedTimeLabel}
-                            </p>
-                            {(item.conflictingDateLabel || item.conflictingTimeLabel) && (
-                              <p className="text-[11px] text-[#8a93a7]">
-                                Ocupada: {item.conflictingDateLabel || item.requestedDateLabel}
-                                {item.conflictingTimeLabel ? ` · ${item.conflictingTimeLabel}` : ''}
+                    {Boolean(recurringResult?.hasExplicitLimit) && recurringCreatedItems.length > 0 && (
+                      <div>
+                        <p className="text-[13px] font-semibold text-[#4e5870] mb-2">
+                          Turnos creados ({recurringCreatedItems.length})
+                        </p>
+                        <div className="max-h-64 overflow-y-auto rounded-xl border border-[#e3e8f2] bg-white divide-y divide-[#eef1f6]">
+                          {recurringCreatedItems.map((item, index) => (
+                            <div key={`created-item-${item.bookingId ?? index}`} className="px-3 py-2">
+                              <p className="text-[13px] font-semibold text-[#27314b]">{item.courtName}</p>
+                              <p className="text-[12px] text-[#68738e]">
+                                {item.requestedDateLabel} · {item.requestedTimeLabel}
                               </p>
-                            )}
-                            {(item.clientName || item.activityName) && (
-                              <p className="text-[11px] text-[#8a93a7]">
-                                En conflicto con: {[item.clientName, item.activityName].filter(Boolean).join(' · ')}
-                              </p>
-                            )}
-                          </div>
-                        ))}
+                              {item.activityName && (
+                                <p className="text-[11px] text-[#8a93a7]">
+                                  Actividad: {item.activityName}
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    )}
+                    {recurringOverlapItems.length > 0 && (
+                      <div>
+                        <p className="text-[13px] font-semibold text-[#4e5870] mb-2">
+                          Detalle ({recurringOverlapItems.length})
+                        </p>
+                        <div className="max-h-64 overflow-y-auto rounded-xl border border-[#e3e8f2] bg-white divide-y divide-[#eef1f6]">
+                          {recurringOverlapItems.map((item, index) => (
+                            <div key={`overlap-item-${index}`} className="px-3 py-2">
+                              <p className="text-[13px] font-semibold text-[#27314b]">{item.courtName}</p>
+                              <p className="text-[12px] text-[#68738e]">
+                                Solicitada: {item.requestedDateLabel} · {item.requestedTimeLabel}
+                              </p>
+                              {(item.conflictingDateLabel || item.conflictingTimeLabel) && (
+                                <p className="text-[11px] text-[#8a93a7]">
+                                  Ocupada: {item.conflictingDateLabel || item.requestedDateLabel}
+                                  {item.conflictingTimeLabel ? ` · ${item.conflictingTimeLabel}` : ''}
+                                </p>
+                              )}
+                              {(item.clientName || item.activityName) && (
+                                <p className="text-[11px] text-[#8a93a7]">
+                                  En conflicto con: {[item.clientName, item.activityName].filter(Boolean).join(' · ')}
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <div className="flex items-center justify-end">
                       <button
                         type="button"
@@ -7496,6 +8360,324 @@ export default function AdminAgendaPlaygroundPage() {
                         Entendido
                       </button>
                     </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {editSeriesScopeModalOpen && (
+              <div
+                className="fixed inset-0 z-[2147483200] bg-[#11162a]/40 flex items-center justify-center p-4"
+                onClick={() => {
+                  if (isSubmittingBooking) return;
+                  setEditSeriesScopeModalOpen(false);
+                  setSeriesEditPreviewScope(null);
+                  setSeriesEditPreviewSummary(null);
+                }}
+              >
+                <div
+                  className="w-full max-w-[640px] rounded-2xl border border-[#e0e5f2] bg-white shadow-2xl"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between px-5 py-4 border-b border-[#edf1f6]">
+                    <h3 className="text-[23px] font-bold tracking-[-0.01em] text-[#222a3d]">Editar serie</h3>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditSeriesScopeModalOpen(false);
+                        setSeriesEditPreviewScope(null);
+                        setSeriesEditPreviewSummary(null);
+                      }}
+                      disabled={isSubmittingBooking}
+                      className="h-8 w-8 rounded-full border border-[#e2e6ef] grid place-items-center text-[#7a8398] hover:bg-[#f7f9fc] disabled:opacity-50"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                  <div className="px-5 py-5 space-y-4">
+                    {!seriesEditPreviewScope ? (
+                      <>
+                        <p className="text-[13px] text-[#5e6880]">
+                          Elegí el alcance de esta edición para previsualizar impacto y superposiciones.
+                        </p>
+                        <div className="space-y-2">
+                          <button
+                            type="button"
+                            onClick={() => void previewSeriesEditScope('THIS_OCCURRENCE')}
+                            disabled={isSubmittingBooking || seriesEditPreviewLoading}
+                            className="w-full rounded-xl border border-[#dce2ee] bg-white px-4 py-3 text-left hover:bg-[#f8faff] disabled:opacity-50"
+                          >
+                            <p className="text-[14px] font-semibold text-[#27314b]">Editar solo esta ocurrencia</p>
+                            <p className="mt-1 text-[12px] text-[#6f7890]">Solo cambia este turno puntual.</p>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void previewSeriesEditScope('NEXT_OCCURRENCES')}
+                            disabled={isSubmittingBooking || seriesEditPreviewLoading}
+                            className="w-full rounded-xl border border-[#dce2ee] bg-white px-4 py-3 text-left hover:bg-[#f8faff] disabled:opacity-50"
+                          >
+                            <p className="text-[14px] font-semibold text-[#27314b]">Editar esta y las siguientes ocurrencias</p>
+                            <p className="mt-1 text-[12px] text-[#6f7890]">Aplica desde este turno en adelante dentro de la serie.</p>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void previewSeriesEditScope('ALL_OCCURRENCES')}
+                            disabled={isSubmittingBooking || seriesEditPreviewLoading}
+                            className="w-full rounded-xl border border-[#dce2ee] bg-white px-4 py-3 text-left hover:bg-[#f8faff] disabled:opacity-50"
+                          >
+                            <p className="text-[14px] font-semibold text-[#27314b]">Editar toda la serie</p>
+                            <p className="mt-1 text-[12px] text-[#6f7890]">Aplica a las ocurrencias futuras de la serie.</p>
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-[13px] text-[#5e6880]">
+                          Previsualización: {
+                            seriesEditPreviewScope === 'THIS_OCCURRENCE'
+                              ? 'solo esta ocurrencia'
+                              : seriesEditPreviewScope === 'NEXT_OCCURRENCES'
+                                ? 'esta y las siguientes'
+                                : 'toda la serie'
+                          }.
+                        </p>
+                        {seriesEditPreviewLoading && !seriesEditPreviewSummary && (
+                          <div className="rounded-xl border border-[#dce7ff] bg-[#f4f7ff] px-4 py-5">
+                            <div className="flex items-center justify-center">
+                              <span className="h-4 w-4 rounded-full border-2 border-[#b9c6f4] border-t-[#3053e2] animate-spin" />
+                            </div>
+                          </div>
+                        )}
+                        {seriesEditPreviewSummary && (
+                          <div className="rounded-xl border border-[#dce7ff] bg-[#f4f7ff] px-3 py-2 text-[13px] text-[#2f4fd8]">
+                            <p>Se actualizarán <strong>{seriesEditPreviewSummary.applicableCount}</strong> ocurrencias.</p>
+                            <p>Se omitirán <strong>{seriesEditPreviewSummary.skippedCount}</strong> ocurrencias.</p>
+                          </div>
+                        )}
+                        {Boolean(seriesEditPreviewSummary?.applicableItems.length) && (
+                          <div className="rounded-xl border border-[#dce2ee] bg-white">
+                            <div className="border-b border-[#e8edf7] px-3 py-2 text-[12px] font-semibold text-[#465474]">
+                              Ocurrencias a actualizar ({seriesEditPreviewSummary.applicableItems.length})
+                            </div>
+                            <div className="max-h-44 overflow-y-auto divide-y divide-[#eef2f8]">
+                              {seriesEditPreviewSummary.applicableItems.map((item, index) => (
+                                <div key={`edit-series-applicable-${index}`} className="px-3 py-2 text-[12px] text-[#4f5a72]">
+                                  <p className="font-semibold text-[#2a3245]">{item.courtName}</p>
+                                  <p>{item.requestedDateLabel} · {item.requestedTimeLabel}</p>
+                                  {item.activityName && <p>{item.activityName}</p>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {Boolean(seriesEditPreviewSummary?.overlapItems.length) && (
+                          <div className="rounded-xl border border-[#dce2ee] bg-[#fbfcff]">
+                            <div className="border-b border-[#e8edf7] px-3 py-2 text-[12px] font-semibold text-[#5b6681]">
+                              Superposiciones detectadas ({seriesEditPreviewSummary.overlapItems.length})
+                            </div>
+                            <div className="max-h-48 overflow-y-auto divide-y divide-[#eef2f8]">
+                              {seriesEditPreviewSummary.overlapItems.map((item, index) => (
+                                <div key={`edit-series-overlap-${index}`} className="px-3 py-2 text-[12px] text-[#4f5a72]">
+                                  <p className="font-semibold text-[#2a3245]">{item.courtName}</p>
+                                  <p>{item.requestedDateLabel} · {item.requestedTimeLabel}</p>
+                                  {item.conflictingDateLabel && item.conflictingTimeLabel && (
+                                    <p className="text-[#7b859d]">
+                                      Conflicta con {item.conflictingDateLabel} · {item.conflictingTimeLabel}
+                                    </p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {Boolean(seriesEditPreviewSummary?.failureMessages.length) && (
+                          <div className="rounded-xl border border-[#f3ccd5] bg-[#fff4f6] px-3 py-2 text-[12px] text-[#b13a55]">
+                            {seriesEditPreviewSummary.failureMessages.join(' · ')}
+                          </div>
+                        )}
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSeriesEditPreviewScope(null);
+                              setSeriesEditPreviewSummary(null);
+                            }}
+                            disabled={isSubmittingBooking}
+                            className="h-10 rounded-xl border border-[#dbe2ef] bg-white px-4 text-sm font-semibold text-[#4e5870] hover:bg-[#f7f9fc]"
+                          >
+                            Cambiar alcance
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleCreateBooking(false, seriesEditPreviewSummary?.scope || seriesEditPreviewScope)}
+                            disabled={isSubmittingBooking || pendingSeriesScopeSave !== null || !seriesEditPreviewSummary}
+                            className="h-10 rounded-xl bg-[#3053e2] px-5 text-white text-sm font-bold hover:bg-[#2748cc] disabled:opacity-50"
+                          >
+                            Guardar cambios de serie
+                          </button>
+                        </div>
+                      </>
+                    )}
+                    {pendingSeriesScopeSave && (
+                      <div className="rounded-xl border border-[#dce7ff] bg-[#f4f7ff] px-4 py-3">
+                        <div className="flex items-center justify-center">
+                          <span className="h-4 w-4 rounded-full border-2 border-[#b9c6f4] border-t-[#3053e2] animate-spin" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {deleteSeriesScopeModalOpen && (
+              <div
+                className="fixed inset-0 z-[2147483200] bg-[#11162a]/40 flex items-center justify-center p-4"
+                onClick={() => {
+                  if (isDeletingBooking) return;
+                  setDeleteSeriesScopeModalOpen(false);
+                  setSeriesDeletePreviewScope(null);
+                  setSeriesDeletePreviewSummary(null);
+                }}
+              >
+                <div
+                  className="w-full max-w-[640px] rounded-2xl border border-[#e0e5f2] bg-white shadow-2xl"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between px-5 py-4 border-b border-[#edf1f6]">
+                    <h3 className="text-[23px] font-bold tracking-[-0.01em] text-[#222a3d]">Cancelar serie</h3>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeleteSeriesScopeModalOpen(false);
+                        setSeriesDeletePreviewScope(null);
+                        setSeriesDeletePreviewSummary(null);
+                      }}
+                      disabled={isDeletingBooking}
+                      className="h-8 w-8 rounded-full border border-[#e2e6ef] grid place-items-center text-[#7a8398] hover:bg-[#f7f9fc] disabled:opacity-50"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                  <div className="px-5 py-5 space-y-4">
+                    {!seriesDeletePreviewScope ? (
+                      <>
+                        <p className="text-[13px] text-[#5e6880]">
+                          Elegí el alcance para previsualizar cuántas ocurrencias se cancelarán.
+                        </p>
+                        <div className="space-y-2">
+                          <button
+                            type="button"
+                            onClick={() => void previewSeriesDeleteScope('THIS_OCCURRENCE')}
+                            disabled={isDeletingBooking || seriesDeletePreviewLoading}
+                            className="w-full rounded-xl border border-[#dce2ee] bg-white px-4 py-3 text-left hover:bg-[#f8faff] disabled:opacity-50"
+                          >
+                            <p className="text-[14px] font-semibold text-[#27314b]">Cancelar solo esta ocurrencia</p>
+                            <p className="mt-1 text-[12px] text-[#6f7890]">Solo cancela este turno puntual.</p>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void previewSeriesDeleteScope('NEXT_OCCURRENCES')}
+                            disabled={isDeletingBooking || seriesDeletePreviewLoading}
+                            className="w-full rounded-xl border border-[#dce2ee] bg-white px-4 py-3 text-left hover:bg-[#f8faff] disabled:opacity-50"
+                          >
+                            <p className="text-[14px] font-semibold text-[#27314b]">Cancelar esta y las siguientes</p>
+                            <p className="mt-1 text-[12px] text-[#6f7890]">Aplica desde este turno en adelante dentro de la serie.</p>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void previewSeriesDeleteScope('ALL_OCCURRENCES')}
+                            disabled={isDeletingBooking || seriesDeletePreviewLoading}
+                            className="w-full rounded-xl border border-[#dce2ee] bg-white px-4 py-3 text-left hover:bg-[#f8faff] disabled:opacity-50"
+                          >
+                            <p className="text-[14px] font-semibold text-[#27314b]">Cancelar toda la serie futura</p>
+                            <p className="mt-1 text-[12px] text-[#6f7890]">Cancela todas las ocurrencias pendientes de la serie.</p>
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-[13px] text-[#5e6880]">
+                          Previsualización: {
+                            seriesDeletePreviewScope === 'THIS_OCCURRENCE'
+                              ? 'solo esta ocurrencia'
+                              : seriesDeletePreviewScope === 'NEXT_OCCURRENCES'
+                                ? 'esta y las siguientes'
+                                : 'toda la serie'
+                          }.
+                        </p>
+                        {seriesDeletePreviewLoading && !seriesDeletePreviewSummary && (
+                          <div className="rounded-xl border border-[#dce7ff] bg-[#f4f7ff] px-4 py-5">
+                            <div className="flex items-center justify-center">
+                              <span className="h-4 w-4 rounded-full border-2 border-[#b9c6f4] border-t-[#3053e2] animate-spin" />
+                            </div>
+                          </div>
+                        )}
+                        {seriesDeletePreviewSummary && (
+                          <div className="rounded-xl border border-[#dce7ff] bg-[#f4f7ff] px-3 py-2 text-[13px] text-[#2f4fd8]">
+                            <p>Se cancelarán <strong>{seriesDeletePreviewSummary.applicableCount}</strong> ocurrencias.</p>
+                            <p>Se omitirán <strong>{seriesDeletePreviewSummary.skippedCount}</strong> ocurrencias.</p>
+                          </div>
+                        )}
+                        {Boolean(seriesDeletePreviewSummary?.applicableItems.length) && (
+                          <div className="rounded-xl border border-[#dce2ee] bg-white">
+                            <div className="border-b border-[#e8edf7] px-3 py-2 text-[12px] font-semibold text-[#465474]">
+                              Ocurrencias a cancelar ({seriesDeletePreviewSummary.applicableItems.length})
+                            </div>
+                            <div className="max-h-44 overflow-y-auto divide-y divide-[#eef2f8]">
+                              {seriesDeletePreviewSummary.applicableItems.map((item, index) => (
+                                <div key={`delete-series-applicable-${index}`} className="px-3 py-2 text-[12px] text-[#4f5a72]">
+                                  <p className="font-semibold text-[#2a3245]">{item.courtName}</p>
+                                  <p>{item.requestedDateLabel} · {item.requestedTimeLabel}</p>
+                                  {item.activityName && <p>{item.activityName}</p>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {Boolean(seriesDeletePreviewSummary?.overlapItems.length) && (
+                          <div className="rounded-xl border border-[#dce2ee] bg-[#fbfcff]">
+                            <div className="border-b border-[#e8edf7] px-3 py-2 text-[12px] font-semibold text-[#5b6681]">
+                              Ocurrencias omitidas ({seriesDeletePreviewSummary.overlapItems.length})
+                            </div>
+                            <div className="max-h-44 overflow-y-auto divide-y divide-[#eef2f8]">
+                              {seriesDeletePreviewSummary.overlapItems.map((item, index) => (
+                                <div key={`delete-series-skip-${index}`} className="px-3 py-2 text-[12px] text-[#4f5a72]">
+                                  <p className="font-semibold text-[#2a3245]">{item.courtName}</p>
+                                  <p>{item.requestedDateLabel} · {item.requestedTimeLabel}</p>
+                                  {item.activityName && <p>{item.activityName}</p>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSeriesDeletePreviewScope(null);
+                              setSeriesDeletePreviewSummary(null);
+                            }}
+                            disabled={isDeletingBooking}
+                            className="h-10 rounded-xl border border-[#dbe2ef] bg-white px-4 text-sm font-semibold text-[#4e5870] hover:bg-[#f7f9fc]"
+                          >
+                            Cambiar alcance
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const scope = seriesDeletePreviewSummary?.scope || seriesDeletePreviewScope;
+                              setDeleteSeriesScopeModalOpen(false);
+                              void handleDeleteBooking(scope);
+                            }}
+                            disabled={isDeletingBooking || !seriesDeletePreviewSummary}
+                            className="h-10 rounded-xl bg-[#cf3f57] px-5 text-white text-sm font-bold hover:bg-[#b8354b] disabled:opacity-50"
+                          >
+                            Confirmar cancelación
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -7511,7 +8693,7 @@ export default function AdminAgendaPlaygroundPage() {
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between px-5 py-4 border-b border-[#edf1f6]">
-                    <h3 className="text-[23px] font-bold tracking-[-0.01em] text-[#222a3d]">Cancelarar reserva</h3>
+                    <h3 className="text-[23px] font-bold tracking-[-0.01em] text-[#222a3d]">Cancelar reserva</h3>
                     <button
                       type="button"
                       onClick={() => setDeleteBookingConfirmOpen(false)}
@@ -7541,6 +8723,79 @@ export default function AdminAgendaPlaygroundPage() {
                         className="h-10 rounded-xl bg-[#cf3f57] px-5 text-white text-sm font-bold hover:bg-[#b8354b]"
                       >
                         Sí, cancelar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {seriesOperationResultOpen && seriesOperationResult && (
+              <div
+                className="fixed inset-0 z-[2147483200] bg-[#11162a]/35 flex items-center justify-center p-4"
+                onClick={() => setSeriesOperationResultOpen(false)}
+              >
+                <div
+                  className="w-full max-w-[620px] rounded-2xl border border-[#e0e5f2] bg-white shadow-2xl"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between px-5 py-4 border-b border-[#edf1f6]">
+                    <h3 className="text-[23px] font-bold tracking-[-0.01em] text-[#222a3d]">{seriesOperationResult.title}</h3>
+                    <button
+                      type="button"
+                      onClick={() => setSeriesOperationResultOpen(false)}
+                      className="h-8 w-8 rounded-full border border-[#e2e6ef] grid place-items-center text-[#7a8398] hover:bg-[#f7f9fc]"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                  <div className="px-5 py-5 space-y-4">
+                    <p className="text-[14px] text-[#4b556d]">{seriesOperationResult.detail}</p>
+                    <div className="rounded-xl border border-[#dce2ee] bg-[#f8fafd] px-3 py-2 text-[13px] text-[#2a3245]">
+                      <p>Aplicadas: <strong>{seriesOperationResult.appliedCount}</strong></p>
+                      <p>Omitidas: <strong>{seriesOperationResult.skippedCount}</strong></p>
+                    </div>
+                    {seriesOperationResult.appliedItems.length > 0 && (
+                      <div className="rounded-xl border border-[#dce2ee] bg-white">
+                        <div className="border-b border-[#e8edf7] px-3 py-2 text-[12px] font-semibold text-[#5b6681]">
+                          {seriesOperationResult.mode === 'delete'
+                            ? `Canceladas (${seriesOperationResult.appliedItems.length})`
+                            : `Actualizadas (${seriesOperationResult.appliedItems.length})`}
+                        </div>
+                        <div className="max-h-44 overflow-y-auto divide-y divide-[#eef2f8]">
+                          {seriesOperationResult.appliedItems.map((item, index) => (
+                            <div key={`series-operation-applied-${index}`} className="px-3 py-2 text-[12px] text-[#4f5a72]">
+                              <p className="font-semibold text-[#2a3245]">{item.courtName}</p>
+                              <p>{item.requestedDateLabel} · {item.requestedTimeLabel}</p>
+                              {item.activityName && <p>{item.activityName}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {seriesOperationResult.overlapItems.length > 0 && (
+                      <div className="rounded-xl border border-[#dce2ee] bg-[#fbfcff]">
+                        <div className="border-b border-[#e8edf7] px-3 py-2 text-[12px] font-semibold text-[#5b6681]">
+                          Detalle ({seriesOperationResult.overlapItems.length})
+                        </div>
+                        <div className="max-h-44 overflow-y-auto divide-y divide-[#eef2f8]">
+                          {seriesOperationResult.overlapItems.map((item, index) => (
+                            <div key={`series-operation-result-${index}`} className="px-3 py-2 text-[12px] text-[#4f5a72]">
+                              <p className="font-semibold text-[#2a3245]">{item.courtName}</p>
+                              <p>{item.requestedDateLabel} · {item.requestedTimeLabel}</p>
+                              {item.activityName && <p>{item.activityName}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setSeriesOperationResultOpen(false)}
+                        className="h-10 rounded-xl bg-[#3053e2] px-5 text-white text-sm font-bold hover:bg-[#2748cc]"
+                      >
+                        Entendido
                       </button>
                     </div>
                   </div>
@@ -7712,17 +8967,7 @@ export default function AdminAgendaPlaygroundPage() {
                 <header className="border-b border-[#eef0f5] px-6 py-5 flex items-start justify-between">
                   <div>
                     <h2 className="text-[24px] leading-none font-semibold text-[#1f2638] tracking-[-0.015em]">
-                      {useSimplifiedBookingSidebar
-                        ? editingBookingId
-                          ? 'Editar reserva'
-                          : `Crear reserva para ${simplifiedHeaderDateLabel}`
-                        : editingBookingId
-                          ? bookingKind === 'block'
-                            ? 'Editar bloqueo'
-                            : 'Editar reserva'
-                          : bookingKind === 'block'
-                            ? 'Crear bloqueo'
-                            : 'Crear reserva'}
+                      {sidebarTitle}
                     </h2>
                     {!useSimplifiedBookingSidebar && (
                     <div className="mt-4 flex flex-wrap items-center gap-2 relative">
@@ -7737,27 +8982,29 @@ export default function AdminAgendaPlaygroundPage() {
                       </button>
                       {bookingKindMenuOpen && (
                         <div className="absolute top-10 left-0 z-40 w-[420px] rounded-2xl border border-[#dfe4f1] bg-white p-2 shadow-xl">
-                          {bookingKindOptions.map((option) => (
-                            <button
-                              key={option.value}
-                              type="button"
-                              onClick={() => {
-                                setBookingKind(option.value);
-                                setBookingKindMenuOpen(false);
-                              }}
-                              className={`w-full text-left rounded-xl px-3 py-3 transition ${
-                                option.value === bookingKind ? 'bg-[#eef0ff]' : 'hover:bg-[#f6f7fb]'
-                              }`}
-                            >
-                              <span className="flex items-start gap-2">
-                                <option.icon size={17} className="mt-[1px] text-[#44527b]" />
-                                <span>
-                                  <span className="block text-[19px] font-bold leading-none text-[#2a3245]">{option.label}</span>
-                                  <span className="block mt-1 text-[12px] leading-snug text-[#7d879d]">{option.description}</span>
+                          <div className="space-y-1">
+                            {bookingKindOptions.map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() => {
+                                  setBookingKind(option.value);
+                                  setBookingKindMenuOpen(false);
+                                }}
+                                className={`w-full text-left rounded-xl px-3 py-3 transition ${
+                                  option.value === bookingKind ? 'bg-[#eef0ff]' : 'hover:bg-[#f6f7fb]'
+                                }`}
+                              >
+                                <span className="flex items-start gap-2">
+                                  <option.icon size={17} className="mt-[1px] text-[#44527b]" />
+                                  <span>
+                                    <span className="block text-[19px] font-bold leading-none text-[#2a3245]">{option.label}</span>
+                                    <span className="block mt-1 text-[12px] leading-snug text-[#7d879d]">{option.description}</span>
+                                  </span>
                                 </span>
-                              </span>
-                            </button>
-                          ))}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       )}
                       <label className="h-8 min-w-[124px] rounded-full border border-[#e2e6ef] bg-[#f8f9fc] px-3 text-[13px] font-medium text-[#3e4555] inline-flex items-center gap-1.5">
@@ -7777,7 +9024,7 @@ export default function AdminAgendaPlaygroundPage() {
                       </label>
                       {bookingKind !== 'block' && (
                         <>
-                          {bookingKind !== 'recurring' && (
+                          {!isRecurringKind && (
                             <PlaygroundCombo
                               value={selectedCourtId}
                               onChange={(next) => {
@@ -7904,30 +9151,9 @@ export default function AdminAgendaPlaygroundPage() {
                               <span className="ml-2 text-[18px] font-semibold text-[#8a92a5]">$</span>
                             </div>
                           </div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="rounded-xl border border-[#dce2ee] bg-[#f3f5ff] px-3 py-2.5 flex items-center justify-between">
-                            <div className="inline-flex items-center gap-2 text-[15px] font-medium text-[#4b5fa8]">
-                              <Clock3 size={16} />
-                              <span>Reserva regular</span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                showCalendarNotice('Por ahora este panel funciona en reserva regular.');
-                              }}
-                              className="text-[14px] font-semibold text-[#4b5fa8] underline underline-offset-2 hover:text-[#3d4f91]"
-                            >
-                              Cambiar tipo
-                            </button>
-                          </div>
-                          {dateFieldError && (
-                            <p className="mt-2 text-[12px] font-medium text-[#b42346]">{dateFieldError}</p>
-                          )}
 
                           <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
-                            <label className="block">
+                            <div className="block">
                               <span className="text-[12px] font-medium text-[#7a8398]">Hora de inicio</span>
                               <PlaygroundCombo
                                 value={slotToTime(selectedStartSlot)}
@@ -7946,8 +9172,8 @@ export default function AdminAgendaPlaygroundPage() {
                                 }))}
                                 className="mt-1"
                               />
-                            </label>
-                            <label className="block">
+                            </div>
+                            <div className="block">
                               <span className="text-[12px] font-medium text-[#7a8398]">Hora de fin</span>
                               <PlaygroundCombo
                                 value={slotToTime(selectedEndSlot)}
@@ -7963,13 +9189,13 @@ export default function AdminAgendaPlaygroundPage() {
                                 }))}
                                 className="mt-1"
                               />
-                            </label>
+                            </div>
                             {timeFieldError && (
                               <div className="md:col-span-2">
                                 <p className="text-[12px] font-medium text-[#b42346]">{timeFieldError}</p>
                               </div>
                             )}
-                            <label className="block">
+                            <div className="block md:col-span-2">
                               <span className="text-[12px] font-medium text-[#7a8398]">Cancha</span>
                               <PlaygroundCombo
                                 value={selectedCourtId}
@@ -7984,8 +9210,324 @@ export default function AdminAgendaPlaygroundPage() {
                               {courtFieldError && (
                                 <p className="mt-1 text-[12px] font-medium text-[#b42346]">{courtFieldError}</p>
                               )}
-                            </label>
+                            </div>
                           </div>
+                        </>
+                      ) : (
+                        <>
+                          <div
+                            data-booking-kind-menu-root="true"
+                            className="relative rounded-xl border border-[#dce2ee] bg-[#f3f5ff] px-3 py-2.5 flex items-center justify-between"
+                          >
+                            <div className="inline-flex items-center gap-2 text-[15px] font-medium text-[#4b5fa8]">
+                              <Clock3 size={16} />
+                              <span>{bookingKind === 'recurringV2' ? 'Serie recurrente' : 'Reserva regular'}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setBookingKindMenuOpen((previous) => !previous)}
+                              className="text-[14px] font-semibold text-[#4b5fa8] underline underline-offset-2 hover:text-[#3d4f91]"
+                            >
+                              Cambiar tipo
+                            </button>
+                            {bookingKindMenuOpen && (
+                              <div className="absolute right-0 top-[calc(100%+8px)] z-40 w-[360px] max-w-[calc(100vw-2rem)] rounded-2xl border border-[#dfe4f1] bg-white p-2 shadow-xl">
+                                <div className="space-y-1">
+                                  {bookingKindOptions.map((option) => (
+                                    <button
+                                      key={`simplified-booking-kind-${option.value}`}
+                                      type="button"
+                                      onClick={() => {
+                                        setBookingKind(option.value);
+                                        setBookingKindMenuOpen(false);
+                                        setFormError('');
+                                      }}
+                                      className={`w-full text-left rounded-xl px-3 py-3 transition ${
+                                        option.value === bookingKind ? 'bg-[#eef0ff]' : 'hover:bg-[#f6f7fb]'
+                                      }`}
+                                    >
+                                      <span className="flex items-start gap-2">
+                                        <option.icon size={17} className="mt-[1px] text-[#44527b]" />
+                                        <span>
+                                          <span className="block text-[16px] font-bold leading-none text-[#2a3245]">{option.label}</span>
+                                          <span className="block mt-1 text-[12px] leading-snug text-[#7d879d]">{option.description}</span>
+                                        </span>
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          {dateFieldError && (
+                            <p className="mt-2 text-[12px] font-medium text-[#b42346]">{dateFieldError}</p>
+                          )}
+
+                          {bookingKind === 'recurringV2' ? (
+                            <>
+                              <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
+                                <div className="block">
+                                  <span className="text-[12px] font-medium text-[#7a8398]">Día de repetición</span>
+                                  <PlaygroundCombo
+                                    value={String(recurringDayOfWeek)}
+                                    onChange={(nextValue) => {
+                                      setRecurringDayOfWeek(Number(nextValue));
+                                      setRecurringResult(null);
+                                      setFormError('');
+                                    }}
+                                    options={WEEKDAY_OPTIONS.map((option) => ({ value: String(option.value), label: option.label }))}
+                                    className="mt-1"
+                                  />
+                                </div>
+                                <div className="block">
+                                  <span className="text-[12px] font-medium text-[#7a8398]">Frecuencia</span>
+                                  <PlaygroundCombo
+                                    value={recurringFrequencyPreset}
+                                    onChange={(nextValue) => {
+                                      const nextPreset = nextValue as RecurringFrequencyPreset;
+                                      setRecurringFrequencyPreset(nextPreset);
+                                      if (nextPreset === 'weekly') {
+                                        setRecurringEveryDays(7);
+                                      } else if (nextPreset === 'biweekly') {
+                                        setRecurringEveryDays(14);
+                                      } else if (nextPreset === 'custom') {
+                                        setCustomRepeatEveryWeeks(Math.max(1, Math.floor(recurringEveryDays / 7) || 1));
+                                        setCustomEndAfterReservations(Math.max(1, recurringRepetitions));
+                                        setCustomEndAfterEnabled(true);
+                                        setCustomRecurrenceDays((previous) => (previous.length > 0 ? previous : [recurringDayOfWeek]));
+                                        setCustomRecurrenceModalOpen(true);
+                                      }
+                                      setRecurringResult(null);
+                                      setFormError('');
+                                    }}
+                                    options={[
+                                      { value: 'weekly', label: 'Semanal' },
+                                      { value: 'biweekly', label: '2 semanas' },
+                                      { value: 'custom', label: 'Personalizado' },
+                                    ]}
+                                    className="mt-1"
+                                  />
+                                </div>
+                                <div className="block">
+                                  <span className="text-[12px] font-medium text-[#7a8398]">Hora de inicio</span>
+                                  <PlaygroundCombo
+                                    value={slotToTime(selectedStartSlot)}
+                                    onChange={(nextValue) => {
+                                      const nextStart = timeToSlot(nextValue);
+                                      setSelectedStartSlot(nextStart);
+                                      if (nextStart >= selectedEndSlot) {
+                                        setSelectedEndSlot(nextStart + 1);
+                                      }
+                                      setScheduleInputsDirty(true);
+                                      setFormError('');
+                                    }}
+                                    options={timeOptions.slice(0, -1).map((option) => ({
+                                      value: option.value,
+                                      label: slotToTimeAmPm(option.slot),
+                                    }))}
+                                    className="mt-1"
+                                  />
+                                </div>
+                                <div className="block">
+                                  <span className="text-[12px] font-medium text-[#7a8398]">Hora de fin</span>
+                                  <PlaygroundCombo
+                                    value={slotToTime(selectedEndSlot)}
+                                    onChange={(nextValue) => {
+                                      const nextEnd = Math.max(timeToSlot(nextValue), selectedStartSlot + 1);
+                                      setSelectedEndSlot(nextEnd);
+                                      setScheduleInputsDirty(true);
+                                      setFormError('');
+                                    }}
+                                    options={timeOptions.slice(1).map((option) => ({
+                                      value: option.value,
+                                      label: slotToTimeAmPm(option.slot),
+                                    }))}
+                                    className="mt-1"
+                                  />
+                                </div>
+                                {timeFieldError && (
+                                  <div className="md:col-span-2">
+                                    <p className="text-[12px] font-medium text-[#b42346]">{timeFieldError}</p>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="mt-4">
+                                <p className="text-[12px] font-medium text-[#7a8398]">Canchas para la serie</p>
+                                <div ref={recurringCourtsMenuRef} className="relative mt-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setRecurringCourtsMenuOpen((previous) => !previous)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === 'ArrowDown') {
+                                        event.preventDefault();
+                                        setRecurringCourtsMenuOpen(true);
+                                      }
+                                    }}
+                                    aria-haspopup="listbox"
+                                    aria-expanded={recurringCourtsMenuOpen}
+                                    className={`h-11 w-full rounded-xl border px-3 text-left text-[15px] inline-flex items-center justify-between gap-2 bg-white transition outline-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#dce6ff] focus-visible:ring-offset-0 ${
+                                      recurringCourtsMenuOpen
+                                        ? 'border-[#c8ceda] ring-2 ring-[#eef2ff] text-[#1f2a44]'
+                                        : 'border-[#d9dee8] text-[#2a3348] hover:border-[#c9d1de]'
+                                    }`}
+                                  >
+                                    <span className="truncate">{recurringCourtSelectionLabel || 'Seleccionar canchas'}</span>
+                                    <ChevronDown
+                                      size={15}
+                                      className={`text-[#7a8398] transition-transform ${recurringCourtsMenuOpen ? 'rotate-180' : ''}`}
+                                    />
+                                  </button>
+                                  {recurringCourtsMenuOpen && (
+                                    <div className="absolute left-0 right-0 mt-2 rounded-xl border border-[#dbe2ef] bg-white shadow-xl z-40 overflow-hidden">
+                                      <label className={`flex cursor-pointer items-center gap-2 px-3 py-2.5 text-[15px] text-[#2e3650] transition ${recurringAllCourtsSelected ? 'bg-[#edf1ff]' : 'hover:bg-[#f5f7fb]'}`}>
+                                        <input
+                                          type="checkbox"
+                                          className="peer sr-only"
+                                          checked={recurringAllCourtsSelected}
+                                          onChange={(event) => {
+                                            setRecurringCourtIds(event.target.checked ? effectiveCourts.map((court) => court.id) : []);
+                                            setRecurringResult(null);
+                                            setFormError('');
+                                          }}
+                                        />
+                                        <span className="grid h-7 w-7 place-items-center rounded-[10px] border border-[#c9d0de] bg-white text-[16px] leading-none text-[#2f53df] peer-checked:border-[#8ca2ff] peer-checked:bg-[#eef2ff]">
+                                          {recurringAllCourtsSelected ? '✓' : ''}
+                                        </span>
+                                        <span className="font-medium">Todas las canchas</span>
+                                      </label>
+                                      <div className="h-px bg-[#edf1f7]" />
+                                      <div className="max-h-56 overflow-y-auto">
+                                        {effectiveCourts.map((court) => {
+                                          const checked = recurringCourtIds.includes(court.id);
+                                          return (
+                                            <label
+                                              key={`recurring-court-${court.id}`}
+                                              className={`flex cursor-pointer items-center gap-2 px-3 py-2.5 text-[15px] text-[#2e3650] transition ${checked ? 'bg-[#edf1ff]' : 'hover:bg-[#f5f7fb]'}`}
+                                            >
+                                              <input
+                                                type="checkbox"
+                                                className="peer sr-only"
+                                                checked={checked}
+                                                onChange={(event) => {
+                                                  setRecurringCourtIds((previous) => {
+                                                    if (event.target.checked) {
+                                                      if (previous.includes(court.id)) return previous;
+                                                      return [...previous, court.id];
+                                                    }
+                                                    return previous.filter((id) => id !== court.id);
+                                                  });
+                                                  setRecurringResult(null);
+                                                  setFormError('');
+                                                }}
+                                              />
+                                              <span className="grid h-7 w-7 place-items-center rounded-[10px] border border-[#c9d0de] bg-white text-[16px] leading-none text-[#2f53df] peer-checked:border-[#8ca2ff] peer-checked:bg-[#eef2ff]">
+                                                {checked ? '✓' : ''}
+                                              </span>
+                                              <span className="truncate font-medium">{court.name}</span>
+                                            </label>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="mt-4 rounded-xl border border-[#e2e7f1] bg-white px-4 py-3">
+                                {recurringFrequencyPreset === 'custom' && (
+                                  <>
+                                    <div className="flex items-center justify-between gap-3">
+                                      <p className="text-[12px] font-medium text-[#6f7890]">Repetición personalizada</p>
+                                      <button
+                                        type="button"
+                                        onClick={() => setCustomRecurrenceModalOpen(true)}
+                                        className="h-9 rounded-lg border border-[#d3daf0] bg-white px-3 text-[12px] font-semibold text-[#2f4fd8] hover:bg-[#f4f7ff]"
+                                      >
+                                        Editar repetición
+                                      </button>
+                                    </div>
+                                    <div className="my-2 h-px bg-[#e9edf5]" />
+                                  </>
+                                )}
+                                <p className="text-[12px] text-[#6f7890]">
+                                  Primera ocurrencia:{' '}
+                                  <strong className="ml-1 text-[14px] font-semibold text-[#2a3245]">
+                                    {recurringFirstOccurrence.toLocaleDateString('es-AR', {
+                                      weekday: 'long',
+                                      day: '2-digit',
+                                      month: 'short',
+                                    })}{' '}
+                                    · {slotToTime(selectedStartSlot)} - {slotToTime(selectedEndSlot)}
+                                  </strong>
+                                </p>
+                                <p className="mt-1 text-[12px] text-[#6f7890]">
+                                  {recurringCadenceShortSummary} · {recurringCreationCountSummary}
+                                </p>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
+                              <div className="block">
+                                <span className="text-[12px] font-medium text-[#7a8398]">Hora de inicio</span>
+                                <PlaygroundCombo
+                                  value={slotToTime(selectedStartSlot)}
+                                  onChange={(nextValue) => {
+                                    const nextStart = timeToSlot(nextValue);
+                                    setSelectedStartSlot(nextStart);
+                                    if (nextStart >= selectedEndSlot) {
+                                      setSelectedEndSlot(nextStart + 1);
+                                    }
+                                    setScheduleInputsDirty(true);
+                                    setFormError('');
+                                  }}
+                                  options={timeOptions.slice(0, -1).map((option) => ({
+                                    value: option.value,
+                                    label: slotToTimeAmPm(option.slot),
+                                  }))}
+                                  className="mt-1"
+                                />
+                              </div>
+                              <div className="block">
+                                <span className="text-[12px] font-medium text-[#7a8398]">Hora de fin</span>
+                                <PlaygroundCombo
+                                  value={slotToTime(selectedEndSlot)}
+                                  onChange={(nextValue) => {
+                                    const nextEnd = Math.max(timeToSlot(nextValue), selectedStartSlot + 1);
+                                    setSelectedEndSlot(nextEnd);
+                                    setScheduleInputsDirty(true);
+                                    setFormError('');
+                                  }}
+                                  options={timeOptions.slice(1).map((option) => ({
+                                    value: option.value,
+                                    label: slotToTimeAmPm(option.slot),
+                                  }))}
+                                  className="mt-1"
+                                />
+                              </div>
+                              {timeFieldError && (
+                                <div className="md:col-span-2">
+                                  <p className="text-[12px] font-medium text-[#b42346]">{timeFieldError}</p>
+                                </div>
+                              )}
+                              <div className="block">
+                                <span className="text-[12px] font-medium text-[#7a8398]">Cancha</span>
+                                <PlaygroundCombo
+                                  value={selectedCourtId}
+                                  onChange={(next) => {
+                                    setSelectedCourtId(next);
+                                    setScheduleInputsDirty(true);
+                                    setFormError('');
+                                  }}
+                                  options={effectiveCourts.map((court) => ({ value: court.id, label: court.name }))}
+                                  className="mt-1"
+                                />
+                                {courtFieldError && (
+                                  <p className="mt-1 text-[12px] font-medium text-[#b42346]">{courtFieldError}</p>
+                                )}
+                              </div>
+                            </div>
+                          )}
 
                           {simplifiedIsEditingReservation && (
                             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px]">
@@ -8848,7 +10390,7 @@ export default function AdminAgendaPlaygroundPage() {
                       </div>
                       <div className="rounded-lg bg-[#f7f9fd] px-2.5 py-2">
                         <p className="text-[11px] text-[#79829a]">
-                          {bookingKind === 'recurring' ? 'Canchas' : 'Cancha'}
+                          {isRecurringKind ? 'Canchas' : 'Cancha'}
                         </p>
                         <p className="text-[12px] font-semibold text-[#2a3245] truncate">{quickSummaryCourtsLabel}</p>
                       </div>
@@ -8867,7 +10409,7 @@ export default function AdminAgendaPlaygroundPage() {
                               className="mt-2 h-11 w-full rounded-xl border border-[#dce2ee] bg-white px-3 text-[15px] outline-none"
                             />
                           </label>
-                          <label className="block">
+                          <div className="block">
                             <span className="text-[13px] text-[#727b90]">Cancha</span>
                             <PlaygroundCombo
                               value={selectedCourtId}
@@ -8878,7 +10420,7 @@ export default function AdminAgendaPlaygroundPage() {
                               options={effectiveCourts.map((court) => ({ value: court.id, label: court.name }))}
                               className="mt-2"
                             />
-                          </label>
+                          </div>
                         </div>
                         <div className="mt-4 grid grid-cols-3 gap-3">
                           <label className="block">
@@ -8895,7 +10437,7 @@ export default function AdminAgendaPlaygroundPage() {
                               className="mt-2 h-11 w-full rounded-xl border border-[#dce2ee] bg-white px-3 text-[15px]"
                             />
                           </label>
-                          <label className="block">
+                          <div className="block">
                             <span className="text-[13px] text-[#727b90]">Hora de inicio</span>
                             <PlaygroundCombo
                               value={slotToTime(selectedStartSlot)}
@@ -8910,8 +10452,8 @@ export default function AdminAgendaPlaygroundPage() {
                               options={timeOptions.slice(0, -1).map((option) => ({ value: option.value, label: option.value }))}
                               className="mt-2"
                             />
-                          </label>
-                          <label className="block">
+                          </div>
+                          <div className="block">
                             <span className="text-[13px] text-[#727b90]">Hora de fin</span>
                             <PlaygroundCombo
                               value={slotToTime(selectedEndSlot)}
@@ -8923,204 +10465,13 @@ export default function AdminAgendaPlaygroundPage() {
                               options={timeOptions.slice(1).map((option) => ({ value: option.value, label: option.value }))}
                               className="mt-2"
                             />
-                          </label>
+                          </div>
                         </div>
                       </section>
 
                     </>
                   ) : (
                     <>
-                  {bookingKind === 'recurring' && (
-                    <section className="pb-6 border-b border-[#edf0f5]">
-                      <p className="text-[19px] font-semibold tracking-[-0.01em] text-[#1f2638]">Serie recurrente</p>
-                      <div className="mt-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-[13px] text-[#727b90]">Canchas para la serie</p>
-                        </div>
-                        <div ref={recurringCourtsMenuRef} className="relative mt-2">
-                          <button
-                            type="button"
-                            onClick={() => setRecurringCourtsMenuOpen((previous) => !previous)}
-                            onKeyDown={(event) => {
-                              if (event.key === 'ArrowDown') {
-                                event.preventDefault();
-                                setRecurringCourtsMenuOpen(true);
-                              }
-                            }}
-                            aria-haspopup="listbox"
-                            aria-expanded={recurringCourtsMenuOpen}
-                            className={`h-12 w-full rounded-xl border px-3 text-left text-[15px] inline-flex items-center justify-between gap-2 bg-white transition outline-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#dce6ff] focus-visible:ring-offset-0 ${
-                              recurringCourtsMenuOpen
-                                ? 'border-[#c8ceda] ring-2 ring-[#eef2ff] text-[#1f2a44]'
-                                : 'border-[#d9dee8] text-[#2a3348] hover:border-[#c9d1de]'
-                            }`}
-                          >
-                            <span className="truncate">{recurringCourtSelectionLabel || 'Seleccionar canchas'}</span>
-                            <ChevronDown
-                              size={15}
-                              className={`text-[#7a8398] transition-transform ${recurringCourtsMenuOpen ? 'rotate-180' : ''}`}
-                            />
-                          </button>
-                          {recurringCourtsMenuOpen && (
-                            <div className="absolute left-0 right-0 mt-2 rounded-xl border border-[#dbe2ef] bg-white shadow-xl z-40 overflow-hidden">
-                              <label className={`flex cursor-pointer items-center gap-2 px-3 py-2.5 text-[15px] text-[#2e3650] transition ${recurringAllCourtsSelected ? 'bg-[#edf1ff]' : 'hover:bg-[#f5f7fb]'}`}>
-                                <input
-                                  type="checkbox"
-                                  className="peer sr-only"
-                                  checked={recurringAllCourtsSelected}
-                                  onChange={(event) => {
-                                    setRecurringCourtIds(event.target.checked ? effectiveCourts.map((court) => court.id) : []);
-                                    setRecurringResult(null);
-                                    setFormError('');
-                                  }}
-                                />
-                                <span className="grid h-7 w-7 place-items-center rounded-[10px] border border-[#c9d0de] bg-white text-[16px] leading-none text-[#2f53df] peer-checked:border-[#8ca2ff] peer-checked:bg-[#eef2ff]">
-                                  {recurringAllCourtsSelected ? 'âœ“' : ''}
-                                </span>
-                                <span className="font-medium">Todas las canchas</span>
-                              </label>
-                              <div className="h-px bg-[#edf1f7]" />
-                              <div className="max-h-56 overflow-y-auto">
-                                {effectiveCourts.map((court) => {
-                                  const checked = recurringCourtIds.includes(court.id);
-                                  return (
-                                    <label
-                                      key={`recurring-court-${court.id}`}
-                                      className={`flex cursor-pointer items-center gap-2 px-3 py-2.5 text-[15px] text-[#2e3650] transition ${checked ? 'bg-[#edf1ff]' : 'hover:bg-[#f5f7fb]'}`}
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        className="peer sr-only"
-                                        checked={checked}
-                                        onChange={(event) => {
-                                          setRecurringCourtIds((previous) => {
-                                            if (event.target.checked) {
-                                              if (previous.includes(court.id)) return previous;
-                                              return [...previous, court.id];
-                                            }
-                                            return previous.filter((id) => id !== court.id);
-                                          });
-                                          setRecurringResult(null);
-                                          setFormError('');
-                                        }}
-                                      />
-                                      <span className="grid h-7 w-7 place-items-center rounded-[10px] border border-[#c9d0de] bg-white text-[16px] leading-none text-[#2f53df] peer-checked:border-[#8ca2ff] peer-checked:bg-[#eef2ff]">
-                                        {checked ? 'âœ“' : ''}
-                                      </span>
-                                      <span className="truncate font-medium">{court.name}</span>
-                                    </label>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="mt-3 grid grid-cols-2 gap-3">
-                        <label className="block">
-                          <span className="text-[13px] text-[#727b90]">Día de repetición</span>
-                          <PlaygroundCombo
-                            value={String(recurringDayOfWeek)}
-                            onChange={(nextValue) => {
-                              setRecurringDayOfWeek(Number(nextValue));
-                              setRecurringResult(null);
-                              setFormError('');
-                            }}
-                            options={WEEKDAY_OPTIONS.map((option) => ({ value: String(option.value), label: option.label }))}
-                            className="mt-2"
-                          />
-                        </label>
-                        <label className="block">
-                          <span className="text-[13px] text-[#727b90]">Frecuencia</span>
-                          <PlaygroundCombo
-                            value={recurringFrequencyPreset}
-                            onChange={(nextValue) => {
-                              const nextPreset = nextValue as RecurringFrequencyPreset;
-                              setRecurringFrequencyPreset(nextPreset);
-                              if (nextPreset === 'weekly') {
-                                setRecurringEveryDays(7);
-                              } else if (nextPreset === 'biweekly') {
-                                setRecurringEveryDays(14);
-                              } else if (nextPreset === 'custom') {
-                                setCustomRepeatEveryWeeks(Math.max(1, Math.floor(recurringEveryDays / 7) || 1));
-                                setCustomEndAfterReservations(Math.max(1, recurringRepetitions));
-                                setCustomEndAfterEnabled(true);
-                                setCustomRecurrenceDays((previous) => (previous.length > 0 ? previous : [recurringDayOfWeek]));
-                                setCustomRecurrenceModalOpen(true);
-                              }
-                              setRecurringResult(null);
-                              setFormError('');
-                            }}
-                            options={[
-                              { value: 'weekly', label: 'Semanal' },
-                              { value: 'biweekly', label: '2 semanas' },
-                              { value: 'custom', label: 'Personalizado' },
-                            ]}
-                            className="mt-2"
-                          />
-                        </label>
-                      </div>
-                      {recurringFrequencyPreset === 'custom' && (
-                        <div className="mt-3 grid grid-cols-2 gap-3">
-                          <div className="col-span-2 rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-3">
-                            <p className="text-[12px] text-[#677188]">
-                              Días: {customRecurrenceDays.length > 0 ? customRecurrenceDays.map((day) => WEEKDAY_OPTIONS.find((option) => option.value === day)?.label || day).join(', ') : 'Sin selección'}
-                            </p>
-                            <p className="mt-1 text-[12px] text-[#677188]">
-                              Cada {customRepeatEveryWeeks} semana(s)
-                              {customEndAfterEnabled ? ` · Finaliza tras ${customEndAfterReservations} reservas` : ' · Sin límite manual de reservas'}
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => setCustomRecurrenceModalOpen(true)}
-                              className="mt-2 h-9 rounded-lg border border-[#d3daf0] bg-white px-3 text-[12px] font-semibold text-[#2f4fd8] hover:bg-[#f4f7ff]"
-                            >
-                              Configurar recurrencia personalizada
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                      {recurringFrequencyPreset === 'custom' && (
-                        <div className="mt-3 rounded-xl border border-[#d9e1ff] bg-[#eef2ff] px-3 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <Repeat size={14} className="text-[#3053e2]" />
-                              <p className="text-[13px] font-semibold text-[#2f4fd8]">
-                                {customEndAfterEnabled
-                                  ? `Finaliza luego de ${customEndAfterReservations} reservas`
-                                  : 'Sin límite manual de reservas'}
-                              </p>
-                          </div>
-                          <p className="mt-1 text-[12px] text-[#5c6da8]">
-                            {customRecurrenceDaysSummary}, Repite cada {customRepeatEveryWeeks} semana{customRepeatEveryWeeks > 1 ? 's' : ''}
-                          </p>
-                        </div>
-                      )}
-                      <div className="mt-3">
-                        <div className="rounded-xl border border-[#dce2ee] bg-[#f7f8fc] px-3 py-2">
-                          <p className="text-[13px] text-[#727b90]">Primera ocurrencia</p>
-                          <p className="mt-1 text-[15px] font-semibold text-[#2c3448]">
-                            {recurringFirstOccurrence.toLocaleDateString('es-AR', {
-                              weekday: 'long',
-                              day: '2-digit',
-                              month: 'short',
-                            })}
-                          </p>
-                          <p className="text-[12px] text-[#6f7890]">
-                            {slotToTime(selectedStartSlot)} - {slotToTime(selectedEndSlot)}
-                          </p>
-                        </div>
-                      </div>
-                      {recurringResult && (
-                        <div className="mt-3 rounded-xl border border-[#dce7ff] bg-[#f4f7ff] px-3 py-2 text-[12px] text-[#2f4fd8]">
-                          Serie creada en <strong>{recurringResult.courtsCount}</strong> canchas: <strong>{recurringResult.generatedCount}</strong> turnos generados
-                          {recurringResult.skippedCount > 0 ? (
-                            <> · <strong>{recurringResult.skippedCount}</strong> omitidos por superposición</>
-                          ) : null}
-                        </div>
-                      )}
-                    </section>
-                  )}
-
                   <fieldset
                     disabled={lockBookingDetails}
                     className={lockBookingDetails ? 'pointer-events-none opacity-60 select-none' : ''}
@@ -9685,6 +11036,11 @@ export default function AdminAgendaPlaygroundPage() {
                 <footer ref={simplifiedSidebarFooterRef} className="border-t border-[#eef0f5] bg-white p-4">
                   {useSimplifiedBookingSidebar ? (
                     <div className="space-y-3">
+                      {shouldShowSeriesScopeHint && (
+                        <div className="rounded-xl border border-[#dce7ff] bg-[#f4f7ff] px-3 py-2 text-[12px] text-[#2f4fd8]">
+                          Esta reserva pertenece a una serie. Al guardar, vas a elegir si editar solo esta ocurrencia, desde esta en adelante o toda la serie.
+                        </div>
+                      )}
                       {hasBlockingActionError && (
                         <div className="rounded-xl border border-[#f2b8c3] bg-[#fff2f5] px-3 py-2.5">
                           <p className="text-[12px] font-semibold text-[#b42346]">
@@ -9697,7 +11053,7 @@ export default function AdminAgendaPlaygroundPage() {
                         {editingBookingId && (
                           <button
                             type="button"
-                            onClick={() => setDeleteBookingConfirmOpen(true)}
+                            onClick={openDeleteBookingFlow}
                             aria-label="Eliminar reserva"
                             title="Eliminar reserva"
                             disabled={isSubmittingBooking || isDeletingBooking}
@@ -9728,7 +11084,7 @@ export default function AdminAgendaPlaygroundPage() {
                           )}
                           <button
                             type="button"
-                            onClick={handleCreateBooking}
+                            onClick={() => void handleCreateBooking()}
                             disabled={primaryActionDisabled}
                             className="h-11 min-w-[170px] rounded-xl bg-[#3053e2] px-4 text-white text-[16px] font-semibold hover:bg-[#2748cc] disabled:opacity-50"
                           >
@@ -9739,6 +11095,11 @@ export default function AdminAgendaPlaygroundPage() {
                     </div>
                   ) : (
                   <div className="space-y-3">
+                    {shouldShowSeriesScopeHint && (
+                      <div className="rounded-xl border border-[#dce7ff] bg-[#f4f7ff] px-3 py-2 text-[12px] text-[#2f4fd8]">
+                        Esta reserva pertenece a una serie. Al guardar, vas a elegir si editar solo esta ocurrencia, desde esta en adelante o toda la serie.
+                      </div>
+                    )}
                     {bookingKind !== 'block' && !shouldHideBillingUntilConfirmed && (
                       <div className="rounded-xl border border-[#dce2ee] bg-[#f8fafd] px-3 py-2.5">
                         <p className="text-[12px] font-semibold text-[#2a3245]">Resumen de cobro</p>
@@ -9795,7 +11156,7 @@ export default function AdminAgendaPlaygroundPage() {
                         {editingBookingId && (
                           <button
                             type="button"
-                            onClick={() => setDeleteBookingConfirmOpen(true)}
+                            onClick={openDeleteBookingFlow}
                             aria-label="Eliminar reserva"
                             title="Eliminar reserva"
                             disabled={isSubmittingBooking || isDeletingBooking}
@@ -9815,7 +11176,7 @@ export default function AdminAgendaPlaygroundPage() {
                         )}
                         <button
                           type="button"
-                          onClick={handleCreateBooking}
+                          onClick={() => void handleCreateBooking()}
                           disabled={primaryActionDisabled}
                           className="h-10 min-w-[232px] rounded-xl bg-[#3053e2] px-4 text-white text-sm font-bold hover:bg-[#2748cc] disabled:opacity-50"
                         >
@@ -10184,6 +11545,11 @@ export default function AdminAgendaPlaygroundPage() {
           color: #fff;
         }
 
+        .playground-combo-option-active:hover {
+          background: #2f63d0;
+          color: #fff;
+        }
+
         .playground-combo-menu-participant {
           border-radius: 14px;
           border-color: #d7deeb;
@@ -10253,6 +11619,11 @@ export default function AdminAgendaPlaygroundPage() {
         }
 
         .playground-combo-option-participant.playground-combo-option-active {
+          background: #e3e9f7;
+          color: #25355d;
+        }
+
+        .playground-combo-option-participant.playground-combo-option-active:hover {
           background: #e3e9f7;
           color: #25355d;
         }

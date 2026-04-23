@@ -360,6 +360,13 @@ router.delete('/:slug/admin/bookings/fixed/:id',
     bookingController.cancelFixed
 );
 
+router.patch('/:slug/admin/bookings/fixed/:id',
+    authMiddleware,
+    verifyClubAccess,
+    requireRole('ADMIN'),
+    bookingController.rescheduleFixed
+);
+
 // Cancelar reserva
 router.post('/:slug/admin/bookings/cancel',
     authMiddleware,

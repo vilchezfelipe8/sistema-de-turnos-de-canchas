@@ -454,6 +454,49 @@ export const createFixedBooking = async (
     durationMinutes?: number;
     everyDays?: number;
     repetitions?: number;
+    previewConflictsOnly?: boolean;
+  }
+) => {
+  const rawUser = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+  if (!rawUser) {
+    throw new Error('No se pudo resolver el club activo del administrador.');
+  }
+
+  const parsed = normalizeSessionUser(JSON.parse(rawUser || '{}'));
+  const adminClubId = Number(parsed?.activeClubId);
+  if (!hasAdminAccess(parsed) || !Number.isFinite(adminClubId) || adminClubId <= 0) {
+    throw new Error('No se pudo resolver el club activo del administrador.');
+  }
+
+  const normalizedClientId = typeof options?.clientId === 'string' ? options.clientId.trim() : '';
+  const safeClientId =
+    normalizedClientId.length > 0 && !['undefined', 'null', 'nan'].includes(normalizedClientId.toLowerCase())
+      ? normalizedClientId
+      : '';
+
+  const club = await ClubService.getClubById(adminClubId);
+  return ClubAdminService.createFixedBooking(club.slug, {
+    courtId,
+    activityId,
+    startDateTime: startDateTime.toISOString(),
+    ...(options?.userId ? { userId: options.userId } : {}),
+    ...(safeClientId ? { clientId: safeClientId } : {}),
+    ...(options?.client ? { client: options.client } : {}),
+    ...(Number.isFinite(options?.durationMinutes) ? { durationMinutes: Number(options?.durationMinutes) } : {}),
+    ...(Number.isFinite(options?.everyDays) ? { everyDays: Number(options?.everyDays) } : {}),
+    ...(Number.isFinite(options?.repetitions) ? { repetitions: Number(options?.repetitions) } : {}),
+    ...(options?.previewConflictsOnly ? { previewConflictsOnly: true } : {}),
+    ...(options?.allowOverlappingSeries ? { allowOverlappingSeries: true } : {})
+  });
+};
+
+// --- 6. CANCELAR TURNO FIJO (NUEVO - Corregido para usar fetch) ---
+export const cancelFixedBooking = async (
+  fixedBookingId: number,
+  options?: {
+    scope?: 'THIS_OCCURRENCE' | 'NEXT_OCCURRENCES' | 'ALL_OCCURRENCES';
+    occurrenceBookingId?: number;
+    previewOnly?: boolean;
   }
 ) => {
   const rawUser = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
@@ -468,22 +511,24 @@ export const createFixedBooking = async (
   }
 
   const club = await ClubService.getClubById(adminClubId);
-  return ClubAdminService.createFixedBooking(club.slug, {
-    courtId,
-    activityId,
-    startDateTime: startDateTime.toISOString(),
-    ...(options?.userId ? { userId: options.userId } : {}),
-    ...(options?.clientId ? { clientId: options.clientId } : {}),
-    ...(options?.client ? { client: options.client } : {}),
-    ...(Number.isFinite(options?.durationMinutes) ? { durationMinutes: Number(options?.durationMinutes) } : {}),
-    ...(Number.isFinite(options?.everyDays) ? { everyDays: Number(options?.everyDays) } : {}),
-    ...(Number.isFinite(options?.repetitions) ? { repetitions: Number(options?.repetitions) } : {}),
-    ...(options?.allowOverlappingSeries ? { allowOverlappingSeries: true } : {})
+  return ClubAdminService.cancelFixedBooking(club.slug, fixedBookingId, {
+    ...(options?.scope ? { scope: options.scope } : {}),
+    ...(Number.isFinite(options?.occurrenceBookingId) ? { occurrenceBookingId: Number(options?.occurrenceBookingId) } : {}),
+    ...(options?.previewOnly ? { previewOnly: true } : {}),
   });
 };
 
-// --- 6. CANCELAR TURNO FIJO (NUEVO - Corregido para usar fetch) ---
-export const cancelFixedBooking = async (fixedBookingId: number) => {
+export const rescheduleFixedBooking = async (
+  fixedBookingId: number,
+  input: {
+    scope: 'THIS_OCCURRENCE' | 'NEXT_OCCURRENCES' | 'ALL_OCCURRENCES';
+    occurrenceBookingId?: number;
+    courtId: number;
+    startDateTime: Date;
+    durationMinutes?: number;
+    previewOnly?: boolean;
+  }
+) => {
   const rawUser = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
   if (!rawUser) {
     throw new Error('No se pudo resolver el club activo del administrador.');
@@ -496,7 +541,14 @@ export const cancelFixedBooking = async (fixedBookingId: number) => {
   }
 
   const club = await ClubService.getClubById(adminClubId);
-  return ClubAdminService.cancelFixedBooking(club.slug, fixedBookingId);
+  return ClubAdminService.rescheduleFixedBooking(club.slug, fixedBookingId, {
+    scope: input.scope,
+    ...(Number.isFinite(input.occurrenceBookingId) ? { occurrenceBookingId: Number(input.occurrenceBookingId) } : {}),
+    courtId: Number(input.courtId),
+    startDateTime: input.startDateTime.toISOString(),
+    ...(Number.isFinite(input.durationMinutes) ? { durationMinutes: Number(input.durationMinutes) } : {}),
+    ...(input.previewOnly ? { previewOnly: true } : {}),
+  });
 };
 
 export const getBookingBillingConfig = async (bookingId: number): Promise<BookingBillingConfig> => {

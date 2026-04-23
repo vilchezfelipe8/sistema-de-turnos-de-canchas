@@ -587,15 +587,48 @@ export class ClubAdminService {
   /**
    * Cancelar reserva fija
    */
-  static async cancelFixedBooking(clubSlug: string, fixedBookingId: number) {
+  static async cancelFixedBooking(
+    clubSlug: string,
+    fixedBookingId: number,
+    data?: {
+      scope?: 'THIS_OCCURRENCE' | 'NEXT_OCCURRENCES' | 'ALL_OCCURRENCES';
+      occurrenceBookingId?: number;
+      previewOnly?: boolean;
+    }
+  ) {
 
     const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/bookings/fixed/${fixedBookingId}`, {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      ...(data ? { body: JSON.stringify(data) } : {})
     });
 
     if (!res.ok) {
       await throwApiErrorFromResponse(res, 'Error al cancelar reserva fija');
+    }
+    return res.json();
+  }
+
+  static async rescheduleFixedBooking(
+    clubSlug: string,
+    fixedBookingId: number,
+    data: {
+      scope: 'THIS_OCCURRENCE' | 'NEXT_OCCURRENCES' | 'ALL_OCCURRENCES';
+      occurrenceBookingId?: number;
+      courtId: number;
+      startDateTime: string;
+      durationMinutes?: number;
+      previewOnly?: boolean;
+    }
+  ) {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/bookings/fixed/${fixedBookingId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+
+    if (!res.ok) {
+      await throwApiErrorFromResponse(res, 'Error al editar serie');
     }
     return res.json();
   }
@@ -1031,4 +1064,3 @@ export class ClubAdminService {
     return Array.isArray(rows) ? rows : [];
   }
 }
-

@@ -1165,13 +1165,14 @@ export class BookingController {
                 }).optional(),
                 allowOverlappingSeries: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional(),
                 everyDays: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
-                repetitions: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional())
+                repetitions: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
+                previewConflictsOnly: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
             });
             const parsed = createFixedSchema.safeParse(req.body);
             if (!parsed.success) {
                 return res.status(400).json({ error: parsed.error.format() });
             }
-            const { userId, courtId, activityId, startDateTime, durationMinutes, clientId, client, allowOverlappingSeries, everyDays, repetitions } = parsed.data;
+            const { userId, courtId, activityId, startDateTime, durationMinutes, clientId, client, allowOverlappingSeries, everyDays, repetitions, previewConflictsOnly } = parsed.data;
             const user = (req as any).user;
             const membershipRole = String((req as any).membershipRole || '');
             const isAdmin = user?.role === 'ADMIN' || membershipRole === 'OWNER' || membershipRole === 'ADMIN';
@@ -1190,8 +1191,12 @@ export class BookingController {
                 }
                 : undefined;
 
-            const safeClientId = clientId ? sanitizeString(clientId, 64) : undefined;
-            if (!safeClientId && !userId && !sanitizedClient?.name) {
+            const sanitizedClientId = clientId ? sanitizeString(clientId, 64) : undefined;
+            const safeClientId =
+                sanitizedClientId && !['undefined', 'null', 'nan'].includes(String(sanitizedClientId).toLowerCase())
+                    ? sanitizedClientId
+                    : undefined;
+            if (!previewConflictsOnly && !safeClientId && !userId && !sanitizedClient?.name) {
                 return res.status(400).json({ error: "Debes seleccionar un cliente o cargar un alta rápida." });
             }
 
@@ -1210,7 +1215,8 @@ export class BookingController {
                     allowOverlappingSeries: Boolean(allowOverlappingSeries),
                     durationMinutes,
                     everyDays,
-                    repetitions
+                    repetitions,
+                    previewConflictsOnly: Boolean(previewConflictsOnly)
                 }
             );
             
@@ -1241,12 +1247,100 @@ export class BookingController {
 
     cancelFixed = async (req: Request, res: Response) => {
         try {
-            const id = parseInt(req.params.id as string);
-            const clubId = (req as any).clubId; // Agregado por middleware de verificación de club
-            const result = await this.bookingService.cancelFixedBooking(id, clubId);
+            const paramsSchema = z.object({
+                id: z.preprocess((v) => Number(v), z.number().int().positive())
+            });
+            const bodySchema = z.object({
+                scope: z.enum(['THIS_OCCURRENCE', 'NEXT_OCCURRENCES', 'ALL_OCCURRENCES']).optional(),
+                occurrenceBookingId: z.preprocess(
+                    (v) => (v === undefined || v === null || v === '' ? undefined : Number(v)),
+                    z.number().int().positive().optional()
+                ),
+                previewOnly: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
+            }).optional();
+
+            const parsedParams = paramsSchema.safeParse(req.params);
+            if (!parsedParams.success) {
+                return res.status(400).json({ error: 'ID de turno fijo inválido.' });
+            }
+            const parsedBody = bodySchema.safeParse(req.body || {});
+            if (!parsedBody.success) {
+                return res.status(400).json({ error: parsedBody.error.format() });
+            }
+
+            const clubId = Number((req as any).clubId);
+            if (!Number.isInteger(clubId) || clubId <= 0) {
+                return res.status(400).json({ error: 'Club inválido' });
+            }
+
+            const result = await this.bookingService.cancelFixedBooking({
+                fixedBookingId: parsedParams.data.id,
+                clubId,
+                scope: parsedBody.data?.scope || 'ALL_OCCURRENCES',
+                occurrenceBookingId: parsedBody.data?.occurrenceBookingId,
+                previewOnly: Boolean(parsedBody.data?.previewOnly),
+                actorUserId: Number((req as any)?.user?.userId || 0) || null
+            });
             res.json(result);
         } catch (error: any) {
             res.status(400).json({ error: error.message });
+        }
+    }
+
+    rescheduleFixed = async (req: Request, res: Response) => {
+        try {
+            const paramsSchema = z.object({
+                id: z.preprocess((v) => Number(v), z.number().int().positive())
+            });
+            const bodySchema = z.object({
+                scope: z.enum(['THIS_OCCURRENCE', 'NEXT_OCCURRENCES', 'ALL_OCCURRENCES']),
+                occurrenceBookingId: z.preprocess(
+                    (v) => (v === undefined || v === null || v === '' ? undefined : Number(v)),
+                    z.number().int().positive().optional()
+                ),
+                courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                startDateTime: z.string().refine((s) => !Number.isNaN(Date.parse(s)), { message: 'startDateTime inválido' }),
+                durationMinutes: z.preprocess(
+                    (v) => (v === undefined || v === null || v === '' ? undefined : Number(v)),
+                    z.number().int().positive().optional()
+                ),
+                previewOnly: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
+            });
+
+            const parsedParams = paramsSchema.safeParse(req.params);
+            const parsedBody = bodySchema.safeParse(req.body || {});
+            if (!parsedParams.success) {
+                return res.status(400).json({ error: 'ID de turno fijo inválido.' });
+            }
+            if (!parsedBody.success) {
+                return res.status(400).json({ error: parsedBody.error.format() });
+            }
+
+            const clubId = Number((req as any).clubId);
+            if (!Number.isInteger(clubId) || clubId <= 0) {
+                return res.status(400).json({ error: 'Club inválido' });
+            }
+
+            const result = await this.bookingService.rescheduleFixedBooking({
+                fixedBookingId: parsedParams.data.id,
+                clubId,
+                scope: parsedBody.data.scope,
+                occurrenceBookingId: parsedBody.data.occurrenceBookingId,
+                courtId: parsedBody.data.courtId,
+                startDateTime: new Date(parsedBody.data.startDateTime),
+                durationMinutes: parsedBody.data.durationMinutes,
+                previewOnly: Boolean(parsedBody.data.previewOnly),
+                actorUserId: Number((req as any)?.user?.userId || 0) || null
+            });
+            return res.json(result);
+        } catch (error: any) {
+            if (error?.code === 'BOOKING_OVERLAP') {
+                return res.status(409).json({
+                    error: String(error?.message || 'Superposición detectada'),
+                    overlaps: Array.isArray(error?.overlaps) ? error.overlaps : []
+                });
+            }
+            return res.status(400).json({ error: error?.message || 'No se pudo editar la serie.' });
         }
     }
 
