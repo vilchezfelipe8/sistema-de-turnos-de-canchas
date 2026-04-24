@@ -1902,7 +1902,7 @@ export default function AdminClientesPlayground2Page() {
           onPointerUp={(event) => handleModalBackdropPointerUp(event, closeSimplifiedPaymentModal)}
         >
           <div
-            className="w-full max-w-[580px] rounded-2xl border border-[#e0e5f2] bg-white shadow-2xl"
+            className="w-full max-w-[560px] rounded-2xl border border-[#e0e5f2] bg-white shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between px-5 py-4 border-b border-[#edf1f6]">
