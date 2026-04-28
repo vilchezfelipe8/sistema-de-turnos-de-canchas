@@ -10,14 +10,14 @@ services:
     volumes:
       - db-data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     restart: always
 
   redis:
     image: redis:7-alpine
     command: redis-server --appendonly yes
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
     restart: always
@@ -42,7 +42,7 @@ services:
     depends_on:
       - postgres
     ports:
-      - "6432:5432"
+      - "127.0.0.1:6432:5432"
     restart: always
 
   backend:
