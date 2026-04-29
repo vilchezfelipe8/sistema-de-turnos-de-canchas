@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { CalendarDays } from 'lucide-react';
 
 type AdminDateInputProps = {
@@ -13,9 +14,11 @@ type AdminDateInputProps = {
 /**
  * Styled native date input.
  *
- * Renders a visible button with a CalendarDays icon and the formatted date
- * (or a placeholder). An invisible <input type="date"> sits on top so the
- * native date picker opens on click without any library.
+ * Renders a custom-styled button with a CalendarDays icon and the formatted
+ * date (or a placeholder). Clicking anywhere on the button opens the native
+ * date picker via a programmatic `.showPicker()` / `.click()` call on the
+ * hidden input, which is more reliable across browsers (incl. Safari/iOS)
+ * than the old `opacity-0 absolute inset-0` trick.
  */
 export default function AdminDateInput({
   value,
@@ -26,6 +29,8 @@ export default function AdminDateInput({
   disabled = false,
   className = '',
 }: AdminDateInputProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
   const displayValue = value
     ? (() => {
         // Format YYYY-MM-DD → DD/MM/YYYY without timezone shifting
@@ -34,9 +39,28 @@ export default function AdminDateInput({
       })()
     : '';
 
+  const handleClick = () => {
+    if (disabled || !inputRef.current) return;
+    try {
+      // showPicker() is the modern way; fall back to .click() for older browsers
+      if (typeof inputRef.current.showPicker === 'function') {
+        inputRef.current.showPicker();
+      } else {
+        inputRef.current.click();
+      }
+    } catch {
+      // Some browsers throw if the element is not visible — ignore
+    }
+  };
+
   return (
     <div
-      className={`relative flex h-10 items-center rounded-xl border border-[#dce2ee] bg-white px-3 transition-all focus-within:border-[#3053e2] ${disabled ? 'pointer-events-none opacity-50' : ''} ${className}`}
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-label={placeholder}
+      onClick={handleClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); }}
+      className={`relative flex h-10 cursor-pointer items-center rounded-xl border border-[#dce2ee] bg-white px-3 transition-all focus-within:border-[#3053e2] hover:border-[#b0bacc] ${disabled ? 'pointer-events-none opacity-50' : ''} ${className}`}
     >
       <CalendarDays size={14} className="mr-2 shrink-0 text-[#8b95aa]" />
       <span
@@ -44,15 +68,18 @@ export default function AdminDateInput({
       >
         {displayValue || placeholder}
       </span>
+      {/* Hidden real input — positioned off-screen to preserve native interaction */}
       <input
+        ref={inputRef}
         type="date"
         value={value}
         min={min}
         max={max}
         disabled={disabled}
+        tabIndex={-1}
         onChange={(e) => onChange(e.target.value)}
-        className="absolute inset-0 cursor-pointer opacity-0"
-        aria-label={placeholder}
+        className="sr-only"
+        aria-hidden="true"
       />
     </div>
   );

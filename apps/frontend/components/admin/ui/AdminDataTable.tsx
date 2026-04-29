@@ -66,8 +66,8 @@ export default function AdminDataTable<T>({
   const colSpan = columns.length;
 
   return (
-    <div className={cx('overflow-x-auto', className)}>
-      <table className="w-full text-left">
+    <div className={cx('w-full overflow-x-auto', className)}>
+      <table className="w-full min-w-full border-collapse [border-spacing:0] text-left">
         {/* ── Header ── */}
         <thead className="sticky top-0 z-10">
           <tr className="border-b border-[#edf0f6] bg-[#f8f9fc]">

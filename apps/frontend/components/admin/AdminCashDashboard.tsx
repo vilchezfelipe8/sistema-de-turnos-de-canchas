@@ -1522,53 +1522,55 @@ const AdminCashDashboard = () => {
         
         {/* LISTA DE MOVIMIENTOS */}
         <div className="lg:col-span-2 bg-[#EBE1D8] border-4 border-white/50 rounded-[2.5rem] overflow-hidden shadow-2xl shadow-[#347048]/20 flex flex-col min-h-[500px]">
-          <div className="p-6 border-b border-[#347048]/10 flex justify-between items-center bg-[#EBE1D8]">
+          <div className="p-6 border-b border-[#347048]/10 bg-[#EBE1D8]">
             <h3 className="text-xl font-black text-[#347048] flex items-center gap-3 uppercase italic tracking-tight">
                 <History size={20} className="text-[#926699]" /> Actividad Reciente
             </h3>
-            <div className="flex items-center gap-2">
-              <div className="flex items-center bg-white/50 rounded-xl overflow-hidden border border-white/80">
-                <button
-                  type="button"
-                  onClick={() => setPeriodOffset((prev) => prev - 1)}
-                  className="p-2 text-[#347048] hover:bg-[#347048]/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#347048]/20"
-                >
-                  <ChevronLeft size={16} strokeWidth={3} />
-                </button>
-                <span className="text-[#347048] font-black text-[10px] uppercase tracking-widest px-2 min-w-[110px] text-center">
-                  {getPeriodLabel()}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setPeriodOffset((prev) => prev + 1)}
-                  disabled={periodOffset === 0}
-                  className={`p-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#347048]/20 ${periodOffset === 0 ? 'text-[#347048]/20' : 'text-[#347048] hover:bg-[#347048]/10'}`}
-                >
-                  <ChevronRight size={16} strokeWidth={3} />
-                </button>
-              </div>
-              <div className="flex items-center gap-1 bg-white/50 p-1 rounded-lg border border-white/80">
-                <button
-                  type="button"
-                  onClick={() => handlePeriodChange('hoy')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all border focus:outline-none focus-visible:ring-2 focus-visible:ring-[#347048]/20 ${activePeriod === 'hoy' ? 'bg-[#347048] text-white shadow-md border-[#347048]' : 'text-[#347048] border-transparent hover:bg-[#347048]/10'}`}
-                >
-                  Hoy
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handlePeriodChange('semana')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all border focus:outline-none focus-visible:ring-2 focus-visible:ring-[#347048]/20 ${activePeriod === 'semana' ? 'bg-[#347048] text-white shadow-md border-[#347048]' : 'text-[#347048] border-transparent hover:bg-[#347048]/10'}`}
-                >
-                  Semana
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handlePeriodChange('mes')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all border focus:outline-none focus-visible:ring-2 focus-visible:ring-[#347048]/20 ${activePeriod === 'mes' ? 'bg-[#347048] text-white shadow-md border-[#347048]' : 'text-[#347048] border-transparent hover:bg-[#347048]/10'}`}
-                >
-                  Mes
-                </button>
+            <div className="mt-4 w-full rounded-2xl border border-[#dce2ee] bg-white p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-1 rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-1">
+                  <button
+                    type="button"
+                    onClick={() => handlePeriodChange('hoy')}
+                    className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#cfd9ff]/80 ${activePeriod === 'hoy' ? 'bg-white text-[#3053e2] shadow-sm' : 'text-[#6f7890] hover:text-[#4e5870]'}`}
+                  >
+                    Hoy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePeriodChange('semana')}
+                    className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#cfd9ff]/80 ${activePeriod === 'semana' ? 'bg-white text-[#3053e2] shadow-sm' : 'text-[#6f7890] hover:text-[#4e5870]'}`}
+                  >
+                    Semana
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePeriodChange('mes')}
+                    className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#cfd9ff]/80 ${activePeriod === 'mes' ? 'bg-white text-[#3053e2] shadow-sm' : 'text-[#6f7890] hover:text-[#4e5870]'}`}
+                  >
+                    Mes
+                  </button>
+                </div>
+                <div className="flex items-center gap-1 rounded-xl border border-[#dce2ee] bg-white px-1 py-1">
+                  <button
+                    type="button"
+                    onClick={() => setPeriodOffset((prev) => prev - 1)}
+                    className="grid h-8 w-8 place-items-center rounded-lg text-[#6f7890] transition hover:bg-[#f4f6fb] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#cfd9ff]/80"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span className="min-w-[120px] px-2 text-center text-[12px] font-semibold text-[#4e5870]">
+                    {getPeriodLabel()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPeriodOffset((prev) => prev + 1)}
+                    disabled={periodOffset === 0}
+                    className="grid h-8 w-8 place-items-center rounded-lg text-[#6f7890] transition hover:bg-[#f4f6fb] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#cfd9ff]/80 disabled:cursor-not-allowed disabled:text-[#b8c1d4]"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
               </div>
             </div>
           </div>

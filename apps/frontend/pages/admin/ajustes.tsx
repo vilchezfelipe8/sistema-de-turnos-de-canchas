@@ -1,33 +1,29 @@
 import { useRouter } from 'next/router';
 import AdminRouteShell from '../../components/admin/AdminRouteShell';
-import AdminTabClub from '../../components/admin/AdminTabClub';
-import AdminTabCourts from '../../components/admin/AdminTabCourts';
-import AdminComingSoonPanel from '../../components/admin/AdminComingSoonPanel';
-import { AdminModuleTabs } from '../../components/admin/ui';
+import { AdminSegmentedControl } from '../../components/admin/ui';
+import AdminSettingsWorkspace, { type SettingsWorkspaceTab } from '../../modules/ajustes/components/AdminSettingsWorkspace';
 
-type SettingsTab =
-  | 'club'
-  | 'canchas'
-  | 'actividades'
-  | 'horarios'
-  | 'precios'
-  | 'usuarios'
-  | 'notificaciones'
-  | 'excepciones';
+type SettingsTab = SettingsWorkspaceTab;
 
 const SETTINGS_TABS: Array<{ value: SettingsTab; label: string; comingSoon?: boolean }> = [
   { value: 'club', label: 'Club' },
   { value: 'canchas', label: 'Canchas' },
+  { value: 'horarios', label: 'Horarios' },
+  { value: 'precios', label: 'Precios' },
+  { value: 'excepciones', label: 'Excepciones' },
+  { value: 'auditoria', label: 'Auditoría' },
   { value: 'actividades', label: 'Actividades', comingSoon: true },
-  { value: 'horarios', label: 'Horarios', comingSoon: true },
-  { value: 'precios', label: 'Precios', comingSoon: true },
   { value: 'usuarios', label: 'Usuarios', comingSoon: true },
   { value: 'notificaciones', label: 'Notificaciones', comingSoon: true },
-  { value: 'excepciones', label: 'Excepciones', comingSoon: true },
 ];
 
 const parseSettingsTab = (value: unknown): SettingsTab => {
   const raw = String(value || '').toLowerCase();
+  if (raw === 'identity') return 'club';
+  if (raw === 'operation') return 'horarios';
+  if (raw === 'agenda') return 'excepciones';
+  if (raw === 'discounts') return 'precios';
+  if (raw === 'audit') return 'auditoria';
   if (raw === 'canchas') return 'canchas';
   if (raw === 'actividades') return 'actividades';
   if (raw === 'horarios') return 'horarios';
@@ -35,16 +31,8 @@ const parseSettingsTab = (value: unknown): SettingsTab => {
   if (raw === 'usuarios') return 'usuarios';
   if (raw === 'notificaciones') return 'notificaciones';
   if (raw === 'excepciones') return 'excepciones';
+  if (raw === 'auditoria') return 'auditoria';
   return 'club';
-};
-
-const comingSoonLabelByTab: Record<Exclude<SettingsTab, 'club' | 'canchas'>, string> = {
-  actividades: 'Actividades y servicios de reserva',
-  horarios: 'Horarios y disponibilidad',
-  precios: 'Reglas de precios',
-  usuarios: 'Usuarios administradores',
-  notificaciones: 'Notificaciones automaticas',
-  excepciones: 'Excepciones de agenda',
 };
 
 export default function AdminSettingsV2Page() {
@@ -66,21 +54,15 @@ export default function AdminSettingsV2Page() {
   return (
     <AdminRouteShell title="Ajustes | TuCancha Admin" activeItem="Ajustes" fromPath="/admin/ajustes">
       <div className="flex h-full min-h-0 flex-col gap-4 p-4 pb-0 lg:p-6 lg:pb-0">
-        <AdminModuleTabs
-          tabs={SETTINGS_TABS}
+        <AdminSegmentedControl
+          options={SETTINGS_TABS.map((tab) => ({ value: tab.value, label: tab.label }))}
           value={activeTab}
           onChange={(value) => handleChangeTab(value as SettingsTab)}
           ariaLabel="Subnavegacion de ajustes"
+          className="w-fit"
         />
         <section className="min-h-0 flex-1 overflow-y-auto pb-6 lg:pb-8">
-          {activeTab === 'club' && <AdminTabClub />}
-          {activeTab === 'canchas' && <AdminTabCourts />}
-          {activeTab !== 'club' && activeTab !== 'canchas' && (
-            <AdminComingSoonPanel
-              title={comingSoonLabelByTab[activeTab]}
-              description="Esta configuracion queda visible en roadmap y se migrara a panel lateral con componentes compartidos."
-            />
-          )}
+          <AdminSettingsWorkspace tab={activeTab} />
         </section>
       </div>
     </AdminRouteShell>

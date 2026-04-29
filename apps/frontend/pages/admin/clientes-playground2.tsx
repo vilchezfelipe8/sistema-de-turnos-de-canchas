@@ -15,7 +15,7 @@ import {
   AdminPaymentFormModal,
   AdminPaymentPreconfirmModal,
 } from '../../components/admin/payments/AdminPaymentFlowModals';
-import { AdminSegmentedControl } from '../../components/admin/ui';
+import { AdminFilterToolbar, AdminSegmentedControl } from '../../components/admin/ui';
 import NotFound from '../../components/NotFound';
 import RouteTransitionScreen from '../../components/RouteTransitionScreen';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
@@ -290,6 +290,41 @@ export default function AdminClientesPlayground2Page() {
 
   const [selectedClientDiscountAssignments, setSelectedClientDiscountAssignments] = useState<any[]>([]);
   const [loadingDiscountAssignments, setLoadingDiscountAssignments] = useState(false);
+  const [adminToasts, setAdminToasts] = useState<Array<{ id: number; message: string }>>([]);
+  const adminToastIdRef = useRef(1);
+  const adminToastTimeoutsRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+
+  const showAdminToast = useCallback((message: string) => {
+    const text = String(message || '').trim();
+    if (!text) return;
+    const id = adminToastIdRef.current++;
+    setAdminToasts((prev) => [...prev, { id, message: text }].slice(-4));
+    const timeout = setTimeout(() => {
+      setAdminToasts((prev) => prev.filter((item) => item.id !== id));
+    }, 3200);
+    adminToastTimeoutsRef.current.push(timeout);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      adminToastTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
+      adminToastTimeoutsRef.current = [];
+    };
+  }, []);
+
+  useEffect(() => {
+    const text = String(successMessage || '').trim();
+    if (!text) return;
+    showAdminToast(text);
+    setSuccessMessage('');
+  }, [showAdminToast, successMessage]);
+
+  useEffect(() => {
+    const text = String(errorMessage || '').trim();
+    if (!text) return;
+    showAdminToast(text);
+    setErrorMessage('');
+  }, [errorMessage, showAdminToast]);
 
   const resolveClubSlug = useCallback(() => {
     try {
@@ -1289,18 +1324,17 @@ export default function AdminClientesPlayground2Page() {
 
       <AdminPlaygroundShell activeItem="Clientes" user={user} contentMuted={sidebarOpen}>
         <div className="flex h-full min-h-0 flex-col gap-4 p-4 lg:p-6">
-              <header className="rounded-xl border border-[#dce2ee] bg-white px-3 py-2 shadow-[0_8px_26px_rgba(34,42,68,0.05)]">
-                <AdminSegmentedControl
-                  ariaLabel="Vistas de clientes"
-                  value={activeView}
-                  onChange={(nextView) => setActiveView(nextView as ClientsView)}
-                  options={[
-                    { value: 'directory', label: 'Directorio' },
-                    { value: 'debt', label: 'Cuentas y deuda' },
-                    { value: 'history', label: 'Historial' },
-                  ]}
-                />
-              </header>
+              <AdminSegmentedControl
+                ariaLabel="Vistas de clientes"
+                value={activeView}
+                onChange={(nextView) => setActiveView(nextView as ClientsView)}
+                options={[
+                  { value: 'directory', label: 'Directorio' },
+                  { value: 'debt', label: 'Cuentas y deuda' },
+                  { value: 'history', label: 'Historial' },
+                ]}
+                className="w-fit"
+              />
 
               <div className="grid grid-cols-2 gap-3">
                 <article className="rounded-xl border border-[#dce2ee] bg-white p-3">
@@ -1313,35 +1347,38 @@ export default function AdminClientesPlayground2Page() {
                 </article>
               </div>
 
-              {(errorMessage || successMessage) && (
-                <div className="space-y-2">
-                  {successMessage && <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] text-emerald-800">{successMessage}</div>}
-                  {errorMessage && <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-800">{errorMessage}</div>}
-                </div>
-              )}
-
               <div className="min-h-0 flex-1 overflow-hidden">
                 {activeView === 'directory' && (
                   <div className="flex h-full flex-col">
                     <article className="flex min-h-0 flex-1 flex-col rounded-xl border border-[#dce2ee] bg-white">
-                      <div className="flex flex-wrap items-center gap-2 p-4 pb-3">
-                        <label className="relative w-full max-w-[320px]">
-                          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8b93a5]" />
-                          <input
-                            type="text"
-                            value={searchTerm}
-                            onChange={(event) => setSearchTerm(event.target.value)}
-                            placeholder="Buscar por nombre, dni, email o telefono"
-                            className="h-10 w-full rounded-xl border border-[#dce2ee] bg-white pl-9 pr-3 text-[13px] outline-none focus:border-[#3053e2]"
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          onClick={openCreateClient}
-                          className="h-10 rounded-xl bg-[#3053e2] px-3 text-[13px] font-semibold text-white transition hover:bg-[#2748cc]"
-                        >
-                          <span className="inline-flex items-center gap-1"><Plus size={14} /> Nuevo cliente</span>
-                        </button>
+                      <div className="border-b border-[#eef2f7] pl-4 pr-2 py-3">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <h2 className="text-[13px] font-semibold text-[#1f2638]">Directorio de clientes</h2>
+                            <p className="mt-1 text-[12px] text-[#6f7890]">
+                              Listado operativo con acceso rápido a perfil, edición y baja.
+                            </p>
+                          </div>
+                          <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-1 sm:flex-nowrap sm:justify-end">
+                            <label className="relative w-full sm:w-[300px] sm:flex-none">
+                              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8b93a5]" />
+                              <input
+                                type="text"
+                                value={searchTerm}
+                                onChange={(event) => setSearchTerm(event.target.value)}
+                                placeholder="Buscar por nombre, dni, email o telefono"
+                                className="h-8 w-full rounded-xl border border-[#dce2ee] bg-white pl-9 pr-3 text-[12px] outline-none focus:border-[#3053e2]"
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={openCreateClient}
+                              className="h-8 rounded-lg bg-[#3053e2] px-2.5 text-[11px] font-semibold text-white transition hover:bg-[#2748cc]"
+                            >
+                              <span className="inline-flex items-center gap-1"><Plus size={14} /> Nuevo cliente</span>
+                            </button>
+                          </AdminFilterToolbar>
+                        </div>
                       </div>
 
                       <ClientsTable
@@ -1540,9 +1577,22 @@ export default function AdminClientesPlayground2Page() {
                                       </li>
                                     ))}
                                   </ul>
-                                )}
-                              </div>
-                            </div>
+              )}
+            </div>
+
+            {adminToasts.length > 0 && (
+              <div className="pointer-events-none fixed right-5 top-[84px] z-[150] flex w-full max-w-[360px] flex-col gap-2">
+                {adminToasts.map((toast) => (
+                  <div
+                    key={toast.id}
+                    className="rounded-xl border border-[#dce2ee] bg-white px-3 py-2 text-[12px] font-semibold text-[#27314a] shadow-lg"
+                  >
+                    {toast.message}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
                             <div className="rounded-xl border border-[#dce2ee] p-3">
                               <h3 className="text-[13px] font-semibold text-[#1f2638]">Historial de cuentas</h3>
@@ -1716,11 +1766,39 @@ export default function AdminClientesPlayground2Page() {
                               {pendingAccountItems.map((item) => {
                                 const checked = simplifiedPaymentSelectedItemIdsDraft.includes(String(item.id));
                                 return (
-                                  <div key={`payment-playtomic-concept-item-${item.id}`} className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-[#f5f7fc]">
+                                  <div
+                                    key={`payment-playtomic-concept-item-${item.id}`}
+                                    onClick={() => {
+                                      const nextChecked = !checked;
+                                      const nextSet = new Set(simplifiedPaymentSelectedItemIdsDraft.map((value) => String(value || '').trim()).filter(Boolean));
+                                      const itemId = String(item.id);
+                                      const nextDrafts: Record<string, string> = {
+                                        ...simplifiedPaymentCustomItemAmountDraftById,
+                                      };
+                                      if (nextChecked) {
+                                        nextSet.add(itemId);
+                                        const prevDraft = String(nextDrafts[itemId] ?? '').trim();
+                                        if (!prevDraft) {
+                                          nextDrafts[itemId] = Number(item.remainingAmount || 0).toFixed(2);
+                                        }
+                                      } else {
+                                        nextSet.delete(itemId);
+                                        delete nextDrafts[itemId];
+                                      }
+                                      const nextIds = Array.from(nextSet);
+                                      setSimplifiedPaymentSelectedItemIdsDraft(nextIds);
+                                      setSimplifiedPaymentCustomItemAmountDraftById(nextDrafts);
+                                      setSimplifiedPaymentAmountDraft(
+                                        String(computeCustomSelectedAmount(nextIds, nextDrafts).toFixed(2))
+                                      );
+                                    }}
+                                    className="flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-[#f5f7fc]"
+                                  >
                                     <span className="min-w-0 flex items-center gap-2 text-[12px] text-[#2a3245]">
                                       <input
                                         type="checkbox"
                                         checked={checked}
+                                        onClick={(event) => event.stopPropagation()}
                                         onChange={(event) => {
                                           const nextChecked = event.target.checked;
                                           const nextSet = new Set(simplifiedPaymentSelectedItemIdsDraft.map((value) => String(value || '').trim()).filter(Boolean));
@@ -1756,6 +1834,7 @@ export default function AdminClientesPlayground2Page() {
                                           min={0}
                                           step="0.01"
                                           disabled={!checked}
+                                          onClick={(event) => event.stopPropagation()}
                                           value={
                                             checked
                                               ? String(

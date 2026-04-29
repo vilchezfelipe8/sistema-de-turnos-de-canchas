@@ -3,7 +3,7 @@ import AdminRouteShell from '../../components/admin/AdminRouteShell';
 import AdminTabProducts from '../../components/admin/AdminTabProducts';
 import AdminTabServices from '../../components/admin/AdminTabServices';
 import AdminComingSoonPanel from '../../components/admin/AdminComingSoonPanel';
-import { AdminModuleTabs } from '../../components/admin/ui';
+import { AdminSegmentedControl } from '../../components/admin/ui';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 
 type StoreTab = 'productos' | 'servicios' | 'inventario';
@@ -45,11 +45,12 @@ export default function AdminStorePage() {
 
         return (
           <div className="flex h-full min-h-0 flex-col gap-4 p-4 pb-0 lg:p-6 lg:pb-0">
-            <AdminModuleTabs
-              tabs={STORE_TABS}
+            <AdminSegmentedControl
+              options={STORE_TABS.map((tab) => ({ value: tab.value, label: tab.label }))}
               value={activeTab}
               onChange={(value) => handleChangeTab(value as StoreTab)}
               ariaLabel="Subnavegacion de tienda"
+              className="w-fit"
             />
             <section className="min-h-0 flex-1 overflow-y-auto pb-6 lg:pb-8">
               {activeTab === 'productos' && <AdminTabProducts clubSlug={clubSlug || undefined} />}

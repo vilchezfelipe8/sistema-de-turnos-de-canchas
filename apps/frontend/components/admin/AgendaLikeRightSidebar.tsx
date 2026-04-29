@@ -1,3 +1,15 @@
+// ---------------------------------------------------------------------------
+// DEPRECACIÓN SUAVE — prefer AdminDrawer for new features
+// ---------------------------------------------------------------------------
+// AgendaLikeRightSidebar es un wrapper fino de AdminSidebarScaffold.
+// Para features nuevas, usar AdminDrawer (components/admin/ui/AdminDrawer.tsx):
+//   - Soporta tamaños sm/md/lg
+//   - Pantalla completa en mobile (inset-0)
+//   - Nomenclatura correcta: Drawer = panel operativo, Sidebar = navegación principal
+//
+// Este componente se mantiene para compatibilidad con agenda-playground2.tsx
+// y pagos-playground.tsx. No migrar hasta que esos archivos se refactoricen.
+// ---------------------------------------------------------------------------
 import type { ReactNode } from 'react';
 import AdminSidebarScaffold from './ui/AdminSidebarScaffold';
 

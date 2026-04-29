@@ -1,116 +1,44 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Search, Plus } from 'lucide-react';
 import { ClubAdminService } from '../services/ClubAdminService';
-import { Search, Plus, Edit, Trash2, X, Package, Tag, DollarSign, Box } from 'lucide-react';
 import { extractErrorMessage, reportUiError } from '../utils/uiError';
 import AppModal from './AppModal';
-import { AdminDataTable, AdminPanel, AdminRightSidebar } from './admin/ui';
-import type { AdminDataTableColumn } from './admin/ui';
+import { AdminFilterToolbar, MetricCard } from './admin/ui';
+import ProductsTable from '../modules/tienda/components/ProductsTable';
+import ProductDrawer from '../modules/tienda/components/ProductDrawer';
+import type { ProductFormData } from '../modules/tienda/components/ProductDrawer';
+import type { ProductRow } from '../modules/tienda/components/ProductsTable';
 
 interface ProductsPageProps {
   slug?: string;
 }
 
 // ---------------------------------------------------------------------------
-// Table columns
+// Constants
 // ---------------------------------------------------------------------------
 
-const PRODUCT_COLUMNS = (
-  onEdit: (p: any) => void,
-  onDelete: (p: any) => void
-): AdminDataTableColumn<any>[] => [
-  {
-    key: 'name',
-    label: 'Producto',
-    render: (p) => <span className="font-semibold text-[#2a3245]">{p.name}</span>,
-  },
-  {
-    key: 'isCombo',
-    label: 'Tipo',
-    render: (p) => (
-      <span
-        className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${
-          p.isCombo
-            ? 'border-[#c7d2ff] bg-[#eef1ff] text-[#3053e2]'
-            : 'border-[#dce2ee] bg-[#f5f7fb] text-[#697386]'
-        }`}
-      >
-        {p.isCombo ? 'Combo' : 'Simple'}
-      </span>
-    ),
-  },
-  {
-    key: 'category',
-    label: 'Categoría',
-    render: (p) => (
-      <span className="rounded-full border border-[#dce2ee] bg-[#f5f7fb] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#697386]">
-        {p.category || 'General'}
-      </span>
-    ),
-  },
-  {
-    key: 'stock',
-    label: 'Stock',
-    render: (p) => (
-      <span
-        className={`inline-flex rounded-lg border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${
-          Number(p.stock) < 5
-            ? 'border-[#ffd6d6] bg-[#fff5f5] text-[#b42318]'
-            : 'border-[#ccebd7] bg-[#f0fbf4] text-[#167647]'
-        }`}
-      >
-        {p.stock} u.
-      </span>
-    ),
-  },
-  {
-    key: 'price',
-    label: 'Precio',
-    render: (p) => (
-      <span className="font-semibold text-[#27314a]">
-        ${Number(p.price || 0).toLocaleString()}
-      </span>
-    ),
-  },
-  {
-    key: '_actions',
-    label: '',
-    align: 'right',
-    render: (p) => (
-      <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={() => onEdit(p)}
-          className="grid h-9 w-9 place-items-center rounded-lg border border-[#dce2ee] bg-white text-[#697386] shadow-sm transition-all hover:border-[#3053e2] hover:bg-[#f1f4ff] hover:text-[#3053e2]"
-          title="Editar"
-        >
-          <Edit size={15} strokeWidth={2.5} />
-        </button>
-        <button
-          type="button"
-          onClick={() => onDelete(p)}
-          className="grid h-9 w-9 place-items-center rounded-lg border border-[#ffd6d6] bg-[#fff5f5] text-[#b42318] shadow-sm transition-all hover:bg-[#b42318] hover:text-white"
-          title="Dar de baja"
-        >
-          <Trash2 size={15} strokeWidth={2.5} />
-        </button>
-      </div>
-    ),
-  },
-];
+const emptyForm = (): ProductFormData => ({
+  name: '',
+  price: '',
+  stock: '',
+  category: '',
+  isCombo: false,
+  components: [{ componentProductId: '', quantity: '1' }],
+});
 
-const inputClass =
-  'h-10 w-full rounded-xl border border-[#dce2ee] bg-white px-3 text-[13px] text-[#2a3245] placeholder:text-[#8b93a5] outline-none transition-all focus:border-[#3053e2]';
-const labelClass = 'mb-1.5 block text-[12px] font-medium text-[#4e5870]';
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 export default function ProductsPage({ slug = '' }: ProductsPageProps) {
-  const [products, setProducts] = useState<any[]>([]);
+  const [products, setProducts] = useState<ProductRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<any | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<ProductRow | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ProductRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [formError, setFormError] = useState('');
   const [feedbackModal, setFeedbackModal] = useState<{
@@ -118,76 +46,69 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
     title: string;
     message: string;
     isWarning?: boolean;
-  }>({ show: false, title: 'Informacion', message: '' });
-  const [formData, setFormData] = useState({
-    name: '',
-    price: '',
-    stock: '',
-    category: '',
-    isCombo: false,
-    components: [{ componentProductId: '', quantity: '1' }],
-  });
+  }>({ show: false, title: 'Información', message: '' });
+  const [formData, setFormData] = useState<ProductFormData>(emptyForm());
 
+  // ── Data loading ──
   const loadProducts = useCallback(async () => {
     try {
       const data = await ClubAdminService.getProducts(slug);
-      setProducts(data);
+      setProducts(data as ProductRow[]);
     } catch (error) {
       reportUiError({ area: 'ProductsPage', action: 'loadProducts' }, error);
-      setFeedbackModal({ show: true, title: 'Error', message: 'No se pudieron cargar los productos.', isWarning: true });
+      setFeedbackModal({
+        show: true,
+        title: 'Error',
+        message: 'No se pudieron cargar los productos.',
+        isWarning: true,
+      });
     } finally {
       setLoading(false);
     }
   }, [slug]);
 
   useEffect(() => {
-    if (slug) loadProducts();
+    if (slug) void loadProducts();
   }, [slug, loadProducts]);
 
-  const emptyForm = () => ({
-    name: '',
-    price: '',
-    stock: '',
-    category: '',
-    isCombo: false,
-    components: [{ componentProductId: '', quantity: '1' }],
-  });
-
+  // ── Drawer handlers ──
   const openNew = () => {
     setEditingProduct(null);
     setFormData(emptyForm());
     setFormError('');
-    setIsModalOpen(true);
+    setDrawerOpen(true);
   };
 
-  const openEdit = (product: any) => {
+  const openEdit = (product: ProductRow) => {
     setEditingProduct(product);
     setFormData({
       name: product.name,
       price: String(product.price),
-      stock: String(product.baseStock ?? product.stock ?? 0),
-      category: product.category || '',
+      stock: String((product.baseStock as number | undefined) ?? product.stock ?? 0),
+      category: (product.category as string) || '',
       isCombo: Boolean(product.isCombo),
       components:
         Array.isArray(product.components) && product.components.length > 0
-          ? product.components.map((c: any) => ({
-              componentProductId: String(c.componentProductId),
-              quantity: String(c.quantity),
-            }))
+          ? (product.components as Array<{ componentProductId: number; quantity: number }>).map(
+              (c) => ({
+                componentProductId: String(c.componentProductId),
+                quantity: String(c.quantity),
+              }),
+            )
           : [{ componentProductId: '', quantity: '1' }],
     });
     setFormError('');
-    setIsModalOpen(true);
+    setDrawerOpen(true);
   };
 
-  const closeModal = () => {
-    setIsModalOpen(false);
+  const closeDrawer = () => {
+    setDrawerOpen(false);
     setEditingProduct(null);
     setFormData(emptyForm());
     setFormError('');
   };
 
-
+  // ── Form submit ──
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
@@ -202,7 +123,7 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
           Number.isFinite(c.componentProductId) &&
           c.componentProductId > 0 &&
           Number.isFinite(c.quantity) &&
-          c.quantity > 0
+          c.quantity > 0,
       );
 
     if (formData.isCombo) {
@@ -235,8 +156,8 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
       } else {
         await ClubAdminService.createProduct(slug, payload);
       }
-      closeModal();
-      loadProducts();
+      closeDrawer();
+      void loadProducts();
     } catch (error) {
       const message = extractErrorMessage(error, 'No se pudo guardar el producto.');
       reportUiError({ area: 'ProductsPage', action: 'saveProduct' }, error);
@@ -244,12 +165,13 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
     }
   };
 
+  // ── Delete ──
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
       await ClubAdminService.deleteProduct(slug, deleteTarget.id);
-      loadProducts();
+      void loadProducts();
       setDeleteTarget(null);
     } catch (error) {
       const message = extractErrorMessage(error, 'No se pudo dar de baja el producto.');
@@ -260,292 +182,152 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
     }
   };
 
-  const addComponentRow = () => {
+  // ── Combo component rows ──
+  const addComponentRow = () =>
     setFormData((prev) => ({
       ...prev,
       components: [...prev.components, { componentProductId: '', quantity: '1' }],
     }));
-  };
 
-  const removeComponentRow = (index: number) => {
+  const removeComponentRow = (index: number) =>
     setFormData((prev) => ({
       ...prev,
       components: prev.components.filter((_, i) => i !== index),
     }));
-  };
 
-  const updateComponentRow = (index: number, field: 'componentProductId' | 'quantity', value: string) => {
+  const updateComponentRow = (
+    index: number,
+    field: 'componentProductId' | 'quantity',
+    value: string,
+  ) =>
     setFormData((prev) => ({
       ...prev,
       components: prev.components.map((c, i) => (i === index ? { ...c, [field]: value } : c)),
     }));
-  };
 
-  const filteredProducts = products.filter((p) =>
-    p.name.toLowerCase().includes(searchTerm.toLowerCase())
+  // ── Derived state ──
+  const filteredProducts = useMemo(
+    () => products.filter((p) => p.name.toLowerCase().includes(searchTerm.toLowerCase())),
+    [products, searchTerm],
   );
 
-  const comboComponentOptions = products.filter(
-    (p) => !editingProduct || p.id !== editingProduct.id
+  const comboOptions = useMemo(
+    () => products.filter((p) => !editingProduct || p.id !== editingProduct.id),
+    [products, editingProduct],
   );
 
-  const productSummary = useMemo(() => {
+  const summary = useMemo(() => {
     const simple = products.filter((p) => !p.isCombo);
-    const combos = products.filter((p) => p.isCombo);
-    const lowStock = simple.filter((p) => Number(p.stock || 0) < 5);
-    const stockValue = simple.reduce((sum, p) => sum + Number(p.stock || 0) * Number(p.price || 0), 0);
-    return { total: products.length, combos: combos.length, lowStock: lowStock.length, stockValue };
+    const lowStock = simple.filter((p) => Number(p.stock ?? 0) < 5);
+    const stockValue = simple.reduce(
+      (sum, p) => sum + Number(p.stock ?? 0) * Number(p.price ?? 0),
+      0,
+    );
+    return {
+      lowStock: lowStock.length,
+      stockValue,
+      total: products.length,
+    };
   }, [products]);
 
+  // ── Render ──
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
+
+      {/* ── Summary metrics ── */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl border border-[#ffd6b3] bg-[#fff8f0] px-3 py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9a5a00]">Bajo stock</p>
-          <p className="mt-1 text-[24px] font-bold text-[#9a5a00]">{productSummary.lowStock}</p>
-          <p className="mt-0.5 text-[11px] text-[#b07030]">productos con menos de 5 unidades</p>
-        </div>
-        <div className="rounded-xl border border-[#dce2ee] bg-white px-3 py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#6f7890]">Valor en stock</p>
-          <p className="mt-1 text-[24px] font-bold text-[#27314a]">${productSummary.stockValue.toLocaleString()}</p>
-          <p className="mt-0.5 text-[11px] text-[#6f7890]">{productSummary.total} productos activos</p>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative w-full flex-1 sm:max-w-md">
-          <Search
-            className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#98a1b3]"
-            size={16}
-            strokeWidth={2.5}
-          />
-          <input
-            type="text"
-            placeholder="Buscar por nombre de producto..."
-            className="h-10 w-full rounded-xl border border-[#dce2ee] bg-white pl-10 pr-4 text-[13px] text-[#2a3245] placeholder:text-[#8b93a5] outline-none transition-all focus:border-[#3053e2]"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-        <button
-          type="button"
-          onClick={openNew}
-          className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-[#3053e2] px-4 text-[12px] font-semibold text-white transition-all hover:bg-[#2748cc] sm:w-auto"
-        >
-          <Plus size={16} strokeWidth={2.5} />
-          Nuevo producto
-        </button>
-      </div>
-
-      <AdminPanel
-        title="Inventario"
-        description="Lista operativa de productos, combos, precios y stock disponible."
-        bodyClassName="p-0"
-      >
-        <AdminDataTable
-          columns={PRODUCT_COLUMNS(openEdit, setDeleteTarget)}
-          data={filteredProducts}
-          rowKey={(p) => p.id}
-          loading={loading}
-          empty={{ title: 'No hay productos registrados', description: 'Creá el primero con el botón de arriba.' }}
+        <MetricCard
+          label="Bajo stock"
+          value={summary.lowStock}
+          format="number"
+          valueColor={summary.lowStock > 0 ? '#b42318' : undefined}
+          delta={
+            summary.lowStock > 0
+              ? { value: -summary.lowStock, label: 'productos con menos de 5 u.' }
+              : { value: 0, label: 'sin alertas de stock' }
+          }
         />
-      </AdminPanel>
+        <MetricCard
+          label="Valor en stock"
+          value={summary.stockValue}
+          format="money"
+          delta={{ value: summary.total, label: 'productos activos' }}
+        />
+      </div>
 
-      <AdminRightSidebar
-        open={isModalOpen}
-        title={editingProduct ? 'Editar producto' : 'Nuevo producto'}
-        description="Inventario del club"
-        onClose={closeModal}
-        widthClassName="w-full max-w-[560px]"
-      >
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div id="products-drawer-general" className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3">
-            <p className="text-[12px] font-semibold text-[#2a3245]">Datos generales</p>
-            <p className="mt-0.5 text-[11px] text-[#6f7890]">Nombre comercial y tipo del producto.</p>
-            <div className="mt-3">
-              <label className={labelClass}>Nombre del producto</label>
-              <div className="relative">
-                <input
-                  required
-                  placeholder="Ej: Gatorade Blue"
-                  className={`${inputClass} pl-10`}
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                />
-                <Tag className="absolute left-3 top-1/2 -translate-y-1/2 text-[#98a1b3]" size={15} strokeWidth={2.5} />
-              </div>
+      {/* ── Table ── */}
+      <ProductsTable
+        products={filteredProducts}
+        loading={loading}
+        onEdit={openEdit}
+        onDelete={setDeleteTarget}
+        onRowClick={openEdit}
+        selectedId={editingProduct?.id ?? null}
+        toolbar={(
+          <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-1 sm:flex-nowrap sm:justify-end">
+            <div className="relative w-full sm:w-[300px] sm:flex-none">
+              <Search
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#98a1b3]"
+                size={14}
+                strokeWidth={2.5}
+              />
+              <input
+                type="text"
+                placeholder="Buscar por nombre de producto..."
+                className="h-8 w-full rounded-xl border border-[#dce2ee] bg-white pl-9 pr-3 text-[12px] text-[#2a3245] placeholder:text-[#8b93a5] outline-none transition focus:border-[#3053e2]"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
             </div>
-
-            <div className="mt-3">
-              <label className={labelClass}>Tipo de producto</label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setFormData((prev) => ({ ...prev, isCombo: false }))}
-                  className={`h-9 rounded-xl border text-[12px] font-semibold transition-all ${
-                    !formData.isCombo
-                      ? 'border-[#3053e2] bg-[#f1f4ff] text-[#3053e2]'
-                      : 'border-[#d9dfeb] bg-white text-[#697386] hover:bg-[#f8faff]'
-                  }`}
-                >
-                  Producto simple
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFormData((prev) => ({ ...prev, isCombo: true }))}
-                  className={`h-9 rounded-xl border text-[12px] font-semibold transition-all ${
-                    formData.isCombo
-                      ? 'border-[#3053e2] bg-[#f1f4ff] text-[#3053e2]'
-                      : 'border-[#d9dfeb] bg-white text-[#697386] hover:bg-[#f8faff]'
-                  }`}
-                >
-                  Combo
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div id="products-drawer-pricing" className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3">
-            <p className="text-[12px] font-semibold text-[#2a3245]">Precio y stock</p>
-            <p className="mt-0.5 text-[11px] text-[#6f7890]">Definí valores de venta y disponibilidad.</p>
-            <div className="mt-3">
-              <label className={labelClass}>Precio ($)</label>
-              <div className="relative">
-                <input
-                  required
-                  type="number"
-                  min="0"
-                  placeholder="0"
-                  className={`${inputClass} pl-10`}
-                  value={formData.price}
-                  onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                  onWheel={(event) => event.currentTarget.blur()}
-                />
-                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-[#98a1b3]" size={15} strokeWidth={2.5} />
-              </div>
-            </div>
-
-            {!formData.isCombo && (
-              <div className="mt-3">
-                <label className={labelClass}>Stock inicial</label>
-                <div className="relative">
-                  <input
-                    required
-                    type="number"
-                    min="0"
-                    placeholder="0"
-                    className={`${inputClass} pl-10`}
-                    value={formData.stock}
-                    onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
-                    onWheel={(event) => event.currentTarget.blur()}
-                  />
-                  <Box className="absolute left-3 top-1/2 -translate-y-1/2 text-[#98a1b3]" size={15} strokeWidth={2.5} />
-                </div>
-              </div>
-            )}
-
-            <div className="mt-3">
-              <label className={labelClass}>Categoria (opcional)</label>
-              <div className="relative">
-                <input
-                  className={`${inputClass} pl-10`}
-                  placeholder="Ej: Bebidas, Grips, Alquiler..."
-                  value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                />
-                <Package className="absolute left-3 top-1/2 -translate-y-1/2 text-[#98a1b3]" size={15} strokeWidth={2.5} />
-              </div>
-            </div>
-          </div>
-
-          {formData.isCombo && (
-            <div id="products-drawer-composition" className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3">
-              <p className="text-[12px] font-semibold text-[#2a3245]">Composición del combo</p>
-              <p className="mt-0.5 text-[11px] text-[#6f7890]">Seleccioná los productos que forman el combo.</p>
-              <label className={labelClass}>Componentes del combo</label>
-              <div className="space-y-2">
-                {formData.components.map((component, index) => (
-                  <div key={index} className="grid grid-cols-12 gap-2 items-center">
-                    <select
-                      className="col-span-7 h-10 rounded-xl border border-[#dce2ee] bg-white px-3 text-[13px] text-[#2a3245] outline-none transition-all focus:border-[#3053e2]"
-                      value={component.componentProductId}
-                      onChange={(e) => updateComponentRow(index, 'componentProductId', e.target.value)}
-                    >
-                      <option value="">Seleccionar producto</option>
-                      {comboComponentOptions.map((p) => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
-                      ))}
-                    </select>
-                    <input
-                      type="number"
-                      min="1"
-                      className="col-span-3 h-10 rounded-xl border border-[#dce2ee] bg-white px-3 text-[13px] text-[#2a3245] outline-none transition-all focus:border-[#3053e2]"
-                      value={component.quantity}
-                      onChange={(e) => updateComponentRow(index, 'quantity', e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeComponentRow(index)}
-                      className="col-span-2 grid h-9 place-items-center rounded-lg border border-[#ffd6d6] bg-[#fff5f5] text-[#b42318] transition-all hover:bg-[#b42318] hover:text-white"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={addComponentRow}
-                className="mt-2 h-9 w-full rounded-lg border border-[#dce2ee] bg-white text-[12px] font-semibold text-[#3053e2] transition-colors hover:bg-[#f1f4ff]"
-              >
-                + Agregar componente
-              </button>
-            </div>
-          )}
-
-          {formError && (
-            <p className="rounded-lg border border-[#ffd6d6] bg-[#fff5f5] px-3 py-2 text-[12px] font-semibold text-[#b42318]">
-              {formError}
-            </p>
-          )}
-
-          <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={closeModal}
-              className="h-9 flex-1 rounded-lg border border-[#dce2ee] bg-white text-[12px] font-semibold text-[#4e5870] transition-all hover:bg-[#f8faff]"
+              onClick={openNew}
+              className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-[#3053e2] px-2.5 text-[11px] font-semibold text-white transition hover:bg-[#2748cc] sm:w-auto"
             >
-              Cancelar
+              <Plus size={14} strokeWidth={2.5} />
+              Nuevo producto
             </button>
-            <button
-              type="submit"
-              className="h-9 flex-1 rounded-lg bg-[#3053e2] text-[12px] font-semibold text-white transition-all hover:bg-[#2748cc]"
-            >
-              {editingProduct ? 'Guardar cambios' : 'Confirmar ingreso'}
-            </button>
-          </div>
-        </form>
-      </AdminRightSidebar>
+          </AdminFilterToolbar>
+        )}
+      />
 
+      {/* ── Drawer ── */}
+      <ProductDrawer
+        open={drawerOpen}
+        onClose={closeDrawer}
+        editingProduct={editingProduct}
+        comboOptions={comboOptions}
+        formData={formData}
+        formError={formError}
+        onFormChange={setFormData}
+        onAddComponent={addComponentRow}
+        onRemoveComponent={removeComponentRow}
+        onUpdateComponent={updateComponentRow}
+        onSubmit={handleSubmit}
+      />
+
+      {/* ── Delete confirmation ── */}
       <AppModal
-        show={!!deleteTarget}
+        show={Boolean(deleteTarget)}
         onClose={() => setDeleteTarget(null)}
         onCancel={() => setDeleteTarget(null)}
         title="Dar de baja producto"
         message={
           deleteTarget ? (
             <span>
-              <strong>{deleteTarget.name}</strong> no se va a borrar definitivamente. Lo vamos a dar de baja para que no aparezca en el stock ni en los consumos.
+              <strong>{deleteTarget.name}</strong> no se va a borrar definitivamente. Lo vamos a
+              dar de baja para que no aparezca en el stock ni en los consumos.
             </span>
           ) : null
         }
         cancelText="Cancelar"
         confirmText={deleting ? 'Dando de baja...' : 'Dar de baja'}
         isWarning
-        onConfirm={confirmDelete}
+        onConfirm={() => void confirmDelete()}
         confirmDisabled={deleting}
       />
 
+      {/* ── Feedback modal ── */}
       <AppModal
         show={feedbackModal.show}
         onClose={() => setFeedbackModal((prev) => ({ ...prev, show: false }))}

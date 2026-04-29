@@ -1,23 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
-import {
-  Activity,
-  Calendar,
-  ChevronLeft,
-  ChevronRight,
-  CreditCard,
+  CalendarCheck,
   DollarSign,
   ShoppingBag,
   TrendingUp,
@@ -25,17 +8,43 @@ import {
 import { fetchWithAuth } from '../../utils/apiClient';
 import { getApiUrl } from '../../utils/apiUrl';
 import { reportUiError } from '../../utils/uiError';
-import { AdminPanel, AdminSegmentedControl } from './ui';
+import { AdminPanel } from './ui';
+import ReportsEmptyState from '../../modules/informes/components/ReportsEmptyState';
+import ReportsMetricGrid, { type ReportsMetric } from '../../modules/informes/components/ReportsMetricGrid';
+import ReportsPeriodToolbar, { type ReportsPeriod } from '../../modules/informes/components/ReportsPeriodToolbar';
+import RevenueChart, { type RevenueEvolutionPoint } from '../../modules/informes/components/RevenueChart';
+import PaymentMethodsDonut, { type PaymentMethodDatum } from '../../modules/informes/components/PaymentMethodsDonut';
+import ProductsRankingChart, { type ProductRankingDatum } from '../../modules/informes/components/ProductsRankingChart';
+import ReportsRankingList from '../../modules/informes/components/ReportsRankingList';
 
 const apiBase = () => `${getApiUrl()}/api`;
-
-const COLORS = ['#1f2638', '#3053e2', '#17b26a', '#f79009'];
 
 interface Props {
   slugProp?: string;
 }
 
-type Period = 'hoy' | 'semana' | 'mes';
+type Period = ReportsPeriod;
+
+type ProductStats = {
+  totals?: {
+    quantityAll?: number;
+    revenueAll?: number;
+    quantityTop?: number;
+    revenueTop?: number;
+    unsoldCount?: number;
+  };
+  top?: ProductRankingDatum[];
+  bottom?: ProductRankingDatum[];
+  unsold?: ProductRankingDatum[];
+};
+
+type DashboardStats = {
+  totalRevenue?: number;
+  totalBookings?: number;
+  dailyEvolution?: RevenueEvolutionPoint[];
+  paymentMethods?: PaymentMethodDatum[];
+  products?: ProductStats;
+};
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   CASH: 'Efectivo',
@@ -94,43 +103,35 @@ export const getDateRange = (period: Period, offset = 0) => {
   };
 };
 
-function KpiCard({
-  icon,
-  label,
-  value,
-  detail,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  detail?: string;
-}) {
-  return (
-    <div className="relative overflow-hidden rounded-xl border border-[#dce2ee] bg-white p-5 shadow-[0_8px_26px_rgba(34,42,68,0.05)]">
-      <div className="flex items-start justify-between gap-3">
-        <div className="grid h-11 w-11 place-items-center rounded-xl bg-[#f1f4ff] text-[#3053e2]">
-          {icon}
-        </div>
-      </div>
-      <p className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-[#6f7890]">{label}</p>
-      <p className="mt-1 text-[24px] font-bold text-[#27314a]">{value}</p>
-      {detail && <p className="mt-1 text-[12px] text-[#6f7890]">{detail}</p>}
-    </div>
-  );
-}
-
-function EmptyList({ label }: { label: string }) {
-  return <p className="text-sm font-semibold text-[#8b95aa]">{label}</p>;
-}
-
 export default function AdminTabStatistics({ slugProp }: Props) {
   const finalSlug = slugProp;
 
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<any>(null);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
-  const [activePeriod, setActivePeriod] = useState<Period>('mes');
+  const [activePeriod, setActivePeriod] = useState<Period>('hoy');
   const [periodOffset, setPeriodOffset] = useState(0);
+  const [adminToasts, setAdminToasts] = useState<Array<{ id: number; message: string }>>([]);
+  const adminToastIdRef = useRef(1);
+  const adminToastTimeoutsRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+
+  const showAdminToast = useCallback((message: string) => {
+    const text = String(message || '').trim();
+    if (!text) return;
+    const id = adminToastIdRef.current++;
+    setAdminToasts((prev) => [...prev, { id, message: text }].slice(-4));
+    const timeout = setTimeout(() => {
+      setAdminToasts((prev) => prev.filter((item) => item.id !== id));
+    }, 3200);
+    adminToastTimeoutsRef.current.push(timeout);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      adminToastTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
+      adminToastTimeoutsRef.current = [];
+    };
+  }, []);
 
   const handlePeriodChange = (newPeriod: Period) => {
     setActivePeriod(newPeriod);
@@ -148,9 +149,11 @@ export default function AdminTabStatistics({ slugProp }: Props) {
       if (periodOffset === -1) return 'Ayer';
       return rawStart.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
     }
-    if (periodOffset === 0) return 'Esta semana';
-    if (periodOffset === -1) return 'Semana pasada';
-    return `${rawStart.getDate()} al ${rawEnd.getDate()} ${rawEnd.toLocaleDateString('es-AR', { month: 'short' })}`;
+    const formatWeekDay = (date: Date) => date.toLocaleDateString('es-AR', {
+      day: '2-digit',
+      month: 'short',
+    }).replace('.', '').toLowerCase();
+    return `${formatWeekDay(rawStart)} - ${formatWeekDay(rawEnd)}`;
   }, [activePeriod, periodOffset]);
 
   const loadStats = useCallback(async () => {
@@ -176,33 +179,112 @@ export default function AdminTabStatistics({ slugProp }: Props) {
         });
       } else {
         reportUiError({ area: 'AdminTabStatistics', action: 'loadStats' }, new Error(`Error del servidor: ${response.status}`));
-        setErrorMessage('No se pudieron cargar las estadisticas para este periodo.');
+        const message = 'No se pudieron cargar las estadisticas para este periodo.';
+        setErrorMessage(message);
+        showAdminToast(message);
       }
     } catch (error) {
       reportUiError({ area: 'AdminTabStatistics', action: 'loadStats' }, error);
-      setErrorMessage('No se pudo conectar para traer estadisticas.');
+      const message = 'No se pudo conectar para traer estadisticas.';
+      setErrorMessage(message);
+      showAdminToast(message);
     } finally {
       setLoading(false);
     }
-  }, [activePeriod, finalSlug, periodOffset]);
+  }, [activePeriod, finalSlug, periodOffset, showAdminToast]);
 
   useEffect(() => {
     void loadStats();
   }, [loadStats]);
 
-  const averageTicket = useMemo(
-    () => (stats?.totalBookings > 0 ? stats.totalRevenue / stats.totalBookings : 0),
-    [stats?.totalBookings, stats?.totalRevenue]
+  const dailyEvolution = useMemo(
+    () => (
+      Array.isArray(stats?.dailyEvolution)
+        ? stats.dailyEvolution.map((row) => ({
+            day: String(row?.day || ''),
+            turnos: Number(row?.turnos || 0),
+            bar: Number(row?.bar || 0),
+          }))
+        : []
+    ),
+    [stats?.dailyEvolution]
   );
+
+  const paymentMethods = useMemo(
+    () => (
+      Array.isArray(stats?.paymentMethods)
+        ? stats.paymentMethods.map((row) => ({
+            name: String(row?.name || 'Otro'),
+            value: Number(row?.value || 0),
+          }))
+        : []
+    ),
+    [stats?.paymentMethods]
+  );
+
+  const totalRevenue = Number(stats?.totalRevenue || 0);
+  const totalBookings = Number(stats?.totalBookings || 0);
+  const bookingsRevenue = dailyEvolution.reduce((sum, row) => sum + Number(row.turnos || 0), 0);
+  const consumptionsRevenue = dailyEvolution.reduce((sum, row) => sum + Number(row.bar || 0), 0);
+  const averageTicket = totalBookings > 0 ? totalRevenue / totalBookings : 0;
+  const productQuantity = Number(stats?.products?.totals?.quantityAll || 0);
+  const productRevenue = Number(stats?.products?.totals?.revenueAll || 0);
+  const unsoldCount = Number(stats?.products?.totals?.unsoldCount || 0);
 
   const topProducts = Array.isArray(stats?.products?.top) ? stats.products.top : [];
   const bottomProducts = Array.isArray(stats?.products?.bottom) ? stats.products.bottom : [];
   const unsoldProducts = Array.isArray(stats?.products?.unsold) ? stats.products.unsold : [];
+  const soldTopProducts = topProducts.filter((row) => Number(row?.quantity || 0) > 0);
+  const soldBottomProducts = bottomProducts.filter((row) => Number(row?.quantity || 0) > 0);
+
+  const reportMetrics: ReportsMetric[] = [
+    {
+      label: 'Facturacion total',
+      value: totalRevenue,
+      format: 'money',
+      icon: <DollarSign size={18} strokeWidth={2.4} />,
+    },
+    {
+      label: 'Turnos finalizados',
+      value: totalBookings,
+      format: 'number',
+      icon: <CalendarCheck size={18} strokeWidth={2.4} />,
+    },
+    {
+      label: 'Ticket promedio',
+      value: averageTicket,
+      format: 'money',
+      icon: <TrendingUp size={18} strokeWidth={2.4} />,
+    },
+    {
+      label: 'Ingresos por consumos',
+      value: consumptionsRevenue,
+      format: 'money',
+      icon: <ShoppingBag size={18} strokeWidth={2.4} />,
+    },
+  ];
 
   if (loading && !stats) {
     return (
-      <div className="flex min-h-[420px] items-center justify-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-[#dce2ee] border-t-[#3053e2]" />
+      <div className="flex w-full flex-col gap-4">
+        <ReportsPeriodToolbar
+          period={activePeriod}
+          options={periodOptions}
+          periodLabel={getPeriodLabel()}
+          isCurrentPeriod={periodOffset === 0}
+          onPeriodChange={handlePeriodChange}
+          onPreviousPeriod={() => setPeriodOffset((prev) => prev - 1)}
+          onNextPeriod={() => setPeriodOffset((prev) => prev + 1)}
+        />
+        <ReportsMetricGrid metrics={reportMetrics.map((metric) => ({ ...metric, loading: true }))} />
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <AdminPanel title="Ingresos por dia" description="Separacion entre reservas y consumos." className="lg:col-span-2">
+            <div className="h-80 animate-pulse rounded-xl bg-[#f3f5fa]" />
+          </AdminPanel>
+          <AdminPanel title="Metodos de pago" description="Distribucion de cobros por medio.">
+            <div className="h-80 animate-pulse rounded-xl bg-[#f3f5fa]" />
+          </AdminPanel>
+        </div>
       </div>
     );
   }
@@ -210,187 +292,157 @@ export default function AdminTabStatistics({ slugProp }: Props) {
   if (!stats) {
     return (
       <div className="flex w-full flex-col gap-4">
+        <ReportsPeriodToolbar
+          period={activePeriod}
+          options={periodOptions}
+          periodLabel={getPeriodLabel()}
+          isCurrentPeriod={periodOffset === 0}
+          onPeriodChange={handlePeriodChange}
+          onPreviousPeriod={() => setPeriodOffset((prev) => prev - 1)}
+          onNextPeriod={() => setPeriodOffset((prev) => prev + 1)}
+        />
         <AdminPanel>
-          <p className="text-[12px] text-[#6f7890]">No hay datos disponibles para este periodo.</p>
-          <button
-            type="button"
-            onClick={() => void loadStats()}
-            className="mt-3 h-10 rounded-lg bg-[#3053e2] px-4 text-[13px] font-semibold text-white transition hover:bg-[#2748cc]"
-          >
-            Reintentar
-          </button>
+          <ReportsEmptyState
+            title="No hay datos disponibles"
+            description={errorMessage || 'No se encontraron estadisticas reales para el periodo seleccionado.'}
+            actionLabel="Reintentar"
+            onAction={() => void loadStats()}
+          />
         </AdminPanel>
       </div>
     );
   }
 
   return (
-    <div className="flex w-full flex-col gap-4">
+    <div className="flex w-full flex-col gap-4" aria-busy={loading ? 'true' : undefined}>
+      <ReportsPeriodToolbar
+        period={activePeriod}
+        options={periodOptions}
+        periodLabel={getPeriodLabel()}
+        isCurrentPeriod={periodOffset === 0}
+        onPeriodChange={handlePeriodChange}
+        onPreviousPeriod={() => setPeriodOffset((prev) => prev - 1)}
+        onNextPeriod={() => setPeriodOffset((prev) => prev + 1)}
+      />
 
-      <AdminPanel bodyClassName="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center rounded-xl border border-[#dce2ee] bg-[#f8faff]">
-          <button
-            type="button"
-            onClick={() => setPeriodOffset((prev) => prev - 1)}
-            className="grid h-10 w-10 place-items-center text-[#46516a] transition hover:text-[#3053e2]"
-          >
-            <ChevronLeft size={18} strokeWidth={2.4} />
-          </button>
-          <span className="min-w-[140px] px-3 text-center text-[12px] font-semibold text-[#4e5870]">
-            {getPeriodLabel()}
-          </span>
-          <button
-            type="button"
-            onClick={() => setPeriodOffset((prev) => prev + 1)}
-            disabled={periodOffset === 0}
-            className="grid h-10 w-10 place-items-center text-[#46516a] transition hover:text-[#3053e2] disabled:text-[#b8c1d4]"
-          >
-            <ChevronRight size={18} strokeWidth={2.4} />
-          </button>
-        </div>
-
-        <AdminSegmentedControl
-          ariaLabel="Periodo de informes"
-          value={activePeriod}
-          options={periodOptions}
-          onChange={(value) => handlePeriodChange(value as Period)}
-        />
-        <button
-          type="button"
-          onClick={() => void loadStats()}
-          className="h-9 rounded-lg border border-[#dce2ee] bg-white px-3 text-[12px] font-semibold text-[#4e5870] transition hover:bg-[#f8f9fd]"
-        >
-          Actualizar
-        </button>
-      </AdminPanel>
-
-      {errorMessage && (
-        <div className="rounded-xl border border-[#ffd4d4] bg-[#fff5f5] px-4 py-3 text-[12px] font-semibold text-[#b42318]">
-          {errorMessage}
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <KpiCard
-          icon={<DollarSign size={22} strokeWidth={2.4} />}
-          label="Facturacion total"
-          value={`$${Number(stats?.totalRevenue || 0).toLocaleString('es-AR')}`}
-          detail={activePeriod === 'hoy' ? 'Periodo diario' : activePeriod === 'semana' ? 'Periodo semanal' : 'Periodo mensual'}
-        />
-        <KpiCard
-          icon={<Calendar size={22} strokeWidth={2.4} />}
-          label="Turnos finalizados"
-          value={Number(stats?.totalBookings || 0).toLocaleString('es-AR')}
-        />
-        <KpiCard
-          icon={<TrendingUp size={22} strokeWidth={2.4} />}
-          label="Ticket promedio"
-          value={`$${Number(averageTicket || 0).toLocaleString('es-AR')}`}
-        />
-      </div>
+      <ReportsMetricGrid metrics={reportMetrics} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <AdminPanel title="Evolucion: turnos vs bar" description="Comparacion de ingresos por reservas y productos." className="lg:col-span-2">
-          <div className="h-80 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={stats?.dailyEvolution || []} margin={{ top: 20, right: 20, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5eaf3" />
-                <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: '#8b95aa', fontSize: 11, fontWeight: 600 }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#8b95aa', fontSize: 11, fontWeight: 600 }} tickFormatter={(val) => val >= 1000 ? `$${(val / 1000).toFixed(0)}k` : `$${val}`} />
-                <Tooltip cursor={{ fill: '#f5f7fb' }} contentStyle={{ borderRadius: 12, border: '1px solid #dce2ee', boxShadow: '0 8px 22px rgba(34,42,68,0.08)' }} />
-                <Legend />
-                <Bar dataKey="turnos" name="Turnos" stackId="a" fill="#1f2638" radius={[0, 0, 0, 0]} barSize={36} />
-                <Bar dataKey="bar" name="Consumos" stackId="a" fill="#3053e2" radius={[6, 6, 0, 0]} barSize={36} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+        <AdminPanel
+          title="Ingresos por dia"
+          description="Pagos reales separados entre reservas y consumos."
+          className="lg:col-span-2"
+          actions={(
+            <div className="flex items-center gap-3 text-[11px] font-semibold text-[#6f7890]">
+              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#1f2638]" />Reservas</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#3053e2]" />Consumos</span>
+            </div>
+          )}
+        >
+          <RevenueChart data={dailyEvolution} />
         </AdminPanel>
 
         <AdminPanel title="Metodos de pago" description="Distribucion de cobros por medio.">
-          <div className="relative h-80 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={stats?.paymentMethods || []} cx="50%" cy="50%" innerRadius={70} outerRadius={92} paddingAngle={5} dataKey="value" stroke="none">
-                  {stats?.paymentMethods?.map((entry: any, index: number) => (
-                    <Cell key={`cell-${entry?.name || index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value: number) => [`$${value.toLocaleString('es-AR')}`, 'Total']} />
-                <Legend verticalAlign="bottom" height={36} iconType="circle" />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center pb-8">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8b95aa]">Total</span>
-              <span className="text-2xl font-bold text-[#27314a]">${(stats?.totalRevenue || 0) >= 1000 ? `${((stats?.totalRevenue || 0) / 1000).toFixed(0)}k` : (stats?.totalRevenue || 0).toLocaleString('es-AR')}</span>
+          <PaymentMethodsDonut data={paymentMethods} />
+        </AdminPanel>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <AdminPanel title="Productos vendidos" description="Resumen comercial del periodo." className="lg:col-span-3">
+          <ReportsMetricGrid
+            className="xl:grid-cols-3"
+            metrics={[
+              {
+                label: 'Unidades vendidas',
+                value: productQuantity,
+                format: 'number',
+                icon: <ShoppingBag size={18} strokeWidth={2.4} />,
+              },
+              {
+                label: 'Facturacion productos',
+                value: productRevenue,
+                format: 'money',
+                icon: <DollarSign size={18} strokeWidth={2.4} />,
+              },
+              {
+                label: 'Productos sin ventas',
+                value: unsoldCount,
+                format: 'number',
+                icon: <TrendingUp size={18} strokeWidth={2.4} />,
+                valueColor: unsoldCount > 0 ? '#b42318' : undefined,
+              },
+            ]}
+          />
+        </AdminPanel>
+
+        <AdminPanel title="Ranking de productos" description={`Ventas registradas en ${getPeriodLabel()}`} className="lg:col-span-2">
+          <ProductsRankingChart data={topProducts} />
+        </AdminPanel>
+
+        <AdminPanel title="Lecturas accionables" description="Listas compactas para entender el comportamiento del catalogo.">
+          <div className="space-y-3">
+            <div className="rounded-xl border border-[#e7ebf3] bg-[#fbfcff] p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-[#98a1b3]">
+                Ingresos por reservas
+              </p>
+              <p className="mt-1 text-[24px] font-bold leading-none text-[#1a2035]">
+                ${Number(bookingsRevenue || 0).toLocaleString('es-AR')}
+              </p>
+              <p className="mt-2 text-[12px] text-[#6f7890]">
+                Calculado desde los pagos del periodo.
+              </p>
+            </div>
+            <div className="rounded-xl border border-[#e7ebf3] bg-[#fbfcff] p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-[#98a1b3]">
+                Cobros por consumos
+              </p>
+              <p className="mt-1 text-[24px] font-bold leading-none text-[#3053e2]">
+                ${Number(consumptionsRevenue || 0).toLocaleString('es-AR')}
+              </p>
+              <p className="mt-2 text-[12px] text-[#6f7890]">
+                No incluye datos inventados ni proyecciones.
+              </p>
             </div>
           </div>
         </AdminPanel>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <AdminPanel title="Productos vendidos" description="Resumen comercial de productos en el periodo.">
-          <div className="space-y-3">
-            <KpiCard
-              icon={<ShoppingBag size={20} strokeWidth={2.4} />}
-              label="Unidades"
-              value={Number(stats?.products?.totals?.quantityAll || 0).toLocaleString('es-AR')}
-            />
-            <KpiCard
-              icon={<DollarSign size={20} strokeWidth={2.4} />}
-              label="Facturacion"
-              value={`$${Number(stats?.products?.totals?.revenueAll || 0).toLocaleString('es-AR')}`}
-            />
-            <KpiCard
-              icon={<Activity size={20} strokeWidth={2.4} />}
-              label="Sin ventas"
-              value={Number(stats?.products?.totals?.unsoldCount || 0).toLocaleString('es-AR')}
-            />
-          </div>
-        </AdminPanel>
-
-        <AdminPanel title="Ranking de productos" description={`Periodo activo: ${getPeriodLabel()}`} className="lg:col-span-2">
-          <div className="h-80 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={topProducts} margin={{ top: 20, right: 20, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5eaf3" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#8b95aa', fontSize: 11, fontWeight: 600 }} interval={0} height={40} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#8b95aa', fontSize: 11, fontWeight: 600 }} allowDecimals={false} />
-                <Tooltip
-                  cursor={{ fill: '#f5f7fb' }}
-                  contentStyle={{ borderRadius: 12, border: '1px solid #dce2ee', boxShadow: '0 8px 22px rgba(34,42,68,0.08)' }}
-                  formatter={(value: any, _name: any, props: any) => {
-                    const qty = Number(value || 0);
-                    const revenue = Number(props?.payload?.revenue || 0);
-                    return [`${qty.toLocaleString('es-AR')} u. ($${revenue.toLocaleString('es-AR')})`, 'Vendidas'];
-                  }}
-                />
-                <Bar dataKey="quantity" name="Unidades" fill="#3053e2" radius={[6, 6, 0, 0]} barSize={32} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-            {[
-              ['Mas vendidos', topProducts, 'top'],
-              ['Menos vendidos', bottomProducts, 'bottom'],
-              ['Sin ventas', unsoldProducts, 'unsold'],
-            ].map(([title, rows, key]) => (
-              <div key={String(key)} className="rounded-xl border border-[#e7ebf3] bg-[#fbfcff] p-4">
-                <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-[#46516a]">{String(title)}</p>
-                <div className="space-y-2">
-                  {(rows as any[]).slice(0, 6).map((row: any, idx: number) => (
-                    <div key={`${row?.productId || 'p'}-${key}-${idx}`} className="flex items-center justify-between gap-3">
-                      <span className="truncate text-sm font-semibold text-[#30384c]">{row?.name || 'Producto'}</span>
-                      <span className="shrink-0 text-[12px] font-semibold text-[#3053e2]">{Number(row?.quantity || 0)} u.</span>
-                    </div>
-                  ))}
-                  {(rows as any[]).length === 0 && <EmptyList label="Sin datos." />}
-                </div>
-              </div>
-            ))}
-          </div>
-        </AdminPanel>
+        <ReportsRankingList
+          title="Mas vendidos"
+          description="Productos con mayor cantidad vendida."
+          rows={soldTopProducts}
+          emptyLabel="Sin productos vendidos en este periodo."
+        />
+        <ReportsRankingList
+          title="Menos vendidos"
+          description="Productos con ventas bajas, sin contar los que no vendieron."
+          rows={soldBottomProducts}
+          emptyLabel="Todavia no hay ventas para comparar."
+          tone="muted"
+        />
+        <ReportsRankingList
+          title="Sin ventas"
+          description="Productos activos sin movimientos en el periodo."
+          rows={unsoldProducts}
+          emptyLabel="No hay productos activos sin ventas."
+          tone="muted"
+          showRevenue={false}
+        />
       </div>
+
+      {adminToasts.length > 0 && (
+        <div className="pointer-events-none fixed right-5 top-[84px] z-[150] flex w-full max-w-[360px] flex-col gap-2">
+          {adminToasts.map((toast) => (
+            <div
+              key={toast.id}
+              className="rounded-xl border border-[#dce2ee] bg-white px-3 py-2 text-[12px] font-semibold text-[#27314a] shadow-lg"
+            >
+              {toast.message}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

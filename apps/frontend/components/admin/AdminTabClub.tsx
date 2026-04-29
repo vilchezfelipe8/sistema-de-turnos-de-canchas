@@ -6,10 +6,18 @@ import { ClubAdminService, ClubActivityType, type ActivityScheduleException, typ
 import { searchClients } from '../../services/BookingService';
 import AdminAppModal from './ui/AdminAppModal';
 import { Globe, Instagram, Facebook, Phone, Mail, Image as ImageIcon, AlertTriangle, Check, X, Search, CalendarDays } from 'lucide-react';
-import { AdminDateInput, AdminRightSidebar, AdminSegmentedControl } from './ui';
+import { AdminDateInput, AdminDrawer, AdminSegmentedControl } from './ui';
 import { normalizeSessionUser } from '../../utils/session';
 import { useRouter } from 'next/router';
 import { lockBodyScroll } from '../../utils/bodyScrollLock';
+
+type AdminTabClubSection = 'identity' | 'operation' | 'agenda' | 'discounts' | 'audit';
+
+type AdminTabClubProps = {
+  forcedTab?: AdminTabClubSection;
+  title?: string;
+  subtitle?: string;
+};
 
 type ClubOperationalStatus = 'OPEN' | 'TEMPORARY_CLOSED' | 'PERMANENTLY_CLOSED';
 
@@ -379,7 +387,11 @@ const buildActivitySettingsFromCourts = (courts: any[], existingRaw?: unknown): 
     .sort((a, b) => a.label.localeCompare(b.label, 'es', { sensitivity: 'base' }));
 };
 
-export default function AdminTabClub() {
+export default function AdminTabClub({
+  forcedTab,
+  title = 'Configuración del club',
+  subtitle = 'Identidad, operación y agenda de tu establecimiento',
+}: AdminTabClubProps = {}) {
   const router = useRouter();
   const [club, setClub] = useState<Club | null>(null);
   const [loadingClub, setLoadingClub] = useState(false);
@@ -438,8 +450,8 @@ export default function AdminTabClub() {
   const [exceptionModalActivityId, setExceptionModalActivityId] = useState<number | null>(null);
   const [exceptionModalItems, setExceptionModalItems] = useState<ActivityScheduleException[]>([]);
   const [exceptionModalLoading, setExceptionModalLoading] = useState(false);
-  const [exceptionModalSidebarTab, setExceptionModalSidebarTab] = useState<'LIST' | 'DETAIL'>('LIST');
   const [exceptionModalSelectedDate, setExceptionModalSelectedDate] = useState<string>('');
+  const [exceptionModalSelectedId, setExceptionModalSelectedId] = useState<number | null>(null);
   const [exceptionModalNewDate, setExceptionModalNewDate] = useState<string>('');
   const [exceptionModalDraft, setExceptionModalDraft] = useState<ActivityScheduleExceptionFormValue | null>(null);
   const [changeHistory, setChangeHistory] = useState<ConfigHistoryEntry[]>([]);
@@ -478,10 +490,13 @@ export default function AdminTabClub() {
   const [selectedPolicyIdForAssignment, setSelectedPolicyIdForAssignment] = useState('');
   const [assignmentNotes, setAssignmentNotes] = useState('');
   const [showDiscountsConfigModal, setShowDiscountsConfigModal] = useState(false);
+  const [discountDrawerOpen, setDiscountDrawerOpen] = useState(false);
+  const [discountDrawerMode, setDiscountDrawerMode] = useState<'create' | 'edit'>('create');
   const clientSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clientSearchWrapperRef = useRef<HTMLDivElement | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'identity' | 'operation' | 'agenda' | 'discounts' | 'audit'>('identity');
+  const [activeTab, setActiveTab] = useState<AdminTabClubSection>('identity');
+  const effectiveTab: AdminTabClubSection = forcedTab ?? activeTab;
 
   const closeModal = () => setModalState((prev) => ({ ...prev, show: false, onConfirm: undefined, onCancel: undefined, holdToConfirm: false, holdDuration: undefined }));
   const showInfo = (message: ReactNode, title = 'Información') => setModalState({ show: true, title, message, cancelText: '', confirmText: 'OK' });
@@ -498,6 +513,9 @@ export default function AdminTabClub() {
   const normalizeValue = (value: unknown) => {
     if (value == null) return '';
     if (typeof value === 'boolean') return value ? 'Sí' : 'No';
+    // Objects (e.g. fixedBookingSettingsByActivity) must be deep-compared;
+    // String(obj) always returns "[object Object]" regardless of content.
+    if (typeof value === 'object') return JSON.stringify(value);
     return String(value);
   };
 
@@ -575,19 +593,22 @@ export default function AdminTabClub() {
     if (!club) return;
     try {
       setExceptionModalActivityId(activity.id);
-      setExceptionModalSidebarTab('LIST');
+      setExceptionModalSelectedDate('');
+      setExceptionModalSelectedId(null);
       setExceptionModalLoading(true);
       const fromDate = formatLocalDate(addDays(new Date(), -180));
       const toDate = formatLocalDate(addDays(new Date(), 730));
       const rows = await ClubAdminService.listActivityTypeScheduleExceptions(club.slug, activity.id, { fromDate, toDate });
       const normalizedRows = Array.isArray(rows) ? rows : [];
       setExceptionModalItems(normalizedRows);
-      setExceptionModalSelectedDate(normalizedRows[0]?.localDate || '');
+      setExceptionModalSelectedDate('');
+      setExceptionModalSelectedId(null);
       setExceptionModalNewDate(getTodayDateKey());
     } catch (error: any) {
       showError(`No se pudo cargar excepciones: ${error.message}`);
       setExceptionModalItems([]);
       setExceptionModalSelectedDate('');
+      setExceptionModalSelectedId(null);
     } finally {
       setExceptionModalLoading(false);
     }
@@ -597,35 +618,25 @@ export default function AdminTabClub() {
     setExceptionModalActivityId(null);
     setExceptionModalItems([]);
     setExceptionModalSelectedDate('');
+    setExceptionModalSelectedId(null);
     setExceptionModalNewDate('');
     setExceptionModalDraft(null);
     setExceptionModalLoading(false);
-    setExceptionModalSidebarTab('LIST');
   }, []);
 
   const closeDiscountsConfigModal = useCallback(() => {
     setShowDiscountsConfigModal(false);
   }, []);
 
+  // Lock body scroll when the exceptions drawer is open.
+  // AdminDrawer handles Escape natively.
   useEffect(() => {
-    if (!exceptionModalActivityId && !showDiscountsConfigModal) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        if (showDiscountsConfigModal) {
-          closeDiscountsConfigModal();
-        }
-        if (exceptionModalActivityId) {
-          closeExceptionModal();
-        }
-      }
-    };
+    if (!exceptionModalActivityId) return;
     const releaseBodyScrollLock = lockBodyScroll();
-    document.addEventListener('keydown', onKeyDown);
     return () => {
       releaseBodyScrollLock();
-      document.removeEventListener('keydown', onKeyDown);
     };
-  }, [exceptionModalActivityId, showDiscountsConfigModal, closeExceptionModal, closeDiscountsConfigModal]);
+  }, [exceptionModalActivityId]);
 
   const loadActivityExceptionSummary = useCallback(async (clubSlug: string, activities: ClubActivityType[]) => {
     try {
@@ -956,6 +967,7 @@ export default function AdminTabClub() {
   const restoreBookingPolicyDefaults = () => {
     setClubForm((prev) => ({
       ...prev,
+      // Sólo campos de la sección "Confirmación de reservas"
       bookingConfirmationMode: 'MANUAL',
       bookingDepositPercent: '',
       allowManualConfirmationOverride: true,
@@ -967,7 +979,7 @@ export default function AdminTabClub() {
       bookingSimpleAdvanceDaysUser: '30',
       bookingSimpleAdvanceDaysAdmin: '30',
       allowAdminSkipSimpleAdvanceLimit: false,
-      enforceCashShiftCloseWithOpenAccounts: false
+      // enforceCashShiftCloseWithOpenAccounts pertenece al tab Descuentos — no resetear acá
     }));
   };
 
@@ -1426,7 +1438,9 @@ export default function AdminTabClub() {
   const exceptionModalActivity = exceptionModalActivityId
     ? activityTypes.find((item) => item.id === exceptionModalActivityId) || null
     : null;
-  const exceptionModalSelected = exceptionModalItems.find((item) => item.localDate === exceptionModalSelectedDate) || null;
+  const exceptionModalSelected = exceptionModalSelectedId != null
+    ? exceptionModalItems.find((item) => Number(item.id) === exceptionModalSelectedId) || null
+    : exceptionModalItems.find((item) => item.localDate === exceptionModalSelectedDate) || null;
 
   useEffect(() => {
     if (!exceptionModalSelected) {
@@ -1479,14 +1493,19 @@ export default function AdminTabClub() {
           createdAt: '',
           updatedAt: ''
         };
-        const filtered = prev.filter((item) => item.localDate !== nextItem.localDate);
+        const filtered = exceptionModalSelected && Number(exceptionModalSelected.id) > 0
+          ? prev.filter((item) => Number(item.id) !== Number(exceptionModalSelected.id))
+          : prev.filter((item) => item.localDate !== nextItem.localDate);
         return [nextItem, ...filtered].sort((a, b) => String(a.localDate).localeCompare(String(b.localDate)));
       });
       setActivityExceptionForm((prev) => ({
         ...prev,
         [exceptionModalActivity.id]: { ...exceptionModalDraft }
       }));
-      showInfo('Excepción preparada desde el modal. Se aplicará al guardar cambios generales.', 'Pendiente de guardar');
+      // Volver al listado — los cambios quedan pendientes hasta el Guardar cambios global
+      setExceptionModalSelectedDate('');
+      setExceptionModalSelectedId(null);
+      showInfo('Excepción en borrador guardada. Se aplica al guardar los cambios generales.');
     } catch (error: any) {
       showError(`No se pudo preparar la excepción: ${error.message}`);
     }
@@ -1496,12 +1515,30 @@ export default function AdminTabClub() {
     if (!exceptionModalActivity || !exceptionModalDraft) return;
     try {
       await queueScheduleExceptionDelete(exceptionModalActivity, exceptionModalDraft.localDate);
-      setExceptionModalItems((prev) => prev.filter((item) => item.localDate !== exceptionModalDraft.localDate));
+      setExceptionModalItems((prev) => (
+        exceptionModalSelected && Number(exceptionModalSelected.id) > 0
+          ? prev.filter((item) => Number(item.id) !== Number(exceptionModalSelected.id))
+          : prev.filter((item) => item.localDate !== exceptionModalDraft.localDate)
+      ));
       setExceptionModalSelectedDate('');
-      showInfo('Eliminación preparada desde el modal. Se aplicará al guardar cambios generales.', 'Pendiente de guardar');
+      setExceptionModalSelectedId(null);
+      showInfo('Excepción marcada para eliminar. Se aplica al guardar los cambios generales.');
     } catch (error: any) {
       showError(`No se pudo preparar la eliminación: ${error.message}`);
     }
+  };
+
+  const handleDeleteExceptionWithConfirmation = () => {
+    if (!exceptionModalDraft) return;
+    setModalState({
+      show: true,
+      title: 'Eliminar excepción',
+      message: `¿Confirmás eliminar la excepción del ${formatExceptionDate(exceptionModalDraft.localDate)}? Esta acción se aplicará al guardar los cambios generales.`,
+      confirmText: 'Eliminar',
+      cancelText: 'Cancelar',
+      isWarning: true,
+      onConfirm: () => { void handleDeleteExceptionFromModal(); },
+    });
   };
 
   const handleCreateExceptionInModal = () => {
@@ -1521,8 +1558,15 @@ export default function AdminTabClub() {
       showError('No se encontró configuración base para la actividad.');
       return;
     }
+    const existingSameDate = exceptionModalItems.find((item) => item.localDate === localDate) || null;
+    if (existingSameDate) {
+      setExceptionModalSelectedDate(existingSameDate.localDate);
+      setExceptionModalSelectedId(Number(existingSameDate.id) > 0 ? Number(existingSameDate.id) : null);
+      showInfo('Ya existe una excepción para esa fecha. Abrimos esa excepción para editarla.');
+      return;
+    }
     setExceptionModalSelectedDate(localDate);
-    setExceptionModalSidebarTab('DETAIL');
+    setExceptionModalSelectedId(null);
     setExceptionModalDraft({
       localDate,
       isClosed: false,
@@ -1575,6 +1619,7 @@ export default function AdminTabClub() {
         amountValue: '',
         priority: '100'
       }));
+      setDiscountDrawerOpen(false);
       await loadDiscountPolicies(club.slug);
       showInfo('Política de descuento creada', 'Éxito');
     } catch (error: any) {
@@ -1594,10 +1639,13 @@ export default function AdminTabClub() {
       priority: String(policy.priority ?? 100),
       isActive: Boolean(policy.isActive)
     });
+    setDiscountDrawerMode('edit');
+    setDiscountDrawerOpen(true);
   };
 
   const handleCancelEditDiscountPolicy = () => {
     setEditingDiscountPolicyId(null);
+    setDiscountDrawerOpen(false);
   };
 
   const handleSaveDiscountPolicy = async () => {
@@ -1634,6 +1682,7 @@ export default function AdminTabClub() {
         isActive: discountPolicyEditForm.isActive
       });
       setEditingDiscountPolicyId(null);
+      setDiscountDrawerOpen(false);
       await loadDiscountPolicies(club.slug);
       showInfo('Política actualizada', 'Éxito');
     } catch (error: any) {
@@ -1858,47 +1907,85 @@ export default function AdminTabClub() {
   const cardTitleCls = "mb-4 text-[13px] font-semibold text-[#1f2638]";
   const checkboxCls = (active: boolean) => `flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition cursor-pointer ${active ? 'border-[#3053e2] bg-[#3053e2]' : 'border-[#dce2ee] bg-white'}`;
 
+  // Format "2026-05-01" → "Vie 1 de mayo" (no timezone shift)
+  const formatExceptionDate = (dateStr: string): string => {
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return dateStr;
+    const y = Number(parts[0]);
+    const m = Number(parts[1]);
+    const d = Number(parts[2]);
+    if (isNaN(y) || isNaN(m) || isNaN(d)) return dateStr;
+    const date = new Date(y, m - 1, d);
+    const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    const monthNames = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    return `${dayNames[date.getDay()]} ${d} de ${monthNames[m - 1]} de ${y}`;
+  };
+
   return (
     <>
-      <div className="flex w-full flex-col gap-4">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-[15px] font-semibold text-[#1f2638]">Configuración del club</h1>
-            <p className="text-[12px] text-[#6f7890] mt-0.5">Identidad, operación y agenda de tu establecimiento</p>
+      {/* ── Fixed unsaved-changes bar ── Oculta mientras el drawer de excepciones está abierto para evitar confusión con el footer del drawer */}
+      <div
+        className={`fixed bottom-0 left-0 right-0 z-[2000] transition-transform duration-200 ease-out lg:left-[var(--admin-playground-sidebar-left,168px)] ${
+          hasUnsavedChanges && !Boolean(exceptionModalActivity) ? 'translate-y-0' : 'translate-y-full'
+        }`}
+        aria-hidden={!hasUnsavedChanges || Boolean(exceptionModalActivity)}
+      >
+        <div className="flex items-center gap-3 border-t border-[#dce2ee] bg-white px-5 py-3 shadow-[0_-4px_16px_rgba(31,38,56,0.08)]">
+          <span className="h-2 w-2 shrink-0 rounded-full bg-[#f59e0b]" />
+          <span className="text-[12px] font-medium text-[#1f2638]">
+            {configChanges.length} cambio{configChanges.length !== 1 ? 's' : ''} sin guardar
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleDiscardChanges}
+              className="h-8 rounded-lg border border-[#dce2ee] bg-white px-3 text-[12px] font-medium text-[#6f7890] transition hover:bg-[#f4f6fb]"
+            >
+              Descartar
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleUpdateClub()}
+              className="h-8 rounded-lg bg-[#3053e2] px-4 text-[12px] font-semibold text-white transition hover:bg-[#2748cc]"
+            >
+              Guardar cambios
+            </button>
           </div>
-          {hasUnsavedChanges && (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleDiscardChanges}
-                className="h-9 rounded-xl border border-[#dce2ee] bg-white px-3 text-[12px] font-medium text-[#6f7890] hover:bg-[#f4f6fb] transition"
-              >
-                Descartar
-              </button>
-              <button
-                type="button"
-                onClick={() => handleUpdateClub()}
-                className="h-9 rounded-xl bg-[#3053e2] px-4 text-[12px] font-semibold text-white hover:bg-[#2748cc] transition"
-              >
-                Guardar cambios ({configChanges.length})
-              </button>
-            </div>
+        </div>
+      </div>
+
+      <div className={`flex w-full flex-col gap-4 transition-[padding-bottom] duration-200 ${hasUnsavedChanges && !Boolean(exceptionModalActivity) ? 'pb-16' : ''}`}>
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-[15px] font-semibold text-[#1f2638]">{title}</h1>
+            {subtitle && <p className="text-[12px] text-[#6f7890] mt-0.5">{subtitle}</p>}
+          </div>
+          {effectiveTab === 'operation' && (
+            <button
+              type="button"
+              onClick={restoreBookingPolicyDefaults}
+              className="shrink-0 h-8 rounded-xl border border-[#dce2ee] bg-white px-3 text-[11px] font-medium text-[#6f7890] hover:bg-[#f4f6fb] transition"
+            >
+              Restaurar recomendados
+            </button>
           )}
         </div>
 
-        <AdminSegmentedControl
-          options={[
-            { value: 'identity', label: 'Identidad' },
-            { value: 'operation', label: 'Operación' },
-            { value: 'agenda', label: 'Agenda' },
-            { value: 'discounts', label: 'Descuentos' },
-            { value: 'audit', label: 'Auditoría' },
-          ]}
-          value={activeTab}
-          onChange={(v) => setActiveTab(v as typeof activeTab)}
-          ariaLabel="Secciones de configuración"
-        />
+        {!forcedTab && (
+          <AdminSegmentedControl
+            options={[
+              { value: 'identity', label: 'Identidad' },
+              { value: 'operation', label: 'Operación' },
+              { value: 'agenda', label: 'Agenda' },
+              { value: 'discounts', label: 'Descuentos' },
+              { value: 'audit', label: 'Auditoría' },
+            ]}
+            value={activeTab}
+            onChange={(v) => setActiveTab(v as typeof activeTab)}
+            ariaLabel="Secciones de configuración"
+          />
+        )}
 
         {loadingClub ? (
           <div className="space-y-3">
@@ -1913,7 +2000,7 @@ export default function AdminTabClub() {
         ) : (
           <div className="flex-1 overflow-y-auto">
             {/* ----- TAB: IDENTIDAD ----- */}
-            {activeTab === 'identity' && (
+            {effectiveTab === 'identity' && (
               <div className="space-y-4">
                 {/* Datos básicos */}
                 <div className={cardCls}>
@@ -2144,20 +2231,12 @@ export default function AdminTabClub() {
             )}
 
             {/* ----- TAB: OPERACIÓN ----- */}
-            {activeTab === 'operation' && (
+            {effectiveTab === 'operation' && (
               <div className="space-y-4">
+
                 {/* Confirmación de reservas */}
                 <div className={cardCls}>
-                  <div className="mb-4 flex items-center justify-between">
-                    <p className={cardTitleCls} style={{ marginBottom: 0 }}>Confirmación de reservas</p>
-                    <button
-                      type="button"
-                      onClick={restoreBookingPolicyDefaults}
-                      className="h-8 rounded-xl border border-[#dce2ee] bg-white px-3 text-[11px] font-medium text-[#6f7890] hover:bg-[#f4f6fb] transition"
-                    >
-                      Restaurar recomendados
-                    </button>
-                  </div>
+                  <p className={cardTitleCls}>Confirmación de reservas</p>
                   <div className="space-y-4">
                     <div>
                       <label className={labelCls}>Modo de confirmación</label>
@@ -2381,25 +2460,11 @@ export default function AdminTabClub() {
                     )}
                   </div>
                 </div>
-
-                {/* Otros */}
-                <div className={cardCls}>
-                  <p className={cardTitleCls}>Otros</p>
-                  <label className="flex cursor-pointer items-center gap-2.5">
-                    <div
-                      className={checkboxCls(clubForm.enforceCashShiftCloseWithOpenAccounts)}
-                      onClick={() => setClubForm({ ...clubForm, enforceCashShiftCloseWithOpenAccounts: !clubForm.enforceCashShiftCloseWithOpenAccounts })}
-                    >
-                      {clubForm.enforceCashShiftCloseWithOpenAccounts && <Check size={12} strokeWidth={3} className="text-white" />}
-                    </div>
-                    <span className="text-[12px] text-[#1f2638]">Bloquear cierre de caja con cuentas corrientes abiertas</span>
-                  </label>
-                </div>
               </div>
             )}
 
             {/* ----- TAB: AGENDA ----- */}
-            {activeTab === 'agenda' && (
+            {effectiveTab === 'agenda' && (
               <div className="space-y-4">
                 {/* Días de apertura */}
                 <div className={cardCls}>
@@ -2451,39 +2516,19 @@ export default function AdminTabClub() {
                     <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                       <div>
                         <label className={labelCls}>Inicio del cierre temporal</label>
-                        <div className="relative flex h-10 items-center rounded-xl border border-[#dce2ee] bg-white px-3">
-                          <CalendarDays size={14} className="mr-2 shrink-0 text-[#8b95aa]" />
-                          <span className="pointer-events-none flex-1 text-[13px] text-[#1f2638]">
-                            {parseLocalDate(clubForm.temporaryClosureStartDate)
-                              ? parseLocalDate(clubForm.temporaryClosureStartDate)!.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })
-                              : 'Seleccionar fecha'}
-                          </span>
-                          <input
-                            type="date"
-                            min={getTodayDateKey()}
-                            value={clubForm.temporaryClosureStartDate}
-                            onChange={(e) => setClubForm((prev) => ({ ...prev, temporaryClosureStartDate: e.target.value }))}
-                            className="absolute inset-0 cursor-pointer opacity-0"
-                          />
-                        </div>
+                        <AdminDateInput
+                          value={clubForm.temporaryClosureStartDate}
+                          onChange={(v) => setClubForm((prev) => ({ ...prev, temporaryClosureStartDate: v }))}
+                          min={getTodayDateKey()}
+                        />
                       </div>
                       <div>
                         <label className={labelCls}>Fin del cierre temporal</label>
-                        <div className="relative flex h-10 items-center rounded-xl border border-[#dce2ee] bg-white px-3">
-                          <CalendarDays size={14} className="mr-2 shrink-0 text-[#8b95aa]" />
-                          <span className="pointer-events-none flex-1 text-[13px] text-[#1f2638]">
-                            {parseLocalDate(clubForm.temporaryClosureEndDate)
-                              ? parseLocalDate(clubForm.temporaryClosureEndDate)!.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })
-                              : 'Seleccionar fecha'}
-                          </span>
-                          <input
-                            type="date"
-                            min={clubForm.temporaryClosureStartDate || getTodayDateKey()}
-                            value={clubForm.temporaryClosureEndDate}
-                            onChange={(e) => setClubForm((prev) => ({ ...prev, temporaryClosureEndDate: e.target.value }))}
-                            className="absolute inset-0 cursor-pointer opacity-0"
-                          />
-                        </div>
+                        <AdminDateInput
+                          value={clubForm.temporaryClosureEndDate}
+                          onChange={(v) => setClubForm((prev) => ({ ...prev, temporaryClosureEndDate: v }))}
+                          min={clubForm.temporaryClosureStartDate || getTodayDateKey()}
+                        />
                       </div>
                     </div>
                   )}
@@ -2497,19 +2542,11 @@ export default function AdminTabClub() {
                     <p className="mb-3 text-[12px] text-red-500">En cierre permanente no se permiten fechas de cierre puntual.</p>
                   )}
                   <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                    <div className="relative flex h-10 w-full items-center rounded-xl border border-[#dce2ee] bg-white px-3 md:w-64">
-                      <CalendarDays size={14} className="mr-2 shrink-0 text-[#8b95aa]" />
-                      <span className="pointer-events-none flex-1 text-[13px] text-[#1f2638]">
-                        {parseLocalDate(closureDateInput)
-                          ? parseLocalDate(closureDateInput)!.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })
-                          : 'Seleccionar fecha'}
-                      </span>
-                      <input
-                        type="date"
-                        min={getTodayDateKey()}
+                    <div className="w-full md:w-64">
+                      <AdminDateInput
                         value={closureDateInput}
-                        onChange={(e) => setClosureDateInput(e.target.value)}
-                        className="absolute inset-0 cursor-pointer opacity-0"
+                        onChange={setClosureDateInput}
+                        min={getTodayDateKey()}
                       />
                     </div>
                     <button
@@ -2744,240 +2781,67 @@ export default function AdminTabClub() {
             )}
 
             {/* ----- TAB: DESCUENTOS ----- */}
-            {activeTab === 'discounts' && (
+            {effectiveTab === 'discounts' && (
               <div className="space-y-4">
-                {/* Nueva política */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Nueva política de descuento</p>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <div className="md:col-span-2">
-                      <label className={labelCls}>Nombre</label>
-                      <input
-                        type="text"
-                        value={discountPolicyForm.name}
-                        onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, name: e.target.value }))}
-                        className={inputCls}
-                        placeholder="Ej: Amigo 20% turnos"
-                      />
+                  <p className={cardTitleCls}>Política de cierre de caja</p>
+                  <p className="mb-3 text-[12px] text-[#6f7890]">
+                    Define si el sistema permite cerrar caja cuando todavía hay cuentas corrientes abiertas.
+                  </p>
+                  <label className="flex cursor-pointer items-center gap-2.5">
+                    <div
+                      className={checkboxCls(clubForm.enforceCashShiftCloseWithOpenAccounts)}
+                      onClick={() => setClubForm({ ...clubForm, enforceCashShiftCloseWithOpenAccounts: !clubForm.enforceCashShiftCloseWithOpenAccounts })}
+                    >
+                      {clubForm.enforceCashShiftCloseWithOpenAccounts && <Check size={12} strokeWidth={3} className="text-white" />}
                     </div>
-                    <div>
-                      <label className={labelCls}>Alcance</label>
-                      <select
-                        value={discountPolicyForm.scope}
-                        onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, scope: e.target.value as DiscountPolicyScope }))}
-                        className={inputCls}
-                      >
-                        <option value="BOOKING">Reserva</option>
-                        <option value="PRODUCT">Producto</option>
-                        <option value="SERVICE">Servicio</option>
-                        <option value="ALL">Todo</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className={labelCls}>Tipo</label>
-                      <select
-                        value={discountPolicyForm.amountType}
-                        onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, amountType: e.target.value as DiscountAmountType }))}
-                        className={inputCls}
-                      >
-                        <option value="PERCENT">Porcentaje</option>
-                        <option value="FIXED">Monto fijo</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className={labelCls}>Valor</label>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={discountPolicyForm.amountValue}
-                        onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, amountValue: e.target.value }))}
-                        className={inputCls}
-                        placeholder={discountPolicyForm.amountType === 'PERCENT' ? '20' : '1000'}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelCls}>Prioridad</label>
-                      <input
-                        type="number"
-                        min={0}
-                        value={discountPolicyForm.priority}
-                        onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, priority: e.target.value }))}
-                        className={inputCls}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelCls}>Modo de aplicación</label>
-                      <select
-                        value={discountPolicyForm.applyMode}
-                        onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, applyMode: e.target.value as DiscountApplyMode }))}
-                        className={inputCls}
-                      >
-                        <option value="INCLUDE_ONLY">Solo incluidos</option>
-                        <option value="EXCLUDE_LIST">Excluir lista</option>
-                      </select>
-                    </div>
-                    <div className="md:col-span-2 flex items-center gap-2.5">
-                      <label className="flex cursor-pointer items-center gap-2.5">
-                        <div
-                          className={checkboxCls(discountPolicyForm.isStackable)}
-                          onClick={() => setDiscountPolicyForm((prev) => ({ ...prev, isStackable: !prev.isStackable }))}
-                        >
-                          {discountPolicyForm.isStackable && <Check size={12} strokeWidth={3} className="text-white" />}
-                        </div>
-                        <span className="text-[12px] text-[#1f2638]">Acumulable con otras políticas</span>
-                      </label>
-                    </div>
-                    <div className="md:col-span-2">
-                      <button
-                        type="button"
-                        onClick={() => void handleCreateDiscountPolicy()}
-                        className="h-9 rounded-xl bg-[#3053e2] px-4 text-[12px] font-semibold text-white hover:bg-[#2748cc] transition"
-                      >
-                        Crear política
-                      </button>
-                    </div>
-                  </div>
+                    <span className="text-[12px] text-[#1f2638]">Bloquear cierre de caja con cuentas corrientes abiertas</span>
+                  </label>
                 </div>
 
                 {/* Lista de políticas */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Políticas existentes</p>
+                  <div className="mb-4 flex items-center justify-between">
+                    <p className={cardTitleCls} style={{ marginBottom: 0 }}>Políticas de descuento</p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDiscountPolicyForm({ name: '', scope: 'BOOKING', amountType: 'PERCENT', amountValue: '', applyMode: 'INCLUDE_ONLY', isStackable: false, priority: '100' });
+                        setDiscountDrawerMode('create');
+                        setDiscountDrawerOpen(true);
+                      }}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#3053e2] px-3 text-[11px] font-semibold text-white transition hover:bg-[#2748cc]"
+                    >
+                      + Nueva política
+                    </button>
+                  </div>
                   {loadingDiscountPolicies ? (
                     <p className="text-[12px] text-[#6f7890]">Cargando...</p>
                   ) : discountPolicies.length === 0 ? (
-                    <p className="text-[12px] text-[#6f7890]">No hay políticas configuradas.</p>
+                    <p className="text-[12px] text-[#6f7890]">No hay políticas configuradas. Creá la primera con el botón de arriba.</p>
                   ) : (
                     <div className="space-y-2">
                       {discountPolicies.map((policy) => (
-                        <div key={policy.id} className="rounded-xl border border-[#dce2ee] p-3">
-                          {editingDiscountPolicyId === policy.id ? (
-                            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                              <div className="md:col-span-2">
-                                <label className={labelCls}>Nombre</label>
-                                <input
-                                  type="text"
-                                  value={discountPolicyEditForm.name}
-                                  onChange={(e) => setDiscountPolicyEditForm((prev) => ({ ...prev, name: e.target.value }))}
-                                  className={inputCls}
-                                />
-                              </div>
-                              <div>
-                                <label className={labelCls}>Alcance</label>
-                                <select
-                                  value={discountPolicyEditForm.scope}
-                                  onChange={(e) => setDiscountPolicyEditForm((prev) => ({ ...prev, scope: e.target.value as DiscountPolicyScope }))}
-                                  className={inputCls}
-                                >
-                                  <option value="BOOKING">Reserva</option>
-                                  <option value="PRODUCT">Producto</option>
-                                  <option value="SERVICE">Servicio</option>
-                                  <option value="ALL">Todo</option>
-                                </select>
-                              </div>
-                              <div>
-                                <label className={labelCls}>Tipo</label>
-                                <select
-                                  value={discountPolicyEditForm.amountType}
-                                  onChange={(e) => setDiscountPolicyEditForm((prev) => ({ ...prev, amountType: e.target.value as DiscountAmountType }))}
-                                  className={inputCls}
-                                >
-                                  <option value="PERCENT">Porcentaje</option>
-                                  <option value="FIXED">Monto fijo</option>
-                                </select>
-                              </div>
-                              <div>
-                                <label className={labelCls}>Valor</label>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  step={0.01}
-                                  value={discountPolicyEditForm.amountValue}
-                                  onChange={(e) => setDiscountPolicyEditForm((prev) => ({ ...prev, amountValue: e.target.value }))}
-                                  className={inputCls}
-                                />
-                              </div>
-                              <div>
-                                <label className={labelCls}>Prioridad</label>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={discountPolicyEditForm.priority}
-                                  onChange={(e) => setDiscountPolicyEditForm((prev) => ({ ...prev, priority: e.target.value }))}
-                                  className={inputCls}
-                                />
-                              </div>
-                              <div>
-                                <label className={labelCls}>Modo</label>
-                                <select
-                                  value={discountPolicyEditForm.applyMode}
-                                  onChange={(e) => setDiscountPolicyEditForm((prev) => ({ ...prev, applyMode: e.target.value as DiscountApplyMode }))}
-                                  className={inputCls}
-                                >
-                                  <option value="INCLUDE_ONLY">Solo incluidos</option>
-                                  <option value="EXCLUDE_LIST">Excluir lista</option>
-                                </select>
-                              </div>
-                              <div className="md:col-span-2 flex flex-wrap gap-3 items-center">
-                                <label className="flex cursor-pointer items-center gap-2">
-                                  <div
-                                    className={checkboxCls(discountPolicyEditForm.isStackable)}
-                                    onClick={() => setDiscountPolicyEditForm((prev) => ({ ...prev, isStackable: !prev.isStackable }))}
-                                  >
-                                    {discountPolicyEditForm.isStackable && <Check size={12} strokeWidth={3} className="text-white" />}
-                                  </div>
-                                  <span className="text-[12px] text-[#1f2638]">Acumulable</span>
-                                </label>
-                                <label className="flex cursor-pointer items-center gap-2">
-                                  <div
-                                    className={checkboxCls(discountPolicyEditForm.isActive)}
-                                    onClick={() => setDiscountPolicyEditForm((prev) => ({ ...prev, isActive: !prev.isActive }))}
-                                  >
-                                    {discountPolicyEditForm.isActive && <Check size={12} strokeWidth={3} className="text-white" />}
-                                  </div>
-                                  <span className="text-[12px] text-[#1f2638]">Activa</span>
-                                </label>
-                              </div>
-                              <div className="md:col-span-2 flex gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => void handleSaveDiscountPolicy()}
-                                  className="h-9 rounded-xl bg-[#3053e2] px-4 text-[12px] font-semibold text-white hover:bg-[#2748cc] transition"
-                                >
-                                  Guardar
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={handleCancelEditDiscountPolicy}
-                                  className="h-9 rounded-xl border border-[#dce2ee] bg-white px-4 text-[12px] text-[#6f7890] hover:bg-[#f4f6fb] transition"
-                                >
-                                  Cancelar
-                                </button>
-                              </div>
+                        <div key={policy.id} className="flex items-center justify-between gap-3 rounded-xl border border-[#dce2ee] p-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="text-[13px] font-medium text-[#1f2638]">{policy.name}</p>
+                              {!policy.isActive && (
+                                <span className="rounded-full bg-[#f4f6fb] px-2 py-0.5 text-[10px] text-[#6f7890]">Inactiva</span>
+                              )}
                             </div>
-                          ) : (
-                            <div className="flex items-center justify-between gap-3">
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <p className="text-[13px] font-medium text-[#1f2638]">{policy.name}</p>
-                                  {!policy.isActive && (
-                                    <span className="rounded-full bg-[#f4f6fb] px-2 py-0.5 text-[10px] text-[#6f7890]">Inactiva</span>
-                                  )}
-                                </div>
-                                <p className="mt-0.5 text-[11px] text-[#6f7890]">
-                                  {policy.scope} · {policy.amountType === 'PERCENT' ? `${policy.amountValue}%` : `$${policy.amountValue}`} · prio {policy.priority}
-                                  {policy.isStackable ? ' · acumulable' : ''}
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => handleStartEditDiscountPolicy(policy)}
-                                className="h-8 rounded-xl border border-[#dce2ee] bg-white px-3 text-[11px] text-[#6f7890] hover:bg-[#f4f6fb] transition"
-                              >
-                                Editar
-                              </button>
-                            </div>
-                          )}
+                            <p className="mt-0.5 text-[11px] text-[#6f7890]">
+                              {policy.scope} · {policy.amountType === 'PERCENT' ? `${policy.amountValue}%` : `$${policy.amountValue}`} · prio {policy.priority}
+                              {policy.isStackable ? ' · acumulable' : ''}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditDiscountPolicy(policy)}
+                            className="h-8 shrink-0 rounded-xl border border-[#dce2ee] bg-white px-3 text-[11px] text-[#6f7890] transition hover:bg-[#f4f6fb]"
+                          >
+                            Editar
+                          </button>
                         </div>
                       ))}
                     </div>
@@ -3106,7 +2970,7 @@ export default function AdminTabClub() {
             )}
 
             {/* ----- TAB: AUDITORÍA ----- */}
-            {activeTab === 'audit' && (
+            {effectiveTab === 'audit' && (
               <div className="space-y-4">
                 {/* Historial de cambios */}
                 <div className={cardCls}>
@@ -3203,26 +3067,254 @@ export default function AdminTabClub() {
         )}
       </div>
 
+      {/* ── Discount policy drawer (create / edit) ── */}
+      <AdminDrawer
+        open={discountDrawerOpen}
+        onClose={handleCancelEditDiscountPolicy}
+        title={discountDrawerMode === 'create' ? 'Nueva política de descuento' : 'Editar política'}
+        subtitle={discountDrawerMode === 'edit' ? discountPolicyEditForm.name : undefined}
+        size="sm"
+        footer={
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => discountDrawerMode === 'create' ? void handleCreateDiscountPolicy() : void handleSaveDiscountPolicy()}
+              className="h-9 flex-1 rounded-xl bg-[#3053e2] px-4 text-[12px] font-semibold text-white transition hover:bg-[#2748cc]"
+            >
+              {discountDrawerMode === 'create' ? 'Crear política' : 'Guardar cambios'}
+            </button>
+            <button
+              type="button"
+              onClick={handleCancelEditDiscountPolicy}
+              className="h-9 rounded-xl border border-[#dce2ee] bg-white px-4 text-[12px] text-[#6f7890] transition hover:bg-[#f4f6fb]"
+            >
+              Cancelar
+            </button>
+          </div>
+        }
+      >
+        {discountDrawerMode === 'create' ? (
+          <div className="space-y-4">
+            <div>
+              <label className={labelCls}>Nombre</label>
+              <input
+                type="text"
+                value={discountPolicyForm.name}
+                onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, name: e.target.value }))}
+                className={inputCls}
+                placeholder="Ej: Amigo 20% turnos"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Alcance</label>
+                <select
+                  value={discountPolicyForm.scope}
+                  onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, scope: e.target.value as DiscountPolicyScope }))}
+                  className={inputCls}
+                >
+                  <option value="BOOKING">Reserva</option>
+                  <option value="PRODUCT">Producto</option>
+                  <option value="SERVICE">Servicio</option>
+                  <option value="ALL">Todo</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Tipo</label>
+                <select
+                  value={discountPolicyForm.amountType}
+                  onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, amountType: e.target.value as DiscountAmountType }))}
+                  className={inputCls}
+                >
+                  <option value="PERCENT">Porcentaje</option>
+                  <option value="FIXED">Monto fijo</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Valor</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={discountPolicyForm.amountValue}
+                  onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, amountValue: e.target.value }))}
+                  className={inputCls}
+                  placeholder={discountPolicyForm.amountType === 'PERCENT' ? '20' : '1000'}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>Prioridad</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={discountPolicyForm.priority}
+                  onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, priority: e.target.value }))}
+                  className={inputCls}
+                />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Modo de aplicación</label>
+              <select
+                value={discountPolicyForm.applyMode}
+                onChange={(e) => setDiscountPolicyForm((prev) => ({ ...prev, applyMode: e.target.value as DiscountApplyMode }))}
+                className={inputCls}
+              >
+                <option value="INCLUDE_ONLY">Solo incluidos</option>
+                <option value="EXCLUDE_LIST">Excluir lista</option>
+              </select>
+            </div>
+            <label className="flex cursor-pointer items-center gap-2.5">
+              <div
+                className={checkboxCls(discountPolicyForm.isStackable)}
+                onClick={() => setDiscountPolicyForm((prev) => ({ ...prev, isStackable: !prev.isStackable }))}
+              >
+                {discountPolicyForm.isStackable && <Check size={12} strokeWidth={3} className="text-white" />}
+              </div>
+              <span className="text-[12px] text-[#1f2638]">Acumulable con otras políticas</span>
+            </label>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <label className={labelCls}>Nombre</label>
+              <input
+                type="text"
+                value={discountPolicyEditForm.name}
+                onChange={(e) => setDiscountPolicyEditForm((prev) => ({ ...prev, name: e.target.value }))}
+                className={inputCls}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Alcance</label>
+                <select
+                  value={discountPolicyEditForm.scope}
+                  onChange={(e) => setDiscountPolicyEditForm((prev) => ({ ...prev, scope: e.target.value as DiscountPolicyScope }))}
+                  className={inputCls}
+                >
+                  <option value="BOOKING">Reserva</option>
+                  <option value="PRODUCT">Producto</option>
+                  <option value="SERVICE">Servicio</option>
+                  <option value="ALL">Todo</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Tipo</label>
+                <select
+                  value={discountPolicyEditForm.amountType}
+                  onChange={(e) => setDiscountPolicyEditForm((prev) => ({ ...prev, amountType: e.target.value as DiscountAmountType }))}
+                  className={inputCls}
+                >
+                  <option value="PERCENT">Porcentaje</option>
+                  <option value="FIXED">Monto fijo</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Valor</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={discountPolicyEditForm.amountValue}
+                  onChange={(e) => setDiscountPolicyEditForm((prev) => ({ ...prev, amountValue: e.target.value }))}
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>Prioridad</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={discountPolicyEditForm.priority}
+                  onChange={(e) => setDiscountPolicyEditForm((prev) => ({ ...prev, priority: e.target.value }))}
+                  className={inputCls}
+                />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Modo de aplicación</label>
+              <select
+                value={discountPolicyEditForm.applyMode}
+                onChange={(e) => setDiscountPolicyEditForm((prev) => ({ ...prev, applyMode: e.target.value as DiscountApplyMode }))}
+                className={inputCls}
+              >
+                <option value="INCLUDE_ONLY">Solo incluidos</option>
+                <option value="EXCLUDE_LIST">Excluir lista</option>
+              </select>
+            </div>
+            <div className="flex flex-wrap gap-4">
+              <label className="flex cursor-pointer items-center gap-2.5">
+                <div
+                  className={checkboxCls(discountPolicyEditForm.isStackable)}
+                  onClick={() => setDiscountPolicyEditForm((prev) => ({ ...prev, isStackable: !prev.isStackable }))}
+                >
+                  {discountPolicyEditForm.isStackable && <Check size={12} strokeWidth={3} className="text-white" />}
+                </div>
+                <span className="text-[12px] text-[#1f2638]">Acumulable con otras políticas</span>
+              </label>
+              <label className="flex cursor-pointer items-center gap-2.5">
+                <div
+                  className={checkboxCls(discountPolicyEditForm.isActive)}
+                  onClick={() => setDiscountPolicyEditForm((prev) => ({ ...prev, isActive: !prev.isActive }))}
+                >
+                  {discountPolicyEditForm.isActive && <Check size={12} strokeWidth={3} className="text-white" />}
+                </div>
+                <span className="text-[12px] text-[#1f2638]">Política activa</span>
+              </label>
+            </div>
+          </div>
+        )}
+      </AdminDrawer>
+
       {/* Exception sidebar */}
-      <AdminRightSidebar
+      <AdminDrawer
         open={Boolean(exceptionModalActivity)}
         title="Excepciones de agenda"
-        description={exceptionModalActivity?.name}
+        subtitle={exceptionModalActivity?.name}
         onClose={closeExceptionModal}
-        widthClassName="w-full max-w-[520px]"
-        tabs={[
-          { id: 'LIST', label: 'Fechas' },
-          { id: 'DETAIL', label: 'Configuracion' },
-        ]}
-        activeTabId={exceptionModalSidebarTab}
-        onTabChange={(tabId) => setExceptionModalSidebarTab(tabId as 'LIST' | 'DETAIL')}
+        size="md"
+        footer={
+          exceptionModalSelectedDate && exceptionModalDraft ? (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setExceptionModalSelectedDate('');
+                  setExceptionModalSelectedId(null);
+                }}
+                className="h-9 rounded-xl border border-[#dce2ee] bg-white px-3 text-[12px] font-medium text-[#6f7890] transition hover:bg-[#f4f6fb]"
+              >
+                ← Volver
+              </button>
+              <div className="flex-1" />
+              <button
+                type="button"
+                onClick={handleDeleteExceptionWithConfirmation}
+                disabled={activityExceptionBusy[exceptionModalActivityId ?? -1]}
+                className="h-9 rounded-xl border border-[#ffd6d6] bg-[#fff5f5] px-3 text-[12px] font-semibold text-[#b42318] transition hover:bg-[#b42318] hover:text-white disabled:opacity-40"
+              >
+                Eliminar
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSaveExceptionFromModal()}
+                disabled={activityExceptionBusy[exceptionModalActivityId ?? -1]}
+                className="h-9 rounded-xl bg-[#3053e2] px-4 text-[12px] font-semibold text-white transition hover:bg-[#2748cc] disabled:opacity-40"
+              >
+                Guardar borrador
+              </button>
+            </div>
+          ) : undefined
+        }
       >
-        {/* ── Tab: Fechas ── */}
-        {exceptionModalSidebarTab === 'LIST' && (
+        {/* ── Vista: Listado de excepciones ── */}
+        {!exceptionModalSelectedDate && (
           <div className="space-y-4">
+            {/* Nueva excepción */}
             <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3">
               <p className={labelCls}>Nueva excepción</p>
-              <p className="mb-2 text-[11px] text-[#6f7890]">Seleccioná una fecha para agregar una excepción de horario.</p>
+              <p className="mb-2 text-[11px] text-[#6f7890]">Seleccioná una fecha para crear o editar una excepción de horario.</p>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <div className="flex-1">
                   <AdminDateInput
@@ -3242,6 +3334,7 @@ export default function AdminTabClub() {
               </div>
             </div>
 
+            {/* Lista */}
             {exceptionModalLoading ? (
               <div className="flex items-center gap-2 py-4 text-[12px] text-[#6f7890]">
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#d9dfeb] border-t-[#3053e2]" />
@@ -3254,24 +3347,29 @@ export default function AdminTabClub() {
             ) : (
               <div className="space-y-1.5">
                 {exceptionModalItems.map((item) => {
-                  const active = item.localDate === exceptionModalSelectedDate;
+                  const hasPending = pendingScheduleExceptionMutations.some(
+                    (m) => m.activityId === exceptionModalActivityId && m.localDate === item.localDate
+                  );
                   return (
                     <button
-                      key={`${item.activityTypeId}-${item.localDate}`}
+                      key={`${item.activityTypeId}-${item.localDate}-${item.id}`}
                       type="button"
                       onClick={() => {
                         setExceptionModalSelectedDate(item.localDate);
-                        setExceptionModalSidebarTab('DETAIL');
+                        setExceptionModalSelectedId(Number(item.id) > 0 ? Number(item.id) : null);
                       }}
-                      className={`w-full rounded-xl border px-3 py-2.5 text-left transition ${
-                        active
-                          ? 'border-[#3053e2] bg-[#edf1ff]'
-                          : 'border-[#dce2ee] bg-white hover:bg-[#f4f6fb]'
-                      }`}
+                      className="w-full rounded-xl border border-[#dce2ee] bg-white px-3 py-2.5 text-left transition hover:bg-[#f4f6fb]"
                     >
-                      <p className={`text-[13px] font-semibold ${active ? 'text-[#3053e2]' : 'text-[#1f2638]'}`}>
-                        {item.localDate}
-                      </p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[13px] font-semibold text-[#1f2638]">
+                          {formatExceptionDate(item.localDate)}
+                        </p>
+                        {hasPending && (
+                          <span className="shrink-0 rounded-full bg-[#fef3c7] px-2 py-0.5 text-[10px] font-semibold text-[#b45309]">
+                            Pendiente
+                          </span>
+                        )}
+                      </div>
                       <p className="mt-0.5 text-[11px] text-[#6f7890]">
                         {item.isClosed
                           ? 'Cerrado todo el día'
@@ -3287,16 +3385,20 @@ export default function AdminTabClub() {
           </div>
         )}
 
-        {/* ── Tab: Configuracion ── */}
-        {exceptionModalSidebarTab === 'DETAIL' && (
+        {/* ── Vista: Editar excepción ── */}
+        {exceptionModalSelectedDate && (
           <>
             {exceptionModalDraft ? (
               <div className="space-y-3">
+                {/* Fecha seleccionada */}
                 <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3">
                   <p className={labelCls}>Fecha</p>
-                  <p className="text-[13px] font-semibold text-[#1f2638]">{exceptionModalDraft.localDate}</p>
+                  <p className="text-[13px] font-semibold text-[#1f2638]">
+                    {formatExceptionDate(exceptionModalDraft.localDate)}
+                  </p>
                 </div>
 
+                {/* Cierre total */}
                 <div className="rounded-xl border border-[#dce2ee] p-3">
                   <label className="flex cursor-pointer items-center gap-2.5">
                     <div
@@ -3317,6 +3419,7 @@ export default function AdminTabClub() {
                   </label>
                 </div>
 
+                {/* Config de horario */}
                 {!exceptionModalDraft.isClosed && (
                   <div className="space-y-3 rounded-xl border border-[#dce2ee] p-3">
                     <div>
@@ -3435,37 +3538,15 @@ export default function AdminTabClub() {
                     )}
                   </div>
                 )}
-
-                <div className="flex gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => void handleSaveExceptionFromModal()}
-                    disabled={activityExceptionBusy[exceptionModalActivityId ?? -1]}
-                    className="h-9 flex-1 rounded-xl bg-[#3053e2] px-4 text-[12px] font-semibold text-white transition hover:bg-[#2748cc] disabled:opacity-40"
-                  >
-                    Guardar excepción
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleDeleteExceptionFromModal()}
-                    disabled={activityExceptionBusy[exceptionModalActivityId ?? -1]}
-                    className="h-9 rounded-xl border border-[#ffd6d6] bg-[#fff5f5] px-4 text-[12px] font-semibold text-[#b42318] transition hover:bg-[#b42318] hover:text-white disabled:opacity-40"
-                  >
-                    Eliminar
-                  </button>
-                </div>
               </div>
             ) : (
               <div className="py-8 text-center">
-                <p className="text-[13px] font-semibold text-[#98a1b3]">Sin excepción seleccionada</p>
-                <p className="mt-1 text-[12px] text-[#b0b8c8]">
-                  Seleccioná una fecha en la pestaña anterior o creá una nueva.
-                </p>
+                <p className="text-[13px] font-semibold text-[#98a1b3]">Cargando excepción...</p>
               </div>
             )}
           </>
         )}
-      </AdminRightSidebar>
+      </AdminDrawer>
 
       <AdminAppModal
         show={modalState.show}

@@ -888,60 +888,65 @@
   outline: none !important;
 }
 
-/* globals.css */
-
 @layer utilities {
-  /* Ancho de la barra */
+  .scrollbar-padel {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(65, 82, 118, 0.28) transparent;
+  }
+
   .scrollbar-padel::-webkit-scrollbar {
-    width: 6px;       /* Ancho vertical */
-    height: 6px;      /* Alto horizontal */
+    width: 5px;
+    height: 5px;
   }
 
-  /* El fondo (riel) por donde corre */
   .scrollbar-padel::-webkit-scrollbar-track {
-    background: transparent; /* O podés ponerle #EBE1D8 si querés que se note el riel */
+    background: transparent;
   }
 
-  /* La "pastilla" que se mueve */
   .scrollbar-padel::-webkit-scrollbar-thumb {
-    background-color: #347048; /* Tu verde corporativo */
-    border-radius: 20px;       /* Bien redondeado */
-    border: 2px solid transparent; /* Truco para dar aire si usaras fondo */
+    background-color: rgba(65, 82, 118, 0.2);
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background-clip: padding-box;
   }
 
-  /* Efecto al pasar el mouse por encima */
   .scrollbar-padel::-webkit-scrollbar-thumb:hover {
-    background-color: #2a5a3a; /* Un verde un pelín más oscuro */
+    background-color: rgba(65, 82, 118, 0.42);
   }
 
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
-}
-.scrollbar-hide {
-    -ms-overflow-style: none;  /* IE and Edge */
-    scrollbar-width: none;  /* Firefox */
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
 }
 
 @layer base {
-  /* ESTILO PARA LA BARRA DE TODA LA PÁGINA */
+  html {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(65, 82, 118, 0.24) transparent;
+  }
+
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
   }
 
   ::-webkit-scrollbar-track {
-    background: #EBE1D8; /* El beige de tu fondo */
+    background: transparent;
   }
 
   ::-webkit-scrollbar-thumb {
-    background-color: #347048; /* Tu verde padel */
-    border-radius: 10px;
-    border: 2px solid #EBE1D8; /* Borde beige para que parezca una pastilla flotante */
+    background-color: rgba(65, 82, 118, 0.18);
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background-clip: padding-box;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background-color: #B9CF32; /* Verde limón al pasar el mouse (opcional, queda genial) */
+    background-color: rgba(65, 82, 118, 0.36);
   }
-}
-
 }

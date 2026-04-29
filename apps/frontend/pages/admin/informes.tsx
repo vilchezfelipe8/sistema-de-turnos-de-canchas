@@ -2,7 +2,7 @@ import { useRouter } from 'next/router';
 import AdminRouteShell from '../../components/admin/AdminRouteShell';
 import AdminTabStatistics from '../../components/admin/AdminTabStatistics';
 import AdminComingSoonPanel from '../../components/admin/AdminComingSoonPanel';
-import { AdminModuleTabs } from '../../components/admin/ui';
+import { AdminSegmentedControl } from '../../components/admin/ui';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 
 type ReportsTab = 'resumen' | 'reservas' | 'ingresos' | 'clientes' | 'ocupacion';
@@ -47,11 +47,12 @@ export default function AdminReportsPage() {
 
         return (
           <div className="flex h-full min-h-0 flex-col gap-4 p-4 pb-0 lg:p-6 lg:pb-0">
-            <AdminModuleTabs
-              tabs={REPORT_TABS}
+            <AdminSegmentedControl
+              options={REPORT_TABS.map((tab) => ({ value: tab.value, label: tab.label }))}
               value={activeTab}
               onChange={(value) => handleChangeTab(value as ReportsTab)}
               ariaLabel="Subnavegacion de informes"
+              className="w-fit"
             />
             <section className="min-h-0 flex-1 overflow-y-auto pb-6 lg:pb-8">
               {activeTab === 'resumen' && (

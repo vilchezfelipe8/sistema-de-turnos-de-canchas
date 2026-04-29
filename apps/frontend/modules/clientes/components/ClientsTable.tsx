@@ -100,35 +100,35 @@ export default function ClientsTable({
       align: 'right',
       isActions: true,
       render: (c) => (
-        <div className="flex items-center justify-end gap-1">
+        <div className="flex items-center justify-end gap-2">
           {onEdit && (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onEdit(c); }}
-              className="grid h-8 w-8 place-items-center rounded-lg border border-[#dce2ee] bg-white text-[#6f7890] transition hover:border-[#c0c8d8] hover:text-[#2a3245]"
+              className="grid h-9 w-9 place-items-center rounded-lg border border-[#dce2ee] bg-white text-[#6f7890] transition hover:border-[#3053e2] hover:bg-[#eef1fd] hover:text-[#3053e2]"
               title="Editar cliente"
             >
-              <Pencil size={13} />
+              <Pencil size={15} strokeWidth={2.5} />
             </button>
           )}
           {onDelete && (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onDelete(c); }}
-              className="grid h-8 w-8 place-items-center rounded-lg border border-[#dce2ee] bg-white text-[#6f7890] transition hover:border-[#ffd6d6] hover:bg-[#fff5f5] hover:text-[#b42318]"
+              className="grid h-9 w-9 place-items-center rounded-lg border border-[#ffd6d6] bg-[#fff5f5] text-[#b42318] transition hover:bg-[#b42318] hover:text-white"
               title="Eliminar cliente"
             >
-              <Trash2 size={13} />
+              <Trash2 size={15} strokeWidth={2.5} />
             </button>
           )}
           {onRowClick && (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onRowClick(c); }}
-              className="grid h-8 w-8 place-items-center rounded-lg border border-[#dce2ee] bg-white text-[#6f7890] transition hover:border-[#bfcffe] hover:bg-[#eef1fd] hover:text-[#3053e2]"
+              className="grid h-9 w-9 place-items-center rounded-lg border border-[#dce2ee] bg-white text-[#6f7890] transition hover:border-[#bfcffe] hover:bg-[#eef1fd] hover:text-[#3053e2]"
               title="Ver perfil"
             >
-              <ArrowRight size={13} />
+              <ArrowRight size={15} strokeWidth={2.5} />
             </button>
           )}
         </div>
@@ -149,10 +149,10 @@ export default function ClientsTable({
       onRowClick={onRowClick}
       rowClassName={(c) =>
         String(c.id) === String(selectedId ?? '')
-          ? 'bg-[#eef1fd] border-l-2 border-[#3053e2]'
+          ? 'bg-[#eef1fd] [&>td:first-child]:shadow-[2px_0_0_0_#3053e2_inset]'
           : ''
       }
-      className={className}
+      className={['w-full', className].filter(Boolean).join(' ')}
     />
   );
 }

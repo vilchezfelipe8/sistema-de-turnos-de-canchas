@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Landmark,
+  Plus,
   Search,
   X,
 } from 'lucide-react';
@@ -17,12 +18,14 @@ import CashMovementsTimeline from '../../modules/caja/components/CashMovementsTi
 import CashAccountsList from '../../modules/caja/components/CashAccountsList';
 import type { CashAccountItem } from '../../modules/caja/components/CashAccountsList';
 import CashAccountDetailPanel from '../../modules/caja/components/CashAccountDetailPanel';
+import CashCloseFlow from '../../modules/caja/components/CashCloseFlow';
+import CashShiftPanel from '../../modules/caja/components/CashShiftPanel';
 import {
   AdminPaymentFormModal,
   AdminPaymentPreconfirmModal,
   AdminPaymentResultModal,
 } from '../../components/admin/payments/AdminPaymentFlowModals';
-import { AdminSegmentedControl } from '../../components/admin/ui';
+import { AdminFilterToolbar, AdminPanel, AdminSegmentedControl } from '../../components/admin/ui';
 import NotFound from '../../components/NotFound';
 import RouteTransitionScreen from '../../components/RouteTransitionScreen';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
@@ -39,15 +42,18 @@ import {
   type PaymentChannel,
 } from '../../services/AccountService';
 import { CashService } from '../../services/CashService';
+import { ClubService } from '../../services/ClubService';
 import { listPendingRefunds, listRefunds, type RefundRecord } from '../../services/PaymentService';
 import { formatDateTime24 } from '../../utils/dateTime';
-import { hasAdminAccess } from '../../utils/session';
+import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser } from '../../utils/session';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 
 type PaymentsTab = 'SUMMARY' | 'ACCOUNTS' | 'MOVEMENTS' | 'CLOSURE' | 'REFUNDS';
 type CashPeriod = 'hoy' | 'semana' | 'mes';
 type MovementTypeFilter = 'ALL' | 'INCOME' | 'EXPENSE';
 type MovementMethodFilter = 'ALL' | 'CASH' | 'TRANSFER' | 'CARD';
+type RefundStatusFilter = 'ALL' | 'REQUESTED' | 'APPROVED' | 'READY_TO_EXECUTE' | 'EXECUTED' | 'FAILED' | 'CANCELLED';
+type RefundMethodFilter = 'ALL' | 'CASH' | 'TRANSFER' | 'CARD_REVERSAL' | 'CREDIT_NOTE';
 type CashView = 'live' | 'movements' | 'closures';
 type CashActionSidebarView = 'none' | 'open_shift' | 'close_shift' | 'movement_create' | 'close_report';
 type AccountsFilter = 'ALL' | 'OPEN' | 'CLOSED' | 'WITH_DEBT' | 'WITH_REFUNDS';
@@ -397,6 +403,10 @@ export default function AdminPaymentsPlaygroundPage() {
   const [cashSummaryError, setCashSummaryError] = useState('');
   const [cashShiftError, setCashShiftError] = useState('');
   const [cashMovementError, setCashMovementError] = useState('');
+  const [enforceCashShiftCloseWithOpenAccounts, setEnforceCashShiftCloseWithOpenAccounts] = useState(true);
+  const [refundSearchTerm, setRefundSearchTerm] = useState('');
+  const [refundStatusFilter, setRefundStatusFilter] = useState<RefundStatusFilter>('ALL');
+  const [refundMethodFilter, setRefundMethodFilter] = useState<RefundMethodFilter>('ALL');
   const [cashSearchTerm, setCashSearchTerm] = useState('');
   const [cashTypeFilter, setCashTypeFilter] = useState<MovementTypeFilter>('ALL');
   const [cashMethodFilter, setCashMethodFilter] = useState<MovementMethodFilter>('ALL');
@@ -740,6 +750,24 @@ export default function AdminPaymentsPlaygroundPage() {
   }, [authChecked, refresh, user]);
 
   useEffect(() => {
+    if (!authChecked || !user || !hasAdminAccess(user)) return;
+    const run = async () => {
+      try {
+        const slug = getActiveClubSlug(normalizeSessionUser(user as any));
+        if (!slug) return;
+        const club = await ClubService.getClubBySlug(slug);
+        setEnforceCashShiftCloseWithOpenAccounts(
+          club.enforceCashShiftCloseWithOpenAccounts ?? true
+        );
+      } catch (error) {
+        reportUiError({ area: 'PaymentsPlayground', action: 'loadClubCloseShiftPolicy' }, error);
+        setEnforceCashShiftCloseWithOpenAccounts(true);
+      }
+    };
+    void run();
+  }, [authChecked, user]);
+
+  useEffect(() => {
     if (activeTab !== 'ACCOUNTS') return;
     if (selectedAccountId) return;
     const firstOpen = openAccounts[0]?.id || '';
@@ -828,6 +856,43 @@ export default function AdminPaymentsPlaygroundPage() {
     [filteredCashMovements]
   );
 
+  const hasOpenCurrentAccounts = openAccounts.length > 0;
+  const shouldBlockCloseShiftWithOpenAccounts =
+    enforceCashShiftCloseWithOpenAccounts && hasOpenCurrentAccounts;
+  const closeShiftBlockedMessage = shouldBlockCloseShiftWithOpenAccounts
+    ? `No podés cerrar caja: hay ${openAccounts.length} cuenta${openAccounts.length === 1 ? '' : 's'} corriente${openAccounts.length === 1 ? '' : 's'} abierta${openAccounts.length === 1 ? '' : 's'}.`
+    : '';
+
+  const filteredRecentRefunds = useMemo(() => {
+    const { rawStart, rawEnd } = getCashDateRange(cashActivePeriod, cashPeriodOffset);
+    const normalizedQuery = refundSearchTerm.trim().toLowerCase();
+    return recentRefunds.filter((refund) => {
+      const createdAt = new Date(refund.createdAt);
+      const matchesDate = Number.isFinite(createdAt.getTime()) && createdAt >= rawStart && createdAt <= rawEnd;
+      const normalizedStatus = String(refund.status || '').toUpperCase();
+      const normalizedMethod = String(refund.executionMethod || '').toUpperCase();
+      const matchesStatus = refundStatusFilter === 'ALL' || normalizedStatus === refundStatusFilter;
+      const matchesMethod = refundMethodFilter === 'ALL' || normalizedMethod === refundMethodFilter;
+      const matchesSearch =
+        normalizedQuery.length === 0 ||
+        refundCodeLabel(refund).toLowerCase().includes(normalizedQuery) ||
+        String(refund.reason || '').toLowerCase().includes(normalizedQuery) ||
+        shortId(refund.accountId).toLowerCase().includes(normalizedQuery) ||
+        shortId(refund.paymentId).toLowerCase().includes(normalizedQuery);
+      return matchesDate && matchesStatus && matchesMethod && matchesSearch;
+    });
+  }, [cashActivePeriod, cashPeriodOffset, recentRefunds, refundMethodFilter, refundSearchTerm, refundStatusFilter]);
+
+  const filteredPendingRefunds = useMemo(() => {
+    const visibleIds = new Set(filteredRecentRefunds.map((refund) => refund.id));
+    return pendingRefunds.filter((refund) => visibleIds.has(refund.id));
+  }, [filteredRecentRefunds, pendingRefunds]);
+
+  const filteredPendingRefundAmount = useMemo(
+    () => filteredPendingRefunds.reduce((sum, refund) => sum + Number(refund.amount || 0), 0),
+    [filteredPendingRefunds]
+  );
+
   const handleOpenShift = async (event: React.FormEvent) => {
     event.preventDefault();
     setCashShiftError('');
@@ -862,6 +927,11 @@ export default function AdminPaymentsPlaygroundPage() {
   const handleCloseShift = async (event: React.FormEvent) => {
     event.preventDefault();
     setCashShiftError('');
+
+    if (shouldBlockCloseShiftWithOpenAccounts) {
+      showAdminToast(closeShiftBlockedMessage);
+      return;
+    }
 
     const countedCash = Number(cashCloseShiftForm.countedCash);
     if (!Number.isFinite(countedCash) || countedCash < 0) {
@@ -974,9 +1044,17 @@ export default function AdminPaymentsPlaygroundPage() {
     return set;
   }, [recentRefunds]);
 
+  const periodAccounts = useMemo(() => {
+    const { rawStart, rawEnd } = getCashDateRange(cashActivePeriod, cashPeriodOffset);
+    return allAccounts.filter((account) => {
+      const createdAt = new Date(account.createdAt);
+      return Number.isFinite(createdAt.getTime()) && createdAt >= rawStart && createdAt <= rawEnd;
+    });
+  }, [allAccounts, cashActivePeriod, cashPeriodOffset]);
+
   const filteredAccounts = useMemo(() => {
     const search = accountsSearchTerm.trim().toLowerCase();
-    return allAccounts.filter((account) => {
+    return periodAccounts.filter((account) => {
       const matchesFilter =
         accountsFilter === 'ALL' ||
         (accountsFilter === 'OPEN' && account.status === 'OPEN') ||
@@ -998,13 +1076,20 @@ export default function AdminPaymentsPlaygroundPage() {
         .toLowerCase();
       return haystack.includes(search);
     });
-  }, [accountsFilter, accountsSearchTerm, accountsWithRefundsIdSet, allAccounts]);
+  }, [accountsFilter, accountsSearchTerm, accountsWithRefundsIdSet, periodAccounts]);
 
   const selectedAccount = useMemo(
     () => allAccounts.find((account) => account.id === selectedAccountId) || null,
     [allAccounts, selectedAccountId]
   );
   const selectedAccountDetail = selectedAccountId ? accountDetailById[selectedAccountId] || null : null;
+
+  useEffect(() => {
+    if (activeTab !== 'ACCOUNTS') return;
+    if (filteredAccounts.length === 0) return;
+    if (selectedAccountId && filteredAccounts.some((account) => account.id === selectedAccountId)) return;
+    setSelectedAccountId(filteredAccounts[0].id);
+  }, [activeTab, filteredAccounts, selectedAccountId]);
 
   // Derived list for CashAccountsList — merges account rows with lazy-loaded detail.
   const cashAccountItems: CashAccountItem[] = useMemo(
@@ -1035,6 +1120,30 @@ export default function AdminPaymentsPlaygroundPage() {
 
   const selectedAccountDetailLoading = Boolean(
     selectedAccountId && loadingAccountDetailById[selectedAccountId]
+  );
+  const selectedAccountVisible = useMemo(
+    () => filteredAccounts.some((account) => account.id === selectedAccountId),
+    [filteredAccounts, selectedAccountId]
+  );
+  const visibleOpenAccounts = useMemo(
+    () => filteredAccounts.filter((account) => account.status === 'OPEN'),
+    [filteredAccounts]
+  );
+  const visibleClosedAccounts = useMemo(
+    () => filteredAccounts.filter((account) => account.status === 'CLOSED'),
+    [filteredAccounts]
+  );
+  const visibleAccountsWithDebtCount = useMemo(
+    () =>
+      visibleOpenAccounts.filter((account) => {
+        const d = accountDetailById[account.id];
+        return !d || d.remaining > 0.009;
+      }).length,
+    [accountDetailById, visibleOpenAccounts]
+  );
+  const visibleAccountsWithRefundsCount = useMemo(
+    () => filteredAccounts.filter((account) => accountsWithRefundsIdSet.has(account.id)).length,
+    [accountsWithRefundsIdSet, filteredAccounts]
   );
   const accountPaymentMaxAmount = Number(selectedAccountDetail?.remaining || 0);
   const accountPaymentPendingItems = useMemo(() => {
@@ -1316,23 +1425,6 @@ export default function AdminPaymentsPlaygroundPage() {
     ]
   );
 
-  const accountCards = useMemo(
-    () => [
-      { label: 'Cuentas abiertas', value: openAccounts.length, tone: 'text-[#3155df]' },
-      {
-        label: 'Con deuda',
-        value: openAccounts.filter((a) => {
-          const d = accountDetailById[a.id];
-          return !d || d.remaining > 0.009;
-        }).length,
-        tone: 'text-[#9a5a00]',
-      },
-      { label: 'Cerradas', value: closedAccounts.length, tone: 'text-[#2f5e46]' },
-      { label: 'Con devoluciones', value: accountsWithRefundsIdSet.size, tone: 'text-[#7b3fb4]' },
-    ],
-    [accountDetailById, accountsWithRefundsIdSet.size, closedAccounts.length, openAccounts]
-  );
-
   if (!authChecked || !user) {
     return <RouteTransitionScreen message={authChecked ? 'Redirigiendo...' : 'Validando acceso...'} />;
   }
@@ -1377,98 +1469,213 @@ export default function AdminPaymentsPlaygroundPage() {
               </div>
             ) : activeTab === 'ACCOUNTS' ? (
               <div className="space-y-4">
+                <div className="w-full rounded-2xl border border-[#dce2ee] bg-white p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1 rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-1">
+                      {(['hoy', 'semana', 'mes'] as CashPeriod[]).map((period) => (
+                        <button
+                          key={`accounts-${period}`}
+                          type="button"
+                          onClick={() => {
+                            setCashActivePeriod(period);
+                            setCashPeriodOffset(0);
+                          }}
+                          className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition ${
+                            cashActivePeriod === period
+                              ? 'bg-white text-[#3053e2] shadow-sm'
+                              : 'text-[#6f7890] hover:text-[#4e5870]'
+                          }`}
+                        >
+                          {period === 'hoy' ? 'Hoy' : period === 'semana' ? 'Semana' : 'Mes'}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center gap-1 rounded-xl border border-[#dce2ee] bg-white px-1 py-1">
+                      <button
+                        type="button"
+                        onClick={() => setCashPeriodOffset((prev) => prev - 1)}
+                        className="grid h-8 w-8 place-items-center rounded-lg text-[#6f7890] transition hover:bg-[#f4f6fb]"
+                      >
+                        <ChevronLeft size={16} />
+                      </button>
+                      <span className="min-w-[120px] text-center text-[12px] font-semibold text-[#4e5870]">{cashPeriodLabel}</span>
+                      <button
+                        type="button"
+                        onClick={() => setCashPeriodOffset((prev) => Math.min(0, prev + 1))}
+                        disabled={cashPeriodOffset === 0}
+                        className="grid h-8 w-8 place-items-center rounded-lg text-[#6f7890] transition hover:bg-[#f4f6fb] disabled:cursor-not-allowed disabled:text-[#b8c1d4] disabled:hover:bg-transparent"
+                      >
+                        <ChevronRight size={16} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                  <MetricCard label="Cuentas abiertas" value={openAccounts.length} format="number" />
+                  <MetricCard label="Cuentas abiertas" value={visibleOpenAccounts.length} format="number" />
                   <MetricCard
                     label="Con deuda"
-                    value={openAccounts.filter((a) => { const d = accountDetailById[a.id]; return !d || d.remaining > 0.009; }).length}
+                    value={visibleAccountsWithDebtCount}
                     format="number"
                     valueColor="#9a5a00"
                   />
-                  <MetricCard label="Cerradas" value={closedAccounts.length} format="number" valueColor="#2f5e46" />
-                  <MetricCard label="Con devoluciones" value={accountsWithRefundsIdSet.size} format="number" valueColor="#7b3fb4" />
+                  <MetricCard label="Cerradas" value={visibleClosedAccounts.length} format="number" valueColor="#2f5e46" />
+                  <MetricCard label="Con devoluciones" value={visibleAccountsWithRefundsCount} format="number" valueColor="#7b3fb4" />
                 </div>
-                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-2">
-                  <label className="relative min-w-[280px] flex-1">
-                    <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8b93a5]" />
-                    <input
-                      type="text"
-                      value={accountsSearchTerm}
-                      onChange={(event) => setAccountsSearchTerm(event.target.value)}
-                      placeholder="Buscar por cliente, cuenta, reserva o cancha"
-                      className="h-10 w-full rounded-xl border border-[#dce2ee] bg-white pl-9 pr-3 text-[13px] outline-none focus:border-[#3053e2]"
-                    />
-                  </label>
-                  <div className="flex items-center gap-1 rounded-xl border border-[#dce2ee] bg-white p-1">
-                    {[
-                      { id: 'ALL', label: 'Todas' },
-                      { id: 'OPEN', label: 'Abiertas' },
-                      { id: 'WITH_DEBT', label: 'Con deuda' },
-                      { id: 'WITH_REFUNDS', label: 'Con devolución' },
-                    ].map((option) => (
+                <AdminPanel
+                  title="Cuentas"
+                  description="Gestión operativa de cuentas abiertas y cerradas."
+                  headerClassName="pl-4 pr-2 py-3"
+                  actions={(
+                    <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-1 sm:flex-nowrap sm:justify-end">
+                      <label className="relative w-full sm:w-[300px] sm:flex-none">
+                        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8b93a5]" />
+                        <input
+                          type="text"
+                          value={accountsSearchTerm}
+                          onChange={(event) => setAccountsSearchTerm(event.target.value)}
+                          placeholder="Buscar por cliente, cuenta, reserva o cancha"
+                          className="h-8 w-full rounded-xl border border-[#dce2ee] bg-white pl-9 pr-3 text-[12px] outline-none focus:border-[#3053e2]"
+                        />
+                      </label>
+                      <div className="flex items-center gap-1 rounded-xl border border-[#dce2ee] bg-white p-1">
+                        {[
+                          { id: 'ALL', label: 'Todas' },
+                          { id: 'OPEN', label: 'Abiertas' },
+                          { id: 'CLOSED', label: 'Cerradas' },
+                          { id: 'WITH_REFUNDS', label: 'Con devolución' },
+                        ].map((option) => (
+                          <button
+                            key={`accounts-filter-${option.id}`}
+                            type="button"
+                            onClick={() => setAccountsFilter(option.id as AccountsFilter)}
+                            className={`h-7 rounded-lg px-2.5 text-[11px] font-semibold transition ${
+                              accountsFilter === option.id
+                                ? 'bg-[#edf1ff] text-[#3053e2]'
+                                : 'text-[#6f7890] hover:bg-[#f4f6fb]'
+                            }`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
                       <button
-                        key={`accounts-filter-${option.id}`}
                         type="button"
-                        onClick={() => setAccountsFilter(option.id as AccountsFilter)}
-                        className={`h-8 rounded-lg px-2.5 text-[11px] font-semibold transition ${
-                          accountsFilter === option.id
-                            ? 'bg-[#edf1ff] text-[#3053e2]'
-                            : 'text-[#6f7890] hover:bg-[#f4f6fb]'
-                        }`}
+                        onClick={() => {
+                          setAccountActionError('');
+                          setAccountSidebarView('create_account');
+                        }}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#3053e2] px-2.5 text-[11px] font-semibold text-white hover:bg-[#2748cc]"
                       >
-                        {option.label}
+                        <Plus size={14} strokeWidth={2.5} />
+                        Nueva cuenta
                       </button>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAccountActionError('');
-                      setAccountSidebarView('create_account');
-                    }}
-                    className="h-9 rounded-lg bg-[#3053e2] px-3 inline-flex items-center text-[12px] font-semibold text-white hover:bg-[#2748cc]"
-                  >
-                    Nueva cuenta
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-                  <div className="max-h-[560px] overflow-y-auto pr-1">
-                    <CashAccountsList
-                      accounts={cashAccountItems}
-                      selectedId={selectedAccountId}
-                      onSelect={(id) => setSelectedAccountId(id)}
-                      onPay={(id) => {
-                        setSelectedAccountId(id);
-                        setAccountSidebarView('overview');
-                      }}
-                    />
-                  </div>
+                    </AdminFilterToolbar>
+                  )}
+                >
+                  {filteredAccounts.length === 0 ? (
+                    <div className="rounded-xl border border-[#dce2ee] bg-white px-4 py-10 text-center">
+                      <p className="text-[13px] font-semibold text-[#44506b]">No hay cuentas para este período</p>
+                      <p className="mt-1 text-[12px] text-[#7a8398]">Cambiá el rango o ajustá los filtros para encontrar registros.</p>
+                    </div>
+                  ) : (
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+                    <div className="max-h-[560px] overflow-y-auto pr-1">
+                      <CashAccountsList
+                        accounts={cashAccountItems}
+                        selectedId={selectedAccountId}
+                        onSelect={(id) => setSelectedAccountId(id)}
+                        onPay={(id) => {
+                          setSelectedAccountId(id);
+                          setAccountSidebarView('overview');
+                        }}
+                      />
+                    </div>
 
-                  <CashAccountDetailPanel
-                    account={selectedAccount}
-                    detail={selectedAccountDetail}
-                    loading={selectedAccountDetailLoading}
-                    error={accountDetailError}
-                    onManage={() => {
-                      setAccountActionError('');
-                      setAccountSidebarView('overview');
-                    }}
-                    onPay={() => {
-                      setAccountActionError('');
-                      setAccountSidebarView('overview');
-                    }}
-                  />
-                </div>
+                    {selectedAccountVisible && selectedAccount ? (
+                      <CashAccountDetailPanel
+                        account={selectedAccount}
+                        detail={selectedAccountDetail}
+                        loading={selectedAccountDetailLoading}
+                        error={accountDetailError}
+                        onManage={() => {
+                          setAccountActionError('');
+                          setAccountSidebarView('overview');
+                        }}
+                        onPay={() => {
+                          setAccountActionError('');
+                          setAccountSidebarView('overview');
+                        }}
+                      />
+                    ) : (
+                      <div className="rounded-xl border border-[#dce2ee] bg-white px-4 py-10 text-center">
+                        <p className="text-[13px] font-semibold text-[#44506b]">Seleccioná una cuenta</p>
+                        <p className="mt-1 text-[12px] text-[#7a8398]">Elegí un registro de la lista para ver su detalle y deuda actual.</p>
+                      </div>
+                    )}
+                  </div>
+                  )}
+                </AdminPanel>
               </div>
             ) : isCashSectionTab(activeTab) ? (
               <div className="space-y-4">
                 {cashActiveView === 'live' && (
                   <>
+                    <div className="w-full rounded-2xl border border-[#dce2ee] bg-white p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-1 rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-1">
+                          {(['hoy', 'semana', 'mes'] as CashPeriod[]).map((period) => (
+                            <button
+                              key={period}
+                              type="button"
+                              onClick={() => {
+                                setCashActivePeriod(period);
+                                setCashPeriodOffset(0);
+                              }}
+                              className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition ${
+                                cashActivePeriod === period
+                                  ? 'bg-white text-[#3053e2] shadow-sm'
+                                  : 'text-[#6f7890] hover:text-[#4e5870]'
+                              }`}
+                            >
+                              {period === 'hoy' ? 'Hoy' : period === 'semana' ? 'Semana' : 'Mes'}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="flex items-center gap-1 rounded-xl border border-[#dce2ee] bg-white px-1 py-1">
+                          <button
+                            type="button"
+                            onClick={() => setCashPeriodOffset((prev) => prev - 1)}
+                            className="grid h-8 w-8 place-items-center rounded-lg text-[#6f7890] transition hover:bg-[#f4f6fb]"
+                          >
+                            <ChevronLeft size={16} />
+                          </button>
+                          <span className="min-w-[120px] text-center text-[12px] font-semibold text-[#4e5870]">{cashPeriodLabel}</span>
+                          <button
+                            type="button"
+                            onClick={() => setCashPeriodOffset((prev) => Math.min(0, prev + 1))}
+                            disabled={cashPeriodOffset === 0}
+                            className="grid h-8 w-8 place-items-center rounded-lg text-[#6f7890] transition hover:bg-[#f4f6fb] disabled:cursor-not-allowed disabled:text-[#b8c1d4] disabled:hover:bg-transparent"
+                          >
+                            <ChevronRight size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <CashSummaryCards balance={cashBalance} loading={loadingCashSummary} />
+                  </>
+                )}
+
+                {cashActiveView === 'movements' && (
+                  <div className="w-full rounded-2xl border border-[#dce2ee] bg-white p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="ml-auto flex items-center gap-1 rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-1">
+                      <div className="flex items-center gap-1 rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-1">
                         {(['hoy', 'semana', 'mes'] as CashPeriod[]).map((period) => (
                           <button
-                            key={period}
+                            key={`movements-${period}`}
                             type="button"
                             onClick={() => {
                               setCashActivePeriod(period);
@@ -1496,41 +1703,13 @@ export default function AdminPaymentsPlaygroundPage() {
                         <span className="min-w-[120px] text-center text-[12px] font-semibold text-[#4e5870]">{cashPeriodLabel}</span>
                         <button
                           type="button"
-                          onClick={() => setCashPeriodOffset((prev) => prev + 1)}
-                          className="grid h-8 w-8 place-items-center rounded-lg text-[#6f7890] transition hover:bg-[#f4f6fb]"
+                          onClick={() => setCashPeriodOffset((prev) => Math.min(0, prev + 1))}
+                          disabled={cashPeriodOffset === 0}
+                          className="grid h-8 w-8 place-items-center rounded-lg text-[#6f7890] transition hover:bg-[#f4f6fb] disabled:cursor-not-allowed disabled:text-[#b8c1d4] disabled:hover:bg-transparent"
                         >
                           <ChevronRight size={16} />
                         </button>
                       </div>
-                    </div>
-
-                    <CashSummaryCards balance={cashBalance} loading={loadingCashSummary} />
-                  </>
-                )}
-
-                {cashActiveView === 'movements' && (
-                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#dce2ee] bg-white p-3">
-                    <p className="text-[12px] font-semibold text-[#4e5870]">
-                      Analisis de movimientos ({cashPeriodLabel})
-                    </p>
-                    <div className="flex items-center gap-1 rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-1">
-                      {(['hoy', 'semana', 'mes'] as CashPeriod[]).map((period) => (
-                        <button
-                          key={`movements-${period}`}
-                          type="button"
-                          onClick={() => {
-                            setCashActivePeriod(period);
-                            setCashPeriodOffset(0);
-                          }}
-                          className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition ${
-                            cashActivePeriod === period
-                              ? 'bg-white text-[#3053e2] shadow-sm'
-                              : 'text-[#6f7890] hover:text-[#4e5870]'
-                          }`}
-                        >
-                          {period === 'hoy' ? 'Hoy' : period === 'semana' ? 'Semana' : 'Mes'}
-                        </button>
-                      ))}
                     </div>
                   </div>
                 )}
@@ -1544,86 +1723,37 @@ export default function AdminPaymentsPlaygroundPage() {
                 )}
 
                 {cashActiveView === 'live' && (
-                  <div className="grid min-h-full grid-cols-1 gap-4 xl:grid-cols-[340px_1fr]">
-                    <div className="space-y-4">
-                      <article className="rounded-xl border border-[#dce2ee] bg-white p-4">
-                        <h2 className="text-[13px] font-semibold text-[#1f2638]">Turno de caja</h2>
-                        {loadingCashShift ? (
-                          <p className="mt-3 text-[12px] text-[#6f7890]">Cargando estado de caja...</p>
-                        ) : cashCurrentShift ? (
-                          <div className="mt-3 rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3 text-[12px] text-[#4e5870]">
-                            <p><span className="font-semibold">Caja:</span> {cashCurrentShift.cashRegister?.name || '-'}</p>
-                            <p><span className="font-semibold">Apertura:</span> {formatDateTime24(cashCurrentShift.openedAt)}</p>
-                            <p><span className="font-semibold">Monto inicial:</span> {formatMoney(cashCurrentShift.openingAmount)}</p>
-                          </div>
-                        ) : (
-                          <p className="mt-3 text-[12px] text-[#6f7890]">No hay turno activo. Usá el botón de estado más abajo para abrir caja.</p>
-                        )}
-                      </article>
-                    </div>
-
-                    <article className="min-h-0 rounded-xl border border-[#dce2ee] bg-white p-4">
-                      <div className="mb-3 flex items-center justify-between">
-                        <h2 className="text-[13px] font-semibold text-[#1f2638]">Panel operativo</h2>
-                        <span className="text-[12px] text-[#6f7890]">Acciones rápidas</span>
-                      </div>
-
-                      <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-[10px] uppercase tracking-wide text-[#6f7890]">Estado de caja</p>
-                            <p className={`mt-1 inline-flex rounded-full px-2 py-1 text-[12px] font-semibold ${cashCurrentShift ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>
-                              {cashCurrentShift ? 'Caja abierta' : 'Caja cerrada'}
-                            </p>
-                            <p className="mt-2 text-[12px] text-[#4e5870]">
-                              {cashCurrentShift
-                                ? 'Registrá movimientos desde la pestaña Movimientos.'
-                                : 'Abrí caja para iniciar la operación diaria.'}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setCashSidebarView(cashCurrentShift ? 'close_shift' : 'open_shift')}
-                            className="h-9 shrink-0 rounded-xl bg-[#3053e2] px-4 text-[12px] font-semibold text-white transition hover:bg-[#2748cc]"
-                          >
-                            {cashCurrentShift ? 'Cerrar caja' : 'Abrir caja'}
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            navigateToPaymentsTab('MOVEMENTS');
-                            setCashSidebarView('movement_create');
-                          }}
-                          className="h-10 rounded-xl border border-[#dce2ee] bg-white px-3 text-[13px] font-semibold text-[#4e5870] transition hover:bg-[#f8f9fd]"
-                        >
-                          Registrar movimiento
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => navigateToPaymentsTab('CLOSURE')}
-                          className="h-10 rounded-xl border border-[#dce2ee] bg-white px-3 text-[13px] font-semibold text-[#4e5870] transition hover:bg-[#f8f9fd]"
-                        >
-                          Ir a cierres
-                        </button>
-                      </div>
-                    </article>
-                  </div>
+                  <CashShiftPanel
+                    shift={cashCurrentShift}
+                    loading={loadingCashShift}
+                    onToggleShift={() => {
+                      if (cashCurrentShift && shouldBlockCloseShiftWithOpenAccounts) {
+                        showAdminToast(closeShiftBlockedMessage);
+                        return;
+                      }
+                      setCashSidebarView(cashCurrentShift ? 'close_shift' : 'open_shift');
+                    }}
+                    onRegisterMovement={() => {
+                      navigateToPaymentsTab('MOVEMENTS');
+                      setCashSidebarView('movement_create');
+                    }}
+                    onGoToClosures={() => navigateToPaymentsTab('CLOSURE')}
+                  />
                 )}
 
                 {cashActiveView === 'movements' && (
-                  <article className="min-h-0 rounded-xl border border-[#dce2ee] bg-white p-4">
-                    <div className="mb-3 flex items-center justify-between">
-                      <h2 className="text-[13px] font-semibold text-[#1f2638]">Movimientos</h2>
+                  <AdminPanel
+                    title="Movimientos"
+                    description="Timeline de ingresos y egresos del período visible."
+                    headerClassName="pl-4 pr-2 py-3"
+                    actions={(
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
                           onClick={() => setCashSidebarView('movement_create')}
-                          className="h-8 rounded-lg bg-[#3053e2] px-2.5 text-[12px] font-semibold text-white shadow-[0_6px_16px_rgba(48,83,226,0.24)] transition hover:bg-[#2746c9]"
+                          className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#3053e2] px-2.5 text-[11px] font-semibold text-white shadow-[0_6px_16px_rgba(48,83,226,0.24)] transition hover:bg-[#2746c9]"
                         >
+                          <Plus size={14} strokeWidth={2.5} />
                           Nuevo movimiento
                         </button>
                         <button
@@ -1638,7 +1768,9 @@ export default function AdminPaymentsPlaygroundPage() {
                           <span>{loadingCashSummary ? 'Actualizando...' : `${filteredCashMovements.length} de ${cashMovements.length}`}</span>
                         </div>
                       </div>
-                    </div>
+                    )}
+                    bodyClassName="p-4"
+                  >
 
                     <div className="mb-3 grid grid-cols-3 gap-2">
                       <MetricCard
@@ -1662,7 +1794,7 @@ export default function AdminPaymentsPlaygroundPage() {
                     </div>
 
                     {cashShowFilters && (
-                      <div className="mb-3 grid grid-cols-1 gap-2 md:grid-cols-[1fr_140px_160px_auto]">
+                      <AdminFilterToolbar className="mb-3 grid grid-cols-1 md:grid-cols-[1fr_140px_160px_auto]">
                         <label className="relative">
                           <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8b93a5]" />
                           <input
@@ -1706,101 +1838,129 @@ export default function AdminPaymentsPlaygroundPage() {
                         >
                           Limpiar filtros
                         </button>
-                      </div>
+                      </AdminFilterToolbar>
                     )}
 
                     <div className="overflow-auto rounded-xl border border-[#dce2ee] bg-white max-h-[68vh] px-4 py-2">
                       <CashMovementsTimeline movements={filteredCashMovements} />
                     </div>
-                  </article>
+                  </AdminPanel>
                 )}
 
                 {cashActiveView === 'closures' && (
-                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                    <article className="rounded-xl border border-[#dce2ee] bg-white p-4">
-                      <h2 className="text-[13px] font-semibold text-[#1f2638]">Estado de cierre</h2>
-                      {cashCurrentShift ? (
-                        <div className="mt-3 space-y-2 text-[13px] text-[#4e5870]">
-                          <p>Hay una caja abierta. Puedes cerrar turno y generar arqueo desde este panel.</p>
-                          <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3 text-[12px]">
-                            <p><span className="font-semibold">Caja:</span> {cashCurrentShift.cashRegister?.name || '-'}</p>
-                            <p><span className="font-semibold">Apertura:</span> {formatDateTime24(cashCurrentShift.openedAt)}</p>
-                            <p><span className="font-semibold">Monto inicial:</span> {formatMoney(Number(cashCurrentShift.openingAmount || 0))}</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCashCloseShiftForm({ countedCash: '' });
-                              setCashSidebarView('close_shift');
-                            }}
-                            className="h-9 rounded-xl bg-[#3053e2] px-3 text-[13px] font-semibold text-white transition hover:bg-[#2748cc]"
-                          >
-                            Cerrar caja
-                          </button>
-                        </div>
-                      ) : (
-                        <p className="mt-3 text-[13px] text-[#6f7890]">No hay caja abierta en este momento.</p>
-                      )}
-                    </article>
-
-                    <article className="rounded-xl border border-[#dce2ee] bg-white p-4">
-                      <h2 className="text-[13px] font-semibold text-[#1f2638]">Último arqueo generado</h2>
-                      {cashLastCloseReport ? (
-                        <>
-                          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                            <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-2">
-                              <p className="text-[10px] uppercase tracking-wide text-[#6f7890]">Esperado</p>
-                              <p className="mt-1 text-[13px] font-semibold text-[#1f2638]">{formatMoney(cashLastCloseReport.expectedCash)}</p>
-                            </div>
-                            <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-2">
-                              <p className="text-[10px] uppercase tracking-wide text-[#6f7890]">Contado</p>
-                              <p className="mt-1 text-[13px] font-semibold text-[#1f2638]">{formatMoney(cashLastCloseReport.countedCash)}</p>
-                            </div>
-                            <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-2">
-                              <p className="text-[10px] uppercase tracking-wide text-[#6f7890]">Diferencia</p>
-                              <p className={`mt-1 text-[13px] font-semibold ${Number(cashLastCloseReport.difference || 0) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
-                                {Number(cashLastCloseReport.difference || 0) >= 0 ? '+' : '-'}{formatMoney(Math.abs(Number(cashLastCloseReport.difference || 0)))}
-                              </p>
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setCashSidebarView('close_report')}
-                            className="mt-3 h-9 rounded-xl border border-[#dce2ee] bg-white px-3 text-[13px] font-semibold text-[#4e5870] transition hover:bg-[#f8f9fd]"
-                          >
-                            Ver detalle del arqueo
-                          </button>
-                        </>
-                      ) : (
-                        <p className="mt-3 text-[13px] text-[#6f7890]">Aún no hay un arqueo generado en esta sesión.</p>
-                      )}
-                    </article>
-                  </div>
+                  <CashCloseFlow
+                    shift={cashCurrentShift}
+                    lastReport={cashLastCloseReport}
+                    onCloseShift={() => {
+                      if (shouldBlockCloseShiftWithOpenAccounts) {
+                        showAdminToast(closeShiftBlockedMessage);
+                        return;
+                      }
+                      setCashCloseShiftForm({ countedCash: '' });
+                      setCashSidebarView('close_shift');
+                    }}
+                    onViewReport={() => setCashSidebarView('close_report')}
+                  />
                 )}
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                  <article className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-3">
-                    <p className="text-[11px] uppercase tracking-wide text-[#6f7890]">Pendientes</p>
-                    <p className="mt-1 text-[24px] font-bold text-[#3053e2]">{pendingRefunds.length}</p>
-                  </article>
-                  <article className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-3">
-                    <p className="text-[11px] uppercase tracking-wide text-[#6f7890]">Total recientes</p>
-                    <p className="mt-1 text-[24px] font-bold text-[#2f5e46]">{recentRefunds.length}</p>
-                  </article>
-                  <article className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-3">
-                    <p className="text-[11px] uppercase tracking-wide text-[#6f7890]">Monto pendiente</p>
-                    <p className="mt-1 text-[24px] font-bold text-[#27314a]">
-                      {formatMoney(pendingRefunds.reduce((sum, refund) => sum + Number(refund.amount || 0), 0))}
-                    </p>
-                  </article>
-                </div>
-                <div className="rounded-xl border border-[#e1e6f1] bg-white">
-                  <div className="border-b border-[#eef2f8] px-3 py-2 text-[12px] font-semibold text-[#44506b]">
-                    Devoluciones recientes
+                <div className="w-full rounded-2xl border border-[#dce2ee] bg-white p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1 rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-1">
+                      {(['hoy', 'semana', 'mes'] as CashPeriod[]).map((period) => (
+                        <button
+                          key={`refunds-${period}`}
+                          type="button"
+                          onClick={() => {
+                            setCashActivePeriod(period);
+                            setCashPeriodOffset(0);
+                          }}
+                          className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition ${
+                            cashActivePeriod === period
+                              ? 'bg-white text-[#3053e2] shadow-sm'
+                              : 'text-[#6f7890] hover:text-[#4e5870]'
+                          }`}
+                        >
+                          {period === 'hoy' ? 'Hoy' : period === 'semana' ? 'Semana' : 'Mes'}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center gap-1 rounded-xl border border-[#dce2ee] bg-white px-1 py-1">
+                      <button
+                        type="button"
+                        onClick={() => setCashPeriodOffset((prev) => prev - 1)}
+                        className="grid h-8 w-8 place-items-center rounded-lg text-[#6f7890] transition hover:bg-[#f4f6fb]"
+                      >
+                        <ChevronLeft size={16} />
+                      </button>
+                      <span className="min-w-[120px] text-center text-[12px] font-semibold text-[#4e5870]">{cashPeriodLabel}</span>
+                      <button
+                        type="button"
+                        onClick={() => setCashPeriodOffset((prev) => Math.min(0, prev + 1))}
+                        disabled={cashPeriodOffset === 0}
+                        className="grid h-8 w-8 place-items-center rounded-lg text-[#6f7890] transition hover:bg-[#f4f6fb] disabled:cursor-not-allowed disabled:text-[#b8c1d4] disabled:hover:bg-transparent"
+                      >
+                        <ChevronRight size={16} />
+                      </button>
+                    </div>
                   </div>
-                  {recentRefunds.length > 0 && (
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <MetricCard label="Pendientes (período)" value={filteredPendingRefunds.length} format="number" valueColor="#3053e2" />
+                  <MetricCard label="Total recientes (período)" value={filteredRecentRefunds.length} format="number" valueColor="#2f5e46" />
+                  <MetricCard label="Monto pendiente (período)" value={filteredPendingRefundAmount} format="money" />
+                </div>
+
+                <AdminPanel
+                  title="Devoluciones recientes"
+                  description="Listado real del período según filtros seleccionados."
+                  headerClassName="pl-4 pr-2 py-3"
+                  actions={(
+                    <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-1 sm:flex-nowrap sm:justify-end">
+                      <label className="relative w-full sm:w-[260px] sm:flex-none">
+                        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8b93a5]" />
+                        <input
+                          type="text"
+                          value={refundSearchTerm}
+                          onChange={(event) => setRefundSearchTerm(event.target.value)}
+                          placeholder="Buscar por código, motivo o referencia"
+                          className="h-8 w-full rounded-xl border border-[#dce2ee] bg-white pl-9 pr-3 text-[12px] outline-none focus:border-[#3053e2]"
+                        />
+                      </label>
+
+                      <select
+                        value={refundStatusFilter}
+                        onChange={(event) => setRefundStatusFilter(event.target.value as RefundStatusFilter)}
+                        className="h-8 min-w-[145px] rounded-xl border border-[#dce2ee] bg-white px-2.5 text-[12px] outline-none focus:border-[#3053e2]"
+                      >
+                        <option value="ALL">Todos los estados</option>
+                        <option value="REQUESTED">Solicitada</option>
+                        <option value="APPROVED">Aprobada</option>
+                        <option value="READY_TO_EXECUTE">Lista</option>
+                        <option value="EXECUTED">Ejecutada</option>
+                        <option value="FAILED">Fallida</option>
+                        <option value="CANCELLED">Cancelada</option>
+                      </select>
+
+                      <select
+                        value={refundMethodFilter}
+                        onChange={(event) => setRefundMethodFilter(event.target.value as RefundMethodFilter)}
+                        className="h-8 min-w-[165px] rounded-xl border border-[#dce2ee] bg-white px-2.5 text-[12px] outline-none focus:border-[#3053e2]"
+                      >
+                        <option value="ALL">Todos los métodos</option>
+                        <option value="CASH">Efectivo</option>
+                        <option value="TRANSFER">Transferencia</option>
+                        <option value="CARD_REVERSAL">Reverso tarjeta</option>
+                        <option value="CREDIT_NOTE">Nota de crédito</option>
+                      </select>
+                    </AdminFilterToolbar>
+                  )}
+                  bodyClassName="p-0"
+                >
+                  {filteredRecentRefunds.length > 0 && (
                     <>
                       <div className="hidden grid-cols-[130px_140px_minmax(0,1fr)_140px_140px_150px_120px] border-b border-[#eef2f8] px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-[#6f7890] lg:grid">
                         <p>Código</p>
@@ -1812,7 +1972,7 @@ export default function AdminPaymentsPlaygroundPage() {
                         <p className="text-right">Monto</p>
                       </div>
                       <div className="hidden divide-y divide-[#eef2f8] lg:block">
-                        {recentRefunds.map((refund) => (
+                        {filteredRecentRefunds.map((refund) => (
                           <div key={`refund-grid-${refund.id}`} className="grid grid-cols-[130px_140px_minmax(0,1fr)_140px_140px_150px_120px] items-center px-3 py-2 text-[12px] text-[#4b5672]">
                             <p className="font-semibold text-[#2a3245]">{refundCodeLabel(refund)}</p>
                             <p>{formatDateTime24(refund.createdAt)}</p>
@@ -1830,8 +1990,14 @@ export default function AdminPaymentsPlaygroundPage() {
                       </div>
                     </>
                   )}
+                  {filteredRecentRefunds.length === 0 && (
+                    <div className="hidden px-3 py-8 text-center lg:block">
+                      <p className="text-[13px] font-semibold text-[#44506b]">No hay devoluciones para este período</p>
+                      <p className="mt-1 text-[12px] text-[#7a8398]">Proba otro rango o ajustá los filtros para ver resultados.</p>
+                    </div>
+                  )}
                   <div className="divide-y divide-[#eef2f8] lg:hidden">
-                    {recentRefunds.map((refund) => (
+                    {filteredRecentRefunds.map((refund) => (
                       <div key={refund.id} className="px-3 py-2 text-[12px] text-[#4b5672]">
                         <div className="flex items-center justify-between gap-2">
                           <p className="font-semibold text-[#2a3245]">{refundCodeLabel(refund)}</p>
@@ -1842,11 +2008,14 @@ export default function AdminPaymentsPlaygroundPage() {
                         <p>{formatMoney(refund.amount)} · {formatDateTime24(refund.createdAt)}</p>
                       </div>
                     ))}
-                    {recentRefunds.length === 0 && (
-                      <p className="px-3 py-4 text-[12px] text-[#7a8398]">No hay devoluciones registradas.</p>
+                    {filteredRecentRefunds.length === 0 && (
+                      <div className="px-3 py-8 text-center">
+                        <p className="text-[13px] font-semibold text-[#44506b]">No hay devoluciones para este período</p>
+                        <p className="mt-1 text-[12px] text-[#7a8398]">Proba otro rango o ajustá los filtros para ver resultados.</p>
+                      </div>
                     )}
                   </div>
-                </div>
+                </AdminPanel>
               </div>
             )}
           </section>
@@ -2286,11 +2455,37 @@ export default function AdminPaymentsPlaygroundPage() {
                           {accountPaymentPendingItems.map((item) => {
                             const checked = accountPaymentSelectedItemIdsDraft.includes(String(item.id));
                             return (
-                              <div key={`account-payment-concept-item-${item.id}`} className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-[#f5f7fc]">
+                              <div
+                                key={`account-payment-concept-item-${item.id}`}
+                                onClick={() => {
+                                  const nextChecked = !checked;
+                                  const nextSet = new Set(accountPaymentSelectedItemIdsDraft.map((value) => String(value || '').trim()).filter(Boolean));
+                                  const itemId = String(item.id);
+                                  const nextDrafts: Record<string, string> = { ...accountPaymentCustomItemAmountDraftById };
+                                  if (nextChecked) {
+                                    nextSet.add(itemId);
+                                    const prevDraft = String(nextDrafts[itemId] ?? '').trim();
+                                    if (!prevDraft) {
+                                      nextDrafts[itemId] = Number(item.remainingAmount || 0).toFixed(2);
+                                    }
+                                  } else {
+                                    nextSet.delete(itemId);
+                                    delete nextDrafts[itemId];
+                                  }
+                                  const nextIds = Array.from(nextSet);
+                                  setAccountPaymentSelectedItemIdsDraft(nextIds);
+                                  setAccountPaymentCustomItemAmountDraftById(nextDrafts);
+                                  setAccountPaymentAmountDraft(
+                                    String(computeAccountConceptBasedMaxAmount('CUSTOM_ITEMS', nextIds, nextDrafts).toFixed(2))
+                                  );
+                                }}
+                                className="flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-[#f5f7fc]"
+                              >
                                 <span className="min-w-0 flex items-center gap-2 text-[12px] text-[#2a3245]">
                                   <input
                                     type="checkbox"
                                     checked={checked}
+                                    onClick={(event) => event.stopPropagation()}
                                     onChange={(event) => {
                                       const nextChecked = event.target.checked;
                                       const nextSet = new Set(accountPaymentSelectedItemIdsDraft.map((value) => String(value || '').trim()).filter(Boolean));
@@ -2324,6 +2519,7 @@ export default function AdminPaymentsPlaygroundPage() {
                                       min={0}
                                       step="0.01"
                                       disabled={!checked}
+                                      onClick={(event) => event.stopPropagation()}
                                       value={
                                         checked
                                           ? String(

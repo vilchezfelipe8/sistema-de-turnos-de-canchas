@@ -12154,12 +12154,43 @@ export default function AdminAgendaPlaygroundPage() {
                                 return (
                                   <div
                                     key={`payment-playtomic-concept-item-${item.id}`}
-                                    className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-[#f5f7fc]"
+                                    onClick={() => {
+                                      const nextChecked = !checked;
+                                      const nextSet = new Set(
+                                        simplifiedPaymentSelectedItemIdsDraft
+                                          .map((value) => String(value || '').trim())
+                                          .filter(Boolean)
+                                      );
+                                      const itemId = String(item.id);
+                                      const nextDrafts: Record<string, string> = {
+                                        ...simplifiedPaymentCustomItemAmountDraftById,
+                                      };
+                                      if (nextChecked) {
+                                        nextSet.add(itemId);
+                                        const prevDraft = String(nextDrafts[itemId] ?? '').trim();
+                                        if (!prevDraft) {
+                                          nextDrafts[itemId] = Number(item.remainingAmount || 0).toFixed(2);
+                                        }
+                                      } else {
+                                        nextSet.delete(itemId);
+                                        delete nextDrafts[itemId];
+                                      }
+                                      const nextIds = Array.from(nextSet);
+                                      setSimplifiedPaymentSelectedItemIdsDraft(nextIds);
+                                      setSimplifiedPaymentCustomItemAmountDraftById(nextDrafts);
+                                      setSimplifiedPaymentAmountDraft(
+                                        formatPaymentAmountDraft(
+                                          computeCustomSelectedAmount(nextIds, nextDrafts)
+                                        )
+                                      );
+                                    }}
+                                    className="flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-[#f5f7fc]"
                                   >
                                     <span className="min-w-0 flex items-center gap-2 text-[12px] text-[#2a3245]">
                                       <input
                                         type="checkbox"
                                         checked={checked}
+                                        onClick={(event) => event.stopPropagation()}
                                         onChange={(event) => {
                                           const nextChecked = event.target.checked;
                                           const nextSet = new Set(
@@ -12216,6 +12247,7 @@ export default function AdminAgendaPlaygroundPage() {
                                           min={0}
                                           step="0.01"
                                           disabled={!checked}
+                                          onClick={(event) => event.stopPropagation()}
                                           value={
                                             checked
                                               ? String(
@@ -12391,12 +12423,43 @@ export default function AdminAgendaPlaygroundPage() {
                                 return (
                                   <div
                                     key={`payment-concept-item-${item.id}`}
-                                    className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-[#f5f7fc]"
+                                    onClick={() => {
+                                      const nextChecked = !checked;
+                                      const nextSet = new Set(
+                                        simplifiedPaymentSelectedItemIdsDraft
+                                          .map((value) => String(value || '').trim())
+                                          .filter(Boolean)
+                                      );
+                                      const itemId = String(item.id);
+                                      const nextDrafts: Record<string, string> = {
+                                        ...simplifiedPaymentCustomItemAmountDraftById,
+                                      };
+                                      if (nextChecked) {
+                                        nextSet.add(itemId);
+                                        const prevDraft = String(nextDrafts[itemId] ?? '').trim();
+                                        if (!prevDraft) {
+                                          nextDrafts[itemId] = Number(item.remainingAmount || 0).toFixed(2);
+                                        }
+                                      } else {
+                                        nextSet.delete(itemId);
+                                        delete nextDrafts[itemId];
+                                      }
+                                      const nextIds = Array.from(nextSet);
+                                      setSimplifiedPaymentSelectedItemIdsDraft(nextIds);
+                                      setSimplifiedPaymentCustomItemAmountDraftById(nextDrafts);
+                                      setSimplifiedPaymentAmountDraft(
+                                        formatPaymentAmountDraft(
+                                          computeCustomSelectedAmount(nextIds, nextDrafts)
+                                        )
+                                      );
+                                    }}
+                                    className="flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-[#f5f7fc]"
                                   >
                                     <span className="min-w-0 flex items-center gap-2 text-[12px] text-[#2a3245]">
                                       <input
                                         type="checkbox"
                                         checked={checked}
+                                        onClick={(event) => event.stopPropagation()}
                                         onChange={(event) => {
                                           const nextChecked = event.target.checked;
                                           const nextSet = new Set(
@@ -12453,6 +12516,7 @@ export default function AdminAgendaPlaygroundPage() {
                                           min={0}
                                           step="0.01"
                                           disabled={!checked}
+                                          onClick={(event) => event.stopPropagation()}
                                           value={
                                             checked
                                               ? String(
