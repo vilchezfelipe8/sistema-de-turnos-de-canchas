@@ -10,6 +10,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import AdminPlaygroundShell from '../../components/admin/AdminPlaygroundShell';
+import ClientsTable from '../../modules/clientes/components/ClientsTable';
 import {
   AdminPaymentFormModal,
   AdminPaymentPreconfirmModal,
@@ -1343,68 +1344,15 @@ export default function AdminClientesPlayground2Page() {
                         </button>
                       </div>
 
-                      <div className="min-h-0 flex-1 overflow-auto rounded-b-xl border-t border-[#dce2ee]">
-                        {loading ? (
-                          <div className="p-8 text-center text-[13px] text-[#6f7890]">Cargando clientes...</div>
-                        ) : filteredClients.length === 0 ? (
-                          <div className="p-8 text-center text-[13px] text-[#6f7890]">No hay clientes para mostrar.</div>
-                        ) : (
-                          <table className="w-full min-w-[900px] text-[13px]">
-                            <thead className="sticky top-0 bg-[#f8f9fd] text-[12px] uppercase tracking-wide text-[#6f7890]">
-                              <tr>
-                                <th className="px-3 py-2 text-left">Cliente</th>
-                                <th className="px-3 py-2 text-left">DNI</th>
-                                <th className="px-3 py-2 text-left">Teléfono</th>
-                                <th className="px-3 py-2 text-left">Email</th>
-                                <th className="px-3 py-2 text-left">Última reserva</th>
-                                <th className="px-3 py-2 text-left">Deuda</th>
-                                <th className="px-3 py-2 text-right">Acciones</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {filteredClients.map((client) => (
-                                <tr key={String(client.id)} className="border-t border-[#edf0f6] hover:bg-[#f4f6fb]">
-                                  <td className="px-3 py-2 font-semibold text-[#1f2638]">{getClientName(client)}</td>
-                                  <td className="px-3 py-2 text-[#4e5870]">{String(client.dni || '-')}</td>
-                                  <td className="px-3 py-2 text-[#4e5870]">{String(client.phone || '-')}</td>
-                                  <td className="px-3 py-2 text-[#4e5870]">{String(client.email || '-')}</td>
-                                  <td className="px-3 py-2 text-[#4e5870]">{client.lastBookingAt ? formatDate(String(client.lastBookingAt)) : '-'}</td>
-                                  <td className={`px-3 py-2 font-semibold ${Number(client.totalDebt || 0) > EPSILON ? 'text-red-700' : 'text-[#6f7890]'}`}>
-                                    {Number(client.totalDebt || 0) > EPSILON ? formatMoney(Number(client.totalDebt || 0)) : 'Sin deuda'}
-                                  </td>
-                                  <td className="px-3 py-2 text-right">
-                                    <div className="inline-flex items-center gap-1">
-                                      <button
-                                        type="button"
-                                        onClick={() => openClientProfile(client)}
-                                        className="h-8 rounded-lg border border-[#dce2ee] bg-white px-2 text-[11px] font-semibold text-[#4e5870] hover:bg-[#f8f9fd]"
-                                      >
-                                        Perfil
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => openEditClient(client)}
-                                        className="grid h-8 w-8 place-items-center rounded-lg border border-[#dce2ee] bg-white text-[#4e5870] hover:bg-[#f8f9fd]"
-                                        title="Editar"
-                                      >
-                                        <Pencil size={13} />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => openDeleteClient(client)}
-                                        className="grid h-8 w-8 place-items-center rounded-lg border border-red-200 bg-white text-red-600 hover:bg-red-50"
-                                        title="Eliminar"
-                                      >
-                                        <Trash2 size={13} />
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        )}
-                      </div>
+                      <ClientsTable
+                        clients={filteredClients}
+                        loading={loading}
+                        onRowClick={openClientProfile}
+                        onEdit={openEditClient}
+                        onDelete={openDeleteClient}
+                        selectedId={selectedClientId}
+                        className="rounded-b-xl"
+                      />
                     </article>
                   </div>
                 )}

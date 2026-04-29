@@ -10,3 +10,7 @@ export { default as AdminPanel } from './AdminPanel';
 export { default as AdminRightSidebar } from './AdminRightSidebar';
 export { default as AdminSidebarScaffold } from './AdminSidebarScaffold';
 export { default as AdminSegmentedControl } from './AdminSegmentedControl';
+export { default as MetricCard } from './MetricCard';
+export type { MetricCardProps, MetricCardFormat, MetricCardDelta } from './MetricCard';
+export { default as MovementsTimeline } from './MovementsTimeline';
+export type { MovementsTimelineItem, MovementsTimelineItemType } from './MovementsTimeline';

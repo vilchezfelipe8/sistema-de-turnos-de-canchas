@@ -2,8 +2,6 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowDownRight,
-  ArrowUpRight,
   ChevronLeft,
   ChevronRight,
   Landmark,
@@ -13,6 +11,12 @@ import {
 import { useRouter } from 'next/router';
 import AgendaLikeRightSidebar from '../../components/admin/AgendaLikeRightSidebar';
 import AdminPlaygroundShell from '../../components/admin/AdminPlaygroundShell';
+import MetricCard from '../../components/admin/ui/MetricCard';
+import CashSummaryCards from '../../modules/caja/components/CashSummaryCards';
+import CashMovementsTimeline from '../../modules/caja/components/CashMovementsTimeline';
+import CashAccountsList from '../../modules/caja/components/CashAccountsList';
+import type { CashAccountItem } from '../../modules/caja/components/CashAccountsList';
+import CashAccountDetailPanel from '../../modules/caja/components/CashAccountDetailPanel';
 import {
   AdminPaymentFormModal,
   AdminPaymentPreconfirmModal,
@@ -1001,6 +1005,34 @@ export default function AdminPaymentsPlaygroundPage() {
     [allAccounts, selectedAccountId]
   );
   const selectedAccountDetail = selectedAccountId ? accountDetailById[selectedAccountId] || null : null;
+
+  // Derived list for CashAccountsList — merges account rows with lazy-loaded detail.
+  const cashAccountItems: CashAccountItem[] = useMemo(
+    () =>
+      filteredAccounts.map((account) => {
+        const d = accountDetailById[account.id];
+        return {
+          id: account.id,
+          status: account.status,
+          sourceType: account.sourceType,
+          hasDebt: account.hasDebt,
+          booking: account.booking ?? null,
+          detail: d
+            ? {
+                total: d.total,
+                paid: d.paid,
+                remaining: d.remaining,
+                lastPaymentAt:
+                  d.payments?.length
+                    ? d.payments[d.payments.length - 1]?.createdAt ?? null
+                    : null,
+              }
+            : null,
+        };
+      }),
+    [filteredAccounts, accountDetailById]
+  );
+
   const selectedAccountDetailLoading = Boolean(
     selectedAccountId && loadingAccountDetailById[selectedAccountId]
   );
@@ -1346,12 +1378,15 @@ export default function AdminPaymentsPlaygroundPage() {
             ) : activeTab === 'ACCOUNTS' ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                  {accountCards.map((card) => (
-                    <article key={card.label} className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-3">
-                      <p className="text-[11px] uppercase tracking-wide text-[#6f7890]">{card.label}</p>
-                      <p className={`mt-1 text-[24px] font-bold ${card.tone}`}>{card.value}</p>
-                    </article>
-                  ))}
+                  <MetricCard label="Cuentas abiertas" value={openAccounts.length} format="number" />
+                  <MetricCard
+                    label="Con deuda"
+                    value={openAccounts.filter((a) => { const d = accountDetailById[a.id]; return !d || d.remaining > 0.009; }).length}
+                    format="number"
+                    valueColor="#9a5a00"
+                  />
+                  <MetricCard label="Cerradas" value={closedAccounts.length} format="number" valueColor="#2f5e46" />
+                  <MetricCard label="Con devoluciones" value={accountsWithRefundsIdSet.size} format="number" valueColor="#7b3fb4" />
                 </div>
                 <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-2">
                   <label className="relative min-w-[280px] flex-1">
@@ -1397,191 +1432,32 @@ export default function AdminPaymentsPlaygroundPage() {
                   </button>
                 </div>
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-                  <div className="rounded-xl border border-[#e1e6f1] bg-white">
-                    <div className="grid grid-cols-[minmax(0,1.2fr)_120px_120px_120px_110px_120px] border-b border-[#eef2f8] px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-[#6f7890]">
-                      <p>Cuenta / Cliente</p>
-                      <p className="text-right">Total</p>
-                      <p className="text-right">Pagado</p>
-                      <p className="text-right">Pendiente</p>
-                      <p className="text-center">Estado</p>
-                      <p className="text-right">Última acción</p>
-                    </div>
-                    <div className="max-h-[420px] overflow-y-auto divide-y divide-[#eef2f8]">
-                      {filteredAccounts.map((account) => {
-                        const isSelected = selectedAccountId === account.id;
-                        const detail = accountDetailById[account.id];
-                        const totalValue = detail ? formatMoney(detail.total) : '--';
-                        const paidValue = detail ? formatMoney(detail.paid) : '--';
-                        const pendingValue = detail
-                          ? formatMoney(detail.remaining)
-                          : account.hasDebt
-                            ? '--'
-                            : '0.00 $';
-                        const lastPaymentDate = detail?.payments?.length
-                          ? detail.payments[detail.payments.length - 1]?.createdAt
-                          : undefined;
-                        return (
-                          <button
-                            key={account.id}
-                            type="button"
-                            onClick={() => setSelectedAccountId(account.id)}
-                            className={`grid w-full grid-cols-[minmax(0,1.2fr)_120px_120px_120px_110px_120px] items-center px-3 py-2 text-left text-[12px] transition ${
-                              isSelected ? 'bg-[#eef2ff]' : 'hover:bg-[#f8faff]'
-                            }`}
-                          >
-                            <div className="min-w-0">
-                              <p className="truncate font-semibold text-[#2a3245]">
-                                {account.booking?.clientName || `Cuenta ${shortCode(account.id)}`}
-                              </p>
-                              <p className="truncate text-[#5f6984]">
-                                {accountSourceLabel(account.sourceType)} · {account.booking?.courtName || 'Sin cancha'} · #{shortCode(account.id)}
-                              </p>
-                            </div>
-                            <p className="text-right font-semibold text-[#27314a]">{totalValue}</p>
-                            <p className="text-right font-semibold text-[#1b7b42]">{paidValue}</p>
-                            <p className="text-right font-semibold text-[#9a5a00]">{pendingValue}</p>
-                            <div className="text-center">
-                              <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                account.status === 'OPEN'
-                                  ? 'bg-[#edf1ff] text-[#3155df]'
-                                  : 'bg-[#e8f8ec] text-[#16733f]'
-                              }`}>
-                                {account.status === 'OPEN' ? 'Abierta' : 'Cerrada'}
-                              </span>
-                            </div>
-                            <p className="text-right text-[11px] text-[#5f6984]">
-                              {lastPaymentDate ? formatDateTime24(lastPaymentDate) : '—'}
-                            </p>
-                          </button>
-                        );
-                      })}
-                      {filteredAccounts.length === 0 && (
-                        <p className="px-3 py-6 text-center text-[12px] text-[#7a8398]">
-                          No hay cuentas para los filtros actuales.
-                        </p>
-                      )}
-                    </div>
+                  <div className="max-h-[560px] overflow-y-auto pr-1">
+                    <CashAccountsList
+                      accounts={cashAccountItems}
+                      selectedId={selectedAccountId}
+                      onSelect={(id) => setSelectedAccountId(id)}
+                      onPay={(id) => {
+                        setSelectedAccountId(id);
+                        setAccountSidebarView('overview');
+                      }}
+                    />
                   </div>
 
-                  <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3">
-                    <p className="text-[14px] font-semibold text-[#1f2638]">Detalle de cuenta</p>
-                    {selectedAccount ? (
-                      <div className="mt-3 space-y-3">
-                        <div className="rounded-xl border border-[#dce2ee] bg-white px-3 py-2">
-                          <p className="text-[11px] text-[#6f7890]">Cuenta</p>
-                          <p className="text-[13px] font-semibold text-[#27314a]">#{shortCode(selectedAccount.id)}</p>
-                          <p className="mt-1 text-[12px] text-[#5f6984]">
-                            {selectedAccount.booking?.clientName || 'Cliente sin asignar'} · {accountSourceLabel(selectedAccount.sourceType)}
-                          </p>
-                        </div>
-                        {selectedAccountDetailLoading ? (
-                          <div className="rounded-xl border border-[#dce2ee] bg-white px-3 py-6 text-center text-[12px] text-[#6f7890]">
-                            Cargando detalle real de la cuenta...
-                          </div>
-                        ) : accountDetailError ? (
-                          <div className="rounded-xl border border-[#f2b8c3] bg-[#fff2f5] px-3 py-2 text-[12px] font-semibold text-[#b42346]">
-                            {accountDetailError}
-                          </div>
-                        ) : selectedAccountDetail ? (
-                          <>
-                            <div className="grid grid-cols-3 gap-2">
-                              <div className="rounded-xl border border-[#dce2ee] bg-white px-3 py-2">
-                                <p className="text-[11px] text-[#6f7890]">Total</p>
-                                <p className="text-[13px] font-semibold text-[#27314a]">
-                                  {formatMoney(selectedAccountDetail.total)}
-                                </p>
-                              </div>
-                              <div className="rounded-xl border border-[#dce2ee] bg-white px-3 py-2">
-                                <p className="text-[11px] text-[#6f7890]">Pagado</p>
-                                <p className="text-[13px] font-semibold text-[#1b7b42]">
-                                  {formatMoney(selectedAccountDetail.paid)}
-                                </p>
-                              </div>
-                              <div className="rounded-xl border border-[#dce2ee] bg-white px-3 py-2">
-                                <p className="text-[11px] text-[#6f7890]">Pendiente</p>
-                                <p className="text-[13px] font-semibold text-[#9a5a00]">
-                                  {formatMoney(selectedAccountDetail.remaining)}
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="rounded-xl border border-[#dce2ee] bg-white">
-                              <div className="border-b border-[#eef2f8] px-3 py-2 text-[12px] font-semibold text-[#27314a]">
-                                Conceptos ({selectedAccountDetail.items.length})
-                              </div>
-                              <div className="max-h-[170px] divide-y divide-[#eef2f8] overflow-y-auto">
-                                {selectedAccountDetail.items.map((item) => (
-                                  <div key={item.id} className="px-3 py-2 text-[12px] text-[#4b5672]">
-                                    <div className="flex items-center justify-between gap-2">
-                                      <p className="font-semibold text-[#2a3245]">{item.description}</p>
-                                      <p className="font-semibold text-[#27314a]">{formatMoney(item.total)}</p>
-                                    </div>
-                                    <p className="text-[11px] text-[#6f7890]">
-                                      {({'BOOKING': 'Cancha', 'PRODUCT': 'Producto', 'SERVICE': 'Servicio', 'ADJUSTMENT': 'Ajuste'} as Record<string, string>)[String(item.type).toUpperCase()] ?? item.type} · Cantidad {item.quantity}
-                                    </p>
-                                  </div>
-                                ))}
-                                {selectedAccountDetail.items.length === 0 && (
-                                  <p className="px-3 py-4 text-[12px] text-[#7a8398]">
-                                    Esta cuenta no tiene conceptos cargados.
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="rounded-xl border border-[#dce2ee] bg-white">
-                              <div className="border-b border-[#eef2f8] px-3 py-2 text-[12px] font-semibold text-[#27314a]">
-                                Pagos ({selectedAccountDetail.payments.length})
-                              </div>
-                              <div className="max-h-[170px] divide-y divide-[#eef2f8] overflow-y-auto">
-                                {selectedAccountDetail.payments.map((payment) => (
-                                  <div key={payment.id} className="px-3 py-2 text-[12px] text-[#4b5672]">
-                                    <div className="flex items-center justify-between gap-2">
-                                      <p className="font-semibold text-[#2a3245]">{paymentMethodLabel(payment.method)}</p>
-                                      <p className="font-semibold text-[#1b7b42]">{formatMoney(payment.amount)}</p>
-                                    </div>
-                                    <p className="text-[11px] text-[#6f7890]">
-                                      {paymentChannelLabel(String(payment.channel || ''))}
-                                      {payment.createdAt ? ` · ${formatDateTime24(payment.createdAt)}` : ''}
-                                    </p>
-                                  </div>
-                                ))}
-                                {selectedAccountDetail.payments.length === 0 && (
-                                  <p className="px-3 py-4 text-[12px] text-[#7a8398]">
-                                    No hay pagos registrados para esta cuenta.
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          </>
-                        ) : (
-                          <div className="rounded-xl border border-[#dce2ee] bg-white px-3 py-6 text-center text-[12px] text-[#6f7890]">
-                            No se encontró detalle para esta cuenta.
-                          </div>
-                        )}
-
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setAccountActionError('');
-                              setAccountSidebarView('overview');
-                            }}
-                            className="h-9 rounded-lg bg-[#3053e2] px-3 inline-flex items-center text-[12px] font-semibold text-white hover:bg-[#2748cc]"
-                          >
-                            Gestionar esta cuenta
-                          </button>
-                          <Link href="/admin/caja?tab=refunds" className="h-9 rounded-lg border border-[#dce2ee] bg-white px-3 inline-flex items-center text-[12px] font-semibold text-[#4b5672] hover:bg-[#f7f9fc]">
-                            Solicitar devolución
-                          </Link>
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="mt-2 text-[12px] text-[#7a8398]">
-                        Seleccioná una cuenta para ver detalle.
-                      </p>
-                    )}
-                  </div>
+                  <CashAccountDetailPanel
+                    account={selectedAccount}
+                    detail={selectedAccountDetail}
+                    loading={selectedAccountDetailLoading}
+                    error={accountDetailError}
+                    onManage={() => {
+                      setAccountActionError('');
+                      setAccountSidebarView('overview');
+                    }}
+                    onPay={() => {
+                      setAccountActionError('');
+                      setAccountSidebarView('overview');
+                    }}
+                  />
                 </div>
               </div>
             ) : isCashSectionTab(activeTab) ? (
@@ -1628,28 +1504,7 @@ export default function AdminPaymentsPlaygroundPage() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-                      <article className="rounded-xl border border-[#dce2ee] bg-white p-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#6f7890]">Saldo Total</p>
-                        <p className="mt-2 text-lg font-semibold text-[#1f2638]">{formatMoney(cashBalance.total)}</p>
-                      </article>
-                      <article className="rounded-xl border border-[#dce2ee] bg-white p-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#6f7890]">Ingresos</p>
-                        <p className="mt-2 flex items-center gap-1 text-lg font-semibold text-[#15803d]"><ArrowUpRight size={18} />{formatMoney(cashBalance.income)}</p>
-                      </article>
-                      <article className="rounded-xl border border-[#dce2ee] bg-white p-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#6f7890]">Egresos</p>
-                        <p className="mt-2 flex items-center gap-1 text-lg font-semibold text-[#b91c1c]"><ArrowDownRight size={18} />{formatMoney(cashBalance.expense)}</p>
-                      </article>
-                      <article className="rounded-xl border border-[#dce2ee] bg-white p-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#6f7890]">Caja Efectivo</p>
-                        <p className="mt-2 text-lg font-semibold text-[#1f2638]">{formatMoney(cashBalance.cash)}</p>
-                      </article>
-                      <article className="rounded-xl border border-[#dce2ee] bg-white p-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#6f7890]">Caja Digital</p>
-                        <p className="mt-2 text-lg font-semibold text-[#1f2638]">{formatMoney(cashBalance.digital)}</p>
-                      </article>
-                    </div>
+                    <CashSummaryCards balance={cashBalance} loading={loadingCashSummary} />
                   </>
                 )}
 
@@ -1786,20 +1641,24 @@ export default function AdminPaymentsPlaygroundPage() {
                     </div>
 
                     <div className="mb-3 grid grid-cols-3 gap-2">
-                      <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-2">
-                        <p className="text-[10px] uppercase tracking-wide text-[#6f7890]">Resultado visible</p>
-                        <p className={`mt-1 text-[13px] font-semibold ${filteredNetAmount >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
-                          {filteredNetAmount >= 0 ? '+' : '-'}{formatMoney(Math.abs(filteredNetAmount))}
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-2">
-                        <p className="text-[10px] uppercase tracking-wide text-[#6f7890]">Ingresos visibles</p>
-                        <p className="mt-1 text-[13px] font-semibold text-emerald-700">{formatMoney(filteredIncomeAmount)}</p>
-                      </div>
-                      <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-2">
-                        <p className="text-[10px] uppercase tracking-wide text-[#6f7890]">Egresos visibles</p>
-                        <p className="mt-1 text-[13px] font-semibold text-red-700">{formatMoney(filteredExpenseAmount)}</p>
-                      </div>
+                      <MetricCard
+                        label="Resultado visible"
+                        value={Math.abs(filteredNetAmount)}
+                        format="money"
+                        valueColor={filteredNetAmount >= 0 ? '#15803d' : '#b91c1c'}
+                      />
+                      <MetricCard
+                        label="Ingresos visibles"
+                        value={filteredIncomeAmount}
+                        format="money"
+                        valueColor="#15803d"
+                      />
+                      <MetricCard
+                        label="Egresos visibles"
+                        value={filteredExpenseAmount}
+                        format="money"
+                        valueColor="#b91c1c"
+                      />
                     </div>
 
                     {cashShowFilters && (
@@ -1850,43 +1709,8 @@ export default function AdminPaymentsPlaygroundPage() {
                       </div>
                     )}
 
-                    <div className="overflow-auto rounded-xl border border-[#dce2ee] max-h-[68vh]">
-                      {filteredCashMovements.length === 0 ? (
-                        <div className="p-8 text-center text-[13px] text-[#6f7890]">
-                          {cashMovements.length === 0
-                            ? 'No hay movimientos para el periodo seleccionado.'
-                            : 'No hay coincidencias con los filtros actuales.'}
-                        </div>
-                      ) : (
-                        <table className="w-full min-w-[680px] text-[13px]">
-                          <thead className="sticky top-0 bg-[#f8f9fd] text-[12px] uppercase tracking-wide text-[#6f7890]">
-                            <tr>
-                              <th className="px-3 py-2 text-left">Fecha</th>
-                              <th className="px-3 py-2 text-left">Concepto</th>
-                              <th className="px-3 py-2 text-left">Método</th>
-                              <th className="px-3 py-2 text-left">Tipo</th>
-                              <th className="px-3 py-2 text-right">Monto</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {filteredCashMovements.map((movement) => (
-                              <tr key={movement.id} className="border-t border-[#edf0f6] transition hover:bg-[#f4f6fb]">
-                                <td className="px-3 py-1.5 text-[12px] text-[#4e5870]">{formatDateTime24(movement.date)}</td>
-                                <td className="px-3 py-1.5 text-[#1f2638]">{movement.description}</td>
-                                <td className="px-3 py-1.5 text-[#4e5870]">{movementMethodLabel(movement.method)}</td>
-                                <td className="px-3 py-1.5">
-                                  <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${movement.type === 'INCOME' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                                    {movement.type === 'INCOME' ? 'Ingreso' : 'Egreso'}
-                                  </span>
-                                </td>
-                                <td className={`px-3 py-1.5 text-right font-semibold ${movement.type === 'INCOME' ? 'text-emerald-700' : 'text-red-700'}`}>
-                                  {movement.type === 'INCOME' ? '+' : '-'}{formatMoney(movement.amount)}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
+                    <div className="overflow-auto rounded-xl border border-[#dce2ee] bg-white max-h-[68vh] px-4 py-2">
+                      <CashMovementsTimeline movements={filteredCashMovements} />
                     </div>
                   </article>
                 )}
