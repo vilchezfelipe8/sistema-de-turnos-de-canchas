@@ -166,6 +166,7 @@ export default function AdminClientesPlayground2Page() {
   const [accountDrawerAccountId, setAccountDrawerAccountId] = useState('');
   const [accountDrawerInitialView, setAccountDrawerInitialView] =
     useState<AccountDrawerInitialView>('overview');
+  const [debtSearchTerm, setDebtSearchTerm] = useState('');
 
   const [selectedClientDiscountAssignments, setSelectedClientDiscountAssignments] = useState<any[]>([]);
   const [loadingDiscountAssignments, setLoadingDiscountAssignments] = useState(false);
@@ -277,29 +278,39 @@ export default function AdminClientesPlayground2Page() {
   );
 
   const filteredClients = useMemo(() => {
-    const source = activeView === 'debt' ? clientsWithOpenDebt : clients;
     const q = searchTerm.trim().toLowerCase();
-    if (!q) return source;
-    return source.filter((client) => {
+    if (!q) return clients;
+    return clients.filter((client) => {
       const name = getClientName(client).toLowerCase();
       const phone = String(client?.phone || '').toLowerCase();
       const dni = String(client?.dni || '').toLowerCase();
       const email = String(client?.email || '').toLowerCase();
       return name.includes(q) || phone.includes(q) || dni.includes(q) || email.includes(q);
     });
-  }, [activeView, clients, clientsWithOpenDebt, searchTerm]);
+  }, [clients, searchTerm]);
+
+  const debtFilteredClients = useMemo(() => {
+    const q = debtSearchTerm.trim().toLowerCase();
+    if (!q) return clientsWithOpenDebt;
+    return clientsWithOpenDebt.filter((client) => {
+      const name = getClientName(client).toLowerCase();
+      const phone = String(client?.phone || '').toLowerCase();
+      const dni = String(client?.dni || '').toLowerCase();
+      return name.includes(q) || phone.includes(q) || dni.includes(q);
+    });
+  }, [clientsWithOpenDebt, debtSearchTerm]);
 
   useEffect(() => {
     if (activeView !== 'debt') return;
-    if (filteredClients.length === 0) {
+    if (debtFilteredClients.length === 0) {
       setSelectedClientId('');
       return;
     }
-    const selectedStillValid = filteredClients.some((client) => String(client.id) === String(selectedClientId));
+    const selectedStillValid = debtFilteredClients.some((client) => String(client.id) === String(selectedClientId));
     if (!selectedStillValid) {
-      setSelectedClientId(String(filteredClients[0].id));
+      setSelectedClientId(String(debtFilteredClients[0].id));
     }
-  }, [activeView, filteredClients, selectedClientId]);
+  }, [activeView, debtFilteredClients, selectedClientId]);
 
   const selectedClient = useMemo(
     () => clients.find((client) => String(client.id) === String(selectedClientId)) || null,
@@ -539,7 +550,7 @@ export default function AdminClientesPlayground2Page() {
                 options={[
                   { value: 'directory', label: 'Directorio' },
                   { value: 'debt', label: 'Cuentas y deuda' },
-                  { value: 'history', label: 'Historial' },
+                  { value: 'history', label: 'Perfil' },
                 ]}
                 className="w-fit"
               />
@@ -604,83 +615,123 @@ export default function AdminClientesPlayground2Page() {
 
                 {activeView === 'debt' && (
                   <div className="grid h-full grid-cols-1 gap-4 xl:grid-cols-[360px_1fr]">
+                    {/* Left: debtor list with search + count badge */}
                     <article className="flex min-h-0 flex-col rounded-xl border border-[#dce2ee] bg-white">
                       <div className="p-4 pb-3">
-                        <h2 className="text-[13px] font-semibold text-[#1f2638]">Clientes con deuda</h2>
-                        <p className="mt-1 text-[12px] text-[#6f7890]">Selecciona un cliente para revisar cuentas pendientes.</p>
+                        <div className="flex items-center justify-between">
+                          <h2 className="text-[13px] font-semibold text-[#1f2638]">Clientes con deuda</h2>
+                          <span className="rounded-full border border-red-100 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">
+                            {clientsWithOpenDebt.length}
+                          </span>
+                        </div>
+                        <div className="relative mt-3">
+                          <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8b93a5]" />
+                          <input
+                            type="text"
+                            value={debtSearchTerm}
+                            onChange={(event) => setDebtSearchTerm(event.target.value)}
+                            placeholder="Buscar deudor..."
+                            className="h-8 w-full rounded-xl border border-[#dce2ee] bg-[#f8f9fd] pl-9 pr-3 text-[12px] outline-none focus:border-[#3053e2]"
+                          />
+                        </div>
                       </div>
 
                       <div className="min-h-0 flex-1 overflow-auto border-t border-[#dce2ee]">
                         {loading ? (
                           <div className="p-6 text-center text-[13px] text-[#6f7890]">Cargando...</div>
-                        ) : filteredClients.length === 0 ? (
-                          <div className="p-6 text-center text-[13px] text-[#6f7890]">No hay clientes con deuda.</div>
+                        ) : debtFilteredClients.length === 0 ? (
+                          <div className="p-6 text-center text-[13px] text-[#6f7890]">
+                            {debtSearchTerm ? 'Sin resultados.' : 'No hay clientes con deuda.'}
+                          </div>
                         ) : (
                           <ul className="divide-y divide-[#eef2f7]">
-                            {filteredClients.map((client) => (
-                              <li key={String(client.id)}>
-                                <button
-                                  type="button"
-                                  onClick={() => setSelectedClientId(String(client.id))}
-                                  className={`w-full px-3 py-3 text-left transition ${
-                                    String(selectedClientId) === String(client.id) ? 'bg-[#edf1ff]' : 'hover:bg-[#f8f9fd]'
-                                  }`}
-                                >
-                                  <p className="text-[13px] font-semibold text-[#1f2638]">{getClientName(client)}</p>
-                                  <p className="text-[12px] text-red-700">Pendiente: {formatMoney(Number(client.totalDebt || 0))}</p>
-                                </button>
-                              </li>
-                            ))}
+                            {debtFilteredClients.map((client) => {
+                              const pendingCount = (Array.isArray(client.history) ? client.history : []).filter(
+                                (a: any) => Number(a?.amount || 0) > EPSILON
+                              ).length;
+                              return (
+                                <li key={String(client.id)}>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedClientId(String(client.id))}
+                                    className={`w-full px-3 py-3 text-left transition ${
+                                      String(selectedClientId) === String(client.id) ? 'bg-[#edf1ff]' : 'hover:bg-[#f8f9fd]'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <p className="truncate text-[13px] font-semibold text-[#1f2638]">{getClientName(client)}</p>
+                                      {pendingCount > 0 && (
+                                        <span className="flex-none rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
+                                          {pendingCount}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="text-[12px] font-semibold text-red-600">{formatMoney(Number(client.totalDebt || 0))}</p>
+                                  </button>
+                                </li>
+                              );
+                            })}
                           </ul>
                         )}
                       </div>
                     </article>
 
+                    {/* Right: pending accounts for selected debtor */}
                     <article className="flex min-h-0 flex-col rounded-xl border border-[#dce2ee] bg-white">
                       <div className="flex items-center justify-between p-4 pb-3">
                         <h2 className="text-[13px] font-semibold text-[#1f2638]">Cuentas pendientes</h2>
-                        <span className="text-[12px] text-[#6f7890]">{selectedClient ? getClientName(selectedClient) : 'Sin seleccion'}</span>
+                        {selectedClient && (
+                          <span className="text-[12px] font-semibold text-[#1f2638]">{getClientName(selectedClient)}</span>
+                        )}
                       </div>
 
                       <div className="min-h-0 flex-1 overflow-auto border-t border-[#dce2ee] p-4">
-                      {!selectedClient ? (
-                        <div className="rounded-xl border border-[#dce2ee] p-8 text-center text-[13px] text-[#6f7890]">Selecciona un cliente para ver su deuda.</div>
-                      ) : selectedDebtorPendingEntries.length === 0 ? (
-                        <div className="rounded-xl border border-[#dce2ee] p-8 text-center text-[13px] text-[#6f7890]">Este cliente no tiene cuentas pendientes.</div>
-                      ) : (
-                        <div className="space-y-3">
-                          {selectedDebtorPendingEntries.map((account: any) => (
-                            <div key={String(account.id)} className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div>
-                                  <p className="text-[13px] font-semibold text-[#1f2638]">Cuenta {formatAccountSourceType(account.sourceType)} #{shortId(account.id)}</p>
-                                  <p className="text-[12px] text-[#6f7890]">{formatDate(account.date)} {account.time ? `· ${account.time}` : ''}</p>
+                        {!selectedClient ? (
+                          <div className="rounded-xl border border-[#dce2ee] p-8 text-center text-[13px] text-[#6f7890]">
+                            Selecciona un cliente para ver su deuda.
+                          </div>
+                        ) : selectedDebtorPendingEntries.length === 0 ? (
+                          <div className="rounded-xl border border-[#dce2ee] p-8 text-center text-[13px] text-[#6f7890]">
+                            Este cliente no tiene cuentas pendientes.
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {selectedDebtorPendingEntries.map((account: any) => (
+                              <div key={String(account.id)} className="rounded-xl border border-[#dce2ee] bg-white p-4">
+                                <div className="flex flex-wrap items-start justify-between gap-2">
+                                  <div>
+                                    <p className="text-[13px] font-semibold text-[#1f2638]">
+                                      {formatAccountSourceType(account.sourceType)}{' '}
+                                      <span className="font-normal text-[#6f7890]">#{shortId(account.id)}</span>
+                                    </p>
+                                    <p className="mt-0.5 text-[12px] text-[#6f7890]">
+                                      {formatDate(account.date)}{account.time ? ` · ${account.time}` : ''}
+                                    </p>
+                                  </div>
+                                  <span className="rounded-full border border-red-100 bg-red-50 px-2.5 py-1 text-[12px] font-bold text-red-700">
+                                    {formatMoney(Number(account.amount || 0))}
+                                  </span>
                                 </div>
-                                <div className="text-right">
-                                  <p className="text-[12px] text-[#6f7890]">Pendiente</p>
-                                  <p className="text-[13px] font-semibold text-red-700">{formatMoney(Number(account.amount || 0))}</p>
+                                <div className="mt-3 flex items-center justify-end gap-2 border-t border-[#eef2f7] pt-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => openAccountDrawer(String(account.id), 'overview')}
+                                    className="h-8 rounded-lg border border-[#dce2ee] bg-white px-3 text-[12px] font-semibold text-[#4e5870] hover:bg-[#f8f9fd]"
+                                  >
+                                    Ver detalle
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => openAccountDrawer(String(account.id), 'payment')}
+                                    className="h-8 rounded-lg bg-[#3053e2] px-3 text-[12px] font-semibold text-white hover:bg-[#2748cc]"
+                                  >
+                                    <span className="inline-flex items-center gap-1"><DollarSign size={13} /> Cobrar</span>
+                                  </button>
                                 </div>
                               </div>
-                              <div className="mt-2 flex items-center justify-end gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => openAccountDrawer(String(account.id), 'overview')}
-                                  className="h-8 rounded-lg border border-[#dce2ee] bg-white px-2.5 text-[12px] font-semibold text-[#4e5870] hover:bg-[#f8f9fd]"
-                                >
-                                  Ver detalle
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => openAccountDrawer(String(account.id), 'payment')}
-                                  className="h-8 rounded-lg bg-[#3053e2] px-2.5 text-[12px] font-semibold text-white hover:bg-[#2748cc]"
-                                >
-                                  <span className="inline-flex items-center gap-1"><DollarSign size={13} /> Cobrar</span>
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </article>
                   </div>
@@ -688,9 +739,20 @@ export default function AdminClientesPlayground2Page() {
 
                 {activeView === 'history' && (
                   <div className="grid h-full grid-cols-1 gap-4 xl:grid-cols-[320px_1fr]">
+                    {/* Left: client list with search + debt badge */}
                     <article className="flex min-h-0 flex-col rounded-xl border border-[#dce2ee] bg-white">
                       <div className="p-4 pb-3">
                         <h2 className="text-[13px] font-semibold text-[#1f2638]">Clientes</h2>
+                        <div className="relative mt-3">
+                          <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8b93a5]" />
+                          <input
+                            type="text"
+                            value={searchTerm}
+                            onChange={(event) => setSearchTerm(event.target.value)}
+                            placeholder="Buscar cliente..."
+                            className="h-8 w-full rounded-xl border border-[#dce2ee] bg-[#f8f9fd] pl-9 pr-3 text-[12px] outline-none focus:border-[#3053e2]"
+                          />
+                        </div>
                       </div>
                       <div className="min-h-0 flex-1 overflow-auto border-t border-[#dce2ee]">
                         {loading ? (
@@ -699,129 +761,242 @@ export default function AdminClientesPlayground2Page() {
                           <div className="p-6 text-center text-[13px] text-[#6f7890]">Sin clientes.</div>
                         ) : (
                           <ul className="divide-y divide-[#eef2f7]">
-                            {filteredClients.map((client) => (
-                              <li key={String(client.id)}>
-                                <button
-                                  type="button"
-                                  onClick={() => setSelectedClientId(String(client.id))}
-                                  className={`w-full px-3 py-3 text-left transition ${
-                                    String(selectedClientId) === String(client.id) ? 'bg-[#edf1ff]' : 'hover:bg-[#f8f9fd]'
-                                  }`}
-                                >
-                                  <p className="text-[13px] font-semibold text-[#1f2638]">{getClientName(client)}</p>
-                                  <p className="text-[12px] text-[#6f7890]">{String(client.phone || client.email || '-')}</p>
-                                </button>
-                              </li>
-                            ))}
+                            {filteredClients.map((client) => {
+                              const hasDebt = Number(client?.totalDebt || 0) > EPSILON;
+                              return (
+                                <li key={String(client.id)}>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedClientId(String(client.id))}
+                                    className={`w-full px-3 py-3 text-left transition ${
+                                      String(selectedClientId) === String(client.id) ? 'bg-[#edf1ff]' : 'hover:bg-[#f8f9fd]'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <p className="truncate text-[13px] font-semibold text-[#1f2638]">{getClientName(client)}</p>
+                                      {hasDebt && (
+                                        <span className="flex-none rounded-full border border-red-100 bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-600">
+                                          Deuda
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="truncate text-[12px] text-[#6f7890]">{String(client.phone || client.email || '-')}</p>
+                                  </button>
+                                </li>
+                              );
+                            })}
                           </ul>
                         )}
                       </div>
                     </article>
 
-                    <article className="flex min-h-0 flex-col overflow-auto rounded-xl border border-[#dce2ee] bg-white p-4">
+                    {/* Right: Perfil panel */}
+                    <article className="flex min-h-0 flex-col overflow-auto rounded-xl border border-[#dce2ee] bg-white">
                       {!selectedClient ? (
-                        <div className="rounded-xl border border-[#dce2ee] p-8 text-center text-[13px] text-[#6f7890]">Selecciona un cliente para ver su perfil.</div>
+                        <div className="p-8 text-center text-[13px] text-[#6f7890]">
+                          Selecciona un cliente para ver su perfil.
+                        </div>
                       ) : (
-                        <div className="space-y-4">
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                            <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3">
-                              <p className="text-[10px] uppercase tracking-wide text-[#6f7890]">Cliente</p>
-                              <p className="mt-1 text-[13px] font-semibold text-[#1f2638]">{getClientName(selectedClient)}</p>
-                            </div>
-                            <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3">
-                              <p className="text-[10px] uppercase tracking-wide text-[#6f7890]">DNI</p>
-                              <p className="mt-1 text-[13px] font-semibold text-[#1f2638]">{String(selectedClient.dni || '-')}</p>
-                            </div>
-                            <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3">
-                              <p className="text-[10px] uppercase tracking-wide text-[#6f7890]">Telefono</p>
-                              <p className="mt-1 text-[13px] font-semibold text-[#1f2638]">{String(selectedClient.phone || '-')}</p>
-                            </div>
-                            <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3">
-                              <p className="text-[10px] uppercase tracking-wide text-[#6f7890]">Email</p>
-                              <p className="mt-1 text-[13px] font-semibold text-[#1f2638] break-all">{String(selectedClient.email || '-')}</p>
-                            </div>
-                            <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3">
-                              <p className="text-[10px] uppercase tracking-wide text-[#6f7890]">Total reservas</p>
-                              <p className="mt-1 text-[13px] font-semibold text-[#1f2638]">{Number(selectedClient.totalBookings || 0)}</p>
-                            </div>
-                            <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3">
-                              <p className="text-[10px] uppercase tracking-wide text-[#6f7890]">Saldo actual</p>
-                              <p className={`mt-1 text-[13px] font-semibold ${Number(selectedClient.totalDebt || 0) > EPSILON ? 'text-red-700' : 'text-[#6f7890]'}`}>
-                                {Number(selectedClient.totalDebt || 0) > EPSILON ? formatMoney(Number(selectedClient.totalDebt || 0)) : 'Sin deuda'}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="rounded-xl border border-[#dce2ee] p-3">
-                            <h3 className="text-[13px] font-semibold text-[#1f2638]">Asignaciones de descuentos</h3>
-                            {loadingDiscountAssignments ? (
-                              <p className="mt-2 text-[12px] text-[#6f7890]">Cargando asignaciones...</p>
-                            ) : selectedClientDiscountAssignments.length === 0 ? (
-                              <p className="mt-2 text-[12px] text-[#6f7890]">Sin asignaciones registradas.</p>
-                            ) : (
-                              <ul className="mt-2 space-y-1">
-                                {selectedClientDiscountAssignments.map((assignment: any, index: number) => (
-                                  <li key={String(assignment?.id || `${index}`)} className="rounded-lg border border-[#dce2ee] bg-[#f8f9fd] px-2 py-1.5 text-[12px] text-[#4e5870]">
-                                    {String(assignment?.policy?.name || assignment?.policyName || assignment?.policyId || 'Politica')}
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
-
-                          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                            <div className="rounded-xl border border-[#dce2ee] p-3">
-                              <h3 className="text-[13px] font-semibold text-[#1f2638]">Historial de reservas</h3>
-                              <div className="mt-2 max-h-[280px] overflow-auto">
-                                {historyBookings.length === 0 ? (
-                                  <p className="text-[12px] text-[#6f7890]">Sin reservas registradas.</p>
-                                ) : (
-                                  <ul className="space-y-2">
-                                    {historyBookings.map((booking: any) => (
-                                      <li key={String(booking.bookingId)} className="rounded-lg border border-[#dce2ee] bg-[#f8f9fd] px-3 py-2">
-                                        <p className="text-[12px] font-semibold text-[#1f2638]">Reserva #{booking.bookingId}</p>
-                                        <p className="text-[12px] text-[#6f7890]">{formatDate(booking.date)}{booking.time ? ` · ${booking.time}` : ''} · {booking.courtName || '-'}</p>
-                                        <p className="text-[12px] text-[#4e5870]">{bookingStatusLabel[booking.status] || booking.status || 'Sin estado'} · {formatMoney(Number(booking.amount || 0))}</p>
-                                      </li>
-                                    ))}
-                                  </ul>
-              )}
-            </div>
-
-            {adminToasts.length > 0 && (
-              <div className="pointer-events-none fixed right-5 top-[84px] z-[150] flex w-full max-w-[360px] flex-col gap-2">
-                {adminToasts.map((toast) => (
-                  <div
-                    key={toast.id}
-                    className="rounded-xl border border-[#dce2ee] bg-white px-3 py-2 text-[12px] font-semibold text-[#27314a] shadow-lg"
-                  >
-                    {toast.message}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-                            <div className="rounded-xl border border-[#dce2ee] p-3">
-                              <h3 className="text-[13px] font-semibold text-[#1f2638]">Historial de cuentas</h3>
-                              <div className="mt-2 max-h-[280px] overflow-auto">
-                                {historyAccounts.length === 0 ? (
-                                  <p className="text-[12px] text-[#6f7890]">Sin cuentas registradas.</p>
-                                ) : (
-                                  <ul className="space-y-2">
-                                    {historyAccounts.map((account: any) => (
-                                      <li key={String(account.id)} className="rounded-lg border border-[#dce2ee] bg-[#f8f9fd] px-3 py-2">
-                                        <p className="text-[12px] font-semibold text-[#1f2638]">Cuenta {formatAccountSourceType(account.sourceType)} #{shortId(account.id)}</p>
-                                        <p className="text-[12px] text-[#6f7890]">{formatDate(account.date)}{account.time ? ` · ${account.time}` : ''}</p>
-                                        <p className="text-[12px] text-[#4e5870]">Total {formatMoney(Number(account.totalAmount || 0))} · Pendiente {formatMoney(Number(account.amount || 0))}</p>
-                                      </li>
-                                    ))}
-                                  </ul>
+                        <>
+                          {/* Hero */}
+                          <div className="flex items-start justify-between gap-4 border-b border-[#eef2f7] p-5">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h2 className="text-[18px] font-bold text-[#1f2638]">{getClientName(selectedClient)}</h2>
+                                {selectedClient.isProfessor && (
+                                  <span className="rounded-full bg-[#edf1ff] px-2 py-0.5 text-[11px] font-semibold text-[#3053e2]">
+                                    Profesor
+                                  </span>
                                 )}
                               </div>
+                              <p className="mt-0.5 text-[12px] text-[#6f7890]">ID #{shortId(selectedClient.id)}</p>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => openEditClient(selectedClient)}
+                              className="h-8 flex-none rounded-lg border border-[#dce2ee] bg-white px-3 text-[12px] font-semibold text-[#4e5870] hover:bg-[#f8f9fd]"
+                            >
+                              <span className="inline-flex items-center gap-1.5"><Pencil size={13} /> Editar</span>
+                            </button>
                           </div>
-                        </div>
+
+                          {/* Debt banner */}
+                          {Number(selectedClient.totalDebt || 0) > EPSILON && (
+                            <div className="flex items-center justify-between gap-3 bg-red-600 px-5 py-3">
+                              <div>
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-red-200">Deuda pendiente</p>
+                                <p className="text-[20px] font-bold leading-tight text-white">
+                                  {formatMoney(Number(selectedClient.totalDebt || 0))}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setActiveView('debt')}
+                                className="h-8 flex-none rounded-lg bg-white px-3 text-[12px] font-bold text-red-700 hover:bg-red-50"
+                              >
+                                <span className="inline-flex items-center gap-1"><DollarSign size={13} /> Cobrar</span>
+                              </button>
+                            </div>
+                          )}
+
+                          <div className="space-y-5 p-5">
+                            {/* Quick stats */}
+                            <div className="grid grid-cols-3 gap-3">
+                              <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3 text-center">
+                                <p className="text-[18px] font-bold text-[#1f2638]">{Number(selectedClient.totalBookings || 0)}</p>
+                                <p className="mt-0.5 text-[11px] text-[#6f7890]">Reservas</p>
+                              </div>
+                              <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3 text-center">
+                                <p className="text-[18px] font-bold text-[#1f2638]">{historyAccounts.length}</p>
+                                <p className="mt-0.5 text-[11px] text-[#6f7890]">Cuentas</p>
+                              </div>
+                              <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3 text-center">
+                                <p className="text-[14px] font-bold text-[#1f2638]">
+                                  {selectedClient.isProfessor ? 'Profesor' : 'Cliente'}
+                                </p>
+                                <p className="mt-0.5 text-[11px] text-[#6f7890]">Rol</p>
+                              </div>
+                            </div>
+
+                            {/* Contact */}
+                            <div>
+                              <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-[#6f7890]">
+                                Contacto
+                              </h3>
+                              <div className="divide-y divide-[#eef2f7] rounded-xl border border-[#dce2ee] text-[13px]">
+                                <div className="grid grid-cols-[90px_1fr] gap-2 px-3 py-2.5">
+                                  <span className="text-[#6f7890]">DNI</span>
+                                  <span className="font-semibold text-[#1f2638]">{String(selectedClient.dni || '-')}</span>
+                                </div>
+                                <div className="grid grid-cols-[90px_1fr] gap-2 px-3 py-2.5">
+                                  <span className="text-[#6f7890]">Teléfono</span>
+                                  <span className="font-semibold text-[#1f2638]">{String(selectedClient.phone || '-')}</span>
+                                </div>
+                                <div className="grid grid-cols-[90px_1fr] gap-2 px-3 py-2.5">
+                                  <span className="text-[#6f7890]">Email</span>
+                                  <span className="break-all font-semibold text-[#1f2638]">{String(selectedClient.email || '-')}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Descuentos — only shown if assigned */}
+                            {!loadingDiscountAssignments && selectedClientDiscountAssignments.length > 0 && (
+                              <div>
+                                <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-[#6f7890]">
+                                  Descuentos
+                                </h3>
+                                <div className="flex flex-wrap gap-2">
+                                  {selectedClientDiscountAssignments.map((assignment: any, index: number) => (
+                                    <span
+                                      key={String(assignment?.id || index)}
+                                      className="rounded-full border border-[#dce2ee] bg-[#f8f9fd] px-3 py-1 text-[12px] font-semibold text-[#4e5870]"
+                                    >
+                                      {String(assignment?.policy?.name || assignment?.policyName || 'Política')}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Cuentas */}
+                            {historyAccounts.length > 0 && (
+                              <div>
+                                <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-[#6f7890]">
+                                  Cuentas ({historyAccounts.length})
+                                </h3>
+                                <div className="space-y-2">
+                                  {historyAccounts.map((account: any) => {
+                                    const isPending = Number(account?.amount || 0) > EPSILON;
+                                    return (
+                                      <div
+                                        key={String(account.id)}
+                                        className="flex items-center gap-3 rounded-xl border border-[#dce2ee] bg-white px-3 py-2.5"
+                                      >
+                                        <div className="min-w-0 flex-1">
+                                          <p className="text-[13px] font-semibold text-[#1f2638]">
+                                            {formatAccountSourceType(account.sourceType)}{' '}
+                                            <span className="font-normal text-[#6f7890]">#{shortId(account.id)}</span>
+                                          </p>
+                                          <p className="text-[12px] text-[#6f7890]">
+                                            {formatDate(account.date)}{account.time ? ` · ${account.time}` : ''}
+                                          </p>
+                                        </div>
+                                        {isPending && (
+                                          <span className="flex-none rounded-full border border-red-100 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">
+                                            {formatMoney(Number(account.amount || 0))}
+                                          </span>
+                                        )}
+                                        <div className="flex gap-1.5">
+                                          <button
+                                            type="button"
+                                            onClick={() => openAccountDrawer(String(account.id), 'overview')}
+                                            className="h-7 rounded-lg border border-[#dce2ee] bg-white px-2 text-[11px] font-semibold text-[#4e5870] hover:bg-[#f8f9fd]"
+                                          >
+                                            Ver
+                                          </button>
+                                          {isPending && (
+                                            <button
+                                              type="button"
+                                              onClick={() => openAccountDrawer(String(account.id), 'payment')}
+                                              className="h-7 rounded-lg bg-[#3053e2] px-2 text-[11px] font-semibold text-white hover:bg-[#2748cc]"
+                                            >
+                                              Cobrar
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Reservas */}
+                            {historyBookings.length > 0 && (
+                              <div>
+                                <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-[#6f7890]">
+                                  Reservas ({historyBookings.length})
+                                </h3>
+                                <div className="space-y-2">
+                                  {historyBookings.map((booking: any) => (
+                                    <div
+                                      key={String(booking.bookingId)}
+                                      className="flex items-center gap-3 rounded-xl border border-[#dce2ee] bg-white px-3 py-2.5"
+                                    >
+                                      <div className="min-w-0 flex-1">
+                                        <p className="text-[13px] font-semibold text-[#1f2638]">
+                                          {formatDate(booking.date)}{booking.time ? ` · ${booking.time}` : ''}
+                                        </p>
+                                        <p className="text-[12px] text-[#6f7890]">
+                                          {booking.courtName || '-'} · {formatMoney(Number(booking.amount || 0))}
+                                        </p>
+                                      </div>
+                                      <span
+                                        className={`flex-none rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                                          booking.status === 'COMPLETED'
+                                            ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                                            : booking.status === 'CANCELLED'
+                                            ? 'border-gray-200 bg-gray-50 text-gray-500'
+                                            : booking.status === 'CONFIRMED'
+                                            ? 'border-blue-100 bg-blue-50 text-blue-700'
+                                            : 'border-amber-100 bg-amber-50 text-amber-700'
+                                        }`}
+                                      >
+                                        {bookingStatusLabel[booking.status] || booking.status || '-'}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {historyAccounts.length === 0 && historyBookings.length === 0 && (
+                              <div className="rounded-xl border border-[#dce2ee] p-8 text-center text-[13px] text-[#6f7890]">
+                                Este cliente no tiene actividad registrada.
+                              </div>
+                            )}
+                          </div>
+                        </>
                       )}
                     </article>
                   </div>
@@ -830,6 +1005,18 @@ export default function AdminClientesPlayground2Page() {
         </div>
       </AdminPlaygroundShell>
 
+      {adminToasts.length > 0 && (
+        <div className="pointer-events-none fixed right-5 top-[84px] z-[150] flex w-full max-w-[360px] flex-col gap-2">
+          {adminToasts.map((toast) => (
+            <div
+              key={toast.id}
+              className="rounded-xl border border-[#dce2ee] bg-white px-3 py-2 text-[12px] font-semibold text-[#27314a] shadow-lg"
+            >
+              {toast.message}
+            </div>
+          ))}
+        </div>
+      )}
 
       <AdminDrawer
         open={sidebarOpen}
