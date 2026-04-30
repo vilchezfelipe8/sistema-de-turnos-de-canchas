@@ -1,5 +1,3 @@
-import Link from 'next/link';
-
 // ---------------------------------------------------------------------------
 // Types (mirrors AccountRow / AccountDetail shapes — no new imports needed)
 // ---------------------------------------------------------------------------
@@ -48,6 +46,8 @@ type CashAccountDetailPanelProps = {
   onManage: () => void;
   /** Opens the payment flow directly. */
   onPay: () => void;
+  /** Opens the refund request drawer for this account. */
+  onRefund: () => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -142,6 +142,7 @@ export default function CashAccountDetailPanel({
   error,
   onManage,
   onPay,
+  onRefund,
 }: CashAccountDetailPanelProps) {
   // ── Empty state ──
   if (!account) {
@@ -324,12 +325,14 @@ export default function CashAccountDetailPanel({
             >
               Gestionar cuenta
             </button>
-            <Link
-              href="/admin/caja?tab=refunds"
-              className="h-9 rounded-lg border border-[#dce2ee] bg-white px-3 inline-flex items-center text-[12px] font-semibold text-[#6f7890] transition hover:bg-[#f5f6f8]"
+            <button
+              type="button"
+              onClick={onRefund}
+              disabled={!detail || detail.payments.length === 0}
+              className="h-9 rounded-lg border border-[#dce2ee] bg-white px-3 text-[12px] font-semibold text-[#6f7890] transition hover:bg-[#f5f6f8] disabled:cursor-not-allowed disabled:opacity-45"
             >
               Devolución
-            </Link>
+            </button>
           </div>
         </div>
       )}

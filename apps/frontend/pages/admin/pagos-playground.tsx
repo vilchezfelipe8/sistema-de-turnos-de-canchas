@@ -1,5 +1,4 @@
 import Head from 'next/head';
-import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronLeft,
@@ -25,7 +24,7 @@ import {
   AdminPaymentPreconfirmModal,
   AdminPaymentResultModal,
 } from '../../components/admin/payments/AdminPaymentFlowModals';
-import { AdminFilterToolbar, AdminPanel, AdminSegmentedControl } from '../../components/admin/ui';
+import { AdminDrawer, AdminDrawerSection, AdminFilterToolbar, AdminPanel, AdminSegmentedControl } from '../../components/admin/ui';
 import NotFound from '../../components/NotFound';
 import RouteTransitionScreen from '../../components/RouteTransitionScreen';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
@@ -43,7 +42,19 @@ import {
 } from '../../services/AccountService';
 import { CashService } from '../../services/CashService';
 import { ClubService } from '../../services/ClubService';
-import { listPendingRefunds, listRefunds, type RefundRecord } from '../../services/PaymentService';
+import {
+  approveRefund,
+  cancelRefund,
+  executeRefund,
+  failRefund,
+  listPendingRefunds,
+  listRefunds,
+  requestPaymentRefund,
+  retryRefund,
+  type RefundExecutionMethod,
+  type RefundReasonType,
+  type RefundRecord,
+} from '../../services/PaymentService';
 import { formatDateTime24 } from '../../utils/dateTime';
 import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser } from '../../utils/session';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
@@ -54,6 +65,7 @@ type MovementTypeFilter = 'ALL' | 'INCOME' | 'EXPENSE';
 type MovementMethodFilter = 'ALL' | 'CASH' | 'TRANSFER' | 'CARD';
 type RefundStatusFilter = 'ALL' | 'REQUESTED' | 'APPROVED' | 'READY_TO_EXECUTE' | 'EXECUTED' | 'FAILED' | 'CANCELLED';
 type RefundMethodFilter = 'ALL' | 'CASH' | 'TRANSFER' | 'CARD_REVERSAL' | 'CREDIT_NOTE';
+type RefundActionKind = 'approve' | 'approve_execute' | 'execute' | 'retry' | 'fail' | 'cancel';
 type CashView = 'live' | 'movements' | 'closures';
 type CashActionSidebarView = 'none' | 'open_shift' | 'close_shift' | 'movement_create' | 'close_report';
 type AccountsFilter = 'ALL' | 'OPEN' | 'CLOSED' | 'WITH_DEBT' | 'WITH_REFUNDS';
@@ -204,6 +216,72 @@ const refundExecutionMethodLabel = (method: string | null | undefined) => {
   return method || '-';
 };
 
+const refundReasonOptions: Array<{ value: RefundReasonType; label: string }> = [
+  { value: 'FULL', label: 'Total' },
+  { value: 'PARTIAL_COMMERCIAL', label: 'Parcial comercial' },
+  { value: 'PARTIAL_SERVICE_FAILURE', label: 'Falla del servicio' },
+  { value: 'PARTIAL_PRICING_ERROR', label: 'Error de precio' },
+  { value: 'OTHER', label: 'Otro motivo' },
+];
+
+const reservedRefundStatuses = new Set(['REQUESTED', 'APPROVED', 'READY_TO_EXECUTE', 'EXECUTED']);
+
+const resolveRefundExecutionMethod = (paymentMethod: string): RefundExecutionMethod => {
+  const normalized = String(paymentMethod || '').toUpperCase();
+  if (normalized === 'TRANSFER') return 'TRANSFER';
+  if (normalized === 'CARD') return 'CARD_REVERSAL';
+  return 'CASH';
+};
+
+const refundActionCopy = (action: RefundActionKind) => {
+  if (action === 'approve') {
+    return {
+      title: 'Aprobar devolución',
+      message: 'La devolución quedará aprobada y lista para ejecutarse según el método.',
+      confirm: 'Aprobar',
+      needsReason: false,
+    };
+  }
+  if (action === 'approve_execute') {
+    return {
+      title: 'Aprobar y ejecutar devolución',
+      message: 'La devolución se aprobará y se ejecutará ahora. Esto impacta en caja.',
+      confirm: 'Aprobar y ejecutar',
+      needsReason: false,
+    };
+  }
+  if (action === 'execute') {
+    return {
+      title: 'Ejecutar devolución',
+      message: 'La devolución se registrará como ejecutada e impactará en caja.',
+      confirm: 'Ejecutar',
+      needsReason: false,
+    };
+  }
+  if (action === 'retry') {
+    return {
+      title: 'Reintentar devolución',
+      message: 'La devolución fallida volverá a intentarse y puede ejecutarse ahora.',
+      confirm: 'Reintentar',
+      needsReason: false,
+    };
+  }
+  if (action === 'fail') {
+    return {
+      title: 'Marcar devolución como fallida',
+      message: 'Registrá el motivo operativo por el que esta devolución no pudo completarse.',
+      confirm: 'Marcar fallida',
+      needsReason: true,
+    };
+  }
+  return {
+    title: 'Cancelar devolución',
+    message: 'La solicitud quedará cancelada y no seguirá avanzando en el flujo.',
+    confirm: 'Cancelar devolución',
+    needsReason: true,
+  };
+};
+
 const toDateLabel = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
@@ -320,6 +398,15 @@ const accountSourceLabel = (sourceType: AccountRow['sourceType']) => {
   return 'Manual';
 };
 
+const accountDisplayLabel = (account: AccountRow) => {
+  const clientName = String(account.booking?.clientName || '').trim();
+  const courtName = String(account.booking?.courtName || '').trim();
+  if (clientName && courtName) return `${clientName} · ${courtName}`;
+  if (clientName) return clientName;
+  if (courtName) return courtName;
+  return accountSourceLabel(account.sourceType);
+};
+
 const paymentMethodLabel = (method: string) => {
   const normalized = String(method || '').toUpperCase();
   if (normalized === 'CASH') return 'Efectivo';
@@ -407,6 +494,26 @@ export default function AdminPaymentsPlaygroundPage() {
   const [refundSearchTerm, setRefundSearchTerm] = useState('');
   const [refundStatusFilter, setRefundStatusFilter] = useState<RefundStatusFilter>('ALL');
   const [refundMethodFilter, setRefundMethodFilter] = useState<RefundMethodFilter>('ALL');
+  const [refundRequestOpen, setRefundRequestOpen] = useState(false);
+  const [refundRequestAccountLocked, setRefundRequestAccountLocked] = useState(false);
+  const [refundRequestAccountId, setRefundRequestAccountId] = useState('');
+  const [refundRequestPaymentId, setRefundRequestPaymentId] = useState('');
+  const [refundRequestAmountDraft, setRefundRequestAmountDraft] = useState('');
+  const [refundRequestReasonType, setRefundRequestReasonType] = useState<RefundReasonType>('OTHER');
+  const [refundRequestNotes, setRefundRequestNotes] = useState('');
+  const [refundRequestExecuteNow, setRefundRequestExecuteNow] = useState(false);
+  const [refundRequestError, setRefundRequestError] = useState('');
+  const [submittingRefundRequest, setSubmittingRefundRequest] = useState(false);
+  const [refundsByAccountId, setRefundsByAccountId] = useState<Record<string, RefundRecord[]>>({});
+  const [loadingRefundsByAccountId, setLoadingRefundsByAccountId] = useState<Record<string, boolean>>({});
+  const [selectedRefundId, setSelectedRefundId] = useState('');
+  const [refundActionConfirm, setRefundActionConfirm] = useState<{
+    action: RefundActionKind;
+    refundId: string;
+  } | null>(null);
+  const [refundActionReason, setRefundActionReason] = useState('');
+  const [refundActionError, setRefundActionError] = useState('');
+  const [refundActionBusy, setRefundActionBusy] = useState(false);
   const [cashSearchTerm, setCashSearchTerm] = useState('');
   const [cashTypeFilter, setCashTypeFilter] = useState<MovementTypeFilter>('ALL');
   const [cashMethodFilter, setCashMethodFilter] = useState<MovementMethodFilter>('ALL');
@@ -542,6 +649,27 @@ export default function AdminPaymentsPlaygroundPage() {
       setLoadingAccountDetailById((prev) => ({ ...prev, [key]: false }));
     }
   }, [accountDetailById, loadingAccountDetailById]);
+
+  const ensureAccountRefunds = useCallback(async (accountId: string, force = false) => {
+    const key = String(accountId || '').trim();
+    if (!key) return [];
+    if (!force && refundsByAccountId[key]) return refundsByAccountId[key];
+    if (loadingRefundsByAccountId[key]) return refundsByAccountId[key] || [];
+
+    try {
+      setLoadingRefundsByAccountId((prev) => ({ ...prev, [key]: true }));
+      const rows = await listRefunds({ accountId: key, take: 100 });
+      const normalized = Array.isArray(rows) ? rows : [];
+      setRefundsByAccountId((prev) => ({ ...prev, [key]: normalized }));
+      return normalized;
+    } catch (refundError) {
+      reportUiError({ area: 'PaymentsPlayground', action: 'ensureAccountRefunds' }, refundError);
+      setRefundRequestError(extractErrorMessage(refundError, 'No se pudieron cargar las devoluciones de la cuenta.'));
+      return [];
+    } finally {
+      setLoadingRefundsByAccountId((prev) => ({ ...prev, [key]: false }));
+    }
+  }, [loadingRefundsByAccountId, refundsByAccountId]);
 
   const accountSidebarOpen = activeTab === 'ACCOUNTS' && accountSidebarView !== 'none';
 
@@ -1313,6 +1441,240 @@ export default function AdminPaymentsPlaygroundPage() {
     resolveAccountPresetItemIds,
   ]);
 
+  const refundRequestAccount = useMemo(
+    () => allAccounts.find((account) => account.id === refundRequestAccountId) || null,
+    [allAccounts, refundRequestAccountId]
+  );
+  const refundRequestAccountDetail = refundRequestAccountId ? accountDetailById[refundRequestAccountId] || null : null;
+  const refundRequestAccountRefunds = refundRequestAccountId ? refundsByAccountId[refundRequestAccountId] || [] : [];
+  const refundRequestPaymentOptions = useMemo(() => {
+    const payments = Array.isArray(refundRequestAccountDetail?.payments) ? refundRequestAccountDetail.payments : [];
+    return payments.map((payment) => {
+      const reserved = refundRequestAccountRefunds
+        .filter((refund) => String(refund.paymentId) === String(payment.id))
+        .filter((refund) => reservedRefundStatuses.has(String(refund.status || '').toUpperCase()))
+        .reduce((sum, refund) => sum + Number(refund.amount || 0), 0);
+      const available = Number(Math.max(0, Number(payment.amount || 0) - reserved).toFixed(2));
+      return {
+        ...payment,
+        refundedAmount: Number(reserved.toFixed(2)),
+        availableAmount: available,
+      };
+    });
+  }, [refundRequestAccountDetail, refundRequestAccountRefunds]);
+  const refundRequestSelectedPayment = useMemo(
+    () => refundRequestPaymentOptions.find((payment) => payment.id === refundRequestPaymentId) || null,
+    [refundRequestPaymentId, refundRequestPaymentOptions]
+  );
+  const refundRequestAmountNumeric = Number(String(refundRequestAmountDraft || '').replace(',', '.'));
+  const refundRequestAmountIsValid =
+    Number.isFinite(refundRequestAmountNumeric) &&
+    refundRequestAmountNumeric > ACCOUNT_PAYMENT_EPSILON &&
+    refundRequestSelectedPayment != null &&
+    refundRequestAmountNumeric <= Number(refundRequestSelectedPayment.availableAmount || 0) + ACCOUNT_PAYMENT_EPSILON;
+  const selectedRefund = useMemo(
+    () => recentRefunds.find((refund) => refund.id === selectedRefundId) ||
+      pendingRefunds.find((refund) => refund.id === selectedRefundId) ||
+      Object.values(refundsByAccountId).flat().find((refund) => refund.id === selectedRefundId) ||
+      null,
+    [pendingRefunds, recentRefunds, refundsByAccountId, selectedRefundId]
+  );
+  const refundActionCopyValue = refundActionConfirm ? refundActionCopy(refundActionConfirm.action) : null;
+
+  const closeRefundRequestDrawer = useCallback(() => {
+    if (submittingRefundRequest) return;
+    setRefundRequestOpen(false);
+    setRefundRequestError('');
+  }, [submittingRefundRequest]);
+
+  const openRefundRequestSelector = useCallback(() => {
+    setRefundRequestAccountLocked(false);
+    setRefundRequestAccountId('');
+    setRefundRequestPaymentId('');
+    setRefundRequestAmountDraft('');
+    setRefundRequestReasonType('OTHER');
+    setRefundRequestNotes('');
+    setRefundRequestExecuteNow(false);
+    setRefundRequestError('');
+    setRefundRequestOpen(true);
+  }, []);
+
+  const openRefundRequestForAccount = useCallback(async (accountId: string, options?: { lockAccount?: boolean }) => {
+    const key = String(accountId || '').trim();
+    if (!key) {
+      showAdminToast('Seleccioná una cuenta con pagos para solicitar una devolución.');
+      return;
+    }
+
+    setRefundRequestAccountLocked(options?.lockAccount ?? true);
+    setRefundRequestAccountId(key);
+    setRefundRequestPaymentId('');
+    setRefundRequestAmountDraft('');
+    setRefundRequestReasonType('OTHER');
+    setRefundRequestNotes('');
+    setRefundRequestExecuteNow(false);
+    setRefundRequestError('');
+    setRefundRequestOpen(true);
+
+    const [detail, refunds] = await Promise.all([
+      ensureAccountDetail(key, true),
+      ensureAccountRefunds(key, true),
+    ]);
+
+    const payments = Array.isArray(detail?.payments) ? detail.payments : [];
+    const firstAvailable = payments
+      .map((payment) => {
+        const reserved = refunds
+          .filter((refund) => String(refund.paymentId) === String(payment.id))
+          .filter((refund) => reservedRefundStatuses.has(String(refund.status || '').toUpperCase()))
+          .reduce((sum, refund) => sum + Number(refund.amount || 0), 0);
+        return {
+          id: String(payment.id),
+          available: Number(Math.max(0, Number(payment.amount || 0) - reserved).toFixed(2)),
+        };
+      })
+      .find((payment) => payment.available > ACCOUNT_PAYMENT_EPSILON);
+
+    if (firstAvailable) {
+      setRefundRequestPaymentId(firstAvailable.id);
+      setRefundRequestAmountDraft(firstAvailable.available.toFixed(2));
+      setRefundRequestReasonType('FULL');
+    } else if (payments.length > 0) {
+      setRefundRequestPaymentId(String(payments[0].id));
+      setRefundRequestError('Los pagos de esta cuenta no tienen saldo disponible para devolver.');
+    } else {
+      setRefundRequestError('Esta cuenta no tiene pagos registrados para devolver.');
+    }
+  }, [ensureAccountDetail, ensureAccountRefunds, showAdminToast]);
+
+  const submitRefundRequest = useCallback(async () => {
+    if (!refundRequestAccountId || !refundRequestSelectedPayment) return;
+    const amount = Number(String(refundRequestAmountDraft || '').replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= ACCOUNT_PAYMENT_EPSILON) {
+      setRefundRequestError('Ingresá un monto válido mayor a 0.');
+      return;
+    }
+    if (amount > Number(refundRequestSelectedPayment.availableAmount || 0) + ACCOUNT_PAYMENT_EPSILON) {
+      setRefundRequestError(`El monto no puede superar ${formatMoney(refundRequestSelectedPayment.availableAmount)}.`);
+      return;
+    }
+
+    try {
+      setSubmittingRefundRequest(true);
+      setRefundRequestError('');
+      const executionMethod = resolveRefundExecutionMethod(refundRequestSelectedPayment.method);
+      const created = await requestPaymentRefund(refundRequestSelectedPayment.id, {
+        amount: Number(amount.toFixed(2)),
+        reasonType: refundRequestReasonType,
+        reason: refundRequestReasonType === 'FULL'
+          ? 'Devolución total solicitada desde Caja'
+          : 'Devolución solicitada desde Caja',
+        executionMethod,
+        executionNotes: refundRequestNotes.trim() || undefined,
+        executeNow: refundRequestExecuteNow,
+      });
+      await Promise.all([
+        refresh(),
+        ensureAccountDetail(refundRequestAccountId, true),
+        ensureAccountRefunds(refundRequestAccountId, true),
+        loadCashSummary(),
+        loadCashShiftContext(),
+      ]);
+      setSelectedRefundId(created.id);
+      setRefundRequestOpen(false);
+      navigateToPaymentsTab('REFUNDS');
+      showAdminToast(refundRequestExecuteNow ? 'Devolución ejecutada correctamente.' : 'Devolución solicitada correctamente.');
+    } catch (refundError) {
+      reportUiError({ area: 'PaymentsPlayground', action: 'submitRefundRequest' }, refundError);
+      setRefundRequestError(extractErrorMessage(refundError, 'No se pudo solicitar la devolución.'));
+    } finally {
+      setSubmittingRefundRequest(false);
+    }
+  }, [
+    ensureAccountDetail,
+    ensureAccountRefunds,
+    loadCashShiftContext,
+    loadCashSummary,
+    navigateToPaymentsTab,
+    refresh,
+    refundRequestAccountId,
+    refundRequestAmountDraft,
+    refundRequestExecuteNow,
+    refundRequestNotes,
+    refundRequestReasonType,
+    refundRequestSelectedPayment,
+    showAdminToast,
+  ]);
+
+  const closeRefundDetailDrawer = useCallback(() => {
+    if (refundActionBusy) return;
+    setSelectedRefundId('');
+    setRefundActionConfirm(null);
+    setRefundActionError('');
+    setRefundActionReason('');
+  }, [refundActionBusy]);
+
+  const openRefundActionConfirm = useCallback((refund: RefundRecord, action: RefundActionKind) => {
+    setRefundActionConfirm({ refundId: refund.id, action });
+    setRefundActionReason('');
+    setRefundActionError('');
+  }, []);
+
+  const runRefundAction = useCallback(async () => {
+    if (!refundActionConfirm) return;
+    const { refundId, action } = refundActionConfirm;
+    const copy = refundActionCopy(action);
+    const reason = refundActionReason.trim();
+    if (copy.needsReason && reason.length < 3) {
+      setRefundActionError('Ingresá un motivo de al menos 3 caracteres.');
+      return;
+    }
+
+    try {
+      setRefundActionBusy(true);
+      setRefundActionError('');
+      if (action === 'approve') {
+        await approveRefund(refundId, { executeNow: false });
+      } else if (action === 'approve_execute') {
+        await approveRefund(refundId, { executeNow: true });
+      } else if (action === 'execute') {
+        await executeRefund(refundId);
+      } else if (action === 'retry') {
+        await retryRefund(refundId, { executeNow: true });
+      } else if (action === 'fail') {
+        await failRefund(refundId, reason);
+      } else {
+        await cancelRefund(refundId, reason);
+      }
+      const accountId = String(selectedRefund?.accountId || '').trim();
+      await Promise.all([
+        refresh(),
+        accountId ? ensureAccountDetail(accountId, true) : Promise.resolve(null),
+        accountId ? ensureAccountRefunds(accountId, true) : Promise.resolve([]),
+        loadCashSummary(),
+        loadCashShiftContext(),
+      ]);
+      setRefundActionConfirm(null);
+      setRefundActionReason('');
+      showAdminToast('Devolución actualizada correctamente.');
+    } catch (actionError) {
+      reportUiError({ area: 'PaymentsPlayground', action: 'runRefundAction' }, actionError);
+      setRefundActionError(extractErrorMessage(actionError, 'No se pudo actualizar la devolución.'));
+    } finally {
+      setRefundActionBusy(false);
+    }
+  }, [
+    ensureAccountDetail,
+    ensureAccountRefunds,
+    loadCashShiftContext,
+    loadCashSummary,
+    refresh,
+    refundActionConfirm,
+    refundActionReason,
+    selectedRefund?.accountId,
+    showAdminToast,
+  ]);
+
   const submitAccountPaymentFromModal = useCallback(async () => {
     if (!selectedAccountId) return;
     const detail = accountDetailById[selectedAccountId];
@@ -1607,6 +1969,7 @@ export default function AdminPaymentsPlaygroundPage() {
                           setAccountActionError('');
                           setAccountSidebarView('overview');
                         }}
+                        onRefund={() => void openRefundRequestForAccount(selectedAccount.id)}
                       />
                     ) : (
                       <div className="rounded-xl border border-[#dce2ee] bg-white px-4 py-10 text-center">
@@ -1920,6 +2283,15 @@ export default function AdminPaymentsPlaygroundPage() {
                   headerClassName="pl-4 pr-2 py-3"
                   actions={(
                     <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-1 sm:flex-nowrap sm:justify-end">
+                      <button
+                        type="button"
+                        onClick={openRefundRequestSelector}
+                        className="inline-flex h-8 items-center justify-center gap-1.5 rounded-xl bg-[#3053e2] px-3 text-[12px] font-semibold text-white transition hover:bg-[#2748cc]"
+                      >
+                        <Plus size={14} strokeWidth={2.4} />
+                        Nueva devolución
+                      </button>
+
                       <label className="relative w-full sm:w-[260px] sm:flex-none">
                         <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8b93a5]" />
                         <input
@@ -1973,7 +2345,12 @@ export default function AdminPaymentsPlaygroundPage() {
                       </div>
                       <div className="hidden divide-y divide-[#eef2f8] lg:block">
                         {filteredRecentRefunds.map((refund) => (
-                          <div key={`refund-grid-${refund.id}`} className="grid grid-cols-[130px_140px_minmax(0,1fr)_140px_140px_150px_120px] items-center px-3 py-2 text-[12px] text-[#4b5672]">
+                          <button
+                            key={`refund-grid-${refund.id}`}
+                            type="button"
+                            onClick={() => setSelectedRefundId(refund.id)}
+                            className="grid w-full grid-cols-[130px_140px_minmax(0,1fr)_140px_140px_150px_120px] items-center px-3 py-2 text-left text-[12px] text-[#4b5672] transition hover:bg-[#f8f9fd]"
+                          >
                             <p className="font-semibold text-[#2a3245]">{refundCodeLabel(refund)}</p>
                             <p>{formatDateTime24(refund.createdAt)}</p>
                             <p className="truncate">{refund.reason?.trim() || refundReasonTypeLabel(refund.reasonType)}</p>
@@ -1985,7 +2362,7 @@ export default function AdminPaymentsPlaygroundPage() {
                               </span>
                             </div>
                             <p className="text-right font-semibold text-[#27314a]">{formatMoney(refund.amount)}</p>
-                          </div>
+                          </button>
                         ))}
                       </div>
                     </>
@@ -1998,7 +2375,12 @@ export default function AdminPaymentsPlaygroundPage() {
                   )}
                   <div className="divide-y divide-[#eef2f8] lg:hidden">
                     {filteredRecentRefunds.map((refund) => (
-                      <div key={refund.id} className="px-3 py-2 text-[12px] text-[#4b5672]">
+                      <button
+                        key={refund.id}
+                        type="button"
+                        onClick={() => setSelectedRefundId(refund.id)}
+                        className="block w-full px-3 py-2 text-left text-[12px] text-[#4b5672] transition hover:bg-[#f8f9fd]"
+                      >
                         <div className="flex items-center justify-between gap-2">
                           <p className="font-semibold text-[#2a3245]">{refundCodeLabel(refund)}</p>
                           <span className="rounded-full bg-[#eef1f7] px-2 py-0.5 text-[10px] font-semibold text-[#55617f]">
@@ -2006,7 +2388,7 @@ export default function AdminPaymentsPlaygroundPage() {
                           </span>
                         </div>
                         <p>{formatMoney(refund.amount)} · {formatDateTime24(refund.createdAt)}</p>
-                      </div>
+                      </button>
                     ))}
                     {filteredRecentRefunds.length === 0 && (
                       <div className="px-3 py-8 text-center">
@@ -2314,6 +2696,421 @@ export default function AdminPaymentsPlaygroundPage() {
           </div>
         )}
       </AgendaLikeRightSidebar>
+
+      <AdminDrawer
+        open={refundRequestOpen}
+        onClose={closeRefundRequestDrawer}
+        title="Solicitar devolución"
+        subtitle={
+          refundRequestAccount
+            ? `${refundRequestAccount.booking?.clientName || `Cuenta ${shortCode(refundRequestAccount.id)}`} · #${shortCode(refundRequestAccount.id)}`
+            : 'Seleccioná una cuenta y un pago para devolver.'
+        }
+        statusChip={refundRequestAccount?.status === 'OPEN' ? 'Cuenta abierta' : refundRequestAccount ? 'Cuenta cerrada' : undefined}
+        statusChipClassName={refundRequestAccount?.status === 'OPEN' ? 'bg-[#edf1ff] text-[#3155df]' : 'bg-[#e8f8ec] text-[#16733f]'}
+        size="md"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={closeRefundRequestDrawer}
+              disabled={submittingRefundRequest}
+              className="h-10 rounded-xl border border-[#dce2ee] bg-white px-4 text-[13px] font-semibold text-[#4e5870] transition hover:bg-[#f8f9fd] disabled:opacity-60"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => void submitRefundRequest()}
+              disabled={submittingRefundRequest || !refundRequestAmountIsValid}
+              className="h-10 rounded-xl bg-[#3053e2] px-4 text-[13px] font-semibold text-white transition hover:bg-[#2748cc] disabled:opacity-60"
+            >
+              {submittingRefundRequest
+                ? 'Procesando...'
+                : refundRequestExecuteNow
+                  ? 'Solicitar y ejecutar'
+                  : 'Solicitar devolución'}
+            </button>
+          </div>
+        }
+      >
+        <AdminDrawerSection title="Cuenta">
+          <div className="space-y-2 rounded-2xl border border-[#dce2ee] bg-white p-3">
+            {refundRequestAccountLocked && refundRequestAccount ? (
+              <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-2.5">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#98a1b3]">Cuenta seleccionada</p>
+                <p className="mt-1 text-[13px] font-semibold text-[#27314b]">{accountDisplayLabel(refundRequestAccount)}</p>
+                <p className="mt-0.5 text-[11px] text-[#6f7890]">
+                  #{shortCode(refundRequestAccount.id)} · {refundRequestAccount.status === 'OPEN' ? 'Abierta' : 'Cerrada'}
+                </p>
+              </div>
+            ) : (
+              <label className="block">
+                <span className="text-[12px] font-medium text-[#4e5870]">Cuenta asociada</span>
+                <select
+                  value={refundRequestAccountId}
+                  onChange={(event) => {
+                    const nextAccountId = event.target.value;
+                    if (!nextAccountId) {
+                      setRefundRequestAccountLocked(false);
+                      setRefundRequestAccountId('');
+                      setRefundRequestPaymentId('');
+                      setRefundRequestAmountDraft('');
+                      setRefundRequestReasonType('OTHER');
+                      setRefundRequestError('');
+                      return;
+                    }
+                    void openRefundRequestForAccount(nextAccountId, { lockAccount: false });
+                  }}
+                  disabled={submittingRefundRequest}
+                  className="mt-1 h-10 w-full rounded-xl border border-[#dce2ee] bg-white px-3 text-[13px] outline-none focus:border-[#3053e2] disabled:opacity-60"
+                >
+                  <option value="">Seleccionar cuenta</option>
+                  {allAccounts.map((account) => (
+                    <option key={`refund-account-option-${account.id}`} value={account.id}>
+                      {accountDisplayLabel(account)} · #{shortCode(account.id)} · {account.status === 'OPEN' ? 'Abierta' : 'Cerrada'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {!refundRequestAccountId && (
+              <p className="text-[12px] text-[#6f7890]">
+                Elegí una cuenta para ver sus pagos disponibles y solicitar la devolución sobre un pago concreto.
+              </p>
+            )}
+            {allAccounts.length === 0 && (
+              <p className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-2 text-[12px] text-[#6f7890]">
+                No hay cuentas cargadas para iniciar una devolución.
+              </p>
+            )}
+          </div>
+        </AdminDrawerSection>
+
+        <AdminDrawerSection title="Pago a devolver">
+          <div className="space-y-2">
+            {Boolean(refundRequestAccountId && loadingRefundsByAccountId[refundRequestAccountId]) && (
+              <div className="rounded-xl border border-[#dce7ff] bg-[#f4f7ff] px-3 py-2 text-[12px] font-semibold text-[#3053e2]">
+                Cargando pagos y devoluciones...
+              </div>
+            )}
+            {refundRequestPaymentOptions.length === 0 ? (
+              <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-4 text-center text-[12px] text-[#6f7890]">
+                {refundRequestAccountId
+                  ? 'Esta cuenta no tiene pagos disponibles para devolver.'
+                  : 'Seleccioná una cuenta para ver sus pagos disponibles.'}
+              </div>
+            ) : (
+              refundRequestPaymentOptions.map((payment) => {
+                const selected = payment.id === refundRequestPaymentId;
+                const disabled = Number(payment.availableAmount || 0) <= ACCOUNT_PAYMENT_EPSILON;
+                return (
+                  <button
+                    key={`refund-payment-${payment.id}`}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => {
+                      setRefundRequestPaymentId(payment.id);
+                      setRefundRequestAmountDraft(Number(payment.availableAmount || 0).toFixed(2));
+                      setRefundRequestReasonType(Number(payment.availableAmount || 0) + ACCOUNT_PAYMENT_EPSILON >= Number(payment.amount || 0) ? 'FULL' : 'PARTIAL_COMMERCIAL');
+                      setRefundRequestError('');
+                    }}
+                    className={[
+                      'w-full rounded-xl border px-3 py-3 text-left transition',
+                      selected ? 'border-[#3053e2] bg-[#f4f7ff]' : 'border-[#dce2ee] bg-white hover:bg-[#f8f9fd]',
+                      disabled ? 'cursor-not-allowed opacity-50' : '',
+                    ].join(' ')}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-semibold text-[#27314b]">Pago #{shortCode(payment.id)}</p>
+                        <p className="mt-0.5 text-[11px] text-[#6f7890]">
+                          {paymentMethodLabel(payment.method)} · {paymentChannelLabel(payment.channel || '')}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[13px] font-bold text-[#27314b]">{formatMoney(payment.amount)}</p>
+                        <p className="mt-0.5 text-[11px] text-[#6f7890]">Disponible {formatMoney(payment.availableAmount)}</p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </AdminDrawerSection>
+
+        <AdminDrawerSection title="Datos de la devolución">
+          <div className="space-y-3 rounded-2xl border border-[#dce2ee] bg-white p-3">
+            <label className="block">
+              <span className="text-[12px] font-medium text-[#4e5870]">Monto a devolver</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={refundRequestAmountDraft}
+                onChange={(event) => {
+                  setRefundRequestAmountDraft(event.target.value);
+                  setRefundRequestError('');
+                }}
+                className="mt-1 h-10 w-full rounded-xl border border-[#dce2ee] bg-white px-3 text-[13px] outline-none focus:border-[#3053e2]"
+                placeholder="0.00"
+              />
+              <span className="mt-1 block text-[11px] text-[#7a8398]">
+                Máximo: {formatMoney(refundRequestSelectedPayment?.availableAmount || 0)}
+              </span>
+            </label>
+
+            <label className="block">
+              <span className="text-[12px] font-medium text-[#4e5870]">Motivo</span>
+              <select
+                value={refundRequestReasonType}
+                onChange={(event) => setRefundRequestReasonType(event.target.value as RefundReasonType)}
+                className="mt-1 h-10 w-full rounded-xl border border-[#dce2ee] bg-white px-3 text-[13px] outline-none focus:border-[#3053e2]"
+              >
+                {refundReasonOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="text-[12px] font-medium text-[#4e5870]">Nota interna</span>
+              <textarea
+                value={refundRequestNotes}
+                onChange={(event) => setRefundRequestNotes(event.target.value)}
+                rows={3}
+                maxLength={500}
+                className="mt-1 w-full resize-none rounded-xl border border-[#dce2ee] bg-white px-3 py-2 text-[13px] outline-none focus:border-[#3053e2]"
+                placeholder="Detalle operativo"
+              />
+            </label>
+
+            <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-2.5">
+              <input
+                type="checkbox"
+                checked={refundRequestExecuteNow}
+                onChange={(event) => setRefundRequestExecuteNow(event.target.checked)}
+                className="h-4 w-4 accent-[#3053e2]"
+              />
+              <span className="text-[12px] font-semibold text-[#27314b]">Ejecutar ahora</span>
+            </label>
+          </div>
+          {refundRequestError && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-800">
+              {refundRequestError}
+            </div>
+          )}
+        </AdminDrawerSection>
+      </AdminDrawer>
+
+      <AdminDrawer
+        open={Boolean(selectedRefund)}
+        onClose={closeRefundDetailDrawer}
+        title="Detalle de devolución"
+        subtitle={selectedRefund ? `${refundCodeLabel(selectedRefund)} · ${formatMoney(selectedRefund.amount)}` : undefined}
+        statusChip={selectedRefund ? formatRefundStatus(selectedRefund.status) : undefined}
+        statusChipClassName={
+          selectedRefund?.status === 'EXECUTED'
+            ? 'bg-[#e8f8ec] text-[#16733f]'
+            : selectedRefund?.status === 'FAILED' || selectedRefund?.status === 'CANCELLED'
+              ? 'bg-[#fff1f3] text-[#9f1635]'
+              : 'bg-[#edf1ff] text-[#3155df]'
+        }
+        size="md"
+        footer={
+          selectedRefund ? (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {selectedRefund.status === 'REQUESTED' && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => openRefundActionConfirm(selectedRefund, 'cancel')}
+                    className="h-10 rounded-xl border border-[#ffd6d6] bg-[#fff5f5] px-3 text-[13px] font-semibold text-[#b42318] transition hover:bg-[#fff0f0]"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openRefundActionConfirm(selectedRefund, 'approve')}
+                    className="h-10 rounded-xl border border-[#dce2ee] bg-white px-3 text-[13px] font-semibold text-[#4e5870] transition hover:bg-[#f8f9fd]"
+                  >
+                    Aprobar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openRefundActionConfirm(selectedRefund, 'approve_execute')}
+                    className="h-10 rounded-xl bg-[#3053e2] px-4 text-[13px] font-semibold text-white transition hover:bg-[#2748cc]"
+                  >
+                    Aprobar y ejecutar
+                  </button>
+                </>
+              )}
+              {(selectedRefund.status === 'APPROVED' || selectedRefund.status === 'READY_TO_EXECUTE') && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => openRefundActionConfirm(selectedRefund, 'cancel')}
+                    className="h-10 rounded-xl border border-[#ffd6d6] bg-[#fff5f5] px-3 text-[13px] font-semibold text-[#b42318] transition hover:bg-[#fff0f0]"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openRefundActionConfirm(selectedRefund, 'fail')}
+                    className="h-10 rounded-xl border border-[#dce2ee] bg-white px-3 text-[13px] font-semibold text-[#4e5870] transition hover:bg-[#f8f9fd]"
+                  >
+                    Marcar fallida
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openRefundActionConfirm(selectedRefund, 'execute')}
+                    className="h-10 rounded-xl bg-[#3053e2] px-4 text-[13px] font-semibold text-white transition hover:bg-[#2748cc]"
+                  >
+                    Ejecutar
+                  </button>
+                </>
+              )}
+              {selectedRefund.status === 'FAILED' && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => openRefundActionConfirm(selectedRefund, 'cancel')}
+                    className="h-10 rounded-xl border border-[#ffd6d6] bg-[#fff5f5] px-3 text-[13px] font-semibold text-[#b42318] transition hover:bg-[#fff0f0]"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openRefundActionConfirm(selectedRefund, 'retry')}
+                    className="h-10 rounded-xl bg-[#3053e2] px-4 text-[13px] font-semibold text-white transition hover:bg-[#2748cc]"
+                  >
+                    Reintentar
+                  </button>
+                </>
+              )}
+            </div>
+          ) : undefined
+        }
+      >
+        {selectedRefund && (
+          <>
+            <AdminDrawerSection title="Resumen">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-xl border border-[#dce2ee] bg-white px-3 py-3">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#98a1b3]">Monto</p>
+                  <p className="mt-1 text-[18px] font-bold text-[#27314b]">{formatMoney(selectedRefund.amount)}</p>
+                </div>
+                <div className="rounded-xl border border-[#dce2ee] bg-white px-3 py-3">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#98a1b3]">Método</p>
+                  <p className="mt-1 text-[14px] font-bold text-[#27314b]">{refundExecutionMethodLabel(selectedRefund.executionMethod)}</p>
+                </div>
+              </div>
+            </AdminDrawerSection>
+
+            <AdminDrawerSection title="Referencias">
+              <div className="space-y-2 rounded-2xl border border-[#dce2ee] bg-white p-3 text-[12px] text-[#4e5870]">
+                <div className="flex items-center justify-between gap-3">
+                  <span>Pago</span>
+                  <span className="font-mono font-semibold text-[#27314b]">{shortCode(selectedRefund.paymentId)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span>Cuenta</span>
+                  <span className="font-mono font-semibold text-[#27314b]">{shortCode(selectedRefund.accountId)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span>Turno de caja</span>
+                  <span className="font-mono font-semibold text-[#27314b]">{selectedRefund.cashShiftId ? shortCode(selectedRefund.cashShiftId) : '-'}</span>
+                </div>
+              </div>
+            </AdminDrawerSection>
+
+            <AdminDrawerSection title="Trazabilidad">
+              <div className="grid grid-cols-2 gap-2 text-[12px]">
+                {[
+                  ['Creada', selectedRefund.createdAt],
+                  ['Aprobada', selectedRefund.approvedAt],
+                  ['Ejecutada', selectedRefund.executedAt],
+                  ['Cancelada', selectedRefund.cancelledAt],
+                  ['Fallida', selectedRefund.failedAt],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-xl border border-[#dce2ee] bg-white px-3 py-2">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#98a1b3]">{label}</p>
+                    <p className="mt-1 font-semibold text-[#27314b]">{value ? formatDateTime24(String(value)) : '-'}</p>
+                  </div>
+                ))}
+              </div>
+            </AdminDrawerSection>
+
+            <AdminDrawerSection title="Notas">
+              <div className="space-y-2 rounded-2xl border border-[#dce2ee] bg-white p-3 text-[12px] text-[#4e5870]">
+                <p><span className="font-semibold text-[#27314b]">Motivo:</span> {selectedRefund.reason?.trim() || refundReasonTypeLabel(selectedRefund.reasonType)}</p>
+                <p><span className="font-semibold text-[#27314b]">Nota:</span> {selectedRefund.executionNotes?.trim() || '-'}</p>
+                <p><span className="font-semibold text-[#27314b]">Referencia:</span> {selectedRefund.executionReference?.trim() || '-'}</p>
+                <p><span className="font-semibold text-[#27314b]">Cancelación:</span> {selectedRefund.cancelReason?.trim() || '-'}</p>
+                <p><span className="font-semibold text-[#27314b]">Fallo:</span> {selectedRefund.failedReason?.trim() || '-'}</p>
+              </div>
+            </AdminDrawerSection>
+          </>
+        )}
+      </AdminDrawer>
+
+      {refundActionConfirm && refundActionCopyValue && (
+        <div className="fixed inset-0 z-[2147483300] flex items-center justify-center bg-[#11162a]/45 p-4">
+          <div className="w-full max-w-[460px] rounded-2xl border border-[#e0e5f2] bg-white shadow-2xl">
+            <div className="border-b border-[#edf1f6] px-5 py-4">
+              <h3 className="text-[21px] font-bold tracking-[-0.01em] text-[#222a3d]">{refundActionCopyValue.title}</h3>
+            </div>
+            <div className="space-y-4 px-5 py-5">
+              <p className="text-[14px] text-[#4b556d]">{refundActionCopyValue.message}</p>
+              {refundActionCopyValue.needsReason && (
+                <label className="block">
+                  <span className="text-[12px] font-medium text-[#4e5870]">Motivo</span>
+                  <textarea
+                    value={refundActionReason}
+                    onChange={(event) => {
+                      setRefundActionReason(event.target.value);
+                      setRefundActionError('');
+                    }}
+                    rows={3}
+                    maxLength={500}
+                    className="mt-1 w-full resize-none rounded-xl border border-[#dce2ee] bg-white px-3 py-2 text-[13px] outline-none focus:border-[#3053e2]"
+                    placeholder="Detalle operativo"
+                  />
+                </label>
+              )}
+              {refundActionError && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-800">
+                  {refundActionError}
+                </div>
+              )}
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (refundActionBusy) return;
+                    setRefundActionConfirm(null);
+                    setRefundActionError('');
+                    setRefundActionReason('');
+                  }}
+                  disabled={refundActionBusy}
+                  className="h-10 rounded-xl border border-[#dbe2ef] bg-white px-4 text-sm font-semibold text-[#4e5870] hover:bg-[#f7f9fc] disabled:opacity-50"
+                >
+                  Volver
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void runRefundAction()}
+                  disabled={refundActionBusy}
+                  className="h-10 rounded-xl bg-[#3053e2] px-5 text-sm font-bold text-white hover:bg-[#2748cc] disabled:opacity-50"
+                >
+                  {refundActionBusy ? 'Procesando...' : refundActionCopyValue.confirm}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {accountPaymentModalStep === 'form' && selectedAccount && (
         <AdminPaymentFormModal

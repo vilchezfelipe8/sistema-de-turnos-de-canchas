@@ -115,6 +115,11 @@ type RecurringCreatedItem = {
   sortStartMs?: number;
 };
 
+type SeriesPaidOccurrence = Omit<RecurringCreatedItem, 'bookingId'> & {
+  bookingId: number;
+  paidAmount: number;
+};
+
 type SeriesScopePreviewSummary = {
   scope: EditSeriesScope;
   totalCandidates: number;
@@ -123,6 +128,8 @@ type SeriesScopePreviewSummary = {
   skippedCount: number;
   overlapItems: RecurringOverlapItem[];
   failureMessages: string[];
+  paidItems?: SeriesPaidOccurrence[];
+  paidAmountTotal?: number;
 };
 
 type SeriesOperationResult = {
@@ -191,6 +198,7 @@ type ParticipantSuggestion = {
 
 type BookingKind = 'regular' | 'recurringV2' | 'privateClass' | 'courseClass' | 'block';
 type RecurringFrequencyPreset = 'weekly' | 'biweekly' | 'custom';
+type CancelRefundReasonType = 'FULL' | 'PARTIAL_COMMERCIAL' | 'PARTIAL_SERVICE_FAILURE' | 'PARTIAL_PRICING_ERROR' | 'OTHER';
 type ComboOption = { value: string; label: string; secondary?: string };
 type SimplifiedSidebarSection = 'DETAILS' | 'CONSUMPTIONS' | 'BILLING' | 'HISTORY';
 type ClubProductOption = {
@@ -290,6 +298,16 @@ const bookingKindOptions: Array<{
     description: 'Para bloquear una pista y evitar nuevas reservas en ese rango.',
     icon: Lock,
   },
+];
+
+const lockedBookingKindChangeValues = new Set<BookingKind>(['privateClass', 'courseClass', 'block']);
+
+const cancelRefundReasonOptions: Array<{ value: CancelRefundReasonType; label: string }> = [
+  { value: 'FULL', label: 'Devolución total' },
+  { value: 'PARTIAL_COMMERCIAL', label: 'Parcial comercial' },
+  { value: 'PARTIAL_SERVICE_FAILURE', label: 'Falla del servicio' },
+  { value: 'PARTIAL_PRICING_ERROR', label: 'Error de precio' },
+  { value: 'OTHER', label: 'Otro motivo' },
 ];
 
 const WEEKDAY_OPTIONS = [
@@ -1849,6 +1867,12 @@ export default function AdminAgendaPlaygroundPage() {
   } | null>(null);
   const isRecurringKind = bookingKind === 'recurringV2';
   const [deleteBookingConfirmOpen, setDeleteBookingConfirmOpen] = useState(false);
+  const [deleteBookingFinalConfirmOpen, setDeleteBookingFinalConfirmOpen] = useState(false);
+  const [cancelRefundAmountInput, setCancelRefundAmountInput] = useState('');
+  const [cancelRefundReasonType, setCancelRefundReasonType] = useState<CancelRefundReasonType>('FULL');
+  const [cancelRefundExecutionNotes, setCancelRefundExecutionNotes] = useState('');
+  const [cancelRefundExecuteNow, setCancelRefundExecuteNow] = useState(true);
+  const [cancelBookingFlowError, setCancelBookingFlowError] = useState('');
   const [deleteParticipantConfirm, setDeleteParticipantConfirm] = useState<{
     open: boolean;
     participantId: string | null;
@@ -4516,7 +4540,10 @@ export default function AdminAgendaPlaygroundPage() {
       setFormError('');
       await confirmBooking(persistedEditingBookingId);
       await reloadSchedule();
-      await refreshBookingFinancial(persistedEditingBookingId);
+      await Promise.all([
+        refreshBookingFinancial(persistedEditingBookingId),
+        loadBookingConsumptions(persistedEditingBookingId),
+      ]);
       const timelineRequestSeq = bookingTimelineRequestSeqRef.current + 1;
       bookingTimelineRequestSeqRef.current = timelineRequestSeq;
       setBookingTimelineLoading(true);
@@ -4541,7 +4568,14 @@ export default function AdminAgendaPlaygroundPage() {
     } finally {
       setConfirmingBooking(false);
     }
-  }, [applyBookingError, persistedEditingBookingId, refreshBookingFinancial, reloadSchedule, showCalendarNotice]);
+  }, [
+    applyBookingError,
+    loadBookingConsumptions,
+    persistedEditingBookingId,
+    refreshBookingFinancial,
+    reloadSchedule,
+    showCalendarNotice,
+  ]);
 
   const mapSeriesImpactItem = useCallback((item: any, fallbackCourtName: string): RecurringOverlapItem => {
     const requestedStartRaw = item?.requestedStartDateTime || item?.startDateTime || item?.date || null;
@@ -4623,6 +4657,20 @@ export default function AdminAgendaPlaygroundPage() {
     };
   }, [selectedDate, selectedEndSlot, selectedStartSlot, selectionMinutes]);
 
+  const resolveSeriesPaidOccurrences = useCallback(async (items: RecurringCreatedItem[]) => {
+    const rows = await Promise.all(
+      items.map(async (item) => {
+        const bookingId = Number(item.bookingId || 0);
+        if (!Number.isFinite(bookingId) || bookingId <= 0) return null;
+        const summary = await getBookingFinancialSummary(bookingId);
+        const paidAmount = roundMoney(Number(summary?.paid || 0));
+        if (paidAmount <= 0.009) return null;
+        return { ...item, bookingId, paidAmount };
+      })
+    );
+    return rows.filter((item): item is SeriesPaidOccurrence => Boolean(item));
+  }, []);
+
   const previewSeriesEditScope = useCallback(async (scope: EditSeriesScope) => {
     const fixedBookingId = Number(editingBooking?.fixedBookingId || 0);
     const numericBookingId = Number(editingBookingId || 0);
@@ -4687,16 +4735,20 @@ export default function AdminAgendaPlaygroundPage() {
       });
       const skippedRaw = Array.isArray(result?.skipped) ? result.skipped : [];
       const applicableItemsRaw = Array.isArray(result?.applicableItems) ? result.applicableItems : [];
+      const applicableItems = applicableItemsRaw
+        .map((item: any) => mapSeriesAppliedItem(item, selectedCourt?.name || 'Cancha'))
+        .sort((a, b) => (Number(a.sortStartMs || 0) - Number(b.sortStartMs || 0)));
+      const paidItems = await resolveSeriesPaidOccurrences(applicableItems);
       setSeriesDeletePreviewSummary({
         scope,
         totalCandidates: Number(result?.totalCandidates || 0),
         applicableCount: Number(result?.cancelledCount || 0),
-        applicableItems: applicableItemsRaw
-          .map((item: any) => mapSeriesAppliedItem(item, selectedCourt?.name || 'Cancha'))
-          .sort((a, b) => (Number(a.sortStartMs || 0) - Number(b.sortStartMs || 0))),
+        applicableItems,
         skippedCount: skippedRaw.length,
         overlapItems: skippedRaw.map((item: any) => mapSeriesImpactItem(item, selectedCourt?.name || 'Cancha')),
         failureMessages: [],
+        paidItems,
+        paidAmountTotal: roundMoney(paidItems.reduce((sum, item) => sum + Number(item.paidAmount || 0), 0)),
       });
     } catch (error: any) {
       setSeriesDeletePreviewScope(null);
@@ -4704,22 +4756,128 @@ export default function AdminAgendaPlaygroundPage() {
     } finally {
       setSeriesDeletePreviewLoading(false);
     }
-  }, [applyBookingError, editingBooking?.fixedBookingId, editingBookingId, mapSeriesAppliedItem, mapSeriesImpactItem, selectedCourt?.name]);
+  }, [applyBookingError, editingBooking?.fixedBookingId, editingBookingId, mapSeriesAppliedItem, mapSeriesImpactItem, resolveSeriesPaidOccurrences, selectedCourt?.name]);
+
+  const cancelBookingPaidAmount = roundMoney(Math.max(
+    Number(bookingFinancial?.paid || 0),
+    Number(editingBooking?.hoverPayment?.paidAmount || 0),
+    Number(bookingDrawerState.draft?.billing.financialSummary.paidAmount || 0)
+  ));
+  const cancelBookingHasPayments = cancelBookingPaidAmount > 0.009;
+  const parsedCancelRefundAmount = Number(String(cancelRefundAmountInput || '').replace(',', '.'));
+  const normalizedCancelRefundAmount = Number.isFinite(parsedCancelRefundAmount)
+    ? roundMoney(parsedCancelRefundAmount)
+    : 0;
+
+  const closeDeleteBookingFlow = useCallback(() => {
+    if (isDeletingBooking) return;
+    setDeleteBookingConfirmOpen(false);
+    setDeleteBookingFinalConfirmOpen(false);
+    setCancelBookingFlowError('');
+  }, [isDeletingBooking]);
+
+  const closeSeriesOperationResult = useCallback(() => {
+    setSeriesOperationResultOpen(false);
+    if (seriesOperationResult?.mode === 'delete') {
+      setDrawerOpen(false);
+      setEditingBookingId(null);
+      setEditingBaseline(null);
+    }
+  }, [seriesOperationResult?.mode]);
+
+  const closeRecurringResultModal = useCallback(() => {
+    const generatedCount = Number(recurringResult?.generatedCount || 0);
+    setRecurringOverlapModalOpen(false);
+    if (generatedCount > 0) {
+      setDrawerOpen(false);
+      setEditingBookingId(null);
+      setEditingBaseline(null);
+      setFormError('');
+    }
+  }, [recurringResult?.generatedCount]);
+
+  const buildCancelBookingOptions = useCallback((): {
+    options?: {
+      refund?: {
+        amount?: number;
+        executeNow?: boolean;
+        reasonType?: CancelRefundReasonType;
+        executionNotes?: string;
+      };
+    };
+    error?: string;
+  } => {
+    if (isBookingFinancialLoading) {
+      return { error: 'Esperá a que termine de cargar el impacto financiero de la reserva.' };
+    }
+
+    if (!cancelBookingHasPayments) return {};
+
+    const amount = Number(String(cancelRefundAmountInput || '').replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0.009) {
+      return { error: 'Para cancelar una reserva con pagos, indicá un monto a devolver mayor a 0.' };
+    }
+
+    const refundAmount = roundMoney(amount);
+    if (refundAmount > cancelBookingPaidAmount + 0.009) {
+      return { error: `El monto a devolver no puede superar ${cancelBookingPaidAmount.toFixed(2)} $.` };
+    }
+
+    if (!cancelRefundExecuteNow && refundAmount + 0.009 < cancelBookingPaidAmount) {
+      return { error: 'Si la devolución queda pendiente, debe ser por el total pagado.' };
+    }
+
+    return {
+      options: {
+        refund: {
+          amount: refundAmount,
+          executeNow: cancelRefundExecuteNow,
+          reasonType: cancelRefundReasonType,
+          executionNotes: cancelRefundExecutionNotes.trim() || undefined,
+        },
+      },
+    };
+  }, [
+    cancelBookingHasPayments,
+    cancelBookingPaidAmount,
+    cancelRefundAmountInput,
+    cancelRefundExecuteNow,
+    cancelRefundExecutionNotes,
+    cancelRefundReasonType,
+    isBookingFinancialLoading,
+  ]);
 
   const openDeleteBookingFlow = useCallback(() => {
     const isEditingRecurringSeries = Number(editingBooking?.fixedBookingId || 0) > 0;
     if (isEditingRecurringSeries) {
       setDeleteSeriesScopeModalOpen(true);
       setDeleteBookingConfirmOpen(false);
+      setDeleteBookingFinalConfirmOpen(false);
       setSeriesDeletePreviewLoading(false);
       setSeriesDeletePreviewScope(null);
       setSeriesDeletePreviewSummary(null);
       return;
     }
+    setCancelRefundAmountInput(cancelBookingPaidAmount > 0.009 ? cancelBookingPaidAmount.toFixed(2) : '');
+    setCancelRefundReasonType(cancelBookingPaidAmount > 0.009 ? 'FULL' : 'OTHER');
+    setCancelRefundExecutionNotes('');
+    setCancelRefundExecuteNow(true);
+    setCancelBookingFlowError('');
+    setDeleteBookingFinalConfirmOpen(false);
     setDeleteBookingConfirmOpen(true);
-  }, [editingBooking?.fixedBookingId]);
+  }, [cancelBookingPaidAmount, editingBooking?.fixedBookingId]);
 
-  const handleDeleteBooking = useCallback(async (seriesScope?: EditSeriesScope) => {
+  const handleDeleteBooking = useCallback(async (
+    seriesScope?: EditSeriesScope,
+    options?: {
+      refund?: {
+        amount?: number;
+        executeNow?: boolean;
+        reasonType?: CancelRefundReasonType;
+        executionNotes?: string;
+      };
+    }
+  ) => {
     if (!editingBookingId) return;
 
     const numericBookingId = Number(editingBookingId);
@@ -4734,6 +4892,7 @@ export default function AdminAgendaPlaygroundPage() {
 
     const fixedBookingId = Number(editingBooking?.fixedBookingId || 0);
     const isEditingRecurringSeries = Number.isFinite(fixedBookingId) && fixedBookingId > 0;
+    const shouldDeferDrawerCloseForSeriesResult = isEditingRecurringSeries && Boolean(seriesScope);
 
     try {
       setIsDeletingBooking(true);
@@ -4768,18 +4927,34 @@ export default function AdminAgendaPlaygroundPage() {
         });
         setSeriesOperationResultOpen(true);
       } else {
-        await cancelBooking(numericBookingId);
+        await cancelBooking(numericBookingId, options);
       }
       await reloadSchedule();
-      setDrawerOpen(false);
-      setEditingBookingId(null);
-      setEditingBaseline(null);
+      setDeleteBookingConfirmOpen(false);
+      setDeleteBookingFinalConfirmOpen(false);
+      if (!shouldDeferDrawerCloseForSeriesResult) {
+        setDrawerOpen(false);
+        setEditingBookingId(null);
+        setEditingBaseline(null);
+      }
     } catch (error: any) {
       applyBookingError(error, 'No se pudo eliminar/cancelar la reserva.');
     } finally {
       setIsDeletingBooking(false);
     }
   }, [applyBookingError, editingBooking?.fixedBookingId, editingBookingId, mapSeriesAppliedItem, mapSeriesImpactItem, reloadSchedule, selectedCourt?.name]);
+
+  const confirmCancelBookingFromDrawer = useCallback(async () => {
+    const result = buildCancelBookingOptions();
+    if (result.error) {
+      setCancelBookingFlowError(result.error);
+      setDeleteBookingFinalConfirmOpen(false);
+      return;
+    }
+    setCancelBookingFlowError('');
+    setDeleteBookingFinalConfirmOpen(false);
+    await handleDeleteBooking(undefined, result.options);
+  }, [buildCancelBookingOptions, handleDeleteBooking]);
 
   const hasOverlapForRange = useCallback((params: {
     courtId: string;
@@ -5781,6 +5956,20 @@ export default function AdminAgendaPlaygroundPage() {
     setSimplifiedSinglePaymentAdvancedOpen(false);
     setPlaytomicResultModal(null);
   }, []);
+
+  useEffect(() => {
+    if (activePaymentModal?.flow !== 'playtomicPayment') return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      closeSimplifiedPaymentModal();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activePaymentModal, closeSimplifiedPaymentModal]);
+
   const modalBackdropPointerDownTargetRef = useRef<EventTarget | null>(null);
   const handleModalBackdropPointerDown = useCallback((event: any) => {
     modalBackdropPointerDownTargetRef.current = event.target;
@@ -5821,14 +6010,23 @@ export default function AdminAgendaPlaygroundPage() {
     const requestSeq = remoteBillingConfigRequestSeqRef.current + 1;
     remoteBillingConfigRequestSeqRef.current = requestSeq;
     let latestConfig: BookingBillingConfig | null = null;
+    let latestPaymentRemaining: number | null = null;
     try {
       setIsRemoteBillingConfigLoading(true);
       setBillingConfigLoadError('');
-      const config = await getBookingBillingConfig(persistedEditingBookingId);
+      const [config, latestFinancialSummary] = await Promise.all([
+        getBookingBillingConfig(persistedEditingBookingId),
+        refreshBookingFinancial(persistedEditingBookingId),
+        loadBookingConsumptions(persistedEditingBookingId),
+      ]);
       if (remoteBillingConfigRequestSeqRef.current !== requestSeq) return;
       latestConfig = config;
       setRemoteBillingConfig(config);
       setIsBillingConfigHydrated(true);
+      const latestRemaining = Number(latestFinancialSummary?.remaining ?? simplifiedRemainingAfterQueue);
+      if (Number.isFinite(latestRemaining)) {
+        latestPaymentRemaining = Number(latestRemaining.toFixed(2));
+      }
     } catch (error: any) {
       if (remoteBillingConfigRequestSeqRef.current !== requestSeq) return;
       const message = toUserSafeMessage(error?.message, 'No se pudo cargar la configuración de cobro.');
@@ -5880,7 +6078,7 @@ export default function AdminAgendaPlaygroundPage() {
       }
       return String(preferredPayerId || '').trim();
     })();
-    const preferredAmount = Number(simplifiedRemainingAfterQueue.toFixed(2));
+    const preferredAmount = Number((latestPaymentRemaining ?? simplifiedRemainingAfterQueue).toFixed(2));
 
     setSimplifiedPaymentPayerParticipantIdDraft(preferredPayerId);
     setSimplifiedPaymentCoveredParticipantIdDraft(preferredCoveredId);
@@ -5906,8 +6104,10 @@ export default function AdminAgendaPlaygroundPage() {
     editingBooking?.userId,
     isPaymentLockedByManualPending,
     isRemoteBillingConfigLoading,
+    loadBookingConsumptions,
     participants,
     persistedEditingBookingId,
+    refreshBookingFinancial,
     showCalendarNotice,
     simplifiedRemainingAfterQueue,
     singleChargeParticipantId,
@@ -8466,6 +8666,12 @@ export default function AdminAgendaPlaygroundPage() {
     !simplifiedIsEditingReservation || simplifiedSidebarSection === 'BILLING';
   const showSimplifiedHistorySection =
     simplifiedIsEditingReservation && simplifiedSidebarSection === 'HISTORY';
+  const seriesDeletePaidItems = seriesDeletePreviewSummary?.paidItems || [];
+  const seriesDeleteHasPaidItems = seriesDeletePaidItems.length > 0;
+  const seriesDeleteBlocksMassCancel =
+    seriesDeleteHasPaidItems && seriesDeletePreviewSummary?.scope !== 'THIS_OCCURRENCE';
+  const seriesDeleteUsesIndividualRefund =
+    seriesDeleteHasPaidItems && seriesDeletePreviewSummary?.scope === 'THIS_OCCURRENCE';
 
   return (
     <>
@@ -8705,7 +8911,7 @@ export default function AdminAgendaPlaygroundPage() {
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between px-5 py-4 border-b border-[#edf1f6]">
-                    <h3 className="text-[25px] font-bold tracking-[-0.01em] text-[#222a3d]">Custom recurrence</h3>
+                    <h3 className="text-[25px] font-bold tracking-[-0.01em] text-[#222a3d]">Frecuencia personalizada</h3>
                     <button
                       type="button"
                       onClick={() => setCustomRecurrenceModalOpen(false)}
@@ -8994,7 +9200,7 @@ export default function AdminAgendaPlaygroundPage() {
                 className="fixed inset-0 z-[2147483200] bg-[#11162a]/35 flex items-center justify-center p-4"
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
-                  handleModalBackdropPointerUp(event, () => setRecurringOverlapModalOpen(false))
+                  handleModalBackdropPointerUp(event, closeRecurringResultModal)
                 }
               >
                 <div
@@ -9011,7 +9217,7 @@ export default function AdminAgendaPlaygroundPage() {
                     </h3>
                     <button
                       type="button"
-                      onClick={() => setRecurringOverlapModalOpen(false)}
+                      onClick={closeRecurringResultModal}
                       className="h-8 w-8 rounded-full border border-[#e2e6ef] grid place-items-center text-[#7a8398] hover:bg-[#f7f9fc]"
                     >
                       <X size={15} />
@@ -9090,7 +9296,7 @@ export default function AdminAgendaPlaygroundPage() {
                     <div className="flex items-center justify-end">
                       <button
                         type="button"
-                        onClick={() => setRecurringOverlapModalOpen(false)}
+                        onClick={closeRecurringResultModal}
                         className="h-10 rounded-xl bg-[#3053e2] px-5 text-white text-sm font-bold hover:bg-[#2748cc]"
                       >
                         Entendido
@@ -9361,6 +9567,28 @@ export default function AdminAgendaPlaygroundPage() {
                             <p>Se omitirán <strong>{seriesDeletePreviewSummary.skippedCount}</strong> ocurrencias.</p>
                           </div>
                         )}
+                        {seriesDeleteHasPaidItems && (
+                          <div className={`rounded-xl border px-3 py-2 text-[12px] font-semibold ${
+                            seriesDeleteBlocksMassCancel
+                              ? 'border-[#f3c8d2] bg-[#fff4f7] text-[#b42346]'
+                              : 'border-[#f2d7a6] bg-[#fff9ee] text-[#8a5a14]'
+                          }`}>
+                            {seriesDeleteBlocksMassCancel ? (
+                              <>
+                                <p>
+                                  Hay {seriesDeletePaidItems.length} ocurrencia(s) con pagos por {Number(seriesDeletePreviewSummary?.paidAmountTotal || 0).toFixed(2)} $.
+                                </p>
+                                <p className="mt-1 font-medium">
+                                  Para evitar cancelar cobros sin devolución, cancelá esas ocurrencias individualmente.
+                                </p>
+                              </>
+                            ) : (
+                              <p>
+                                Esta ocurrencia tiene pagos por {Number(seriesDeletePaidItems[0]?.paidAmount || 0).toFixed(2)} $. Vas a continuar con el flujo de devolución puntual.
+                              </p>
+                            )}
+                          </div>
+                        )}
                         {Boolean(seriesDeletePreviewSummary?.applicableItems.length) && (
                           <div className="rounded-xl border border-[#dce2ee] bg-white">
                             <div className="border-b border-[#e8edf7] px-3 py-2 text-[12px] font-semibold text-[#465474]">
@@ -9409,13 +9637,39 @@ export default function AdminAgendaPlaygroundPage() {
                             type="button"
                             onClick={() => {
                               const scope = seriesDeletePreviewSummary?.scope || seriesDeletePreviewScope;
+                              if (seriesDeleteBlocksMassCancel) return;
+                              if (seriesDeleteUsesIndividualRefund) {
+                                const paidAmount = Number(seriesDeletePaidItems[0]?.paidAmount || cancelBookingPaidAmount || 0);
+                                const bookingId = Number(editingBookingId || 0);
+                                void (async () => {
+                                  if (Number.isFinite(bookingId) && bookingId > 0) {
+                                    try {
+                                      await refreshBookingFinancial(bookingId);
+                                    } catch (error: any) {
+                                      applyBookingError(error, 'No se pudo cargar el impacto financiero de la reserva.');
+                                      return;
+                                    }
+                                  }
+                                  setCancelRefundAmountInput(paidAmount > 0.009 ? paidAmount.toFixed(2) : '');
+                                  setCancelRefundReasonType(paidAmount > 0.009 ? 'FULL' : 'OTHER');
+                                  setCancelRefundExecutionNotes('');
+                                  setCancelRefundExecuteNow(true);
+                                  setCancelBookingFlowError('');
+                                  setDeleteBookingFinalConfirmOpen(false);
+                                  setDeleteSeriesScopeModalOpen(false);
+                                  setSeriesDeletePreviewScope(null);
+                                  setSeriesDeletePreviewSummary(null);
+                                  setDeleteBookingConfirmOpen(true);
+                                })();
+                                return;
+                              }
                               setDeleteSeriesScopeModalOpen(false);
                               void handleDeleteBooking(scope);
                             }}
-                            disabled={isDeletingBooking || !seriesDeletePreviewSummary}
+                            disabled={isDeletingBooking || !seriesDeletePreviewSummary || seriesDeleteBlocksMassCancel}
                             className="h-10 rounded-xl bg-[#cf3f57] px-5 text-white text-sm font-bold hover:bg-[#b8354b] disabled:opacity-50"
                           >
-                            Confirmar cancelación
+                            {seriesDeleteUsesIndividualRefund ? 'Continuar devolución' : 'Confirmar cancelación'}
                           </button>
                         </div>
                       </>
@@ -9427,47 +9681,225 @@ export default function AdminAgendaPlaygroundPage() {
 
             {deleteBookingConfirmOpen && (
               <div
-                className="fixed inset-0 z-[2147483200] bg-[#11162a]/35 flex items-center justify-center p-4"
+                className="fixed inset-0 z-[2147483200] bg-[#11162a]/35 flex justify-end p-3"
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
-                  handleModalBackdropPointerUp(event, () => setDeleteBookingConfirmOpen(false))
+                  handleModalBackdropPointerUp(event, closeDeleteBookingFlow)
                 }
               >
                 <div
-                  className="w-full max-w-[520px] rounded-2xl border border-[#e0e5f2] bg-white shadow-2xl"
+                  className="flex h-full w-full max-w-[560px] flex-col rounded-2xl border border-[#dce2ee] bg-white shadow-2xl"
                   onClick={(event) => event.stopPropagation()}
                 >
-                  <div className="flex items-center justify-between px-5 py-4 border-b border-[#edf1f6]">
-                    <h3 className="text-[23px] font-bold tracking-[-0.01em] text-[#222a3d]">Cancelar reserva</h3>
+                  <div className="flex items-start justify-between gap-3 border-b border-[#edf1f6] px-5 py-4">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#98a1b3]">Agenda</p>
+                      <h3 className="mt-1 text-[22px] font-bold tracking-[-0.01em] text-[#222a3d]">Cancelar reserva</h3>
+                      <p className="mt-1 text-[12px] text-[#6f7890]">
+                        Revisá el impacto financiero antes de confirmar.
+                      </p>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => setDeleteBookingConfirmOpen(false)}
-                      className="h-8 w-8 rounded-full border border-[#e2e6ef] grid place-items-center text-[#7a8398] hover:bg-[#f7f9fc]"
+                      onClick={closeDeleteBookingFlow}
+                      disabled={isDeletingBooking}
+                      className="grid h-8 w-8 place-items-center rounded-full border border-[#e2e6ef] text-[#7a8398] transition hover:bg-[#f7f9fc] disabled:opacity-50"
                     >
                       <X size={15} />
                     </button>
                   </div>
-                  <div className="px-5 py-5 space-y-4">
-                    <p className="text-[14px] text-[#4b556d]">
-                      Esta acción cancelará la reserva seleccionada. Podrás verla como cancelada en el historial.
-                    </p>
+
+                  <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
+                    <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#98a1b3]">Reserva</p>
+                          <p className="mt-1 text-[15px] font-bold text-[#27314b]">{editingBooking?.title || 'Reserva seleccionada'}</p>
+                          <p className="mt-0.5 text-[12px] text-[#6f7890]">
+                            {selectedDate.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })} · {slotToTime(selectedStartSlot)} - {slotToTime(selectedEndSlot)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-[#dce2ee] bg-white px-3 py-2 text-right">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#98a1b3]">Cancha</p>
+                          <p className="mt-1 text-[13px] font-bold text-[#27314b]">{selectedCourt?.name || 'Sin cancha'}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="rounded-xl border border-[#dce2ee] bg-white px-3 py-3">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#98a1b3]">Total</p>
+                        <p className="mt-1 text-[17px] font-bold text-[#1f2638]">{Number(bookingFinancial?.total || totalPrice || 0).toFixed(2)} $</p>
+                      </div>
+                      <div className="rounded-xl border border-[#dce2ee] bg-white px-3 py-3">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#98a1b3]">Pagado</p>
+                        <p className="mt-1 text-[17px] font-bold text-[#16733f]">{cancelBookingPaidAmount.toFixed(2)} $</p>
+                      </div>
+                      <div className="rounded-xl border border-[#dce2ee] bg-white px-3 py-3">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#98a1b3]">Saldo</p>
+                        <p className="mt-1 text-[17px] font-bold text-[#6f7890]">{Number(bookingFinancial?.remaining || 0).toFixed(2)} $</p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-[#dce2ee] bg-white p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-[#98a1b3]">Devolución</p>
+                          <p className="mt-1 text-[13px] text-[#6f7890]">
+                            {cancelBookingHasPayments
+                              ? 'Se generará una devolución asociada a la cancelación.'
+                              : 'Esta reserva no tiene pagos registrados.'}
+                          </p>
+                        </div>
+                        {cancelBookingHasPayments && (
+                          <span className="rounded-full bg-[#eef2ff] px-2.5 py-1 text-[11px] font-bold text-[#3053e2]">
+                            Disponible {cancelBookingPaidAmount.toFixed(2)} $
+                          </span>
+                        )}
+                      </div>
+
+                      {isBookingFinancialLoading && (
+                        <div className="mt-3 rounded-xl border border-[#dce7ff] bg-[#f4f7ff] px-3 py-2 text-[12px] font-semibold text-[#3053e2]">
+                          Cargando impacto financiero...
+                        </div>
+                      )}
+
+                      {cancelBookingHasPayments && (
+                        <div className="mt-4 space-y-3">
+                          <div>
+                            <label className="text-[11px] font-semibold text-[#6f7890]">Monto a devolver</label>
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={cancelRefundAmountInput}
+                              onChange={(event) => {
+                                setCancelRefundAmountInput(event.target.value);
+                                setCancelBookingFlowError('');
+                              }}
+                              className="mt-1 h-10 w-full rounded-xl border border-[#dce2ee] bg-white px-3 text-[13px] font-semibold text-[#27314b] outline-none focus:border-[#3053e2]"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] font-semibold text-[#6f7890]">Motivo</label>
+                            <select
+                              value={cancelRefundReasonType}
+                              onChange={(event) => setCancelRefundReasonType(event.target.value as CancelRefundReasonType)}
+                              className="mt-1 h-10 w-full rounded-xl border border-[#dce2ee] bg-white px-3 text-[13px] font-semibold text-[#27314b] outline-none focus:border-[#3053e2]"
+                            >
+                              {cancelRefundReasonOptions.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] font-semibold text-[#6f7890]">Nota interna</label>
+                            <textarea
+                              value={cancelRefundExecutionNotes}
+                              onChange={(event) => setCancelRefundExecutionNotes(event.target.value)}
+                              rows={3}
+                              maxLength={500}
+                              placeholder="Detalle operativo de la devolución"
+                              className="mt-1 w-full resize-none rounded-xl border border-[#dce2ee] bg-white px-3 py-2 text-[13px] font-semibold text-[#27314b] outline-none focus:border-[#3053e2]"
+                            />
+                          </div>
+
+                          <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-2.5">
+                            <input
+                              type="checkbox"
+                              checked={cancelRefundExecuteNow}
+                              onChange={(event) => {
+                                setCancelRefundExecuteNow(event.target.checked);
+                                setCancelBookingFlowError('');
+                              }}
+                              className="h-4 w-4 accent-[#3053e2]"
+                            />
+                            <span className="text-[12px] font-semibold text-[#27314b]">Ejecutar devolución ahora</span>
+                          </label>
+                        </div>
+                      )}
+                    </div>
+
+                    {cancelBookingFlowError && (
+                      <div className="rounded-xl border border-[#ffd6d6] bg-[#fff5f5] px-3 py-2 text-[12px] font-semibold text-[#b42318]">
+                        {cancelBookingFlowError}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="border-t border-[#edf1f6] px-5 py-4">
                     <div className="flex items-center justify-end gap-2">
                       <button
                         type="button"
-                        onClick={() => setDeleteBookingConfirmOpen(false)}
-                        className="h-10 rounded-xl border border-[#dbe2ef] bg-white px-4 text-sm font-semibold text-[#4e5870] hover:bg-[#f7f9fc]"
+                        onClick={closeDeleteBookingFlow}
+                        disabled={isDeletingBooking}
+                        className="h-10 rounded-xl border border-[#dbe2ef] bg-white px-4 text-sm font-semibold text-[#4e5870] hover:bg-[#f7f9fc] disabled:opacity-50"
                       >
                         Volver
                       </button>
                       <button
                         type="button"
                         onClick={() => {
-                          setDeleteBookingConfirmOpen(false);
-                          void handleDeleteBooking();
+                          const result = buildCancelBookingOptions();
+                          if (result.error) {
+                            setCancelBookingFlowError(result.error);
+                            return;
+                          }
+                          setCancelBookingFlowError('');
+                          setDeleteBookingFinalConfirmOpen(true);
                         }}
-                        className="h-10 rounded-xl bg-[#cf3f57] px-5 text-white text-sm font-bold hover:bg-[#b8354b]"
+                        disabled={isDeletingBooking || isBookingFinancialLoading}
+                        className="h-10 rounded-xl bg-[#cf3f57] px-5 text-sm font-bold text-white hover:bg-[#b8354b] disabled:opacity-50"
                       >
-                        Sí, cancelar
+                        Cancelar reserva
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {deleteBookingFinalConfirmOpen && (
+              <div
+                className="fixed inset-0 z-[2147483300] flex items-center justify-center bg-[#11162a]/45 p-4"
+                onPointerDown={handleModalBackdropPointerDown}
+                onPointerUp={(event) =>
+                  handleModalBackdropPointerUp(event, () => {
+                    if (!isDeletingBooking) setDeleteBookingFinalConfirmOpen(false);
+                  })
+                }
+              >
+                <div
+                  className="w-full max-w-[460px] rounded-2xl border border-[#e0e5f2] bg-white shadow-2xl"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="border-b border-[#edf1f6] px-5 py-4">
+                    <h3 className="text-[21px] font-bold tracking-[-0.01em] text-[#222a3d]">Confirmar cancelación</h3>
+                  </div>
+                  <div className="space-y-4 px-5 py-5">
+                    <p className="text-[14px] text-[#4b556d]">
+                      {cancelBookingHasPayments
+                        ? `Vas a cancelar esta reserva y devolver ${normalizedCancelRefundAmount.toFixed(2)} $.`
+                        : 'Vas a cancelar esta reserva sin generar devolución.'}
+                    </p>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDeleteBookingFinalConfirmOpen(false)}
+                        disabled={isDeletingBooking}
+                        className="h-10 rounded-xl border border-[#dbe2ef] bg-white px-4 text-sm font-semibold text-[#4e5870] hover:bg-[#f7f9fc] disabled:opacity-50"
+                      >
+                        Volver
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void confirmCancelBookingFromDrawer()}
+                        disabled={isDeletingBooking}
+                        className="h-10 rounded-xl bg-[#cf3f57] px-5 text-sm font-bold text-white hover:bg-[#b8354b] disabled:opacity-50"
+                      >
+                        {isDeletingBooking ? 'Cancelando...' : 'Confirmar'}
                       </button>
                     </div>
                   </div>
@@ -9480,7 +9912,7 @@ export default function AdminAgendaPlaygroundPage() {
                 className="fixed inset-0 z-[2147483200] bg-[#11162a]/35 flex items-center justify-center p-4"
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
-                  handleModalBackdropPointerUp(event, () => setSeriesOperationResultOpen(false))
+                  handleModalBackdropPointerUp(event, closeSeriesOperationResult)
                 }
               >
                 <div
@@ -9491,7 +9923,7 @@ export default function AdminAgendaPlaygroundPage() {
                     <h3 className="text-[23px] font-bold tracking-[-0.01em] text-[#222a3d]">{seriesOperationResult.title}</h3>
                     <button
                       type="button"
-                      onClick={() => setSeriesOperationResultOpen(false)}
+                      onClick={closeSeriesOperationResult}
                       className="h-8 w-8 rounded-full border border-[#e2e6ef] grid place-items-center text-[#7a8398] hover:bg-[#f7f9fc]"
                     >
                       <X size={15} />
@@ -9540,7 +9972,7 @@ export default function AdminAgendaPlaygroundPage() {
                     <div className="flex items-center justify-end">
                       <button
                         type="button"
-                        onClick={() => setSeriesOperationResultOpen(false)}
+                        onClick={closeSeriesOperationResult}
                         className="h-10 rounded-xl bg-[#3053e2] px-5 text-white text-sm font-bold hover:bg-[#2748cc]"
                       >
                         Entendido
@@ -9992,28 +10424,39 @@ export default function AdminAgendaPlaygroundPage() {
                             {bookingKindMenuOpen && (
                               <div className="absolute right-0 top-[calc(100%+8px)] z-40 w-[360px] max-w-[calc(100vw-2rem)] rounded-2xl border border-[#dfe4f1] bg-white p-2 shadow-xl">
                                 <div className="space-y-1">
-                                  {bookingKindOptions.map((option) => (
-                                    <button
-                                      key={`simplified-booking-kind-${option.value}`}
-                                      type="button"
-                                      onClick={() => {
-                                        setBookingKind(option.value);
-                                        setBookingKindMenuOpen(false);
-                                        setFormError('');
-                                      }}
-                                      className={`w-full text-left rounded-xl px-3 py-3 transition ${
-                                        option.value === bookingKind ? 'bg-[#eef0ff]' : 'hover:bg-[#f6f7fb]'
-                                      }`}
-                                    >
-                                      <span className="flex items-start gap-2">
-                                        <option.icon size={17} className="mt-[1px] text-[#44527b]" />
-                                        <span>
-                                          <span className="block text-[16px] font-bold leading-none text-[#2a3245]">{option.label}</span>
-                                          <span className="block mt-1 text-[12px] leading-snug text-[#7d879d]">{option.description}</span>
+                                  {bookingKindOptions.map((option) => {
+                                    const isLockedForChange = lockedBookingKindChangeValues.has(option.value);
+
+                                    return (
+                                      <button
+                                        key={`simplified-booking-kind-${option.value}`}
+                                        type="button"
+                                        disabled={isLockedForChange}
+                                        onClick={() => {
+                                          if (isLockedForChange) return;
+                                          setBookingKind(option.value);
+                                          setBookingKindMenuOpen(false);
+                                          setFormError('');
+                                        }}
+                                        title={isLockedForChange ? 'No disponible desde Cambiar tipo' : undefined}
+                                        className={`w-full rounded-xl px-3 py-3 text-left transition ${
+                                          option.value === bookingKind
+                                            ? 'bg-[#eef0ff]'
+                                            : isLockedForChange
+                                              ? 'cursor-not-allowed opacity-45'
+                                              : 'hover:bg-[#f6f7fb]'
+                                        }`}
+                                      >
+                                        <span className="flex items-start gap-2">
+                                          <option.icon size={17} className="mt-[1px] text-[#44527b]" />
+                                          <span>
+                                            <span className="block text-[16px] font-bold leading-none text-[#2a3245]">{option.label}</span>
+                                            <span className="block mt-1 text-[12px] leading-snug text-[#7d879d]">{option.description}</span>
+                                          </span>
                                         </span>
-                                      </span>
-                                    </button>
-                                  ))}
+                                      </button>
+                                    );
+                                  })}
                                 </div>
                               </div>
                             )}
@@ -11849,7 +12292,7 @@ export default function AdminAgendaPlaygroundPage() {
                         </div>
                       )}
                       <div className="flex items-center justify-end gap-2">
-                        {editingBookingId && (
+                        {editingBookingId && !isCompletedReservation && (
                           <button
                             type="button"
                             onClick={openDeleteBookingFlow}
@@ -11952,7 +12395,7 @@ export default function AdminAgendaPlaygroundPage() {
 
                     <div className="flex items-center justify-end gap-2 pt-1">
                       <div className="flex items-center gap-2">
-                        {editingBookingId && (
+                        {editingBookingId && !isCompletedReservation && (
                           <button
                             type="button"
                             onClick={openDeleteBookingFlow}
@@ -11992,19 +12435,16 @@ export default function AdminAgendaPlaygroundPage() {
           </AdminPlaygroundShell>
 
       {activePaymentModal?.flow === 'playtomicPayment' && activePaymentModal.step === 'form' && (
-        <div className="fixed inset-0 z-[2147483200]">
-          <button
-            type="button"
-            className="absolute inset-0 bg-[#0d1326]/45"
-            onPointerDown={handleModalBackdropPointerDown}
-            onPointerUp={(event) => handleModalBackdropPointerUp(event, closeSimplifiedPaymentModal)}
-            aria-label="Cerrar modal de cobro"
-          />
-          <div className="absolute inset-0 flex items-center justify-center p-4">
-            <div
-              className="flex max-h-[calc(100vh-2rem)] w-full max-w-[700px] flex-col overflow-hidden rounded-2xl border border-[#dce2ee] bg-white shadow-2xl"
-              onClick={(event) => event.stopPropagation()}
-            >
+        <div
+          className="fixed inset-0 z-[2147483200] flex items-center justify-center bg-[#0d1326]/45 p-4"
+          role="presentation"
+          onPointerDown={handleModalBackdropPointerDown}
+          onPointerUp={(event) => handleModalBackdropPointerUp(event, closeSimplifiedPaymentModal)}
+        >
+          <div
+            className="flex max-h-[calc(100vh-2rem)] w-full max-w-[700px] flex-col overflow-hidden rounded-2xl border border-[#dce2ee] bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
               <div className="flex items-center justify-between border-b border-[#eef1f6] px-4 py-3">
                 <div>
                   <p className="text-[18px] font-semibold text-[#1f2638]">
@@ -12619,7 +13059,6 @@ export default function AdminAgendaPlaygroundPage() {
                 </button>
               </div>
             </div>
-          </div>
         </div>
       )}
 
