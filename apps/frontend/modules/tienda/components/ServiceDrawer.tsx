@@ -41,8 +41,6 @@ const sectionCardClass = 'rounded-2xl border border-[#dce2ee] bg-[#f8f9fd] p-4';
  *
  * Puramente presentacional: sin estado propio, sin fetch.
  * Toda la lógica y el estado viven en ServicesPage.
- *
- * Usa AdminDrawer (size sm) en lugar de AdminRightSidebar.
  */
 export default function ServiceDrawer({
   open,

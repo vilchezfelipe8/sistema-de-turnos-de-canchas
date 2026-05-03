@@ -10,16 +10,6 @@ export function SettingsClubIdentitySection() {
   );
 }
 
-export function SettingsActivitiesSection() {
-  return (
-    <AdminTabClub
-      forcedTab="agenda"
-      title="Actividades"
-      subtitle="Configuración operativa por actividad, turnos y disponibilidad."
-    />
-  );
-}
-
 export function SettingsSchedulesSection() {
   return (
     <AdminTabClub

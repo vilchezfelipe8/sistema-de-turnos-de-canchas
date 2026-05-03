@@ -3709,6 +3709,7 @@ export default function AdminAgendaPlaygroundPage() {
     const cardHeight = estimateBookingHoverTarjetaHeight(participantsCount);
     const gap = 10;
     const bottomGap = 24;
+    const stickyHeaderHeight = 40;
     const bounds = agendaSurfaceRef.current
       ? agendaSurfaceRef.current.getBoundingClientRect()
       : { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
@@ -3717,7 +3718,7 @@ export default function AdminAgendaPlaygroundPage() {
 
     const minX = bounds.left + gap;
     const maxX = bounds.right - cardWidth - gap;
-    const minY = bounds.top + gap;
+    const minY = bounds.top + stickyHeaderHeight + gap;
     const maxY = safeBottom - cardHeight;
 
     let nextX = clientX - cardWidth - gap;
@@ -8626,6 +8627,30 @@ export default function AdminAgendaPlaygroundPage() {
           );
         }
         detail = detailParts.join(' - ');
+      } else if (normalizedType === 'PRODUCT_SOLD') {
+        const productName = String((payload as any)?.productName || '').trim() || 'Consumo';
+        const quantity = Number((payload as any)?.quantity || 0);
+        const totalAmount = Number((payload as any)?.totalAmount || 0);
+        title = 'Consumo agregado';
+        const detailParts = [
+          quantity > 0 ? `${quantity} x ${productName}` : productName,
+          Number.isFinite(totalAmount) && totalAmount > 0.009 ? `Total: ${totalAmount.toFixed(2)} $` : '',
+        ].filter(Boolean);
+        detail = detailParts.length > 0 ? detailParts.join(' - ') : 'Consumo agregado.';
+      } else if (normalizedType === 'PRODUCT_REMOVED') {
+        const productName = String((payload as any)?.productName || '').trim() || 'Consumo';
+        const quantity = Number((payload as any)?.quantity || 0);
+        const totalAmount = Number((payload as any)?.totalAmount || 0);
+        title = 'Consumo eliminado';
+        const detailParts = [
+          quantity > 0 ? `${quantity} x ${productName}` : productName,
+          Number.isFinite(totalAmount) && totalAmount > 0.009 ? `Total: ${totalAmount.toFixed(2)} $` : '',
+        ].filter(Boolean);
+        detail = detailParts.length > 0 ? detailParts.join(' - ') : 'Consumo eliminado.';
+      } else if (normalizedType === 'BOOKING_NOTES_UPDATED') {
+        title = 'Notas actualizadas';
+        const notes = String((payload as any)?.notes || '').trim();
+        detail = notes.length > 0 ? 'Se actualizó el detalle interno de la reserva.' : 'Se quitaron las notas internas.';
       } else {
         detail = 'Se registró una actualización.';
       }
@@ -8725,7 +8750,7 @@ export default function AdminAgendaPlaygroundPage() {
 
                 <div className="flex-1 rounded-2xl border border-[#e5e7eb] bg-white overflow-hidden">
                   <div className="h-full overflow-auto">
-                    <div className="min-w-max p-4">
+                    <div className="min-w-max px-4 pb-4 pt-0">
                       <div className="flex min-w-full">
                         <AgendaTimeGutter
                           gridHeight={gridHeight}
@@ -8741,7 +8766,7 @@ export default function AdminAgendaPlaygroundPage() {
                             const courtBookings = visibleBookings.filter((booking) => booking.courtId === court.id);
                             return (
                               <div key={court.id} className="min-w-[132px] flex-1 border-l border-[#eef1f3] last:border-r">
-                                <div className="h-10 border-b border-[#eef1f3] grid place-items-center text-xs font-semibold text-[#4b5563]">
+                                <div className="sticky top-0 z-40 h-10 border-b border-[#eef1f3] bg-white grid place-items-center text-xs font-semibold text-[#4b5563]">
                                   {court.name}
                                 </div>
                                 <AgendaSlotLayer
@@ -8886,7 +8911,7 @@ export default function AdminAgendaPlaygroundPage() {
                                           top,
                                           height,
                                           cursor: booking.state === 'completed' ? 'pointer' : draggingBookingId ? 'grabbing' : 'grab',
-                                          zIndex: isHovered ? 26 : 12,
+                                          zIndex: isHovered ? 16 : 10,
                                         }}
                                       />
                                     );
@@ -10144,13 +10169,13 @@ export default function AdminAgendaPlaygroundPage() {
               <button
                 type="button"
                 aria-label="Cerrar panel"
-                className="absolute inset-0 z-20 bg-[#101326]/20"
+                className="absolute inset-0 z-50 bg-[#101326]/20"
                 onClick={() => setDrawerOpen(false)}
               />
             )}
 
             <aside
-              className={`absolute inset-y-0 right-0 z-30 w-full max-w-[740px] border-l border-[#e6e8ee] bg-white shadow-2xl transition-transform duration-300 ${
+              className={`absolute inset-y-0 right-0 z-[60] w-full max-w-[740px] border-l border-[#e6e8ee] bg-white shadow-2xl transition-transform duration-300 ${
                 drawerOpen ? 'translate-x-0' : 'translate-x-full'
               }`}
             >

@@ -285,9 +285,23 @@ export class BookingService {
         }
 
         const bookingClientId = String(booking.clientId || '').trim();
+        const bookingClientIdNormalized = bookingClientId.toLowerCase();
+        const bookingClientAlias = bookingClientIdNormalized ? `client-${bookingClientIdNormalized}` : '';
         if (bookingClientId && lowered.startsWith('booking-client:')) {
             const refClientId = rawRef.slice('booking-client:'.length).trim();
             if (refClientId === bookingClientId) return 'booking:responsible';
+        }
+        // Algunos flujos del front persisten cliente como "client:client-<id>".
+        // Si coincide con el cliente de la reserva, es el mismo titular.
+        if (bookingClientId && lowered.startsWith('client:')) {
+            const refClientToken = lowered.slice('client:'.length).trim();
+            if (
+                refClientToken === bookingClientIdNormalized ||
+                refClientToken === bookingClientAlias ||
+                refClientToken.endsWith(`-${bookingClientIdNormalized}`)
+            ) {
+                return 'booking:responsible';
+            }
         }
 
         const bookingUserId = Number(booking.userId || 0);
@@ -626,31 +640,6 @@ export class BookingService {
                 }
                 : this.buildDefaultBillingConfig(booking);
             const previousAssignments = previousConfig.assignments;
-            const previousActiveRefs = new Set(
-                this.collectActiveParticipantRefs(previousAssignments).map((ref) =>
-                    this.normalizeParticipantRefForDiff(ref, {
-                        clientId: booking.clientId,
-                        userId: booking.userId
-                    })
-                )
-            );
-            const nextActiveRefs = new Set(
-                this.collectActiveParticipantRefs(normalizedAssignments).map((ref) =>
-                    this.normalizeParticipantRefForDiff(ref, {
-                        clientId: booking.clientId,
-                        userId: booking.userId
-                    })
-                )
-            );
-            const addedParticipantRefs = Array.from(nextActiveRefs.values()).filter((ref) => !previousActiveRefs.has(ref));
-            const removedParticipantRefs = Array.from(previousActiveRefs.values()).filter((ref) => !nextActiveRefs.has(ref));
-            if (booking.status === 'COMPLETED' && (addedParticipantRefs.length > 0 || removedParticipantRefs.length > 0)) {
-                const lockedParticipantsError: any = new Error(
-                    'No se pueden modificar participantes en una reserva completada.'
-                );
-                lockedParticipantsError.code = 'BOOKING_COMPLETED_PARTICIPANTS_LOCKED';
-                throw lockedParticipantsError;
-            }
             const effectiveChargeResponsibleRef = (() => {
                 const explicit = String(input.chargeResponsibleRef || '').trim();
                 if (explicit) return explicit;
@@ -833,6 +822,33 @@ export class BookingService {
                     }
                 }
             }
+
+            const previousActiveRefs = new Set(
+                this.collectActiveParticipantRefs(previousAssignments).map((ref) =>
+                    this.normalizeParticipantRefForDiff(ref, {
+                        clientId: booking.clientId,
+                        userId: booking.userId
+                    })
+                )
+            );
+            const nextActiveRefs = new Set(
+                this.collectActiveParticipantRefs(normalizedAssignments).map((ref) =>
+                    this.normalizeParticipantRefForDiff(ref, {
+                        clientId: booking.clientId,
+                        userId: booking.userId
+                    })
+                )
+            );
+            const addedParticipantRefs = Array.from(nextActiveRefs.values()).filter((ref) => !previousActiveRefs.has(ref));
+            const removedParticipantRefs = Array.from(previousActiveRefs.values()).filter((ref) => !nextActiveRefs.has(ref));
+            if (booking.status === 'COMPLETED' && (addedParticipantRefs.length > 0 || removedParticipantRefs.length > 0)) {
+                const lockedParticipantsError: any = new Error(
+                    'No se pueden modificar participantes en una reserva completada.'
+                );
+                lockedParticipantsError.code = 'BOOKING_COMPLETED_PARTICIPANTS_LOCKED';
+                throw lockedParticipantsError;
+            }
+
             const previousAssignmentsComparable = this.normalizeAssignmentsForComparison(previousAssignments);
             const nextAssignmentsComparable = this.normalizeAssignmentsForComparison(normalizedAssignments);
             const previousChargeableComparable = previousAssignmentsComparable
@@ -5394,6 +5410,19 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 });
             }
 
+            await this.eventService.productSold(clubId, {
+                bookingId,
+                accountId: account.id,
+                accountItemId: createdItem.id,
+                productId: txProduct.id,
+                productName: txProduct.name,
+                quantity: normalizedQty,
+                unitPrice: Number(createdItem.unitPrice || 0),
+                totalAmount: Number(createdItem.total || 0),
+                actorUserId: options?.actorUserId ?? null,
+                source: 'BOOKING_CONSUMPTION'
+            }, tx as any);
+
             const stockUpdate = await tx.product.updateMany({
                 where: { id: productId, clubId, stock: { gte: normalizedQty } },
                 data: { stock: { decrement: normalizedQty } }
@@ -5547,6 +5576,27 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 revenueAccount: 'BAR_REVENUE',
                 description: `Reversión consumo ${item.description}`
             });
+
+            const bookingIdFromAccount = (() => {
+                const sourceType = String(item.account?.sourceType || '').toUpperCase();
+                const sourceIdRaw = String(item.account?.sourceId || '').trim();
+                if (sourceType !== 'BOOKING') return null;
+                const parsed = Number(sourceIdRaw);
+                return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+            })();
+
+            await this.eventService.productRemoved(clubId, {
+                bookingId: bookingIdFromAccount,
+                accountId: item.accountId,
+                accountItemId: item.id,
+                productId: item.productId ?? null,
+                productName: item.description || null,
+                quantity: Number(item.quantity || 0),
+                unitPrice: Number(item.unitPrice || 0),
+                totalAmount: Number(item.total || 0),
+                actorUserId: null,
+                source: 'BOOKING_CONSUMPTION'
+            }, tx as any);
 
             const deleted = await tx.accountItem.delete({ where: { id: itemId } });
             await this.projectionService.refreshAccountSummary(item.accountId, tx);

@@ -1,8 +1,6 @@
 // modules/cuentas/components/AccountDrawer.tsx
 //
 // Drawer canónico de gestión de cuenta.
-// Reemplaza el AgendaLikeRightSidebar de pagos-playground y el aside
-// hand-rolled de clientes-playground2.
 //
 // Props:
 //   accountId      — ID de la cuenta a mostrar. null = cerrado.

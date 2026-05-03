@@ -10,11 +10,6 @@ import { X } from 'lucide-react';
 //            En desktop: slide-in desde la derecha sobre el contenido.
 //            En mobile: pantalla completa con botón cerrar.
 //
-// Componentes relacionados (legado):
-//   AdminSidebarScaffold   → primitivo de drawer ya desplegado. Renombrar
-//                            en una pasada futura; no tocar por compatibilidad.
-//   AgendaLikeRightSidebar → wrapper fino de AdminSidebarScaffold.
-//                            Preferir AdminDrawer para features nuevas.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -141,8 +136,6 @@ export function AdminDrawerSection({
  *   - Cierre: click en backdrop, botón ×, o tecla Escape.
  *   - Footer: fijo al pie, visible sin importar el scroll del body.
  *
- * Preferir AdminDrawer sobre AgendaLikeRightSidebar para features nuevas.
- *
  * @example
  * <AdminDrawer
  *   open={isOpen}
@@ -208,13 +201,13 @@ export default function AdminDrawer({
           // Desktop: slide-in desde la derecha
           `md:inset-y-0 md:left-auto md:right-0 md:top-16 md:w-full`,
           sizeWidthClass[size],
-          'border-l border-[#e6e8ee] bg-white shadow-2xl',
+          'border-l border-[#e6e8ee] bg-[#ffffff] shadow-none',
         ].join(' ')}
       >
         <div className="relative flex h-full flex-col">
 
           {/* ── Header ── */}
-          <header className="shrink-0 border-b border-[#eef0f5] px-6 py-5">
+          <header className="shrink-0 border-b border-[#eef0f5] bg-[#ffffff] px-6 py-5">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <h2 className="text-[22px] font-semibold leading-snug tracking-tight text-[#1a2035]">
@@ -247,7 +240,7 @@ export default function AdminDrawer({
 
           {/* ── Tabs opcionales ── */}
           {tabs.length > 0 && (
-            <div className="shrink-0 border-b border-[#eef0f5] px-6">
+            <div className="shrink-0 border-b border-[#eef0f5] bg-[#ffffff] px-6">
               <nav className="flex items-center gap-6 overflow-x-auto">
                 {tabs.map((tab) => (
                   <button
@@ -269,7 +262,7 @@ export default function AdminDrawer({
           )}
 
           {/* ── Body (scrolleable) ── */}
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+          <div className="min-h-0 flex-1 overflow-y-auto bg-[#ffffff] px-6 py-6">
             <div className="space-y-5">
               {children}
             </div>
@@ -277,7 +270,7 @@ export default function AdminDrawer({
 
           {/* ── Footer fijo ── */}
           {footer && (
-            <footer className="shrink-0 border-t border-[#eef0f5] bg-white px-6 py-4">
+            <footer className="shrink-0 border-t border-[#eef0f5] bg-[#ffffff] px-6 py-4">
               {footer}
             </footer>
           )}

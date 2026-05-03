@@ -17,7 +17,7 @@ export default function AgendaTimeGutter({
 }: AgendaTimeGutterProps) {
   return (
     <div className="w-[78px] shrink-0">
-      <div className="h-10 border-b border-[#eef1f3]" />
+      <div className="sticky top-0 z-30 h-10 border-b border-[#eef1f3] bg-white" />
       <div className="relative" style={{ height: gridHeight }}>
         {Array.from({ length: totalSlots }).map((_, slot) => {
           const showHourLabel = slot % slotsPerHour === 0;

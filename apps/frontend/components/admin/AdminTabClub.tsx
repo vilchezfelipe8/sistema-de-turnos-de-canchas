@@ -1950,7 +1950,7 @@ export default function AdminTabClub({
         }`}
         aria-hidden={!hasUnsavedChanges || Boolean(exceptionModalActivity)}
       >
-        <div className="flex items-center gap-3 border-t border-[#dce2ee] bg-white px-5 py-3 shadow-[0_-4px_16px_rgba(31,38,56,0.08)]">
+        <div className="flex items-center gap-3 border-t border-[#dce2ee] bg-[#ffffff] px-5 py-3 shadow-[0_-4px_16px_rgba(31,38,56,0.08)]">
           <span className="h-2 w-2 shrink-0 rounded-full bg-[#f59e0b]" />
           <span className="text-[12px] font-medium text-[#1f2638]">
             {configChanges.length} cambio{configChanges.length !== 1 ? 's' : ''} sin guardar

@@ -58,8 +58,6 @@ const sectionCardClass = 'rounded-2xl border border-[#dce2ee] bg-[#f8f9fd] p-4';
  *
  * Puramente presentacional: sin estado propio, sin fetch.
  * Toda la lógica y el estado viven en ProductsPage.
- *
- * Usa AdminDrawer (size md) en lugar de AdminRightSidebar.
  */
 export default function ProductDrawer({
   open,

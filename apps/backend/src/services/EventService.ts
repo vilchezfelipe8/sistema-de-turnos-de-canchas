@@ -12,7 +12,8 @@ export const DOMAIN_EVENTS = {
   BOOKING_BILLING_CONFIG_UPDATED: 'BOOKING_BILLING_CONFIG_UPDATED',
   BOOKING_NOTES_UPDATED: 'BOOKING_NOTES_UPDATED',
   PAYMENT_RECEIVED: 'PAYMENT_RECEIVED',
-  PRODUCT_SOLD: 'PRODUCT_SOLD'
+  PRODUCT_SOLD: 'PRODUCT_SOLD',
+  PRODUCT_REMOVED: 'PRODUCT_REMOVED'
 } as const;
 
 export type DomainEventType = (typeof DOMAIN_EVENTS)[keyof typeof DOMAIN_EVENTS];
@@ -79,5 +80,9 @@ export class EventService {
 
   async productSold(clubId: number, payload: Record<string, any>, tx?: DbClient) {
     return this.createEvent(clubId, DOMAIN_EVENTS.PRODUCT_SOLD, payload, tx);
+  }
+
+  async productRemoved(clubId: number, payload: Record<string, any>, tx?: DbClient) {
+    return this.createEvent(clubId, DOMAIN_EVENTS.PRODUCT_REMOVED, payload, tx);
   }
 }
