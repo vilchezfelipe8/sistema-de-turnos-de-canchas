@@ -46,7 +46,7 @@ type Booking = {
   endSlot: number;
   title: string;
   state: 'pending' | 'confirmed' | 'completed' | 'blocked';
-  paymentState: 'paid' | 'unpaid';
+  paymentState: 'paid' | 'partial' | 'unpaid';
   isRecurring?: boolean;
   fixedBookingId?: number;
   clientId?: string;
@@ -614,11 +614,15 @@ function bookingBadgeColor(state: Booking['state']) {
 }
 
 function bookingPaymentLabel(state: Booking['paymentState']) {
-  return state === 'paid' ? 'PAGADA' : 'SIN PAGO';
+  if (state === 'paid') return 'PAGADA';
+  if (state === 'partial') return 'PARCIAL';
+  return 'SIN PAGO';
 }
 
 function bookingPaymentBadgeColor(state: Booking['paymentState']) {
-  return state === 'paid' ? 'bg-[#166534] text-white' : 'bg-[#6b7280] text-white';
+  if (state === 'paid') return 'bg-[#166534] text-white';
+  if (state === 'partial') return 'bg-[#9a5a00] text-white';
+  return 'bg-[#6b7280] text-white';
 }
 
 function distributePaidByParticipants(
@@ -1066,7 +1070,11 @@ function parseScheduleSlotToBooking(slot: any): Booking | null {
       ? (hoverPaymentStatusRaw as Booking['hoverPayment']['status'])
       : fallbackHoverStatus;
   const paymentState: Booking['paymentState'] =
-    bookingPrice <= 0 || paidAmount + 0.009 >= bookingPrice ? 'paid' : 'unpaid';
+    bookingPrice <= 0 || paidAmount + 0.009 >= bookingPrice
+      ? 'paid'
+      : paidAmount > 0.009
+        ? 'partial'
+        : 'unpaid';
 
   return {
     id: String(booking?.id || slot?.id || `${slot?.courtId}-${slot?.slotTime || start.toISOString()}`),

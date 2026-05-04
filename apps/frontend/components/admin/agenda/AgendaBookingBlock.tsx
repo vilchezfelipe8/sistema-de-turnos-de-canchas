@@ -2,7 +2,7 @@ import type { CSSProperties, MouseEventHandler, ReactNode } from 'react';
 import { Repeat } from 'lucide-react';
 
 type BookingState = 'pending' | 'confirmed' | 'completed' | 'blocked';
-type PaymentState = 'paid' | 'unpaid';
+type PaymentState = 'paid' | 'partial' | 'unpaid';
 
 type BlockContentVisibility = {
   showDurationOnly: boolean;
