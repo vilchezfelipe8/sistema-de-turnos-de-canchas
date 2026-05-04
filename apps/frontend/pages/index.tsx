@@ -14,9 +14,9 @@ import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser } from '../util
 import { reportUiError } from '../utils/uiError';
 import { useAuth } from '../contexts/AuthContext';
 import { isAuthSessionInvalidatedError } from '../utils/apiClient';
-// Importamos los íconos de la librería
-import { FaTableTennis } from "react-icons/fa"; // Paleta (Perfecta para Pádel)
-import { IoFootballOutline } from "react-icons/io5"; // Pelota de fútbol limpia
+// Importamos los iconos de la libreria
+import { FaTableTennis } from "react-icons/fa"; // Paleta (Perfecta para Padel)
+import { IoFootballOutline } from "react-icons/io5"; // Pelota de futbol limpia
 import { IoTennisballOutline } from "react-icons/io5"; // Pelota de tenis limpia
 
 const countActiveBookings = (rows: any[]): number => {
@@ -33,7 +33,7 @@ const countActiveBookings = (rows: any[]): number => {
 
 // ReactDOM portal removed: menu will be rendered inside the sidebar to keep positioning stable under zoom
 
-// --- COMPONENTE DE ANIMACIÓN AL SCROLLEAR ---
+// --- COMPONENTE DE ANIMACION AL SCROLLEAR ---
 const RevealOnScroll = ({ children, delay = 0, className = "" }: { children: React.ReactNode, delay?: number, className?: string }) => {
   const [isVisible, setIsVisible] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -66,7 +66,7 @@ const RevealOnScroll = ({ children, delay = 0, className = "" }: { children: Rea
   );
 };
 
-// --- HELPERS DE UBICACIÓN ---
+// --- HELPERS DE UBICACION ---
 type LocationSuggestion = {
   label: string;
   query: string;
@@ -87,9 +87,9 @@ const normalizeText = (text: string) =>
     .trim();
 
 const sportAliases: Record<string, string[]> = {
-  padel: ['padel', 'pádel'],
+  padel: ['padel'],
   tenis: ['tenis', 'tennis'],
-  futbol: ['futbol', 'fútbol', 'football']
+  futbol: ['futbol', 'football']
 };
 
 const matchesSport = (activityName: string, sport: string) => {
@@ -194,9 +194,9 @@ export default function Home() {
 
   const [searchSport, setSearchSport] = useState('padel');
   const [showSportDropdown, setShowSportDropdown] = useState(false);
-  // Fecha seleccionada en formato YYYY-MM-DD. Por defecto, el día de hoy.
+  // Fecha seleccionada en formato YYYY-MM-DD. Por defecto, el dia de hoy.
   const getEffectiveToday = () => {
-    // Aquí podemos aplicar offsets si fuera necesario (zona horaria / reglas de negocio).
+    // Aqui podemos aplicar offsets si fuera necesario (zona horaria / reglas de negocio).
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), now.getDate());
   };
@@ -205,7 +205,7 @@ export default function Home() {
   const [availableTimesByClub, setAvailableTimesByClub] = useState<Record<number, string[]>>({});
   const searchRequestIdRef = useRef(0);
 
-  // Menú de acciones para contactos (abrir / copiar)
+  // Menu de acciones para contactos (abrir / copiar)
   const [contactMenu, setContactMenu] = useState<{
     type: 'whatsapp' | 'email' | 'instagram';
     top: number;
@@ -303,7 +303,7 @@ export default function Home() {
   const sportOptions = useMemo(() => ([
   {
     value: 'padel',
-    label: 'Pádel',
+    label: 'Padel',
     icon: (
       <svg viewBox="0 0 20 20" className="h-5 w-5" aria-hidden="true">
         <g>
@@ -326,13 +326,13 @@ export default function Home() {
   },
   {
     value: 'futbol',
-    label: 'Fútbol',
-    icon: <IoFootballOutline className="h-5 w-5" /> // Dejás la de la librería que estaba buena
+    label: 'Futbol',
+    icon: <IoFootballOutline className="h-5 w-5" /> // Dejs la de la libreria que estaba buena
   },
   {
     value: 'tenis',
     label: 'Tenis',
-    icon: <IoTennisballOutline className="h-5 w-5" /> // Dejás la de la librería
+    icon: <IoTennisballOutline className="h-5 w-5" /> // Dejs la de la libreria
   }
 ]), []);
 
@@ -422,10 +422,10 @@ export default function Home() {
     if (status === 'linked_existing_client') return 'Favorito guardado y cliente vinculado.';
     if (status === 'created_client') return 'Favorito guardado y cliente creado.';
     if (status === 'already_linked') return 'Favorito guardado. Ya estabas vinculado en este club.';
-    if (status === 'duplicate_detected_no_link') return 'Favorito guardado. Detectamos posible duplicado y no vinculamos automáticamente.';
+    if (status === 'duplicate_detected_no_link') return 'Favorito guardado. Detectamos posible duplicado y no vinculamos automaticamente.';
     if (status === 'insufficient_data_no_link') {
       const reason = String(linking?.reason || '');
-      if (reason === 'missing_phone') return 'Favorito guardado. No se pudo vincular cliente: falta teléfono.';
+      if (reason === 'missing_phone') return 'Favorito guardado. No se pudo vincular cliente: falta telefono.';
       if (reason === 'missing_name') return 'Favorito guardado. No se pudo vincular cliente: falta nombre.';
       return 'Favorito guardado. No se pudo vincular cliente: faltan datos de identidad.';
     }
@@ -437,7 +437,7 @@ export default function Home() {
     e.stopPropagation();
 
     if (!user?.id) {
-      setFavoriteFeedback('Iniciá sesión para guardar favoritos.');
+      setFavoriteFeedback('Inici sesion para guardar favoritos.');
       return;
     }
 
@@ -553,7 +553,7 @@ export default function Home() {
     const next = new Date(current);
     next.setDate(current.getDate() + days);
     const min = getEffectiveToday();
-    if (next < min) return; // no retroceder más que el mínimo
+    if (next < min) return; // no retroceder mas que el minimo
     setSearchDate(formatLocalDate(next));
   };
 
@@ -586,7 +586,7 @@ export default function Home() {
     try {
       if (locationOptions.length === 0 && searchCity.trim()) {
         if (!isCurrentRequest()) return;
-        setSearchError('No hay ubicaciones cargadas para validar la búsqueda.');
+        setSearchError('No hay ubicaciones cargadas para validar la busqueda.');
         setLastSearchLabel('');
         scrollToSearchBarTop();
         return;
@@ -609,7 +609,7 @@ export default function Home() {
         if (!isCurrentRequest()) return;
         setDisplayedClubs(clubs);
         if (searchCity.trim()) {
-          setSearchError('Seleccioná una ubicación del listado para buscar clubes cercanos.');
+          setSearchError('Seleccion una ubicacion del listado para buscar clubes cercanos.');
         }
         setLastSearchLabel('');
         scrollToSearchBarTop();
@@ -620,7 +620,7 @@ export default function Home() {
       const locationCoords = coordsResults[0];
       if (!locationCoords) {
         if (!isCurrentRequest()) return;
-        setSearchError('No pudimos ubicar esa ciudad. Probá con otra.');
+        setSearchError('No pudimos ubicar esa ciudad. Proba con otra.');
         setDisplayedClubs([]);
         setLastSearchLabel('');
         scrollToSearchBarTop();
@@ -751,7 +751,7 @@ export default function Home() {
     } catch (error) {
       if (!isCurrentRequest()) return;
       reportUiError({ area: 'HomePage', action: 'handleSearch' }, error);
-      setSearchError('No pudimos completar la búsqueda. Intentá de nuevo.');
+      setSearchError('No pudimos completar la busqueda. Intenta de nuevo.');
       setDisplayedClubs([]);
       setLastSearchLabel('');
       setAvailableTimesByClub({});
@@ -787,882 +787,764 @@ export default function Home() {
     setShowCityDropdown(false);
   };
 
+  const tcCss = `
+    .tc-root { min-height:100vh; background:#050505; color:#f2f2f2; font-family:'Sora',system-ui,sans-serif; -webkit-font-smoothing:antialiased; overflow-x:hidden; }
+    .tc-root *,.tc-root *::before,.tc-root *::after { box-sizing:border-box; }
+    .tc-root a { color:inherit; text-decoration:none; }
+    .tc-root ::selection { background:#22c55e; color:#052010; }
+    /* Header */
+    .tc-header { position:sticky; top:0; z-index:50; background:rgba(5,5,5,.9); backdrop-filter:blur(16px); border-bottom:1px solid rgba(255,255,255,.06); }
+    .tc-header-inner { max-width:1360px; margin:0 auto; padding:0 24px; min-height:68px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+    .tc-brand-text { font-size:13px; font-weight:800; letter-spacing:.22em; text-transform:uppercase; color:#22c55e; }
+    .tc-btn { display:inline-flex; align-items:center; gap:8px; padding:9px 18px; border-radius:999px; font-size:13px; font-weight:700; border:1px solid rgba(255,255,255,.14); background:#111; color:#e8e8e8; cursor:pointer; transition:transform .15s,box-shadow .15s; font-family:inherit; }
+    .tc-btn:hover { transform:translateY(-1px); box-shadow:0 4px 14px rgba(0,0,0,.3); }
+    .tc-btn-primary { background:#22c55e!important; color:#052010!important; border-color:#22c55e!important; }
+    .tc-btn-primary:hover { background:#16a34a!important; }
+    .tc-btn-ghost { background:rgba(255,255,255,.06); border-color:rgba(255,255,255,.12); }
+    .tc-btn-ghost:hover { background:rgba(255,255,255,.12); }
+    /* User button */
+    .tc-user-btn { display:flex; align-items:center; gap:10px; padding:5px 14px 5px 5px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); border-radius:999px; cursor:pointer; transition:background .15s; }
+    .tc-user-btn:hover { background:rgba(255,255,255,.1); }
+    .tc-user-avatar { width:34px; height:34px; border-radius:50%; background:#22c55e; color:#052010; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:800; position:relative; flex-shrink:0; }
+    .tc-user-name { font-size:13px; font-weight:600; color:#e8e8e8; }
+    .tc-user-menu { position:absolute; right:0; top:calc(100% + 8px); width:260px; background:#111; border:1px solid rgba(255,255,255,.1); border-radius:16px; overflow:hidden; box-shadow:0 8px 32px rgba(0,0,0,.5); z-index:120; }
+    /* Hero */
+    .tc-hero { position:relative; min-height:92vh; display:flex; align-items:flex-end; padding:120px 40px 64px; overflow:hidden; }
+    .tc-hero-bg { position:absolute; inset:0; background:linear-gradient(135deg,#0a1f0e 0%,#050505 45%,#0d1a0d 100%); }
+    .tc-hero-bg::after { content:''; position:absolute; inset:0; background:radial-gradient(ellipse 60% 50% at 20% 100%,rgba(34,197,94,.14),transparent 70%),radial-gradient(ellipse 40% 40% at 85% 15%,rgba(34,197,94,.06),transparent 65%); }
+    .tc-hero-noise { position:absolute; inset:0; opacity:.022; pointer-events:none; background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' seed='3'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .5 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+    .tc-hero-inner { position:relative; z-index:2; max-width:1360px; margin:0 auto; width:100%; display:grid; grid-template-columns:1.2fr auto; align-items:end; gap:48px; }
+    .tc-hero-copy { max-width:720px; }
+    .tc-hero-eyebrow { display:inline-flex; align-items:center; gap:10px; padding:6px 14px 6px 10px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); border-radius:999px; font-size:12px; font-weight:600; color:#e8e8e8; margin-bottom:28px; backdrop-filter:blur(12px); }
+    .tc-hero-eyebrow-dot { width:6px; height:6px; border-radius:50%; background:#22c55e; box-shadow:0 0 0 3px rgba(34,197,94,.25); animation:tc-pulse 1.6s ease-in-out infinite; }
+    @keyframes tc-pulse { 0%,100%{opacity:1}50%{opacity:.5} }
+    .tc-hero-h1 { font-size:clamp(52px,8vw,108px); font-weight:800; letter-spacing:-.045em; line-height:.96; margin:0 0 24px; color:#fff; }
+    .tc-hero-h1 i { font-style:italic; font-weight:700; color:#22c55e; }
+    .tc-hero-sub { font-size:17px; font-weight:400; color:#c8c8c8; line-height:1.55; max-width:500px; margin:0 0 36px; }
+    /* Search */
+    .tc-search { display:flex; gap:0; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.1); border-radius:999px; padding:4px; backdrop-filter:blur(20px); max-width:620px; align-items:center; flex-wrap:wrap; }
+    .tc-search-seg { display:flex; align-items:center; gap:8px; padding:10px 16px; font-size:13px; font-weight:600; color:#e8e8e8; cursor:pointer; position:relative; white-space:nowrap; border-radius:999px; transition:background .15s; }
+    .tc-search-seg:hover { background:rgba(255,255,255,.06); }
+    .tc-search-divider { width:1px; height:28px; background:rgba(255,255,255,.12); flex-shrink:0; margin:0 2px; }
+    .tc-search-input { flex:1; min-width:120px; padding:10px 14px; background:transparent; border:none; color:#e8e8e8; font-family:'Sora',system-ui,sans-serif; font-size:13px; font-weight:500; outline:none; }
+    .tc-search-input::placeholder { color:#555; }
+    .tc-search-cta { padding:12px 20px; background:#22c55e; color:#052010; border:none; border-radius:999px; font-size:13px; font-weight:700; display:inline-flex; align-items:center; gap:8px; transition:background .15s; cursor:pointer; font-family:inherit; white-space:nowrap; flex-shrink:0; }
+    .tc-search-cta:hover { background:#4ade80; }
+    .tc-search-quicks { display:flex; gap:6px; margin-top:14px; flex-wrap:wrap; }
+    .tc-quick-chip { padding:5px 13px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.1); border-radius:999px; font-size:12px; font-weight:500; color:#c8c8c8; transition:background .15s,color .15s; cursor:pointer; font-family:inherit; }
+    .tc-quick-chip:hover { background:rgba(255,255,255,.1); color:#fff; }
+    .tc-hero-side { display:flex; flex-direction:column; gap:12px; min-width:260px; }
+    .tc-live-card { padding:20px 22px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.1); border-radius:20px; backdrop-filter:blur(20px); }
+    .tc-live-head { display:flex; align-items:center; gap:8px; font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:#555; margin-bottom:10px; }
+    .tc-live-dot { width:7px; height:7px; border-radius:50%; background:#22c55e; animation:tc-pulse 1.2s ease-in-out infinite; }
+    .tc-live-stat { font-size:26px; font-weight:700; letter-spacing:-.03em; color:#fff; }
+    .tc-live-label { font-size:12px; color:#c8c8c8; margin-top:8px; line-height:1.5; font-weight:400; }
+    /* Trust */
+    .tc-trust { padding:36px 40px; border-top:1px solid rgba(255,255,255,.07); border-bottom:1px solid rgba(255,255,255,.07); background:#0a0a0a; }
+    .tc-trust-inner { max-width:1360px; margin:0 auto; display:flex; align-items:center; gap:48px; flex-wrap:wrap; }
+    .tc-trust-label b { display:block; font-size:18px; font-weight:800; color:#f2f2f2; letter-spacing:-.02em; margin-bottom:4px; }
+    .tc-trust-label span { font-size:12px; color:#666; line-height:1.5; max-width:300px; display:block; }
+    .tc-trust-items { display:flex; gap:28px; flex-wrap:wrap; flex:1; }
+    .tc-trust-item { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:#c8c8c8; }
+    /* Sports */
+    .tc-sports { padding:72px 40px; background:#050505; border-bottom:1px solid rgba(255,255,255,.07); }
+    .tc-sports-head { max-width:1360px; margin:0 auto 36px; display:flex; justify-content:space-between; align-items:flex-end; gap:24px; flex-wrap:wrap; }
+    .tc-sports-h3 { font-size:32px; font-weight:700; letter-spacing:-.03em; margin:0; color:#f2f2f2; }
+    .tc-sports-h3 i { font-style:italic; color:#22c55e; }
+    .tc-sports-grid { max-width:1360px; margin:0 auto; display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+    .tc-sport-card { position:relative; height:260px; border-radius:18px; overflow:hidden; border:1px solid rgba(255,255,255,.07); display:flex; flex-direction:column; justify-content:flex-end; padding:20px 22px; cursor:pointer; transition:border-color .3s,transform .3s; text-decoration:none; }
+    .tc-sport-card:hover { border-color:rgba(34,197,94,.3); transform:translateY(-3px); }
+    .tc-sport-bg { position:absolute; inset:0; background-size:cover; background-position:center; transition:transform .5s; }
+    .tc-sport-card:hover .tc-sport-bg { transform:scale(1.05); }
+    .tc-sport-bg::after { content:''; position:absolute; inset:0; background:linear-gradient(0deg,rgba(5,5,5,.95),transparent 60%); }
+    .tc-sport-content { position:relative; z-index:2; }
+    .tc-sport-count { font-size:10px; color:#888; letter-spacing:.1em; text-transform:uppercase; font-weight:600; margin-bottom:6px; }
+    .tc-sport-name { font-size:22px; font-weight:800; letter-spacing:-.02em; color:#fff; }
+    /* Clubs */
+    .tc-clubs { padding:80px 40px; background:#080808; border-top:1px solid rgba(255,255,255,.07); }
+    .tc-clubs-inner { max-width:1360px; margin:0 auto; }
+    .tc-clubs-h { font-size:28px; font-weight:700; letter-spacing:-.025em; color:#f2f2f2; margin:0 0 32px; display:flex; align-items:center; gap:10px; }
+    .tc-club-card { background:#111; border:1px solid rgba(255,255,255,.08); border-radius:16px; overflow:hidden; transition:border-color .2s,transform .2s; display:flex; flex-direction:column; text-decoration:none; height:100%; }
+    .tc-club-card:hover { border-color:rgba(34,197,94,.25); transform:translateY(-2px); }
+    .tc-club-img { height:160px; background:#1a1a1a; position:relative; flex-shrink:0; }
+    .tc-club-body { padding:18px 20px; flex:1; display:flex; flex-direction:column; gap:4px; }
+    .tc-club-name { font-size:17px; font-weight:800; color:#f2f2f2; margin:0; }
+    .tc-club-addr { font-size:13px; color:#777; margin:0; }
+    .tc-club-cta { margin-top:auto; padding-top:14px; display:block; text-align:center; background:#22c55e; color:#052010; border-radius:10px; padding:10px; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; transition:background .15s; }
+    .tc-club-cta:hover { background:#4ade80; }
+    /* Section wrapper */
+    .tc-sec-w { max-width:1360px; margin:0 auto; padding:100px 40px; }
+    .tc-eyebrow { display:inline-flex; align-items:center; gap:10px; font-size:11px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; color:#555; margin-bottom:20px; }
+    .tc-eyebrow::before { content:''; display:inline-block; width:24px; height:1px; background:#555; }
+    .tc-sec-h { font-size:clamp(36px,4.5vw,60px); font-weight:700; letter-spacing:-.035em; line-height:1.02; margin:0 0 20px; color:#f2f2f2; }
+    .tc-sec-h b { font-weight:900; }
+    .tc-sec-h i { font-style:italic; color:#22c55e; }
+    .tc-sec-sub { font-size:16px; font-weight:400; color:#c8c8c8; line-height:1.55; max-width:560px; margin:0 0 52px; }
+    /* Values */
+    .tc-values-grid { display:grid; grid-template-columns:1fr 1fr; gap:80px; align-items:start; }
+    .tc-values-h { position:sticky; top:90px; }
+    .tc-values-list { display:flex; flex-direction:column; }
+    .tc-value { padding:36px 0; border-top:1px solid rgba(255,255,255,.07); display:grid; grid-template-columns:72px 1fr; gap:24px; align-items:start; }
+    .tc-value:first-child { border-top:0; padding-top:0; }
+    .tc-value-num { font-size:34px; font-weight:700; color:#333; letter-spacing:-.04em; line-height:1; }
+    .tc-value-body h4 { margin:0 0 8px; font-size:20px; font-weight:800; color:#f2f2f2; }
+    .tc-value-body p { margin:0; color:#c8c8c8; font-size:14px; line-height:1.7; max-width:400px; }
+    /* Stats */
+    .tc-bstats { display:grid; grid-template-columns:repeat(4,1fr); border-top:1px solid rgba(255,255,255,.07); border-bottom:1px solid rgba(255,255,255,.07); margin-top:72px; }
+    .tc-bstat { padding:36px 28px; }
+    .tc-bstat+.tc-bstat { border-left:1px solid rgba(255,255,255,.07); }
+    .tc-bstat-num { font-weight:800; font-size:30px; letter-spacing:-.03em; color:#f2f2f2; }
+    .tc-bstat-label { font-size:11px; font-weight:700; color:#555; letter-spacing:.1em; text-transform:uppercase; margin-top:12px; }
+    .tc-bstat-sub { font-size:13px; color:#c8c8c8; margin-top:6px; line-height:1.6; }
+    /* Steps */
+    .tc-steps { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.07); border-radius:24px; overflow:hidden; margin-top:52px; }
+    .tc-step { background:#050505; padding:40px 32px 36px; transition:background .3s; }
+    .tc-step:hover { background:#0f0f0f; }
+    .tc-step-num { font-weight:800; font-size:60px; color:#2a2a2a; line-height:1; letter-spacing:-.05em; margin-bottom:24px; transition:color .3s; }
+    .tc-step:hover .tc-step-num { color:#22c55e; }
+    .tc-step h4 { margin:0 0 8px; font-size:20px; font-weight:800; color:#f2f2f2; }
+    .tc-step p { margin:0; color:#c8c8c8; font-size:13px; line-height:1.7; }
+    .tc-step-foot { margin-top:24px; padding-top:24px; border-top:1px solid rgba(255,255,255,.07); font-size:12px; color:#555; display:flex; align-items:center; gap:8px; }
+    .tc-step-foot b { color:#f2f2f2; font-weight:700; }
+    /* Owner */
+    .tc-owner { background:#0a0a0a; border-top:1px solid rgba(255,255,255,.07); }
+    .tc-owner-inner { max-width:1360px; margin:0 auto; padding:100px 40px; display:grid; grid-template-columns:1.1fr .9fr; gap:72px; align-items:center; }
+    .tc-owner-side { padding:32px; border:1px solid rgba(255,255,255,.08); border-radius:24px; background:rgba(10,10,10,.8); }
+    .tc-owner-side-h { font-size:10px; color:#555; font-weight:700; letter-spacing:.14em; text-transform:uppercase; margin-bottom:20px; }
+    .tc-owner-perk { display:flex; gap:14px; align-items:center; padding:13px 0; border-top:1px solid rgba(255,255,255,.07); font-size:13px; color:#c8c8c8; font-weight:400; }
+    .tc-owner-perk:first-child { border-top:0; padding-top:0; }
+    .tc-owner-perk b { color:#f2f2f2; font-size:16px; letter-spacing:-.02em; min-width:84px; font-weight:800; }
+    .tc-owner-ctas { display:flex; gap:10px; margin-top:32px; flex-wrap:wrap; }
+    /* FAQ */
+    .tc-faq-grid { display:grid; grid-template-columns:1fr 1.2fr; gap:72px; align-items:start; }
+    .tc-faq-list { display:flex; flex-direction:column; }
+    .tc-faq-item { border-top:1px solid rgba(255,255,255,.07); padding:20px 0; cursor:pointer; }
+    .tc-faq-item:last-child { border-bottom:1px solid rgba(255,255,255,.07); }
+    .tc-faq-q { display:flex; justify-content:space-between; align-items:center; gap:16px; font-size:16px; font-weight:700; color:#f2f2f2; }
+    .tc-faq-icon { flex-shrink:0; color:#555; transition:transform .3s,color .3s; }
+    .tc-faq-item.tc-open .tc-faq-icon { transform:rotate(45deg); color:#22c55e; }
+    .tc-faq-a { max-height:0; overflow:hidden; transition:max-height .4s cubic-bezier(.2,.6,.2,1),margin .3s; color:#c8c8c8; font-size:14px; line-height:1.7; }
+    .tc-faq-item.tc-open .tc-faq-a { max-height:300px; margin-top:14px; }
+    /* Closing */
+    .tc-closing { border-top:1px solid rgba(255,255,255,.07); padding:100px 40px 80px; background:#050505; }
+    .tc-closing-inner { max-width:1360px; margin:0 auto; }
+    .tc-big-closing { font-size:clamp(44px,7vw,88px); font-weight:800; letter-spacing:-.05em; line-height:.98; color:#f2f2f2; margin:0 0 36px; }
+    .tc-big-closing i { font-style:italic; color:#22c55e; }
+    .tc-closing-ctas { display:flex; gap:12px; flex-wrap:wrap; }
+    /* Footer */
+    .tc-foot { background:#0a0a0a; border-top:1px solid rgba(255,255,255,.06); padding:52px 40px 28px; }
+    .tc-foot-inner { max-width:1360px; margin:0 auto; }
+    .tc-foot-cols { display:grid; grid-template-columns:1.6fr repeat(3,1fr); gap:48px; padding-bottom:36px; border-bottom:1px solid rgba(255,255,255,.06); }
+    .tc-foot-brand { display:flex; flex-direction:column; gap:12px; max-width:320px; }
+    .tc-foot-brand-name { font-size:13px; font-weight:800; letter-spacing:.2em; text-transform:uppercase; color:#22c55e; }
+    .tc-foot-brand p { font-size:13px; line-height:1.6; color:#555; margin:0; }
+    .tc-foot-col h6 { font-size:11px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:#444; margin:0 0 14px; }
+    .tc-foot-col ul { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:10px; }
+    .tc-foot-col li a,.tc-foot-col li button { font-size:13px; color:#777; font-weight:500; transition:color .15s; background:none; border:none; padding:0; cursor:pointer; font-family:inherit; text-align:left; }
+    .tc-foot-col li a:hover,.tc-foot-col li button:hover { color:#22c55e; }
+    .tc-foot-base { padding-top:24px; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; font-size:12px; color:#444; margin-top:28px; }
+    /* Contact panel */
+    .tc-contact-overlay { position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:60; transition:opacity .3s; }
+    .tc-contact-panel { position:fixed; top:0; right:0; height:100%; width:100%; max-width:360px; background:#111; z-index:70; box-shadow:-8px 0 32px rgba(0,0,0,.5); transform:translateX(100%); transition:transform .3s ease-out; border-left:1px solid rgba(255,255,255,.08); }
+    .tc-contact-panel.tc-open { transform:translateX(0); }
+    /* Dropdowns */
+    .tc-dropdown { position:absolute; top:calc(100% + 8px); left:0; min-width:220px; background:#111; border:1px solid rgba(255,255,255,.1); border-radius:12px; overflow:hidden; box-shadow:0 8px 24px rgba(0,0,0,.4); z-index:100; }
+    /* Responsive */
+    @media(max-width:1024px){
+      .tc-hero-inner{grid-template-columns:1fr;gap:40px}
+      .tc-hero-side{flex-direction:row;min-width:auto;width:100%}
+      .tc-values-grid{grid-template-columns:1fr;gap:40px}
+      .tc-values-h{position:static}
+      .tc-owner-inner{grid-template-columns:1fr;gap:48px;padding:72px 32px}
+      .tc-faq-grid{grid-template-columns:1fr;gap:40px}
+      .tc-sports-grid{grid-template-columns:repeat(2,1fr)}
+    }
+    @media(max-width:900px){
+      .tc-steps{grid-template-columns:1fr}
+      .tc-bstats{grid-template-columns:repeat(2,1fr)}
+      .tc-bstat+.tc-bstat{border-left:0}
+      .tc-bstat:nth-child(3),.tc-bstat:nth-child(4){border-top:1px solid rgba(255,255,255,.07)}
+      .tc-bstat:nth-child(4){border-left:1px solid rgba(255,255,255,.07)}
+    }
+    @media(max-width:720px){
+      .tc-hero{padding:100px 24px 56px;min-height:auto}
+      .tc-trust{padding:28px 24px}
+      .tc-trust-inner{gap:20px}
+      .tc-sports{padding:52px 24px}
+      .tc-sports-grid{grid-template-columns:1fr;gap:10px}
+      .tc-sec-w{padding:64px 24px}
+      .tc-clubs{padding:56px 24px}
+      .tc-owner-inner{padding:56px 24px}
+      .tc-closing{padding:72px 24px}
+      .tc-foot{padding:44px 24px 24px}
+      .tc-foot-cols{grid-template-columns:1fr 1fr;gap:28px}
+      .tc-foot-brand{grid-column:1 / -1;max-width:none}
+      .tc-search{border-radius:16px;padding:8px}
+      .tc-search-divider{display:none}
+    }
+    @media(max-width:480px){
+      .tc-bstats{grid-template-columns:1fr}
+      .tc-bstat+.tc-bstat{border-left:0;border-top:1px solid rgba(255,255,255,.07)}
+      .tc-foot-cols{grid-template-columns:1fr}
+    }
+    @keyframes tc-spin{to{transform:rotate(360deg)}}
+  `;
+
   return (
     <>
       <Head>
-        <title>Inicio | TuCancha</title>
+        <title>TuCancha — Reservá, jugá, encontrá jugadores</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
+        <style dangerouslySetInnerHTML={{ __html: tcCss }} />
       </Head>
-      <div className="min-h-screen relative overflow-x-hidden bg-vibrant-brand text-[#D4C5B0] selection:bg-[#B9CF32] selection:text-[#347048]" onClick={() => {
+      {/* eslint-disable-next-line @next/next/no-css-tags */}
+      <div className="tc-root" onClick={() => {
         setShowCityDropdown(false);
         setShowSportDropdown(false);
         setShowUserMenu(false);
       }}>
       
-      {/* NAVBAR */}
-      <nav className="absolute top-0 left-0 right-0 z-50 px-6 py-4 flex justify-between items-center max-w-7xl mx-auto">
-        <div className="flex items-center gap-2">
-            <span className="text-2xl font-black tracking-tighter text-[#D4C5B0] italic opacity-90 hover:opacity-100 transition-opacity cursor-pointer">
-                TuCancha
-            </span>
-        </div>
-        <div className="flex items-center gap-4 relative">
-            <button onClick={() => setShowContact(true)} className="hidden md:flex items-center gap-2 px-5 py-2 rounded-full border border-[#D4C5B0]/30 text-[#D4C5B0] font-bold text-sm hover:bg-[#D4C5B0] hover:text-[#347048] transition-all">
-                <span>Contacto</span>
-            </button>
+      {/* ── HEADER ── */}
+      <header className="tc-header">
+        <div className="tc-header-inner">
+          <a href="/" className="tc-brand">
+            <span className="tc-brand-text">TuCancha</span>
+          </a>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {user ? (
-              <>
-                <div className="relative">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowUserMenu((prev) => !prev);
-                    }}
-                    className="hidden md:flex items-center gap-3 pl-1 pr-4 py-1 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 transition-all shadow-sm"
-                  >
-                    <div className="relative">
-                      <div className="h-9 w-9 rounded-full bg-[#B9CF32] flex items-center justify-center text-[#347048] text-xs font-black shadow-inner">
-                        {userInitials}
-                      </div>
-                      {activeBookingsCount > 0 && (
-                        <span className="absolute -right-1 -top-1 bg-[#926699] text-white text-[9px] font-black rounded-full h-4 min-w-[16px] px-1 flex items-center justify-center shadow-md border-2 border-[#347048]">
-                          {activeBookingsCount}
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-[#D4C5B0] font-bold text-sm">{user.firstName || user.name || 'Usuario'}</span>
-                  </button>
-
-                  {showUserMenu && (
-                    <div className="absolute right-0 mt-4 w-[280px] md:w-[320px] bg-[#EBE1D8] rounded-3xl shadow-2xl shadow-[#347048]/50 border border-[#347048]/10 overflow-hidden z-[120] max-[767px]:fixed max-[767px]:top-[74px] max-[767px]:right-6 max-[767px]:!left-auto max-[767px]:mt-0 max-[767px]:w-[min(320px,calc(100vw-3rem))]" onClick={(e) => e.stopPropagation()}>
-                      <div className="p-6 flex flex-col items-center text-center">
-                        <div className="relative mb-4">
-                          <div className="h-20 w-20 rounded-full bg-[#347048] flex items-center justify-center text-[#EBE1D8] text-xl font-black shadow-inner">
-                            {userInitials}
-                          </div>
-                          <span className="absolute -right-1 -bottom-1 bg-[#B9CF32] text-[#347048] text-xs font-black rounded-full h-7 w-7 flex items-center justify-center border-4 border-[#EBE1D8]">
-                            <Check size={14} strokeWidth={4} />
-                          </span>
-                        </div>
-                        <h3 className="text-xl font-black text-[#347048] italic tracking-tight">{user.firstName || user.name || 'Usuario'}</h3>
-                        <p className="text-[#347048]/60 text-xs font-bold uppercase tracking-widest mt-1">{isAdmin ? 'Administrador' : 'Miembro'}</p>
-                      </div>
-                      <div className="border-t border-[#347048]/10 px-6 py-5 bg-[#347048]/5">
-                        <p className="text-[#347048]/40 font-black text-[10px] uppercase tracking-widest mb-3">Mis Datos</p>
-                        <div className="space-y-3 text-[#347048] text-sm font-bold">
-                          <div className="flex items-center gap-3">
-                            <Phone size={16} className="text-[#B9CF32]" strokeWidth={2.5} />
-                            <span>{user.phoneNumber || user.phone || 'Sin teléfono'}</span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <Mail size={16} className="text-[#B9CF32]" strokeWidth={2.5} />
-                            <span className="truncate">{user.email || 'Sin email'}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="border-t border-[#347048]/10 px-6 py-4 space-y-2 font-bold">
-                        {isAdmin && (
-                          <Link
-                            href="/admin/agenda"
-                            className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
-                            onClick={() => setShowUserMenu(false)}
-                          >
-                            <ShieldCheck size={18} strokeWidth={2.5} /> Gestión
-                          </Link>
-                        )}
-                        {isAdmin && adminClubSlug && (
-                          <Link
-                            href={`/club/${adminClubSlug}`}
-                            className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
-                            onClick={() => setShowUserMenu(false)}
-                          >
-                            <MapPin size={18} strokeWidth={2.5} /> Mi club
-                          </Link>
-                        )}
-                        {router.pathname !== '/perfil' && (
-                          <Link
-                            href="/perfil"
-                            className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
-                            onClick={() => setShowUserMenu(false)}
-                          >
-                            <Users size={18} strokeWidth={2.5} /> Mi Perfil
-                          </Link>
-                        )}
-                        <Link
-                          href="/bookings"
-                          className="flex items-center justify-between gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
-                          onClick={() => setShowUserMenu(false)}
-                        >
-                          <span className="flex items-center gap-3">
-                            <Calendar size={18} strokeWidth={2.5} /> Mis Reservas
-                          </span>
-                          {activeBookingsCount > 0 ? (
-                            <span className="inline-flex items-center justify-center min-w-[22px] h-6 px-2 rounded-full bg-[#926699] text-white text-[10px] font-black">
-                              {activeBookingsCount}
-                            </span>
-                          ) : null}
-                        </Link>
-                        <button
-                          type="button"
-                          className="flex items-center gap-3 text-red-500 hover:text-red-600 w-full text-left p-2 rounded-xl hover:bg-red-50 transition-colors"
-                          onClick={() => {
-                            // Cerrar sesión sin forzar redirección.
-                            setShowLogoutModal(true);
-                            setShowUserMenu(false);
-                          }}
-                        >
-                          <LogOut size={18} strokeWidth={2.5} /> Cerrar sesión
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : null}
-            {!user && (
-                <Link href="/login" className="px-5 py-2 rounded-full bg-[#D4C5B0] text-[#347048] font-bold hover:bg-[#B9CF32] transition-all text-sm shadow-lg shadow-[#347048]/50">
-                    Ingresar
-                </Link>
-            )}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                if (user) {
-                  setShowUserMenu((prev) => !prev);
-                } else {
-                  setShowContact(true);
-                }
-              }}
-              className="md:hidden text-[#D4C5B0]"
-            >
-              <Menu />
-            </button>
-        </div>
-      </nav>
-
-      {/* HERO SECTION */}
-      <section className="relative pt-32 pb-24 px-4 flex flex-col items-center text-center z-10 animate-in fade-in slide-in-from-bottom-8 duration-1000">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-[#B9CF32]/10 rounded-full blur-[120px] -z-10 pointer-events-none" />
-        
-        <h1 className="text-5xl md:text-7xl font-black mb-6 tracking-tight text-[#D4C5B0]">
-          Tu cancha, <span className="text-[#B9CF32]">al toque.</span>
-        </h1>
-        <p className="text-[#D4C5B0]/80 text-lg md:text-xl max-w-2xl mb-12 font-medium leading-relaxed">
-          Explorá las canchas disponibles en tu ciudad y en tiempo real.
-        </p>
-
-        {/* BARRA DE BÚSQUEDA */}
-    <div
-      ref={searchBarRef}
-      className="w-full max-w-5xl bg-[#EBE1D8] rounded-[2rem] p-2 shadow-2xl shadow-[#347048]/50 flex flex-col md:flex-row items-center divide-y md:divide-y-0 md:divide-x divide-[#347048]/10 relative z-50"
-            onClick={(e) => e.stopPropagation()} 
-        >
-      <div className="flex-1 md:flex-[1.4] w-full relative group">
-                <div 
-          className="p-2 px-4 hover:bg-[#d4c5b0]/20 rounded-xl transition-colors cursor-pointer h-full flex items-center gap-3 min-h-[56px]"
-                    onClick={() => {
-                        setShowSportDropdown(false);
-                        // Al abrir el dropdown de ubicación cerramos el calendario si estaba abierto
-                        closeDatepicker();
-                        setShowCityDropdown(true);
-                        document.getElementById('cityInput')?.focus();
-                    }}
-                >
-                    <MapPin className="text-[#347048] group-hover:text-[#B9CF32] transition-colors shrink-0" size={20} />
-          <div className="flex flex-col items-start text-left w-full overflow-hidden min-h-[38px] justify-center gap-1 flex-1">
-                        <label className="text-[10px] font-bold text-[#347048]/60 uppercase tracking-wider h-3 leading-3">Ubicación</label>
-                        <input 
-                            id="cityInput"
-                            type="text" 
-                            placeholder="¿Dónde jugás?" 
-              className="bg-transparent border-none outline-none text-[#347048] font-bold placeholder-[#347048]/40 w-full p-0 leading-5 truncate h-full cursor-pointer"
-                            value={searchCity}
-                            onChange={(e) => {
-                                const nextValue = e.target.value;
-                                setSearchCity(nextValue);
-                                if (!nextValue.trim()) {
-                                  setSelectedLocation(null);
-                                }
-                                setShowCityDropdown(true);
-                            }}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                const input = e.currentTarget;
-                input.focus();
-                input.select();
-              }}
-                            onFocus={(e) => {
-                              e.target.select();
-                              setShowSportDropdown(false);
-                              // Si el usuario enfoca la caja de ubicación cerramos el calendario
-                              closeDatepicker();
-                              setShowCityDropdown(true);
-                            }}
-                            autoComplete="off"
-                        />
-                    </div>
-                </div>
-
-                {showCityDropdown && (
-                    <div className="absolute top-full left-0 w-full md:w-[300px] mt-4 bg-white rounded-2xl shadow-xl border border-[#347048]/10 overflow-hidden z-[100] animate-in fade-in zoom-in-95 duration-200">
-                        <div className="p-3 bg-[#EBE1D8]/30 border-b border-[#347048]/5">
-                            <span className="text-xs font-bold text-[#347048] uppercase tracking-wider">Lugares disponibles</span>
-                        </div>
-                        <ul className="max-h-60 overflow-y-auto">
-              {loadingLocations ? (
-                <li className="px-4 py-6 text-center text-gray-400 text-sm">Cargando ubicaciones...</li>
-              ) : locationSuggestions.length > 0 ? (
-                locationSuggestions.map((location, idx) => (
-                                    <li 
-                                        key={idx}
-                                        onClick={() => selectCity(location)}
-                                        className="px-4 py-3 hover:bg-[#B9CF32]/10 cursor-pointer flex items-center justify-between group transition-colors border-b border-gray-50 last:border-0"
-                                    >
-                                        <div className="flex items-center gap-3">
-                                            <div className="bg-[#EBE1D8] p-1.5 rounded-full text-[#347048]"><MapPin size={14} /></div>
-                                            <div className="flex flex-col">
-                                                <span className="text-[#347048] font-medium text-sm">{location.label}</span>
-                                                <span className="text-xs text-[#347048]/60">{location.country}</span>
-                                            </div>
-                                        </div>
-                                        <ChevronRight size={14} className="text-[#B9CF32] opacity-0 group-hover:opacity-100 transition-opacity transform group-hover:translate-x-1" />
-                                    </li>
-                                ))
-                            ) : (
-                                <li className="px-4 py-6 text-center text-gray-400 text-sm">No encontramos ubicaciones con ese texto.</li>
-                            )}
-                        </ul>
-                    </div>
-                )}
-            </div>
-
-  <div className="flex-1 md:flex-none md:w-[240px] w-full relative group">
-        <div
-          className="p-2 px-4 hover:bg-[#d4c5b0]/20 rounded-xl transition-colors cursor-pointer h-full flex items-center gap-3"
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowCityDropdown(false);
-            // Al abrir/cerrar el dropdown de deporte, cerramos el calendario
-            closeDatepicker();
-            setShowSportDropdown((prev) => !prev);
-          }}
-        >
-          <Activity className="text-[#347048] group-hover:text-[#B9CF32] transition-colors shrink-0" size={20} />
-          <div className="flex flex-col items-start text-left w-full overflow-hidden min-h-[38px] justify-center gap-1">
-            <label className="text-[10px] font-bold text-[#347048]/60 uppercase tracking-wider h-3 leading-3">Deporte</label>
-            <div className="flex items-center gap-2 text-[#347048] font-bold text-sm uppercase truncate leading-5">
-              <span className="text-[#347048]">{selectedSport.icon}</span>
-              <span className="truncate">{selectedSport.label}</span>
-            </div>
-          </div>
-        </div>
-
-       {showSportDropdown && (
-  <div className="absolute top-full left-0 w-full md:w-[240px] mt-4 bg-[#Fdfbf7] rounded-3xl shadow-xl border border-[#347048]/10 overflow-hidden z-[100] animate-in fade-in zoom-in-95 duration-200">
-    
-    {/* ENCABEZADO CENTRADO COMO EN LA FOTO */}
-    <div className="py-5 border-b border-[#347048]/5 flex justify-center">
-      <span className="text-xs font-black text-[#347048] uppercase tracking-widest">
-        Elegí deporte
-      </span>
-    </div>
-
-    {/* LISTA DE DEPORTES */}
-    <ul className="max-h-60 overflow-y-auto flex flex-col py-2">
-      {sportOptions.map((sport) => {
-        // Comparamos el valor actual con el del loop para saber si está seleccionado
-        const isSelected = searchSport === sport.value; 
-
-        return (
-          <li
-            key={sport.value || 'all'}
-            onClick={() => {
-              setSearchSport(sport.value);
-              setShowSportDropdown(false);
-            }}
-            className="px-6 py-3.5 hover:bg-[#347048]/5 cursor-pointer flex items-center transition-colors border-b border-[#347048]/5 last:border-0"
-          >
-            <div className="flex items-center gap-4">
-              {/* CÍRCULO DEL ÍCONO CON COLOR DINÁMICO */}
-              <div 
-                className={`flex items-center justify-center w-10 h-10 rounded-full transition-colors ${
-                  isSelected 
-                    ? 'bg-[#347048] text-[#Fdfbf7]' // Seleccionado: Fondo verde oscuro, ícono claro
-                    : 'bg-[#EBE1D8] text-[#347048]' // Normal: Fondo beige, ícono verde oscuro
-                }`}
-              >
-                {sport.icon}
-              </div>
-              
-              {/* NOMBRE DEL DEPORTE */}
-              <span className={`text-[16px] text-[#347048] ${isSelected ? 'font-bold' : 'font-medium'}`}>
-                {sport.label}
-              </span>
-            </div>
-
-          </li>
-        );
-      })}
-    </ul>
-  </div>
-)}
-      </div>
-
-  <div className="flex-1 w-full relative group">
-        <div
-          className="p-2 px-4 hover:bg-[#d4c5b0]/20 rounded-xl transition-colors cursor-pointer h-full flex items-center gap-3"
-          onClick={() => { setShowCityDropdown(false); setShowSportDropdown(false); }}
-        >
-          <Calendar className="text-[#347048] group-hover:text-[#B9CF32] transition-colors shrink-0" size={20} />
-          <div className="flex flex-col items-start text-left w-full overflow-hidden min-h-[38px] justify-center gap-1">
-            <label className="text-[10px] font-bold text-[#347048]/60 uppercase tracking-wider h-3 leading-3">Fecha</label>
-                    <div className="w-full grid grid-cols-1 md:grid-cols-[28px,1fr,28px] items-center">
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); changeDateBy(-1); }}
-                        disabled={!canGoPrev()}
-                        className="hidden md:flex p-1 rounded-lg text-[#347048] disabled:opacity-20 disabled:cursor-not-allowed hover:bg-[#347048]/10 transition-colors"
-                        aria-label="Fecha anterior"
-                      >
-                        <ChevronLeft className="w-5 h-5" />
-                      </button>
-
-                      <div className="flex justify-start md:justify-center">
-                        <DatePickerDark
-                          selected={
-                            searchDate
-                              ? (() => {
-                                  const [y, m, d] = searchDate.split('-').map(Number);
-                                  return new Date(y, m - 1, d);
-                                })()
-                              : null
-                          }
-                          onChange={(date: Date | null) => {
-                            if (!date) { setSearchDate(''); return; }
-                            setSearchDate(formatLocalDate(date));
-                          }}
-                          minDate={getEffectiveToday()}
-                          showIcon={false}
-                          inputSize="compact"
-                          // AGREGÁ ESTA LÍNEA ACÁ ABAJO:
-                          dateFormat="EEE dd MMM yyyy" 
-                          // ---------------------------
-                          inputClassName="bg-transparent border-none outline-none text-[#347048] font-bold text-sm w-full md:w-[132px] text-left md:text-center p-0 leading-5 uppercase cursor-pointer placeholder-[#347048]/40 h-auto px-0 py-0 focus:ring-0 focus:border-transparent"
-                          variant="light"
-                        />
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); changeDateBy(1); }}
-                        className="hidden md:flex p-1 rounded-lg text-[#347048] hover:bg-[#347048]/10 transition-colors"
-                        aria-label="Fecha siguiente"
-                      >
-                        <ChevronRight className="w-5 h-5" />
-                      </button>
-                    </div>
-          </div>
-        </div>
-      </div>
-
-            <div className="p-2 w-full md:w-auto">
-                <button 
-                    onClick={handleSearch}
-                    disabled={isSearching}
-                    className={`w-full md:w-auto text-[#EBE1D8] font-black py-4 px-8 rounded-full transition-all shadow-lg flex items-center justify-center gap-2 ${
-                      isSearching
-                        ? 'bg-[#347048]/70 cursor-not-allowed'
-                        : 'bg-[#347048] hover:bg-[#B9CF32] hover:text-[#347048] group'
-                    }`}
-                >
-                    <Search size={20} strokeWidth={3} className={isSearching ? '' : 'group-hover:scale-110 transition-transform'} />
-                    <span className="md:hidden lg:inline">{isSearching ? 'Buscando...' : 'Buscar'}</span>
+              <div style={{ position: 'relative' }}>
+                <button className="tc-user-btn" onClick={(e) => { e.stopPropagation(); setShowUserMenu(p => !p); }}>
+                  <div className="tc-user-avatar">
+                    {userInitials}
+                    {activeBookingsCount > 0 && (
+                      <span style={{ position: 'absolute', top: -3, right: -3, background: '#22c55e', color: '#052010', fontSize: 9, fontWeight: 900, borderRadius: '50%', width: 15, height: 15, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {activeBookingsCount}
+                      </span>
+                    )}
+                  </div>
+                  <span className="tc-user-name">{user.firstName || user.name || 'Usuario'}</span>
                 </button>
+                {showUserMenu && (
+                  <div className="tc-user-menu" onClick={e => e.stopPropagation()}>
+                    <div style={{ padding: '20px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,.08)' }}>
+                      <div className="tc-user-avatar" style={{ width: 52, height: 52, borderRadius: '50%', fontSize: 16, margin: '0 auto 10px' }}>{userInitials}</div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: '#22c55e' }}>{user.firstName || user.name || 'Usuario'}</div>
+                      <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '.1em', marginTop: 3 }}>{isAdmin ? 'Administrador' : 'Miembro'}</div>
+                    </div>
+                    <div style={{ padding: 6 }}>
+                      {isAdmin && <Link href="/admin/agenda" onClick={() => setShowUserMenu(false)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, color: '#c8c8c8', fontSize: 13, fontWeight: 600 }}><ShieldCheck size={15} /> Gestión</Link>}
+                      {isAdmin && adminClubSlug && <Link href={`/club/${adminClubSlug}`} onClick={() => setShowUserMenu(false)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, color: '#c8c8c8', fontSize: 13, fontWeight: 600 }}><MapPin size={15} /> Mi club</Link>}
+                      <Link href="/perfil" onClick={() => setShowUserMenu(false)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, color: '#c8c8c8', fontSize: 13, fontWeight: 600 }}><Users size={15} /> Mi perfil</Link>
+                      <Link href="/bookings" onClick={() => setShowUserMenu(false)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 12px', borderRadius: 10, color: '#c8c8c8', fontSize: 13, fontWeight: 600 }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Calendar size={15} /> Mis reservas</span>
+                        {activeBookingsCount > 0 && <span style={{ background: '#22c55e', color: '#052010', fontSize: 10, fontWeight: 800, borderRadius: 999, padding: '1px 7px' }}>{activeBookingsCount}</span>}
+                      </Link>
+                      <button type="button" onClick={() => { setShowLogoutModal(true); setShowUserMenu(false); }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, color: '#f87171', fontSize: 13, fontWeight: 600, background: 'none', border: 'none', width: '100%', cursor: 'pointer', fontFamily: 'inherit' }}>
+                        <LogOut size={15} /> Cerrar sesión
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                <button onClick={() => setShowContact(true)} className="tc-btn tc-btn-ghost">Contacto</button>
+                <Link href="/login" className="tc-btn tc-btn-primary">Ingresar</Link>
+              </>
+            )}
+            <button onClick={(e) => { e.stopPropagation(); user ? setShowUserMenu(p => !p) : setShowContact(true); }} style={{ display: 'none', background: 'none', border: 'none', cursor: 'pointer', color: '#e8e8e8', padding: 4 }} className="md:hidden">
+              <Menu size={22} />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* ── HERO ── */}
+      <section className="tc-hero">
+        <div className="tc-hero-bg" />
+        <div className="tc-hero-noise" />
+        <div className="tc-hero-inner">
+          <div className="tc-hero-copy">
+            <span className="tc-hero-eyebrow">
+              <span className="tc-hero-eyebrow-dot" />
+              <span>Reservas deportivas en Argentina</span>
+            </span>
+            <h1 className="tc-hero-h1">Reservá<br />tu cancha<br /><i>al toque.</i></h1>
+            <p className="tc-hero-sub">Sin llamadas, sin WhatsApp, sin esperas. Elegí deporte, zona y horario, confirmá online y jugá.</p>
+
+            {/* Search bar */}
+            <div ref={searchBarRef} className="tc-search" onClick={e => e.stopPropagation()}>
+              {/* Sport selector */}
+              <div className="tc-search-seg" style={{ position: 'relative' }} onClick={(e) => { e.stopPropagation(); setShowCityDropdown(false); closeDatepicker(); setShowSportDropdown(p => !p); }}>
+                <span style={{ color: '#888', display: 'flex' }}>{selectedSport.icon}</span>
+                <span>{selectedSport.label}</span>
+                <ChevronDown size={12} style={{ color: '#666' }} />
+                {showSportDropdown && (
+                  <div className="tc-dropdown" onClick={e => e.stopPropagation()}>
+                    <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,.08)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.14em', color: '#555' }}>Elegí deporte</div>
+                    {sportOptions.map(sport => (
+                      <button key={sport.value} onClick={() => { setSearchSport(sport.value); setShowSportDropdown(false); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '12px 16px', background: searchSport === sport.value ? 'rgba(34,197,94,.1)' : 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', color: searchSport === sport.value ? '#22c55e' : '#c8c8c8', fontSize: 14, fontWeight: 600 }}>
+                        <span style={{ color: searchSport === sport.value ? '#22c55e' : '#666', display: 'flex' }}>{sport.icon}</span>
+                        {sport.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="tc-search-divider" />
+              {/* Location */}
+              <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
+                <input
+                  id="cityInput"
+                  type="text"
+                  placeholder="¿Dónde jugás?"
+                  className="tc-search-input"
+                  value={searchCity}
+                  onChange={(e) => { const v = e.target.value; setSearchCity(v); if (!v.trim()) setSelectedLocation(null); setShowCityDropdown(true); }}
+                  onFocus={(e) => { e.target.select(); setShowSportDropdown(false); closeDatepicker(); setShowCityDropdown(true); }}
+                  autoComplete="off"
+                />
+                {showCityDropdown && (
+                  <div className="tc-dropdown" style={{ minWidth: 280 }} onClick={e => e.stopPropagation()}>
+                    <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,.08)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.14em', color: '#555' }}>Lugares disponibles</div>
+                    <ul style={{ maxHeight: 220, overflowY: 'auto', margin: 0, padding: 0, listStyle: 'none' }}>
+                      {loadingLocations ? (
+                        <li style={{ padding: '16px', textAlign: 'center', color: '#555', fontSize: 13 }}>Cargando...</li>
+                      ) : locationSuggestions.length > 0 ? (
+                        locationSuggestions.map((loc, i) => (
+                          <li key={i} onClick={() => selectCity(loc)} style={{ padding: '11px 16px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,.05)', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#c8c8c8', fontWeight: 500, transition: 'background .15s' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,.05)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                            <MapPin size={13} style={{ color: '#22c55e', flexShrink: 0 }} />
+                            <div><div style={{ fontWeight: 600, color: '#f2f2f2' }}>{loc.label}</div><div style={{ fontSize: 11, color: '#555' }}>{loc.country}</div></div>
+                          </li>
+                        ))
+                      ) : (
+                        <li style={{ padding: '16px', textAlign: 'center', color: '#555', fontSize: 13 }}>Sin resultados</li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+              </div>
+              <div className="tc-search-divider" />
+              {/* Date */}
+              <div className="tc-search-seg" onClick={() => { setShowCityDropdown(false); setShowSportDropdown(false); }}>
+                <Calendar size={13} style={{ color: '#666' }} />
+                <DatePickerDark
+                  selected={searchDate ? (() => { const [y,m,d] = searchDate.split('-').map(Number); return new Date(y,m-1,d); })() : null}
+                  onChange={(date: Date | null) => { if (!date) { setSearchDate(''); return; } setSearchDate(formatLocalDate(date)); }}
+                  minDate={getEffectiveToday()}
+                  showIcon={false}
+                  inputSize="compact"
+                  dateFormat="dd MMM"
+                  inputClassName="bg-transparent border-none outline-none font-semibold text-xs p-0 w-[64px] cursor-pointer focus:ring-0"
+                  variant="dark"
+                />
+              </div>
+              {/* CTA */}
+              <button className="tc-search-cta" onClick={handleSearch} disabled={isSearching}>
+                {isSearching ? 'Buscando...' : 'Buscar'}
+                <Search size={13} />
+              </button>
             </div>
+
+            <div className="tc-search-quicks">
+              {locationOptions.slice(0, 4).map((loc, i) => (
+                <button key={i} className="tc-quick-chip" onClick={() => selectCity(loc)}>{loc.label}</button>
+              ))}
+            </div>
+          </div>
+
+          <div className="tc-hero-side">
+            <div className="tc-live-card">
+              <div className="tc-live-head"><span className="tc-live-dot" />Disponibilidad</div>
+              <div className="tc-live-stat">Al instante</div>
+              <div className="tc-live-label">Ves qué canchas hay libres ahora mismo. Sin WhatsApp, sin esperar respuesta.</div>
+            </div>
+            <div className="tc-live-card">
+              <div className="tc-live-head">Confirmación</div>
+              <div className="tc-live-stat" style={{ fontSize: 20 }}>30 segundos</div>
+              <div className="tc-live-label">Reservás, confirmás y listo. Tu turno queda guardado al instante.</div>
+            </div>
+          </div>
         </div>
       </section>
 
-      {/* RESULTADOS (AHORA CON ANIMACIONES AL HACER SCROLL) */}
-      <section ref={resultsRef} className="container mx-auto px-4 py-10 pb-20 max-w-6xl">
-        <RevealOnScroll delay={0}>
-          <h2 className="text-2xl font-bold mb-8 flex items-center gap-2 text-[#D4C5B0]/90">
-            <MapPin className="text-[#B9CF32]" /> 
-            {lastSearchLabel ? `Resultados cerca de ${lastSearchLabel}` : 'Clubes Disponibles'}
-          </h2>
-        </RevealOnScroll>
+      {/* ── TRUST BAR ── */}
+      <section className="tc-trust">
+        <div className="tc-trust-inner">
+          <div className="tc-trust-label">
+            <b>Hecha para jugadores y clubes.</b>
+            <span>Una plataforma pensada para que reservar sea tan fácil como mandar un mensaje — pero más rápido.</span>
+          </div>
+          <div className="tc-trust-items">
+            {['Sin llamadas ni WhatsApp', 'Disponibilidad al instante', 'Confirmación inmediata', 'Pagá como quieras'].map(item => (
+              <div key={item} className="tc-trust-item">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.2"><path d="m5 12 5 5L20 7" /></svg>
+                {item}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
 
-        {user?.id && favoriteClubs.length > 0 && (
-          <RevealOnScroll delay={40}>
-            <div className="mb-5 flex flex-wrap items-center gap-2">
-              <span className="text-[11px] font-black uppercase tracking-widest text-[#D4C5B0]/70">Favoritos</span>
-              {favoriteClubs.slice(0, 5).map((club) => (
-                <Link
-                  key={`favorite-chip-${club.id}`}
-                  href={`/club/${club.slug}`}
-                  className="inline-flex items-center gap-1 rounded-full bg-[#B9CF32]/20 border border-[#B9CF32]/50 px-3 py-1 text-[11px] font-black text-[#D4C5B0]"
-                >
-                  <Heart size={12} className="fill-[#B9CF32] text-[#B9CF32]" />
-                  {club.name}
+      {/* ── SPORTS GRID ── */}
+      <section className="tc-sports">
+        <div className="tc-sports-head">
+          <h3 className="tc-sports-h3">Jugá lo que quieras, <i>donde quieras</i>.</h3>
+        </div>
+        <div className="tc-sports-grid">
+          {[
+            { name: 'Fútbol', count: 'F5 · F7 · F11', sport: 'futbol', bg: 'linear-gradient(135deg,#081a0c,#0f2e14)' },
+            { name: 'Pádel', count: 'Cubierto & Panorámico', sport: 'padel', bg: 'linear-gradient(135deg,#08141a,#0f2233)' },
+            { name: 'Tenis', count: 'Polvo & cemento', sport: 'tenis', bg: 'linear-gradient(135deg,#1a1008,#2e1a0a)' },
+            { name: 'Otros deportes', count: 'Hockey · Vóley · Básquet', sport: '', bg: 'linear-gradient(135deg,#10081a,#1a0f2e)' },
+          ].map(s => (
+            <div key={s.name} className="tc-sport-card" onClick={() => { if (s.sport) setSearchSport(s.sport); setTimeout(() => document.getElementById('cityInput')?.focus(), 100); }}>
+              <div className="tc-sport-bg" style={{ background: s.bg }} />
+              <div className="tc-sport-content">
+                <div className="tc-sport-count">{s.count}</div>
+                <div className="tc-sport-name">{s.name} →</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── CLUB RESULTS ── */}
+      <section className="tc-clubs" ref={resultsRef}>
+        <div className="tc-clubs-inner">
+          <h2 className="tc-clubs-h">
+            <MapPin size={20} style={{ color: '#22c55e' }} />
+            {lastSearchLabel ? `Canchas cerca de ${lastSearchLabel}` : 'Clubes disponibles'}
+          </h2>
+
+          {searchError && <div style={{ marginBottom: 20, fontSize: 13, color: '#f87171', fontWeight: 600 }}>{searchError}</div>}
+
+          {user?.id && favoriteClubs.length > 0 && (
+            <div style={{ marginBottom: 20, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.1em', color: '#555' }}>Favoritos</span>
+              {favoriteClubs.slice(0, 5).map(club => (
+                <Link key={`fav-${club.id}`} href={`/club/${club.slug}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 11px', borderRadius: 999, background: 'rgba(34,197,94,.08)', border: '1px solid rgba(34,197,94,.2)', fontSize: 11, fontWeight: 700, color: '#22c55e' }}>
+                  <Heart size={10} style={{ fill: '#22c55e' }} />{club.name}
                 </Link>
               ))}
             </div>
-          </RevealOnScroll>
-        )}
+          )}
 
-        {favoriteFeedback && (
-          <RevealOnScroll delay={50}>
-            <div className="mb-5 text-xs text-[#D4C5B0]/85 font-semibold">{favoriteFeedback}</div>
-          </RevealOnScroll>
-        )}
+          {favoriteFeedback && <div style={{ marginBottom: 14, fontSize: 12, color: '#22c55e', fontWeight: 600 }}>{favoriteFeedback}</div>}
 
-        {searchError && (
-          <RevealOnScroll delay={100}><div className="mb-6 text-sm text-[#B9CF32] font-semibold">{searchError}</div></RevealOnScroll>
-        )}
-
-        {loadingClubs ? (
-           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-             {[1,2,3].map(i => (
-                <div key={i} className="h-64 bg-[#D4C5B0]/5 rounded-3xl animate-pulse border border-[#D4C5B0]/10"></div>
-             ))}
-           </div>
-        ) : isSearching ? (
-          <RevealOnScroll delay={100}>
-            <div className="text-center py-20 bg-[#D4C5B0]/5 rounded-3xl border border-dashed border-[#D4C5B0]/20 flex flex-col items-center justify-center gap-4">
-              <div className="h-10 w-10 rounded-full border-4 border-[#D4C5B0]/25 border-t-[#B9CF32] animate-spin" />
-              <p className="text-[#D4C5B0]/80 font-semibold">Buscando canchas...</p>
+          {loadingClubs ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 16 }}>
+              {[1,2,3].map(i => <div key={i} style={{ height: 280, background: '#111', borderRadius: 16, border: '1px solid rgba(255,255,255,.06)', animation: 'tc-pulse 1.5s ease-in-out infinite alternate', opacity: .6 }} />)}
             </div>
-          </RevealOnScroll>
-        ) : displayedClubs.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {displayedClubs.map((club, index) => (
-              <RevealOnScroll key={club.id} delay={index * 100} className="h-full block">
-                <Link href={`/club/${club.slug}`} className="group relative h-full bg-[#EBE1D8] border border-transparent rounded-3xl overflow-hidden hover:scale-[1.02] transition-all shadow-xl hover:shadow-[#B9CF32]/20 flex flex-col">
-                  <div className="h-40 shrink-0 w-full bg-[#dcd0c5] relative border-b border-[#347048]/10 rounded-t-3xl">
-                    <button
-                      type="button"
-                      onClick={(event) => handleToggleFavorite(event, club)}
-                      disabled={Boolean(favoriteBusyByClub[Number(club.id)])}
-                      className={`group/fav absolute top-3 right-3 z-20 rounded-xl p-2 border transition-all duration-200 shadow-md disabled:opacity-60 ${
-                        favoriteClubIds.has(Number(club.id))
-                          ? 'bg-[#347048] border-[#B9CF32] shadow-[#347048]/40 hover:bg-[#2d5f3d] hover:scale-105'
-                          : 'bg-white/90 border-[#347048]/20 hover:bg-[#347048] hover:border-[#B9CF32] hover:shadow-[#347048]/40 hover:scale-105'
-                      }`}
-                      aria-label={favoriteClubIds.has(Number(club.id)) ? 'Quitar de favoritos' : 'Guardar en favoritos'}
-                      title={favoriteClubIds.has(Number(club.id)) ? 'Quitar de favoritos' : 'Guardar en favoritos'}
-                    >
-                      <Heart
-                        size={16}
-                        className={
-                          favoriteClubIds.has(Number(club.id))
-                            ? 'text-[#B9CF32] fill-[#B9CF32] drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)] transition-all duration-200 group-hover/fav:scale-110'
-                            : 'text-[#347048]/80 transition-all duration-200 group-hover/fav:text-[#B9CF32] group-hover/fav:fill-[#B9CF32] group-hover/fav:scale-110'
-                        }
-                      />
-                    </button>
-                    {club.clubImageUrl ? (
-                      <>
-                        <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 rounded-t-3xl" style={{ backgroundImage: `url(${club.clubImageUrl})` }} />
-                        {club.logoUrl && (
-                          <div className="absolute top-3 left-3 bg-white/80 backdrop-blur rounded-xl p-2 shadow-sm">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={club.logoUrl} alt={club.name} className="h-10 w-10 object-contain" />
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="absolute inset-0 bg-gradient-to-br from-[#EBE1D8] to-[#d6c7ba] flex items-center justify-center transition-transform duration-700 rounded-t-3xl">
-                          {club.logoUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={club.logoUrl} alt={club.name} className="h-24 w-24 object-contain opacity-90 mix-blend-multiply" />
-                          ) : (
-                            <Activity size={32} className="text-[#347048]/20" strokeWidth={2} />
-                          )}
+          ) : isSearching ? (
+            <div style={{ textAlign: 'center', padding: '80px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+              <div style={{ width: 40, height: 40, borderRadius: '50%', border: '3px solid rgba(255,255,255,.08)', borderTopColor: '#22c55e', animation: 'tc-spin 1s linear infinite' }} />
+              <span style={{ fontSize: 14, color: '#666', fontWeight: 600 }}>Buscando canchas...</span>
+            </div>
+          ) : displayedClubs.length > 0 ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 16 }}>
+              {displayedClubs.map((club, idx) => (
+                <RevealOnScroll key={club.id} delay={idx * 70} className="h-full">
+                  <Link href={`/club/${club.slug}`} className="tc-club-card">
+                    <div className="tc-club-img">
+                      <button type="button" onClick={e => handleToggleFavorite(e, club)} disabled={Boolean(favoriteBusyByClub[Number(club.id)])}
+                        style={{ position: 'absolute', top: 10, right: 10, zIndex: 10, padding: 6, background: favoriteClubIds.has(Number(club.id)) ? 'rgba(248,113,113,.18)' : 'rgba(255,255,255,.08)', border: `1px solid ${favoriteClubIds.has(Number(club.id)) ? 'rgba(248,113,113,.4)' : 'rgba(255,255,255,.12)'}`, borderRadius: 8, cursor: 'pointer' }}>
+                        <Heart size={13} style={{ fill: favoriteClubIds.has(Number(club.id)) ? '#f87171' : 'transparent', color: favoriteClubIds.has(Number(club.id)) ? '#f87171' : '#777' }} />
+                      </button>
+                      {club.clubImageUrl ? (
+                        <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${club.clubImageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'brightness(.75)' }} />
+                      ) : (
+                        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg,#0f1f0f,#0a150a)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {club.logoUrl ? <img src={club.logoUrl} alt={club.name} style={{ width: 56, height: 56, objectFit: 'contain', opacity: .7 }} /> : <Activity size={28} style={{ color: '#22c55e', opacity: .35 }} />}
+                        </div>
+                      )}
+                      <div style={{ position: 'absolute', bottom: 10, right: 10, background: 'rgba(5,5,5,.72)', backdropFilter: 'blur(8px)', padding: '3px 9px', borderRadius: 999, fontSize: 11, fontWeight: 600, color: '#e8e8e8', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <MapPin size={10} />{club.name}
                       </div>
-                    )}
-                    <div className="absolute bottom-3 right-3 bg-[#926699] px-3 py-1 rounded-full text-xs font-bold text-[#EBE1D8] shadow-sm flex items-center gap-1">
-                      <MapPin size={12} className="text-[#EBE1D8]" /> {club.name || 'Club'}
                     </div>
-                  </div>
-                  <div className="p-6 flex flex-col flex-1">
-                    <h3 className="text-xl font-black text-[#347048] mb-1 leading-tight">{club.name}</h3>
-                    <p className="text-[#347048]/70 text-sm font-medium line-clamp-1">{formatClubAddress(club) || 'Ubicación no disponible'}</p>
-                    {searchDate && (availableTimesByClub[club.id]?.length ?? 0) > 0 && (
-                      <div className="mt-4 mb-5">
-                        <div className="flex items-center gap-1.5 overflow-x-auto pb-4 club-times-scrollbar">
-                          {availableTimesByClub[club.id].map((time) => (
-                            <Link
-                              key={`${club.id}-${time}`}
-                              href={{
-                                pathname: `/club/${club.slug}`,
-                                query: { date: searchDate, time, sport: searchSport }
-                              }}
-                              className="shrink-0 px-3 py-1.5 rounded-full border border-[#347048]/40 text-[#347048] font-black text-xs bg-white/80 hover:border-[#B9CF32] hover:text-[#B9CF32] transition-colors"
-                            >
+                    <div className="tc-club-body">
+                      <h3 className="tc-club-name">{club.name}</h3>
+                      <p className="tc-club-addr">{formatClubAddress(club) || 'Ubicación no disponible'}</p>
+                      {searchDate && (availableTimesByClub[club.id]?.length ?? 0) > 0 && (
+                        <div style={{ marginTop: 10, display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                          {availableTimesByClub[club.id].slice(0, 4).map(time => (
+                            <Link key={time} href={{ pathname: `/club/${club.slug}`, query: { date: searchDate, time, sport: searchSport } }}
+                              onClick={e => e.stopPropagation()}
+                              style={{ padding: '3px 9px', borderRadius: 999, border: '1px solid rgba(34,197,94,.3)', color: '#22c55e', fontSize: 11, fontWeight: 700 }}>
                               {time}
                             </Link>
                           ))}
                         </div>
-                      </div>
-                    )}
-                    {searchDate && (availableTimesByClub[club.id]?.length ?? 0) === 0 && (
-                      <div className="mb-5" />
-                    )}
-                    {!searchDate && <div className="mb-5" />}
-                    <div className="w-full -mt-1 bg-[#347048] group-hover:bg-[#B9CF32] py-3 rounded-xl text-center transition-colors duration-300">
-                      <span className="text-xs font-black text-[#D4C5B0] group-hover:text-[#347048] uppercase tracking-widest">Reservar</span>
+                      )}
+                      <span className="tc-club-cta">Reservar</span>
                     </div>
-                  </div>
-                </Link>
-              </RevealOnScroll>
+                  </Link>
+                </RevealOnScroll>
+              ))}
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '60px 0', color: '#555' }}>
+              <p style={{ fontSize: 14 }}>No encontramos canchas con ese criterio.</p>
+              <button onClick={() => { setSearchCity(''); setSelectedLocation(null); setSearchError(null); setLastSearchLabel(''); setAvailableTimesByClub({}); setDisplayedClubs(clubs); }} style={{ marginTop: 14, color: '#22c55e', fontSize: 13, fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>Ver todos</button>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ── VALUES (POR QUÉ TUCANCHA) ── */}
+      <section style={{ borderTop: '1px solid rgba(255,255,255,.07)' }}>
+        <div className="tc-sec-w">
+          <div className="tc-values-grid">
+            <div className="tc-values-h">
+              <span className="tc-eyebrow">Por qué TuCancha</span>
+              <h2 className="tc-sec-h">La forma más<br /><b>fluida</b> de <i>jugar</i>.</h2>
+              <p className="tc-sec-sub">Nada de llamadas, esperar respuestas o pagar señas por WhatsApp. Todo confirmado al instante.</p>
+            </div>
+            <div className="tc-values-list">
+              {[
+                { num: '01', title: 'Confirmación instantánea', desc: 'Reservás, pagás y listo. Sin esperas, sin "te confirmo más tarde". Si la cancha está libre, es tuya en segundos.' },
+                { num: '02', title: 'Complejos verificados', desc: 'Cada club pasa por un control antes de entrar. Fotos reales, horarios al día, canchas en condiciones.' },
+                { num: '03', title: 'Modificás sin drama', desc: '¿Lluvia? ¿Se cae un jugador? Cambiás el horario o cancelás con anticipación, sin llamar a nadie.' },
+                { num: '04', title: 'Pagá como quieras', desc: 'Online o al llegar al complejo. Vos elegís cómo arreglás con el club.' },
+              ].map(v => (
+                <div key={v.num} className="tc-value">
+                  <div className="tc-value-num">{v.num}</div>
+                  <div className="tc-value-body"><h4>{v.title}</h4><p>{v.desc}</p></div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="tc-bstats">
+            {[
+              { num: 'Sin llamadas', label: 'Todo online', sub: 'Olvidate del "te confirmo más tarde" y de esperar respuestas por WhatsApp.' },
+              { num: 'Tiempo real', label: 'Disponibilidad', sub: 'Ves qué cancha está libre ahora mismo, con precios actualizados.' },
+              { num: 'Al instante', label: 'Confirmación', sub: 'Reservás, pagás y tu turno queda guardado. Sin trámites.' },
+              { num: 'Creciendo', label: 'Red de clubes', sub: 'Sumamos complejos cada semana. Mirá los disponibles en tu zona.' },
+            ].map(s => (
+              <div key={s.label} className="tc-bstat">
+                <div className="tc-bstat-num">{s.num}</div>
+                <div className="tc-bstat-label">{s.label}</div>
+                <div className="tc-bstat-sub">{s.sub}</div>
+              </div>
             ))}
           </div>
-        ) : (
-          <RevealOnScroll delay={100}>
-            <div className="text-center py-20 bg-[#D4C5B0]/5 rounded-3xl border border-dashed border-[#D4C5B0]/20">
-              <p className="text-[#D4C5B0]/60">No encontramos canchas con ese criterio.</p>
-              <button
-                onClick={() => {
-                  setSearchCity('');
-                  setSelectedLocation(null);
-                  setSearchError(null);
-                  setLastSearchLabel('');
-                  setAvailableTimesByClub({});
-                  setDisplayedClubs(clubs);
-                }}
-                className="mt-4 text-[#B9CF32] font-bold hover:underline"
-              >
-                Ver todos
-              </button>
-            </div>
-          </RevealOnScroll>
-        )}
-      </section>
-
-      {/* SECCIÓN: CÓMO FUNCIONA (CON ANIMACIONES) */}
-      <section className="py-20 px-4 max-w-6xl mx-auto relative z-10 overflow-hidden">
-        <RevealOnScroll delay={0}>
-          <div className="text-center mb-16">
-            <span className="text-[#B9CF32] font-black tracking-wider uppercase text-sm mb-3 block">Rápido y Fácil</span>
-            <h2 className="text-4xl md:text-5xl font-black text-[#D4C5B0] italic tracking-tighter">¿CÓMO RESERVAR?</h2>
-          </div>
-        </RevealOnScroll>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative">
-          <RevealOnScroll delay={100} className="h-full">
-            <div className="h-full bg-[#EBE1D8] rounded-[2rem] p-8 text-center relative overflow-hidden group hover:-translate-y-2 transition-transform duration-300 shadow-xl shadow-[#B9CF32]/5 border-4 border-transparent hover:border-[#B9CF32]">
-              <div className="absolute -top-6 -right-6 text-[100px] font-black text-[#347048]/5 group-hover:text-[#B9CF32]/20 transition-colors z-0 select-none">1</div>
-              <div className="relative z-10 flex flex-col items-center">
-                <div className="bg-[#347048] text-[#B9CF32] h-16 w-16 rounded-2xl flex items-center justify-center mb-6 shadow-inner">
-                  <Search size={32} strokeWidth={2.5} />
-                </div>
-                <h3 className="text-xl font-black text-[#347048] mb-3 uppercase tracking-wide">Buscá tu horario</h3>
-                <p className="text-[#347048]/70 font-medium">Usá nuestro buscador para encontrar canchas disponibles en tu ciudad en tiempo real.</p>
-              </div>
-            </div>
-          </RevealOnScroll>
-
-          <RevealOnScroll delay={200} className="h-full">
-            <div className="h-full bg-[#EBE1D8] rounded-[2rem] p-8 text-center relative overflow-hidden group hover:-translate-y-2 transition-transform duration-300 shadow-xl shadow-[#B9CF32]/5 border-4 border-transparent hover:border-[#B9CF32]">
-              <div className="absolute -top-6 -right-6 text-[100px] font-black text-[#347048]/5 group-hover:text-[#B9CF32]/20 transition-colors z-0 select-none">2</div>
-              <div className="relative z-10 flex flex-col items-center">
-                <div className="bg-[#347048] text-[#B9CF32] h-16 w-16 rounded-2xl flex items-center justify-center mb-6 shadow-inner">
-                  <CalendarCheck size={32} strokeWidth={2.5} />
-                </div>
-                <h3 className="text-xl font-black text-[#347048] mb-3 uppercase tracking-wide">Elegí tu cancha</h3>
-                <p className="text-[#347048]/70 font-medium">Revisá los clubes, compará precios e instalaciones, y confirmá tu turno con un clic.</p>
-              </div>
-            </div>
-          </RevealOnScroll>
-
-          <RevealOnScroll delay={300} className="h-full">
-            <div className="h-full bg-[#EBE1D8] rounded-[2rem] p-8 text-center relative overflow-hidden group hover:-translate-y-2 transition-transform duration-300 shadow-xl shadow-[#B9CF32]/5 border-4 border-transparent hover:border-[#B9CF32]">
-              <div className="absolute -top-6 -right-6 text-[100px] font-black text-[#347048]/5 group-hover:text-[#B9CF32]/20 transition-colors z-0 select-none">3</div>
-              <div className="relative z-10 flex flex-col items-center">
-                <div className="bg-[#B9CF32] text-[#347048] h-16 w-16 rounded-2xl flex items-center justify-center mb-6 shadow-inner">
-                  <PlayCircle size={32} strokeWidth={2.5} />
-                </div>
-                <h3 className="text-xl font-black text-[#347048] mb-3 uppercase tracking-wide">¡A Jugar!</h3>
-                <p className="text-[#347048]/70 font-medium">Presentate en el club y disfrutá de tu partido. ¡El tercer tiempo te está esperando!</p>
-              </div>
-            </div>
-          </RevealOnScroll>
         </div>
       </section>
 
-      {/* SECCIÓN: AMENIDADES PREMIUM */}
-      <section className="py-24 px-4 relative z-10 overflow-hidden">
-        <RevealOnScroll delay={0}>
-          <div className="max-w-7xl mx-auto bg-[#EBE1D8] rounded-[3rem] p-8 md:p-16 shadow-2xl shadow-black/20 border-8 border-white/10 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-96 h-96 bg-[#B9CF32]/20 rounded-full blur-[100px] pointer-events-none" />
-            <div className="absolute bottom-0 left-0 w-96 h-96 bg-[#926699]/10 rounded-full blur-[100px] pointer-events-none" />
-            
-            <div className="relative z-10">
-            <div className="text-center mb-16">
-              <h2 className="text-4xl md:text-5xl font-black text-[#347048] italic tracking-tighter mb-4 uppercase">Gestión inteligente</h2>
-              <p className="text-[#347048]/70 font-bold max-w-2xl mx-auto uppercase tracking-widest text-sm">La herramienta definitiva diseñada para potenciar la administración de tu complejo.</p>
-            </div>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-              <RevealOnScroll delay={100}>
-                <div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white">
-                  <div className="bg-[#926699]/10 text-[#926699] p-4 rounded-2xl mb-4"><MessageSquare size={32} strokeWidth={2} /></div>
-                  <h4 className="text-[#347048] font-black text-lg mb-2">WhatsApp Bot</h4>
-                  <p className="text-[#347048]/70 text-sm font-medium">Notificaciones automáticas para confirmar reservas y reducir ausencias de clientes.</p>
-                </div>
-              </RevealOnScroll>
-
-              <RevealOnScroll delay={200}>
-                <div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white">
-                  <div className="bg-[#347048]/10 text-[#347048] p-4 rounded-2xl mb-4"><Calendar size={32} strokeWidth={2} /></div>
-                  <h4 className="text-[#347048] font-black text-lg mb-2">Reserva en línea</h4>
-                  <p className="text-[#347048]/70 text-sm font-medium">Sistema de turnos disponible las 24 horas para que tus clientes reserven en segundos.</p>
-                </div>
-              </RevealOnScroll>
-
-              <RevealOnScroll delay={300}>
-                <div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white">
-                  <div className="bg-[#B9CF32]/20 text-[#347048] p-4 rounded-2xl mb-4"><Calculator size={32} strokeWidth={2} /></div>
-                  <h4 className="text-[#347048] font-black text-lg mb-2">Caja y Stock</h4>
-                  <p className="text-[#347048]/70 text-sm font-medium">Control total de ingresos, ventas de buffet y stock de productos en tiempo real.</p>
-                </div>
-              </RevealOnScroll>
-
-              <RevealOnScroll delay={400}>
-                <div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white">
-                  <div className="bg-blue-50 text-blue-500 p-4 rounded-2xl mb-4"><Users size={32} strokeWidth={2} /></div>
-                  <h4 className="text-[#347048] font-black text-lg mb-2">Panel de administración</h4>
-                  <p className="text-[#347048]/70 text-sm font-medium">Gestioná canchas, precios y base de datos de usuarios desde cualquier dispositivo.</p>
-                </div>
-              </RevealOnScroll>
-            </div>
+      {/* ── STEPS (CÓMO FUNCIONA) ── */}
+      <section style={{ borderTop: '1px solid rgba(255,255,255,.07)' }}>
+        <div className="tc-sec-w">
+          <div style={{ maxWidth: 660 }}>
+            <span className="tc-eyebrow">Cómo funciona</span>
+            <h2 className="tc-sec-h">De <i>buscar cancha</i> a <b>pisar pasto</b>. Tres pasos.</h2>
           </div>
+          <div className="tc-steps">
+            {[
+              { num: '01', title: 'Buscá tu cancha', desc: 'Elegí deporte, zona y horario. Ves disponibilidad real, precios y fotos sin tener que llamar a nadie.', foot: 'Filtrá y elegí' },
+              { num: '02', title: 'Elegí el horario', desc: 'Mirás la grilla del club en tiempo real y elegís el turno que te quede bien. Todo claro, sin sorpresas.', foot: 'Elegí el turno' },
+              { num: '03', title: 'Reservá y jugá', desc: 'Pagás online o al llegar. Confirmación al toque y a la cancha.', foot: 'Confirmá y listo' },
+            ].map(s => (
+              <div key={s.num} className="tc-step">
+                <div className="tc-step-num">{s.num}</div>
+                <h4>{s.title}</h4>
+                <p>{s.desc}</p>
+                <div className="tc-step-foot"><b>{s.foot}</b></div>
+              </div>
+            ))}
           </div>
-        </RevealOnScroll>
+        </div>
       </section>
 
-      {/* SECCIÓN B2B (DUEÑOS) */}
-      <section className="bg-[#926699] relative overflow-hidden">
-        <div className="container mx-auto px-4 py-24 max-w-6xl relative z-10">
-          <div className="grid md:grid-cols-2 gap-16 items-center">
-            
-            <RevealOnScroll delay={0}>
-              <div>
-                <span className="text-[#B9CF32] font-black tracking-wider uppercase text-xs mb-3 block">
-                  Software para complejos
-                </span>
-                <h2 className="text-4xl md:text-5xl font-black mb-6 leading-tight text-[#EBE1D8]">
-                  Tu club, <br/>
-                  <span className="opacity-70">a otro nivel.</span>
-                </h2>
-                <p className="text-[#EBE1D8]/80 text-lg mb-8 font-medium leading-relaxed">
-                  Olvidate de los mensajes de WhatsApp y las planillas de excel. Automatizá reservas, cobros y estadísticas hoy mismo.
-                </p>
-                
-                <ul className="space-y-4 mb-10">
-                  <FeatureItem icon={<Calendar className="text-[#926699]" />} text="Reservas en línea 24/7." />
-                  <FeatureItem icon={<ShieldCheck className="text-[#926699]" />} text="Adiós a los deudores." />
-                </ul>
+      {/* ── OWNER (PARA COMPLEJOS) ── */}
+      <section className="tc-owner">
+        <div className="tc-owner-inner">
+          <div>
+            <span className="tc-eyebrow">Para complejos</span>
+            <h2 className="tc-sec-h">Llená tu agenda.<br /><i>Nosotros nos ocupamos</i> del resto.</h2>
+            <p className="tc-sec-sub">Sumá tu complejo a una plataforma hecha para digitalizar las reservas en Argentina. Gestioná canchas, horarios y pagos desde un panel simple.</p>
+            <div className="tc-owner-ctas">
+              <button className="tc-btn tc-btn-primary" onClick={() => setShowContact(true)}>Registrá tu complejo →</button>
+              <button className="tc-btn tc-btn-ghost" onClick={() => setShowContact(true)}>Contactar ventas</button>
+            </div>
+          </div>
+          <div className="tc-owner-side">
+            <div className="tc-owner-side-h">Qué te ofrecemos</div>
+            <div>
+              {[
+                { b: 'Panel', t: 'Gestioná reservas, canchas y pagos desde un solo lugar' },
+                { b: 'Online', t: 'Tu cancha disponible 24/7, sin contestar el teléfono' },
+                { b: 'WhatsApp', t: 'Notificaciones automáticas a tus clientes al confirmar' },
+                { b: 'Soporte', t: 'Te acompañamos para que arranques tranquilo desde el día uno' },
+              ].map(p => (
+                <div key={p.b} className="tc-owner-perk"><b>{p.b}</b>{p.t}</div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
 
-                <button
-                  type="button"
-                  onClick={() => setShowContact(true)}
-                  className="inline-flex items-center gap-2 bg-[#B9CF32] hover:bg-[#d6ed42] text-[#347048] px-8 py-4 rounded-2xl font-black transition-all shadow-xl shadow-[#347048]/20 hover:-translate-y-1"
+      {/* ── FAQ ── */}
+      <section style={{ borderTop: '1px solid rgba(255,255,255,.07)' }} onClick={() => setOpenFaqIndex(null)}>
+        <div className="tc-sec-w">
+          <div className="tc-faq-grid">
+            <div>
+              <span className="tc-eyebrow">FAQ</span>
+              <h2 className="tc-sec-h">Preguntas<br /><i>frecuentes</i>.</h2>
+              <p className="tc-sec-sub">Todo lo que necesitás saber antes de reservar.</p>
+              <button className="tc-btn tc-btn-ghost" onClick={() => setShowContact(true)} style={{ marginTop: 4 }}>Escribinos →</button>
+            </div>
+            <div className="tc-faq-list">
+              {[
+                { q: '¿Tengo que pagar para usar TuCancha?', a: 'No. Usar la app es gratis. Solo pagás el valor de la cancha que reservás, igual que si llamaras al complejo directamente — sin recargos ocultos.' },
+                { q: '¿Puedo cancelar una reserva si no puedo ir?', a: 'Sí. Cada complejo define su política de cancelación, pero la mayoría permite cancelar sin costo hasta horas antes del turno. Lo ves claramente antes de pagar.' },
+                { q: '¿Qué pasa si llueve el día de mi partido?', a: 'Si el complejo suspende por lluvia, se gestiona el reintegro o podés cambiar de fecha según la política del club. Si es cancha cubierta, siempre se juega.' },
+                { q: '¿Con cuánta anticipación puedo reservar?', a: 'Podés reservar con hasta 30 días de anticipación. Recomendamos asegurar el lugar temprano, especialmente en horarios pico (18:00 a 22:00).' },
+                { q: '¿Puedo gestionar más de una cancha?', a: 'Sí. La plataforma es totalmente flexible. Configurás múltiples canchas, horarios diferenciados por día y precios por deporte desde el panel de administración.' },
+              ].map((item, idx) => (
+                <div
+                  key={idx}
+                  ref={el => { faqRefs.current[idx] = el; }}
+                  className={`tc-faq-item${openFaqIndex === idx ? ' tc-open' : ''}`}
+                  onClick={e => { e.stopPropagation(); setOpenFaqIndex(openFaqIndex === idx ? null : idx); }}
                 >
-                  Probar Demo Gratis <ArrowRight size={20} />
-                </button>
-              </div>
-            </RevealOnScroll>
-
-            {/* MINI DASHBOARD VENDEDOR */}
-            <div className="hidden md:block relative">
-              <RevealOnScroll delay={300}>
-                <div className="bg-[#EBE1D8] rounded-3xl p-8 shadow-2xl rotate-3 hover:rotate-0 transition-transform duration-500 border-4 border-[#EBE1D8]/20 select-none">
-                    <div className="flex justify-between items-start mb-8 border-b border-[#347048]/10 pb-6">
-                        <div>
-                            <p className="text-[#347048]/60 text-xs font-bold uppercase tracking-wider mb-1">Ingresos de Febrero</p>
-                            <h3 className="text-4xl font-black text-[#347048] tracking-tight">$ 1.250.000</h3>
-                        </div>
-                        <div className="bg-[#B9CF32] px-3 py-1 rounded-full flex items-center gap-1 shadow-sm">
-                            <TrendingUp size={16} className="text-[#347048]" />
-                            <span className="text-[#347048] font-bold text-xs">+24%</span>
-                        </div>
-                    </div>
-                    <div className="flex items-end justify-between gap-2 h-32 mb-8 px-2">
-                        <div className="w-full bg-[#347048]/10 rounded-t-lg h-[40%] hover:bg-[#B9CF32] transition-colors"></div>
-                        <div className="w-full bg-[#347048]/10 rounded-t-lg h-[60%] hover:bg-[#B9CF32] transition-colors"></div>
-                        <div className="w-full bg-[#347048]/10 rounded-t-lg h-[45%] hover:bg-[#B9CF32] transition-colors"></div>
-                        <div className="w-full bg-[#347048]/10 rounded-t-lg h-[70%] hover:bg-[#B9CF32] transition-colors"></div>
-                        <div className="w-full bg-[#347048]/10 rounded-t-lg h-[55%] hover:bg-[#B9CF32] transition-colors"></div>
-                        <div className="w-full bg-[#347048]/20 rounded-t-lg h-[80%] hover:bg-[#B9CF32] transition-colors"></div>
-                        <div className="w-full bg-gradient-to-t from-[#347048] to-[#B9CF32] rounded-t-lg h-[95%]"></div>
-                    </div>
+                  <div className="tc-faq-q">
+                    {item.q}
+                    <svg className="tc-faq-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 5v14M5 12h14" /></svg>
+                  </div>
+                  <div className="tc-faq-a">{item.a}</div>
                 </div>
-              </RevealOnScroll>
+              ))}
             </div>
-
           </div>
         </div>
       </section>
 
-      {/* SECCIÓN: PREGUNTAS FRECUENTES (FAQ) */}
-      <section onClick={() => setOpenFaqIndex(null)} className="py-20 px-4 max-w-3xl mx-auto relative z-10 pb-32 overflow-hidden">
-        <RevealOnScroll delay={0}>
-          <div className="text-center mb-12">
-            <span className="text-[#B9CF32] font-black tracking-wider uppercase text-sm mb-3 block">Dudas Comunes</span>
-            <h2 className="text-3xl md:text-4xl font-black text-[#D4C5B0] italic tracking-tighter">PREGUNTAS FRECUENTES</h2>
+      {/* ── CLOSING CTA ── */}
+      <section className="tc-closing">
+        <div className="tc-closing-inner">
+          <div className="tc-big-closing">
+            Ponete los botines.<br /><i>Nosotros nos encargamos del resto.</i>
           </div>
-        </RevealOnScroll>
-        <div className="space-y-4">
-           {[
-             { q: "¿Con cuánto tiempo de anticipación puedo reservar?", a: "Podés reservar tu cancha hasta con 30 días de anticipación utilizando nuestro calendario interactivo. Te recomendamos asegurar tu lugar temprano, ¡especialmente en horarios pico (18:00 a 22:00)!" },
-             { q: "¿Puedo cancelar o reprogramar mi turno?", a: "Sí, podés cancelar tu turno desde tu panel de usuario o comunicándote con el club. El sistema devuelve automáticamente tu dinero en la caja si la cancelación se realiza dentro del margen de tiempo permitido por cada club." },
-             { q: "¿Cómo recibo los avisos de nuevas reservas?", a: "El sistema envía una notificación automática e instantánea a través de WhatsApp tanto al dueño del complejo como al cliente, asegurando que el turno quede confirmado sin esfuerzo manual." },
-             { q: "¿Puedo gestionar más de una cancha y diferentes deportes?", a: "Sí, la plataforma es totalmente flexible. Podés configurar múltiples canchas, definir horarios diferenciados por día y establecer precios específicos para cada actividad deportiva." },
-             { q: "¿El sistema me ayuda a controlar las ventas del buffet?", a: "¡Exacto! Contamos con un módulo de Caja y Stock integrado donde podés registrar cada venta de productos, gestionar tu inventario en tiempo real y tener un cierre de caja diario preciso." },
-             { q: "¿Es necesario instalar algún programa en mi computadora?", a: "No, nuestra solución es 100% basada en la nube. Podés acceder a tu panel de administración desde cualquier dispositivo (celular, tablet o PC) con conexión a internet, en cualquier momento y lugar." }
-           ].map((item, idx) => (
-             <RevealOnScroll delay={100 * (idx + 1)} key={idx}>
-               <div ref={(el) => { faqRefs.current[idx] = el; }}>
-                 <FAQItem
-                   question={item.q}
-                   answer={item.a}
-                   isOpen={openFaqIndex === idx}
-                   onToggle={() => setOpenFaqIndex(openFaqIndex === idx ? null : idx)}
-                 />
-               </div>
-             </RevealOnScroll>
-           ))}
+          <div className="tc-closing-ctas">
+            <button className="tc-btn tc-btn-primary" onClick={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setTimeout(() => document.getElementById('cityInput')?.focus(), 600); }}>
+              Buscar cancha →
+            </button>
+            <button className="tc-btn tc-btn-ghost" onClick={() => setShowContact(true)}>Contactar</button>
+          </div>
         </div>
       </section>
 
-      {/* FOOTER */}
-      <footer className="border-t border-[#D4C5B0]/10 py-10 bg-[#2a5c3b] text-center text-[#D4C5B0]/50 text-sm">
-        <p className="font-medium">&copy; {new Date().getFullYear()} TuCancha App. Todos los derechos reservados.</p>
+      {/* ── FOOTER ── */}
+      <footer className="tc-foot">
+        <div className="tc-foot-inner">
+          <div className="tc-foot-cols">
+            <div className="tc-foot-brand">
+              <span className="tc-foot-brand-name">TuCancha</span>
+              <p>La plataforma para reservar canchas en Argentina. Hecha por jugadores, para jugadores.</p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {[
+                  { href: 'https://wa.me/5493513436163', label: 'WhatsApp', icon: <Phone size={15} /> },
+                  { href: 'mailto:soporte.tucancha@gmail.com', label: 'Email', icon: <Mail size={15} /> },
+                  { href: 'https://www.instagram.com/tucancha.app_/', label: 'Instagram', icon: <Instagram size={15} /> },
+                ].map(s => (
+                  <a key={s.label} href={s.href} target="_blank" rel="noopener" aria-label={s.label}
+                    style={{ width: 34, height: 34, borderRadius: 10, border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.02)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', transition: 'color .15s, border-color .15s' }}
+                    onMouseEnter={e => { e.currentTarget.style.color = '#22c55e'; e.currentTarget.style.borderColor = 'rgba(34,197,94,.3)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = '#555'; e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; }}>
+                    {s.icon}
+                  </a>
+                ))}
+              </div>
+            </div>
+            <div className="tc-foot-col">
+              <h6>Jugadores</h6>
+              <ul>
+                <li><a href="/bookings">Mis reservas</a></li>
+                <li><a href="/login">Crear cuenta</a></li>
+              </ul>
+            </div>
+            <div className="tc-foot-col">
+              <h6>Complejos</h6>
+              <ul>
+                <li><button onClick={() => setShowContact(true)}>Sumá tu complejo</button></li>
+                <li><button onClick={() => setShowContact(true)}>Contactar ventas</button></li>
+              </ul>
+            </div>
+            <div className="tc-foot-col">
+              <h6>Soporte</h6>
+              <ul>
+                <li><a href="mailto:soporte.tucancha@gmail.com">soporte.tucancha@gmail.com</a></li>
+                <li><a href="https://wa.me/5493513436163" target="_blank" rel="noopener">WhatsApp</a></li>
+              </ul>
+            </div>
+          </div>
+          <div className="tc-foot-base">
+            <span>© {new Date().getFullYear()} TuCancha · Hecho en Argentina · Con pasión por el juego</span>
+          </div>
+        </div>
       </footer>
-      
-      {/* SIDEBAR DE CONTACTO (OFF-CANVAS) */}
-      <div 
-  className={`fixed inset-0 bg-black/60 z-[60] transition-opacity duration-300 ${showContact ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-        onClick={() => setShowContact(false)}
+
+      {/* ── CONTACT SIDEBAR ── */}
+      <div className="tc-contact-overlay" style={{ opacity: showContact ? 1 : 0, pointerEvents: showContact ? 'auto' : 'none' }} onClick={() => setShowContact(false)} />
+      <div ref={sidebarRef} className={`tc-contact-panel${showContact ? ' tc-open' : ''}`}>
+        <div style={{ padding: '18px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,.08)' }}>
+          <h2 style={{ fontSize: 18, fontWeight: 800, color: '#22c55e', margin: 0 }}>Contacto</h2>
+          <button onClick={() => setShowContact(false)} style={{ background: 'rgba(248,113,113,.1)', border: '1px solid rgba(248,113,113,.2)', borderRadius: '50%', width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#f87171' }}><X size={16} /></button>
+        </div>
+        <div style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <p style={{ fontSize: 13, color: '#777', lineHeight: 1.6, margin: 0 }}>¿Tenés dudas o querés dar de alta tu club? Escribinos.</p>
+          {([
+            { type: 'whatsapp' as const, label: 'WhatsApp', value: '+54 351 343 6163', icon: <Phone size={16} /> },
+            { type: 'email' as const, label: 'Email', value: 'soporte.tucancha@gmail.com', icon: <Mail size={16} /> },
+          ]).map(c => (
+            <button key={c.type} type="button" onClick={e => openContactMenu(e, c.type)}
+              style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 14px', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 12, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', transition: 'border-color .15s', width: '100%' }}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(34,197,94,.3)')}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)')}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(34,197,94,.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#22c55e', flexShrink: 0 }}>{c.icon}</div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.12em', color: '#555' }}>{c.label}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#f2f2f2' }}>{c.value}</div>
+              </div>
+            </button>
+          ))}
+          <div style={{ marginTop: 8, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,.07)' }}>
+            <button type="button" onClick={e => openContactMenu(e, 'instagram')} style={{ display: 'inline-flex', alignItems: 'center', gap: 10, padding: '9px 14px', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit', color: '#e8e8e8', fontSize: 13, fontWeight: 600 }}>
+              <Instagram size={15} /> @tucancha.app_
+            </button>
+          </div>
+          {contactMenu && (
+            <div ref={menuRef} role="dialog" style={{ position: 'absolute', top: contactMenu.top, left: contactMenu.left, zIndex: 90, background: '#1a1a1a', border: '1px solid rgba(255,255,255,.1)', borderRadius: 12, padding: 6, minWidth: 150, boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
+              <button onClick={() => handleOpenHref(contactMenu.href)} style={{ display: 'block', width: '100%', padding: '9px 13px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: '#f2f2f2', fontWeight: 500, textAlign: 'left', borderRadius: 8 }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,.06)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>Abrir</button>
+              <button onClick={() => handleCopy(contactMenu.copyText)} style={{ display: 'block', width: '100%', padding: '9px 13px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: '#f2f2f2', fontWeight: 500, textAlign: 'left', borderRadius: 8 }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,.06)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>{copied ? '¡Copiado!' : 'Copiar'}</button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <AppModal
+        show={showLogoutModal}
+        title="Cerrar sesión"
+        message="¿Seguro que querés cerrar sesión?"
+        isWarning
+        confirmText="Salir"
+        cancelText="Cancelar"
+        onConfirm={() => { setShowLogoutModal(false); logout(); setUser(null); }}
+        onClose={() => setShowLogoutModal(false)}
+        onCancel={() => setShowLogoutModal(false)}
       />
 
-      <div ref={sidebarRef} className={`fixed top-0 right-0 h-full w-full max-w-sm bg-[#EBE1D8] z-[70] shadow-2xl transform transition-transform duration-300 ease-out ${showContact ? 'translate-x-0' : 'translate-x-full'}`}>
-            <div className="p-6 flex justify-between items-center border-b border-[#347048]/10">
-                <h2 className="text-2xl font-black text-[#347048]">Contacto</h2>
-                <button 
-                  onClick={() => setShowContact(false)}
-                  className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
-                  title="Cerrar ventana"
-                >
-                  <X size={20} strokeWidth={3} />
-                </button>
-            </div>
-            <div className="p-8 flex flex-col gap-6">
-                <p className="text-[#347048]/80 font-medium leading-relaxed">
-                    ¿Tenés dudas sobre el sistema o querés dar de alta tu club? Escribinos, respondemos al toque.
-                </p>
-        <button type="button" onClick={(e) => openContactMenu(e, 'whatsapp')} className="flex items-center gap-4 px-4 py-3 bg-white rounded-2xl shadow-sm border border-[#347048]/5 hover:border-[#B9CF32] hover:shadow-md transition-all group">
-              <div className="bg-[#B9CF32] h-12 w-12 rounded-full flex items-center justify-center text-[#347048] group-hover:scale-110 transition-transform shrink-0">
-                        <Phone size={20} fill="currentColor" className="text-[#347048]" />
-                    </div>
-                    <div>
-                        <p className="text-[#347048]/50 text-xs font-bold uppercase tracking-wider">WhatsApp</p>
-            <p className="text-[#347048] font-bold text-lg">+54 351 343 6163</p>
-                    </div>
-              </button>
-                <button type="button" onClick={(e) => openContactMenu(e, 'email')} className="w-full flex items-center gap-4 px-4 py-3 bg-white rounded-2xl shadow-sm border border-[#347048]/5 hover:border-[#B9CF32] hover:shadow-md transition-all group">
-                      <div className="bg-[#347048] h-12 w-12 rounded-full flex items-center justify-center text-[#EBE1D8] group-hover:scale-110 transition-transform shrink-0">
-                        <Mail size={20} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[#347048]/50 text-xs font-bold uppercase tracking-wider">Email</p>
-                        <p className="text-[#347048] font-bold text-lg truncate">soporte.tucancha@gmail.com</p>
-                      </div>
-                    </button>
-                <div className="mt-8 pt-8 border-t border-[#347048]/10">
-                    <p className="text-[#347048]/60 text-sm font-bold mb-4 text-center">Seguinos en redes</p>
-                    <div className="flex justify-center gap-4">
-                      <button type="button" onClick={(e) => openContactMenu(e, 'instagram')} className="flex items-center gap-4 px-4 py-3 bg-[#347048] text-[#EBE1D8] rounded-full hover:bg-[#B9CF32] hover:text-[#347048] transition-colors">
-                        <Instagram size={20} className="shrink-0" />
-                        <span className="hidden sm:inline text-[#EBE1D8] font-bold">@tucancha.app_</span>
-                      </button>
-                    </div>
-                </div>
-            </div>
-        {contactMenu && (
-          <div
-            ref={menuRef}
-            role="dialog"
-            aria-label="Acciones de contacto"
-            style={{ position: 'absolute', top: contactMenu.top, left: contactMenu.left }}
-            className="z-[90] bg-white rounded-lg shadow-lg border p-2 w-52"
-          >
-            <button
-              onClick={() => handleOpenHref(contactMenu.href)}
-              className="w-full text-left px-3 py-3 hover:bg-[#f3f4f6] rounded text-sm text-[#111827] font-medium"
-            >Abrir</button>
-            <button
-              onClick={() => handleCopy(contactMenu.copyText)}
-              className="w-full text-left px-3 py-3 hover:bg-[#f3f4f6] rounded text-sm text-[#111827] font-medium"
-            >{copied ? 'Copiado!' : 'Copiar'}</button>
-          </div>
-        )}
-        <AppModal
-          show={showLogoutModal}
-          title="Cerrar sesión"
-          message="¿Seguro que querés cerrar sesión?"
-          isWarning
-          confirmText="Salir"
-          cancelText="Cancelar"
-          onConfirm={() => {
-            setShowLogoutModal(false);
-            logout();
-            setUser(null);
-          }}
-          onClose={() => setShowLogoutModal(false)}
-          onCancel={() => setShowLogoutModal(false)}
-        />
-      </div>
-      </div>
+      </div>{/* end tc-root */}
     </>
   );
 }
 
-const FeatureItem = ({ icon, text }: { icon: React.ReactNode; text: string }) => (
-  <li className="flex items-center gap-3">
-    <div className="bg-[#EBE1D8] h-8 w-8 rounded-lg flex items-center justify-center shadow-sm shrink-0 opacity-90">
-        {icon}
-    </div>
-    <span className="text-[#EBE1D8]/90 font-bold text-lg tracking-tight">{text}</span>
-  </li>
-);
-
-// FAQ item now controlled by parent via props
-const FAQItem = ({
-  question,
-  answer,
-  isOpen,
-  onToggle
-}: {
-  question: string;
-  answer: string;
-  isOpen: boolean;
-  onToggle: () => void;
-}) => {
-  return (
-    <div className="bg-[#D4C5B0]/5 border border-[#D4C5B0]/10 rounded-2xl overflow-hidden transition-all duration-300 hover:bg-[#D4C5B0]/10">
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggle();
-        }}
-        className="w-full px-6 py-5 text-left flex justify-between items-center focus:outline-none"
-      >
-        <span className="font-bold text-[#EBE1D8] pr-4">{question}</span>
-        <ChevronDown className={`text-[#B9CF32] shrink-0 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
-      </button>
-      <div className={`px-6 overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-40 pb-5 opacity-100' : 'max-h-0 opacity-0'}`}>
-        <p className="text-[#EBE1D8]/70 text-sm leading-relaxed">{answer}</p>
-      </div>
-    </div>
-  );
-};
