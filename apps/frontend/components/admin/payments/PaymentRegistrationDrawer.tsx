@@ -37,7 +37,7 @@ type Props = {
   maxFooterLabel: string;
 };
 
-const sectionCardClass = 'rounded-2xl border border-[#dce2ee] bg-[#f8f9fd] p-4';
+const sectionCardClass = 'rounded-2xl border border-[#dce2ee] bg-white p-4';
 
 export default function PaymentRegistrationDrawer({
   methodOptions,

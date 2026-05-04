@@ -9788,7 +9788,7 @@ export default function AdminAgendaPlaygroundPage() {
                   </div>
 
                   <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
-                    <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-3">
+                    <div className="rounded-xl border border-[#dce2ee] bg-white p-3">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
                           <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#98a1b3]">Reserva</p>
@@ -9884,7 +9884,7 @@ export default function AdminAgendaPlaygroundPage() {
                             />
                           </div>
 
-                          <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-2.5">
+                          <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-[#dce2ee] bg-white px-3 py-2.5">
                             <input
                               type="checkbox"
                               checked={cancelRefundExecuteNow}
@@ -10382,7 +10382,7 @@ export default function AdminAgendaPlaygroundPage() {
                     <section className="rounded-2xl border border-[#dce2ee] bg-white px-4 py-4">
                       {showSimplifiedDetailsSection && (simplifiedIsEditingReservation ? (
                         <>
-                          <div className="rounded-xl border border-[#e3e7f2] bg-[#f7f9fd] p-4">
+                          <div className="rounded-xl border border-[#e3e7f2] bg-white p-4">
                             <div className="flex items-center">
                               <p className="text-[18px] font-semibold text-[#1f2638]">Reserva del usuario</p>
                             </div>
@@ -10871,7 +10871,7 @@ export default function AdminAgendaPlaygroundPage() {
                       ))}
 
                       {showSimplifiedConsumptionsSection && (
-                        <section className="rounded-xl border border-[#e3e7f2] bg-[#f7f9fd] p-4">
+                        <section className="rounded-xl border border-[#e3e7f2] bg-white p-4">
                           <div className="flex items-center justify-between gap-3">
                             <div>
                               <p className="text-[18px] font-semibold text-[#1f2638]">Consumos</p>
@@ -11044,7 +11044,7 @@ export default function AdminAgendaPlaygroundPage() {
 
                       {showSimplifiedHistorySection && (
                       <section
-                        className={`rounded-xl border border-[#e3e7f2] bg-[#f7f9fd] p-4 ${
+                        className={`rounded-xl border border-[#e3e7f2] bg-white p-4 ${
                           showSimplifiedDetailsSection ? 'mt-2' : 'mt-0'
                         }`}
                       >
@@ -11105,7 +11105,7 @@ export default function AdminAgendaPlaygroundPage() {
                       {showSimplifiedBillingSection && (
                       <>
                       {simplifiedIsEditingReservation && (
-                        <section className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-4">
+                        <section className="rounded-xl border border-[#dce2ee] bg-white p-4">
                           <div className="flex items-center justify-between">
                             <p className="text-[18px] font-semibold text-[#27314a]">Cobro</p>
                             <span
@@ -11165,7 +11165,7 @@ export default function AdminAgendaPlaygroundPage() {
                       )}
 
                       <section className="mt-4">
-                        <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-4">
+                        <div className="rounded-xl border border-[#dce2ee] bg-white p-4">
                           <div className="flex items-center justify-between gap-3">
                             <p className="text-[18px] font-semibold text-[#1f2638]">Participantes</p>
                             {simplifiedOwnerAdded && !simplifiedNewParticipantOpen && (
@@ -11791,21 +11791,21 @@ export default function AdminAgendaPlaygroundPage() {
                   <section className="mb-6 rounded-xl border border-[#dce2ee] bg-white px-4 py-3">
                     <p className="text-[14px] font-semibold text-[#1f2a44]">Resumen rápido</p>
                     <div className="mt-2 grid grid-cols-2 gap-2">
-                      <div className="rounded-lg bg-[#f7f9fd] px-2.5 py-2">
+                      <div className="rounded-lg bg-white px-2.5 py-2">
                         <p className="text-[11px] text-[#79829a]">Tipo</p>
                         <p className="text-[12px] font-semibold text-[#2a3245]">{selectedBookingKindLabel}</p>
                       </div>
-                      <div className="rounded-lg bg-[#f7f9fd] px-2.5 py-2">
+                      <div className="rounded-lg bg-white px-2.5 py-2">
                         <p className="text-[11px] text-[#79829a]">Fecha</p>
                         <p className="text-[12px] font-semibold text-[#2a3245]">{quickSummaryDateLabel}</p>
                       </div>
-                      <div className="rounded-lg bg-[#f7f9fd] px-2.5 py-2">
+                      <div className="rounded-lg bg-white px-2.5 py-2">
                         <p className="text-[11px] text-[#79829a]">Horario</p>
                         <p className="text-[12px] font-semibold text-[#2a3245]">
                           {slotToTime(selectedStartSlot)} - {slotToTime(selectedEndSlot)} ({selectionMinutes} min)
                         </p>
                       </div>
-                      <div className="rounded-lg bg-[#f7f9fd] px-2.5 py-2">
+                      <div className="rounded-lg bg-white px-2.5 py-2">
                         <p className="text-[11px] text-[#79829a]">
                           {isRecurringKind ? 'Canchas' : 'Cancha'}
                         </p>
@@ -11939,7 +11939,7 @@ export default function AdminAgendaPlaygroundPage() {
                         )}
                       </div>
                     ) : (
-                      <div className="mt-3 rounded-xl border border-[#dce2ee] bg-[#f8f9fd] p-4">
+                      <div className="mt-3 rounded-xl border border-[#dce2ee] bg-white p-4">
                         <div className="grid grid-cols-3 gap-2 text-[12px] text-[#6f7890]">
                           <div className="rounded-lg bg-white px-2 py-1.5">
                             <p>Total</p>
@@ -12678,19 +12678,19 @@ export default function AdminAgendaPlaygroundPage() {
               <div className="space-y-3 overflow-hidden px-4 py-3">
                 {!isPlaytomicPaymentModal && (
                   <div className="grid grid-cols-3 gap-2 text-[11px] text-[#6f7890]">
-                    <div className="rounded-lg border border-[#e2e7f1] bg-[#f8f9fd] px-2 py-1.5">
+                    <div className="rounded-lg border border-[#e2e7f1] bg-white px-2 py-1.5">
                       <p>Total</p>
                       <p className="text-[13px] font-semibold text-[#273149]">
                         {isFinancialDisplayPending ? '--' : `${simplifiedFinancialTotal.toFixed(2)} $`}
                       </p>
                     </div>
-                    <div className="rounded-lg border border-[#e2e7f1] bg-[#f8f9fd] px-2 py-1.5">
+                    <div className="rounded-lg border border-[#e2e7f1] bg-white px-2 py-1.5">
                       <p>Pagado</p>
                       <p className="text-[13px] font-semibold text-[#16733f]">
                         {isFinancialDisplayPending ? '--' : `${simplifiedPaidAmount.toFixed(2)} $`}
                       </p>
                     </div>
-                    <div className="rounded-lg border border-[#e2e7f1] bg-[#f8f9fd] px-2 py-1.5">
+                    <div className="rounded-lg border border-[#e2e7f1] bg-white px-2 py-1.5">
                       <p>Deuda</p>
                       <p className="text-[13px] font-semibold text-[#9a5a00]">
                         {isFinancialDisplayPending ? '--' : `${simplifiedRemainingAmount.toFixed(2)} $`}
@@ -12718,7 +12718,7 @@ export default function AdminAgendaPlaygroundPage() {
                       </div>
                     </div>
 
-                    <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-2.5">
+                    <div className="rounded-xl border border-[#dce2ee] bg-white px-3 py-2.5">
                       <p className="text-[12px] font-semibold text-[#44506b]">Conceptos a cobrar</p>
                       <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-3">
                         {[
@@ -12746,7 +12746,7 @@ export default function AdminAgendaPlaygroundPage() {
                     </div>
 
                     {simplifiedPaymentQuickPreset === 'CUSTOM_ITEMS' && (
-                      <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-2.5">
+                      <div className="rounded-xl border border-[#dce2ee] bg-white px-3 py-2.5">
                         <div className="flex items-center justify-between gap-2">
                           <p className="text-[12px] font-semibold text-[#44506b]">Selección manual</p>
                           <span className="text-[11px] font-semibold text-[#6f7890]">
@@ -12976,7 +12976,7 @@ export default function AdminAgendaPlaygroundPage() {
                       <div className="block">
                         <span className="text-[12px] font-medium text-[#79829a]">Imputar pago a</span>
                         {paymentMode === 'Único' ? (
-                          <div className="mt-1 h-11 rounded-xl border border-[#dce2ee] bg-[#f7f9fd] px-3 flex items-center text-[14px] font-medium text-[#4a546f]">
+                          <div className="mt-1 h-11 rounded-xl border border-[#dce2ee] bg-white px-3 flex items-center text-[14px] font-medium text-[#4a546f]">
                             {simplifiedResolvedCoveredParticipant?.name || simplifiedResolvedPayerParticipant?.name || 'Titular'}
                           </div>
                         ) : (
@@ -13013,7 +13013,7 @@ export default function AdminAgendaPlaygroundPage() {
                       </div>
                     </div>
 
-                    <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-2.5">
+                    <div className="rounded-xl border border-[#dce2ee] bg-white px-3 py-2.5">
                       <p className="text-[12px] font-semibold text-[#44506b]">Qué quiere pagar</p>
                       <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
                         {[
@@ -13051,7 +13051,7 @@ export default function AdminAgendaPlaygroundPage() {
                     </div>
 
                     {simplifiedPaymentQuickPreset === 'CUSTOM_ITEMS' && (
-                      <div className="rounded-xl border border-[#dce2ee] bg-[#f8f9fd] px-3 py-2.5">
+                      <div className="rounded-xl border border-[#dce2ee] bg-white px-3 py-2.5">
                         <p className="text-[12px] font-semibold text-[#44506b]">Conceptos a pagar</p>
                         <p className="mt-2 text-[11px] text-[#6f7890]">
                           Total seleccionado: {computeCustomSelectedAmount(
