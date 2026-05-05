@@ -5,10 +5,14 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ShieldCheck,
+  MapPin,
+  Calendar,
+  Users,
   X,
 } from 'lucide-react';
 import { logout } from '../../services/AuthService';
-import { normalizeSessionUser, setActiveClubId } from '../../utils/session';
+import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser, setActiveClubId } from '../../utils/session';
 import { PLAYGROUND_SIDEBAR_ITEMS } from './playgroundNavigation';
 
 type AdminPlaygroundShellProps = {
@@ -81,6 +85,8 @@ export default function AdminPlaygroundShell({
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
 
   const normalizedUser = useMemo(() => normalizeSessionUser(user || null), [user]);
+  const isAdmin = useMemo(() => hasAdminAccess(normalizedUser), [normalizedUser]);
+  const adminClubSlug = useMemo(() => getActiveClubSlug(normalizedUser), [normalizedUser]);
   const clubOptions = useMemo(
     () =>
       Array.isArray(normalizedUser?.memberships)
@@ -193,7 +199,7 @@ export default function AdminPlaygroundShell({
   return (
     <div className="h-screen w-full overflow-hidden bg-[#f5f6f8] text-[#1a1a1a]">
       <div className="flex h-full w-full flex-col">
-        <header className="flex h-16 items-center bg-white px-4 lg:px-6">
+        <header className="relative z-50 flex h-16 items-center overflow-visible bg-white px-4 lg:px-6">
           <div className="hidden w-[168px] items-center gap-2 overflow-hidden transition-[width] duration-200 ease-out lg:flex">
             <div className="grid h-8 w-8 place-items-center rounded-lg border border-[#d9dfeb] bg-[#f5f7ff] text-[11px] font-black text-[#2a2f5b]">
               TC
@@ -228,7 +234,10 @@ export default function AdminPlaygroundShell({
             <div ref={clubMenuRef} className="relative">
               <button
                 type="button"
-                onClick={() => setClubMenuOpen((previous) => !previous)}
+                onClick={() => {
+                  setProfileMenuOpen(false);
+                  setClubMenuOpen((previous) => !previous);
+                }}
                 onKeyDown={(event) => {
                   if (event.key === 'ArrowDown') {
                     event.preventDefault();
@@ -251,7 +260,7 @@ export default function AdminPlaygroundShell({
               </button>
 
               {clubMenuOpen && (
-                <div className="absolute right-0 z-40 mt-2 w-[240px] rounded-xl border border-[#dbe2ef] bg-white p-1 shadow-xl">
+                <div className="absolute right-0 z-50 mt-2 w-[240px] rounded-xl border border-[#dbe2ef] bg-white p-1 shadow-xl">
                   {clubOptions.length === 0 ? (
                     <div className="px-3 py-2 text-[13px] text-[#7a8398]">Sin clubes disponibles</div>
                   ) : (
@@ -281,7 +290,10 @@ export default function AdminPlaygroundShell({
             <div ref={profileMenuRef} className="relative">
               <button
                 type="button"
-                onClick={() => setProfileMenuOpen((previous) => !previous)}
+                onClick={() => {
+                  setClubMenuOpen(false);
+                  setProfileMenuOpen((previous) => !previous);
+                }}
                 aria-haspopup="menu"
                 aria-expanded={profileMenuOpen}
                 className={`grid h-9 w-9 place-items-center rounded-full border bg-white text-sm font-bold transition ${
@@ -297,13 +309,55 @@ export default function AdminPlaygroundShell({
               {profileMenuOpen && (
                 <div
                   role="menu"
-                  className="absolute right-0 z-40 mt-2 w-[220px] rounded-xl border border-[#dbe2ef] bg-white p-1 shadow-xl"
+                  className="absolute right-0 z-50 mt-2 w-[220px] rounded-xl border border-[#dbe2ef] bg-white p-1 shadow-xl"
                 >
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileMenuOpen(false);
+                        void router.push('/admin/agenda');
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-[#3a435b] transition hover:bg-[#f5f7fb]"
+                    >
+                      <ShieldCheck size={14} />
+                      Gestión
+                    </button>
+                  )}
+                  {isAdmin && adminClubSlug && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileMenuOpen(false);
+                        void router.push(`/club/${adminClubSlug}`);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-[#3a435b] transition hover:bg-[#f5f7fb]"
+                    >
+                      <MapPin size={14} />
+                      Mi club
+                    </button>
+                  )}
                   <button
                     type="button"
-                    className="block w-full cursor-default rounded-lg px-3 py-2 text-left text-[13px] text-[#8a93a7]"
+                    onClick={() => {
+                      setProfileMenuOpen(false);
+                      void router.push('/perfil');
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-[#3a435b] transition hover:bg-[#f5f7fb]"
                   >
-                    Mi perfil (próximamente)
+                    <Users size={14} />
+                    Mi perfil
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileMenuOpen(false);
+                      void router.push('/bookings');
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-[#3a435b] transition hover:bg-[#f5f7fb]"
+                  >
+                    <Calendar size={14} />
+                    Mis reservas
                   </button>
                   <button
                     type="button"
