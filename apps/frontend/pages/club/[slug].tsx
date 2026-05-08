@@ -53,7 +53,8 @@ const PAGE_CSS = `
   .cl-grid { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:24px; align-items:start; }
   /* Sidebar panels */
   .cl-panel { background:#0f0f0f; border:1px solid rgba(255,255,255,.07); border-radius:18px; padding:22px 24px; }
-  .cl-panel-h { font-size:11px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:#444; margin-bottom:16px; }
+  .cl-panel-h { font-size:11px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:#9ca3af; margin-bottom:16px; }
+  .cl-panel-description { font-size:13px; color:#c8c8c8; line-height:1.6; margin:0 0 12px; padding-bottom:12px; border-bottom:1px solid rgba(255,255,255,.08); }
   .cl-panel-row { display:flex; align-items:flex-start; gap:10px; font-size:13px; color:#c8c8c8; font-weight:500; line-height:1.5; padding:8px 0; border-bottom:1px solid rgba(255,255,255,.04); }
   .cl-panel-row:last-child { border-bottom:none; }
   .cl-panel-row a { color:#c8c8c8; text-decoration:none; transition:color .15s; }
@@ -103,9 +104,10 @@ const PAGE_CSS = `
   .tc-root.tc-theme-light .cl-icon-btn { background:#ffffff; border-color:rgba(15,23,42,.14); color:#334155; box-shadow:0 4px 12px rgba(15,23,42,.08); }
   .tc-root.tc-theme-light .cl-icon-btn:hover:not(:disabled) { background:#f8fafc; border-color:rgba(15,23,42,.22); }
   .tc-root.tc-theme-light .cl-panel { background:#ffffff; border-color:rgba(15,23,42,.12); box-shadow:0 10px 24px rgba(15,23,42,.08); }
-  .tc-root.tc-theme-light .cl-panel-h,
   .tc-root.tc-theme-light .cl-panel-icon,
   .tc-root.tc-theme-light .cl-review-modal-sub { color:#64748b; }
+  .tc-root.tc-theme-light .cl-panel-h { color:#64748b; }
+  .tc-root.tc-theme-light .cl-panel-description { color:#334155; border-bottom-color:rgba(15,23,42,.1); }
   .tc-root.tc-theme-light .cl-panel-row { color:#334155; border-bottom-color:rgba(15,23,42,.08); }
   .tc-root.tc-theme-light .cl-panel-row a { color:#1f2937; }
   .tc-root.tc-theme-light .cl-review-card { background:rgba(15,23,42,.03); border-color:rgba(15,23,42,.08); }
@@ -481,7 +483,7 @@ export default function ClubPage() {
             <div className="cl-panel">
               <div className="cl-panel-h">Información</div>
               {club.description && (
-                <p style={{ fontSize: 13, color: '#c8c8c8', lineHeight: 1.6, margin: '0 0 12px', paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+                <p className="cl-panel-description">
                   {club.description}
                 </p>
               )}

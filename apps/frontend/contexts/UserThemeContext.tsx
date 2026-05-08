@@ -13,10 +13,10 @@ const STORAGE_KEY = 'tucancha:user-theme';
 
 const UserThemeContext = createContext<UserThemeContextValue | null>(null);
 
-const sanitizeTheme = (value: unknown): UserTheme => (value === 'light' ? 'light' : 'dark');
+const sanitizeTheme = (value: unknown): UserTheme => (value === 'dark' ? 'dark' : 'light');
 
 export function UserThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<UserTheme>('dark');
+  const [theme, setThemeState] = useState<UserTheme>('light');
   const [themeReady, setThemeReady] = useState(false);
 
   useEffect(() => {
@@ -25,7 +25,7 @@ export function UserThemeProvider({ children }: { children: ReactNode }) {
       const storedTheme = sanitizeTheme(window.localStorage.getItem(STORAGE_KEY));
       setThemeState(storedTheme);
     } catch {
-      setThemeState('dark');
+      setThemeState('light');
     } finally {
       setThemeReady(true);
     }

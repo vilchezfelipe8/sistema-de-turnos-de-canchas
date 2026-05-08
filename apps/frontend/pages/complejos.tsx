@@ -109,7 +109,7 @@ const PAGE_CSS = `
   .vn-feat-card-rating { display:inline-flex; align-items:center; gap:4px; font-size:12px; font-weight:700; color:#22c55e; }
   .vn-feat-empty { padding:40px 20px; text-align:center; color:#444; font-size:13px; font-weight:600; }
   /* Map */
-  .vn-map-sec { border-top:1px solid rgba(255,255,255,.06); border-bottom:1px solid rgba(255,255,255,.06); }
+  .vn-map-sec { border-top:1px solid rgba(255,255,255,.06); }
   .vn-map-inner { max-width:1360px; margin:0 auto; padding:64px 40px; }
   .vn-map-head { margin-bottom:24px; }
   .vn-map-title { font-size:22px; font-weight:800; color:#f2f2f2; letter-spacing:-.025em; margin:0 0 4px; }
@@ -215,6 +215,7 @@ const PAGE_CSS = `
   .tc-root.tc-theme-light .vn-adv input[type="number"] { background:#ffffff; border-color:rgba(15,23,42,.14); color:#0f172a; }
   .tc-root.tc-theme-light .vn-feat,
   .tc-root.tc-theme-light .vn-map-sec { border-color:rgba(15,23,42,.08); }
+  .tc-user-foot { margin-top:0; }
   .tc-root.tc-theme-light .vn-feat-tab { background:#ffffff; border-color:rgba(15,23,42,.1); color:#475569; }
   .tc-root.tc-theme-light .vn-feat-tab:hover { color:#0f172a; border-color:rgba(15,23,42,.16); }
   .tc-root.tc-theme-light .vn-feat-tab.vn-feat-tab-active { background:rgba(34,197,94,.12); border-color:rgba(34,197,94,.28); color:#15803d; }
