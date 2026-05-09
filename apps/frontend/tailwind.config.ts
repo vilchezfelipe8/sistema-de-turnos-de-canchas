@@ -31,6 +31,26 @@ module.exports = {
         'p-info': 'var(--info-fg)',
         'p-info-bg': 'var(--info-bg)',
 
+        // Amber scale (pending en agenda)
+        'amber-100': '#FEF3C7',
+        'amber-200': '#FDE68A',
+        'amber-300': '#FCD34D',
+        'amber-700': '#B45309',
+        'amber-800': '#92400E',
+        'amber-900': '#78350F',
+
+        // Blue scale (completed en agenda)
+        'blue-100': '#DBEAFE',
+        'blue-200': '#BFDBFE',
+        'blue-300': '#93C5FD',
+
+        // Red scale (blocked en agenda)
+        'red-100':  '#FEE2E2',
+        'red-200':  '#FECACA',
+        'red-300':  '#FCA5A5',
+        'red-800':  '#991B1B',
+        'red-900':  '#7F1D1D',
+
         // Punto raw lima scale
         'lima-50': '#F0FBDD',
         'lima-100': '#DFFDB0',

@@ -1,7 +1,4 @@
-import { Repeat } from 'lucide-react';
-
-type BookingState = 'pending' | 'confirmed' | 'completed' | 'blocked';
-type PaymentState = 'paid' | 'partial' | 'unpaid';
+import { Calendar, Repeat, Check } from 'lucide-react';
 
 type DraftRange = {
   start: number;
@@ -13,7 +10,11 @@ type BlockContentVisibility = {
   showBadge: boolean;
   showTitle: boolean;
   showTimeRange: boolean;
+  inlineTimeWithBadges?: boolean;
 };
+
+type BookingState = 'pending' | 'confirmed' | 'completed' | 'blocked';
+type PaymentState = 'paid' | 'partial' | 'unpaid';
 
 type AgendaSelectionPreviewProps = {
   range: DraftRange;
@@ -24,14 +25,22 @@ type AgendaSelectionPreviewProps = {
   isEditingMovedBookingPreview: boolean;
   isConflict: boolean;
   title: string;
-  state: BookingState;
-  paymentState: PaymentState;
+  state?: BookingState;
+  paymentState?: PaymentState;
   isRecurring?: boolean;
-  bookingBadgeColor: (state: BookingState) => string;
-  bookingStatusLabel: (state: BookingState) => string;
-  bookingPaymentBadgeColor: (state: PaymentState) => string;
-  bookingPaymentLabel: (state: PaymentState) => string;
 };
+
+function paymentStatePillClass(state: PaymentState): string {
+  if (state === 'paid') return 'bg-lima-200/90 text-ink-900';
+  if (state === 'partial') return 'bg-amber-300/90 text-ink-900';
+  return 'bg-ink-300/90 text-ink-900';
+}
+
+function paymentStatePillLabel(state: PaymentState): string {
+  if (state === 'paid') return 'Pagado';
+  if (state === 'partial') return 'Parcial';
+  return 'Pendiente';
+}
 
 export default function AgendaSelectionPreview({
   range,
@@ -42,13 +51,9 @@ export default function AgendaSelectionPreview({
   isEditingMovedBookingPreview,
   isConflict,
   title,
-  state,
-  paymentState,
+  state = 'pending',
+  paymentState = 'unpaid',
   isRecurring = false,
-  bookingBadgeColor,
-  bookingStatusLabel,
-  bookingPaymentBadgeColor,
-  bookingPaymentLabel,
 }: AgendaSelectionPreviewProps) {
   const top = range.start * slotHeight + 2;
   const height = (range.end - range.start) * slotHeight - 4;
@@ -56,49 +61,60 @@ export default function AgendaSelectionPreview({
 
   return (
     <div
-      className={`pointer-events-none absolute left-1 right-1 rounded-lg text-[10px] shadow-sm overflow-hidden ${
+      className={`pointer-events-none absolute left-1 right-1 rounded-lg text-xs subpixel-antialiased overflow-hidden ${
         visibility.showDurationOnly ? 'px-2 flex items-center' : 'px-2 py-1.5 leading-tight'
       } ${
         isEditingMovedBookingPreview
           ? isConflict
-            ? 'border border-p-error bg-p-error-bg text-p-error'
-            : 'border border-p-accent bg-p-positive-bg text-p-text'
-          : 'border border-p-accent bg-p-positive-bg'
+            ? 'bg-red-200 text-ink-900 border-2 border-red-300'
+            : 'bg-lima-100 text-ink-900 opacity-80'
+          : 'bg-lima-100 text-ink-900'
       }`}
       style={{ top, height }}
     >
-      {isEditingMovedBookingPreview ? (
-        visibility.showDurationOnly ? (
-          <p className="w-full truncate text-[11px] font-semibold leading-none">{title}</p>
-        ) : (
-          <>
-            {visibility.showBadge && (
-              <div className="mb-0.5 flex flex-wrap gap-1">
-                {isRecurring && <Repeat size={12} className="text-current" />}
-                <div className={`inline-flex rounded-full px-1.5 py-0.5 text-[9px] font-bold ${bookingBadgeColor(state)}`}>
-                  {bookingStatusLabel(state)}
-                </div>
-                <div className={`inline-flex rounded-full px-1.5 py-0.5 text-[9px] font-bold ${bookingPaymentBadgeColor(paymentState)}`}>
-                  {bookingPaymentLabel(paymentState)}
-                </div>
-              </div>
-            )}
-            {visibility.showTitle && <p className="font-semibold truncate">{title}</p>}
-            {isConflict && visibility.showTimeRange && <p className="font-semibold text-p-error">Superposición</p>}
-            {visibility.showTimeRange && (
-              <p className="opacity-70">
-                {slotToTime(range.start)} - {slotToTime(range.end)}
-              </p>
-            )}
-          </>
-        )
+      {visibility.showDurationOnly ? (
+        <p className="w-full truncate text-xs font-bold leading-none">{title}</p>
       ) : (
         <>
-          <p className="text-[10px] font-bold leading-none text-p-text">{durationMinutes} min</p>
-          {!visibility.showDurationOnly && visibility.showTimeRange && (
-            <p className="text-[10px] text-p-text/80">
+          {visibility.showBadge && (
+            <div className="mb-1 flex items-center gap-1 flex-wrap">
+              <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-extrabold leading-none ${paymentStatePillClass(paymentState)}`}>
+                {paymentState === 'paid' && <Check size={14} className="shrink-0" />}
+                {paymentStatePillLabel(paymentState)}
+              </span>
+              {isRecurring ? (
+                <Repeat size={20} className="opacity-80 shrink-0" />
+              ) : (
+                <Calendar size={20} className="opacity-80 shrink-0" />
+              )}
+            </div>
+          )}
+          {visibility.showTitle && (
+            visibility.inlineTimeWithBadges && visibility.showTimeRange ? (
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-bold truncate min-w-0">
+                  {isConflict ? 'Superposicion' : title}
+                </p>
+                <span className="text-[12px] font-bold opacity-80 whitespace-nowrap">
+                  {slotToTime(range.start)} - {slotToTime(range.end)}
+                </span>
+              </div>
+            ) : (
+              <p className="text-xs font-bold truncate">
+                {isConflict ? 'Superposicion' : title}
+              </p>
+            )
+          )}
+          {isConflict && visibility.showTimeRange && (
+            <p className="text-xs font-bold text-red-700">Superposicion</p>
+          )}
+          {visibility.showTimeRange && !visibility.inlineTimeWithBadges && (
+            <p className="text-[11px] font-semibold opacity-75">
               {slotToTime(range.start)} - {slotToTime(range.end)}
             </p>
+          )}
+          {!visibility.showTitle && !visibility.showTimeRange && (
+            <p className="text-xs font-bold leading-none">{durationMinutes} min</p>
           )}
         </>
       )}

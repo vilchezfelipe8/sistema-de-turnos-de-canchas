@@ -51,6 +51,8 @@ type Booking = {
   state: 'pending' | 'confirmed' | 'completed' | 'blocked';
   paymentState: 'paid' | 'partial' | 'unpaid';
   isRecurring?: boolean;
+  participantsCount?: number;
+  hasPendingNotification?: boolean;
   fixedBookingId?: number;
   clientId?: string;
   userId?: number;
@@ -159,6 +161,8 @@ type DraggingBookingMeta = {
   state: Booking['state'];
   paymentState: Booking['paymentState'];
   isRecurring?: boolean;
+  participantsCount?: number;
+  hasPendingNotification?: boolean;
   courtId: string;
   startSlot: number;
 };
@@ -596,10 +600,11 @@ function toSelectionRange(selection: DraftSelection) {
 }
 
 function bookingColor(state: Booking['state']) {
-  if (state === 'completed') return 'bg-ink-900 text-ink-50';
-  if (state === 'confirmed') return 'bg-p-positive-bg text-p-accent border border-p-accent';
-  if (state === 'blocked') return 'bg-p-error text-ink-50 bg-[repeating-linear-gradient(135deg,var(--error-bg)_0_7px,var(--surface-1)_7px_14px)] bg-[length:14px_14px]';
-  return 'bg-p-positive-bg text-p-positive border border-p-positive';
+  // Pasteles sólidos 100% — texto siempre ink-900 para máxima legibilidad.
+  if (state === 'completed') return 'bg-blue-100 text-ink-900';
+  if (state === 'confirmed') return 'bg-lima-100 text-ink-900';
+  if (state === 'blocked')   return 'bg-red-100 text-ink-900';
+  return 'bg-amber-200 text-ink-900';  // pending
 }
 
 function bookingStatusLabel(state: Booking['state']) {
@@ -610,10 +615,10 @@ function bookingStatusLabel(state: Booking['state']) {
 }
 
 function bookingBadgeColor(state: Booking['state']) {
-  if (state === 'completed') return 'bg-p-positive-bg text-p-text';
-  if (state === 'confirmed') return 'bg-ink-900 text-ink-50';
-  if (state === 'blocked') return 'bg-p-error text-ink-50';
-  return 'bg-p-positive text-ink-50';
+  if (state === 'completed') return 'bg-blue-200 text-ink-900';
+  if (state === 'confirmed') return 'bg-lima-200 text-ink-900';
+  if (state === 'blocked')   return 'bg-red-200 text-ink-900';
+  return 'bg-amber-300 text-ink-900';
 }
 
 function bookingPaymentLabel(state: Booking['paymentState']) {
@@ -623,9 +628,9 @@ function bookingPaymentLabel(state: Booking['paymentState']) {
 }
 
 function bookingPaymentBadgeColor(state: Booking['paymentState']) {
-  if (state === 'paid') return 'bg-p-positive text-ink-50';
-  if (state === 'partial') return 'bg-p-warning text-ink-50';
-  return 'bg-p-surface-3 text-ink-50';
+  if (state === 'paid')    return 'bg-lima-200 text-ink-900';
+  if (state === 'partial') return 'bg-amber-300 text-ink-900';
+  return 'bg-ink-300 text-ink-900';
 }
 
 function distributePaidByParticipants(
@@ -674,6 +679,7 @@ function blockContentVisibility(height: number) {
     showBadge: height >= 52,
     showTitle: height >= 34,
     showTimeRange: height >= 42,
+    inlineTimeWithBadges: height >= 52 && height < 70,
   };
 }
 
@@ -1018,6 +1024,66 @@ function buildStartDateTimeFromSlot(baseDate: Date, slot: number) {
   );
 }
 
+function resolveBookingParticipantsCount(
+  bookingRaw: any,
+  hoverPaymentRaw: Record<string, unknown> | null,
+  fallbackDisplayTitle: string
+) {
+  const hoverParticipants = Array.isArray(hoverPaymentRaw?.participants)
+    ? hoverPaymentRaw.participants
+    : [];
+  const validHoverParticipants = hoverParticipants.filter((participant: any) =>
+    Boolean(String(participant?.ref || '').trim() || String(participant?.name || '').trim())
+  );
+  if (validHoverParticipants.length > 0) return validHoverParticipants.length;
+
+  const directParticipants = Array.isArray(bookingRaw?.participants) ? bookingRaw.participants : [];
+  const validDirectParticipants = directParticipants.filter((participant: any) =>
+    Boolean(String(participant?.id || participant?.ref || '').trim() || String(participant?.name || '').trim())
+  );
+  if (validDirectParticipants.length > 0) return validDirectParticipants.length;
+
+  const hasOwnerLikeName = [
+    bookingRaw?.client?.name,
+    bookingRaw?.clientName,
+    bookingRaw?.user?.name,
+    fallbackDisplayTitle,
+  ].some((value) => String(value || '').trim().length > 0);
+
+  return hasOwnerLikeName ? 1 : 0;
+}
+
+function resolveHasPendingNotification(
+  bookingRaw: any,
+  fallbackPending: boolean
+) {
+  const explicitBooleanCandidates = [
+    bookingRaw?.hasPendingNotification,
+    bookingRaw?.pendingNotification,
+    bookingRaw?.notificationPending,
+    bookingRaw?.hasPendingReminder,
+    bookingRaw?.notification?.pending,
+  ];
+  for (const candidate of explicitBooleanCandidates) {
+    if (typeof candidate === 'boolean') return candidate;
+  }
+
+  const statusCandidates = [
+    bookingRaw?.notificationStatus,
+    bookingRaw?.reminderStatus,
+    bookingRaw?.lastNotificationStatus,
+    bookingRaw?.whatsappNotificationStatus,
+  ];
+  const normalizedStatuses = statusCandidates
+    .map((value) => String(value || '').trim().toUpperCase())
+    .filter(Boolean);
+  if (normalizedStatuses.some((value) => value === 'PENDING' || value === 'QUEUED' || value === 'SCHEDULED')) {
+    return true;
+  }
+
+  return fallbackPending;
+}
+
 function parseScheduleSlotToBooking(slot: any): Booking | null {
   const booking = slot?.booking;
   if (!booking) return null;
@@ -1063,10 +1129,16 @@ function parseScheduleSlotToBooking(slot: any): Booking | null {
       : paidAmount > 0.009
         ? 'PARTIAL'
         : 'UNPAID';
+  const resolvedTitle = normalizeBookingDisplayTitle(
+    booking?.client?.name || booking?.clientName || booking?.activity?.name,
+    'Reserva'
+  );
   const hoverPaymentRaw =
     booking?.hoverPayment && typeof booking.hoverPayment === 'object'
       ? (booking.hoverPayment as Record<string, unknown>)
       : null;
+  const participantsCount = resolveBookingParticipantsCount(booking, hoverPaymentRaw, resolvedTitle);
+  const hasPendingNotification = resolveHasPendingNotification(booking, state === 'pending');
   const hoverPaymentStatusRaw = String(hoverPaymentRaw?.status || '').trim().toUpperCase();
   const hoverPaymentStatus: Booking['hoverPayment']['status'] =
     hoverPaymentStatusRaw === 'PAID' || hoverPaymentStatusRaw === 'PARTIAL' || hoverPaymentStatusRaw === 'UNPAID'
@@ -1084,13 +1156,12 @@ function parseScheduleSlotToBooking(slot: any): Booking | null {
     courtId: String(slot?.courtId || booking?.courtId || booking?.court?.id || ''),
     startSlot,
     endSlot,
-    title: normalizeBookingDisplayTitle(
-      booking?.client?.name || booking?.clientName || booking?.activity?.name,
-      'Reserva'
-    ),
+    title: resolvedTitle,
     state,
     paymentState,
     isRecurring: Number(booking?.fixedBookingId || 0) > 0,
+    participantsCount,
+    hasPendingNotification,
     fixedBookingId: Number.isFinite(Number(booking?.fixedBookingId)) ? Number(booking.fixedBookingId) : undefined,
     clientId: booking?.client?.id ? String(booking.client.id) : undefined,
     userId: Number(booking?.userId || booking?.user?.id || 0) || undefined,
@@ -2818,6 +2889,8 @@ export default function AdminAgendaPlaygroundPage() {
       state: booking.state,
       paymentState: booking.paymentState,
       isRecurring: booking.isRecurring,
+      participantsCount: booking.participantsCount,
+      hasPendingNotification: booking.hasPendingNotification,
       courtId: booking.courtId,
       startSlot: booking.startSlot,
     };
@@ -4096,6 +4169,51 @@ export default function AdminAgendaPlaygroundPage() {
     return resolveParticipantPrice(participant);
   }, [resolveParticipantPrice]);
 
+  const applyOptimisticBookingPaymentUpdate = useCallback((bookingId: number, paidDelta: number) => {
+    const safeDelta = Number(Number(paidDelta || 0).toFixed(2));
+    if (!Number.isFinite(safeDelta) || safeDelta <= 0.009) return;
+
+    setBookings((previous) =>
+      previous.map((booking) => {
+        if (String(booking.id) !== String(bookingId)) return booking;
+
+        const currentHover = booking.hoverPayment;
+        const currentPaid = Number(currentHover?.paidAmount || 0);
+        const currentRemaining = Number(currentHover?.remainingAmount || 0);
+        const currentTotal = Number(currentHover?.totalAmount || 0);
+        const fallbackTotal = Number(Math.max(currentTotal, currentPaid + currentRemaining).toFixed(2));
+        const nextPaid = Number((currentPaid + safeDelta).toFixed(2));
+        const nextRemaining = Number(Math.max(0, currentRemaining - safeDelta).toFixed(2));
+        const nextTotal = Number(Math.max(fallbackTotal, nextPaid + nextRemaining).toFixed(2));
+        const nextHoverStatus: Booking['hoverPayment']['status'] =
+          nextRemaining <= 0.009 ? 'PAID' : nextPaid > 0.009 ? 'PARTIAL' : 'UNPAID';
+        const nextPaymentState: Booking['paymentState'] =
+          nextHoverStatus === 'PAID' ? 'paid' : nextHoverStatus === 'PARTIAL' ? 'partial' : 'unpaid';
+
+        return {
+          ...booking,
+          paymentState: nextPaymentState,
+          hoverPayment: {
+            status: nextHoverStatus,
+            totalAmount: nextTotal,
+            paidAmount: nextPaid,
+            remainingAmount: nextRemaining,
+            chargeMode: String(currentHover?.chargeMode || 'INDIVIDUAL'),
+            chargeResponsibleRef: currentHover?.chargeResponsibleRef ?? null,
+            chargeResponsibleName: currentHover?.chargeResponsibleName ?? null,
+            latestPayerRef: currentHover?.latestPayerRef ?? null,
+            latestPayerName: currentHover?.latestPayerName ?? null,
+            latestCoveredRef: currentHover?.latestCoveredRef ?? null,
+            latestCoveredName: currentHover?.latestCoveredName ?? null,
+            participants: currentHover?.participants,
+            payerParticipants: currentHover?.payerParticipants,
+            coveredParticipants: currentHover?.coveredParticipants,
+          },
+        };
+      })
+    );
+  }, []);
+
   const registerPaymentNow = useCallback(async (input: {
     amount: number;
     method: Participant['paymentMethod'];
@@ -4229,6 +4347,7 @@ export default function AdminAgendaPlaygroundPage() {
           participantName: coveredParticipantName,
         }
       );
+      applyOptimisticBookingPaymentUpdate(persistedEditingBookingId, amount);
 
       if (Array.isArray(input.itemAllocations) && input.itemAllocations.length > 0) {
         const allocationByItemId = new Map<string, number>();
@@ -4408,6 +4527,7 @@ export default function AdminAgendaPlaygroundPage() {
     reloadSchedule,
     singleChargeParticipantId,
     showCalendarNotice,
+    applyOptimisticBookingPaymentUpdate,
   ]);
 
   const toggleParticipantPaid = useCallback((id: string) => {
@@ -8893,10 +9013,6 @@ export default function AdminAgendaPlaygroundPage() {
                                         state={editedState}
                                         paymentState={editedPaymentState}
                                         isRecurring={editingBooking?.isRecurring}
-                                        bookingBadgeColor={bookingBadgeColor}
-                                        bookingStatusLabel={bookingStatusLabel}
-                                        bookingPaymentBadgeColor={bookingPaymentBadgeColor}
-                                        bookingPaymentLabel={bookingPaymentLabel}
                                       />
                                     );
                                   })()}
@@ -8913,19 +9029,18 @@ export default function AdminAgendaPlaygroundPage() {
                                           state={draggingBookingMeta.state}
                                           paymentState={draggingBookingMeta.paymentState}
                                           isRecurring={draggingBookingMeta.isRecurring}
+                                          participantsCount={draggingBookingMeta.participantsCount}
+                                          sportLabel={court.sport}
+                                          hasPendingNotification={draggingBookingMeta.hasPendingNotification}
                                           startSlot={bookingDropPreview.startSlot}
                                           endSlot={bookingDropPreview.endSlot}
                                           slotMinutes={slotMinutes}
                                           visibility={visibility}
                                           slotToTime={slotToTime}
-                                          bookingBadgeColor={bookingBadgeColor}
-                                          bookingStatusLabel={bookingStatusLabel}
-                                          bookingPaymentBadgeColor={bookingPaymentBadgeColor}
-                                          bookingPaymentLabel={bookingPaymentLabel}
-                                          colorClass={isDropConflicted ? 'border border-p-error bg-p-error-bg text-p-error' : bookingColor(draggingBookingMeta.state)}
+                                          colorClass={isDropConflicted ? 'bg-red-200 text-ink-900 border-2 border-red-300' : 'bg-lima-100 text-ink-900'}
                                           isConflict={isDropConflicted}
                                           className="pointer-events-none z-20 overflow-hidden"
-                                          style={{ top, height, opacity: isDropConflicted ? 0.9 : 1 }}
+                                          style={{ top, height, opacity: isDropConflicted ? 1 : 0.75 }}
                                         />
                                       );
                                     })()
@@ -8944,16 +9059,17 @@ export default function AdminAgendaPlaygroundPage() {
                                         title={booking.title}
                                         state={booking.state}
                                         paymentState={booking.paymentState}
+                                        totalAmount={booking.hoverPayment?.totalAmount}
+                                        remainingAmount={booking.hoverPayment?.remainingAmount}
                                         isRecurring={booking.isRecurring}
+                                        participantsCount={booking.participantsCount}
+                                        sportLabel={court.sport}
+                                        hasPendingNotification={booking.hasPendingNotification}
                                         startSlot={booking.startSlot}
                                         endSlot={booking.endSlot}
                                         slotMinutes={slotMinutes}
                                         visibility={visibility}
                                         slotToTime={slotToTime}
-                                        bookingBadgeColor={bookingBadgeColor}
-                                        bookingStatusLabel={bookingStatusLabel}
-                                        bookingPaymentBadgeColor={bookingPaymentBadgeColor}
-                                        bookingPaymentLabel={bookingPaymentLabel}
                                         colorClass={bookingColor(booking.state)}
                                         onMouseDown={(event) => handleBookingMouseDown(event, booking)}
                                         onMouseEnter={(event) => {

@@ -3515,7 +3515,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             return '';
         };
 
-        const [accounts, clubsWithSettings, paymentAgg, bookingPayments, refundAgg, billingConfigs] = await Promise.all([
+        const [accounts, clubsWithSettings, paymentAgg, bookingPayments, refundAgg, billingConfigs, accountItemTotals] = await Promise.all([
             sourceIds.length > 0
                 ? prisma.account.findMany({
                     where: {
@@ -3606,8 +3606,28 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         assignmentsJson: true
                     }
                 })
+                : Promise.resolve([]),
+            // Suma de todos los ítems de cada cuenta (cancha + consumos + servicios)
+            sourceIds.length > 0
+                ? prisma.accountItem.groupBy({
+                    by: ['accountId'],
+                    where: {
+                        account: {
+                            sourceType: 'BOOKING',
+                            sourceId: { in: sourceIds },
+                            ...(clubId ? { clubId } : {})
+                        }
+                    },
+                    _sum: { total: true }
+                })
                 : Promise.resolve([])
         ]);
+
+        // Mapa accountId → suma real de ítems (cancha + consumos + servicios)
+        const itemTotalByAccountId = new Map<string, number>();
+        for (const row of accountItemTotals) {
+            itemTotalByAccountId.set(row.accountId, Number(row._sum.total || 0));
+        }
 
         const accountByBookingId = new Map<number, { id: string; clubId: number }>();
         for (const account of accounts) {
@@ -3743,7 +3763,10 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 ? Math.max(0, Number((paymentByAccountId.get(accountRef.id) || 0) - (refundByAccountId.get(accountRef.id) || 0)))
                 : 0;
             const roundedPaidAmount = Number(paidAmount.toFixed(2));
-            const roundedTotalAmount = Number(Number(booking.price || 0).toFixed(2));
+            // Usar suma real de ítems de la cuenta (cancha + consumos + servicios).
+            // Si aún no hay ítems creados (turno pendiente sin account), usar booking.price como fallback.
+            const itemsTotal = accountRef ? (itemTotalByAccountId.get(accountRef.id) ?? null) : null;
+            const roundedTotalAmount = Number((itemsTotal !== null ? itemsTotal : Number(booking.price || 0)).toFixed(2));
             const roundedRemainingAmount = Number(Math.max(0, roundedTotalAmount - roundedPaidAmount).toFixed(2));
             const hoverPaymentStatus: 'UNPAID' | 'PARTIAL' | 'PAID' =
                 roundedRemainingAmount <= 0.009

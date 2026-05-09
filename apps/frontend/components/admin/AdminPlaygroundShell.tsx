@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { logout } from '../../services/AuthService';
+import { useUserTheme } from '../../contexts/UserThemeContext';
 import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser, setActiveClubId } from '../../utils/session';
 import { PLAYGROUND_SIDEBAR_ITEMS } from './playgroundNavigation';
 import PuntoLogo from '../PuntoLogo';
@@ -76,6 +77,7 @@ export default function AdminPlaygroundShell({
   user,
 }: AdminPlaygroundShellProps) {
   const router = useRouter();
+  const { isLight } = useUserTheme();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [clubMenuOpen, setClubMenuOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -203,7 +205,7 @@ export default function AdminPlaygroundShell({
         <header className="relative z-50 flex h-16 items-center overflow-visible bg-p-surface border-b border-p-border px-4 lg:px-6">
           <div className="hidden w-[168px] items-center gap-2 overflow-hidden transition-[width] duration-200 ease-out lg:flex">
             <PuntoLogo
-              variant={isSidebarCollapsed ? 'isotipo' : 'horizontal'}
+              variant={isSidebarCollapsed ? (isLight ? 'isotipo' : 'isotipoDark') : (isLight ? 'horizontal' : 'horizontalDark')}
               className={`transition-[opacity,transform,max-width,filter] duration-200 ease-out ${
                 isSidebarCollapsed ? 'h-8 w-8' : 'h-9 w-auto'
               }`}
@@ -211,7 +213,7 @@ export default function AdminPlaygroundShell({
           </div>
 
           <div className="flex items-center gap-2 lg:hidden">
-            <PuntoLogo variant="horizontal" className="h-9 w-auto" />
+            <PuntoLogo variant={isLight ? 'horizontal' : 'horizontalDark'} className="h-9 w-auto" />
           </div>
 
           <div className="ml-auto flex items-center gap-2">
@@ -288,10 +290,14 @@ export default function AdminPlaygroundShell({
                 }}
                 aria-haspopup="menu"
                 aria-expanded={profileMenuOpen}
-                className={`grid h-9 w-9 place-items-center rounded-full border bg-p-surface text-sm font-bold transition ${
-                  profileMenuOpen
-                    ? 'border-p-border-strong text-p-text ring-2 ring-lima-300/25'
-                    : 'border-p-border text-p-text-secondary hover:border-p-border-strong'
+                className={`grid h-9 w-9 place-items-center rounded-full border text-sm font-bold transition ${
+                  isLight
+                    ? profileMenuOpen
+                      ? 'border-p-border-strong bg-p-surface text-p-text ring-2 ring-lima-300/25'
+                      : 'border-p-border bg-p-surface text-p-text-secondary hover:border-p-border-strong'
+                    : profileMenuOpen
+                      ? 'border-p-border-strong bg-p-brand text-p-brand-on ring-2 ring-lima-300/25'
+                      : 'border-p-border bg-p-brand text-p-brand-on hover:brightness-95'
                 }`}
                 title="Cuenta"
                 aria-label="Abrir menú de cuenta"
