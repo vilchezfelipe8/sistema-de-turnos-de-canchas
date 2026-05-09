@@ -128,7 +128,7 @@ export default function AgendaToolbar({
           <button
             type="button"
             onClick={onCreateBooking}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[var(--accent-fg)] px-3 text-sm font-semibold text-ink-50 hover:bg-ink-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lima-300/40"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[var(--accent-fg)] px-3 text-sm font-semibold text-ink-900 hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lima-300/40"
           >
             <Plus size={14} />
             Crear reserva
