@@ -1216,8 +1216,6 @@ function parseScheduleSlotToBooking(slot: any): Booking | null {
   };
 }
 
-
-
 function roundMoney(value: number) {
   return Number((Math.max(0, value) || 0).toFixed(2));
 }
@@ -2012,7 +2010,10 @@ export default function AdminAgendaPlaygroundPage() {
     x: number;
     y: number;
   } | null>(null);
-  const [calendarNotice, setCalendarNotice] = useState('');
+  const [calendarNotice, setCalendarNotice] = useState<{
+    message: string;
+    tone: 'info' | 'success' | 'warning' | 'error';
+  } | null>(null);
   const [participantLabelByRefCache, setParticipantLabelByRefCache] = useState<Record<string, string>>({});
   const [isQuickDatePickerOpen, setIsQuickDatePickerOpen] = useState(false);
   const participantSearchSeqRef = useRef(0);
@@ -2086,15 +2087,18 @@ export default function AdminAgendaPlaygroundPage() {
     [normalizedUser]
   );
 
-  const showCalendarNotice = useCallback((message: string) => {
+  const showCalendarNotice = useCallback((
+    message: string,
+    tone: 'info' | 'success' | 'warning' | 'error' = 'error'
+  ) => {
     const next = toUserSafeMessage(message, '');
     if (!next) return;
-    setCalendarNotice(next);
+    setCalendarNotice({ message: next, tone });
     if (calendarNoticeTimerRef.current) {
       window.clearTimeout(calendarNoticeTimerRef.current);
     }
     calendarNoticeTimerRef.current = window.setTimeout(() => {
-      setCalendarNotice('');
+      setCalendarNotice(null);
       calendarNoticeTimerRef.current = null;
     }, 3600);
   }, []);
@@ -4414,7 +4418,7 @@ export default function AdminAgendaPlaygroundPage() {
       }
 
       if (!input.silentSuccessNotice) {
-        showCalendarNotice(input.successMessage || `Pago registrado: ${amount.toFixed(2)} $.`);
+        showCalendarNotice(input.successMessage || `Pago registrado: ${amount.toFixed(2)} $.`, 'success');
       }
       if (paymentMode === 'Único' && effectiveParticipantId) {
         const currentResponsibleId = String(
@@ -4724,7 +4728,7 @@ export default function AdminAgendaPlaygroundPage() {
           setBookingTimelineLoading(false);
         }
       }
-      showCalendarNotice('Reserva confirmada. Ya podés registrar pagos.');
+      showCalendarNotice('Reserva confirmada. Ya podés registrar pagos.', 'success');
     } catch (error: any) {
       applyBookingError(error, 'No se pudo confirmar la reserva.');
     } finally {
@@ -6577,7 +6581,7 @@ export default function AdminAgendaPlaygroundPage() {
         appliedClampReason === 'conceptos'
             ? 'la deuda de los conceptos seleccionados'
             : 'la deuda pendiente';
-      showCalendarNotice(`El monto se ajustó automáticamente al máximo permitido por ${reasonLabel}.`);
+      showCalendarNotice(`El monto se ajustó automáticamente al máximo permitido por ${reasonLabel}.`, 'warning');
     }
     const openPlaytomicResult = (result: PlaytomicPaymentResultModal) => {
       setActivePaymentModal({ flow: 'playtomicPayment', step: 'result' });
@@ -6687,7 +6691,8 @@ export default function AdminAgendaPlaygroundPage() {
       showCalendarNotice(
         !isPlaytomicFlow && paymentAllocations.length > 1
           ? `Pago registrado: ${registeredAmount.toFixed(2)} $ imputado a ${paymentAllocations.length} participantes.`
-          : `Pago registrado: ${registeredAmount.toFixed(2)} $.`
+          : `Pago registrado: ${registeredAmount.toFixed(2)} $.`,
+        'success'
       );
     })();
   }, [
@@ -7076,7 +7081,7 @@ export default function AdminAgendaPlaygroundPage() {
       setConsumptionQuantityDraft('1');
       setConsumptionQuote(null);
       setConsumptionQuoteError('');
-      showCalendarNotice('Consumo agregado correctamente.');
+      showCalendarNotice('Consumo agregado correctamente.', 'success');
     } catch (error: any) {
       reportUiError({ area: 'AgendaPlayground', action: 'handleAddConsumption' }, error);
       setBookingConsumptionError(error?.message || 'No se pudo agregar el consumo.');
@@ -7106,7 +7111,7 @@ export default function AdminAgendaPlaygroundPage() {
         refreshBookingFinancial(persistedEditingBookingId),
         reloadSchedule(),
       ]);
-      showCalendarNotice('Consumo eliminado.');
+      showCalendarNotice('Consumo eliminado.', 'success');
     } catch (error: any) {
       reportUiError({ area: 'AgendaPlayground', action: 'handleRemoveConsumption' }, error);
       setBookingConsumptionError(error?.message || 'No se pudo eliminar el consumo.');
@@ -8902,6 +8907,14 @@ export default function AdminAgendaPlaygroundPage() {
     seriesDeleteHasPaidItems && seriesDeletePreviewSummary?.scope !== 'THIS_OCCURRENCE';
   const seriesDeleteUsesIndividualRefund =
     seriesDeleteHasPaidItems && seriesDeletePreviewSummary?.scope === 'THIS_OCCURRENCE';
+  const calendarNoticeToneClassName = calendarNotice
+    ? {
+        error: 'border-p-error bg-p-error-bg text-p-error',
+        success: 'border-emerald-300 bg-emerald-50 text-emerald-700',
+        warning: 'border-amber-300 bg-amber-50 text-amber-700',
+        info: 'border-sky-300 bg-sky-50 text-sky-700',
+      }[calendarNotice.tone]
+    : '';
 
   return (
     <>
@@ -8923,8 +8936,10 @@ export default function AdminAgendaPlaygroundPage() {
 
           <section ref={agendaSurfaceRef} className="relative flex-1 h-full min-w-0 rounded-tl-[12px] overflow-hidden bg-p-surface-2">
             {calendarNotice && (
-              <div className="pointer-events-none fixed right-5 top-[84px] z-[2147483600] max-w-[420px] rounded-xl border border-p-error bg-p-error-bg px-3 py-2 text-[12px] font-semibold text-p-error shadow-sm">
-                {calendarNotice}
+              <div
+                className={`pointer-events-none fixed right-5 top-[84px] z-[2147483600] max-w-[420px] rounded-xl border px-3 py-2 text-[12px] font-semibold shadow-sm ${calendarNoticeToneClassName}`}
+              >
+                {calendarNotice.message}
               </div>
             )}
             <div className="h-full min-w-0">
@@ -13667,3 +13682,5 @@ export default function AdminAgendaPlaygroundPage() {
     </>
   );
 }
+
+

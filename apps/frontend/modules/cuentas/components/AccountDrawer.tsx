@@ -122,6 +122,7 @@ const createDefaultItemForm = () => ({
 
 const sectionCardClass = 'rounded-2xl border border-p-border bg-p-surface-2 p-4';
 const sectionListClass = 'divide-y divide-p-border overflow-hidden rounded-xl border border-p-border bg-p-surface';
+const SUCCESS_ANIMATION_VARIANT: 'soft' | 'bold' = 'bold';
 
 // ─── AccountDrawer ────────────────────────────────────────────────────────────
 
@@ -1011,7 +1012,7 @@ export default function AccountDrawer({
                     <div
                       key={item.id}
                       className={`flex flex-col gap-2 px-4 py-3 ${
-                        itemIsPaid ? 'bg-p-positive-bg opacity-75' : 'hover:bg-p-surface-2'
+                        itemIsPaid ? 'bg-p-positive-bg' : 'hover:bg-p-surface-2'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-3">
@@ -1019,7 +1020,7 @@ export default function AccountDrawer({
                           <p className="truncate text-[13px] font-medium text-p-text">
                             {item.type === 'BOOKING' ? 'Cancha' : item.description}
                             {itemIsPaid && (
-                              <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-p-positive px-2 py-0.5 text-[10px] font-bold text-ink-50">
+                              <span className="ml-2 inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
                                 ✓ Pagado
                               </span>
                             )}
@@ -1258,24 +1259,40 @@ export default function AccountDrawer({
             className={[
               'flex flex-col items-center gap-3 rounded-2xl border p-6 text-center',
               isSuccess
-                ? 'bg-p-positive-bg text-p-positive'
+                ? `account-success-card ${
+                    SUCCESS_ANIMATION_VARIANT === 'bold' ? 'account-success-glow-bold' : 'account-success-glow-soft'
+                  }`
+                : '',
+              isSuccess
+                ? 'border-emerald-500/35 bg-p-surface text-p-text'
                 : 'bg-p-error-bg text-[var(--error-fg)]',
             ].join(' ')}
           >
             <div
               className={[
                 'grid h-12 w-12 place-items-center rounded-full',
-                isSuccess ? 'bg-p-positive' : 'bg-[var(--error-fg)]',
+                isSuccess
+                  ? `account-success-icon ${
+                      SUCCESS_ANIMATION_VARIANT === 'bold' ? 'account-success-icon-bold' : 'account-success-icon-soft'
+                    }`
+                  : '',
+                isSuccess ? 'bg-emerald-500/20' : 'bg-[var(--error-fg)]',
               ].join(' ')}
             >
               {isSuccess ? (
-                <Check size={24} className="text-ink-50" />
+                <Check size={24} className="text-emerald-300" />
               ) : (
                 <X size={24} className="text-ink-50" />
               )}
             </div>
-            <p className="text-[18px] font-bold">{payResult.title}</p>
-            <p className="text-[13px] opacity-80">{payResult.detail}</p>
+            <p className={`text-[18px] font-bold ${isSuccess ? 'text-p-text account-success-title' : ''}`}>
+              {payResult.title}
+            </p>
+            <p
+              className={`text-[13px] ${isSuccess ? 'text-p-text-muted account-success-detail' : 'opacity-80'}`}
+            >
+              {payResult.detail}
+            </p>
           </div>
 
           {isSuccess && (
@@ -1342,17 +1359,189 @@ export default function AccountDrawer({
   // ─────────────────────────────────────────────────────────────────────────────
 
   return (
-    <AdminDrawer
-      open={open}
-      onClose={handleClose}
-      title={drawerTitle}
-      subtitle={drawerSubtitle}
-      statusChip={statusChip}
-      statusChipClassName={statusChipClassName}
-      size="md"
-      footer={footer}
-    >
-      {body ?? <></>}
-    </AdminDrawer>
+    <>
+      <style jsx global>{`
+        @media (prefers-reduced-motion: no-preference) {
+          .account-success-card {
+            animation: accountSuccessCardIn 280ms cubic-bezier(0.22, 1, 0.36, 1);
+          }
+          .account-success-glow-soft,
+          .account-success-glow-bold {
+            position: relative;
+            overflow: hidden;
+          }
+          .account-success-glow-soft::before,
+          .account-success-glow-bold::before {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border-radius: inherit;
+            transform: translateX(-130%);
+            pointer-events: none;
+          }
+          .account-success-glow-soft::after,
+          .account-success-glow-bold::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            pointer-events: none;
+          }
+          .account-success-glow-soft::before {
+            background: linear-gradient(
+              110deg,
+              transparent 18%,
+              rgba(52, 211, 153, 0.12) 35%,
+              rgba(110, 231, 183, 0.2) 50%,
+              rgba(52, 211, 153, 0.12) 65%,
+              transparent 82%
+            );
+            animation: accountSuccessSweep 1200ms ease-out 130ms 1 both;
+          }
+          .account-success-glow-soft::after {
+            box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.22);
+            animation: accountSuccessHalo 900ms ease-out 120ms 1 both;
+          }
+          .account-success-glow-bold::before {
+            background: linear-gradient(
+              110deg,
+              transparent 12%,
+              rgba(16, 185, 129, 0.16) 30%,
+              rgba(110, 231, 183, 0.3) 50%,
+              rgba(16, 185, 129, 0.16) 70%,
+              transparent 88%
+            );
+            animation: accountSuccessSweepBold 1350ms cubic-bezier(0.22, 1, 0.36, 1) 100ms 1 both;
+          }
+          .account-success-glow-bold::after {
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.28);
+            animation: accountSuccessHaloBold 1050ms ease-out 90ms 1 both;
+          }
+          .account-success-icon {
+            animation: accountSuccessIconPop 360ms cubic-bezier(0.22, 1, 0.36, 1) 90ms both;
+          }
+          .account-success-icon-soft {
+            animation-duration: 360ms;
+          }
+          .account-success-icon-bold {
+            animation: accountSuccessIconPopBold 460ms cubic-bezier(0.22, 1, 0.36, 1) 70ms both;
+          }
+          .account-success-title {
+            animation: accountSuccessContentIn 320ms cubic-bezier(0.22, 1, 0.36, 1) 140ms both;
+          }
+          .account-success-detail {
+            animation: accountSuccessContentIn 320ms cubic-bezier(0.22, 1, 0.36, 1) 200ms both;
+          }
+          @keyframes accountSuccessCardIn {
+            from {
+              opacity: 0;
+              transform: translateY(8px) scale(0.985);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0) scale(1);
+            }
+          }
+          @keyframes accountSuccessSweep {
+            0% {
+              transform: translateX(-130%);
+              opacity: 0;
+            }
+            20% {
+              opacity: 1;
+            }
+            100% {
+              transform: translateX(130%);
+              opacity: 0;
+            }
+          }
+          @keyframes accountSuccessSweepBold {
+            0% {
+              transform: translateX(-140%);
+              opacity: 0;
+            }
+            18% {
+              opacity: 1;
+            }
+            100% {
+              transform: translateX(140%);
+              opacity: 0;
+            }
+          }
+          @keyframes accountSuccessHalo {
+            0% {
+              box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.22);
+            }
+            60% {
+              box-shadow: 0 0 0 9px rgba(52, 211, 153, 0);
+            }
+            100% {
+              box-shadow: 0 0 0 0 rgba(52, 211, 153, 0);
+            }
+          }
+          @keyframes accountSuccessHaloBold {
+            0% {
+              box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.3);
+            }
+            55% {
+              box-shadow: 0 0 0 13px rgba(16, 185, 129, 0);
+            }
+            100% {
+              box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+            }
+          }
+          @keyframes accountSuccessIconPop {
+            0% {
+              transform: scale(0.85);
+              opacity: 0;
+            }
+            55% {
+              transform: scale(1.06);
+              opacity: 1;
+            }
+            100% {
+              transform: scale(1);
+              opacity: 1;
+            }
+          }
+          @keyframes accountSuccessIconPopBold {
+            0% {
+              transform: scale(0.74);
+              opacity: 0;
+            }
+            52% {
+              transform: scale(1.12);
+              opacity: 1;
+            }
+            100% {
+              transform: scale(1);
+              opacity: 1;
+            }
+          }
+          @keyframes accountSuccessContentIn {
+            from {
+              opacity: 0;
+              transform: translateY(4px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+        }
+      `}</style>
+      <AdminDrawer
+        open={open}
+        onClose={handleClose}
+        title={drawerTitle}
+        subtitle={drawerSubtitle}
+        statusChip={statusChip}
+        statusChipClassName={statusChipClassName}
+        size="md"
+        footer={footer}
+      >
+        {body ?? <></>}
+      </AdminDrawer>
+    </>
   );
 }
