@@ -1,8 +1,5 @@
 export type UserClientLinkReason =
   | 'ALREADY_LINKED'
-  | 'EXACT_DNI_MATCH'
-  | 'EXACT_PHONE_MATCH'
-  | 'EXACT_EMAIL_MATCH'
   | 'CREATED_CLIENT'
   | 'MANUAL_ADMIN_LINK';
 

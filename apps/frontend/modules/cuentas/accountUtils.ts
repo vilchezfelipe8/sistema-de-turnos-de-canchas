@@ -45,11 +45,13 @@ export type AccountDetailPayment = {
 export type AccountDetail = {
   id: string;
   status: AccountStatus;
+  sourceType: string;
   total: number;
   paid: number;
   remaining: number;
   items: AccountDetailItem[];
   payments: AccountDetailPayment[];
+  client: { id: string; name: string; phone: string | null; email: string | null } | null;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -136,40 +138,55 @@ export const itemTypeLabel = (type: string): string => {
 
 // ─── Normalizador de detalle crudo de API ────────────────────────────────────
 
-export const normalizeAccountDetail = (raw: any, fallbackId: string): AccountDetail => ({
-  id: String(raw?.id || fallbackId),
-  status: String(raw?.status || '').toUpperCase() === 'CLOSED' ? 'CLOSED' : 'OPEN',
-  total: Number(raw?.total || 0),
-  paid: Number(raw?.paid || 0),
-  remaining: Number(raw?.remaining || 0),
-  items: (Array.isArray(raw?.items) ? raw.items : []).map((item: any) => ({
-    id: String(item?.id || ''),
-    type: String(item?.type || 'OTHER'),
-    description: String(item?.description || 'Concepto'),
-    quantity: Number(item?.quantity || 1),
-    total: Number(item?.total || 0),
-    createdAt: String(item?.createdAt || ''),
-  })),
-  payments: (Array.isArray(raw?.payments) ? raw.payments : []).map((payment: any) => ({
-    id: String(payment?.id || ''),
-    amount: Number(payment?.amount || 0),
-    method: String(payment?.method || ''),
-    channel: String(payment?.channel || ''),
-    allocations: (Array.isArray(payment?.allocations) ? payment.allocations : [])
-      .map((a: any) => ({
-        id: a?.id ? String(a.id) : undefined,
-        accountItemId: String(a?.accountItemId || ''),
-        amount: Number(a?.amount || 0),
-      }))
-      .filter(
-        (a: AccountDetailPaymentAllocation) =>
-          a.accountItemId && a.amount > ACCOUNT_PAYMENT_EPSILON
-      ),
-    createdAt: String(payment?.createdAt || ''),
-  })),
-  createdAt: String(raw?.createdAt || ''),
-  updatedAt: String(raw?.updatedAt || ''),
-});
+export const normalizeAccountDetail = (raw: any, fallbackId: string): AccountDetail => {
+  // The API returns { account: {...}, items: [...], payments: [...], total, paid, remaining }
+  // sourceType and client are nested in raw.account (or directly on raw if pre-flattened)
+  const accountMeta = raw?.account ?? raw;
+  const rawClient = accountMeta?.client ?? null;
+  return {
+    id: String(raw?.id || accountMeta?.id || fallbackId),
+    status: String(raw?.status || '').toUpperCase() === 'CLOSED' ? 'CLOSED' : 'OPEN',
+    sourceType: String(accountMeta?.sourceType || ''),
+    total: Number(raw?.total || 0),
+    paid: Number(raw?.paid || 0),
+    remaining: Number(raw?.remaining || 0),
+    client: rawClient
+      ? {
+          id: String(rawClient.id || ''),
+          name: String(rawClient.name || ''),
+          phone: rawClient.phone ? String(rawClient.phone) : null,
+          email: rawClient.email ? String(rawClient.email) : null,
+        }
+      : null,
+    items: (Array.isArray(raw?.items) ? raw.items : []).map((item: any) => ({
+      id: String(item?.id || ''),
+      type: String(item?.type || 'OTHER'),
+      description: String(item?.description || 'Concepto'),
+      quantity: Number(item?.quantity || 1),
+      total: Number(item?.total || 0),
+      createdAt: String(item?.createdAt || ''),
+    })),
+    payments: (Array.isArray(raw?.payments) ? raw.payments : []).map((payment: any) => ({
+      id: String(payment?.id || ''),
+      amount: Number(payment?.amount || 0),
+      method: String(payment?.method || ''),
+      channel: String(payment?.channel || ''),
+      allocations: (Array.isArray(payment?.allocations) ? payment.allocations : [])
+        .map((a: any) => ({
+          id: a?.id ? String(a.id) : undefined,
+          accountItemId: String(a?.accountItemId || ''),
+          amount: Number(a?.amount || 0),
+        }))
+        .filter(
+          (a: AccountDetailPaymentAllocation) =>
+            a.accountItemId && a.amount > ACCOUNT_PAYMENT_EPSILON
+        ),
+      createdAt: String(payment?.createdAt || ''),
+    })),
+    createdAt: String(raw?.createdAt || ''),
+    updatedAt: String(raw?.updatedAt || ''),
+  };
+};
 
 // ─── Helpers de cómputo de cobro ─────────────────────────────────────────────
 

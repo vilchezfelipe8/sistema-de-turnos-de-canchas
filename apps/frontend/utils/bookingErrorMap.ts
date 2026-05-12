@@ -21,7 +21,7 @@ export const BOOKING_ERROR_BEHAVIOR_BY_CODE: Record<string, BookingErrorBehavior
     blocking: true,
     channel: 'inline',
     disableSave: true,
-    fallbackMessage: 'Ese horario acaba de ser reservado.'
+    fallbackMessage: 'No se pudo confirmar la disponibilidad del horario. Reintentá.'
   },
   BOOKING_IN_PAST: {
     field: 'time',

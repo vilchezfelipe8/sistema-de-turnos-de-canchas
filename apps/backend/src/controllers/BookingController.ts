@@ -21,6 +21,8 @@ const isIntegrityInconsistencyError = (error: unknown) =>
     getErrorMessage(error, '').includes('Inconsistencia de integridad');
 
 type OptionalAuthState = 'guest' | 'authenticated' | 'invalid_token';
+const TENANT_ADMIN_ROLES = new Set(['OWNER', 'ADMIN']);
+const TENANT_OPERATOR_ROLES = new Set(['OWNER', 'ADMIN', 'STAFF']);
 
 const resolveOptionalAuthState = (req: Request): OptionalAuthState => {
     const raw = String((req as any).authState || 'guest').trim();
@@ -38,12 +40,23 @@ const createBookingApiError = (error: unknown): ApiError => {
         .toLowerCase();
 
     if (rawCode === 'CLIENT_POSSIBLE_DUPLICATE' || message === 'CLIENT_POSSIBLE_DUPLICATE') {
+        const details = (known?.details && typeof known.details === 'object') ? known.details : {};
+        const candidateClientIds = Array.isArray((details as any)?.candidateClientIds)
+            ? (details as any).candidateClientIds
+            : [];
+        const candidates = Array.isArray((details as any)?.candidates)
+            ? (details as any).candidates
+            : [];
         return new ApiError({
             statusCode: 409,
             code: 'CLIENT_POSSIBLE_DUPLICATE',
             field: 'owner',
             blocking: true,
-            message: 'Se detectaron datos que podrian corresponder a mas de un cliente. Revisa y selecciona el cliente correcto.'
+            message: 'Se detectaron datos que podrian corresponder a mas de un cliente. Revisa y selecciona el cliente correcto.',
+            meta: {
+                candidateClientIds,
+                candidates
+            }
         });
     }
 
@@ -65,7 +78,7 @@ const createBookingApiError = (error: unknown): ApiError => {
             code: 'SLOT_ALREADY_BOOKED',
             field: 'time',
             blocking: true,
-            message: 'El horario acaba de ser reservado por otro jugador.'
+            message: 'No se pudo confirmar la disponibilidad del horario. Reintentá.'
         });
     }
 
@@ -216,6 +229,34 @@ export class BookingController {
 
     constructor(private bookingService: BookingService) {}
 
+    private async resolveMembershipRoleForCourt(req: Request, courtId: number): Promise<string> {
+        const explicitMembershipRole = String((req as any).membershipRole || '').trim();
+        if (explicitMembershipRole) return explicitMembershipRole;
+
+        const actorUserId = Number((req as any)?.user?.userId || 0);
+        if (!Number.isInteger(actorUserId) || actorUserId <= 0) return '';
+        if (!Number.isInteger(courtId) || courtId <= 0) return '';
+
+        const court = await prisma.court.findUnique({
+            where: { id: courtId },
+            select: { clubId: true }
+        });
+        const clubId = Number(court?.clubId || 0);
+        if (!Number.isInteger(clubId) || clubId <= 0) return '';
+
+        const membership = await prisma.membership.findUnique({
+            where: {
+                userId_clubId: {
+                    userId: actorUserId,
+                    clubId
+                }
+            },
+            select: { role: true }
+        });
+
+        return String(membership?.role || '').trim();
+    }
+
     private async registerDuplicateIncidentFromBookingError(req: Request, sourceType: 'BOOKING' | 'FIXED_BOOKING', error: any) {
         try {
             const details = (error && typeof error === 'object') ? (error.details || {}) : {};
@@ -262,6 +303,34 @@ export class BookingController {
         }
     }
 
+    private async resolveCourtBookingContext(courtId: number): Promise<{ exists: boolean; country: string | null; timeZone: string }> {
+        const court = await prisma.court.findUnique({
+            where: { id: Number(courtId) },
+            select: {
+                id: true,
+                club: {
+                    select: {
+                        country: true,
+                        settings: {
+                            select: {
+                                timeZone: true
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        const country = String(court?.club?.country || '').trim() || null;
+        const timeZone = String(court?.club?.settings?.timeZone || '').trim();
+
+        return {
+            exists: Boolean(court),
+            country,
+            timeZone
+        };
+    }
+
     createBooking = async (req: Request, res: Response) => {
         try {
             const user = (req as any).user;
@@ -303,7 +372,9 @@ export class BookingController {
                         },
                         z.string().email().optional()
                     ),
-                    dni: optionalTrimmedString()
+                    dni: optionalTrimmedString(),
+                    /** Caso C: el admin confirmó crear un cliente nuevo pese a candidatos existentes */
+                    duplicateResolution: z.enum(['CREATE_NEW']).optional()
                 }).optional(),
                 applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional())
             });
@@ -334,27 +405,37 @@ export class BookingController {
                     phoneCountryCode: client.phoneCountryCode ? sanitizeString(client.phoneCountryCode, 8) : undefined,
                     phoneNumberLocal: client.phoneNumberLocal ? sanitizeString(client.phoneNumberLocal, 30) : undefined,
                     email: client.email ? sanitizeString(client.email, 254) : undefined,
-                    dni: client.dni ? sanitizeString(client.dni, 20) : undefined
+                    dni: client.dni ? sanitizeString(client.dni, 20) : undefined,
+                    duplicateResolution: client.duplicateResolution ?? undefined
                 }
                 : undefined;
+
+            const courtContext = await this.resolveCourtBookingContext(Number(courtId));
+            if (!courtContext.exists) {
+                return sendApiError(res, {
+                    statusCode: 404,
+                    code: 'COURT_NOT_FOUND',
+                    field: 'court',
+                    blocking: true,
+                    message: 'Cancha no encontrada.'
+                });
+            }
+            const clubTimeZone = String(courtContext.timeZone || '').trim();
+            if (!clubTimeZone) {
+                return sendApiError(res, {
+                    statusCode: 400,
+                    code: 'CLUB_CONFIG_INVALID',
+                    field: 'general',
+                    blocking: true,
+                    message: 'Configuración de club inválida: timeZone es obligatorio.'
+                });
+            }
 
             // Resolve startDate: prefer date+slotTime (local) if provided, otherwise use startDateTime ISO
             let startDate: Date;
             if (dateStr && slotTime) {
-                // Need club timezone: fetch court->club to get timeZone
                 try {
-                    const court = await prisma.court.findUnique({ where: { id: Number(courtId) }, include: { club: { include: { settings: true } } } });
-                    const tz = String(court?.club?.settings?.timeZone || '').trim();
-                    if (!tz) {
-                        return sendApiError(res, {
-                            statusCode: 400,
-                            code: 'CLUB_CONFIG_INVALID',
-                            field: 'general',
-                            blocking: true,
-                            message: 'Configuración de club inválida: timeZone es obligatorio.'
-                        });
-                    }
-                    startDate = TimeHelper.localSlotToUtc(dateStr, slotTime, tz);
+                    startDate = TimeHelper.localSlotToUtc(dateStr, slotTime, clubTimeZone);
                 } catch (e) {
                     return sendApiError(res, {
                         statusCode: 400,
@@ -384,9 +465,9 @@ export class BookingController {
                     message: 'Debe enviar startDateTime o (date y slotTime).'
                 });
             }
-            const userRole = user?.role;
-            const membershipRole = String((req as any).membershipRole || '');
-            const isAdmin = userRole === 'ADMIN' || membershipRole === 'OWNER' || membershipRole === 'ADMIN';
+            const membershipRole = await this.resolveMembershipRoleForCourt(req, Number(courtId));
+            const isTenantOperator = TENANT_OPERATOR_ROLES.has(membershipRole);
+            const canApplyDiscountOverride = TENANT_ADMIN_ROLES.has(membershipRole);
             const tokenUserId = userIdFromToken ? Number(userIdFromToken) : null;
             const now = new Date();
             if (startDate.getTime() < now.getTime()) {
@@ -399,30 +480,27 @@ export class BookingController {
                 });
             }
 
-            const courtCountry = await prisma.court.findUnique({
-                where: { id: Number(courtId) },
-                select: { club: { select: { country: true } } }
-            });
             const normalizedDraftPhone = normalizeIdentityPhone(
                 {
                     phone: sanitizedClient?.phone,
                     countryCode: sanitizedClient?.phoneCountryCode,
                     phoneNumberLocal: sanitizedClient?.phoneNumberLocal
                 },
-                { defaultCountryIso2: String(courtCountry?.club?.country || '').trim() || null }
+                { defaultCountryIso2: String(courtContext.country || '').trim() || null }
             );
 
-            const adminClientDraft = isAdmin
+            const adminClientDraft = isTenantOperator
                 ? {
                     name: sanitizedClient?.name || '',
                     phone: normalizedDraftPhone || undefined,
                     email: sanitizedClient?.email,
-                    dni: sanitizedClient?.dni
+                    dni: sanitizedClient?.dni,
+                    duplicateResolution: sanitizedClient?.duplicateResolution ?? undefined
                 }
                 : undefined;
 
             const hasAdminClientInput = Boolean(clientId || adminClientDraft?.name);
-            const useAdminClientMode = Boolean(isAdmin && hasAdminClientInput);
+            const useAdminClientMode = Boolean(isTenantOperator && hasAdminClientInput);
             const effectiveUserId = useAdminClientMode ? null : tokenUserId;
 
             if (!effectiveUserId && !useAdminClientMode) {
@@ -441,24 +519,12 @@ export class BookingController {
                 durationMinutes,
                 useAdminClientMode,
                 {
-                    applyDiscount: useAdminClientMode ? applyDiscount : false,
+                    applyDiscount: useAdminClientMode && canApplyDiscountOverride ? applyDiscount : false,
                     actorUserId: Number(user?.userId || 0) || null,
                     clientId: clientId || null,
                     clientDraft: useAdminClientMode && adminClientDraft?.name ? adminClientDraft : null
                 }
             );
-
-            const courtWithClub = await prisma.court.findUnique({ where: { id: Number(courtId) }, include: { club: { include: { settings: true } } } });
-            const clubTimeZone = String(courtWithClub?.club?.settings?.timeZone || '').trim();
-            if (!clubTimeZone) {
-                return sendApiError(res, {
-                    statusCode: 400,
-                    code: 'CLUB_CONFIG_INVALID',
-                    field: 'general',
-                    blocking: true,
-                    message: 'Configuración de club inválida: timeZone es obligatorio.'
-                });
-            }
 
             // Retornamos la respuesta al cliente
             const localForRefresh = TimeHelper.utcToLocal(startDate, clubTimeZone);
@@ -468,7 +534,6 @@ export class BookingController {
             res.status(201).json(payload);
 
         } catch (error: any) {
-            console.error(error);
             if (error?.code === 'CLIENT_POSSIBLE_DUPLICATE' || error?.message === 'CLIENT_POSSIBLE_DUPLICATE') {
                 await this.registerDuplicateIncidentFromBookingError(req, 'BOOKING', error);
             }
@@ -601,12 +666,12 @@ export class BookingController {
             }
 
             const tokenUserId = Number((req as any).user?.userId || 0);
-            const userRole = (req as any)?.user?.role;
-            const membershipRole = String((req as any).membershipRole || '');
-            const isAdmin = userRole === 'ADMIN' || membershipRole === 'OWNER' || membershipRole === 'ADMIN';
+            const membershipRole = await this.resolveMembershipRoleForCourt(req, Number(courtId));
+            const isTenantOperator = TENANT_OPERATOR_ROLES.has(membershipRole);
+            const canApplyDiscountOverride = TENANT_ADMIN_ROLES.has(membershipRole);
             const quote = await this.bookingService.quoteBookingPrice({
                 userId: tokenUserId > 0 ? tokenUserId : null,
-                allowAdminBenefits: isAdmin,
+                allowAdminBenefits: isTenantOperator,
                 clientId: clientId || null,
                 courtId: Number(courtId),
                 activityId: Number(activityId),
@@ -615,7 +680,7 @@ export class BookingController {
                 clientEmail,
                 clientPhone: normalizedClientPhone || undefined,
                 clientDni,
-                applyDiscount: isAdmin ? applyDiscount : false
+                applyDiscount: canApplyDiscountOverride ? applyDiscount : false
             });
 
             return res.json({
@@ -774,15 +839,16 @@ export class BookingController {
             } catch (error: any) {
                 return res.status(400).json({ error: error?.message || 'Contexto de club inválido' });
             }
-            let clubContext: { clubId: number } | null = null;
+            let clubContext: { clubId: number; role: string } | null = null;
             try {
                 clubContext = await getUserClubContext(Number(user.userId), preferredClubId);
             } catch {
                 clubContext = null;
             }
+            const requestRole = String(clubContext?.role || (req as any).membershipRole || user.role || 'MEMBER');
             const requestUser = {
                 userId: user.userId,
-                role: (req as any).membershipRole ?? user.role ?? 'MEMBER',
+                role: requestRole,
                 clubId: clubContext?.clubId ?? null
             };
             const history = await this.bookingService.getUserHistory(userId, requestUser, page, take);
@@ -1053,6 +1119,32 @@ export class BookingController {
     }
 
     upsertBookingBillingConfig = async (req: Request, res: Response) => {
+        // Commit 4 — P1 note: participants are intentionally isolated from booking
+        // identity. upsertBookingBillingConfig never writes to Booking.clientId.
+        // The only path that changes the titular is PATCH /:id/client (Commit 3).
+        // A future hardening pass should verify that chargeResponsibleRef cannot
+        // silently redirect payments away from the account owner without an explicit
+        // admin action. Tracking as P1 until billing aggregation is audited end-to-end.
+
+        // Commit 4 — participantRef prefix whitelist.
+        // Only well-known prefixes are accepted; unknown formats are rejected at
+        // the boundary so they can never reach normalization logic downstream.
+        const PARTICIPANT_REF_PREFIXES = [
+            'booking-client:',
+            'booking-user:',
+            'guest:',
+            'client:',
+            'user:'
+        ] as const;
+        const isValidParticipantRef = (ref: string): boolean => {
+            const lower = ref.toLowerCase();
+            return PARTICIPANT_REF_PREFIXES.some((prefix) => {
+                if (!lower.startsWith(prefix)) return false;
+                const suffix = ref.slice(prefix.length).trim();
+                return suffix.length > 0;
+            });
+        };
+
         try {
             const paramsSchema = z.object({
                 id: z.preprocess((v) => Number(v), z.number().int().positive())
@@ -1061,12 +1153,18 @@ export class BookingController {
                 chargeMode: z.enum(['INDIVIDUAL', 'SHARED']),
                 chargeResponsibleRef: z.preprocess(
                     (v) => (typeof v === 'string' && v.trim().length === 0 ? undefined : v),
-                    z.string().trim().optional()
+                    z.string().trim().refine(
+                        (v) => isValidParticipantRef(v),
+                        { message: 'chargeResponsibleRef tiene un prefijo no reconocido.' }
+                    ).optional()
                 ),
                 assignments: z.array(
                     z.object({
                         id: z.string().trim().min(1),
-                        participantRef: z.string().trim().min(1),
+                        participantRef: z.string().trim().min(1).refine(
+                            (v) => isValidParticipantRef(v),
+                            { message: 'participantRef tiene un prefijo no reconocido.' }
+                        ),
                         isChargeable: z.boolean(),
                         assignedAmount: z.preprocess((v) => Number(v), z.number().min(0)),
                         participantLinkState: z.enum(['ACTIVE', 'ARCHIVED_REFERENCE']).optional()
@@ -1174,12 +1272,12 @@ export class BookingController {
             }
             const { userId, courtId, activityId, startDateTime, durationMinutes, clientId, client, allowOverlappingSeries, everyDays, repetitions, previewConflictsOnly } = parsed.data;
             const user = (req as any).user;
-            const membershipRole = String((req as any).membershipRole || '');
-            const isAdmin = user?.role === 'ADMIN' || membershipRole === 'OWNER' || membershipRole === 'ADMIN';
+            const membershipRole = String((req as any).membershipRole || '').trim();
+            const isTenantOperator = TENANT_OPERATOR_ROLES.has(membershipRole);
             const clubId = (req as any).clubId;
 
-            if (!isAdmin) {
-                return sendAuthError(res, 403, 'AUTH_FORBIDDEN', 'Solo un administrador puede crear turnos fijos.');
+            if (!isTenantOperator) {
+                return sendAuthError(res, 403, 'AUTH_FORBIDDEN', 'No tienes permisos para crear turnos fijos.');
             }
 
             const sanitizedClient = client
@@ -1713,4 +1811,48 @@ export class BookingController {
         res.status(500).json({ error: "Error al calcular estadísticas" });
     }
 }
+
+    // Commit 3 — PATCH /admin/bookings/:id/client
+    // Cambia el titular (clientId) de una reserva de forma explícita.
+    // Solo OWNER/ADMIN. Bloqueado si existen pagos o devoluciones.
+    changeBookingClient = async (req: Request, res: Response) => {
+        try {
+            const bookingId = Number(req.params.id);
+            if (!Number.isInteger(bookingId) || bookingId <= 0) {
+                return res.status(400).json({ error: 'bookingId inválido' });
+            }
+
+            const clubId = Number((req as any).clubId);
+            if (!Number.isInteger(clubId) || clubId <= 0) {
+                return res.status(400).json({ error: 'Club inválido' });
+            }
+
+            const actorUserId = Number((req as any).user?.userId);
+            if (!Number.isInteger(actorUserId) || actorUserId <= 0) {
+                return res.status(401).json({ error: 'No autenticado' });
+            }
+
+            const newClientId = String(req.body?.newClientId ?? '').trim();
+            if (!newClientId) {
+                return res.status(400).json({ error: 'newClientId es obligatorio' });
+            }
+
+            const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() || null : null;
+
+            const updated = await this.bookingService.changeBookingClient({
+                bookingId,
+                newClientId,
+                actorUserId,
+                clubId,
+                reason
+            });
+
+            return res.json({
+                message: 'Titular actualizado correctamente',
+                booking: updated
+            });
+        } catch (error: any) {
+            return res.status(400).json({ error: error.message || 'No se pudo cambiar el titular' });
+        }
+    }
 }

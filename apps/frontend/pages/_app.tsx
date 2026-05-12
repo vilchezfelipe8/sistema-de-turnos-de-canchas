@@ -175,6 +175,11 @@ export default function MyApp({ Component, pageProps }: AppProps) {
     const handleLogout = (event: Event) => {
       const custom = event as CustomEvent<AuthLogoutEventDetail>;
       const redirectTo = String(custom?.detail?.redirectTo || '').trim();
+      const reason = String(custom?.detail?.reason || 'manual').trim();
+      const message =
+        reason === 'manual'
+          ? 'Sesión cerrada correctamente.'
+          : 'Tu sesión expiró. Iniciá sesión nuevamente.';
       const now = Date.now();
       // Evita toasts duplicados cuando varias requests disparan logout casi al mismo tiempo.
       if (now - lastLogoutNoticeAtRef.current > LOGOUT_NOTICE_COOLDOWN_MS) {
@@ -182,11 +187,11 @@ export default function MyApp({ Component, pageProps }: AppProps) {
           // Solo persistimos cuando hay navegacion para mostrarlo en destino.
           sessionStorage.setItem(
             PENDING_APP_NOTICE_STORAGE_KEY,
-            JSON.stringify({ message: 'Sesión cerrada correctamente.', tone: 'success', ts: now })
+            JSON.stringify({ message, tone: reason === 'manual' ? 'success' : 'warning', ts: now })
           );
         } else {
           // Sin navegacion, mostrar una vez y no persistir para evitar duplicados.
-          showNotice('Sesión cerrada correctamente.', 'success');
+          showNotice(message, reason === 'manual' ? 'success' : 'warning');
         }
         lastLogoutNoticeAtRef.current = now;
       }

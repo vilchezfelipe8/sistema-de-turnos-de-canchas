@@ -336,6 +336,7 @@ export class AccountService {
     const account = await prismaRead.account.findFirst({
       where: { id: accountId, clubId },
       include: {
+        client: { select: { id: true, name: true, phone: true, email: true } },
         items: {
           orderBy: { createdAt: 'asc' },
           include: {
@@ -348,7 +349,7 @@ export class AccountService {
         },
         payments: { orderBy: { createdAt: 'asc' }, include: { allocations: true } }
       }
-    });
+    } as any);
 
     if (!account) throw new Error('Cuenta no encontrada');
 
@@ -356,10 +357,11 @@ export class AccountService {
     const paid = await this.calculateNetPaidAmount(account.id);
     const remaining = Number((total - paid).toFixed(2));
 
+    const accountAny = account as any;
     return {
-      account,
-      items: account.items,
-      payments: account.payments,
+      account: accountAny,
+      items: accountAny.items ?? [],
+      payments: accountAny.payments ?? [],
       total,
       paid,
       remaining
@@ -602,6 +604,60 @@ export class AccountService {
 
       await this.projectionService.refreshAccountSummary(accountId, tx);
       return item;
+    });
+  }
+
+  // ─── P2-B: Anular venta de mostrador ─────────────────────────────────────
+  // Solo para cuentas BAR/POS. Restaura stock de todos los ítems PRODUCT.
+  // Condición: sin pagos activos (paidAmount neto == 0 o todos los pagos devueltos).
+  async voidPosAccount(clubId: number, accountId: string) {
+    return prisma.$transaction(async (tx) => {
+      const account = await tx.account.findFirst({
+        where: { id: accountId, clubId },
+        include: {
+          items: {
+            where: { type: 'PRODUCT' },
+            select: { id: true, productId: true, quantity: true }
+          },
+          payments: { select: { id: true, amount: true } }
+        }
+      } as any);
+
+      if (!account) throw new Error('Cuenta no encontrada');
+      if ((account as any).sourceType !== 'BAR' && (account as any).sourceType !== 'POS') {
+        throw new Error('Solo se pueden anular cuentas de venta de mostrador (BAR/POS)');
+      }
+      if ((account as any).status !== 'OPEN') {
+        throw new Error('La cuenta ya fue cerrada o anulada');
+      }
+
+      // Validar: sin pagos activos netos
+      const netPaid = await this.calculateNetPaidAmountTx(tx, accountId);
+      if (netPaid > EPSILON) {
+        throw new Error('No se puede anular: la cuenta tiene pagos registrados. Realizá una devolución primero.');
+      }
+
+      // Restaurar stock para cada ítem PRODUCT
+      for (const item of (account as any).items) {
+        if (!item.productId) continue;
+        await tx.product.updateMany({
+          where: { id: item.productId, clubId },
+          data: { stock: { increment: Number(item.quantity || 0) } }
+        });
+      }
+
+      // Cerrar la cuenta marcándola como VOID (usamos CLOSED con closedAt)
+      const voided = await tx.account.update({
+        where: { id: accountId },
+        data: {
+          status: 'CLOSED',
+          closedAt: new Date(),
+          sourceId: `VOID-${(account as any).sourceId}`
+        }
+      });
+
+      await this.projectionService.refreshAccountSummary(accountId, tx);
+      return voided;
     });
   }
 }

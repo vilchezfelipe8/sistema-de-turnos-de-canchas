@@ -13,7 +13,14 @@ export const RECENT_LOGOUT_TS_STORAGE_KEY = 'auth:logout:ts';
 const LOGOUT_REDIRECT_TTL_MS = 12000;
 export interface AuthLogoutEventDetail {
   redirectTo: string | null;
+  reason: AuthLogoutReason;
 }
+
+export type AuthLogoutReason =
+  | 'manual'
+  | 'session_expired'
+  | 'session_invalid'
+  | 'session_revoked';
 
 type PendingLogoutRedirect = {
   target: string;
@@ -108,6 +115,27 @@ const postSessionEndpoint = async (path: string) => {
   }
 };
 
+const fetchSessionMe = async () => {
+  const headers: Record<string, string> = {};
+  const activeClubId = getActiveClubId();
+  if (activeClubId) headers['x-active-club-id'] = String(activeClubId);
+
+  const sessionResponse = await fetch(`${apiBase()}/auth/session/me`, {
+    method: 'GET',
+    headers,
+    credentials: 'include'
+  });
+  if (sessionResponse.status !== 404) {
+    return sessionResponse;
+  }
+
+  return fetch(`${apiBase()}/auth/me`, {
+    method: 'GET',
+    headers,
+    credentials: 'include'
+  });
+};
+
 export const clearPendingLogoutRedirect = () => {
   if (typeof window === 'undefined') return;
   sessionStorage.removeItem(LOGOUT_REDIRECT_STORAGE_KEY);
@@ -149,12 +177,8 @@ export const login = async (email: string, password: string) => {
 
   const data = await response.json();
 
-  if (data.token) {
-    localStorage.setItem('token', data.token);
-  } else {
-    // Compatibilidad futura cookie-first: no dejar token legacy colgado.
-    localStorage.removeItem('token');
-  }
+  // Cookie-first: no persistimos bearer en localStorage.
+  localStorage.removeItem('token');
 
   if (data.user) {
     persistSessionUser(data.user);
@@ -167,27 +191,6 @@ export const login = async (email: string, password: string) => {
   }
 
   return data;
-};
-
-const hydrateSessionFromToken = async (token: string) => {
-  const response = await fetch(`${apiBase()}/auth/me`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${token}`
-    }
-  });
-
-  if (!response.ok) {
-    throw new Error('No se pudo validar la sesión.');
-  }
-
-  const user = await response.json();
-  persistSessionUser(user);
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new Event(AUTH_LOGIN_EVENT));
-    emitAuthSync('login');
-  }
-  return user;
 };
 
 export const requestMagicLink = async (email: string) => {
@@ -218,14 +221,9 @@ export const verifyMagicLink = async (token: string) => {
     throw new Error(data?.error || data?.message || 'Enlace inválido o expirado');
   }
 
-  if (data?.token) {
-    localStorage.setItem('token', data.token);
-    clearPendingLogoutRedirect();
-    await hydrateSessionFromToken(data.token);
-    return data;
-  }
+  // Cookie-first: limpiamos token legacy siempre.
+  localStorage.removeItem('token');
 
-  // Soporta flujo cookie/session sin token en body.
   if (data?.user) {
     persistSessionUser(data.user);
     clearPendingLogoutRedirect();
@@ -234,6 +232,18 @@ export const verifyMagicLink = async (token: string) => {
       emitAuthSync('login');
     }
     return data;
+  }
+
+  const meResponse = await fetchSessionMe();
+  if (meResponse.ok) {
+    const sessionUser = await meResponse.json();
+    persistSessionUser(sessionUser);
+    clearPendingLogoutRedirect();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event(AUTH_LOGIN_EVENT));
+      emitAuthSync('login');
+    }
+    return { ...data, user: sessionUser };
   }
 
   throw new Error('No se pudo iniciar sesión con el enlace.');
@@ -277,7 +287,7 @@ export const register = async (
   return data;
 };
 
-export const logout = (options?: { redirectTo?: string | null }) => {
+export const logout = (options?: { redirectTo?: string | null; reason?: AuthLogoutReason }) => {
   if (typeof window === 'undefined') return;
   try {
     sessionStorage.setItem(RECENT_LOGOUT_TS_STORAGE_KEY, String(Date.now()));
@@ -315,7 +325,10 @@ export const logout = (options?: { redirectTo?: string | null }) => {
   localStorage.removeItem('user');
   localStorage.removeItem('activeClubId');
 
-  const detail: AuthLogoutEventDetail = { redirectTo: logoutRedirectTarget || null };
+  const detail: AuthLogoutEventDetail = {
+    redirectTo: logoutRedirectTarget || null,
+    reason: options?.reason || 'manual'
+  };
   window.dispatchEvent(new CustomEvent<AuthLogoutEventDetail>(AUTH_LOGOUT_EVENT, { detail }));
   emitAuthSync('logout');
 
@@ -341,14 +354,6 @@ export const logout = (options?: { redirectTo?: string | null }) => {
     clearPendingLogoutRedirect();
     logoutUnlockTimeout = null;
   }, LOGOUT_IDEMPOTENCY_WINDOW_MS);
-};
-
-export const getToken = () => {
-    // Esta función la usaremos en las reservas
-    if (typeof window !== 'undefined') {
-        return localStorage.getItem('token');
-    }
-    return null;
 };
 
 export const getActiveClubId = () => getEffectiveActiveClubId();

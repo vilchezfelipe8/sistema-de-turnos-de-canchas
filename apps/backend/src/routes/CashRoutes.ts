@@ -5,7 +5,7 @@ import { CashRepository } from '../repositories/CashRepository';
 
 // Middlewares
 import { authMiddleware } from '../middleware/AuthMiddleware';
-import { requireRole } from '../middleware/RoleMiddleware';
+import { requireTenantRole } from '../middleware/RoleMiddleware';
 import { setAdminClubFromUser } from '../middleware/ClubMiddleware';
 
 const router = Router();
@@ -21,7 +21,7 @@ router.get(
     '/summary',
     authMiddleware,
     setAdminClubFromUser,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     cashController.getSummary
 );
 
@@ -31,7 +31,7 @@ router.post(
     '/', 
     authMiddleware, 
     setAdminClubFromUser, 
-    requireRole('ADMIN'), // O requireRole(['ADMIN', 'STAFF']) si soportas array
+    requireTenantRole(['ADMIN', 'STAFF']),
     cashController.createMovement
 );
 
@@ -40,8 +40,17 @@ router.get(
     '/products',
     authMiddleware,
     setAdminClubFromUser,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     cashController.getProducts
+);
+
+// GET: Ítems POS unificados — productos + servicios (P2-C)
+router.get(
+    '/pos-items',
+    authMiddleware,
+    setAdminClubFromUser,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    cashController.getPosItems
 );
 
 // POST: Venta directa de producto (sin reserva)
@@ -49,16 +58,34 @@ router.post(
     '/product-sale',
     authMiddleware,
     setAdminClubFromUser,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     cashController.createProductSale
+);
+
+// POST: Venta mostrador — crea cuenta + items + stock, sin cobrar (Fase 1.6B)
+router.post(
+    '/product-sale/account',
+    authMiddleware,
+    setAdminClubFromUser,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    cashController.createProductSaleAccount
 );
 
 router.post(
     '/product-sale/quote',
     authMiddleware,
     setAdminClubFromUser,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     cashController.quoteProductSale
+);
+
+// GET: Reporte POS (P2-D)
+router.get(
+    '/pos-report',
+    authMiddleware,
+    setAdminClubFromUser,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    cashController.getPosReport
 );
 
 export default router;

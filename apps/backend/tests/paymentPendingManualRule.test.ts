@@ -19,14 +19,7 @@ function buildPaymentServiceHarness() {
     refreshCashShiftSummary: async () => null,
     refreshDailyCashSummary: async () => null
   };
-  return service as PaymentService & {
-    accountService: {
-      reconcilePaidAmountTx: (...args: any[]) => Promise<{ netPaid: number }>;
-    };
-    bookingDomainService: {
-      reevaluateBookingConfirmationTx: (...args: any[]) => Promise<any>;
-    };
-  };
+  return service as any;
 }
 
 test('PaymentService.create rejects PENDING booking payment in MANUAL mode', async () => {
@@ -130,7 +123,17 @@ test('PaymentService.create allows PENDING booking payment in DEPOSIT_REQUIRED m
       })
     },
     paymentAllocation: {
-      createMany: async () => ({ count: 0 })
+      groupBy: async () => [],
+      createMany: async () => ({ count: 1 })
+    },
+    accountItem: {
+      findMany: async () => ([
+        {
+          id: 'item-acc-2-1',
+          total: 6000,
+          createdAt: new Date('2026-03-23T11:00:00.000Z')
+        }
+      ])
     },
     $queryRaw: async () => [{ id: 'acc-2', clubId: 11 }],
     account: {

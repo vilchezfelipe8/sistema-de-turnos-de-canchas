@@ -94,7 +94,10 @@ export const mapAccountDto = (account: any) => ({
   totalAmount: toNumber(account.totalAmount),
   paidAmount: toNumber(account.paidAmount),
   createdAt: account.createdAt,
-  closedAt: account.closedAt ?? null
+  closedAt: account.closedAt ?? null,
+  client: account.client
+    ? { id: account.client.id, name: account.client.name, phone: account.client.phone ?? null, email: account.client.email ?? null }
+    : null
 });
 
 export const mapLedgerEntryDto = (entry: any) => ({

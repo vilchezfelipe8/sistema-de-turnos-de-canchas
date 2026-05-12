@@ -13,10 +13,10 @@
 // ──────────────────────────────────────────────────────────────────────────────
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, X, AlertTriangle, Plus, Minus, CreditCard } from 'lucide-react';
+import { ArrowLeft, Check, X, AlertTriangle, Plus, Minus, CreditCard, Trash2, User } from 'lucide-react';
 import AdminDrawer, { AdminDrawerSection } from '../../../components/admin/ui/AdminDrawer';
 import PaymentRegistrationDrawer from '../../../components/admin/payments/PaymentRegistrationDrawer';
-import { getAccountById, addAccountItem, registerPayment, closeAccount } from '../../../services/AccountService';
+import { getAccountById, addAccountItem, registerPayment, closeAccount, voidPosAccount } from '../../../services/AccountService';
 import type { PaymentMethod, PaymentChannel } from '../../../services/AccountService';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
 import {
@@ -147,6 +147,7 @@ export default function AccountDrawer({
   // ── Action state ────────────────────────────────────────────────────────────
   const [actionError, setActionError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [voidConfirmOpen, setVoidConfirmOpen] = useState(false);
 
   // ── Add item form ───────────────────────────────────────────────────────────
   const [itemForm, setItemForm] = useState(createDefaultItemForm);
@@ -251,6 +252,7 @@ export default function AccountDrawer({
       setPayError('');
       setPayResult(null);
       setItemForm(createDefaultItemForm());
+      setVoidConfirmOpen(false);
       initialViewAppliedKeyRef.current = '';
       return;
     }
@@ -261,6 +263,7 @@ export default function AccountDrawer({
     setPayError('');
     setPayResult(null);
     setItemForm(createDefaultItemForm());
+    setVoidConfirmOpen(false);
     setView('overview');
     initialViewAppliedKeyRef.current = '';
     getAccountById(accountId)
@@ -687,6 +690,24 @@ export default function AccountDrawer({
     }
   }, [accountId, detail, reloadDetail, getSuccessMeta, onClose, onSuccess]);
 
+  // ── P2-B: Void POS account handler ─────────────────────────────────────────
+  const handleVoidPosAccount = useCallback(async () => {
+    if (!accountId) return;
+    try {
+      setSubmitting(true);
+      setActionError('');
+      setVoidConfirmOpen(false);
+      await voidPosAccount(accountId);
+      onSuccess?.('closed', getSuccessMeta());
+      onClose();
+    } catch (err) {
+      reportUiError({ area: 'AccountDrawer', action: 'voidPosAccount' }, err);
+      setActionError(extractErrorMessage(err, 'No se pudo anular la venta.'));
+    } finally {
+      setSubmitting(false);
+    }
+  }, [accountId, getSuccessMeta, onClose, onSuccess]);
+
   // ── Close handler — guarda contra cierre accidental durante submit ─────────
   const handleClose = useCallback(() => {
     if (submitting) return;
@@ -696,6 +717,8 @@ export default function AccountDrawer({
   // ── Derived ────────────────────────────────────────────────────────────────
   const isOpen = detail?.status === 'OPEN';
   const hasPendingDebt = Number(detail?.remaining || 0) > ACCOUNT_PAYMENT_EPSILON;
+  const isPosOrBar = detail?.sourceType === 'BAR' || detail?.sourceType === 'POS';
+  const hasNoPayments = Number(detail?.paid || 0) <= ACCOUNT_PAYMENT_EPSILON;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // RENDER
@@ -787,6 +810,18 @@ export default function AccountDrawer({
               className="flex h-10 items-center gap-1.5 rounded-xl border border-p-error bg-p-error-bg px-4 text-[13px] font-semibold text-[var(--error-fg)] transition hover:bg-[var(--error-fg)] hover:text-ink-50"
             >
               Cerrar cuenta
+            </button>
+          )}
+          {/* P2-B: Anular venta mostrador */}
+          {isOpen && isPosOrBar && hasNoPayments && (
+            <button
+              type="button"
+              onClick={() => { setActionError(''); setVoidConfirmOpen((v) => !v); }}
+              disabled={submitting}
+              className="flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:border-p-error hover:text-p-error disabled:opacity-40"
+            >
+              <Trash2 size={14} />
+              Anular venta
             </button>
           )}
         </div>
@@ -991,6 +1026,25 @@ export default function AccountDrawer({
             </div>
           </AdminDrawerSection>
 
+          {/* Cliente (P2-A) */}
+          {detail.client && (
+            <AdminDrawerSection className={sectionCardClass}>
+              <div className="flex items-center gap-3 px-4 py-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-p-accent/10">
+                  <User size={14} className="text-p-accent" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-medium text-p-text">{detail.client.name}</p>
+                  {(detail.client.phone || detail.client.email) && (
+                    <p className="truncate text-[11px] text-p-text-muted">
+                      {detail.client.phone || detail.client.email}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </AdminDrawerSection>
+          )}
+
           {/* Conceptos */}
           {detail.items.length > 0 && (
             <AdminDrawerSection title="Conceptos" className={sectionCardClass}>
@@ -1081,6 +1135,39 @@ export default function AccountDrawer({
             <p className="text-center text-[13px] text-p-text-muted">
               Esta cuenta no tiene conceptos ni pagos todavía.
             </p>
+          )}
+
+          {/* P2-B: Void confirm inline */}
+          {voidConfirmOpen && (
+            <div className="rounded-xl border border-p-error bg-p-error-bg px-4 py-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle size={15} className="mt-0.5 shrink-0 text-[var(--error-fg)]" />
+                <div className="flex-1">
+                  <p className="text-[13px] font-semibold text-[var(--error-fg)]">¿Anular esta venta?</p>
+                  <p className="mt-1 text-[12px] text-[var(--error-fg)] opacity-80">
+                    Se restaurará el stock de los productos. Esta acción no se puede deshacer.
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleVoidPosAccount()}
+                      disabled={submitting}
+                      className="flex h-8 items-center gap-1.5 rounded-lg bg-p-error px-3 text-[12px] font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+                    >
+                      {submitting ? 'Anulando...' : 'Sí, anular'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVoidConfirmOpen(false)}
+                      disabled={submitting}
+                      className="flex h-8 items-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-medium text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-50"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
         </>
       );

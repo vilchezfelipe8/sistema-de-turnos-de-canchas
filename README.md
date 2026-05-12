@@ -1,66 +1,57 @@
-# 🎾 Sistema de Gestión de Turnos de Pádel
+# Pique (ex TuCancha)
 
-Backend desarrollado para la gestión de reservas de canchas deportivas. Implementa una arquitectura en capas (**Controller, Service, Repository**), manejo de base de datos con **Prisma ORM**, y seguridad mediante autenticación **JWT**.
+Monorepo del sistema SaaS multi-club para gestión operativa de canchas, reservas, caja y clientes.
 
-## 🚀 Tecnologías Utilizadas
+## Estructura
 
-* **Lenguaje:** TypeScript / Node.js
-* **Framework:** Express
-* **Base de Datos:** SQLite (Entorno de desarrollo) / PostgreSQL
-* **ORM:** Prisma
-* **Seguridad:** Bcrypt (Hashing) + JWT (Tokens)
+- `apps/backend`: API Express + Prisma.
+- `apps/frontend`: aplicación Next.js.
+- `apps/wpp-service`: servicio de WhatsApp (Puppeteer/Chromium).
+- `docs/`: decisiones técnicas y documentos operativos.
 
----
+## Setup local rápido
 
-## 🛠️ Instalación y Configuración
+1. Copiar variables de entorno:
+   - Crear `.env` en base a `env.example`.
+2. Backend:
+   - `cd apps/backend`
+   - `npm install`
+   - `npm run prisma:generate`
+   - `npm run dev`
+3. Frontend:
+   - `cd apps/frontend`
+   - `npm install`
+   - `npm run dev`
 
-Sigue estos pasos para levantar el proyecto desde cero:
+Por defecto:
+- Backend: `http://localhost:3000`
+- Frontend: `http://localhost:3001`
 
-### 1. Instalar dependencias
-```bash
-npm install
+## Autenticación oficial (MVP)
 
-2. Configurar la Base de Datos
-Este comando crea las tablas y aplica las relaciones definidas en schema.prisma
-npx prisma migrate dev --name init
+El modo oficial es **sesión por cookies HttpOnly**.
 
-3. Cargar Datos de Prueba (Seed)
-Este comando limpia la base de datos y crea usuarios (Messi), canchas y actividades por defecto:
-npx prisma db seed
+- `AUTH_ENABLE_COOKIE_SESSIONS=true`
+- `AUTH_ALLOW_BEARER_LEGACY=false` (solo activar temporalmente para compatibilidad controlada)
+- Frontend usa `credentials: include` en requests autenticadas.
+- Refresh de sesión usa `POST /api/auth/session/refresh`.
+- Logout usa `POST /api/auth/session/logout` y limpia estado local.
 
-4. Iniciar el Servidor
-npm run dev
+## Variables obligatorias de producción (mínimas)
 
-🧪 Usuarios de Prueba
-El comando seed crea automáticamente este usuario para facilitar las pruebas:
-Usuario: Lionel Messi
-Email: lio@messi.com
-Password: 123456
-Rol: MEMBER
+- `NODE_ENV=production`
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `AUTH_REFRESH_PEPPER` (valor fuerte, no default de desarrollo)
+- `FRONTEND_URL`
+- `ALLOWED_ORIGINS` (lista explícita de orígenes permitidos)
+- `AUTH_COOKIE_SECURE=true`
+- `AUTH_TRUST_PROXY=true` (si hay proxy TLS delante)
 
-📡 Documentación de la API (Endpoints)
-🔐 Autenticación (Auth)
-Método	Endpoint	Descripción	Body (JSON)
-POST	/api/auth/register	Registrar nuevo usuario	{ firstName, lastName, email, password, phoneNumber }
-POST	/api/auth/login	Iniciar sesión y obtener Token	{ email, password }
+Detalles de cookies y dominio:
+- `docs/auth-cookie-domain-decision.md`
 
-🎾 Reservas (Bookings)
-Método	Endpoint	Descripción	Body / Query
-GET	/api/bookings/availability	(Público) Ver turnos libres	?date=2025-10-27&courtId=1
-POST	/api/bookings	(Privado) Crear una reserva	{ userId, courtId, activityId, date, startTime }
-POST	/api/bookings/cancel	(Privado) Cancelar una reserva	{ bookingId }
-GET	/api/bookings/history/:id	(Privado) Historial del usuario	-
-GET	/api/bookings/admin/schedule	(Privado) Grilla completa del día (Admin)	?date=2025-10-27
+## Nota
 
-🏟️ Canchas (Courts)
-POST	/api/courts	Crear nueva cancha	{ name, clubId, surface, isIndoor }
-PUT	/api/courts/:id	Poner en mantenimiento	{ isUnderMaintenance: true }
-
-
-🏛️ Arquitectura del Proyecto
-El código está organizado siguiendo el patrón de Inyección de Dependencias:
-/controllers: Manejan la petición HTTP (Request/Response) y validan datos.
-/services: Contienen la lógica de negocio pura (Reglas, validaciones de horarios).
-/repositories: Capa de acceso a datos, se comunica directamente con Prisma.
-/middlewares: Interceptores para seguridad (Validación de Token JWT).
-/entities: Definición de clases del dominio.
+Este README reemplaza documentación vieja basada en JWT bearer-only. Para despliegue operativo ver:
+- `README-DEPLOY.md`

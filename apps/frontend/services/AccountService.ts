@@ -214,6 +214,19 @@ export const closeAccount = async (accountId: string) => {
   return res.json();
 };
 
+// P2-B: Anular venta de mostrador — restaura stock
+export const voidPosAccount = async (accountId: string) => {
+  const res = await fetchWithAuth(`${apiBase()}/accounts/${accountId}/void-pos`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.error || 'No se pudo anular la cuenta');
+  }
+  return res.json();
+};
+
 export const createCashMovement = async (body: { type: 'PAYMENT_IN' | 'REFUND' | 'WITHDRAW' | 'DEPOSIT'; amount: number; method: 'CASH' | 'TRANSFER' | 'CARD'; concept: string }) => {
   const res = await fetchWithAuth(`${apiBase()}/cash`, {
     method: 'POST',

@@ -1,3 +1,21 @@
+import type { GetServerSideProps } from 'next';
+
+/**
+ * Fase 1.3 — Módulo disabled.
+ * Redirige a Agenda hasta que el módulo esté listo para producción.
+ * El ítem "Reservas" sigue visible en el sidebar pero no es clickeable.
+ * Para rehabilitar: eliminar getServerSideProps y restaurar el componente de abajo.
+ */
+export const getServerSideProps: GetServerSideProps = async () => ({
+  redirect: { destination: '/admin/agenda', permanent: false },
+});
+
+export default function AdminBookingsPage() {
+  return null;
+}
+
+/*
+// Componente original — restaurar cuando el módulo esté listo:
 import AdminRouteShell from '../../components/admin/AdminRouteShell';
 import AdminComingSoonPanel from '../../components/admin/AdminComingSoonPanel';
 
@@ -13,3 +31,4 @@ export default function AdminBookingsPage() {
     </AdminRouteShell>
   );
 }
+*/

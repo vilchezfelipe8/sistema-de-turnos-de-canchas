@@ -10,7 +10,7 @@ import { CourtRepository } from '../repositories/CourtRepository';
 import { UserRepository } from '../repositories/UserRepository';
 import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
 import { authMiddleware } from '../middleware/AuthMiddleware';
-import { requireRole } from '../middleware/RoleMiddleware';
+import { requireTenantRole } from '../middleware/RoleMiddleware';
 import { verifyClubAccess } from '../middleware/ClubMiddleware';
 import { ProductController } from '../controllers/ProductController';
 import { ProductRepository } from '../repositories/ProductRepository';
@@ -56,7 +56,9 @@ const clubReviewController = new ClubReviewController();
 const clientDuplicateIncidentService = new ClientDuplicateIncidentService();
 const clientDuplicateIncidentController = new ClientDuplicateIncidentController(clientDuplicateIncidentService);
 
-// Todas las rutas requieren autenticación, rol ADMIN y verificación de acceso al club
+// Todas las rutas requieren autenticación y verificación de acceso al club.
+// El rol tenant se define por endpoint (ADMIN/OWNER para configuración sensible,
+// ADMIN/OWNER/STAFF para operación diaria).
 // El middleware verifyClubAccess agrega req.clubId al request
 // Las rutas se montan en /api/clubs/:slug/admin
 
@@ -64,7 +66,7 @@ const clientDuplicateIncidentController = new ClientDuplicateIncidentController(
 router.get('/:slug/admin/schedule', 
     authMiddleware, 
     verifyClubAccess, 
-    requireRole('ADMIN'), 
+    requireTenantRole(['ADMIN', 'STAFF']), 
     bookingController.getAdminSchedule
 );
 
@@ -72,7 +74,7 @@ router.get('/:slug/admin/schedule',
 router.get('/:slug/admin/courts',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     courtController.getAllCourts
 );
 
@@ -80,7 +82,7 @@ router.get('/:slug/admin/courts',
 router.post('/:slug/admin/courts',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     courtController.createCourt
 );
 
@@ -88,7 +90,7 @@ router.post('/:slug/admin/courts',
 router.put('/:slug/admin/courts/:id',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     courtController.updateCourt
 );
 
@@ -96,14 +98,14 @@ router.put('/:slug/admin/courts/:id',
 router.put('/:slug/admin/courts/:id/suspend',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     courtController.suspendCourt
 );
 
 router.put('/:slug/admin/courts/:id/reactivate',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     courtController.reactivateCourt
 );
 
@@ -111,7 +113,7 @@ router.put('/:slug/admin/courts/:id/reactivate',
 router.get('/:slug/admin/info',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     (req: any, res: any) => {
         res.json(req.club);
     }
@@ -121,7 +123,7 @@ router.get('/:slug/admin/info',
 router.put('/:slug/admin/info',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     async (req: any, res: any) => {
         try {
             const club = await clubService.updateClub(Number(req.club.id), req.body);
@@ -135,7 +137,7 @@ router.put('/:slug/admin/info',
 router.get('/:slug/admin/activity-types',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     async (req: any, res: any) => {
         try {
             const clubId = Number(req.clubId || req.club?.id);
@@ -155,7 +157,7 @@ router.get('/:slug/admin/activity-types',
 router.put('/:slug/admin/activity-types/:id/schedule',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     async (req: any, res: any) => {
         try {
             const idSchema = z.preprocess((v) => Number(v), z.number().int().positive());
@@ -208,7 +210,7 @@ router.put('/:slug/admin/activity-types/:id/schedule',
 router.get('/:slug/admin/activity-types/:id/schedule-exceptions',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     async (req: any, res: any) => {
         try {
             const idSchema = z.preprocess((v) => Number(v), z.number().int().positive());
@@ -251,7 +253,7 @@ router.get('/:slug/admin/activity-types/:id/schedule-exceptions',
 router.put('/:slug/admin/activity-types/:id/schedule-exceptions/:localDate',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     async (req: any, res: any) => {
         try {
             const idSchema = z.preprocess((v) => Number(v), z.number().int().positive());
@@ -313,7 +315,7 @@ router.put('/:slug/admin/activity-types/:id/schedule-exceptions/:localDate',
 router.delete('/:slug/admin/activity-types/:id/schedule-exceptions/:localDate',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     async (req: any, res: any) => {
         try {
             const idSchema = z.preprocess((v) => Number(v), z.number().int().positive());
@@ -348,7 +350,7 @@ router.delete('/:slug/admin/activity-types/:id/schedule-exceptions/:localDate',
 router.post('/:slug/admin/bookings/fixed',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     bookingController.createFixed
 );
 
@@ -356,14 +358,14 @@ router.post('/:slug/admin/bookings/fixed',
 router.delete('/:slug/admin/bookings/fixed/:id',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     bookingController.cancelFixed
 );
 
 router.patch('/:slug/admin/bookings/fixed/:id',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     bookingController.rescheduleFixed
 );
 
@@ -371,42 +373,42 @@ router.patch('/:slug/admin/bookings/fixed/:id',
 router.post('/:slug/admin/bookings/cancel',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     bookingController.cancelBooking
 );
 
 router.post('/:slug/admin/bookings/:id/confirm',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     bookingController.confirmBooking
 );
 
 router.post('/:slug/admin/bookings/:id/complete',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     bookingController.completeBooking
 );
 
 router.patch('/:slug/admin/bookings/:id/reschedule',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     bookingController.rescheduleBooking
 );
 
 router.get('/:slug/admin/bookings/:id/billing-config',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     bookingController.getBookingBillingConfig
 );
 
 router.put('/:slug/admin/bookings/:id/billing-config',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     bookingController.upsertBookingBillingConfig
 );
 
@@ -414,7 +416,7 @@ router.put('/:slug/admin/bookings/:id/billing-config',
 router.get('/:slug/admin/products',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     productController.getAll
 );
 
@@ -422,7 +424,7 @@ router.get('/:slug/admin/products',
 router.post('/:slug/admin/products',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     productController.create
 );
 
@@ -430,7 +432,7 @@ router.post('/:slug/admin/products',
 router.put('/:slug/admin/products/:id',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     productController.update
 );
 
@@ -438,161 +440,161 @@ router.put('/:slug/admin/products/:id',
 router.delete('/:slug/admin/products/:id',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     productController.delete
 );
 
 router.get('/:slug/admin/services',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     clubServiceCatalogController.list
 );
 
 router.post('/:slug/admin/services',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     clubServiceCatalogController.create
 );
 
 router.put('/:slug/admin/services/:id',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     clubServiceCatalogController.update
 );
 
 router.delete('/:slug/admin/services/:id',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     clubServiceCatalogController.delete
 );
 
 router.patch('/:slug/admin/reviews/:reviewId/status',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     clubReviewController.setStatus
 );
 
 router.get('/:slug/admin/reviews',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     clubReviewController.listForAdmin
 );
 
 router.get('/:slug/admin/clients-list',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     clubController.getClubClientsList 
 );
 
 router.post('/:slug/admin/clients',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     clubController.createClubClient
 );
 
 router.put('/:slug/admin/clients/:clientId',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole(['ADMIN', 'STAFF']),
     clubController.updateClubClient
 );
 
 router.delete('/:slug/admin/clients/:clientId',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     clubController.deleteClubClient
 );
 
 router.get('/:slug/admin/discount-policies',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     discountController.listPolicies
 );
 
 router.post('/:slug/admin/discount-policies',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     discountController.createPolicy
 );
 
 router.patch('/:slug/admin/discount-policies/:policyId',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     discountController.updatePolicy
 );
 
 router.get('/:slug/admin/clients/:clientId/discount-assignments',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     discountController.listClientAssignments
 );
 
 router.post('/:slug/admin/clients/:clientId/discount-assignments',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     discountController.assignToClient
 );
 
 router.patch('/:slug/admin/discount-assignments/:assignmentId',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     discountController.setAssignmentStatus
 );
 
 router.delete('/:slug/admin/discount-assignments/:assignmentId',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     discountController.deleteAssignment
 );
 
 router.get('/:slug/admin/client-duplicate-incidents',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     clientDuplicateIncidentController.list
 );
 
 router.get('/:slug/admin/client-duplicate-incidents/:incidentId',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     clientDuplicateIncidentController.getById
 );
 
 router.post('/:slug/admin/client-duplicate-incidents/:incidentId/resolve-link',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     clientDuplicateIncidentController.resolveLink
 );
 
 router.post('/:slug/admin/client-duplicate-incidents/:incidentId/dismiss',
     authMiddleware,
     verifyClubAccess,
-    requireRole('ADMIN'),
+    requireTenantRole('ADMIN'),
     clientDuplicateIncidentController.dismiss
 );
 
 router.get('/:slug/admin/stats/dashboard', 
     authMiddleware,       
     verifyClubAccess,     
-    requireRole('ADMIN'), 
+    requireTenantRole(['ADMIN', 'STAFF']), 
     bookingController.getDashboardStats
 );
 

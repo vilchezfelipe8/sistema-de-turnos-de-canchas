@@ -42,6 +42,20 @@ export class CashService {
     return res.json();
   }
 
+  // P2-C: ítems POS unificados (productos + servicios)
+  static async getPosItems(): Promise<Array<{
+    type: 'product' | 'service';
+    id: number;
+    name: string;
+    price: number;
+    stock: number | null;
+    category: string;
+  }>> {
+    const res = await fetchWithAuth(`${apiBase()}/cash/pos-items`, { method: 'GET' });
+    if (!res.ok) throw new Error('Error al cargar ítems de venta');
+    return res.json();
+  }
+
   static async getCashRegisters() {
     const res = await fetchWithAuth(`${apiBase()}/cash-registers`, { method: 'GET' });
     if (!res.ok) throw new Error('Error al cargar cajas registradoras');
@@ -141,6 +155,44 @@ export class CashService {
       const error = await res.json();
       throw new Error(error.error || 'Error al registrar venta');
     }
+    return res.json();
+  }
+
+  // Fase 1.6B: Crea cuenta de venta mostrador sin cobrar.
+  // El pago se registra después desde AccountDrawer.
+  static async createProductSaleAccount(payload: {
+    items: Array<{ productId?: number; quantity: number; customName?: string; unitPrice?: number }>;
+    clientId?: string;
+    idempotencyKey?: string;
+  }): Promise<{ accountId: string; total: number; description: string }> {
+    const idempotencyKey =
+      payload.idempotencyKey ||
+      (typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? (crypto as any).randomUUID()
+        : `pos-account-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+
+    const res = await fetchWithAuth(`${apiBase()}/cash/product-sale/account`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, idempotencyKey })
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'Error al crear la cuenta de venta');
+    }
+    return res.json();
+  }
+
+  static async getPosReport(params?: { startDate?: string; endDate?: string }): Promise<{
+    salesByProduct: Array<{ name: string; quantity: number; revenue: number }>;
+    salesByShift: Array<{ shiftId: string; openedAt: string; closedAt: string | null; count: number; total: number }>;
+    paymentsByMethod: Array<{ method: string; count: number; total: number }>;
+  }> {
+    const query = new URLSearchParams();
+    if (params?.startDate) query.set('startDate', params.startDate);
+    if (params?.endDate) query.set('endDate', params.endDate);
+    const res = await fetchWithAuth(`${apiBase()}/cash/pos-report${query.toString() ? `?${query}` : ''}`, { method: 'GET' });
+    if (!res.ok) throw new Error('Error al cargar reporte POS');
     return res.json();
   }
 

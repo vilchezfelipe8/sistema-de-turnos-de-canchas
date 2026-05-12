@@ -104,6 +104,7 @@ export const createBooking = async (
       phoneNumberLocal?: string;
       email?: string;
       dni?: string;
+      duplicateResolution?: 'CREATE_NEW';
     };
   }
 ) => {
@@ -304,6 +305,29 @@ export const completeBooking = async (bookingId: number) => {
 
   const club = await ClubService.getClubById(adminClubId);
   return ClubAdminService.completeBooking(club.slug, bookingId);
+};
+
+export const changeBookingClient = async (
+  bookingId: number,
+  input: {
+    newClientId: string;
+    reason?: string;
+  }
+) => {
+  const res = await fetchWithAuth(`${apiBase()}/bookings/${bookingId}/client`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      newClientId: String(input?.newClientId || '').trim(),
+      ...(String(input?.reason || '').trim() ? { reason: String(input.reason).trim() } : {}),
+    }),
+  });
+
+  if (!res.ok) {
+    await throwApiErrorFromResponse(res, 'No se pudo cambiar el titular.');
+  }
+
+  return res.json();
 };
 
 export const splitBookingPayment = async (

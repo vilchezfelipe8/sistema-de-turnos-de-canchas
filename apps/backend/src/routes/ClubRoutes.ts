@@ -6,7 +6,7 @@ import { ClubFavoriteService } from '../services/ClubFavoriteService';
 import { ClubRepository } from '../repositories/ClubRepository';
 import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
 import { authMiddleware } from '../middleware/AuthMiddleware';
-import { requireRole } from '../middleware/RoleMiddleware';
+import { requireGlobalRole, requireTenantRole } from '../middleware/RoleMiddleware';
 import { verifyClubAccessById } from '../middleware/ClubMiddleware';
 
 const router = Router();
@@ -27,8 +27,8 @@ router.post('/:id/favorite', authMiddleware, clubFavoriteController.markFavorite
 router.delete('/:id/favorite', authMiddleware, clubFavoriteController.unmarkFavorite);
 
 // Rutas protegidas: solo el admin del club puede actualizar ese club
-router.post('/', authMiddleware, requireRole('ADMIN'), clubController.createClub);
-router.put('/:id', authMiddleware, verifyClubAccessById, requireRole('ADMIN'), clubController.updateClub);
-router.patch('/:id', authMiddleware, verifyClubAccessById, requireRole('ADMIN'), clubController.updateClub);
+router.post('/', authMiddleware, requireGlobalRole('ADMIN'), clubController.createClub);
+router.put('/:id', authMiddleware, verifyClubAccessById, requireTenantRole('ADMIN'), clubController.updateClub);
+router.patch('/:id', authMiddleware, verifyClubAccessById, requireTenantRole('ADMIN'), clubController.updateClub);
 
 export default router;

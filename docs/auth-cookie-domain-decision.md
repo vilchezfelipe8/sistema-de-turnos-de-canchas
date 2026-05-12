@@ -1,11 +1,13 @@
-# Auth Cookie & Domain Decision (Pre-Phase B)
+# Auth Cookie & Domain Decision (MVP vigente)
 
 ## Scope
-Defines cookie transport behavior by environment for session-based auth.
 
-This is the required decision record before implementing cookie sessions in backend/frontend.
+Definición operativa de autenticación web para Pique.
+
+Modo oficial: **cookie sessions HttpOnly** con refresh rotativo.
 
 ## Cookie Names
+
 - Access cookie: `tc_access`
 - Refresh cookie: `tc_refresh`
 
@@ -13,29 +15,30 @@ This is the required decision record before implementing cookie sessions in back
 
 | Environment | Frontend URL | Backend URL | Cookie Domain | Secure | SameSite | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| Local dev | `http://localhost:3001` | `http://localhost:3002` | host-only (`localhost`) | `false` | `Lax` | Cross-port only, same-site on localhost. |
-| Preview | `https://app-preview.<domain>` | `https://api-preview.<domain>` | host-only by default | `true` | `Lax` | Use explicit domain only if both apps share a stable parent domain. |
-| Production | `https://app.pique.app` | `https://api.pique.app` | `.pique.app` | `true` | `Lax` | Keep `None` disabled unless a real cross-site integration requires it. |
+| Local dev | `http://localhost:3001` | `http://localhost:3000` | host-only (`localhost`) | `false` | `Lax` | Cross-port same-site en localhost. |
+| Preview | `https://app-preview.<domain>` | `https://api-preview.<domain>` | host-only por defecto | `true` | `Lax` | Definir dominio explícito solo si hay necesidad real de compartir cookies entre subdominios. |
+| Production | `https://app.pique.app` | `https://api.pique.app` | `.pique.app` (opcional) | `true` | `Lax` | `None` solo para requerimientos cross-site explícitos. |
 
 ## Rules
-1. Default is `SameSite=Lax`.
-2. `SameSite=None` is forbidden unless explicitly approved for a cross-site requirement.
-3. If `SameSite=None`, `Secure=true` is mandatory.
-4. Ingress/proxy must preserve forwarded protocol so secure cookies are not downgraded or dropped.
-5. In local development, never force `Secure=true`.
 
-## Backend Env Defaults
-- `AUTH_ENABLE_COOKIE_SESSIONS=false` (until rollout starts)
-- `AUTH_ALLOW_BEARER_LEGACY=true`
+1. `AUTH_ENABLE_COOKIE_SESSIONS=true` es obligatorio para modo productivo.
+2. `AUTH_ALLOW_BEARER_LEGACY=false` por defecto.
+3. `SameSite=None` requiere `AUTH_COOKIE_SECURE=true` (enforced).
+4. En producción, `AUTH_COOKIE_SECURE=true` (enforced).
+5. En producción, `AUTH_REFRESH_PEPPER` fuerte y no default de dev (enforced).
+6. Si hay proxy TLS, usar `AUTH_TRUST_PROXY=true`.
+
+## Backend defaults esperados
+
+- `AUTH_ENABLE_COOKIE_SESSIONS=true`
+- `AUTH_ALLOW_BEARER_LEGACY=false`
 - `AUTH_ACCESS_COOKIE_NAME=tc_access`
 - `AUTH_REFRESH_COOKIE_NAME=tc_refresh`
-- `AUTH_COOKIE_DOMAIN=` (empty => host-only)
-- `AUTH_COOKIE_SECURE=false` (local only)
+- `AUTH_COOKIE_DOMAIN=` (vacío => host-only)
+- `AUTH_COOKIE_SECURE=false` en local / `true` en producción
 - `AUTH_COOKIE_SAMESITE=lax`
 
-## Rollout Notes
-1. Enable cookie sessions first in staging with bearer fallback still enabled.
-2. Validate login/logout/refresh on multiple browsers.
-3. Only then enable in production.
-4. Remove bearer fallback in final migration phase.
+## Rollout status
 
+- Cookie sessions: activo y recomendado.
+- Bearer legado: solo compatibilidad temporal y controlada.

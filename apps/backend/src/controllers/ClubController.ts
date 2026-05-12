@@ -712,9 +712,7 @@ export class ClubController {
             if (!hasAnyPhoneInput || !normalizedPhone) {
                 return res.status(400).json({ error: 'El teléfono es obligatorio' });
             }
-            if (!parsed.data.email) {
-                return res.status(400).json({ error: 'El email es obligatorio' });
-            }
+            // Fase 1.2: email es opcional en alta de cliente admin.
 
             const client = await this.clubService.createClient(Number(club.id), {
                 name: sanitizeString(parsed.data.name, 120),
@@ -763,9 +761,7 @@ export class ClubController {
             if (!hasAnyPhoneInput || !normalizedPhone) {
                 return res.status(400).json({ error: 'El teléfono es obligatorio' });
             }
-            if (!bodyParsed.data.email) {
-                return res.status(400).json({ error: 'El email es obligatorio' });
-            }
+            // Fase 1.2: email es opcional en edición de cliente admin.
 
             const client = await this.clubService.updateClient(Number(club.id), paramsParsed.data.clientId, {
                 name: sanitizeString(bodyParsed.data.name, 120),

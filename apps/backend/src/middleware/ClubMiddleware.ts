@@ -95,8 +95,8 @@ export const verifyClubAccessById = async (req: Request, res: Response, next: Ne
 /**
  * Middleware para rutas admin que no llevan slug en la URL.
  * Establece req.clubId con el club del usuario autenticado.
- * Debe usarse después de authMiddleware y requireRole('ADMIN').
- * Si el admin no tiene clubId, responde 403.
+ * Debe usarse después de authMiddleware.
+ * Luego la ruta debe validar membresía/rol tenant con requireTenantRole/requireClubMembership.
  */
 export const setAdminClubFromUser = async (req: Request, res: Response, next: NextFunction) => {
     try {

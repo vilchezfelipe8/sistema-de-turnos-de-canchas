@@ -24,6 +24,11 @@ function buildServiceHarness() {
   };
 
   service.paymentService = {
+    createInTransaction: async (_tx: any, input: any) => ({
+      id: 'pay-1',
+      amount: Number(input.amount || 0),
+      method: input.method
+    }),
     create: async (input: any) => ({
       id: 'pay-1',
       amount: Number(input.amount || 0),
@@ -64,8 +69,10 @@ function buildQuoteTx(overrides?: Partial<any>) {
         name: 'Pelota',
         price: 1000,
         category: 'INSUMO',
-        stock: 20
-      })
+        stock: 20,
+        isActive: true
+      }),
+      updateMany: async () => ({ count: 1 })
     },
     account: {
       create: async () => ({ id: 'acc-1' }),
@@ -135,9 +142,10 @@ test('venta con clientId mantiene identidad client-centric', async () => {
         name: 'Pelota',
         price: 1000,
         category: 'INSUMO',
-        stock: 20
+        stock: 20,
+        isActive: true
       }),
-      update: async () => ({ id: 101 })
+      updateMany: async () => ({ count: 1 })
     }
   });
 
@@ -183,9 +191,10 @@ test('venta con clientDraft crea cliente cuando no existe match seguro', async (
         name: 'Pelota',
         price: 1000,
         category: 'INSUMO',
-        stock: 20
+        stock: 20,
+        isActive: true
       }),
-      update: async () => ({ id: 101 })
+      updateMany: async () => ({ count: 1 })
     }
   });
 

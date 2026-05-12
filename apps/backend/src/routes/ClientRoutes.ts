@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/AuthMiddleware';
-import { requireRole } from '../middleware/RoleMiddleware';
+import { requireTenantRole } from '../middleware/RoleMiddleware';
 import { verifyClubAccess } from '../middleware/ClubMiddleware';
 import { ClientDebtService } from '../services/ClientDebtService';
 
@@ -14,7 +14,7 @@ const isIntegrityInconsistencyError = (error: unknown) =>
   getErrorMessage(error, '').includes('Inconsistencia de integridad');
 
 // GET /api/clients/:slug — solo el admin de ese club puede ver la lista
-router.get('/:slug', authMiddleware, verifyClubAccess, requireRole('ADMIN'), async (req, res) => {
+router.get('/:slug', authMiddleware, verifyClubAccess, requireTenantRole(['ADMIN', 'STAFF']), async (req, res) => {
   try {
     const club = (req as any).club;
     const rawScope = String(req.query.scope || 'all').trim().toLowerCase();

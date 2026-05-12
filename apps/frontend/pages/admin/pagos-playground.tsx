@@ -4,6 +4,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  CreditCard,
   Landmark,
   Plus,
   Play,
@@ -40,6 +41,7 @@ import {
   type AccountStatus,
 } from '../../services/AccountService';
 import { CashService } from '../../services/CashService';
+import { searchClients } from '../../services/BookingService';
 import { ClubService } from '../../services/ClubService';
 import {
   approveRefund,
@@ -58,7 +60,7 @@ import { formatDateTime24 } from '../../utils/dateTime';
 import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser } from '../../utils/session';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 
-type PaymentsTab = 'SUMMARY' | 'ACCOUNTS' | 'MOVEMENTS' | 'CLOSURE' | 'REFUNDS';
+type PaymentsTab = 'SUMMARY' | 'ACCOUNTS' | 'MOVEMENTS' | 'CLOSURE' | 'REFUNDS' | 'REPORTS';
 type CashPeriod = 'hoy' | 'semana' | 'mes';
 type MovementTypeFilter = 'ALL' | 'INCOME' | 'EXPENSE';
 type MovementMethodFilter = 'ALL' | 'CASH' | 'TRANSFER' | 'CARD';
@@ -66,8 +68,32 @@ type RefundStatusFilter = 'ALL' | 'REQUESTED' | 'APPROVED' | 'READY_TO_EXECUTE' 
 type RefundMethodFilter = 'ALL' | 'CASH' | 'TRANSFER' | 'CARD_REVERSAL' | 'CREDIT_NOTE';
 type RefundActionKind = 'approve' | 'approve_execute' | 'execute' | 'retry' | 'fail' | 'cancel';
 type CashView = 'live' | 'movements' | 'closures';
-type CashActionSidebarView = 'none' | 'open_shift' | 'close_shift' | 'movement_create' | 'close_report';
+type CashActionSidebarView = 'none' | 'open_shift' | 'close_shift' | 'movement_create' | 'close_report' | 'product_sale';
 type AccountsFilter = 'ALL' | 'OPEN' | 'CLOSED' | 'WITH_DEBT' | 'WITH_REFUNDS';
+type PosItem = {
+  type: 'product' | 'service';
+  id: number;
+  name: string;
+  price: number;
+  stock: number | null;
+  category: string;
+};
+
+type PosClientResult = {
+  id: string;
+  name?: string;
+  phone?: string;
+  email?: string;
+};
+
+// Extrae el UUID del cliente descartando prefijos 'client-' / 'user-'
+const resolvePosClientId = (client: PosClientResult | null | undefined): string => {
+  const raw = String(client?.id || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('client-')) return raw.slice('client-'.length).trim();
+  if (raw.startsWith('user-')) return ''; // usuarios del sistema no son clientes del club
+  return raw;
+};
 type AccountRow = {
   id: string;
   sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL';
@@ -163,6 +189,21 @@ type CashShiftCloseReport = {
 };
 
 const formatMoney = (value: number) => `$${Number(value || 0).toLocaleString('es-AR')}`;
+const formatRelativeDate = (isoString: string): string => {
+  if (!isoString) return '-';
+  const date = new Date(isoString);
+  if (!Number.isFinite(date.getTime())) return '-';
+  const now = new Date();
+  const diffMin = Math.floor((now.getTime() - date.getTime()) / 60_000);
+  if (diffMin < 2) return 'Hace un momento';
+  if (diffMin < 60) return `Hace ${diffMin} min`;
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `Hace ${diffH}h`;
+  const diffD = Math.floor(diffH / 24);
+  if (diffD === 1) return 'Ayer';
+  if (diffD < 7) return `Hace ${diffD} días`;
+  return date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
+};
 const ACCOUNT_PAYMENT_EPSILON = 0.009;
 const EMPTY_REFUNDS: RefundRecord[] = [];
 const drawerSectionCardClass = 'rounded-2xl border border-p-border bg-p-surface-2 p-4';
@@ -322,6 +363,7 @@ const parsePaymentsTab = (value: unknown): PaymentsTab => {
   if (raw === 'closure') return 'CLOSURE';
   if (raw === 'refunds') return 'REFUNDS';
   if (raw === 'accounts') return 'ACCOUNTS';
+  if (raw === 'reports') return 'REPORTS';
   return 'SUMMARY';
 };
 
@@ -330,6 +372,7 @@ const toPaymentsTabQuery = (value: PaymentsTab) => {
   if (value === 'MOVEMENTS') return 'movements';
   if (value === 'CLOSURE') return 'closure';
   if (value === 'REFUNDS') return 'refunds';
+  if (value === 'REPORTS') return 'reports';
   return 'accounts';
 };
 
@@ -504,6 +547,41 @@ export default function AdminPaymentsPlaygroundPage() {
     amount: '',
     method: 'CASH' as 'CASH' | 'TRANSFER' | 'CARD',
   });
+
+  // POS — Venta mostrador (Fase 1.6)
+  const [posProducts, setPosProducts] = useState<PosItem[]>([]);
+  const [posLoadingProducts, setPosLoadingProducts] = useState(false);
+  const [posItems, setPosItems] = useState<Array<{ productId: string; quantity: string }>>(
+    [{ productId: '', quantity: '1' }]
+  );
+  const [posSubmitting, setPosSubmitting] = useState(false);
+  const [posError, setPosError] = useState('');
+  // Selector de cliente opcional (Consumidor final si queda vacío)
+  const [posClientSearch, setPosClientSearch] = useState('');
+  const [posClientResults, setPosClientResults] = useState<PosClientResult[]>([]);
+  const [posClientDropdownOpen, setPosClientDropdownOpen] = useState(false);
+  const [posSelectedClient, setPosSelectedClient] = useState<PosClientResult | null>(null);
+  const posClientWrapperRef = useRef<HTMLDivElement | null>(null);
+  const posClientSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Quote reactivo — total real con descuentos
+  const [posQuote, setPosQuote] = useState<{
+    finalTotal: number;
+    listTotal: number;
+    discountTotal: number;
+    hasDiscount: boolean;
+  } | null>(null);
+  const [posQuoteLoading, setPosQuoteLoading] = useState(false);
+
+  // P2-D: POS Report state
+  type PosReport = {
+    salesByProduct: Array<{ name: string; quantity: number; revenue: number }>;
+    salesByShift: Array<{ shiftId: string; openedAt: string; closedAt: string | null; count: number; total: number }>;
+    paymentsByMethod: Array<{ method: string; count: number; total: number }>;
+  };
+  const [posReport, setPosReport] = useState<PosReport | null>(null);
+  const [posReportLoading, setPosReportLoading] = useState(false);
+  const [posReportError, setPosReportError] = useState('');
+
   const [adminToasts, setAdminToasts] = useState<Array<{ id: number; message: string }>>([]);
   const adminToastIdRef = useRef(1);
   const adminToastTimeoutsRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
@@ -836,6 +914,28 @@ export default function AdminPaymentsPlaygroundPage() {
     setAccountDrawerOpen(false);
   }, [activeTab]);
 
+  // P2-D: Load POS report when REPORTS tab is active
+  const loadPosReport = useCallback(async () => {
+    if (!authChecked || !user || !hasAdminAccess(user)) return;
+    setPosReportLoading(true);
+    setPosReportError('');
+    try {
+      const { startDate, endDate } = getCashDateRange(cashActivePeriod, cashPeriodOffset);
+      const data = await CashService.getPosReport({ startDate, endDate });
+      setPosReport(data);
+    } catch (err) {
+      reportUiError({ area: 'PaymentsPlayground', action: 'loadPosReport' }, err);
+      setPosReportError(extractErrorMessage(err, 'No se pudo cargar el reporte POS.'));
+    } finally {
+      setPosReportLoading(false);
+    }
+  }, [authChecked, cashActivePeriod, cashPeriodOffset, user]);
+
+  useEffect(() => {
+    if (activeTab !== 'REPORTS') return;
+    void loadPosReport();
+  }, [activeTab, loadPosReport]);
+
   const cashPeriodLabel = useMemo(() => {
     const { rawStart, rawEnd } = getCashDateRange(cashActivePeriod, cashPeriodOffset);
     if (cashActivePeriod === 'hoy') {
@@ -1031,12 +1131,217 @@ export default function AdminPaymentsPlaygroundPage() {
     }
   };
 
+  // POS — buscador de cliente opcional ------------------------------------------
+  const handlePosClientSearchChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value;
+    setPosClientSearch(value);
+    // Si el usuario edita, limpiamos el cliente seleccionado
+    if (posSelectedClient) setPosSelectedClient(null);
+
+    if (posClientSearchTimeoutRef.current) {
+      clearTimeout(posClientSearchTimeoutRef.current);
+      posClientSearchTimeoutRef.current = null;
+    }
+
+    const term = value.trim();
+    if (term.length < 2) {
+      setPosClientResults([]);
+      setPosClientDropdownOpen(false);
+      return;
+    }
+
+    posClientSearchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const slug = getActiveClubSlug(normalizeSessionUser(user as any));
+        if (!slug) return;
+        const results = await searchClients(slug, term);
+        const valid = (Array.isArray(results) ? results : [])
+          .filter((c: any) => resolvePosClientId(c).length > 0)
+          .slice(0, 15);
+        setPosClientResults(valid);
+        setPosClientDropdownOpen(true);
+      } catch {
+        setPosClientResults([]);
+        setPosClientDropdownOpen(false);
+      }
+    }, 300);
+  }, [posSelectedClient, user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handlePosSelectClient = useCallback((client: PosClientResult) => {
+    const resolvedId = resolvePosClientId(client);
+    if (!resolvedId) return;
+    setPosSelectedClient({ ...client, id: resolvedId });
+    setPosClientSearch(String(client.name || '').trim() || resolvedId);
+    setPosClientResults([]);
+    setPosClientDropdownOpen(false);
+  }, []);
+
+  const handlePosClearClient = useCallback(() => {
+    setPosSelectedClient(null);
+    setPosClientSearch('');
+    setPosClientResults([]);
+    setPosClientDropdownOpen(false);
+  }, []);
+
+  // Click fuera cierra el dropdown de cliente POS
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (posClientWrapperRef.current && !posClientWrapperRef.current.contains(event.target as Node)) {
+        setPosClientDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Resetear estado POS al cerrar el drawer
+  useEffect(() => {
+    if (cashSidebarView !== 'product_sale') {
+      // No reseteamos posProducts — se mantienen en caché
+      setPosItems([{ productId: '', quantity: '1' }]);
+      setPosError('');
+      setPosClientSearch('');
+      setPosClientResults([]);
+      setPosClientDropdownOpen(false);
+      setPosSelectedClient(null);
+      setPosQuote(null);
+      setPosQuoteLoading(false);
+    }
+  }, [cashSidebarView]);
+
+  // POS — carga de productos del club (una sola vez por sesión).
+  // Usamos ref como gate en lugar de state para evitar el loop:
+  //   state deps en useCallback → nueva referencia → useEffect se re-dispara → loop infinito.
+  const posLoadAttemptedRef = useRef(false);
+  const loadPosProducts = useCallback(async () => {
+    if (posLoadAttemptedRef.current) return;
+    posLoadAttemptedRef.current = true;
+    try {
+      setPosLoadingProducts(true);
+      const data = await CashService.getPosItems();
+      setPosProducts(Array.isArray(data) ? data : []);
+    } catch {
+      posLoadAttemptedRef.current = false; // permite reintentar si el usuario reabre el drawer
+    } finally {
+      setPosLoadingProducts(false);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps — solo setters estables, sin state leído
+
+  // Disparar carga al abrir el drawer de venta mostrador
+  useEffect(() => {
+    if (cashSidebarView === 'product_sale') {
+      void loadPosProducts();
+    }
+  }, [cashSidebarView, loadPosProducts]);
+
+  // Quote reactivo — llama al backend con debounce para obtener total real con descuentos.
+  // Usa deps explícitos (state primitivos), no callbacks → no hay riesgo de loop.
+  useEffect(() => {
+    if (cashSidebarView !== 'product_sale') return;
+
+    const validItems = posItems
+      .filter((item) => item.productId.includes(':') && Number(item.quantity) >= 1)
+      .map((item) => {
+        const [itemType, itemIdStr] = item.productId.split(':');
+        const itemId = Number(itemIdStr);
+        const catalog = posProducts.find((p) => p.type === itemType && p.id === itemId);
+        const qty = Number(item.quantity);
+        if (catalog?.type === 'service') {
+          return { customName: catalog.name, unitPrice: catalog.price, quantity: qty };
+        }
+        return { productId: itemId, quantity: qty };
+      });
+
+    if (validItems.length === 0) {
+      setPosQuote(null);
+      setPosQuoteLoading(false);
+      return;
+    }
+
+    setPosQuoteLoading(true);
+    const timeoutId = setTimeout(async () => {
+      try {
+        const clientId = posSelectedClient ? resolvePosClientId(posSelectedClient) : undefined;
+        const quote = await CashService.quoteProductSale({
+          items: validItems,
+          clientId: clientId || undefined,
+        });
+        setPosQuote({
+          finalTotal: Number(quote.finalTotal || 0),
+          listTotal: Number(quote.listTotal || 0),
+          discountTotal: Number(quote.discountTotal || 0),
+          hasDiscount: Boolean(quote.hasDiscount),
+        });
+      } catch {
+        setPosQuote(null); // falla silenciosa — el submit sigue usando el total del backend
+      } finally {
+        setPosQuoteLoading(false);
+      }
+    }, 400);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [cashSidebarView, posItems, posSelectedClient, posProducts]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fase 1.6B: crea la cuenta de mostrador (sin cobrar) y abre el AccountDrawer en vista de pago.
+  const handleCreatePosAccount = useCallback(async () => {
+    const validItems = posItems
+      .filter((item) => item.productId.includes(':') && Number(item.quantity) >= 1)
+      .map((item) => {
+        const [itemType, itemIdStr] = item.productId.split(':');
+        const itemId = Number(itemIdStr);
+        const catalog = posProducts.find((p) => p.type === itemType && p.id === itemId);
+        const qty = Number(item.quantity);
+        if (catalog?.type === 'service') {
+          return { customName: catalog.name, unitPrice: catalog.price, quantity: qty };
+        }
+        return { productId: itemId, quantity: qty };
+      });
+
+    if (validItems.length === 0) {
+      setPosError('Agregá al menos un producto válido.');
+      return;
+    }
+    if (!cashCurrentShift) {
+      setPosError('Abrí una caja antes de registrar ventas de mostrador.');
+      return;
+    }
+
+    const resolvedClientId = posSelectedClient ? resolvePosClientId(posSelectedClient) : undefined;
+
+    try {
+      setPosSubmitting(true);
+      setPosError('');
+      const result = await CashService.createProductSaleAccount({
+        items: validItems,
+        clientId: resolvedClientId || undefined,
+      });
+
+      // Cerrar el drawer de POS y resetear productos (stock puede haber cambiado)
+      setCashSidebarView('none');
+      posLoadAttemptedRef.current = false;
+      setPosProducts([]);
+
+      // Refrescar resumen de caja
+      void loadCashSummary();
+
+      // Abrir AccountDrawer directamente en la vista de pago
+      openAccountDrawer(result.accountId, 'payment');
+    } catch (error: any) {
+      reportUiError({ area: 'POS', action: 'handleCreatePosAccount' }, error);
+      setPosError(extractErrorMessage(error, 'No se pudo crear la cuenta de venta.'));
+    } finally {
+      setPosSubmitting(false);
+    }
+  }, [cashCurrentShift, loadCashSummary, openAccountDrawer, posItems, posProducts, posSelectedClient]);
+
   const cashActionSidebarOpen = isCashSectionTab(activeTab) && cashSidebarView !== 'none';
 
   const closeActionSidebar = useCallback(() => {
-    if (openingCashShift || closingCashShift || submittingCashMovement) return;
+    if (openingCashShift || closingCashShift || submittingCashMovement || posSubmitting) return;
     setCashSidebarView('none');
-  }, [closingCashShift, openingCashShift, submittingCashMovement]);
+  }, [closingCashShift, openingCashShift, posSubmitting, submittingCashMovement]);
 
   useEffect(() => {
     if (!cashActionSidebarOpen) return;
@@ -1473,6 +1778,7 @@ export default function AdminPaymentsPlaygroundPage() {
               { value: 'MOVEMENTS', label: 'Movimientos' },
               { value: 'CLOSURE', label: 'Cierre' },
               { value: 'REFUNDS', label: 'Devoluciones' },
+              { value: 'REPORTS', label: 'Reportes' },
             ]}
             className="w-fit"
           />
@@ -1758,6 +2064,7 @@ export default function AdminPaymentsPlaygroundPage() {
                       setCashSidebarView('movement_create');
                     }}
                     onGoToClosures={() => navigateToPaymentsTab('CLOSURE')}
+                    onProductSale={() => setCashSidebarView('product_sale')}
                   />
                 )}
 
@@ -1768,6 +2075,14 @@ export default function AdminPaymentsPlaygroundPage() {
                     headerClassName="pl-4 pr-2 py-3"
                     actions={(
                       <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setCashSidebarView('product_sale')}
+                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-2.5 text-[11px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
+                        >
+                          <Plus size={14} strokeWidth={2.5} />
+                          Venta mostrador
+                        </button>
                         <button
                           type="button"
                           onClick={() => setCashSidebarView('movement_create')}
@@ -1882,6 +2197,137 @@ export default function AdminPaymentsPlaygroundPage() {
                     }}
                     onViewReport={() => setCashSidebarView('close_report')}
                   />
+                )}
+              </div>
+            ) : activeTab === 'REPORTS' ? (
+              <div className="space-y-5">
+                {posReportError && (
+                  <div className="rounded-xl border border-p-error bg-p-error-bg px-3 py-2 text-[12px] text-p-error">
+                    {posReportError}
+                  </div>
+                )}
+                {posReportLoading ? (
+                  <div className="flex h-40 items-center justify-center">
+                    <div className="inline-flex items-center gap-2 text-[13px] text-p-text-muted">
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-p-accent border-t-transparent" />
+                      Cargando reporte...
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Open BAR Accounts */}
+                    <AdminPanel
+                      title="Cuentas BAR abiertas"
+                      description={`${allAccounts.filter((a) => a.sourceType === 'BAR' && a.status === 'OPEN').length} cuenta${allAccounts.filter((a) => a.sourceType === 'BAR' && a.status === 'OPEN').length !== 1 ? 's' : ''} pendiente${allAccounts.filter((a) => a.sourceType === 'BAR' && a.status === 'OPEN').length !== 1 ? 's' : ''} de cobro`}
+                      headerClassName="pl-4 pr-3 py-3"
+                      bodyClassName="p-0"
+                    >
+                      {allAccounts.filter((a) => a.sourceType === 'BAR' && a.status === 'OPEN').length === 0 ? (
+                        <p className="px-4 py-6 text-center text-[13px] text-p-text-muted">No hay cuentas BAR abiertas</p>
+                      ) : (
+                        <div className="divide-y divide-p-border">
+                          {allAccounts.filter((a) => a.sourceType === 'BAR' && a.status === 'OPEN').map((account) => (
+                            <div key={account.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                              <div className="min-w-0">
+                                <p className="truncate text-[13px] font-medium text-p-text">
+                                  {account.booking?.clientName || `Cuenta ${shortCode(account.id)}`}
+                                </p>
+                                <p className="text-[11px] text-p-text-muted">{formatRelativeDate(account.createdAt)}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => navigateToPaymentsTab('ACCOUNTS')}
+                                className="shrink-0 text-[11px] text-p-accent underline underline-offset-2"
+                              >
+                                Ver en Cuentas
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </AdminPanel>
+
+                    {/* Sales by Product */}
+                    <AdminPanel
+                      title="Ventas por producto"
+                      description="Ítems vendidos en cuentas BAR cerradas del período."
+                      headerClassName="pl-4 pr-3 py-3"
+                      bodyClassName="p-0"
+                    >
+                      {!posReport || posReport.salesByProduct.length === 0 ? (
+                        <p className="px-4 py-6 text-center text-[13px] text-p-text-muted">Sin datos para el período</p>
+                      ) : (
+                        <>
+                          <div className="hidden grid-cols-[minmax(0,1fr)_100px_120px] border-b border-p-border px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-p-text-muted sm:grid">
+                            <p>Producto</p><p className="text-right">Cantidad</p><p className="text-right">Total</p>
+                          </div>
+                          <div className="divide-y divide-p-border">
+                            {posReport.salesByProduct.map((row, i) => (
+                              <div key={i} className="grid grid-cols-[minmax(0,1fr)_100px_120px] px-4 py-3">
+                                <p className="truncate text-[13px] font-medium text-p-text">{row.name}</p>
+                                <p className="text-right text-[13px] text-p-text-secondary">×{row.quantity}</p>
+                                <p className="text-right text-[13px] font-semibold text-p-text">{formatMoney(row.revenue)}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </AdminPanel>
+
+                    {/* Sales by Shift */}
+                    <AdminPanel
+                      title="Ventas por turno"
+                      description="Pagos recibidos en cuentas BAR, agrupados por turno de caja."
+                      headerClassName="pl-4 pr-3 py-3"
+                      bodyClassName="p-0"
+                    >
+                      {!posReport || posReport.salesByShift.length === 0 ? (
+                        <p className="px-4 py-6 text-center text-[13px] text-p-text-muted">Sin datos para el período</p>
+                      ) : (
+                        <>
+                          <div className="hidden grid-cols-[minmax(0,1fr)_100px_120px] border-b border-p-border px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-p-text-muted sm:grid">
+                            <p>Turno</p><p className="text-right">Cobros</p><p className="text-right">Total</p>
+                          </div>
+                          <div className="divide-y divide-p-border">
+                            {posReport.salesByShift.map((row) => (
+                              <div key={row.shiftId} className="grid grid-cols-[minmax(0,1fr)_100px_120px] px-4 py-3">
+                                <div>
+                                  <p className="text-[13px] font-medium text-p-text">{formatRelativeDate(row.openedAt)}</p>
+                                  <p className="text-[11px] text-p-text-muted">{row.closedAt ? 'Cerrado' : 'Abierto'}</p>
+                                </div>
+                                <p className="self-center text-right text-[13px] text-p-text-secondary">{row.count}</p>
+                                <p className="self-center text-right text-[13px] font-semibold text-p-text">{formatMoney(row.total)}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </AdminPanel>
+
+                    {/* Payments by Method */}
+                    <AdminPanel
+                      title="Pagos por método"
+                      description="Cobros de cuentas BAR desglosados por medio de pago."
+                      headerClassName="pl-4 pr-3 py-3"
+                      bodyClassName="p-0"
+                    >
+                      {!posReport || posReport.paymentsByMethod.length === 0 ? (
+                        <p className="px-4 py-6 text-center text-[13px] text-p-text-muted">Sin datos para el período</p>
+                      ) : (
+                        <div className="divide-y divide-p-border">
+                          {posReport.paymentsByMethod.map((row) => (
+                            <div key={row.method} className="flex items-center justify-between gap-3 px-4 py-3">
+                              <div>
+                                <p className="text-[13px] font-medium text-p-text">{paymentMethodLabel(row.method)}</p>
+                                <p className="text-[11px] text-p-text-muted">{row.count} cobro{row.count !== 1 ? 's' : ''}</p>
+                              </div>
+                              <p className="shrink-0 text-[13px] font-semibold text-p-positive">{formatMoney(row.total)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </AdminPanel>
+                  </>
                 )}
               </div>
             ) : (
@@ -2133,6 +2579,10 @@ export default function AdminPaymentsPlaygroundPage() {
             if (accountId) {
               await ensureAccountDetail(accountId, true);
               focusSelectedAccountDetail();
+            }
+            // Si hubo pago, refrescar también el resumen de caja (turno, movimientos)
+            if (event === 'payment') {
+              void loadCashSummary();
             }
           })();
         }}
@@ -2565,7 +3015,9 @@ export default function AdminPaymentsPlaygroundPage() {
                 ? 'Registrar movimiento'
                 : cashSidebarView === 'close_report'
                   ? 'Detalle de arqueo'
-                  : 'Caja'
+                  : cashSidebarView === 'product_sale'
+                    ? 'Venta mostrador'
+                    : 'Caja'
         }
         subtitle={
           cashSidebarView === 'open_shift'
@@ -2576,7 +3028,9 @@ export default function AdminPaymentsPlaygroundPage() {
                 ? 'Crea ingresos o egresos sin saturar la vista principal.'
                 : cashSidebarView === 'close_report'
                   ? 'Resumen ampliado del ultimo cierre registrado.'
-                  : undefined
+                  : cashSidebarView === 'product_sale'
+                    ? 'Seleccioná productos y creá la cuenta para cobrar.'
+                    : undefined
         }
         statusChip={cashCurrentShift ? 'Caja abierta' : 'Caja cerrada'}
         statusChipClassName={cashCurrentShift ? 'border-p-positive bg-p-positive-bg text-p-positive' : 'border-p-accent bg-p-positive-bg text-p-accent'}
@@ -2625,6 +3079,18 @@ export default function AdminPaymentsPlaygroundPage() {
               >
                 <Plus size={14} />
                 {submittingCashMovement ? 'Registrando...' : 'Registrar movimiento'}
+              </button>
+            )}
+
+            {cashSidebarView === 'product_sale' && (
+              <button
+                type="button"
+                onClick={() => void handleCreatePosAccount()}
+                disabled={posSubmitting || !cashCurrentShift}
+                className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <CreditCard size={14} />
+                {posSubmitting ? 'Creando cuenta...' : 'Crear cuenta y cobrar'}
               </button>
             )}
           </div>
@@ -2793,6 +3259,240 @@ export default function AdminPaymentsPlaygroundPage() {
               )}
             </div>
           </AdminDrawerSection>
+        )}
+
+        {cashSidebarView === 'product_sale' && (
+          <div className="space-y-5">
+            {/* Guardia: caja cerrada */}
+            {!cashCurrentShift && (
+              <div className="rounded-xl border border-p-error bg-p-error-bg px-3 py-2.5 text-[12px] text-p-error">
+                Abrí una caja antes de registrar ventas de mostrador.
+              </div>
+            )}
+
+            {/* Cliente opcional */}
+            <AdminDrawerSection title="Cliente" className={drawerSectionCardClass}>
+              {posSelectedClient ? (
+                <div className="flex items-center justify-between gap-2 rounded-xl border border-p-border bg-p-surface px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-semibold text-p-text">
+                      {posSelectedClient.name || posSelectedClient.id}
+                    </p>
+                    {(posSelectedClient.phone || posSelectedClient.email) && (
+                      <p className="truncate text-[11px] text-p-text-muted">
+                        {posSelectedClient.phone || posSelectedClient.email}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handlePosClearClient}
+                    disabled={posSubmitting}
+                    title="Limpiar — volver a Consumidor final"
+                    className="shrink-0 flex h-7 w-7 items-center justify-center rounded-lg border border-p-border bg-p-surface text-p-text-muted transition hover:bg-p-error-bg hover:text-p-error disabled:opacity-60"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ) : (
+                <div className="relative" ref={posClientWrapperRef}>
+                  <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
+                  <input
+                    type="text"
+                    value={posClientSearch}
+                    onChange={handlePosClientSearchChange}
+                    onFocus={() => posClientResults.length > 0 && setPosClientDropdownOpen(true)}
+                    disabled={posSubmitting}
+                    placeholder="Buscar por nombre o teléfono… (opcional)"
+                    className="h-9 w-full rounded-xl border border-p-border bg-p-surface pl-8 pr-3 text-[13px] text-p-text outline-none focus:border-p-accent disabled:opacity-60"
+                  />
+                  {posClientDropdownOpen && posClientResults.length > 0 && (
+                    <div className="absolute left-0 right-0 top-full z-[120] mt-1 max-h-52 overflow-y-auto rounded-xl border border-p-border bg-p-surface shadow-lg">
+                      {posClientResults.map((client) => (
+                        <button
+                          key={client.id}
+                          type="button"
+                          onClick={() => handlePosSelectClient(client)}
+                          className="flex w-full flex-col px-3 py-2.5 text-left transition hover:bg-p-surface-2 first:rounded-t-xl last:rounded-b-xl"
+                        >
+                          <span className="text-[12px] font-semibold text-p-text">
+                            {client.name || client.id}
+                          </span>
+                          {(client.phone || client.email) && (
+                            <span className="text-[11px] text-p-text-muted">
+                              {client.phone || client.email}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              <p className="mt-2 text-[11px] text-p-text-muted">
+                Sin cliente seleccionado la venta queda como <span className="font-medium">Consumidor final</span>.
+              </p>
+            </AdminDrawerSection>
+
+            {/* Productos y Servicios */}
+            <AdminDrawerSection title="Ítems" className={drawerSectionCardClass}>
+              <div className="space-y-2">
+                {posItems.map((item, index) => {
+                  const selectedProduct = (() => {
+                    if (!item.productId.includes(':')) return undefined;
+                    const [itemType, itemIdStr] = item.productId.split(':');
+                    const itemId = Number(itemIdStr);
+                    return posProducts.find((p) => p.type === itemType && p.id === itemId);
+                  })();
+                  const isService = selectedProduct?.type === 'service';
+                  const stock = (selectedProduct && !isService) ? selectedProduct.stock : null;
+                  const qty = Number(item.quantity) || 0;
+                  const stockOver = stock !== null && stock > 0 && qty > stock;
+                  const stockEmpty = stock === 0;
+                  const stockBorderClass = !isService && (stockEmpty || stockOver)
+                    ? 'border-p-error'
+                    : !isService && selectedProduct && stock !== null && stock <= 3
+                    ? 'border-amber-300'
+                    : 'border-p-border';
+
+                  return (
+                    <div
+                      key={index}
+                      className={`rounded-xl border bg-p-surface-2 ${stockBorderClass} transition-colors`}
+                    >
+                      {/* Fila principal: select + qty */}
+                      <div className="flex items-center gap-2 p-2">
+                        <select
+                          value={item.productId}
+                          onChange={(event) => {
+                            const next = [...posItems];
+                            next[index] = { ...next[index], productId: event.target.value };
+                            setPosItems(next);
+                            setPosError('');
+                          }}
+                          disabled={posSubmitting || posLoadingProducts}
+                          className="h-9 min-w-0 flex-1 rounded-lg border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent disabled:opacity-60"
+                        >
+                          <option value="">{posLoadingProducts ? 'Cargando...' : 'Seleccionar ítem'}</option>
+                          {posProducts.filter((p) => p.type === 'product').length > 0 && (
+                            <optgroup label="Productos">
+                              {posProducts.filter((p) => p.type === 'product').map((product) => (
+                                <option key={`product:${product.id}`} value={`product:${product.id}`} disabled={product.stock === 0}>
+                                  {product.name} — {formatMoney(product.price)}{product.stock === 0 ? ' (sin stock)' : ''}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {posProducts.filter((p) => p.type === 'service').length > 0 && (
+                            <optgroup label="Servicios">
+                              {posProducts.filter((p) => p.type === 'service').map((service) => (
+                                <option key={`service:${service.id}`} value={`service:${service.id}`}>
+                                  {service.name} — {formatMoney(service.price)}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </select>
+                        <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={item.quantity}
+                          onChange={(event) => {
+                            const next = [...posItems];
+                            next[index] = { ...next[index], quantity: event.target.value };
+                            setPosItems(next);
+                            setPosError('');
+                          }}
+                          disabled={posSubmitting}
+                          className="h-9 w-14 shrink-0 rounded-lg border border-p-border bg-p-surface px-2 text-center text-[13px] text-p-text outline-none focus:border-p-accent disabled:opacity-60"
+                          placeholder="1"
+                        />
+                        {posItems.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setPosItems((prev) => prev.filter((_, i) => i !== index))}
+                            disabled={posSubmitting}
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-p-border bg-p-surface text-p-text-muted transition hover:bg-p-error-bg hover:text-p-error disabled:opacity-60"
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Footer del card: stock (solo para productos) */}
+                      {selectedProduct && !isService && (
+                        <div className="flex items-center gap-2 border-t border-p-border px-3 py-1.5">
+                          {stockEmpty ? (
+                            <span className="text-[11px] font-medium text-p-error">Sin stock — no se puede vender</span>
+                          ) : stockOver ? (
+                            <>
+                              <span className="text-[11px] font-medium text-p-error">Stock insuficiente</span>
+                              <span className="text-[11px] text-p-text-muted">· solo hay {stock}</span>
+                            </>
+                          ) : stock !== null && stock <= 3 ? (
+                            <span className="text-[11px] font-medium text-amber-600">Stock bajo · {stock} {stock === 1 ? 'disponible' : 'disponibles'}</span>
+                          ) : (
+                            <span className="text-[11px] text-p-text-muted">{stock} disponibles en stock</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                <button
+                  type="button"
+                  onClick={() => setPosItems((prev) => [...prev, { productId: '', quantity: '1' }])}
+                  disabled={posSubmitting}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-medium text-p-text-secondary transition hover:bg-p-surface-2 disabled:opacity-60"
+                >
+                  <Plus size={12} />
+                  Agregar ítem
+                </button>
+              </div>
+
+              {/* Total real del quote (con descuentos si aplica) */}
+              {(posQuoteLoading || posQuote) && (
+                <div className="mt-3 space-y-1 rounded-xl border border-p-border bg-p-surface px-3 py-2.5">
+                  {posQuoteLoading ? (
+                    <p className="text-[12px] text-p-text-muted">Calculando...</p>
+                  ) : posQuote && (
+                    <>
+                      {posQuote.hasDiscount && (
+                        <>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] text-p-text-muted">Subtotal</span>
+                            <span className="text-[12px] text-p-text-muted line-through">{formatMoney(posQuote.listTotal)}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] text-p-positive">Descuento</span>
+                            <span className="text-[12px] text-p-positive">−{formatMoney(posQuote.discountTotal)}</span>
+                          </div>
+                        </>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <span className="text-[12px] font-semibold text-p-text">Total</span>
+                        <span className="text-[16px] font-bold text-p-text">{formatMoney(posQuote.finalTotal)}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </AdminDrawerSection>
+
+            {/* Aviso de siguiente paso */}
+            <div className="rounded-xl border border-p-border bg-p-surface-2 px-3 py-2.5 text-[12px] text-p-text-muted">
+              Al crear la cuenta podrás elegir el método de pago (efectivo, transferencia, tarjeta) desde el flujo de cobro.
+            </div>
+
+            {/* Error */}
+            {posError && (
+              <div className="rounded-xl border border-p-error bg-p-error-bg px-3 py-2 text-[12px] text-p-error">
+                {posError}
+              </div>
+            )}
+          </div>
         )}
       </AdminDrawer>
     </>

@@ -399,23 +399,25 @@ export default function AdminPlaygroundShell({
             </button>
 
             <nav className="w-full space-y-1 px-2">
-              {PLAYGROUND_SIDEBAR_ITEMS.map(({ label, icon: Icon, href, comingSoon }) => {
-                const active = label === activeItem;
+              {PLAYGROUND_SIDEBAR_ITEMS.map(({ label, icon: Icon, href, disabled }) => {
+                const active = !disabled && label === activeItem;
                 return (
                   <button
                     key={label}
                     type="button"
+                    disabled={disabled}
                     onClick={() => {
-                      if (router.pathname !== href) void router.push(href);
+                      if (!disabled && router.pathname !== href) void router.push(href);
                     }}
-                    className={`w-full rounded-md py-2 text-left text-[11px] transition-colors ${
-                      active
-                        ? 'bg-p-brand text-p-brand-on'
-                        : comingSoon
-                          ? 'text-p-text-muted hover:bg-p-surface-2'
+                    className={`w-full rounded-md py-2 text-left text-[11px] transition-colors px-0 ${
+                      disabled
+                        ? 'cursor-not-allowed opacity-40 text-p-text-muted'
+                        : active
+                          ? 'bg-p-brand text-p-brand-on'
                           : 'text-p-text-muted hover:bg-p-surface-2'
-                    } px-0`}
-                    title={comingSoon ? 'Proximamente' : label}
+                    }`}
+                    title={disabled ? 'Disponible más adelante' : label}
+                    aria-disabled={disabled}
                   >
                     <span className="grid grid-cols-[48px_1fr] items-center">
                       <span className="inline-flex w-full shrink-0 justify-center">
@@ -428,14 +430,7 @@ export default function AdminPlaygroundShell({
                             : 'max-w-[124px] translate-x-0 opacity-100 blur-0'
                         }`}
                       >
-                        <span className="inline-flex items-center gap-1">
-                          <span>{label}</span>
-                          {comingSoon && (
-                            <span className="rounded bg-p-positive-bg px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide text-p-positive">
-                              Proximamente
-                            </span>
-                          )}
-                        </span>
+                        {label}
                       </span>
                     </span>
                   </button>
@@ -453,24 +448,26 @@ export default function AdminPlaygroundShell({
           </main>
         </div>
         <nav className="flex h-[62px] shrink-0 items-center gap-1 overflow-x-auto border-t border-p-border bg-p-surface px-2 lg:hidden">
-          {PLAYGROUND_SIDEBAR_ITEMS.map(({ label, icon: Icon, href, comingSoon }) => {
-            const active = label === activeItem;
+          {PLAYGROUND_SIDEBAR_ITEMS.map(({ label, icon: Icon, href, disabled }) => {
+            const active = !disabled && label === activeItem;
             return (
               <button
                 key={`mobile-${label}`}
                 type="button"
+                disabled={disabled}
                 onClick={() => {
-                  if (router.pathname !== href) void router.push(href);
+                  if (!disabled && router.pathname !== href) void router.push(href);
                 }}
                 className={`flex h-12 min-w-[76px] flex-col items-center justify-center rounded-xl px-2 text-[10px] font-semibold transition ${
-                  active
-                    ? 'bg-p-brand text-p-brand-on'
-                    : comingSoon
-                      ? 'text-p-text-muted hover:bg-p-surface-2'
+                  disabled
+                    ? 'cursor-not-allowed opacity-40 text-p-text-muted'
+                    : active
+                      ? 'bg-p-brand text-p-brand-on'
                       : 'text-p-text-muted hover:bg-p-surface-2'
                 }`}
-                title={label}
-                aria-label={label}
+                title={disabled ? 'Disponible más adelante' : label}
+                aria-label={disabled ? `${label} — Disponible más adelante` : label}
+                aria-disabled={disabled}
               >
                 <Icon size={15} />
                 <span className="mt-1 max-w-[68px] truncate">{label}</span>

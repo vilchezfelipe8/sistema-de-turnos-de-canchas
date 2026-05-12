@@ -23,6 +23,8 @@ type CashShiftPanelProps = {
   onRegisterMovement: () => void;
   /** Navega a la pestaña Cierre. */
   onGoToClosures: () => void;
+  /** Abre el drawer de venta mostrador (Consumidor final). */
+  onProductSale?: () => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -92,6 +94,7 @@ export default function CashShiftPanel({
   onToggleShift,
   onRegisterMovement,
   onGoToClosures,
+  onProductSale,
 }: CashShiftPanelProps) {
   const isOpen = Boolean(shift);
 
@@ -182,6 +185,12 @@ export default function CashShiftPanel({
                 label="Ver cierres"
                 onClick={onGoToClosures}
               />
+              {onProductSale && (
+                <QuickActionButton
+                  label="Venta mostrador"
+                  onClick={onProductSale}
+                />
+              )}
             </div>
           </div>
         </div>

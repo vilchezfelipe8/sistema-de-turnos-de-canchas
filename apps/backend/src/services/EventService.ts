@@ -10,6 +10,7 @@ export const DOMAIN_EVENTS = {
   BOOKING_PARTICIPANT_ADDED: 'BOOKING_PARTICIPANT_ADDED',
   BOOKING_PARTICIPANT_REMOVED: 'BOOKING_PARTICIPANT_REMOVED',
   BOOKING_BILLING_CONFIG_UPDATED: 'BOOKING_BILLING_CONFIG_UPDATED',
+  BOOKING_CLIENT_CHANGED: 'BOOKING_CLIENT_CHANGED',
   BOOKING_NOTES_UPDATED: 'BOOKING_NOTES_UPDATED',
   PAYMENT_RECEIVED: 'PAYMENT_RECEIVED',
   PRODUCT_SOLD: 'PRODUCT_SOLD',
@@ -68,6 +69,10 @@ export class EventService {
 
   async bookingBillingConfigUpdated(clubId: number, payload: Record<string, any>, tx?: DbClient) {
     return this.createEvent(clubId, DOMAIN_EVENTS.BOOKING_BILLING_CONFIG_UPDATED, payload, tx);
+  }
+
+  async bookingClientChanged(clubId: number, payload: Record<string, any>, tx?: DbClient) {
+    return this.createEvent(clubId, DOMAIN_EVENTS.BOOKING_CLIENT_CHANGED, payload, tx);
   }
 
   async bookingNotesUpdated(clubId: number, payload: Record<string, any>, tx?: DbClient) {

@@ -203,7 +203,7 @@ export class AuthController {
 
     private async issueAuthPayload(userId: number, res: Response, req: Request, preferredClubId?: number) {
         const authUser = await this.buildAuthUserPayload(userId, preferredClubId);
-        let token: string;
+        let token: string | null = null;
 
         if (authConfig.enableCookieSessions) {
             const sessionBundle = await this.authSessionService.issueSession({
@@ -211,8 +211,10 @@ export class AuthController {
                 role: authUser.user.role,
                 meta: this.getRequestMeta(req)
             });
-            token = sessionBundle.accessToken;
             this.setSessionCookies(res, sessionBundle.accessToken, sessionBundle.refreshToken);
+            if (authConfig.allowBearerLegacy) {
+                token = sessionBundle.accessToken;
+            }
         } else {
             token = this.authTokenService.signAccessToken({
                 userId: authUser.user.id,
@@ -220,10 +222,9 @@ export class AuthController {
             });
         }
 
-        return {
-            token,
-            user: authUser.payload
-        };
+        return token
+            ? { token, user: authUser.payload }
+            : { user: authUser.payload };
     }
 
     private getVerifyRedirectUrl(req: Request, params: { token?: string; reason?: VerifyFailureReason }) {
@@ -303,7 +304,8 @@ export class AuthController {
             });
             return res.status(201).json({ message: "Usuario creado", userId: newUser.id });
         } catch (error: any) {
-            return res.status(500).json({ error: error.message });
+            logger.error({ err: error, action: 'register' }, 'Error registrando usuario');
+            return res.status(500).json({ error: 'No se pudo completar el registro.' });
         }
     }
 
@@ -342,7 +344,8 @@ export class AuthController {
                 ...payload
             });
         } catch (error: any) {
-            return res.status(500).json({ error: error.message });
+            logger.error({ err: error, action: 'login' }, 'Error iniciando sesión');
+            return res.status(500).json({ error: 'No se pudo iniciar sesión en este momento.' });
         }
     }
 
@@ -497,7 +500,8 @@ export class AuthController {
                 });
             }
 
-            return res.redirect(302, this.getVerifyRedirectUrl(req, { token: payload.token }));
+            const legacyToken = typeof (payload as any)?.token === 'string' ? String((payload as any).token) : undefined;
+            return res.redirect(302, this.getVerifyRedirectUrl(req, { token: legacyToken }));
         } catch (error) {
             logger.error(
                 {
@@ -556,7 +560,8 @@ export class AuthController {
                 club
             });
         } catch (error: any) {
-            return res.status(500).json({ error: error.message });
+            logger.error({ err: error, action: 'getMe' }, 'Error consultando sesión actual');
+            return res.status(500).json({ error: 'No se pudo consultar la sesión actual.' });
         }
     };
 
@@ -646,7 +651,8 @@ export class AuthController {
                 club
             });
         } catch (error: any) {
-            return res.status(500).json({ error: error.message || 'No se pudo actualizar el perfil' });
+            logger.error({ err: error, action: 'updateMe' }, 'Error actualizando perfil');
+            return res.status(500).json({ error: 'No se pudo actualizar el perfil.' });
         }
     };
 
@@ -675,7 +681,8 @@ export class AuthController {
             this.setSessionCookies(res, rotated.accessToken, rotated.refreshToken);
             return res.status(204).send();
         } catch (error: any) {
-            return res.status(500).json({ error: error?.message || 'No se pudo refrescar la sesión.' });
+            logger.error({ err: error, action: 'sessionRefresh' }, 'Error refrescando sesión');
+            return res.status(500).json({ error: 'No se pudo refrescar la sesión.' });
         }
     };
 
@@ -692,7 +699,8 @@ export class AuthController {
             this.clearSessionCookies(res);
             return res.status(204).send();
         } catch (error: any) {
-            return res.status(500).json({ error: error?.message || 'No se pudo cerrar la sesión.' });
+            logger.error({ err: error, action: 'sessionLogout' }, 'Error cerrando sesión actual');
+            return res.status(500).json({ error: 'No se pudo cerrar la sesión.' });
         }
     };
 
@@ -708,7 +716,8 @@ export class AuthController {
             this.clearSessionCookies(res);
             return res.status(204).send();
         } catch (error: any) {
-            return res.status(500).json({ error: error?.message || 'No se pudieron cerrar las sesiones.' });
+            logger.error({ err: error, action: 'sessionLogoutAll' }, 'Error cerrando todas las sesiones');
+            return res.status(500).json({ error: 'No se pudieron cerrar las sesiones.' });
         }
     };
 }

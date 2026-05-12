@@ -45,7 +45,7 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
     const { token, source } = resolveAuthToken(req);
 
     if (!token) {
-        return sendAuthError(res, 401, 'AUTH_MISSING', 'Acceso denegado. Falta el token.');
+        return sendAuthError(res, 401, 'AUTH_MISSING', 'Acceso denegado. Falta autenticación.');
     }
 
     try {

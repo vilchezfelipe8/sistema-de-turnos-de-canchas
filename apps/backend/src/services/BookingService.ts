@@ -55,6 +55,8 @@ type CreateBookingOptions = {
         phone?: string | null;
         email?: string | null;
         dni?: string | null;
+        /** Caso C: el admin confirmó crear un cliente nuevo aunque coincida con un existente */
+        duplicateResolution?: 'CREATE_NEW' | null;
     } | null;
 };
 
@@ -66,6 +68,8 @@ type CreateFixedBookingOptions = {
         phone?: string | null;
         email?: string | null;
         dni?: string | null;
+        /** Caso C: el admin confirmó crear un cliente nuevo aunque coincida con un existente */
+        duplicateResolution?: 'CREATE_NEW' | null;
     } | null;
     clubId?: number;
     actorUserId?: number | null;
@@ -1415,13 +1419,6 @@ export class BookingService {
         );
     }
 
-    private isUniqueSlotConstraintError(error: unknown) {
-        return (
-            error instanceof Prisma.PrismaClientKnownRequestError &&
-            error.code === 'P2002'
-        );
-    }
-
     private mapActivityType(activity: any): ActivityType | null {
         if (!activity) return null;
 
@@ -1764,6 +1761,12 @@ export class BookingService {
         phone?: string | null;
         email?: string | null;
         dni?: string | null;
+        /**
+         * Caso C — el humano confirmó crear un nuevo cliente aunque coincida con existentes.
+         * Con este flag en true, los candidatos encontrados NO bloquean la creación.
+         * Sin este flag (default), cualquier candidato lanza CLIENT_POSSIBLE_DUPLICATE.
+         */
+        forceCreateNew?: boolean;
     }) {
         const safeName = String(input.name ?? '').trim();
         if (!safeName) {
@@ -1776,11 +1779,10 @@ export class BookingService {
         const safeUserId = Number.isInteger(Number(input.userId)) && Number(input.userId) > 0 ? Number(input.userId) : null;
 
         if (!safeUserId) {
+            // Fase 1.2: email es opcional en alta rápida admin.
+            // Solo phone es obligatorio para garantizar contactabilidad mínima.
             if (!safePhone) {
                 throw new Error('El teléfono es obligatorio para crear un nuevo cliente.');
-            }
-            if (!safeEmail) {
-                throw new Error('El email es obligatorio para crear un nuevo cliente.');
             }
         }
 
@@ -1803,76 +1805,23 @@ export class BookingService {
                 return existingByUser;
             }
 
-            // Step 2: email is the identity bridge — link silently if a manual
-            // (unlinked) client with the same email exists. No mismatch checks:
-            // admin data (name, phone) stays untouched; differences are expected.
-            if (safeEmail) {
-                const unlinkedByEmail = await tx.client.findFirst({
-                    where: { clubId: input.clubId, email: safeEmail, userId: null }
-                });
-                if (unlinkedByEmail) {
-                    const linked = await tx.client.update({
-                        where: { id: unlinkedByEmail.id },
-                        data: { userId: safeUserId }
-                    });
-                    await recordUserClientLinkAuditTx(tx, {
-                        clubId: input.clubId,
-                        userId: safeUserId,
-                        clientId: String(linked.id),
-                        reason: 'EXACT_EMAIL_MATCH',
-                        source: 'BOOKING'
-                    });
-                    return linked;
-                }
-            }
+            // Step 2 (EXACT_EMAIL_MATCH) deliberately removed.
+            // Auto-linking an existing client to a user by email coincidence is
+            // not allowed. A manual PATCH /admin/bookings/:id/client endpoint
+            // must be used to change the titular explicitly (Commit 3).
 
-            // Step 3: no existing client found — create a fresh one for this user.
-            // Phone/DNI/email are optional here. If a manual client already owns
-            // one of those unique fields, do not block the booking or link by it.
-            let phoneForCreate: string | null = safePhone || null;
-            if (safePhone) {
-                const phoneVariants = getPhoneIdentityVariants(safePhone);
-                const clientWithPhone = await tx.client.findFirst({
-                    where: { clubId: input.clubId, phone: { in: phoneVariants } },
-                    select: { id: true }
-                });
-                if (clientWithPhone) phoneForCreate = null;
-            }
-
-            let dniForCreate: string | null = safeDni || null;
-            if (safeDni) {
-                const clientWithDni = await tx.client.findFirst({
-                    where: { clubId: input.clubId, dni: safeDni },
-                    select: { id: true }
-                });
-                if (clientWithDni) dniForCreate = null;
-            }
-
-            let emailForCreate: string | null = safeEmail || null;
-            if (safeEmail) {
-                const clientWithEmail = await tx.client.findFirst({
-                    where: { clubId: input.clubId, email: safeEmail },
-                    select: { id: true }
-                });
-                if (clientWithEmail) emailForCreate = null;
-            }
-
+            // Step 3: no existing linked client found.
+            // MVP policy: bookings must never create automatic User<->Client links.
+            // We create an operational client record without userId linkage.
             const created = await tx.client.create({
                 data: {
                     clubId: input.clubId,
                     name: safeName,
-                    phone: phoneForCreate,
-                    email: emailForCreate,
-                    dni: dniForCreate,
-                    userId: safeUserId
+                    phone: safePhone || null,
+                    email: safeEmail || null,
+                    dni: safeDni || null,
+                    userId: null
                 }
-            });
-            await recordUserClientLinkAuditTx(tx, {
-                clubId: input.clubId,
-                userId: safeUserId,
-                clientId: String(created.id),
-                reason: 'CREATED_CLIENT',
-                source: 'BOOKING'
             });
             return created;
         }
@@ -1915,6 +1864,20 @@ export class BookingService {
             )
         );
         if (candidateIds.length > 1) {
+            const candidateMap = new Map<string, { id: string; name: string; phone?: string | null; email?: string | null }>();
+            const pushCandidate = (row: any) => {
+                const id = String(row?.id || '').trim();
+                if (!id || candidateMap.has(id)) return;
+                candidateMap.set(id, {
+                    id,
+                    name: String(row?.name || '').trim() || 'Cliente sin nombre',
+                    phone: row?.phone ?? null,
+                    email: row?.email ?? null
+                });
+            };
+            pushCandidate(existingByDni);
+            pushCandidate(existingByPhone);
+            pushCandidate(existingByEmail);
             const conflictError: any = new Error('CLIENT_POSSIBLE_DUPLICATE');
             conflictError.code = 'CLIENT_POSSIBLE_DUPLICATE';
             const reasonSignals = new Set<string>();
@@ -1930,55 +1893,63 @@ export class BookingService {
                     dni: safeDni || null,
                     phone: safePhone || null,
                     email: safeEmail || null
-                }
+                },
+                candidates: Array.from(candidateMap.values())
             };
             throw conflictError;
         }
 
+        // Si hay exactamente un candidato, cargarlo para incluirlo en el error.
         const existingByIdentity = candidateIds.length === 1
             ? await tx.client.findUnique({ where: { id: candidateIds[0] } })
             : null;
 
-        if (existingByIdentity) {
-            const conflictError: any = new Error('CLIENT_POSSIBLE_DUPLICATE');
-            conflictError.code = 'CLIENT_POSSIBLE_DUPLICATE';
+        // Caso B — candidato único encontrado: la decisión es humana, no automática.
+        // Lanzamos CLIENT_POSSIBLE_DUPLICATE igual que para múltiples candidatos.
+        // La UI debe elegir: usar ese cliente, cancelar, o crear uno nuevo igualmente.
+        //
+        // Caso C — si forceCreateNew está activo, el humano ya confirmó crear nuevo.
+        // En ese caso saltamos el error y creamos directamente.
+        if (existingByIdentity && !input.forceCreateNew) {
             const reasonSignals = new Set<string>();
             if (existingByDni?.id) reasonSignals.add('DNI');
             if (existingByPhone?.id) reasonSignals.add('PHONE');
             if (existingByEmail?.id) reasonSignals.add('EMAIL');
+            const conflictError: any = new Error('CLIENT_POSSIBLE_DUPLICATE');
+            conflictError.code = 'CLIENT_POSSIBLE_DUPLICATE';
             conflictError.details = {
                 clubId: input.clubId,
-                userId: safeUserId,
                 candidateClientIds: [existingByIdentity.id],
                 reasonType: reasonSignals.size === 1 ? Array.from(reasonSignals)[0] : 'IDENTITY_MATCH_REQUIRES_SELECTION',
                 signals: {
                     dni: safeDni || null,
                     phone: safePhone || null,
                     email: safeEmail || null
-                }
+                },
+                candidates: [
+                    {
+                        id: String(existingByIdentity.id),
+                        name: String(existingByIdentity.name || '').trim() || 'Cliente sin nombre',
+                        phone: existingByIdentity.phone ?? null,
+                        email: existingByIdentity.email ?? null
+                    }
+                ]
             };
             throw conflictError;
         }
 
+        // Sin candidatos, o forceCreateNew confirmado: crear nuevo cliente.
+        // Nunca se setea Client.userId aquí (solo en el path safeUserId arriba,
+        // para usuarios logueados sin cliente previo).
         const created = await tx.client.create({
             data: {
                 clubId: input.clubId,
                 name: safeName,
                 phone: safePhone || null,
                 email: safeEmail || null,
-                dni: safeDni || null,
-                userId: safeUserId
+                dni: safeDni || null
             }
         });
-        if (safeUserId) {
-            await recordUserClientLinkAuditTx(tx, {
-                clubId: input.clubId,
-                userId: safeUserId,
-                clientId: String(created.id),
-                reason: 'CREATED_CLIENT',
-                source: 'BOOKING'
-            });
-        }
         return created;
     }
 
@@ -2427,7 +2398,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         const requestedClientId = String(options?.clientId || '').trim();
         const requestedClientDraftName = String(options?.clientDraft?.name || '').trim();
         const requestedClientDraftPhone = this.normalizePhone(options?.clientDraft?.phone);
-        const requestedClientDraftEmail = String(options?.clientDraft?.email || '').trim().toLowerCase();
+        // requestedClientDraftEmail eliminado (Fase 1.2): email ya no es obligatorio en alta rápida admin.
 
         if (userId) {
             user = await this.userRepo.findById(userId);
@@ -2436,11 +2407,9 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             if (!requestedClientId && requestedClientDraftName.length < 2) {
                 throw new Error("Debes seleccionar un cliente o cargar un alta rápida válida.");
             }
+            // Fase 1.2: email es opcional. Solo phone es obligatorio.
             if (!requestedClientId && !requestedClientDraftPhone) {
                 throw new Error("El teléfono es obligatorio para el alta rápida de cliente.");
-            }
-            if (!requestedClientId && !requestedClientDraftEmail) {
-                throw new Error("El email es obligatorio para el alta rápida de cliente.");
             }
         }
 
@@ -2667,7 +2636,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         name: draftName,
                         phone: options?.clientDraft?.phone ?? user?.phoneNumber ?? null,
                         email: options?.clientDraft?.email ?? user?.email ?? null,
-                        dni: dniForClient
+                        dni: dniForClient,
+                        forceCreateNew: options?.clientDraft?.duplicateResolution === 'CREATE_NEW'
                     });
                 }
 
@@ -2814,9 +2784,6 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
                 await this.outboxService.enqueueMany(outboxMessages, tx);
             } catch (error) {
-                if (this.isUniqueSlotConstraintError(error)) {
-                    throw new Error('SLOT_ALREADY_BOOKED');
-                }
                 if (this.isOverlapConstraintError(error)) {
                     throw new Error('SLOT_ALREADY_BOOKED');
                 }
@@ -3227,6 +3194,190 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         
         const updated = await this.bookingRepo.findById(bookingId);
         return updated;
+    }
+
+    // Commit 3 — Titular canónico: cambio explícito de cliente en una reserva.
+    // Solo OWNER/ADMIN. El nuevo clientId debe pertenecer al mismo club.
+    // Bloqueado si la cuenta tiene pagos o devoluciones registrados.
+    async changeBookingClient(params: {
+        bookingId: number;
+        newClientId: string;
+        actorUserId: number;
+        clubId: number;
+        reason?: string | null;
+    }) {
+        const { bookingId, newClientId, actorUserId, clubId, reason } = params;
+
+        return prisma.$transaction(async (tx) => {
+            // 1. Cargar la reserva y validar que pertenece al club
+            const booking = await tx.booking.findFirst({
+                where: { id: bookingId, clubId },
+                select: { id: true, clubId: true, clientId: true, status: true }
+            });
+            if (!booking) {
+                throw new Error('Reserva no encontrada o no pertenece al club');
+            }
+
+            const oldClientId = booking.clientId;
+
+            if (oldClientId === newClientId) {
+                throw new Error('El nuevo titular es el mismo que el actual');
+            }
+            if (!['PENDING', 'CONFIRMED'].includes(String(booking.status || ''))) {
+                throw new Error('No se puede cambiar el titular en el estado actual de la reserva.');
+            }
+
+            // 2. Validar que el nuevo cliente pertenece al mismo club
+            const newClient = await tx.client.findFirst({
+                where: { id: newClientId, clubId },
+                select: { id: true, name: true }
+            });
+            if (!newClient) {
+                throw new Error('El cliente seleccionado no existe en este club');
+            }
+
+            // 3. Bloquear si la cuenta tiene pagos o devoluciones
+            const account = await tx.account.findFirst({
+                where: {
+                    clubId,
+                    sourceType: 'BOOKING',
+                    sourceId: String(bookingId)
+                },
+                select: {
+                    id: true,
+                    status: true,
+                    _count: { select: { payments: true, refunds: true } }
+                }
+            });
+            const isClosedAccount = String(account?.status || '') === 'CLOSED';
+            const hasPayments = (account?._count?.payments ?? 0) > 0;
+            const hasRefunds = (account?._count?.refunds ?? 0) > 0;
+            if (hasPayments || hasRefunds || isClosedAccount) {
+                throw new Error(
+                    'No se puede cambiar el titular: la reserva ya tiene pagos/devoluciones registrados o la cuenta está cerrada.'
+                );
+            }
+
+            // 4. Cambiar el titular
+            const updated = await tx.booking.update({
+                where: { id: bookingId },
+                data: { clientId: newClientId },
+                select: {
+                    id: true,
+                    clientId: true,
+                    client: { select: { id: true, name: true } }
+                }
+            });
+
+            // 4.1 Sincronizar billing config para evitar inconsistencias
+            // (hover/drawer mostrando titular anterior por metadata/refs legacy).
+            const billingConfig = await tx.bookingBillingConfig.findUnique({
+                where: { bookingId },
+                select: {
+                    id: true,
+                    chargeResponsibleRef: true,
+                    assignmentsJson: true,
+                    metadataJson: true
+                }
+            });
+
+            const oldBookingClientRef = `booking-client:${oldClientId}`;
+            const newBookingClientRef = `booking-client:${newClientId}`;
+            const oldClientRef = `client:${oldClientId}`;
+            const newClientRef = `client:${newClientId}`;
+
+            const replaceRef = (input: unknown): string => {
+                const raw = String(input || '').trim();
+                if (!raw) return raw;
+                if (raw === oldBookingClientRef) return newBookingClientRef;
+                if (raw === oldClientRef) return newClientRef;
+                return raw;
+            };
+
+            if (billingConfig) {
+                const rawAssignments = Array.isArray(billingConfig.assignmentsJson)
+                    ? (billingConfig.assignmentsJson as Array<Record<string, unknown>>)
+                    : [];
+
+                const nextAssignments = rawAssignments.map((assignment) => ({
+                    ...assignment,
+                    participantRef: replaceRef((assignment as any)?.participantRef)
+                }));
+
+                const rawMetadata =
+                    billingConfig.metadataJson && typeof billingConfig.metadataJson === 'object'
+                        ? ({ ...(billingConfig.metadataJson as Record<string, unknown>) } as Record<string, unknown>)
+                        : {};
+
+                const rawSidebarParticipants = Array.isArray(rawMetadata.sidebarParticipants)
+                    ? (rawMetadata.sidebarParticipants as Array<Record<string, unknown>>)
+                    : [];
+
+                const nextSidebarParticipants = rawSidebarParticipants.map((participant) => {
+                    const nextRef = replaceRef((participant as any)?.ref);
+                    const isOwner = Boolean((participant as any)?.isOwner);
+                    const normalizedRef = String(nextRef || '').trim();
+                    const shouldRenameOwner =
+                        isOwner &&
+                        (normalizedRef === newBookingClientRef || normalizedRef === newClientRef);
+                    return {
+                        ...participant,
+                        ref: nextRef,
+                        name: shouldRenameOwner
+                            ? String(newClient.name || (participant as any)?.name || '').trim()
+                            : (participant as any)?.name
+                    };
+                });
+
+                const sidebarBlock =
+                    rawMetadata.sidebar && typeof rawMetadata.sidebar === 'object'
+                        ? ({ ...(rawMetadata.sidebar as Record<string, unknown>) } as Record<string, unknown>)
+                        : {};
+                sidebarBlock.participants = nextSidebarParticipants;
+
+                rawMetadata.sidebarParticipants = nextSidebarParticipants;
+                rawMetadata.sidebar = sidebarBlock;
+
+                await tx.bookingBillingConfig.update({
+                    where: { id: billingConfig.id },
+                    data: {
+                        chargeResponsibleRef: replaceRef(billingConfig.chargeResponsibleRef),
+                        assignmentsJson: nextAssignments as unknown as Prisma.InputJsonValue,
+                        metadataJson: rawMetadata as unknown as Prisma.InputJsonValue
+                    }
+                });
+            }
+
+            await this.eventService.bookingClientChanged(clubId, {
+                bookingId,
+                oldClientId,
+                newClientId,
+                oldClientRef: oldBookingClientRef,
+                newClientRef: newBookingClientRef,
+                oldClientName: null,
+                newClientName: newClient.name,
+                actorUserId,
+                reason: reason ?? null,
+                source: 'MANUAL'
+            }, tx as any);
+
+            // 5. Auditoría
+            await this.auditLogService.create({
+                clubId,
+                userId: actorUserId,
+                entity: 'Booking',
+                entityId: String(bookingId),
+                action: 'BOOKING_CLIENT_CHANGED',
+                payload: {
+                    oldClientId,
+                    newClientId,
+                    actorUserId,
+                    reason: reason ?? null
+                }
+            });
+
+            return updated;
+        });
     }
 
     async confirmBooking(bookingId: number, actorUserId: number, clubId: number) {
@@ -4250,16 +4401,14 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         const requestedClientId = String(options?.clientId || '').trim();
         const requestedClientDraftName = String(options?.clientDraft?.name || '').trim();
         const requestedClientDraftPhone = this.normalizePhone(options?.clientDraft?.phone);
-        const requestedClientDraftEmail = String(options?.clientDraft?.email || '').trim().toLowerCase();
+        // requestedClientDraftEmail eliminado (Fase 1.2): email ya no es obligatorio en alta rápida admin.
 
         if (!requestedClientId && !requestedUserId && requestedClientDraftName.length < 2) {
             throw new Error('Debes seleccionar un cliente o cargar un alta rápida válida.');
         }
+        // Fase 1.2: email es opcional. Solo phone es obligatorio.
         if (!requestedClientId && !requestedUserId && !requestedClientDraftPhone) {
             throw new Error('El teléfono es obligatorio para el alta rápida de cliente.');
-        }
-        if (!requestedClientId && !requestedUserId && !requestedClientDraftEmail) {
-            throw new Error('El email es obligatorio para el alta rápida de cliente.');
         }
 
         let user: User | null = null;
@@ -4461,7 +4610,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     name: draftName,
                     phone: draftPhone,
                     email: draftEmail,
-                    dni: draftDni
+                    dni: draftDni,
+                    forceCreateNew: options?.clientDraft?.duplicateResolution === 'CREATE_NEW'
                 });
             });
 

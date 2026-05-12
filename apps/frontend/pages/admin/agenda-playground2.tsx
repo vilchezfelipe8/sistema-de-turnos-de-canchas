@@ -17,7 +17,7 @@ import PlaytomicPaymentModal from '../../components/admin/payments/PlaytomicPaym
 import PaymentRegistrationDrawer from '../../components/admin/payments/PaymentRegistrationDrawer';
 import { getPendingLogoutRedirect } from '../../services/AuthService';
 import { ClubAdminService, type BookingBillingConfig } from '../../services/ClubAdminService';
-import { cancelBooking, cancelFixedBooking, confirmBooking, createBooking, createFixedBooking, getAdminSchedule, getBookingBillingConfig, getBookingById, getBookingFinancialSummary, getBookingQuote, getBookingTimelineEvents, registerBookingPartialPayment, rescheduleFixedBooking, updateBookingBillingConfig, type BookingDomainEvent } from '../../services/BookingService';
+import { cancelBooking, cancelFixedBooking, changeBookingClient, confirmBooking, createBooking, createFixedBooking, getAdminSchedule, getBookingBillingConfig, getBookingById, getBookingFinancialSummary, getBookingQuote, getBookingTimelineEvents, registerBookingPartialPayment, rescheduleFixedBooking, updateBookingBillingConfig, type BookingDomainEvent } from '../../services/BookingService';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
 import { reportUiError } from '../../utils/uiError';
 import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser } from '../../utils/session';
@@ -245,6 +245,13 @@ type PlaytomicPaymentResultModal = {
 type PaymentModalState =
   | { flow: 'playtomicPayment'; step: 'form' | 'preconfirm' | 'result' }
   | null;
+
+type DuplicateClientCandidate = {
+  id: string;
+  name: string;
+  phone?: string;
+  email?: string;
+};
 
 
 const rowHeight = 120; // visual height per hour (zoom vertical para diferenciar mejor 15m vs 30m)
@@ -956,13 +963,21 @@ function resolveHoverParticipantsForBooking(booking: Booking) {
     const coveredAmount = Number(coveredAmountByParticipantId.get(participant.id) || 0);
     const remainingAmount = Number(Math.max(0, assignedAmount - coveredAmount).toFixed(2));
     const isPayable = assignedAmount > 0.009;
+    const effectiveCoveredAmount =
+      status === 'PAID' && isPayable
+        ? assignedAmount
+        : coveredAmount;
+    const effectiveRemainingAmount =
+      status === 'PAID' && isPayable
+        ? 0
+        : remainingAmount;
     const participantStatus: Booking['hoverPayment']['status'] = !isPayable
       ? 'UNPAID'
       : status === 'PAID'
         ? 'PAID'
-        : remainingAmount <= 0.009
+        : effectiveRemainingAmount <= 0.009
         ? 'PAID'
-        : coveredAmount > 0.009
+        : effectiveCoveredAmount > 0.009
           ? 'PARTIAL'
           : status;
 
@@ -977,8 +992,8 @@ function resolveHoverParticipantsForBooking(booking: Booking) {
       payer: isPayer || payerAmount > 0.009,
       payerAmount,
       shouldPayAmount: assignedAmount,
-      paidAmount: coveredAmount,
-      debtAmount: remainingAmount,
+      paidAmount: effectiveCoveredAmount,
+      debtAmount: effectiveRemainingAmount,
     };
   });
 }
@@ -1423,7 +1438,7 @@ function resolveChargedParticipantIds(
 }
 
 function resolvePlaygroundClientPhone(owner?: Participant | null) {
-  const fromContact = String(owner?.contact || '').replace(/\D/g, '');
+  const fromContact = extractPhoneFromParticipantContact(owner?.contact);
   if (fromContact.length >= 8) {
     return fromContact.startsWith('54') ? `+${fromContact}` : `+54${fromContact}`;
   }
@@ -1432,9 +1447,27 @@ function resolvePlaygroundClientPhone(owner?: Participant | null) {
 }
 
 function resolvePlaygroundClientEmail(owner?: Participant | null) {
-  const contact = String(owner?.contact || '').trim();
-  const match = contact.match(/[^\s@]+@[^\s@]+\.[^\s@]+/);
+  return extractEmailFromParticipantContact(owner?.contact);
+}
+
+function extractEmailFromParticipantContact(contact: unknown) {
+  const raw = String(contact || '').trim();
+  const match = raw.match(/[^\s@]+@[^\s@]+\.[^\s@]+/);
   return match ? match[0].toLowerCase() : '';
+}
+
+function extractPhoneFromParticipantContact(contact: unknown) {
+  const raw = String(contact || '').trim();
+  const email = extractEmailFromParticipantContact(raw);
+  const withoutEmail = email ? raw.replace(email, ' ') : raw;
+  return withoutEmail.replace(/\D/g, '');
+}
+
+function buildParticipantContactFromFields(phone: unknown, email: unknown) {
+  const safePhone = String(phone || '').trim();
+  const safeEmail = String(email || '').trim().toLowerCase();
+  if (safePhone && safeEmail) return `${safePhone} · ${safeEmail}`;
+  return safePhone || safeEmail || '';
 }
 
 function resolveParticipantClientId(participant?: Participant | null) {
@@ -1972,6 +2005,29 @@ export default function AdminAgendaPlaygroundPage() {
   }>({ open: false, participantId: null, participantName: '' });
   const [blockingErrorModalOpen, setBlockingErrorModalOpen] = useState(false);
   const [bookingCreatedModalOpen, setBookingCreatedModalOpen] = useState(false);
+  const [duplicateDecisionOpen, setDuplicateDecisionOpen] = useState(false);
+  const [duplicateDecisionLoading, setDuplicateDecisionLoading] = useState(false);
+  const [duplicateDecisionError, setDuplicateDecisionError] = useState('');
+  const [duplicateDecisionCandidates, setDuplicateDecisionCandidates] = useState<DuplicateClientCandidate[]>([]);
+  const [duplicateDecisionSelectedClientId, setDuplicateDecisionSelectedClientId] = useState('');
+  const [duplicateDecisionPendingPayload, setDuplicateDecisionPendingPayload] = useState<{
+    courtId: number;
+    activityId: number;
+    bookingDate: Date;
+    slotTime: string;
+    durationMinutes: number;
+    ownerName: string;
+    ownerPhone: string;
+    ownerEmail: string;
+  } | null>(null);
+  const [changeTitularModalOpen, setChangeTitularModalOpen] = useState(false);
+  const [changeTitularSearch, setChangeTitularSearch] = useState('');
+  const [changeTitularReason, setChangeTitularReason] = useState('');
+  const [changeTitularLoading, setChangeTitularLoading] = useState(false);
+  const [changeTitularSubmitting, setChangeTitularSubmitting] = useState(false);
+  const [changeTitularError, setChangeTitularError] = useState('');
+  const [changeTitularCandidates, setChangeTitularCandidates] = useState<Array<{ id: string; name: string; phone?: string; email?: string }>>([]);
+  const [changeTitularSelectedClientId, setChangeTitularSelectedClientId] = useState('');
   const [bookingKindMenuOpen, setBookingKindMenuOpen] = useState(false);
   const [editSeriesScopeModalOpen, setEditSeriesScopeModalOpen] = useState(false);
   const [pendingSeriesScopeSave, setPendingSeriesScopeSave] = useState<EditSeriesScope | null>(null);
@@ -2081,6 +2137,15 @@ export default function AdminAgendaPlaygroundPage() {
         : [],
     [normalizedUser]
   );
+  const activeTenantRole = useMemo(() => {
+    const memberships = Array.isArray((normalizedUser as any)?.memberships)
+      ? (normalizedUser as any).memberships
+      : [];
+    const activeClubId = Number((normalizedUser as any)?.activeClubId || selectedClubIdState || 0);
+    const activeMembership = memberships.find((membership: any) => Number(membership?.clubId || 0) === activeClubId);
+    return String(activeMembership?.role || '').trim().toUpperCase();
+  }, [normalizedUser, selectedClubIdState]);
+  const canChangeTitularFromUi = activeTenantRole === 'OWNER' || activeTenantRole === 'ADMIN';
 
   const showCalendarNotice = useCallback((
     message: string,
@@ -2145,6 +2210,134 @@ export default function AdminAgendaPlaygroundPage() {
     },
     [showCalendarNotice]
   );
+
+  const closeDuplicateDecisionModal = useCallback(() => {
+    setDuplicateDecisionOpen(false);
+    setDuplicateDecisionLoading(false);
+    setDuplicateDecisionError('');
+    setDuplicateDecisionCandidates([]);
+    setDuplicateDecisionSelectedClientId('');
+    setDuplicateDecisionPendingPayload(null);
+  }, []);
+
+  const extractDuplicateCandidatesFromMeta = useCallback((meta?: Record<string, unknown>) => {
+    const directCandidates = Array.isArray(meta?.candidates) ? meta.candidates : [];
+    const fallbackCandidates = Array.isArray(meta?.candidateClients) ? meta.candidateClients : [];
+    const candidateIds = Array.isArray(meta?.candidateClientIds) ? meta?.candidateClientIds : [];
+    const source = directCandidates.length > 0 ? directCandidates : fallbackCandidates;
+
+    const parsedFromObjects: DuplicateClientCandidate[] = source
+      .map((item: any) => ({
+        id: String(item?.id || '').trim(),
+        name: String(item?.name || '').trim() || 'Cliente sin nombre',
+        phone: String(item?.phone || '').trim() || undefined,
+        email: String(item?.email || '').trim() || undefined,
+      }))
+      .filter((item) => item.id.length > 0);
+
+    if (parsedFromObjects.length > 0) return parsedFromObjects;
+
+    return (Array.isArray(candidateIds) ? candidateIds : [])
+      .map((rawId: unknown) => String(rawId || '').trim())
+      .filter((id: string) => id.length > 0)
+      .map((id: string) => ({
+        id,
+        name: `Cliente ${id.slice(0, 8)}`,
+      }));
+  }, []);
+
+  async function runDuplicateDecisionRetry(mode: 'USE_EXISTING' | 'CREATE_NEW') {
+    const payload = duplicateDecisionPendingPayload;
+    if (!payload) return;
+    const selectedClientId = String(duplicateDecisionSelectedClientId || '').trim();
+    if (mode === 'USE_EXISTING' && !selectedClientId) {
+      setDuplicateDecisionError('Seleccioná un cliente existente para continuar.');
+      return;
+    }
+
+    setDuplicateDecisionLoading(true);
+    setDuplicateDecisionError('');
+    try {
+      const createdPayload: any = await createBooking(payload.courtId, payload.activityId, payload.bookingDate, payload.slotTime, {
+        durationMinutes: payload.durationMinutes,
+        ...(mode === 'USE_EXISTING'
+          ? { clientId: selectedClientId }
+          : {
+              client: {
+                name: payload.ownerName,
+                phone: payload.ownerPhone,
+                email: payload.ownerEmail,
+                duplicateResolution: 'CREATE_NEW',
+              },
+            }),
+      });
+
+      const maybeId = Number(createdPayload?.booking?.id ?? createdPayload?.id ?? createdPayload?.bookingId);
+      if (Number.isFinite(maybeId) && maybeId > 0) {
+        const bookingPayload =
+          createdPayload?.booking && typeof createdPayload.booking === 'object'
+            ? createdPayload.booking
+            : createdPayload;
+        let createdBookingClientIdRaw = String(
+          bookingPayload?.clientId || bookingPayload?.client?.id || ''
+        ).trim();
+        let createdBookingClientName = String(
+          bookingPayload?.client?.name || bookingPayload?.clientName || ''
+        ).trim();
+        let createdBookingUserIdRaw = Number(
+          bookingPayload?.userId || bookingPayload?.user?.id || 0
+        );
+        if (!createdBookingClientIdRaw && !(Number.isFinite(createdBookingUserIdRaw) && createdBookingUserIdRaw > 0)) {
+          try {
+            const hydratedBooking = await getBookingById(maybeId);
+            createdBookingClientIdRaw = String(
+              hydratedBooking?.clientId || hydratedBooking?.client?.id || ''
+            ).trim();
+            createdBookingClientName = String(
+              hydratedBooking?.client?.name || hydratedBooking?.clientName || createdBookingClientName
+            ).trim();
+            createdBookingUserIdRaw = Number(
+              hydratedBooking?.userId || hydratedBooking?.user?.id || 0
+            );
+          } catch {
+          }
+        }
+        const createdBookingClientId = createdBookingClientIdRaw.length > 0 ? createdBookingClientIdRaw : undefined;
+        const createdBookingUserId =
+          Number.isFinite(createdBookingUserIdRaw) && createdBookingUserIdRaw > 0
+            ? createdBookingUserIdRaw
+            : undefined;
+        await persistNewBookingDraftState(maybeId, {
+          bookingClientId: createdBookingClientId,
+          bookingUserId: createdBookingUserId,
+          bookingClientName: createdBookingClientName || undefined,
+        });
+      }
+
+      await reloadSchedule();
+      closeDuplicateDecisionModal();
+      setFormError('');
+      setDrawerOpen(false);
+      showCalendarNotice(
+        mode === 'USE_EXISTING'
+          ? 'Reserva creada con el cliente existente seleccionado.'
+          : 'Reserva creada como cliente nuevo (duplicado permitido).',
+        'success'
+      );
+    } catch (error: any) {
+      const normalized = normalizeApiError(error, 'No se pudo crear la reserva.');
+      if (normalized.code === 'CLIENT_POSSIBLE_DUPLICATE') {
+        const nextCandidates = extractDuplicateCandidatesFromMeta(normalized.meta);
+        if (nextCandidates.length > 0) {
+          setDuplicateDecisionCandidates(nextCandidates);
+          setDuplicateDecisionSelectedClientId(String(nextCandidates[0]?.id || ''));
+        }
+      }
+      setDuplicateDecisionError(toUserSafeMessage(normalized.message, 'No se pudo crear la reserva.'));
+    } finally {
+      setDuplicateDecisionLoading(false);
+    }
+  }
 
   const clearFieldErrorsFor = useCallback((fields: string[]) => {
     const keys = fields
@@ -2399,6 +2592,110 @@ export default function AdminAgendaPlaygroundPage() {
       return '';
     }
   }, []);
+
+  useEffect(() => {
+    if (!changeTitularModalOpen) return;
+    const query = String(changeTitularSearch || '').trim();
+    const slug = getClubSlug();
+    if (!slug || query.length < 2) {
+      setChangeTitularCandidates([]);
+      setChangeTitularLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setChangeTitularLoading(true);
+    setChangeTitularError('');
+    const timer = window.setTimeout(async () => {
+      try {
+        const rows = await ClubAdminService.getClients(slug, query);
+        if (cancelled) return;
+        const normalizedRows = (Array.isArray(rows) ? rows : [])
+          .map((client: any) => ({
+            id: String(client?.id || '').trim().replace(/^client-/, ''),
+            name: String(client?.name || '').trim() || 'Cliente sin nombre',
+            phone: String(client?.phone || '').trim() || undefined,
+            email: String(client?.email || '').trim() || undefined,
+          }))
+          .filter((client: any) => client.id.length > 0);
+        setChangeTitularCandidates(normalizedRows);
+      } catch (error: any) {
+        if (cancelled) return;
+        setChangeTitularCandidates([]);
+        setChangeTitularError(toUserSafeMessage(error?.message, 'No se pudo buscar clientes.'));
+      } finally {
+        if (!cancelled) setChangeTitularLoading(false);
+      }
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [changeTitularModalOpen, changeTitularSearch, getClubSlug]);
+
+  const openChangeTitularModal = useCallback(() => {
+    setChangeTitularModalOpen(true);
+    setChangeTitularSearch('');
+    setChangeTitularReason('');
+    setChangeTitularError('');
+    setChangeTitularCandidates([]);
+    setChangeTitularSelectedClientId('');
+  }, []);
+
+  const closeChangeTitularModal = useCallback(() => {
+    if (changeTitularSubmitting) return;
+    setChangeTitularModalOpen(false);
+    setChangeTitularSearch('');
+    setChangeTitularReason('');
+    setChangeTitularError('');
+    setChangeTitularCandidates([]);
+    setChangeTitularSelectedClientId('');
+  }, [changeTitularSubmitting]);
+
+  const submitChangeTitular = useCallback(async () => {
+    const bookingId = Number(editingBookingId || 0);
+    const newClientId = String(changeTitularSelectedClientId || '').trim();
+    if (!Number.isFinite(bookingId) || bookingId <= 0) {
+      setChangeTitularError('Reserva inválida.');
+      return;
+    }
+    if (!newClientId) {
+      setChangeTitularError('Seleccioná un cliente para continuar.');
+      return;
+    }
+    const currentClientId = String(editingBooking?.clientId || '').trim();
+    if (currentClientId && currentClientId === newClientId) {
+      setChangeTitularError('Ese cliente ya es el titular actual.');
+      return;
+    }
+
+    setChangeTitularSubmitting(true);
+    setChangeTitularError('');
+    try {
+      await changeBookingClient(bookingId, {
+        newClientId,
+        reason: String(changeTitularReason || '').trim() || undefined,
+      });
+      await reloadSchedule();
+      closeChangeTitularModal();
+      setEditingBookingId(String(bookingId));
+      showCalendarNotice('Titular actualizado correctamente.', 'success');
+    } catch (error: any) {
+      const normalized = normalizeApiError(error, 'No se pudo cambiar el titular.');
+      setChangeTitularError(toUserSafeMessage(normalized.message, 'No se pudo cambiar el titular.'));
+    } finally {
+      setChangeTitularSubmitting(false);
+    }
+  }, [
+    changeTitularReason,
+    changeTitularSelectedClientId,
+    closeChangeTitularModal,
+    editingBooking?.clientId,
+    editingBookingId,
+    reloadSchedule,
+    showCalendarNotice,
+  ]);
 
   const loadConsumptionProducts = useCallback(async () => {
     const slug = getClubSlug();
@@ -4066,8 +4363,12 @@ export default function AdminAgendaPlaygroundPage() {
     }
     setSimplifiedOwnerSuggestionsOpen(true);
     setSimplifiedOwnerSearchLoading(true);
-    const suggestions = await fetchParticipantSuggestionsForDraft(query);
-    setSimplifiedOwnerSuggestions(suggestions);
+    const allSuggestions = await fetchParticipantSuggestionsForDraft(query);
+    // Fase 1.4: el titular siempre debe ser un Client del club.
+    // No mostrar "Invitado" en el dropdown del titular — solo clientes existentes.
+    // Un titular nuevo (sin clientId) se crea como Client operativo vía clientDraft.
+    const ownerSuggestions = allSuggestions.filter((s) => s.sourceType !== 'guest');
+    setSimplifiedOwnerSuggestions(ownerSuggestions);
     setSimplifiedOwnerSearchLoading(false);
   }, [fetchParticipantSuggestionsForDraft, updateParticipant]);
 
@@ -6724,6 +7025,7 @@ export default function AdminAgendaPlaygroundPage() {
     options?: {
       bookingClientId?: string;
       bookingUserId?: number | null;
+      bookingClientName?: string;
     }
   ) => {
     const draft = bookingDrawerState.draft;
@@ -6737,8 +7039,24 @@ export default function AdminAgendaPlaygroundPage() {
         Number.isFinite(bookingUserIdRaw) && bookingUserIdRaw > 0
           ? bookingUserIdRaw
           : undefined;
+      const bookingClientName = String(options?.bookingClientName || '').trim();
+      const participantsForPersist = participants.map((participant, index) => {
+        if (!participant.isOwner || !bookingClientId) return participant;
+        const normalizedRef = String(participant.entityRef || '').trim().toLowerCase();
+        const shouldCanonicalizeOwnerRef =
+          normalizedRef.length === 0 ||
+          normalizedRef.startsWith('guest:') ||
+          normalizedRef.startsWith('booking-user:');
+        if (!shouldCanonicalizeOwnerRef) return participant;
+        return {
+          ...participant,
+          name: bookingClientName || participant.name || `Titular ${index + 1}`,
+          sourceType: 'clubClient' as const,
+          entityRef: `booking-client:${bookingClientId}`,
+        };
+      });
       const participantRefById = new Map<string, string>();
-      participants.forEach((participant) => {
+      participantsForPersist.forEach((participant) => {
         participantRefById.set(
           String(participant.id),
           buildStableParticipantRef(participant, { bookingClientId, bookingUserId })
@@ -6761,20 +7079,20 @@ export default function AdminAgendaPlaygroundPage() {
         .filter((participant) => !participant.archived)
         .map((participant, index) => {
           const assignment = draft.billing.assignments.find((entry) => entry.participantId === participant.id);
-          const existing = participants.find((entry) => String(entry.id) === String(participant.id));
+          const existing = participantsForPersist.find((entry) => String(entry.id) === String(participant.id));
           const assignedAmount = Number(assignment?.assignedAmount || 0);
           const confirmed = Number(confirmedByAssignment.get(String(assignment?.id || '')) || 0);
           const paid = assignment?.isChargeable ? confirmed + 0.009 >= assignedAmount && assignedAmount > 0 : false;
           const participantRef = participantRefById.get(String(participant.id)) || `guest:${participant.id}`;
           return {
             id: participant.id,
-            name: participant.displayName,
-            contact: participant.contact || '',
+            name: existing?.name || participant.displayName,
+            contact: existing?.contact || participant.contact || '',
             paid,
             isOwner:
               participant.id === draft.operational.bookingResponsibleParticipantId ||
               (!draft.operational.bookingResponsibleParticipantId && index === 0),
-            sourceType: participant.sourceType,
+            sourceType: existing?.sourceType || participant.sourceType,
             entityRef: participantRef,
             paymentMethod: existing?.paymentMethod || 'CASH',
             customPrice: null,
@@ -7022,6 +7340,7 @@ export default function AdminAgendaPlaygroundPage() {
       options?: {
         bookingClientId?: string;
         bookingUserId?: number | null;
+        bookingClientName?: string;
       }
     ) => {
       if (!Number.isFinite(bookingId) || bookingId <= 0) return;
@@ -7139,10 +7458,7 @@ export default function AdminAgendaPlaygroundPage() {
       setBlockingFieldError('owner', 'Cargá el teléfono del titular o seleccioná un cliente existente.');
       return;
     }
-    if (!ownerClientId && !ownerEmail) {
-      setBlockingFieldError('owner', 'Cargá el email del titular o seleccioná un cliente existente.');
-      return;
-    }
+    // Fase 1.2: email es opcional en alta rápida admin. Solo phone es obligatorio.
 
     if (simplifiedNewParticipantOpen) {
       setBlockingFieldError('participants', 'Terminá de agregar el nuevo participante antes de guardar.');
@@ -7810,6 +8126,9 @@ export default function AdminAgendaPlaygroundPage() {
           let createdBookingClientIdRaw = String(
             bookingPayload?.clientId || bookingPayload?.client?.id || ''
           ).trim();
+          let createdBookingClientName = String(
+            bookingPayload?.client?.name || bookingPayload?.clientName || ''
+          ).trim();
           let createdBookingUserIdRaw = Number(
             bookingPayload?.userId || bookingPayload?.user?.id || 0
           );
@@ -7819,6 +8138,9 @@ export default function AdminAgendaPlaygroundPage() {
               const hydratedBooking = await getBookingById(maybeId);
               createdBookingClientIdRaw = String(
                 hydratedBooking?.clientId || hydratedBooking?.client?.id || ''
+              ).trim();
+              createdBookingClientName = String(
+                hydratedBooking?.client?.name || hydratedBooking?.clientName || createdBookingClientName
               ).trim();
               createdBookingUserIdRaw = Number(
                 hydratedBooking?.userId || hydratedBooking?.user?.id || 0
@@ -7835,6 +8157,7 @@ export default function AdminAgendaPlaygroundPage() {
           await persistNewBookingDraftState(maybeId, {
             bookingClientId: createdBookingClientId,
             bookingUserId: createdBookingUserId,
+            bookingClientName: createdBookingClientName || undefined,
           });
         }
       }
@@ -7866,6 +8189,35 @@ export default function AdminAgendaPlaygroundPage() {
       setEditingBaseline(null);
     } catch (error: any) {
       setPendingSeriesScopeSave(null);
+      const normalized = normalizeApiError(error, 'No se pudo crear la reserva.');
+      if (normalized.code === 'CLIENT_POSSIBLE_DUPLICATE' && !isRecurringKind) {
+        const owner = participants.find((participant) => participant.isOwner);
+        const selectedActivityId = Number(selectedCourt?.activityTypeId || 0);
+        const slotTime = slotToTime(selectedStartSlot);
+        const candidateRows = extractDuplicateCandidatesFromMeta(normalized.meta);
+        if (owner && Number.isFinite(selectedActivityId) && selectedActivityId > 0 && candidateRows.length > 0) {
+          const ownerName = owner.name.trim();
+          const ownerPhone = resolvePlaygroundClientPhone(owner);
+          const ownerEmail = resolvePlaygroundClientEmail(owner);
+          const bookingDate = new Date(selectedDate);
+          setDuplicateDecisionPendingPayload({
+            courtId: Number(selectedCourtId),
+            activityId: selectedActivityId,
+            bookingDate,
+            slotTime,
+            durationMinutes: selectionMinutes,
+            ownerName,
+            ownerPhone,
+            ownerEmail,
+          });
+          setDuplicateDecisionCandidates(candidateRows);
+          setDuplicateDecisionSelectedClientId(String(candidateRows[0]?.id || ''));
+          setDuplicateDecisionError('');
+          setDuplicateDecisionOpen(true);
+          setFormError('');
+          return;
+        }
+      }
       applyBookingError(error, 'No se pudo crear la reserva.');
       reportUiError({ area: 'AgendaPlayground', action: 'createBooking' }, error);
     } finally {
@@ -8143,11 +8495,15 @@ export default function AdminAgendaPlaygroundPage() {
   const simplifiedSummaryTimeLabel = `${slotToTimeAmPm(selectedStartSlot)} - ${slotToTimeAmPm(selectedEndSlot)}`;
   const ownerParticipant = participants.find((participant) => participant.isOwner) || participants[0] || null;
   const ownerHasTypedName = Boolean(ownerParticipant && ownerParticipant.name.trim().length > 0);
+  const ownerContactPhoneDraft = extractPhoneFromParticipantContact(ownerParticipant?.contact);
+  const ownerContactEmailDraft = extractEmailFromParticipantContact(ownerParticipant?.contact);
+  const ownerHasLinkedSelection = Boolean(ownerParticipant && ownerParticipant.sourceType !== 'guest');
   const ownerHasName = Boolean(
     ownerParticipant &&
     ownerParticipant.name.trim().length > 0 &&
     String(ownerParticipant.entityRef || '').trim().length > 0
   );
+  const ownerCanBeAdded = ownerHasName && (ownerHasLinkedSelection || ownerContactPhoneDraft.length > 0);
   const simplifiedSummaryOwnerLabel = ownerParticipant?.name.trim() || 'Titular sin asignar';
   const simplifiedSummaryCourtLabel = selectedCourt?.name || 'Cancha no definida';
   const sidebarTitle = (() => {
@@ -8164,7 +8520,8 @@ export default function AdminAgendaPlaygroundPage() {
   })();
   const simplifiedNamedParticipants = participants.filter((participant) => participant.name.trim().length > 0);
   const simplifiedNewParticipantHasLinkedSelection =
-    String(simplifiedNewParticipantEntityRefDraft || '').trim().length > 0;
+    String(simplifiedNewParticipantEntityRefDraft || '').trim().length > 0 &&
+    simplifiedNewParticipantSourceTypeDraft !== 'guest';
   const hasValidSimplifiedNewParticipantName =
     simplifiedNewParticipantName.trim().length > 0 &&
     simplifiedNewParticipantEntityRefDraft.trim().length > 0;
@@ -8824,6 +9181,17 @@ export default function AdminAgendaPlaygroundPage() {
           );
         }
         detail = detailParts.join(' - ');
+      } else if (normalizedType === 'BOOKING_CLIENT_CHANGED') {
+        const oldClientName = String((payload as any)?.oldClientName || '').trim();
+        const newClientName = String((payload as any)?.newClientName || '').trim();
+        title = 'Titular cambiado';
+        if (oldClientName && newClientName) {
+          detail = `${oldClientName} -> ${newClientName}`;
+        } else if (newClientName) {
+          detail = `Nuevo titular: ${newClientName}`;
+        } else {
+          detail = 'Se actualizó el titular de la reserva.';
+        }
       } else if (normalizedType === 'PRODUCT_SOLD') {
         const productName = String((payload as any)?.productName || '').trim() || 'Consumo';
         const quantity = Number((payload as any)?.quantity || 0);
@@ -11361,9 +11729,11 @@ export default function AdminAgendaPlaygroundPage() {
                           {simplifiedOwnerAdded && simplifiedNamedParticipants.length > 0 ? (
                             <div className="mt-3 space-y-3">
                               {simplifiedNamedParticipants.map((participant, index) => {
+                                const normalizedParticipantRef = String(participant.entityRef || '').trim().toLowerCase();
                                 const participantIsLinkedRecord =
                                   participant.sourceType !== 'guest' ||
-                                  String(participant.entityRef || '').trim().length > 0;
+                                  normalizedParticipantRef.startsWith('client:') ||
+                                  normalizedParticipantRef.startsWith('user:');
                                 const participantHasPaymentControls = simplifiedParticipantWithPaymentControlsIdSet.has(participant.id);
                                 const participantPaidComputed = participantPaidComputedIdSet.has(participant.id);
                                 const participantAssignedAmount = Number(participantAssignedAmountById.get(participant.id) || 0);
@@ -11469,6 +11839,11 @@ export default function AdminAgendaPlaygroundPage() {
                                           </div>
                                         ) : (
                                           <>
+                                            {(() => {
+                                              const participantPhoneDraft = extractPhoneFromParticipantContact(participant.contact);
+                                              const participantEmailDraft = extractEmailFromParticipantContact(participant.contact);
+                                              return (
+                                                <>
                                             <label className="block">
                                               <span className="text-[12px] font-medium text-p-text-muted">Nombre</span>
                                               <div className="mt-1 h-10 rounded-xl border border-p-border bg-p-surface px-3 flex items-center">
@@ -11491,13 +11866,18 @@ export default function AdminAgendaPlaygroundPage() {
                                               </div>
                                             </label>
                                             <label className="block">
-                                              <span className="text-[12px] font-medium text-p-text-muted">Email y teléfono</span>
+                                              <span className="text-[12px] font-medium text-p-text-muted">Teléfono</span>
                                               <div className="mt-1 h-10 rounded-xl border border-p-border bg-p-surface px-3 flex items-center">
                                                 <input
                                                   ref={participantContactInputRef}
-                                                  value={participant.contact}
+                                                  value={participantPhoneDraft}
                                                   onChange={(event) =>
-                                                    updateParticipant(participant.id, { contact: event.target.value })
+                                                    updateParticipant(participant.id, {
+                                                      contact: buildParticipantContactFromFields(
+                                                        event.target.value,
+                                                        participantEmailDraft
+                                                      ),
+                                                    })
                                                   }
                                                   onKeyDown={(event) => {
                                                     if (event.key === 'Enter' || event.key === 'Escape') {
@@ -11507,11 +11887,41 @@ export default function AdminAgendaPlaygroundPage() {
                                                       );
                                                     }
                                                   }}
-                                                  placeholder="cliente@email.com · 351..."
+                                                  placeholder="3511234567"
                                                   className="w-full bg-transparent outline-none text-[13px] text-p-text"
                                                 />
                                               </div>
                                             </label>
+                                            <label className="block md:col-span-2">
+                                              <span className="text-[12px] font-medium text-p-text-muted">Email <span className="font-normal text-p-text-muted opacity-60">(opcional)</span></span>
+                                              <div className="mt-1 h-10 rounded-xl border border-p-border bg-p-surface px-3 flex items-center">
+                                                <input
+                                                  type="email"
+                                                  value={participantEmailDraft}
+                                                  onChange={(event) =>
+                                                    updateParticipant(participant.id, {
+                                                      contact: buildParticipantContactFromFields(
+                                                        participantPhoneDraft,
+                                                        event.target.value
+                                                      ),
+                                                    })
+                                                  }
+                                                  onKeyDown={(event) => {
+                                                    if (event.key === 'Enter' || event.key === 'Escape') {
+                                                      event.preventDefault();
+                                                      setExpandedParticipantId((previous) =>
+                                                        previous === participant.id ? null : previous
+                                                      );
+                                                    }
+                                                  }}
+                                                  placeholder="cliente@email.com"
+                                                  className="w-full bg-transparent outline-none text-[13px] text-p-text"
+                                                />
+                                              </div>
+                                            </label>
+                                                </>
+                                              );
+                                            })()}
                                           </>
                                         )}
                                         <div className="md:col-span-2 flex justify-end gap-2">
@@ -11680,6 +12090,58 @@ export default function AdminAgendaPlaygroundPage() {
                                   document.body
                                 )}
                                 </div>
+                                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                                  <label className="block">
+                                    <span className="text-[12px] font-medium text-p-text-muted">Teléfono</span>
+                                    <input
+                                      value={ownerContactPhoneDraft}
+                                      onChange={(event) => {
+                                        if (!ownerParticipant || ownerHasLinkedSelection) return;
+                                        updateParticipant(ownerParticipant.id, {
+                                          contact: buildParticipantContactFromFields(
+                                            event.target.value,
+                                            ownerContactEmailDraft
+                                          ),
+                                        });
+                                      }}
+                                      readOnly={ownerHasLinkedSelection}
+                                      placeholder="3511234567"
+                                      className={`mt-1 h-11 w-full rounded-xl border px-3 text-[15px] outline-none ${
+                                        ownerHasLinkedSelection
+                                          ? 'border-p-border bg-p-surface-2 text-p-text-secondary cursor-not-allowed'
+                                          : 'border-p-border bg-p-surface'
+                                      }`}
+                                    />
+                                  </label>
+                                  <label className="block">
+                                    <span className="text-[12px] font-medium text-p-text-muted">Email <span className="font-normal text-p-text-muted opacity-60">(opcional)</span></span>
+                                    <input
+                                      type="email"
+                                      value={ownerContactEmailDraft}
+                                      onChange={(event) => {
+                                        if (!ownerParticipant || ownerHasLinkedSelection) return;
+                                        updateParticipant(ownerParticipant.id, {
+                                          contact: buildParticipantContactFromFields(
+                                            ownerContactPhoneDraft,
+                                            event.target.value
+                                          ),
+                                        });
+                                      }}
+                                      readOnly={ownerHasLinkedSelection}
+                                      placeholder="cliente@email.com"
+                                      className={`mt-1 h-11 w-full rounded-xl border px-3 text-[15px] outline-none ${
+                                        ownerHasLinkedSelection
+                                          ? 'border-p-border bg-p-surface-2 text-p-text-secondary cursor-not-allowed'
+                                          : 'border-p-border bg-p-surface'
+                                      }`}
+                                    />
+                                  </label>
+                                </div>
+                                {!ownerHasLinkedSelection && ownerHasTypedName && ownerContactPhoneDraft.length === 0 && (
+                                  <p className="text-[12px] text-p-text-muted">
+                                    Para crear un cliente nuevo, cargá el teléfono antes de continuar.
+                                  </p>
+                                )}
                               </div>
                               {ownerFieldError && (
                                 <p className="mt-2 text-[12px] font-medium text-p-error">{ownerFieldError}</p>
@@ -11727,9 +12189,9 @@ export default function AdminAgendaPlaygroundPage() {
                                   setSimplifiedNewParticipantSuggestions([]);
                                   setFormError('');
                                 }}
-                                disabled={!ownerHasName}
+                                disabled={!ownerCanBeAdded}
                                 className={`mt-5 h-11 w-full rounded-xl text-[14px] leading-none font-semibold transition ${
-                                  ownerHasName
+                                  ownerCanBeAdded
                                     ? 'bg-ink-900 text-ink-50 hover:bg-ink-900'
                                     : 'border border-p-border bg-p-surface-3 text-p-text-muted'
                                 }`}
@@ -12553,6 +13015,19 @@ export default function AdminAgendaPlaygroundPage() {
                             <Trash2 size={16} />
                           </button>
                         )}
+                        {editingBookingId &&
+                          !isCompletedReservation &&
+                          canChangeTitularFromUi &&
+                          editingBooking?.state !== 'blocked' && (
+                          <button
+                            type="button"
+                            onClick={openChangeTitularModal}
+                            disabled={isSubmittingBooking || isDeletingBooking}
+                            className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-40"
+                          >
+                            Cambiar titular
+                          </button>
+                        )}
                         <div className="flex items-center gap-2">
                           {showConfirmMainAction && (
                             <button
@@ -12656,6 +13131,19 @@ export default function AdminAgendaPlaygroundPage() {
                             <Trash2 size={16} />
                           </button>
                         )}
+                        {editingBookingId &&
+                          !isCompletedReservation &&
+                          canChangeTitularFromUi &&
+                          editingBooking?.state !== 'blocked' && (
+                          <button
+                            type="button"
+                            onClick={openChangeTitularModal}
+                            disabled={isSubmittingBooking || isDeletingBooking}
+                            className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-40"
+                          >
+                            Cambiar titular
+                          </button>
+                        )}
                         {hasBlockingActionError && (
                           <button
                             type="button"
@@ -12682,6 +13170,160 @@ export default function AdminAgendaPlaygroundPage() {
             </aside>
             </section>
           </AdminPlaygroundShell>
+
+      {duplicateDecisionOpen && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-ink-950/45 px-4">
+          <div className="w-full max-w-[560px] rounded-2xl border border-p-border bg-p-surface shadow-xl">
+            <div className="border-b border-p-border px-5 py-4">
+              <p className="text-[16px] font-semibold text-p-text">Ya existe un cliente parecido en este club</p>
+              <p className="mt-1 text-[13px] text-p-text-muted">
+                Elegí cómo continuar. No se va a vincular ni fusionar automáticamente.
+              </p>
+            </div>
+            <div className="max-h-[46vh] overflow-y-auto px-5 py-4 space-y-2">
+              {duplicateDecisionCandidates.map((candidate) => {
+                const isSelected = String(duplicateDecisionSelectedClientId) === String(candidate.id);
+                return (
+                  <button
+                    key={`duplicate-candidate-${candidate.id}`}
+                    type="button"
+                    onClick={() => setDuplicateDecisionSelectedClientId(String(candidate.id))}
+                    className={`w-full rounded-xl border px-3 py-2 text-left transition ${
+                      isSelected
+                        ? 'border-p-accent bg-p-positive-bg'
+                        : 'border-p-border bg-p-surface hover:bg-p-surface-2'
+                    }`}
+                  >
+                    <p className="text-[13px] font-semibold text-p-text">{candidate.name}</p>
+                    <p className="mt-0.5 text-[12px] text-p-text-muted">
+                      {[candidate.phone, candidate.email].filter(Boolean).join(' · ') || 'Sin contacto visible'}
+                    </p>
+                  </button>
+                );
+              })}
+              {duplicateDecisionCandidates.length === 0 && (
+                <p className="rounded-xl border border-p-border bg-p-surface-2 px-3 py-2 text-[12px] text-p-text-muted">
+                  No llegaron candidatos detallados en la respuesta.
+                </p>
+              )}
+            </div>
+            {duplicateDecisionError && (
+              <div className="px-5 pb-2">
+                <p className="rounded-xl border border-p-error bg-p-error-bg px-3 py-2 text-[12px] text-p-error">
+                  {duplicateDecisionError}
+                </p>
+              </div>
+            )}
+            <div className="flex items-center justify-end gap-2 border-t border-p-border px-5 py-4">
+              <button
+                type="button"
+                onClick={closeDuplicateDecisionModal}
+                disabled={duplicateDecisionLoading}
+                className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary disabled:opacity-40"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void runDuplicateDecisionRetry('USE_EXISTING')}
+                disabled={duplicateDecisionLoading || !duplicateDecisionSelectedClientId}
+                className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text disabled:opacity-40"
+              >
+                Usar cliente existente
+              </button>
+              <button
+                type="button"
+                onClick={() => void runDuplicateDecisionRetry('CREATE_NEW')}
+                disabled={duplicateDecisionLoading}
+                className="h-10 rounded-xl bg-ink-900 px-4 text-[13px] font-semibold text-ink-50 disabled:opacity-40"
+              >
+                {duplicateDecisionLoading ? 'Creando...' : 'Crear cliente nuevo'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {changeTitularModalOpen && (
+        <div className="fixed inset-0 z-[92] flex items-center justify-center bg-ink-950/45 px-4">
+          <div className="w-full max-w-[560px] rounded-2xl border border-p-border bg-p-surface shadow-xl">
+            <div className="border-b border-p-border px-5 py-4">
+              <p className="text-[16px] font-semibold text-p-text">Cambiar titular</p>
+              <p className="mt-1 text-[13px] text-p-text-muted">
+                Seleccioná manualmente un cliente del club para esta reserva.
+              </p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <input
+                value={changeTitularSearch}
+                onChange={(event) => setChangeTitularSearch(event.target.value)}
+                placeholder="Buscar por nombre, teléfono o email"
+                className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none"
+              />
+              <div className="max-h-[34vh] overflow-y-auto space-y-2">
+                {changeTitularLoading && (
+                  <p className="text-[12px] text-p-text-muted">Buscando clientes...</p>
+                )}
+                {!changeTitularLoading && changeTitularCandidates.length === 0 && (
+                  <p className="rounded-xl border border-p-border bg-p-surface-2 px-3 py-2 text-[12px] text-p-text-muted">
+                    Escribí al menos 2 caracteres para buscar.
+                  </p>
+                )}
+                {changeTitularCandidates.map((candidate) => {
+                  const isSelected = String(changeTitularSelectedClientId) === String(candidate.id);
+                  return (
+                    <button
+                      key={`change-titular-candidate-${candidate.id}`}
+                      type="button"
+                      onClick={() => setChangeTitularSelectedClientId(String(candidate.id))}
+                      className={`w-full rounded-xl border px-3 py-2 text-left transition ${
+                        isSelected
+                          ? 'border-p-accent bg-p-positive-bg'
+                          : 'border-p-border bg-p-surface hover:bg-p-surface-2'
+                      }`}
+                    >
+                      <p className="text-[13px] font-semibold text-p-text">{candidate.name}</p>
+                      <p className="mt-0.5 text-[12px] text-p-text-muted">
+                        {[candidate.phone, candidate.email].filter(Boolean).join(' · ') || 'Sin contacto visible'}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+              <textarea
+                value={changeTitularReason}
+                onChange={(event) => setChangeTitularReason(event.target.value)}
+                placeholder="Motivo (opcional)"
+                rows={2}
+                className="w-full rounded-xl border border-p-border bg-p-surface px-3 py-2 text-[13px] text-p-text outline-none"
+              />
+              {changeTitularError && (
+                <p className="rounded-xl border border-p-error bg-p-error-bg px-3 py-2 text-[12px] text-p-error">
+                  {changeTitularError}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-p-border px-5 py-4">
+              <button
+                type="button"
+                onClick={closeChangeTitularModal}
+                disabled={changeTitularSubmitting}
+                className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary disabled:opacity-40"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitChangeTitular()}
+                disabled={changeTitularSubmitting || !changeTitularSelectedClientId}
+                className="h-10 rounded-xl bg-ink-900 px-4 text-[13px] font-semibold text-ink-50 disabled:opacity-40"
+              >
+                {changeTitularSubmitting ? 'Guardando...' : 'Confirmar cambio'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {activePaymentModal?.flow === 'playtomicPayment' &&
         activePaymentModal.step === 'form' &&

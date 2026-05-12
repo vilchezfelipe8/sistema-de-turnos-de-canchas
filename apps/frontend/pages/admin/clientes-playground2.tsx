@@ -402,12 +402,9 @@ export default function AdminClientesPlayground2Page() {
       setErrorMessage('Ingresá un teléfono válido.');
       return;
     }
-    if (!email) {
-      setErrorMessage('Ingresa un email valido.');
-      return;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setErrorMessage('Ingresa un email valido.');
+    // Fase 1.2: email es opcional. Solo validar formato si viene cargado.
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setErrorMessage('El email ingresado no es válido.');
       return;
     }
     if (dni.length > 0 && dni.length < 6) {
@@ -1237,7 +1234,7 @@ export default function AdminClientesPlayground2Page() {
               </label>
 
               <label className="block">
-                <span className="mb-1.5 block text-[12px] font-medium text-p-text-secondary">Email *</span>
+                <span className="mb-1.5 block text-[12px] font-medium text-p-text-secondary">Email <span className="font-normal text-p-text-muted opacity-60">(opcional)</span></span>
                 <input
                   type="email"
                   value={clientForm.email}

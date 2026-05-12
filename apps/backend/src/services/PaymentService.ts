@@ -80,6 +80,28 @@ export class PaymentService {
     return error;
   }
 
+  private resolveBookingOwnerRef(booking: { clientId?: string | null; userId?: number | null }) {
+    const clientId = String(booking.clientId || '').trim();
+    if (clientId) return `booking-client:${clientId}`;
+    const userId = Number(booking.userId || 0);
+    if (Number.isFinite(userId) && userId > 0) return `booking-user:${userId}`;
+    return 'guest:booking-responsible';
+  }
+
+  private resolveBookingOwnerName(booking: {
+    client?: { name?: string | null } | null;
+    user?: { firstName?: string | null; lastName?: string | null } | null;
+  }) {
+    const clientName = this.normalizeText(booking.client?.name, 120);
+    if (clientName) return clientName;
+
+    const fullName = `${String(booking.user?.firstName || '').trim()} ${String(booking.user?.lastName || '').trim()}`.trim();
+    const userName = this.normalizeText(fullName, 120);
+    if (userName) return userName;
+
+    return null;
+  }
+
   private async getAllocatedByItemTx(
     tx: Prisma.TransactionClient,
     accountId: string,
@@ -238,15 +260,29 @@ export class PaymentService {
       throw new Error('El monto debe ser mayor a 0');
     }
 
-    return prisma.$transaction(async (tx) => {
+    return prisma.$transaction((tx) => this.createTx(tx, input));
+  }
+
+  async createInTransaction(tx: Prisma.TransactionClient, input: CreatePaymentInput) {
+    if (!Number.isFinite(input.amount) || input.amount <= 0) {
+      throw new Error('El monto debe ser mayor a 0');
+    }
+    return this.createTx(tx, input);
+  }
+
+  private async createTx(tx: Prisma.TransactionClient, input: CreatePaymentInput) {
       const source = input.source ?? 'POS';
       const channel = this.resolvePaymentChannel(input.method, input.channel);
       const collectorAccountLabel = this.normalizeText(input.collectorAccountLabel, 120);
       const externalReference = this.normalizeText(input.externalReference, 120);
-      const payerParticipantRef = this.normalizeText(input.payerParticipantRef, 191);
-      const payerParticipantName = this.normalizeText(input.payerParticipantName, 120);
-      const coveredParticipantRef = this.normalizeText(input.coveredParticipantRef, 191);
-      const coveredParticipantName = this.normalizeText(input.coveredParticipantName, 120);
+      const payerParticipantRefRaw = this.normalizeText(input.payerParticipantRef, 191);
+      const payerParticipantNameRaw = this.normalizeText(input.payerParticipantName, 120);
+      const coveredParticipantRefRaw = this.normalizeText(input.coveredParticipantRef, 191);
+      const coveredParticipantNameRaw = this.normalizeText(input.coveredParticipantName, 120);
+      let payerParticipantRef = payerParticipantRefRaw;
+      let payerParticipantName = payerParticipantNameRaw;
+      let coveredParticipantRef = coveredParticipantRefRaw;
+      let coveredParticipantName = coveredParticipantNameRaw;
       const scopedIdempotencyKey = input.idempotencyKey
         ? `payment:${input.accountId}:${input.idempotencyKey.trim()}`
         : undefined;
@@ -297,7 +333,14 @@ export class PaymentService {
       if (account.sourceType === 'BOOKING') {
         const booking = await tx.booking.findUnique({
           where: { id: Number(account.sourceId) },
-          select: { id: true, status: true }
+          select: {
+            id: true,
+            status: true,
+            clientId: true,
+            userId: true,
+            client: { select: { name: true } },
+            user: { select: { firstName: true, lastName: true } }
+          }
         });
         if (!booking) throw new Error('La reserva asociada a la cuenta no existe');
         if (booking.status === 'CANCELLED') throw new Error('No se pueden registrar pagos sobre una reserva cancelada');
@@ -314,6 +357,21 @@ export class PaymentService {
             );
           }
         }
+
+        const bookingOwnerRef = this.resolveBookingOwnerRef({
+          clientId: booking.clientId,
+          userId: booking.userId
+        });
+        const bookingOwnerName = this.resolveBookingOwnerName({
+          client: booking.client,
+          user: booking.user
+        });
+
+        // Regla transversal: si no viene participante explícito, imputar al titular.
+        if (!payerParticipantRef) payerParticipantRef = bookingOwnerRef;
+        if (!coveredParticipantRef) coveredParticipantRef = bookingOwnerRef;
+        if (!payerParticipantName) payerParticipantName = bookingOwnerName;
+        if (!coveredParticipantName) coveredParticipantName = bookingOwnerName;
       }
 
       const accountTotal = Number(account.totalAmount || 0);
@@ -484,6 +542,5 @@ export class PaymentService {
       });
 
       return createdPayment || payment;
-    });
   }
 }

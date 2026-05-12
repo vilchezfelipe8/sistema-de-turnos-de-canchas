@@ -18,6 +18,11 @@ function buildBookingServiceHarness() {
   (service as any).auditLogService = {
     create: async () => null
   };
+  (service as any).eventService = {
+    bookingConfirmed: async () => null,
+    bookingCompleted: async () => null,
+    bookingCancelled: async () => null
+  };
   (service as any).getBookingById = async (bookingId: number) => ({ id: bookingId });
 
   return service as any;

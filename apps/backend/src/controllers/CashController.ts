@@ -241,13 +241,6 @@ export class CashController {
           const n = Number(v);
           return Number.isNaN(n) || n < 1 ? undefined : n;
         }, z.number().int().positive().optional())
-      }).superRefine((value, ctx) => {
-        if (value.clientId || value.clientDraft) return;
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['clientId'],
-          message: 'Debes seleccionar un cliente o cargar un alta rápida válida.'
-        });
       });
 
       const parsed = schema.safeParse(req.body);
@@ -284,7 +277,54 @@ export class CashController {
         await this.registerDuplicateIncident(req, error, 'createProductSale');
         return res.status(409).json({ error: 'CLIENT_POSSIBLE_DUPLICATE' });
       }
+      // Fase 1.6: turno de caja obligatorio — mapear error técnico a mensaje legible.
+      if (error?.message === 'No hay turno de caja abierto para pagos POS') {
+        return res.status(422).json({ error: 'Abrí una caja antes de registrar ventas de mostrador.' });
+      }
       return res.status(400).json({ error: error.message || 'No se pudo registrar la venta' });
+    }
+  };
+
+  // P2-C: Ítems POS unificados (productos + servicios)
+  getPosItems = async (req: Request, res: Response) => {
+    try {
+      const clubId = Number((req as any).clubId);
+      const items = await this.cashService.getPosItems(clubId);
+      return res.json(items);
+    } catch (error: any) {
+      return res.status(400).json({ error: error.message || 'No se pudieron obtener los ítems POS' });
+    }
+  };
+
+  // Fase 1.6B: Crear cuenta de venta mostrador sin cobrar.
+  // El pago se registra después desde AccountDrawer.
+  createProductSaleAccount = async (req: Request, res: Response) => {
+    try {
+      const schema = z.object({
+        items: z.array(saleItemSchema).min(1, 'Se requiere al menos un producto'),
+        clientId: z.string().trim().optional(),
+        idempotencyKey: z.string().trim().optional()
+      });
+
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+
+      const clubId = Number((req as any).clubId);
+      const actorUserId = (req as any).userId ? Number((req as any).userId) : undefined;
+
+      const result = await this.cashService.createProductSaleAccount({
+        clubId,
+        items: sanitizeSaleItems(parsed.data.items) ?? [],
+        clientId: parsed.data.clientId ? sanitizeString(parsed.data.clientId, 64) : undefined,
+        idempotencyKey: parsed.data.idempotencyKey ? sanitizeString(parsed.data.idempotencyKey, 128) : undefined
+      }, actorUserId);
+
+      return res.status(201).json(result);
+    } catch (error: any) {
+      if (error?.message === 'Abrí una caja antes de registrar ventas de mostrador.') {
+        return res.status(422).json({ error: error.message });
+      }
+      return res.status(400).json({ error: error.message || 'No se pudo crear la cuenta de venta' });
     }
   };
 
@@ -304,13 +344,6 @@ export class CashController {
           const n = Number(v);
           return Number.isNaN(n) || n < 1 ? undefined : n;
         }, z.number().int().positive().optional())
-      }).superRefine((value, ctx) => {
-        if (value.clientId || value.clientDraft) return;
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['clientId'],
-          message: 'Debes seleccionar un cliente o cargar un alta rápida válida.'
-        });
       });
 
       const parsed = schema.safeParse(req.body);
@@ -350,6 +383,19 @@ export class CashController {
         return res.status(409).json({ error: 'CLIENT_POSSIBLE_DUPLICATE' });
       }
       return res.status(400).json({ error: error.message || 'No se pudo cotizar la venta' });
+    }
+  };
+
+  // P2-D: Reporte POS
+  getPosReport = async (req: Request, res: Response) => {
+    try {
+      const clubId = Number((req as any).clubId);
+      const startDate = req.query.startDate ? String(req.query.startDate) : undefined;
+      const endDate = req.query.endDate ? String(req.query.endDate) : undefined;
+      const report = await this.cashService.getPosReport(clubId, startDate, endDate);
+      return res.json(report);
+    } catch (error: any) {
+      return res.status(500).json({ error: error.message || 'No se pudo obtener el reporte POS' });
     }
   };
 }

@@ -28,7 +28,7 @@ import ClubReviewRoutes from './routes/ClubReviewRoutes';
 
 import { errorHandler } from './middleware/ErrorHandler';
 import { authMiddleware } from './middleware/AuthMiddleware';
-import { requireRole } from './middleware/RoleMiddleware';
+import { requireGlobalRole } from './middleware/RoleMiddleware';
 import { prisma } from './prisma';
 import { metricsService } from './services/MetricsService';
 import { RedisService } from './services/RedisService';
@@ -191,7 +191,7 @@ export const createApp = () => {
   app.get(
     '/whatsapp/qr',
     authMiddleware,
-    requireRole('ADMIN'),
+    requireGlobalRole('ADMIN'),
     async (_req: Request, res: Response) => {
       if (whatsappDelivery.getProvider() !== 'local_browser') {
         return res.status(404).send('<h1>QR no disponible con el provider actual</h1>');
@@ -234,7 +234,7 @@ export const createApp = () => {
     }
   );
 
-  app.get('/whatsapp/status', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
+  app.get('/whatsapp/status', authMiddleware, requireGlobalRole('ADMIN'), async (_req: Request, res: Response) => {
     res.json(await whatsappDelivery.getStatus());
   });
 

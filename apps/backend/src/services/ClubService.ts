@@ -319,7 +319,7 @@ export class ClubService {
 
         if (normalizedName.length < 2) throw new Error('Nombre inválido');
         if (!normalizedPhone) throw new Error('El teléfono es obligatorio');
-        if (!normalizedEmail) throw new Error('El email es obligatorio');
+        // Fase 1.2: email es opcional en CRUD admin.
         if (normalizedDni && normalizedDni.length < 6) throw new Error('DNI inválido');
 
         try {
@@ -365,7 +365,7 @@ export class ClubService {
 
         if (normalizedName.length < 2) throw new Error('Nombre inválido');
         if (!normalizedPhone) throw new Error('El teléfono es obligatorio');
-        if (!normalizedEmail) throw new Error('El email es obligatorio');
+        // Fase 1.2: email es opcional en CRUD admin.
         if (normalizedDni && normalizedDni.length < 6) throw new Error('DNI inválido');
 
         try {

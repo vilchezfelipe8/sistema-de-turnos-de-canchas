@@ -181,6 +181,22 @@ export class AccountController {
     }
   };
 
+  // P2-B: Anular venta de mostrador — restaura stock, cierra cuenta.
+  voidPos = async (req: Request, res: Response) => {
+    try {
+      const paramsSchema = z.object({ id: z.string().min(1) });
+      const parsed = paramsSchema.safeParse(req.params);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+
+      const clubId = this.resolveClubId(req);
+      const account = await this.accountService.voidPosAccount(clubId, parsed.data.id);
+      return res.json(mapAccountDto(account));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'No se pudo anular la cuenta';
+      return res.status(400).json({ error: message });
+    }
+  };
+
   summary = async (req: Request, res: Response) => {
     try {
       const paramsSchema = z.object({ id: z.string().min(1) });

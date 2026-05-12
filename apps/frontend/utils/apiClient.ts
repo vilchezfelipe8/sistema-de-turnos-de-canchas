@@ -111,10 +111,16 @@ const resolveAdminLogoutRedirect = (): string | null => {
   return null;
 };
 
-const triggerLogoutInvalidation = (redirectTo: string | null) => {
+const resolveLogoutReason = (code: ApiErrorCode | null) => {
+  if (code === 'AUTH_EXPIRED') return 'session_expired';
+  if (code === 'AUTH_REVOKED') return 'session_revoked';
+  return 'session_invalid';
+};
+
+const triggerLogoutInvalidation = (redirectTo: string | null, code: ApiErrorCode | null) => {
   if (logoutInvalidationInFlight) return;
   logoutInvalidationInFlight = true;
-  logout({ redirectTo });
+  logout({ redirectTo, reason: resolveLogoutReason(code) });
   if (typeof window !== 'undefined') {
     window.setTimeout(() => {
       logoutInvalidationInFlight = false;
@@ -180,7 +186,7 @@ const executeFetchWithAuth = async (
 
   if (response.status === 401) {
     if (isSessionInvalidCode(code)) {
-      triggerLogoutInvalidation(resolveAdminLogoutRedirect());
+      triggerLogoutInvalidation(resolveAdminLogoutRedirect(), code);
       throw new AuthSessionInvalidatedError(code || 'AUTH_INVALID', response.status);
     }
     throw new Error(formatMessage(message, 'No autorizado'));
@@ -191,7 +197,7 @@ const executeFetchWithAuth = async (
       throw new Error(formatMessage(message, 'No autorizado'));
     }
     if (isSessionInvalidCode(code)) {
-      triggerLogoutInvalidation(resolveAdminLogoutRedirect());
+      triggerLogoutInvalidation(resolveAdminLogoutRedirect(), code);
       throw new AuthSessionInvalidatedError(code || 'AUTH_INVALID', response.status);
     }
     throw new Error(formatMessage(message, 'No autorizado'));
