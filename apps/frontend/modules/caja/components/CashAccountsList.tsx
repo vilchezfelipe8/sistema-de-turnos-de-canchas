@@ -74,6 +74,13 @@ function AccountCard({
   const remaining = detail?.remaining ?? null;
   const hasPending = remaining !== null && remaining > EPSILON;
   const isOpen = account.status === 'OPEN';
+  const cardToneClass = isSelected
+    ? isOpen
+      ? 'border-p-accent bg-p-positive-bg'
+      : 'border-p-border-strong bg-p-surface-2'
+    : isOpen
+    ? 'border-p-accent bg-p-surface'
+    : 'border-p-border bg-p-surface-2';
 
   return (
     <div
@@ -87,9 +94,7 @@ function AccountCard({
       }}
       className={[
         'group relative flex cursor-pointer flex-col gap-2 rounded-xl border px-4 py-3 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-lima-300/40',
-        isSelected
-          ? 'border-p-accent bg-p-positive-bg'
-          : 'border-p-border bg-p-surface hover:border-p-border hover:bg-p-surface-2',
+        cardToneClass,
       ].join(' ')}
     >
       {/* ── Top row: name + status badge ── */}
@@ -105,7 +110,7 @@ function AccountCard({
           className={`shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
             isOpen
               ? 'border border-p-accent bg-p-surface-2 text-p-accent'
-              : 'border border-p-positive bg-p-positive-bg text-[var(--positive-fg)]'
+              : 'border border-p-border bg-p-surface-3 text-p-text-muted'
           }`}
         >
           {isOpen ? 'Abierta' : 'Cerrada'}
