@@ -82,6 +82,14 @@ const methodLabel = (method: string): string => {
   return method || '-';
 };
 
+const methodBadgeClass = (method: string): string => {
+  const m = method.toUpperCase();
+  if (m === 'CASH') return 'border-p-positive bg-p-positive-bg text-p-positive';
+  if (m === 'TRANSFER') return 'border-p-info bg-p-info-bg text-p-info';
+  if (m === 'CARD') return 'border-p-warning bg-p-warning-bg text-p-warning';
+  return 'border-p-border bg-p-surface-2 text-p-text-muted';
+};
+
 const channelLabel = (channel: string | null | undefined): string | null => {
   if (!channel) return null;
   const c = channel.toUpperCase();
@@ -276,7 +284,7 @@ export default function CashAccountDetailPanel({
                       <div key={payment.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <span className="inline-flex rounded-full border border-p-accent bg-p-surface-2 px-1.5 py-0.5 text-[10px] font-semibold text-p-accent">
+                            <span className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${methodBadgeClass(payment.method)}`}>
                               {methodLabel(payment.method)}
                             </span>
                             {channel && (
@@ -321,7 +329,7 @@ export default function CashAccountDetailPanel({
               <button
                 type="button"
                 onClick={onCloseAccount}
-                className="h-9 rounded-lg bg-ink-900 px-4 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-800"
+                className="h-9 rounded-lg border border-p-error bg-p-error-bg px-4 text-[12px] font-semibold text-[var(--error-fg)] transition hover:bg-[var(--error-fg)] hover:text-ink-50"
               >
                 Cerrar cuenta
               </button>
