@@ -88,6 +88,38 @@ type PosClientResult = {
   email?: string;
 };
 
+type PosSerializedItem = {
+  productId?: number;
+  serviceId?: number;
+  quantity: number;
+};
+
+type PosReport = {
+  scope: { shiftId: string | null; startDate: string; endDate: string };
+  totals: {
+    salesTotal: number;
+    paidTotal: number;
+    pendingTotal: number;
+    voidedTotal: number;
+    productTotal: number;
+    serviceTotal: number;
+  };
+  byProduct: Array<{ productId: number | null; name: string; quantity: number; total: number }>;
+  byService: Array<{ name: string; quantity: number; total: number }>;
+  paymentsByMethod: Array<{ method: string; count: number; total: number }>;
+  accounts: Array<{
+    id: string;
+    label: string;
+    clientName: string;
+    status: 'OPEN' | 'CLOSED' | 'VOIDED';
+    total: number;
+    paid: number;
+    pending: number;
+    createdAt: string;
+    closedAt: string | null;
+  }>;
+};
+
 // Extrae el UUID del cliente descartando prefijos 'client-' / 'user-'
 const resolvePosClientId = (client: PosClientResult | null | undefined): string => {
   const raw = String(client?.id || '').trim();
@@ -96,6 +128,23 @@ const resolvePosClientId = (client: PosClientResult | null | undefined): string 
   if (raw.startsWith('user-')) return ''; // usuarios del sistema no son clientes del club
   return raw;
 };
+
+const serializePosSaleItems = (
+  rows: Array<{ productId: string; quantity: string }>,
+  catalog: PosItem[]
+): PosSerializedItem[] =>
+  rows
+    .filter((item) => item.productId.includes(':') && Number(item.quantity) >= 1)
+    .map((item) => {
+      const [itemType, itemIdStr] = item.productId.split(':');
+      const itemId = Number(itemIdStr);
+      const qty = Number(item.quantity);
+      const catalogItem = catalog.find((entry) => entry.type === itemType && entry.id === itemId);
+      if (catalogItem?.type === 'service') {
+        return { serviceId: itemId, quantity: qty };
+      }
+      return { productId: itemId, quantity: qty };
+    });
 type AccountRow = {
   id: string;
   sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL';
@@ -574,12 +623,6 @@ export default function AdminPaymentsPlaygroundPage() {
   } | null>(null);
   const [posQuoteLoading, setPosQuoteLoading] = useState(false);
 
-  // P2-D: POS Report state
-  type PosReport = {
-    salesByProduct: Array<{ name: string; quantity: number; revenue: number }>;
-    salesByShift: Array<{ shiftId: string; openedAt: string; closedAt: string | null; count: number; total: number }>;
-    paymentsByMethod: Array<{ method: string; count: number; total: number }>;
-  };
   const [posReport, setPosReport] = useState<PosReport | null>(null);
   const [posReportLoading, setPosReportLoading] = useState(false);
   const [posReportError, setPosReportError] = useState('');
@@ -902,7 +945,11 @@ export default function AdminPaymentsPlaygroundPage() {
     setPosReportError('');
     try {
       const { startDate, endDate } = getCashDateRange(cashActivePeriod, cashPeriodOffset);
-      const data = await CashService.getPosReport({ startDate, endDate });
+      const data = await CashService.getPosReport({
+        startDate,
+        endDate,
+        shiftId: cashCurrentShift?.id || undefined
+      });
       setPosReport(data);
     } catch (err) {
       reportUiError({ area: 'PaymentsPlayground', action: 'loadPosReport' }, err);
@@ -910,7 +957,7 @@ export default function AdminPaymentsPlaygroundPage() {
     } finally {
       setPosReportLoading(false);
     }
-  }, [authChecked, cashActivePeriod, cashPeriodOffset, user]);
+  }, [authChecked, cashActivePeriod, cashCurrentShift?.id, cashPeriodOffset, user]);
 
   useEffect(() => {
     if (activeTab !== 'REPORTS') return;
@@ -1220,18 +1267,7 @@ export default function AdminPaymentsPlaygroundPage() {
   useEffect(() => {
     if (cashSidebarView !== 'product_sale') return;
 
-    const validItems = posItems
-      .filter((item) => item.productId.includes(':') && Number(item.quantity) >= 1)
-      .map((item) => {
-        const [itemType, itemIdStr] = item.productId.split(':');
-        const itemId = Number(itemIdStr);
-        const catalog = posProducts.find((p) => p.type === itemType && p.id === itemId);
-        const qty = Number(item.quantity);
-        if (catalog?.type === 'service') {
-          return { customName: catalog.name, unitPrice: catalog.price, quantity: qty };
-        }
-        return { productId: itemId, quantity: qty };
-      });
+    const validItems = serializePosSaleItems(posItems, posProducts);
 
     if (validItems.length === 0) {
       setPosQuote(null);
@@ -1267,21 +1303,10 @@ export default function AdminPaymentsPlaygroundPage() {
 
   // Fase 1.6B: crea la cuenta de mostrador (sin cobrar) y abre el AccountDrawer en vista de pago.
   const handleCreatePosAccount = useCallback(async () => {
-    const validItems = posItems
-      .filter((item) => item.productId.includes(':') && Number(item.quantity) >= 1)
-      .map((item) => {
-        const [itemType, itemIdStr] = item.productId.split(':');
-        const itemId = Number(itemIdStr);
-        const catalog = posProducts.find((p) => p.type === itemType && p.id === itemId);
-        const qty = Number(item.quantity);
-        if (catalog?.type === 'service') {
-          return { customName: catalog.name, unitPrice: catalog.price, quantity: qty };
-        }
-        return { productId: itemId, quantity: qty };
-      });
+    const validItems = serializePosSaleItems(posItems, posProducts);
 
     if (validItems.length === 0) {
-      setPosError('Agregá al menos un producto válido.');
+      setPosError('Agregá al menos un ítem válido.');
       return;
     }
     if (!cashCurrentShift) {
@@ -2224,24 +2249,47 @@ export default function AdminPaymentsPlaygroundPage() {
                   </div>
                 ) : (
                   <>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {[
+                        { label: 'Ventas POS', value: formatMoney(posReport?.totals.salesTotal || 0), help: cashCurrentShift ? 'Turno actual' : `Período ${cashPeriodLabel}` },
+                        { label: 'Cobrado', value: formatMoney(posReport?.totals.paidTotal || 0), help: 'Pagos registrados en el alcance actual' },
+                        { label: 'Pendiente', value: formatMoney(posReport?.totals.pendingTotal || 0), help: 'Saldo abierto de cuentas POS' },
+                        { label: 'Anulado', value: formatMoney(posReport?.totals.voidedTotal || 0), help: 'Ventas anuladas sin cobro' },
+                        { label: 'Productos', value: formatMoney(posReport?.totals.productTotal || 0), help: 'Facturación de productos' },
+                        { label: 'Servicios', value: formatMoney(posReport?.totals.serviceTotal || 0), help: 'Facturación de servicios' },
+                      ].map((card) => (
+                        <AdminPanel
+                          key={card.label}
+                          title={card.label}
+                          description={card.help}
+                          headerClassName="pl-4 pr-4 py-3"
+                          bodyClassName="px-4 pb-4 pt-0"
+                        >
+                          <p className="text-[22px] font-semibold text-p-text">{card.value}</p>
+                        </AdminPanel>
+                      ))}
+                    </div>
+
                     {/* Open BAR Accounts */}
                     <AdminPanel
                       title="Cuentas BAR abiertas"
-                      description={`${allAccounts.filter((a) => a.sourceType === 'BAR' && a.status === 'OPEN').length} cuenta${allAccounts.filter((a) => a.sourceType === 'BAR' && a.status === 'OPEN').length !== 1 ? 's' : ''} pendiente${allAccounts.filter((a) => a.sourceType === 'BAR' && a.status === 'OPEN').length !== 1 ? 's' : ''} de cobro`}
+                      description={`${(posReport?.accounts || []).filter((account) => account.status === 'OPEN').length} cuenta${(posReport?.accounts || []).filter((account) => account.status === 'OPEN').length !== 1 ? 's' : ''} pendiente${(posReport?.accounts || []).filter((account) => account.status === 'OPEN').length !== 1 ? 's' : ''} de cobro`}
                       headerClassName="pl-4 pr-3 py-3"
                       bodyClassName="p-0"
                     >
-                      {allAccounts.filter((a) => a.sourceType === 'BAR' && a.status === 'OPEN').length === 0 ? (
+                      {(posReport?.accounts || []).filter((account) => account.status === 'OPEN').length === 0 ? (
                         <p className="px-4 py-6 text-center text-[13px] text-p-text-muted">No hay cuentas BAR abiertas</p>
                       ) : (
                         <div className="divide-y divide-p-border">
-                          {allAccounts.filter((a) => a.sourceType === 'BAR' && a.status === 'OPEN').map((account) => (
+                          {(posReport?.accounts || []).filter((account) => account.status === 'OPEN').map((account) => (
                             <div key={account.id} className="flex items-center justify-between gap-3 px-4 py-3">
                               <div className="min-w-0">
                                 <p className="truncate text-[13px] font-medium text-p-text">
-                                  {account.booking?.clientName || `Cuenta ${shortCode(account.id)}`}
+                                  {account.clientName || `Cuenta ${shortCode(account.id)}`}
                                 </p>
-                                <p className="text-[11px] text-p-text-muted">{formatRelativeDate(account.createdAt)}</p>
+                                <p className="text-[11px] text-p-text-muted">
+                                  {formatRelativeDate(account.createdAt)} · Pendiente {formatMoney(account.pending)}
+                                </p>
                               </div>
                               <button
                                 type="button"
@@ -2259,11 +2307,11 @@ export default function AdminPaymentsPlaygroundPage() {
                     {/* Sales by Product */}
                     <AdminPanel
                       title="Ventas por producto"
-                      description="Ítems vendidos en cuentas BAR cerradas del período."
+                      description="Facturación POS agrupada por producto."
                       headerClassName="pl-4 pr-3 py-3"
                       bodyClassName="p-0"
                     >
-                      {!posReport || posReport.salesByProduct.length === 0 ? (
+                      {!posReport || posReport.byProduct.length === 0 ? (
                         <p className="px-4 py-6 text-center text-[13px] text-p-text-muted">Sin datos para el período</p>
                       ) : (
                         <>
@@ -2271,11 +2319,11 @@ export default function AdminPaymentsPlaygroundPage() {
                             <p>Producto</p><p className="text-right">Cantidad</p><p className="text-right">Total</p>
                           </div>
                           <div className="divide-y divide-p-border">
-                            {posReport.salesByProduct.map((row, i) => (
+                            {posReport.byProduct.map((row, i) => (
                               <div key={i} className="grid grid-cols-[minmax(0,1fr)_100px_120px] px-4 py-3">
                                 <p className="truncate text-[13px] font-medium text-p-text">{row.name}</p>
                                 <p className="text-right text-[13px] text-p-text-secondary">×{row.quantity}</p>
-                                <p className="text-right text-[13px] font-semibold text-p-text">{formatMoney(row.revenue)}</p>
+                                <p className="text-right text-[13px] font-semibold text-p-text">{formatMoney(row.total)}</p>
                               </div>
                             ))}
                           </div>
@@ -2283,29 +2331,61 @@ export default function AdminPaymentsPlaygroundPage() {
                       )}
                     </AdminPanel>
 
-                    {/* Sales by Shift */}
+                    {/* Sales by Service */}
                     <AdminPanel
-                      title="Ventas por turno"
-                      description="Pagos recibidos en cuentas BAR, agrupados por turno de caja."
+                      title="Ventas por servicio"
+                      description="Facturación POS agrupada por servicio."
                       headerClassName="pl-4 pr-3 py-3"
                       bodyClassName="p-0"
                     >
-                      {!posReport || posReport.salesByShift.length === 0 ? (
+                      {!posReport || posReport.byService.length === 0 ? (
                         <p className="px-4 py-6 text-center text-[13px] text-p-text-muted">Sin datos para el período</p>
                       ) : (
                         <>
                           <div className="hidden grid-cols-[minmax(0,1fr)_100px_120px] border-b border-p-border px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-p-text-muted sm:grid">
-                            <p>Turno</p><p className="text-right">Cobros</p><p className="text-right">Total</p>
+                            <p>Servicio</p><p className="text-right">Cantidad</p><p className="text-right">Total</p>
                           </div>
                           <div className="divide-y divide-p-border">
-                            {posReport.salesByShift.map((row) => (
-                              <div key={row.shiftId} className="grid grid-cols-[minmax(0,1fr)_100px_120px] px-4 py-3">
-                                <div>
-                                  <p className="text-[13px] font-medium text-p-text">{formatRelativeDate(row.openedAt)}</p>
-                                  <p className="text-[11px] text-p-text-muted">{row.closedAt ? 'Cerrado' : 'Abierto'}</p>
+                            {posReport.byService.map((row) => (
+                              <div key={row.name} className="grid grid-cols-[minmax(0,1fr)_100px_120px] px-4 py-3">
+                                <p className="truncate text-[13px] font-medium text-p-text">{row.name}</p>
+                                <p className="text-right text-[13px] text-p-text-secondary">×{row.quantity}</p>
+                                <p className="text-right text-[13px] font-semibold text-p-text">{formatMoney(row.total)}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </AdminPanel>
+
+                    <AdminPanel
+                      title="Cuentas POS"
+                      description="Estado de cuentas creadas en el alcance actual."
+                      headerClassName="pl-4 pr-3 py-3"
+                      bodyClassName="p-0"
+                    >
+                      {!posReport || posReport.accounts.length === 0 ? (
+                        <p className="px-4 py-6 text-center text-[13px] text-p-text-muted">Sin cuentas para el período</p>
+                      ) : (
+                        <>
+                          <div className="hidden grid-cols-[minmax(0,1.2fr)_120px_120px_120px_96px] border-b border-p-border px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-p-text-muted xl:grid">
+                            <p>Cuenta</p>
+                            <p className="text-right">Total</p>
+                            <p className="text-right">Cobrado</p>
+                            <p className="text-right">Pendiente</p>
+                            <p className="text-right">Estado</p>
+                          </div>
+                          <div className="divide-y divide-p-border">
+                            {posReport.accounts.map((account) => (
+                              <div key={account.id} className="grid gap-2 px-4 py-3 xl:grid-cols-[minmax(0,1.2fr)_120px_120px_120px_96px] xl:items-center">
+                                <div className="min-w-0">
+                                  <p className="truncate text-[13px] font-medium text-p-text">{account.clientName}</p>
+                                  <p className="text-[11px] text-p-text-muted">{account.label} · {formatRelativeDate(account.createdAt)}</p>
                                 </div>
-                                <p className="self-center text-right text-[13px] text-p-text-secondary">{row.count}</p>
-                                <p className="self-center text-right text-[13px] font-semibold text-p-text">{formatMoney(row.total)}</p>
+                                <p className="text-[13px] font-semibold text-p-text xl:text-right">{formatMoney(account.total)}</p>
+                                <p className="text-[13px] text-p-positive xl:text-right">{formatMoney(account.paid)}</p>
+                                <p className="text-[13px] text-p-text-secondary xl:text-right">{formatMoney(account.pending)}</p>
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-p-text-muted xl:text-right">{account.status === 'VOIDED' ? 'Anulada' : account.status === 'OPEN' ? 'Abierta' : 'Cerrada'}</p>
                               </div>
                             ))}
                           </div>

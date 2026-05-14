@@ -16,6 +16,7 @@ import { AppError, badRequest, notFound, conflict, unprocessable, ErrorCodes } f
 type ProductSaleItemInput = {
     itemKey?: string;
     productId?: number | null;
+    serviceId?: number | null;
     quantity: number;
     customName?: string;
     unitPrice?: number;
@@ -40,6 +41,7 @@ type ClientDraftInput = {
 type NormalizedProductSaleItem = {
     itemKey: string;
     productId: number | null;
+    serviceId: number | null;
     quantity: number;
     customName?: string;
     unitPrice?: number;
@@ -470,79 +472,172 @@ export class CashService {
         ];
     }
 
-    // P2-D: Reporte POS — ventas por turno, ventas por producto, pagos por método
-    async getPosReport(clubId: number, startDate?: string, endDate?: string) {
-        const start = startDate ? new Date(startDate) : new Date(new Date().setHours(0, 0, 0, 0));
-        const end = endDate ? new Date(endDate) : new Date();
+    // P2-D/E-3: Reporte POS operativo — cuentas BAR, productos, servicios y cobros.
+    async getPosReport(clubId: number, startDate?: string, endDate?: string, shiftId?: string) {
+        let start = startDate ? new Date(startDate) : new Date(new Date().setHours(0, 0, 0, 0));
+        let end = endDate ? new Date(endDate) : new Date();
 
-        // Fetch BAR account items in date range
-        const items = await prisma.accountItem.findMany({
+        if (shiftId) {
+            const shift = await prisma.cashShift.findFirst({
+                where: { id: shiftId, clubId },
+                select: { id: true, openedAt: true, closedAt: true }
+            });
+            if (!shift) throw notFound('Turno de caja no encontrado.', ErrorCodes.CASH_SHIFT_NOT_FOUND);
+            start = new Date(shift.openedAt);
+            end = shift.closedAt ? new Date(shift.closedAt) : new Date();
+        }
+
+        const accounts = await prisma.account.findMany({
             where: {
-                account: { clubId, sourceType: 'BAR', status: 'CLOSED' },
+                clubId,
+                sourceType: 'BAR',
                 createdAt: { gte: start, lte: end }
             },
             select: {
                 id: true,
-                description: true,
-                quantity: true,
-                total: true,
-                productId: true,
-                product: { select: { name: true } }
+                displayCode: true,
+                sourceId: true,
+                status: true,
+                totalAmount: true,
+                paidAmount: true,
+                createdAt: true,
+                closedAt: true,
+                client: { select: { name: true } },
+                items: {
+                    select: {
+                        id: true,
+                        type: true,
+                        description: true,
+                        quantity: true,
+                        total: true,
+                        productId: true,
+                        product: { select: { name: true } }
+                    }
+                }
             }
         });
 
-        // Sales by product
-        const productMap = new Map<string, { name: string; quantity: number; revenue: number }>();
-        for (const item of items) {
-            const name = item.product?.name || item.description || 'Ítem';
-            const key = item.productId ? `product:${item.productId}` : `custom:${name}`;
-            const entry = productMap.get(key) || { name, quantity: 0, revenue: 0 };
-            entry.quantity += Number(item.quantity || 0);
-            entry.revenue += Number(item.total || 0);
-            productMap.set(key, entry);
-        }
-        const salesByProduct = Array.from(productMap.values())
-            .sort((a, b) => b.revenue - a.revenue)
-            .slice(0, 20);
+        const accountIds = accounts.map((account) => account.id);
+        const payments = accountIds.length === 0
+            ? []
+            : await prisma.payment.findMany({
+                where: {
+                    accountId: { in: accountIds },
+                    status: 'COMPLETED',
+                    ...(shiftId
+                        ? { cashShiftId: shiftId }
+                        : { createdAt: { gte: start, lte: end } })
+                },
+                select: {
+                    id: true,
+                    accountId: true,
+                    amount: true,
+                    method: true,
+                    createdAt: true
+                }
+            } as any);
 
-        // Payments in date range for BAR accounts (grouped by method)
-        const payments = await prisma.payment.findMany({
-            where: {
-                account: { clubId, sourceType: 'BAR' },
-                createdAt: { gte: start, lte: end },
-                status: 'COMPLETED'
-            },
-            select: { id: true, amount: true, method: true, cashShiftId: true, cashShift: { select: { id: true, openedAt: true, closedAt: true } } }
-        } as any);
-
-        // Payments by method
+        const paidByAccount = new Map<string, number>();
         const methodMap = new Map<string, { method: string; count: number; total: number }>();
-        for (const p of payments as any[]) {
-            const method = String(p.method || 'OTHER');
+
+        for (const payment of payments as any[]) {
+            const accountId = String(payment.accountId || '');
+            const paid = Number(payment.amount || 0);
+            paidByAccount.set(accountId, Number(((paidByAccount.get(accountId) || 0) + paid).toFixed(2)));
+
+            const method = String(payment.method || 'OTHER');
             const entry = methodMap.get(method) || { method, count: 0, total: 0 };
             entry.count += 1;
-            entry.total += Number(p.amount || 0);
+            entry.total = Number((entry.total + paid).toFixed(2));
             methodMap.set(method, entry);
         }
-        const paymentsByMethod = Array.from(methodMap.values()).sort((a, b) => b.total - a.total);
 
-        // Sales by shift
-        const shiftMap = new Map<string, { shiftId: string; openedAt: string; closedAt: string | null; count: number; total: number }>();
-        for (const p of payments as any[]) {
-            const shiftId = p.cashShiftId;
-            if (!shiftId) continue;
-            const openedAt = p.cashShift?.openedAt ? new Date(p.cashShift.openedAt).toISOString() : '';
-            const closedAt = p.cashShift?.closedAt ? new Date(p.cashShift.closedAt).toISOString() : null;
-            const entry = shiftMap.get(shiftId) || { shiftId, openedAt, closedAt, count: 0, total: 0 };
-            entry.count += 1;
-            entry.total += Number(p.amount || 0);
-            shiftMap.set(shiftId, entry);
-        }
-        const salesByShift = Array.from(shiftMap.values())
-            .sort((a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime())
-            .slice(0, 10);
+        const byProductMap = new Map<string, { productId: number | null; name: string; quantity: number; total: number }>();
+        const byServiceMap = new Map<string, { name: string; quantity: number; total: number }>();
 
-        return { salesByProduct, salesByShift, paymentsByMethod };
+        let salesTotal = 0;
+        let paidTotal = 0;
+        let pendingTotal = 0;
+        let voidedTotal = 0;
+        let productTotal = 0;
+        let serviceTotal = 0;
+
+        const accountsPayload = accounts
+            .map((account) => {
+                const isVoided = String(account.sourceId || '').startsWith('VOID-');
+                const total = Number(account.totalAmount || 0);
+                const paid = isVoided ? 0 : Number(paidByAccount.get(account.id) || 0);
+                const pending = isVoided ? 0 : Number(Math.max(0, total - paid).toFixed(2));
+
+                if (isVoided) {
+                    voidedTotal = Number((voidedTotal + total).toFixed(2));
+                } else {
+                    salesTotal = Number((salesTotal + total).toFixed(2));
+                    paidTotal = Number((paidTotal + paid).toFixed(2));
+                    pendingTotal = Number((pendingTotal + pending).toFixed(2));
+                }
+
+                for (const item of account.items || []) {
+                    if (isVoided) continue;
+                    const itemTotal = Number(item.total || 0);
+                    const quantity = Number(item.quantity || 0);
+                    if (item.type === 'SERVICE') {
+                        const name = String(item.description || 'Servicio');
+                        const entry = byServiceMap.get(name) || { name, quantity: 0, total: 0 };
+                        entry.quantity += quantity;
+                        entry.total = Number((entry.total + itemTotal).toFixed(2));
+                        byServiceMap.set(name, entry);
+                        serviceTotal = Number((serviceTotal + itemTotal).toFixed(2));
+                        continue;
+                    }
+
+                    const name = item.product?.name || item.description || 'Producto';
+                    const key = item.productId ? `product:${item.productId}` : `manual:${name}`;
+                    const entry = byProductMap.get(key) || {
+                        productId: item.productId ?? null,
+                        name,
+                        quantity: 0,
+                        total: 0
+                    };
+                    entry.quantity += quantity;
+                    entry.total = Number((entry.total + itemTotal).toFixed(2));
+                    byProductMap.set(key, entry);
+                    productTotal = Number((productTotal + itemTotal).toFixed(2));
+                }
+
+                return {
+                    id: account.id,
+                    label: account.displayCode || account.id,
+                    clientName: account.client?.name || 'Consumidor final',
+                    status: isVoided ? 'VOIDED' : account.status,
+                    total,
+                    paid,
+                    pending,
+                    createdAt: account.createdAt,
+                    closedAt: account.closedAt ?? null
+                };
+            })
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+        return {
+            scope: {
+                shiftId: shiftId || null,
+                startDate: start.toISOString(),
+                endDate: end.toISOString()
+            },
+            totals: {
+                salesTotal,
+                paidTotal,
+                pendingTotal,
+                voidedTotal,
+                productTotal,
+                serviceTotal
+            },
+            byProduct: Array.from(byProductMap.values()).sort((a, b) => b.total - a.total),
+            byService: Array.from(byServiceMap.values()).sort((a, b) => b.total - a.total),
+            paymentsByMethod: Array.from(methodMap.values()).sort((a, b) => b.total - a.total),
+            accounts: accountsPayload
+        };
     }
 
     private async resolveClientIdForSaleTx(tx: Prisma.TransactionClient, input: {
@@ -665,6 +760,7 @@ export class CashService {
         const normalizedItems: NormalizedProductSaleItem[] = rawItems.map((item, index) => {
             const quantity = Math.floor(Number(item.quantity));
             const productId = Number(item.productId || 0);
+            const serviceId = Number(item.serviceId || 0);
             const providedItemKey = String(item.itemKey || '').trim();
             const customName = String(item.customName || '').trim();
 
@@ -676,6 +772,16 @@ export class CashService {
                 return {
                     itemKey: providedItemKey || `product:${productId}:${index}`,
                     productId,
+                    serviceId: null,
+                    quantity
+                };
+            }
+
+            if (Number.isInteger(serviceId) && serviceId > 0) {
+                return {
+                    itemKey: providedItemKey || `service:${serviceId}:${index}`,
+                    productId: null,
+                    serviceId,
                     quantity
                 };
             }
@@ -694,6 +800,7 @@ export class CashService {
             return {
                 itemKey: providedItemKey || `custom:${index}:${slugBase}`,
                 productId: null,
+                serviceId: null,
                 quantity,
                 customName,
                 unitPrice
@@ -768,8 +875,62 @@ export class CashService {
 
                     items.push({
                         itemKey: entry.itemKey,
+                        itemType: 'PRODUCT' as const,
                         productId: product.id,
+                        serviceId: null,
+                        serviceCode: null,
                         productName: product.name,
+                        quantity: qty,
+                        listUnitPrice,
+                        finalUnitPrice,
+                        listTotal: listItemTotal,
+                        finalTotal: finalItemTotal,
+                        discountAmount: itemDiscount,
+                        hasDiscount: itemDiscount > 0.009,
+                        isCustom: false,
+                        appliedPolicies: (discountDraft.snapshots || []).map((s: any) => ({
+                            policyId: s.policyId,
+                            discountAmount: Number(s.discountAmount || 0)
+                        }))
+                    });
+                    continue;
+                }
+
+                if (entry.serviceId) {
+                    const service = await tx.clubServiceCatalog.findFirst({
+                        where: { id: Number(entry.serviceId), clubId: input.clubId },
+                        select: { id: true, code: true, name: true, price: true, isActive: true }
+                    });
+                    if (!service) throw notFound('Servicio no encontrado.', ErrorCodes.SERVICE_NOT_FOUND);
+                    if (!service.isActive) throw conflict('Servicio no disponible para la venta.', ErrorCodes.SERVICE_INACTIVE);
+
+                    const listUnitPrice = Number(Number(service.price || 0).toFixed(2));
+                    const listItemTotal = Number((listUnitPrice * qty).toFixed(2));
+
+                    const discountDraft = await this.discountService.computeDraftDiscountTx(tx, {
+                        clubId: input.clubId,
+                        clientId: resolvedClientId,
+                        itemType: 'SERVICE',
+                        quantity: qty,
+                        unitPrice: listUnitPrice,
+                        serviceCode: service.code
+                    });
+
+                    const finalUnitPrice = Number(Number(discountDraft.unitPrice || listUnitPrice).toFixed(2));
+                    const finalItemTotal = Number(Number(discountDraft.total || listItemTotal).toFixed(2));
+                    const itemDiscount = Number(Math.max(0, listItemTotal - finalItemTotal).toFixed(2));
+
+                    listTotal += listItemTotal;
+                    finalTotal += finalItemTotal;
+                    discountTotal += itemDiscount;
+
+                    items.push({
+                        itemKey: entry.itemKey,
+                        itemType: 'SERVICE' as const,
+                        productId: null,
+                        serviceId: service.id,
+                        serviceCode: service.code,
+                        productName: service.name,
                         quantity: qty,
                         listUnitPrice,
                         finalUnitPrice,
@@ -795,7 +956,10 @@ export class CashService {
 
                 items.push({
                     itemKey: entry.itemKey,
+                    itemType: 'PRODUCT' as const,
                     productId: null,
+                    serviceId: null,
+                    serviceCode: null,
                     productName: customName,
                     quantity: qty,
                     listUnitPrice,
@@ -892,37 +1056,51 @@ export class CashService {
 
             for (const qi of quote.items) {
                 const productId = Number(qi.productId || 0);
+                const serviceId = Number((qi as any).serviceId || 0);
+                const isService = String((qi as any).itemType || '').toUpperCase() === 'SERVICE';
                 const product = productId > 0
                     ? await tx.product.findFirst({
                         where: { id: productId, clubId: input.clubId },
                         select: { id: true, stock: true, category: true, isActive: true }
                     })
                     : null;
+                const service = serviceId > 0
+                    ? await tx.clubServiceCatalog.findFirst({
+                        where: { id: serviceId, clubId: input.clubId },
+                        select: { id: true, code: true, isActive: true }
+                    })
+                    : null;
                 if (productId > 0 && !product) throw notFound('Producto no encontrado.', ErrorCodes.PRODUCT_NOT_FOUND);
                 if (product && !product.isActive) throw conflict('Producto inactivo.', ErrorCodes.PRODUCT_INACTIVE);
                 if (product && Number(product.stock) < Number(qi.quantity)) throw conflict('Stock insuficiente.', ErrorCodes.STOCK_INSUFFICIENT);
+                if (serviceId > 0 && !service) throw notFound('Servicio no encontrado.', ErrorCodes.SERVICE_NOT_FOUND);
+                if (service && !service.isActive) throw conflict('Servicio no disponible para la venta.', ErrorCodes.SERVICE_INACTIVE);
+
+                const itemDescription = isService ? String(qi.productName || 'Servicio') : `${baseDescription}: ${qi.productName}`;
+                const itemType = isService ? 'SERVICE' : 'PRODUCT';
 
                 const item = await tx.accountItem.create({
                     data: {
                         accountId: account.id,
-                        type: 'PRODUCT',
+                        type: itemType,
                         productId: product ? product.id : null,
-                        description: `${baseDescription}: ${qi.productName}`,
+                        description: itemDescription,
                         quantity: qi.quantity,
                         unitPrice: new Prisma.Decimal(qi.finalUnitPrice),
                         total: new Prisma.Decimal(qi.finalTotal)
                     }
                 });
 
-                if (resolvedClientId && product) {
+                if (resolvedClientId && (product || service)) {
                     const discountDraft = await this.discountService.computeDraftDiscountTx(tx, {
                         clubId: input.clubId,
                         clientId: resolvedClientId,
-                        itemType: 'PRODUCT',
+                        itemType: isService ? 'SERVICE' : 'PRODUCT',
                         quantity: qi.quantity,
                         unitPrice: qi.listUnitPrice,
-                        productId: product.id,
-                        productCategory: product.category
+                        productId: product?.id,
+                        productCategory: product?.category,
+                        serviceCode: service?.code
                     });
                     if (discountDraft.snapshots?.length) {
                         await this.discountService.persistAppliedDiscountsTx(tx, {
@@ -954,8 +1132,8 @@ export class CashService {
                     accountId: account.id,
                     accountItemId: item.id,
                     amount: Number(qi.finalTotal || 0),
-                    revenueAccount: 'BAR_REVENUE',
-                    description: `${baseDescription}: ${qi.productName}`,
+                    revenueAccount: this.accountingService.mapRevenueAccount(isService ? 'SERVICE' : 'PRODUCT'),
+                    description: itemDescription,
                     createdByUserId: actorUserId ?? null
                 });
             }
@@ -1155,7 +1333,8 @@ export class CashService {
                     status: 'OPEN',
                     totalAmount: new Prisma.Decimal(0),
                     paidAmount: new Prisma.Decimal(0),
-                    idempotencyKey: input.idempotencyKey ?? null
+                    idempotencyKey: input.idempotencyKey ?? null,
+                    clientId: resolvedClientId ?? null
                 }
             });
 
@@ -1175,22 +1354,35 @@ export class CashService {
             const createdItems: Array<{ id: string }> = [];
             for (const qi of quote.items) {
                 const productId = Number(qi.productId || 0);
+                const serviceId = Number((qi as any).serviceId || 0);
+                const isService = String((qi as any).itemType || '').toUpperCase() === 'SERVICE';
                 const product = productId > 0
                     ? await tx.product.findFirst({
                         where: { id: productId, clubId: input.clubId },
                         select: { id: true, stock: true, category: true, isActive: true }
                     })
                     : null;
+                const service = serviceId > 0
+                    ? await tx.clubServiceCatalog.findFirst({
+                        where: { id: serviceId, clubId: input.clubId },
+                        select: { id: true, code: true, isActive: true }
+                    })
+                    : null;
                 if (productId > 0 && !product) throw notFound('Producto no encontrado.', ErrorCodes.PRODUCT_NOT_FOUND);
                 if (product && !product.isActive) throw conflict('Producto inactivo.', ErrorCodes.PRODUCT_INACTIVE);
                 if (product && Number(product.stock) < Number(qi.quantity)) throw conflict('Stock insuficiente.', ErrorCodes.STOCK_INSUFFICIENT);
+                if (serviceId > 0 && !service) throw notFound('Servicio no encontrado.', ErrorCodes.SERVICE_NOT_FOUND);
+                if (service && !service.isActive) throw conflict('Servicio no disponible para la venta.', ErrorCodes.SERVICE_INACTIVE);
+
+                const itemDescription = isService ? String(qi.productName || 'Servicio') : `${baseDescription}: ${qi.productName}`;
+                const itemType = isService ? 'SERVICE' : 'PRODUCT';
 
                 const item = await tx.accountItem.create({
                     data: {
                         accountId: account.id,
-                        type: 'PRODUCT',
+                        type: itemType,
                         productId: product ? product.id : null,
-                        description: `${baseDescription}: ${qi.productName}`,
+                        description: itemDescription,
                         quantity: qi.quantity,
                         unitPrice: new Prisma.Decimal(qi.finalUnitPrice),
                         total: new Prisma.Decimal(qi.finalTotal)
@@ -1198,15 +1390,16 @@ export class CashService {
                 });
                 createdItems.push({ id: item.id });
 
-                if (resolvedClientId && product) {
+                if (resolvedClientId && (product || service)) {
                     const discountDraft = await this.discountService.computeDraftDiscountTx(tx, {
                         clubId: input.clubId,
                         clientId: resolvedClientId,
-                        itemType: 'PRODUCT',
+                        itemType: isService ? 'SERVICE' : 'PRODUCT',
                         quantity: qi.quantity,
                         unitPrice: qi.listUnitPrice,
-                        productId: product.id,
-                        productCategory: product.category
+                        productId: product?.id,
+                        productCategory: product?.category,
+                        serviceCode: service?.code
                     });
                     if (discountDraft.snapshots?.length) {
                         await this.discountService.persistAppliedDiscountsTx(tx, {
@@ -1238,8 +1431,8 @@ export class CashService {
                     accountId: account.id,
                     accountItemId: item.id,
                     amount: Number(qi.finalTotal || 0),
-                    revenueAccount: 'BAR_REVENUE',
-                    description: `${baseDescription}: ${qi.productName}`,
+                    revenueAccount: this.accountingService.mapRevenueAccount(isService ? 'SERVICE' : 'PRODUCT'),
+                    description: itemDescription,
                     createdByUserId: actorUserId ?? null
                 });
             }

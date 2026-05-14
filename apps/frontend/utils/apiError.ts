@@ -15,6 +15,7 @@ export type ApiErrorLike = {
   message: string;
   blocking: boolean;
   field: ApiErrorField;
+  fieldErrors?: Record<string, string>;
   meta?: Record<string, unknown>;
   retryable: boolean;
   status?: number;
@@ -64,10 +65,19 @@ const fieldFromPayload = (payload: UnknownPayload): ApiErrorField => {
 const boolFromPayload = (value: unknown, fallback: boolean): boolean =>
   typeof value === 'boolean' ? value : fallback;
 
+const readFieldErrors = (value: unknown): Record<string, string> | undefined => {
+  if (!isRecord(value)) return undefined;
+  const entries = Object.entries(value)
+    .map(([field, message]) => [field, readString(message)] as const)
+    .filter((entry): entry is readonly [string, string] => entry[1].length > 0);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+};
+
 export class ApiRequestError extends Error implements ApiErrorLike {
   public readonly code: string | null;
   public readonly blocking: boolean;
   public readonly field: ApiErrorField;
+  public readonly fieldErrors?: Record<string, string>;
   public readonly meta?: Record<string, unknown>;
   public readonly retryable: boolean;
   public readonly status?: number;
@@ -79,6 +89,7 @@ export class ApiRequestError extends Error implements ApiErrorLike {
     this.code = data.code;
     this.blocking = data.blocking;
     this.field = data.field;
+    this.fieldErrors = data.fieldErrors;
     this.meta = data.meta;
     this.retryable = data.retryable;
     this.status = data.status;
@@ -99,6 +110,7 @@ export const normalizeApiError = (
       message: readString(raw.message) || fallbackMessage,
       blocking: typeof raw.blocking === 'boolean' ? raw.blocking : true,
       field: typeof raw.field === 'string' ? raw.field : 'general',
+      fieldErrors: isRecord(raw.fieldErrors) ? readFieldErrors(raw.fieldErrors) : undefined,
       meta: isRecord(raw.meta) ? raw.meta : undefined,
       retryable: typeof raw.retryable === 'boolean' ? raw.retryable : false,
       status: typeof raw.status === 'number' ? raw.status : undefined,
@@ -137,6 +149,9 @@ export const parseApiErrorPayload = (
   const metaRaw =
     (isRecord(payload.meta) ? payload.meta : undefined) ??
     (isRecord(nestedError?.meta) ? (nestedError?.meta as Record<string, unknown>) : undefined);
+  const fieldErrors =
+    readFieldErrors(payload.fieldErrors) ??
+    readFieldErrors(nestedError?.fieldErrors);
   const legacyMeta: Record<string, unknown> = {};
   if (Array.isArray(payload.overlaps)) {
     legacyMeta.overlaps = payload.overlaps;
@@ -156,6 +171,7 @@ export const parseApiErrorPayload = (
     message: messageFromPayload(payload, fallbackMessage),
     blocking: boolFromPayload(blockingRaw, true),
     field: fieldFromPayload(payload),
+    fieldErrors,
     meta: resolvedMeta,
     retryable: boolFromPayload(retryableRaw, false),
     status: Number.isFinite(statusRaw) ? statusRaw : undefined,

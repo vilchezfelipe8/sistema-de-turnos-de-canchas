@@ -202,7 +202,8 @@ function buildHarness(options?: { products?: ProductRow[]; paymentBehavior?: Pay
   };
 
   service.accountingService = {
-    createAccountItemTransaction: async () => null
+    createAccountItemTransaction: async () => null,
+    mapRevenueAccount: (type: string) => (type === 'PRODUCT' ? 'BAR_REVENUE' : 'ADJUSTMENTS')
   };
 
   service.projectionService = {

@@ -74,11 +74,24 @@ const run = async () => {
     });
     await assertStatus(registerPayment, 401, 'account_payment_requires_auth');
 
+    const adminProducts = await fetch(`${baseUrl}/api/clubs/smoke-club/admin/products`);
+    await assertStatus(adminProducts, 401, 'admin_products_requires_auth');
+
+    const adminDiscountPolicies = await fetch(`${baseUrl}/api/clubs/smoke-club/admin/discount-policies`);
+    await assertStatus(adminDiscountPolicies, 401, 'admin_discount_policies_requires_auth');
+
     const authFlow = await maybeRunAuthenticatedFlow(baseUrl);
 
     console.log(JSON.stringify({
       ok: true,
-      smoke: ['health', 'auth_me_requires_token', 'booking_items_requires_auth', 'account_payment_requires_auth'],
+      smoke: [
+        'health',
+        'auth_me_requires_token',
+        'booking_items_requires_auth',
+        'account_payment_requires_auth',
+        'admin_products_requires_auth',
+        'admin_discount_policies_requires_auth'
+      ],
       authenticatedFlow: authFlow.executed ? authFlow.checks : 'skipped (set SMOKE_USER_EMAIL/SMOKE_USER_PASSWORD)'
     }));
   } finally {

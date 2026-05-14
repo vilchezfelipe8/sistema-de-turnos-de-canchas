@@ -175,7 +175,8 @@ export class AccountController {
       if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
 
       const clubId = this.resolveClubId(req);
-      const account = await this.accountService.voidPosAccount(clubId, parsed.data.id);
+      const actorUserId = this.resolveActorUserId(req);
+      const account = await this.accountService.voidPosAccount(clubId, parsed.data.id, actorUserId ?? null);
       return res.json(mapAccountDto(account));
     } catch (error: unknown) {
       return sendAppError(res, error, 'No se pudo anular la cuenta.');

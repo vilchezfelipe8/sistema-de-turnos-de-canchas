@@ -16,6 +16,13 @@ export const BOOKING_ERROR_BEHAVIOR_BY_CODE: Record<string, BookingErrorBehavior
     disableSave: true,
     fallbackMessage: 'El horario se superpone con otra reserva.'
   },
+  BOOKING_SLOT_UNAVAILABLE: {
+    field: 'time',
+    blocking: true,
+    channel: 'inline',
+    disableSave: true,
+    fallbackMessage: 'Ese horario no está disponible para esta cancha.'
+  },
   SLOT_ALREADY_BOOKED: {
     field: 'time',
     blocking: true,
@@ -57,6 +64,55 @@ export const BOOKING_ERROR_BEHAVIOR_BY_CODE: Record<string, BookingErrorBehavior
     channel: 'inline',
     disableSave: true,
     fallbackMessage: 'La fecha excede el limite de anticipacion permitido.'
+  },
+  BOOKING_NOT_FOUND: {
+    field: 'general',
+    blocking: true,
+    channel: 'banner',
+    disableSave: true,
+    fallbackMessage: 'No se encontró la reserva.'
+  },
+  BOOKING_INVALID_STATUS: {
+    field: 'general',
+    blocking: true,
+    channel: 'banner',
+    disableSave: true,
+    fallbackMessage: 'La reserva no está en un estado válido para esta acción.'
+  },
+  COURT_NOT_FOUND: {
+    field: 'court',
+    blocking: true,
+    channel: 'inline',
+    disableSave: true,
+    fallbackMessage: 'Seleccioná una cancha válida.'
+  },
+  ACTIVITY_NOT_FOUND: {
+    field: 'court',
+    blocking: true,
+    channel: 'inline',
+    disableSave: true,
+    fallbackMessage: 'Seleccioná una actividad válida.'
+  },
+  CLIENT_OUT_OF_CLUB: {
+    field: 'owner',
+    blocking: true,
+    channel: 'banner',
+    disableSave: true,
+    fallbackMessage: 'El cliente seleccionado no pertenece a este club.'
+  },
+  BOOKING_TITULAR_CHANGE_BLOCKED: {
+    field: 'owner',
+    blocking: true,
+    channel: 'banner',
+    disableSave: true,
+    fallbackMessage: 'No se puede cambiar el titular porque la reserva ya tiene pagos o movimientos registrados.'
+  },
+  BOOKING_PENDING_MANUAL_PAYMENT_FORBIDDEN: {
+    field: 'payment',
+    blocking: true,
+    channel: 'banner',
+    disableSave: true,
+    fallbackMessage: 'Primero confirmá la reserva para poder registrar pagos.'
   },
   CLIENT_POSSIBLE_DUPLICATE: {
     field: 'owner',

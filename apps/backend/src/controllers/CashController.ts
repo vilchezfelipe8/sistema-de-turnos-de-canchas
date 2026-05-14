@@ -21,11 +21,21 @@ const optionalPositiveNumberSchema = z.preprocess((v) => {
 const saleItemSchema = z.object({
   itemKey: z.string().trim().min(1).max(120).optional(),
   productId: optionalPositiveIntSchema,
+  serviceId: optionalPositiveIntSchema,
   quantity: z.preprocess((v) => Number(v), z.number().int().positive()),
   customName: z.string().trim().min(2).max(200).optional(),
   unitPrice: optionalPositiveNumberSchema
 }).superRefine((value, ctx) => {
-  if (value.productId) return;
+  const kindCount = [value.productId, value.serviceId, value.customName ? 1 : 0].filter(Boolean).length;
+  if (kindCount > 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['productId'],
+      message: 'Cada ítem debe ser producto, servicio o manual, pero no combinar varios tipos'
+    });
+    return;
+  }
+  if (value.productId || value.serviceId) return;
   if (!value.customName) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -80,6 +90,7 @@ const sanitizeSaleItems = (items?: Array<z.infer<typeof saleItemSchema>>) =>
     ? items.map((item) => ({
         itemKey: item.itemKey ? sanitizeString(item.itemKey, 120) : undefined,
         productId: item.productId,
+        serviceId: item.serviceId,
         quantity: Number(item.quantity),
         customName: item.customName ? sanitizeString(item.customName, 200) : undefined,
         unitPrice: item.unitPrice == null ? undefined : Number(item.unitPrice)
@@ -298,7 +309,7 @@ export class CashController {
   createProductSaleAccount = async (req: Request, res: Response) => {
     try {
       const schema = z.object({
-        items: z.array(saleItemSchema).min(1, 'Se requiere al menos un producto'),
+        items: z.array(saleItemSchema).min(1, 'Se requiere al menos un ítem'),
         clientId: z.string().trim().optional(),
         idempotencyKey: z.string().trim().optional()
       });
@@ -386,7 +397,8 @@ export class CashController {
       const clubId = Number((req as any).clubId);
       const startDate = req.query.startDate ? String(req.query.startDate) : undefined;
       const endDate = req.query.endDate ? String(req.query.endDate) : undefined;
-      const report = await this.cashService.getPosReport(clubId, startDate, endDate);
+      const shiftId = req.query.shiftId ? String(req.query.shiftId) : undefined;
+      const report = await this.cashService.getPosReport(clubId, startDate, endDate, shiftId);
       return res.json(report);
     } catch (error: unknown) {
       return sendAppError(res, error, 'No se pudo obtener el reporte POS.');

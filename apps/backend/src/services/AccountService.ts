@@ -609,16 +609,26 @@ export class AccountService {
   // ─── P2-B: Anular venta de mostrador ─────────────────────────────────────
   // Solo para cuentas BAR/POS. Restaura stock de todos los ítems PRODUCT.
   // Condición: sin pagos activos (paidAmount neto == 0 o todos los pagos devueltos).
-  async voidPosAccount(clubId: number, accountId: string) {
+  async voidPosAccount(clubId: number, accountId: string, actorUserId?: number | null) {
     return prisma.$transaction(async (tx) => {
       const account = await tx.account.findFirst({
         where: { id: accountId, clubId },
         include: {
           items: {
-            where: { type: 'PRODUCT' },
-            select: { id: true, productId: true, quantity: true }
+            select: { id: true, type: true, productId: true, quantity: true, total: true, description: true }
           },
-          payments: { select: { id: true, amount: true } }
+          payments: {
+            where: { status: { not: 'FAILED' } as any },
+            select: { id: true, amount: true, status: true }
+          },
+          refunds: {
+            where: { status: { not: 'CANCELLED' } as any },
+            select: { id: true, amount: true, status: true }
+          },
+          ledgerEntries: {
+            where: { accountItemId: { not: null }, direction: 'CREDIT' },
+            select: { accountItemId: true, account: true }
+          }
         }
       } as any);
 
@@ -630,28 +640,85 @@ export class AccountService {
         throw conflict('La cuenta ya fue cerrada o anulada.', ErrorCodes.ACCOUNT_CLOSED);
       }
 
-      // Validar: sin pagos activos netos
-      const netPaid = await this.calculateNetPaidAmountTx(tx, accountId);
-      if (netPaid > EPSILON) {
-        throw conflict('No se puede anular: la cuenta tiene pagos registrados. Realizá una devolución primero.', ErrorCodes.ACCOUNT_CLOSED);
+      if (Array.isArray((account as any).payments) && (account as any).payments.length > 0) {
+        throw conflict(
+          'No se puede anular la venta: la cuenta ya tiene pagos registrados.',
+          ErrorCodes.ACCOUNT_HAS_PAYMENTS
+        );
       }
 
-      // Restaurar stock para cada ítem PRODUCT
+      if (Array.isArray((account as any).refunds) && (account as any).refunds.length > 0) {
+        throw conflict(
+          'No se puede anular la venta: la cuenta ya tiene devoluciones registradas.',
+          ErrorCodes.ACCOUNT_HAS_REFUNDS
+        );
+      }
+
+      const revenueAccountByItemId = new Map<string, string>();
+      for (const entry of (account as any).ledgerEntries || []) {
+        const accountItemId = String(entry?.accountItemId || '').trim();
+        if (!accountItemId || revenueAccountByItemId.has(accountItemId)) continue;
+        revenueAccountByItemId.set(accountItemId, String(entry.account || 'BAR_REVENUE'));
+      }
+
       for (const item of (account as any).items) {
         if (!item.productId) continue;
-        await tx.product.updateMany({
+        const restored = await tx.product.updateMany({
           where: { id: item.productId, clubId },
           data: { stock: { increment: Number(item.quantity || 0) } }
         });
+        if (restored.count !== 1) {
+          throw notFound(
+            'No se pudo revertir el stock porque el producto ya no existe en el club.',
+            ErrorCodes.PRODUCT_NOT_FOUND
+          );
+        }
       }
 
-      // Cerrar la cuenta marcándola como VOID (usamos CLOSED con closedAt)
+      for (const item of (account as any).items) {
+        const revenueAccount = revenueAccountByItemId.get(String(item.id)) || (item.type === 'PRODUCT' ? 'BAR_REVENUE' : 'ADJUSTMENTS');
+        await this.accountingService.reverseAccountItemTransaction(tx, {
+          clubId,
+          type: 'ACCOUNT_ITEM',
+          referenceType: 'ACCOUNT_ITEM',
+          referenceId: String(item.id),
+          accountId,
+          accountItemId: String(item.id),
+          amount: Number(item.total || 0),
+          revenueAccount: revenueAccount as any,
+          description: `Anulación venta mostrador: ${String(item.description || 'Ítem')}`,
+          createdByUserId: actorUserId ?? null
+        });
+      }
+
       const voided = await tx.account.update({
         where: { id: accountId },
         data: {
           status: 'CLOSED',
           closedAt: new Date(),
           sourceId: `VOID-${(account as any).sourceId}`
+        }
+      });
+
+      await tx.auditLog.create({
+        data: {
+          clubId,
+          userId: actorUserId ?? null,
+          entity: 'Account',
+          entityId: accountId,
+          action: 'VOID_POS_ACCOUNT',
+          payload: {
+            sourceType: (account as any).sourceType,
+            originalSourceId: (account as any).sourceId,
+            totalAmount: Number((account as any).totalAmount || 0),
+            restoredItems: ((account as any).items || []).map((item: any) => ({
+              id: item.id,
+              type: item.type,
+              productId: item.productId ?? null,
+              quantity: Number(item.quantity || 0),
+              total: Number(item.total || 0)
+            }))
+          } as any
         }
       });
 
