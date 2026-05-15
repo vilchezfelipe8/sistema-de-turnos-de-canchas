@@ -514,6 +514,27 @@ router.delete('/:slug/admin/clients/:clientId',
     clubController.deleteClubClient
 );
 
+router.post('/:slug/admin/clients/:clientId/link-user',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    clubController.linkClubClientUser
+);
+
+router.post('/:slug/admin/clients/:clientId/unlink-user',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    clubController.unlinkClubClientUser
+);
+
+router.post('/:slug/admin/clients/:clientId/merge',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    clubController.mergeClubClients
+);
+
 router.get('/:slug/admin/discount-policies',
     authMiddleware,
     verifyClubAccess,

@@ -12,6 +12,14 @@ export class ClientDebtService {
       where: { clubId },
       orderBy: { createdAt: 'desc' },
       include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        },
         _count: {
           select: {
             bookings: true
@@ -286,6 +294,14 @@ export class ClientDebtService {
         id: client.id,
         firstName: client.name,
         lastName: '',
+        userId: client.userId || null,
+        linkedUser: client.user
+          ? {
+              id: client.user.id,
+              name: `${String(client.user.firstName || '').trim()} ${String(client.user.lastName || '').trim()}`.trim() || String(client.user.email || '').trim() || `Usuario ${client.user.id}`,
+              email: client.user.email || null
+            }
+          : null,
         dni: client.dni || null,
         email: client.email,
         phoneNumber: client.phone,

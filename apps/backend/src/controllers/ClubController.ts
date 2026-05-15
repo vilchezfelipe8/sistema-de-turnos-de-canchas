@@ -7,6 +7,7 @@ import { MediaStorageService } from '../services/MediaStorageService';
 import { sanitizeString } from '../utils/sanitize';
 import { normalizeIdentityPhone } from '../utils/phone';
 import { AuditLogService } from '../services/AuditLogService';
+import { ClientIdentityAdminService } from '../services/ClientIdentityAdminService';
 
 const fixedBookingActivityConfigSchema = z.object({
     fixedBookingDaysAhead: z.union([z.number(), z.string()]).transform((v) => Number(v)).pipe(z.number().int().positive()),
@@ -789,6 +790,85 @@ export class ClubController {
             return res.status(204).send();
         } catch (error: any) {
             return sendAppError(res, error, 'No se pudo eliminar el cliente');
+        }
+    };
+
+    linkClubClientUser = async (req: Request, res: Response) => {
+        try {
+            const club = (req as any).club;
+            const actorUserId = Number((req as any)?.user?.userId || 0);
+            if (!club?.id) return res.status(404).json({ error: 'Club no encontrado' });
+
+            const paramsSchema = z.object({ clientId: z.string().trim().min(1) });
+            const bodySchema = z.object({
+                userId: z.preprocess((v) => Number(v), z.number().int().positive())
+            });
+            const paramsParsed = paramsSchema.safeParse(req.params);
+            const bodyParsed = bodySchema.safeParse(req.body);
+            if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá los campos marcados.'));
+            if (!bodyParsed.success) return sendAppError(res, zodValidationAppError(bodyParsed.error, 'Revisá los campos marcados.'));
+
+            const client = await this.clientIdentityAdminService.linkUserToClient({
+                clubId: Number(club.id),
+                clientId: paramsParsed.data.clientId,
+                userId: bodyParsed.data.userId,
+                actorUserId
+            });
+            return res.json(client);
+        } catch (error: any) {
+            return sendAppError(res, error, 'No se pudo vincular el cliente con el usuario');
+        }
+    };
+
+    unlinkClubClientUser = async (req: Request, res: Response) => {
+        try {
+            const club = (req as any).club;
+            const actorUserId = Number((req as any)?.user?.userId || 0);
+            if (!club?.id) return res.status(404).json({ error: 'Club no encontrado' });
+
+            const paramsSchema = z.object({ clientId: z.string().trim().min(1) });
+            const paramsParsed = paramsSchema.safeParse(req.params);
+            if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá los campos marcados.'));
+
+            const client = await this.clientIdentityAdminService.unlinkUserFromClient({
+                clubId: Number(club.id),
+                clientId: paramsParsed.data.clientId,
+                actorUserId
+            });
+            return res.json(client);
+        } catch (error: any) {
+            return sendAppError(res, error, 'No se pudo desvincular el cliente del usuario');
+        }
+    };
+
+    mergeClubClients = async (req: Request, res: Response) => {
+        try {
+            const club = (req as any).club;
+            const actorUserId = Number((req as any)?.user?.userId || 0);
+            if (!club?.id) return res.status(404).json({ error: 'Club no encontrado' });
+
+            const paramsSchema = z.object({ clientId: z.string().trim().min(1) });
+            const bodySchema = z.object({
+                targetClientId: z.string().trim().min(1),
+                incidentId: z.string().trim().min(1).optional(),
+                resolutionNotes: z.string().trim().max(300).optional()
+            });
+            const paramsParsed = paramsSchema.safeParse(req.params);
+            const bodyParsed = bodySchema.safeParse(req.body);
+            if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá los campos marcados.'));
+            if (!bodyParsed.success) return sendAppError(res, zodValidationAppError(bodyParsed.error, 'Revisá los campos marcados.'));
+
+            const result = await this.clientIdentityAdminService.mergeClients({
+                clubId: Number(club.id),
+                sourceClientId: paramsParsed.data.clientId,
+                targetClientId: bodyParsed.data.targetClientId,
+                actorUserId,
+                incidentId: bodyParsed.data.incidentId || null,
+                resolutionNotes: bodyParsed.data.resolutionNotes || null
+            });
+            return res.json(result);
+        } catch (error: any) {
+            return sendAppError(res, error, 'No se pudo fusionar el cliente');
         }
     };
 }
