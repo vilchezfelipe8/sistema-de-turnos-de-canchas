@@ -6,7 +6,7 @@ import { PaymentService } from '../services/PaymentService';
 import { mapAccountDto, mapAccountItemDto, mapLedgerEntryDto, mapPaymentDto } from '../dto/financialDto';
 import { sanitizeString } from '../utils/sanitize';
 import { prismaRead } from '../prisma';
-import { sendAppError, badRequest, ErrorCodes } from '../errors';
+import { sendAppError, badRequest, ErrorCodes, validationError, zodValidationAppError } from '../errors';
 
 export class AccountController {
   private readonly accountService = new AccountService();
@@ -31,7 +31,7 @@ export class AccountController {
         bookingId: z.preprocess((v) => (v == null || v === '' ? undefined : Number(v)), z.number().int().positive().optional())
       });
       const parsed = querySchema.safeParse(req.query);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const result = await this.accountService.listAccounts(clubId, parsed.data.status, parsed.data.bookingId);
@@ -85,7 +85,7 @@ export class AccountController {
         sourceId: z.string().trim().min(1)
       });
       const parsed = bodySchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const account = await this.accountService.openAccount({
@@ -104,7 +104,7 @@ export class AccountController {
     try {
       const paramsSchema = z.object({ id: z.string().min(1) });
       const parsed = paramsSchema.safeParse(req.params);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const result = await this.accountService.getAccount(clubId, parsed.data.id);
@@ -136,8 +136,8 @@ export class AccountController {
 
       const paramsParsed = paramsSchema.safeParse(req.params);
       const bodyParsed = bodySchema.safeParse(req.body);
-      if (!paramsParsed.success) return res.status(400).json({ error: paramsParsed.error.format() });
-      if (!bodyParsed.success) return res.status(400).json({ error: bodyParsed.error.format() });
+      if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá los campos marcados.'));
+      if (!bodyParsed.success) return sendAppError(res, zodValidationAppError(bodyParsed.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const safeDescription = sanitizeString(bodyParsed.data.description);
@@ -157,7 +157,7 @@ export class AccountController {
     try {
       const paramsSchema = z.object({ id: z.string().min(1) });
       const parsed = paramsSchema.safeParse(req.params);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const account = await this.accountService.closeAccount(clubId, parsed.data.id);
@@ -172,7 +172,7 @@ export class AccountController {
     try {
       const paramsSchema = z.object({ id: z.string().min(1) });
       const parsed = paramsSchema.safeParse(req.params);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const actorUserId = this.resolveActorUserId(req);
@@ -187,7 +187,7 @@ export class AccountController {
     try {
       const paramsSchema = z.object({ id: z.string().min(1) });
       const parsed = paramsSchema.safeParse(req.params);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const result = await this.accountService.getAccountSummary(clubId, parsed.data.id);
@@ -201,7 +201,7 @@ export class AccountController {
     try {
       const paramsSchema = z.object({ id: z.string().min(1) });
       const parsed = paramsSchema.safeParse(req.params);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const result = await this.accountService.getBalance(clubId, parsed.data.id);
@@ -215,7 +215,7 @@ export class AccountController {
     try {
       const paramsSchema = z.object({ id: z.string().min(1) });
       const parsed = paramsSchema.safeParse(req.params);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const result = await this.accountService.getLedger(clubId, parsed.data.id);
@@ -248,10 +248,10 @@ export class AccountController {
 
       const paramsParsed = paramsSchema.safeParse(req.params);
       const bodyParsed = bodySchema.safeParse(req.body);
-      if (!paramsParsed.success) return res.status(400).json({ error: paramsParsed.error.format() });
-      if (!bodyParsed.success) return res.status(400).json({ error: bodyParsed.error.format() });
+      if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá los campos marcados.'));
+      if (!bodyParsed.success) return sendAppError(res, zodValidationAppError(bodyParsed.error, 'Revisá los campos marcados.'));
       if (bodyParsed.data.method === 'TRANSFER' && !bodyParsed.data.channel) {
-        return res.status(400).json({ error: 'El canal es obligatorio para pagos por transferencia' });
+        throw validationError('Revisá los campos marcados.', { channel: 'El canal es obligatorio para pagos por transferencia.' });
       }
 
       const actorUserId = this.resolveActorUserId(req);
@@ -259,7 +259,7 @@ export class AccountController {
       const headerValue = req.headers['idempotency-key'];
       const idempotencyKey = Array.isArray(headerValue) ? headerValue[0] : headerValue;
       if (typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
-        return res.status(400).json({ error: 'Falta la clave de idempotencia para registrar el pago' });
+        throw validationError('Revisá los campos marcados.', { general: 'Falta la clave de idempotencia para registrar el pago.' });
       }
       const payment = await this.paymentService.create({
         clubId,

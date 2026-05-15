@@ -4,7 +4,7 @@ import { CashService } from '../services/CashService';
 import { CashShiftService } from '../services/CashShiftService';
 import { ClientDuplicateIncidentService } from '../services/ClientDuplicateIncidentService';
 import { sanitizeString } from '../utils/sanitize';
-import { sendAppError, AppError, ErrorCodes } from '../errors';
+import { sendAppError, AppError, ErrorCodes, validationError, zodValidationAppError } from '../errors';
 
 const optionalPositiveIntSchema = z.preprocess((v) => {
   if (v == null || v === '') return undefined;
@@ -169,7 +169,13 @@ export class CashController {
       let summary;
       if (rawStartDate || rawEndDate) {
         if (!rawStartDate || !rawEndDate) {
-          return res.status(400).json({ error: 'Debe enviar startDate y endDate juntos' });
+          return sendAppError(
+            res,
+            validationError('Revisá los campos marcados.', {
+              startDate: 'Completá la fecha desde.',
+              endDate: 'Completá la fecha hasta.'
+            })
+          );
         }
         summary = await this.cashService.getSummaryByDateRange(clubId, rawStartDate, rawEndDate);
       } else if (rawDate) {
@@ -193,14 +199,14 @@ export class CashController {
         method: z.enum(['CASH', 'TRANSFER', 'CARD'])
       });
       const parsed = schema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = Number((req as any).clubId);
       const actorUserId = Number((req as any)?.user?.userId || 0) || undefined;
       const shiftService = new CashShiftService();
       const currentShift = await shiftService.current(clubId);
       if (!currentShift) {
-        return res.status(400).json({ error: 'No hay turno de caja abierto' });
+        throw validationError('Revisá los campos marcados.', { general: 'No hay turno de caja abierto.' });
       }
 
       const movement = await this.cashService.addMovement({
@@ -256,7 +262,7 @@ export class CashController {
       });
 
       const parsed = schema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = Number((req as any).clubId);
       const actorUserId = Number((req as any)?.user?.userId || 0) || undefined;
@@ -315,7 +321,7 @@ export class CashController {
       });
 
       const parsed = schema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = Number((req as any).clubId);
       const actorUserId = (req as any).userId ? Number((req as any).userId) : undefined;
@@ -352,7 +358,7 @@ export class CashController {
       });
 
       const parsed = schema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = Number((req as any).clubId);
       if (parsed.data.clientDraft) {
@@ -360,7 +366,7 @@ export class CashController {
           Boolean(String(parsed.data.clientDraft.phone || '').trim()) ||
           Boolean(String(parsed.data.clientDraft.phoneNumberLocal || '').trim());
         if (!hasAnyPhoneInput) {
-          return res.status(400).json({ error: 'CLIENT_DRAFT_INVALID' });
+          throw validationError('Revisá los campos marcados.', { 'clientDraft.phone': 'Cargá un teléfono válido.' });
         }
       }
       const quote = await this.cashService.quoteProductSale({

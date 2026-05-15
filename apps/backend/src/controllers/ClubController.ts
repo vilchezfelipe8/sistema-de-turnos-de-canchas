@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { ClubService } from '../services/ClubService';
 import { z } from 'zod';
-import { sendAppError } from '../errors';
+import { sendAppError, validationError, zodValidationAppError } from '../errors';
 import { validateOpeningDays } from '../utils/ActivityScheduleHelper';
 import { MediaStorageService } from '../services/MediaStorageService';
 import { sanitizeString } from '../utils/sanitize';
@@ -150,6 +150,7 @@ export class ClubController {
     private static readonly LIGHTS_FROM_HOUR_OPTIONS = new Set(['18:00', '19:00', '20:00', '21:00', '22:00']);
     private readonly mediaStorageService = new MediaStorageService();
     private readonly auditLogService = new AuditLogService();
+    private readonly clientIdentityAdminService = new ClientIdentityAdminService();
     constructor(private clubService: ClubService) {}
 
     createClub = async (req: Request, res: Response) => {
@@ -196,7 +197,7 @@ export class ClubController {
             });
             const parsed = createClubSchema.safeParse(req.body);
             if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
+                return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
             }
             const { slug, name, addressLine, city, province, country, contact, phone, logoUrl, clubImageUrl, instagramUrl, facebookUrl, websiteUrl, description, timeZone,
                 lightsEnabled, lightsExtraAmount, lightsFromHour, openingDays, closureDates,
@@ -407,7 +408,7 @@ export class ClubController {
             });
             const parsed = updateClubSchema.safeParse(req.body);
             if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
+                return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
             }
             const {
                 slug,
@@ -697,7 +698,7 @@ export class ClubController {
                 isProfessor: z.boolean().optional()
             });
             const parsed = bodySchema.safeParse(req.body);
-            if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+            if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
             const normalizedPhone = normalizeIdentityPhone(
                 {
@@ -711,7 +712,9 @@ export class ClubController {
                 Boolean(parsed.data.phone && String(parsed.data.phone).trim()) ||
                 Boolean(parsed.data.phoneNumberLocal && String(parsed.data.phoneNumberLocal).trim());
             if (!hasAnyPhoneInput || !normalizedPhone) {
-                return res.status(400).json({ error: 'El teléfono es obligatorio' });
+                throw validationError('Revisá los campos marcados.', {
+                    phone: 'Cargá un teléfono válido.'
+                });
             }
             // Fase 1.2: email es opcional en alta de cliente admin.
 
@@ -745,8 +748,8 @@ export class ClubController {
             });
             const paramsParsed = paramsSchema.safeParse(req.params);
             const bodyParsed = bodySchema.safeParse(req.body);
-            if (!paramsParsed.success) return res.status(400).json({ error: paramsParsed.error.format() });
-            if (!bodyParsed.success) return res.status(400).json({ error: bodyParsed.error.format() });
+            if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá los campos marcados.'));
+            if (!bodyParsed.success) return sendAppError(res, zodValidationAppError(bodyParsed.error, 'Revisá los campos marcados.'));
 
             const normalizedPhone = normalizeIdentityPhone(
                 {
@@ -760,7 +763,9 @@ export class ClubController {
                 Boolean(bodyParsed.data.phone && String(bodyParsed.data.phone).trim()) ||
                 Boolean(bodyParsed.data.phoneNumberLocal && String(bodyParsed.data.phoneNumberLocal).trim());
             if (!hasAnyPhoneInput || !normalizedPhone) {
-                return res.status(400).json({ error: 'El teléfono es obligatorio' });
+                throw validationError('Revisá los campos marcados.', {
+                    phone: 'Cargá un teléfono válido.'
+                });
             }
             // Fase 1.2: email es opcional en edición de cliente admin.
 
@@ -784,7 +789,7 @@ export class ClubController {
 
             const paramsSchema = z.object({ clientId: z.string().trim().min(1) });
             const paramsParsed = paramsSchema.safeParse(req.params);
-            if (!paramsParsed.success) return res.status(400).json({ error: paramsParsed.error.format() });
+            if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá los campos marcados.'));
 
             await this.clubService.deleteClient(Number(club.id), paramsParsed.data.clientId);
             return res.status(204).send();

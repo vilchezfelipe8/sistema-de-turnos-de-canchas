@@ -10,15 +10,12 @@ import { getPreferredClubIdFromRequest } from '../utils/clubContext';
 import { sanitizeString } from '../utils/sanitize';
 import { normalizeIdentityPhone } from '../utils/phone';
 import { sendAuthError } from '../utils/authError';
-import { AppError, ErrorCodes, badRequest, conflict, forbidden, notFound, sendAppError } from '../errors';
+import { AppError, ErrorCodes, badRequest, conflict, forbidden, notFound, sendAppError, flattenZodFieldErrors, zodValidationAppError } from '../errors';
 
 const getErrorMessage = (error: unknown, fallback: string) =>
     error instanceof Error && String(error.message || '').trim().length > 0
         ? error.message
         : fallback;
-
-const isIntegrityInconsistencyError = (error: unknown) =>
-    getErrorMessage(error, '').includes('Inconsistencia de integridad');
 
 type OptionalAuthState = 'guest' | 'authenticated' | 'invalid_token';
 const TENANT_ADMIN_ROLES = new Set(['OWNER', 'ADMIN']);
@@ -34,6 +31,21 @@ const sendControllerAppError = (
     res: Response,
     params: { statusCode: number; code: string; message: string; meta?: Record<string, unknown>; [key: string]: unknown }
 ) => sendAppError(res, new AppError(params));
+
+const sendZodControllerError = (
+    res: Response,
+    error: z.ZodError,
+    message: string,
+    field: string = 'general'
+) => sendControllerAppError(res, {
+    statusCode: 400,
+    code: 'VALIDATION_ERROR',
+    field,
+    blocking: true,
+    message,
+    fieldErrors: flattenZodFieldErrors(error),
+    meta: { issues: error.flatten() }
+});
 
 const createBookingAppError = (error: unknown, fallback = 'No se pudo crear la reserva.'): AppError => {
     if (error instanceof AppError) return error;
@@ -280,14 +292,7 @@ export class BookingController {
             const parsed = createSchema.safeParse(dataToValidate);
 
             if (!parsed.success) {
-                return sendControllerAppError(res, {
-                    statusCode: 400,
-                    code: 'VALIDATION_ERROR',
-                    field: 'general',
-                    blocking: true,
-                    message: 'Datos inválidos para crear la reserva.',
-                    meta: { issues: parsed.error.flatten() }
-                });
+                return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
 
             let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, clientId, client, applyDiscount } = parsed.data;
@@ -473,14 +478,7 @@ export class BookingController {
 
             const parsed = quoteSchema.safeParse(req.body ?? {});
             if (!parsed.success) {
-                return sendControllerAppError(res, {
-                    statusCode: 400,
-                    code: 'VALIDATION_ERROR',
-                    field: 'general',
-                    blocking: true,
-                    message: 'Datos inválidos para cotizar la reserva.',
-                    meta: { issues: parsed.error.flatten() }
-                });
+                return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
 
             const {
@@ -601,7 +599,7 @@ export class BookingController {
         const parsed = querySchema.safeParse(req.query); 
 
         if (!parsed.success) {
-            return res.status(400).json({ error: parsed.error.format() });
+            return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
         }
 
         const { courtId, date, activityId, durationMinutes } = parsed.data;
@@ -636,7 +634,7 @@ export class BookingController {
             });
             const parsed = cancelSchema.safeParse(req.body);
             if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
+                return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
             const { bookingId } = parsed.data;
             const user = (req as any).user;
@@ -768,7 +766,7 @@ export class BookingController {
             });
             const parsed = paramsSchema.safeParse(req.params);
             if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
+                return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
 
             const bookingId = parsed.data.id;
@@ -809,7 +807,7 @@ export class BookingController {
             const parsed = querySchema.safeParse(req.query);
 
             if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
+                return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
 
             const { date, activityId, clubSlug, clientId, clientEmail, clientPhone, clientDni, durationMinutes } = parsed.data;
@@ -1115,7 +1113,7 @@ export class BookingController {
             });
             const parsed = createFixedSchema.safeParse(req.body);
             if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
+                return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
             const { userId, courtId, activityId, startDateTime, durationMinutes, clientId, client, allowOverlappingSeries, everyDays, repetitions, previewConflictsOnly } = parsed.data;
             const user = (req as any).user;
@@ -1142,7 +1140,14 @@ export class BookingController {
                     ? sanitizedClientId
                     : undefined;
             if (!previewConflictsOnly && !safeClientId && !userId && !sanitizedClient?.name) {
-                return res.status(400).json({ error: "Debes seleccionar un cliente o cargar un alta rápida." });
+                return sendControllerAppError(res, {
+                    statusCode: 400,
+                    code: 'VALIDATION_ERROR',
+                    field: 'owner',
+                    blocking: true,
+                    message: 'Revisá los campos marcados.',
+                    fieldErrors: { owner: 'Debes seleccionar un cliente o cargar un alta rápida.' }
+                });
             }
 
             const startDate = new Date(startDateTime);
@@ -1204,11 +1209,11 @@ export class BookingController {
 
             const parsedParams = paramsSchema.safeParse(req.params);
             if (!parsedParams.success) {
-                return res.status(400).json({ error: 'ID de turno fijo inválido.' });
+                return sendZodControllerError(res, parsedParams.error, 'Revisá los campos marcados.');
             }
             const parsedBody = bodySchema.safeParse(req.body || {});
             if (!parsedBody.success) {
-                return res.status(400).json({ error: parsedBody.error.format() });
+                return sendZodControllerError(res, parsedBody.error, 'Revisá los campos marcados.');
             }
 
             const clubId = Number((req as any).clubId);
@@ -1253,10 +1258,10 @@ export class BookingController {
             const parsedParams = paramsSchema.safeParse(req.params);
             const parsedBody = bodySchema.safeParse(req.body || {});
             if (!parsedParams.success) {
-                return res.status(400).json({ error: 'ID de turno fijo inválido.' });
+                return sendZodControllerError(res, parsedParams.error, 'Revisá los campos marcados.');
             }
             if (!parsedBody.success) {
-                return res.status(400).json({ error: parsedBody.error.format() });
+                return sendZodControllerError(res, parsedBody.error, 'Revisá los campos marcados.');
             }
 
             const clubId = Number((req as any).clubId);
@@ -1317,7 +1322,7 @@ export class BookingController {
             const paramId = req.params.id || req.params.bookingId;
             const bodyParsed = addItemSchema.safeParse(req.body);
             if (!bodyParsed.success) {
-                return res.status(400).json({ error: bodyParsed.error.format() });
+                return sendZodControllerError(res, bodyParsed.error, 'Revisá los campos marcados.');
             }
             const { productId, quantity, paymentMethod, applyDiscount } = bodyParsed.data;
             const rawBookingId = paramId ?? bodyParsed.data.bookingId;
@@ -1661,7 +1666,12 @@ export class BookingController {
 
             const newClientId = String(req.body?.newClientId ?? '').trim();
             if (!newClientId) {
-                return res.status(400).json({ error: 'newClientId es obligatorio' });
+                return sendControllerAppError(res, {
+                    statusCode: 400,
+                    code: ErrorCodes.VALIDATION_ERROR,
+                    message: 'Revisá los campos marcados.',
+                    fieldErrors: { newClientId: 'Seleccioná un cliente para continuar.' }
+                });
             }
 
             const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() || null : null;

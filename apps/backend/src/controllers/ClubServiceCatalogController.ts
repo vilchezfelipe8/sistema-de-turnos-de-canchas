@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { sendAppError } from '../errors';
+import { badRequest, ErrorCodes, sendAppError, validationError, zodValidationAppError } from '../errors';
 import { z } from 'zod';
 import { ClubServiceCatalogService } from '../services/ClubServiceCatalogService';
 import { sanitizeString } from '../utils/sanitize';
@@ -11,7 +11,7 @@ export class ClubServiceCatalogController {
     try {
       const clubId = Number(req.clubId);
       if (!Number.isFinite(clubId) || clubId <= 0) {
-        return res.status(400).json({ error: 'Club invalido' });
+        throw validationError('Revisá los campos marcados.', { clubId: 'Club inválido.' });
       }
       const includeInactive = String(req.query.includeInactive || '').toLowerCase() === 'true';
       const rows = await this.service.listByClub(clubId, includeInactive);
@@ -25,7 +25,7 @@ export class ClubServiceCatalogController {
     try {
       const clubId = Number(req.clubId);
       if (!Number.isFinite(clubId) || clubId <= 0) {
-        return res.status(400).json({ error: 'Club invalido' });
+        throw validationError('Revisá los campos marcados.', { clubId: 'Club inválido.' });
       }
 
       const bodySchema = z.object({
@@ -36,7 +36,7 @@ export class ClubServiceCatalogController {
       });
       const parsed = bodySchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ error: parsed.error.format() });
+        return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
       }
 
       const created = await this.service.create(clubId, {
@@ -56,10 +56,10 @@ export class ClubServiceCatalogController {
       const clubId = Number(req.clubId);
       const id = Number(req.params.id);
       if (!Number.isFinite(clubId) || clubId <= 0) {
-        return res.status(400).json({ error: 'Club invalido' });
+        throw validationError('Revisá los campos marcados.', { clubId: 'Club inválido.' });
       }
       if (!Number.isFinite(id) || id <= 0) {
-        return res.status(400).json({ error: 'ID invalido' });
+        throw validationError('Revisá los campos marcados.', { id: 'ID inválido.' });
       }
 
       const bodySchema = z.object({
@@ -71,7 +71,7 @@ export class ClubServiceCatalogController {
       });
       const parsed = bodySchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ error: parsed.error.format() });
+        return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
       }
 
       const updated = await this.service.update(clubId, id, {
@@ -87,7 +87,7 @@ export class ClubServiceCatalogController {
         isActive: parsed.data.isActive
       });
 
-      if (!updated) return res.status(404).json({ error: 'Servicio no encontrado' });
+      if (!updated) throw badRequest('Servicio no encontrado.', ErrorCodes.SERVICE_NOT_FOUND);
       return res.json(updated);
     } catch (error: any) {
       return sendAppError(res, error, 'No se pudo actualizar el servicio');
@@ -99,13 +99,13 @@ export class ClubServiceCatalogController {
       const clubId = Number(req.clubId);
       const id = Number(req.params.id);
       if (!Number.isFinite(clubId) || clubId <= 0) {
-        return res.status(400).json({ error: 'Club invalido' });
+        throw validationError('Revisá los campos marcados.', { clubId: 'Club inválido.' });
       }
       if (!Number.isFinite(id) || id <= 0) {
-        return res.status(400).json({ error: 'ID invalido' });
+        throw validationError('Revisá los campos marcados.', { id: 'ID inválido.' });
       }
       const deleted = await this.service.delete(clubId, id);
-      if (!deleted) return res.status(404).json({ error: 'Servicio no encontrado' });
+      if (!deleted) throw badRequest('Servicio no encontrado.', ErrorCodes.SERVICE_NOT_FOUND);
       return res.json({ message: 'Servicio dado de baja' });
     } catch (error: any) {
       return sendAppError(res, error, 'No se pudo eliminar el servicio');

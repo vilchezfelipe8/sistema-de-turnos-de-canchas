@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../prisma';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
+import { sendAppError, validationError, zodValidationAppError } from '../errors';
 import { getUserClubContext } from '../utils/getUserClubContext';
 import { getPreferredClubIdFromRequest } from '../utils/clubContext';
 import { normalizeIdentityPhone } from '../utils/phone';
@@ -270,7 +271,18 @@ export class AuthController {
         
         const parsed = registerSchema.safeParse(req.body);
         if (!parsed.success) {
-            return res.status(400).json({ error: parsed.error.format() });
+            return sendAppError(
+                res,
+                zodValidationAppError(parsed.error, 'Revisá los campos marcados.', {
+                    firstName: 'firstName',
+                    lastName: 'lastName',
+                    email: 'email',
+                    password: 'password',
+                    phoneNumber: 'phoneNumber',
+                    dni: 'dni'
+                }),
+                'No se pudo validar el registro.'
+            );
         }
         
         const { firstName, lastName, email, password, phoneNumber, phoneCountryCode, phoneNumberLocal, dni } = parsed.data;
@@ -280,7 +292,13 @@ export class AuthController {
             phoneNumberLocal
         });
         if (!normalizedPhoneNumber) {
-            return res.status(400).json({ error: 'Número de teléfono inválido' });
+            return sendAppError(
+                res,
+                validationError('Revisá los campos marcados.', {
+                    phoneNumber: 'Cargá un teléfono válido.'
+                }),
+                'No se pudo validar el registro.'
+            );
         }
         
         try {
@@ -317,7 +335,14 @@ export class AuthController {
         });
         const parsed = loginSchema.safeParse(req.body);
         if (!parsed.success) {
-            return res.status(400).json({ error: parsed.error.format() });
+            return sendAppError(
+                res,
+                zodValidationAppError(parsed.error, 'Revisá los campos marcados.', {
+                    email: 'email',
+                    password: 'password'
+                }),
+                'No se pudo validar el login.'
+            );
         }
         const normalizedUserEmail = normalizeEmail(parsed.data.email);
         const { password } = parsed.data;
@@ -357,7 +382,11 @@ export class AuthController {
 
         const parsed = schema.safeParse(req.body);
         if (!parsed.success) {
-            return res.status(400).json({ error: parsed.error.format() });
+            return sendAppError(
+                res,
+                zodValidationAppError(parsed.error, 'Revisá los campos marcados.', { email: 'email' }),
+                'No se pudo validar el email.'
+            );
         }
 
         const normalizedUserEmail = normalizeEmail(parsed.data.email);
@@ -593,7 +622,7 @@ export class AuthController {
 
         const parsed = updateSchema.safeParse(req.body);
         if (!parsed.success) {
-            return res.status(400).json({ error: parsed.error.format() });
+            return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
         }
 
         const { firstName, lastName, phoneNumber, phoneCountryCode, phoneNumberLocal, dni } = parsed.data;
@@ -603,12 +632,16 @@ export class AuthController {
             phoneNumberLocal
         });
         if (!normalizedPhoneNumber) {
-            return res.status(400).json({ error: 'Número de teléfono inválido' });
+            return sendAppError(res, validationError('Revisá los campos marcados.', {
+                phoneNumber: 'Cargá un teléfono válido.'
+            }));
         }
 
         const sanitizedDni = String(dni ?? '').trim();
         if (sanitizedDni && sanitizedDni.length < 7) {
-            return res.status(400).json({ error: 'Si cargás DNI, debe tener al menos 7 dígitos' });
+            return sendAppError(res, validationError('Revisá los campos marcados.', {
+                dni: 'Si cargás DNI, debe tener al menos 7 dígitos.'
+            }));
         }
 
         try {
@@ -653,7 +686,7 @@ export class AuthController {
             });
         } catch (error: any) {
             logger.error({ err: error, action: 'updateMe' }, 'Error actualizando perfil');
-            return res.status(500).json({ error: 'No se pudo actualizar el perfil.' });
+            return sendAppError(res, error, 'No se pudo actualizar el perfil.');
         }
     };
 
