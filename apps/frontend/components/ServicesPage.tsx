@@ -10,6 +10,7 @@ import { AdminFilterToolbar, MetricCard } from './admin/ui';
 import ServicesTable from '../modules/tienda/components/ServicesTable';
 import ServiceDrawer from '../modules/tienda/components/ServiceDrawer';
 import type { ServiceFormData } from '../modules/tienda/components/ServiceDrawer';
+import { getApiFieldErrors } from '../utils/apiError';
 
 type ServicesPageProps = {
   slug: string;
@@ -33,6 +34,8 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
   const [editing, setEditing] = useState<ClubCatalogService | null>(null);
   const [form, setForm] = useState<ServiceFormData>(EMPTY_FORM);
   const [formError, setFormError] = useState('');
+  const [formFieldErrors, setFormFieldErrors] = useState<Record<string, string>>({});
+  const [submittingForm, setSubmittingForm] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ClubCatalogService | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [feedbackModal, setFeedbackModal] = useState<{
@@ -66,6 +69,7 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
     setEditing(null);
     setForm(EMPTY_FORM);
     setFormError('');
+    setFormFieldErrors({});
     setDrawerOpen(true);
   };
 
@@ -78,6 +82,7 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
       price: String(row.price || ''),
     });
     setFormError('');
+    setFormFieldErrors({});
     setDrawerOpen(true);
   };
 
@@ -86,13 +91,22 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
     setForm(EMPTY_FORM);
     setEditing(null);
     setFormError('');
+    setFormFieldErrors({});
+  };
+
+  const handleFormChange = (next: ServiceFormData) => {
+    setFormFieldErrors({});
+    setForm(next);
   };
 
   // ── Form submit ──
   const submitForm = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (submittingForm) return;
     setFormError('');
+    setFormFieldErrors({});
     try {
+      setSubmittingForm(true);
       const payload = {
         code: form.code.trim(),
         name: form.name.trim(),
@@ -112,8 +126,12 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
       }
     } catch (error) {
       const message = extractErrorMessage(error, 'No se pudo guardar el servicio.');
+      const fieldErrors = getApiFieldErrors(error);
       reportUiError({ area: 'ServicesPage', action: 'submitForm' }, error);
+      if (Object.keys(fieldErrors).length > 0) setFormFieldErrors(fieldErrors);
       setFormError(message);
+    } finally {
+      setSubmittingForm(false);
     }
   };
 
@@ -218,7 +236,9 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
         editingService={editing}
         formData={form}
         formError={formError}
-        onFormChange={setForm}
+        fieldErrors={formFieldErrors}
+        submitting={submittingForm}
+        onFormChange={handleFormChange}
         onSubmit={(e) => void submitForm(e)}
       />
 

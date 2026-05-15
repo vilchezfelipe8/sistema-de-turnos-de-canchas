@@ -11,6 +11,7 @@ import ProductsTable from '../modules/tienda/components/ProductsTable';
 import ProductDrawer from '../modules/tienda/components/ProductDrawer';
 import type { ProductFormData } from '../modules/tienda/components/ProductDrawer';
 import type { ProductRow } from '../modules/tienda/components/ProductsTable';
+import { getApiFieldErrors } from '../utils/apiError';
 
 interface ProductsPageProps {
   slug?: string;
@@ -42,6 +43,8 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
   const [deleteTarget, setDeleteTarget] = useState<ProductRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [formError, setFormError] = useState('');
+  const [formFieldErrors, setFormFieldErrors] = useState<Record<string, string>>({});
+  const [submittingForm, setSubmittingForm] = useState(false);
   const [feedbackModal, setFeedbackModal] = useState<{
     show: boolean;
     title: string;
@@ -77,6 +80,7 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
     setEditingProduct(null);
     setFormData(emptyForm());
     setFormError('');
+    setFormFieldErrors({});
     setDrawerOpen(true);
   };
 
@@ -99,6 +103,7 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
           : [{ componentProductId: '', quantity: '1' }],
     });
     setFormError('');
+    setFormFieldErrors({});
     setDrawerOpen(true);
   };
 
@@ -107,12 +112,15 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
     setEditingProduct(null);
     setFormData(emptyForm());
     setFormError('');
+    setFormFieldErrors({});
   };
 
   // ── Form submit ──
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingForm) return;
     setFormError('');
+    setFormFieldErrors({});
 
     const components = formData.components
       .map((c) => ({
@@ -129,21 +137,25 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
 
     if (formData.isCombo) {
       if (components.length === 0) {
+        setFormFieldErrors({ components: 'Un combo debe tener al menos un componente.' });
         setFormError('Un combo debe tener al menos un componente.');
         return;
       }
       const ids = components.map((c) => c.componentProductId);
       if (new Set(ids).size !== ids.length) {
+        setFormFieldErrors({ components: 'No podés repetir el mismo producto en un combo.' });
         setFormError('No podés repetir el mismo producto en un combo.');
         return;
       }
       if (editingProduct && ids.includes(Number(editingProduct.id))) {
+        setFormFieldErrors({ components: 'Un producto no puede ser componente de sí mismo.' });
         setFormError('Un producto no puede ser componente de sí mismo.');
         return;
       }
     }
 
     try {
+      setSubmittingForm(true);
       const payload = {
         name: formData.name,
         price: Number(formData.price),
@@ -165,8 +177,12 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
       }
     } catch (error) {
       const message = extractErrorMessage(error, 'No se pudo guardar el producto.');
+      const fieldErrors = getApiFieldErrors(error);
       reportUiError({ area: 'ProductsPage', action: 'saveProduct' }, error);
+      if (Object.keys(fieldErrors).length > 0) setFormFieldErrors(fieldErrors);
       setFormError(message);
+    } finally {
+      setSubmittingForm(false);
     }
   };
 
@@ -194,6 +210,11 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
       ...prev,
       components: [...prev.components, { componentProductId: '', quantity: '1' }],
     }));
+
+  const handleFormChange = (next: ProductFormData) => {
+    setFormFieldErrors({});
+    setFormData(next);
+  };
 
   const removeComponentRow = (index: number) =>
     setFormData((prev) => ({
@@ -305,7 +326,9 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
         comboOptions={comboOptions}
         formData={formData}
         formError={formError}
-        onFormChange={setFormData}
+        fieldErrors={formFieldErrors}
+        submitting={submittingForm}
+        onFormChange={handleFormChange}
         onAddComponent={addComponentRow}
         onRemoveComponent={removeComponentRow}
         onUpdateComponent={updateComponentRow}

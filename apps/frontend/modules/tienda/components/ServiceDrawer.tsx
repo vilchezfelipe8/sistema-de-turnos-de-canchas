@@ -1,5 +1,6 @@
 import { Tag, DollarSign, Pencil, Plus } from 'lucide-react';
 import AdminDrawer, { AdminDrawerSection } from '../../../components/admin/ui/AdminDrawer';
+import { AdminInlineError } from '../../../components/admin/ui';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,6 +20,8 @@ type ServiceDrawerProps = {
   editingService: { id: number; name?: string } | null;
   formData: ServiceFormData;
   formError: string;
+  fieldErrors?: Record<string, string>;
+  submitting?: boolean;
   onFormChange: (data: ServiceFormData) => void;
   onSubmit: (e: React.FormEvent) => void;
 };
@@ -48,6 +51,8 @@ export default function ServiceDrawer({
   editingService,
   formData,
   formError,
+  fieldErrors,
+  submitting = false,
   onFormChange,
   onSubmit,
 }: ServiceDrawerProps) {
@@ -58,6 +63,7 @@ export default function ServiceDrawer({
       <button
         type="button"
         onClick={onClose}
+        disabled={submitting}
         className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
       >
         Cancelar
@@ -65,10 +71,11 @@ export default function ServiceDrawer({
       <button
         form="service-drawer-form"
         type="submit"
+        disabled={submitting}
         className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800"
       >
         {isEditing ? <Pencil size={14} /> : <Plus size={14} />}
-        {isEditing ? 'Guardar cambios' : 'Crear servicio'}
+        {submitting ? 'Guardando...' : isEditing ? 'Guardar cambios' : 'Crear servicio'}
       </button>
     </div>
   );
@@ -103,6 +110,7 @@ export default function ServiceDrawer({
                 strokeWidth={2.5}
               />
             </div>
+            <AdminInlineError>{fieldErrors?.code}</AdminInlineError>
           </div>
 
           <div>
@@ -114,6 +122,7 @@ export default function ServiceDrawer({
               className={inputClass}
               placeholder="Ej: Clase particular"
             />
+            <AdminInlineError>{fieldErrors?.name}</AdminInlineError>
           </div>
         </AdminDrawerSection>
 
@@ -139,6 +148,7 @@ export default function ServiceDrawer({
                 strokeWidth={2.5}
               />
             </div>
+            <AdminInlineError>{fieldErrors?.price}</AdminInlineError>
           </div>
         </AdminDrawerSection>
 
@@ -152,6 +162,7 @@ export default function ServiceDrawer({
               className="min-h-[80px] w-full resize-none rounded-xl border border-p-border bg-p-surface px-3 py-2.5 text-[13px] text-p-text placeholder:text-p-text-muted outline-none transition focus:border-p-accent"
               placeholder="Información adicional para el equipo"
             />
+            <AdminInlineError>{fieldErrors?.description}</AdminInlineError>
           </div>
         </AdminDrawerSection>
 

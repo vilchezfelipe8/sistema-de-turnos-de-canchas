@@ -220,3 +220,12 @@ export const throwApiErrorFromResponse = async (
 ): Promise<never> => {
   throw await parseApiErrorResponse(response, fallbackMessage);
 };
+
+export const getApiFieldErrors = (error: unknown): Record<string, string> =>
+  normalizeApiError(error).fieldErrors ?? {};
+
+export const getApiFieldError = (error: unknown, field: string): string =>
+  String(getApiFieldErrors(error)[field] || '').trim();
+
+export const getApiErrorMeta = (error: unknown): Record<string, unknown> | undefined =>
+  normalizeApiError(error).meta;

@@ -1,5 +1,6 @@
 import { X, Tag, DollarSign, Box, Package, Pencil, Plus } from 'lucide-react';
 import AdminDrawer, { AdminDrawerSection } from '../../../components/admin/ui/AdminDrawer';
+import { AdminInlineError } from '../../../components/admin/ui';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -33,6 +34,8 @@ type ProductDrawerProps = {
   comboOptions: ProductOption[];
   formData: ProductFormData;
   formError: string;
+  fieldErrors?: Record<string, string>;
+  submitting?: boolean;
   onFormChange: (data: ProductFormData) => void;
   onAddComponent: () => void;
   onRemoveComponent: (index: number) => void;
@@ -66,6 +69,8 @@ export default function ProductDrawer({
   comboOptions,
   formData,
   formError,
+  fieldErrors,
+  submitting = false,
   onFormChange,
   onAddComponent,
   onRemoveComponent,
@@ -79,6 +84,7 @@ export default function ProductDrawer({
       <button
         type="button"
         onClick={onClose}
+        disabled={submitting}
         className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
       >
         Cancelar
@@ -86,10 +92,11 @@ export default function ProductDrawer({
       <button
         form="product-drawer-form"
         type="submit"
+        disabled={submitting}
         className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800"
       >
         {isEditing ? <Pencil size={14} /> : <Plus size={14} />}
-        {isEditing ? 'Guardar cambios' : 'Confirmar ingreso'}
+        {submitting ? 'Guardando...' : isEditing ? 'Guardar cambios' : 'Confirmar ingreso'}
       </button>
     </div>
   );
@@ -122,6 +129,7 @@ export default function ProductDrawer({
                 strokeWidth={2.5}
               />
             </div>
+            <AdminInlineError>{fieldErrors?.name}</AdminInlineError>
           </div>
 
           <div>
@@ -174,6 +182,7 @@ export default function ProductDrawer({
                 strokeWidth={2.5}
               />
             </div>
+            <AdminInlineError>{fieldErrors?.price}</AdminInlineError>
           </div>
 
           {!formData.isCombo && (
@@ -196,6 +205,7 @@ export default function ProductDrawer({
                   strokeWidth={2.5}
                 />
               </div>
+              <AdminInlineError>{fieldErrors?.stock}</AdminInlineError>
               <p className="mt-1 text-[11px] text-p-text-muted">
                 {isEditing
                   ? 'Este valor reemplaza el stock disponible del producto al guardar.'
@@ -219,6 +229,7 @@ export default function ProductDrawer({
                 strokeWidth={2.5}
               />
             </div>
+            <AdminInlineError>{fieldErrors?.category}</AdminInlineError>
           </div>
         </AdminDrawerSection>
 
@@ -262,6 +273,7 @@ export default function ProductDrawer({
                 </div>
               ))}
             </div>
+            <AdminInlineError>{fieldErrors?.components || fieldErrors?.productId}</AdminInlineError>
             <button
               type="button"
               onClick={onAddComponent}
