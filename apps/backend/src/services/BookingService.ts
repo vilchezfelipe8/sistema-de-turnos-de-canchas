@@ -142,6 +142,50 @@ export type PlayerBookingInvitationDto = {
     status: 'INVITED';
 };
 
+export type PlayerBookingCheckoutDto = {
+    booking: {
+        id: string;
+        publicCode: string;
+        clubName: string;
+        courtName: string;
+        startDateTime: string;
+        endDateTime: string;
+        status: 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED';
+        myRole: 'OWNER' | 'PARTICIPANT';
+    };
+    account: {
+        id: string;
+        status: 'OPEN' | 'CLOSED';
+        total: number;
+        paid: number;
+        pending: number;
+        currency: 'ARS';
+        items: Array<{
+            label: string;
+            quantity: number;
+            unitPrice: number;
+            total: number;
+            type: 'COURT' | 'PRODUCT' | 'SERVICE' | 'OTHER';
+        }>;
+    } | null;
+    paymentSummary: {
+        status: 'NOT_REQUIRED' | 'PENDING' | 'PARTIAL' | 'PAID' | 'BLOCKED';
+        label: string;
+    };
+    checkout: {
+        enabled: false;
+        reason:
+            | 'PROVIDER_NOT_CONFIGURED'
+            | 'BOOKING_NOT_PAYABLE'
+            | 'NO_PENDING_BALANCE'
+            | 'ACCOUNT_MISSING'
+            | 'PARTICIPANT_PAYMENTS_NOT_SUPPORTED'
+            | 'BOOKING_HAS_REFUNDS'
+            | 'UNKNOWN';
+        futureProvider: 'MERCADO_PAGO' | null;
+    };
+};
+
 type BookingPriceQuoteInput = {
     userId?: number | null;
     allowAdminBenefits?: boolean;
@@ -400,6 +444,37 @@ export class BookingService {
             status: 'PARTIAL',
             label: 'Pago parcial registrado.'
         };
+    }
+
+    private resolvePlayerCheckoutPaymentSummary(input: {
+        totalAmount: number;
+        paidAmount: number;
+        accountMissing?: boolean;
+        blockedByRefunds?: boolean;
+    }): PlayerBookingCheckoutDto['paymentSummary'] {
+        if (input.accountMissing) {
+            return {
+                status: 'BLOCKED',
+                label: 'Todavía no hay una cuenta publicada para esta reserva.'
+            };
+        }
+
+        if (input.blockedByRefunds) {
+            return {
+                status: 'BLOCKED',
+                label: 'Esta reserva tiene devoluciones o ajustes que debe revisar el club.'
+            };
+        }
+
+        return this.resolvePlayerPaymentSummary(input);
+    }
+
+    private mapPublicAccountItemType(type: string): 'COURT' | 'PRODUCT' | 'SERVICE' | 'OTHER' {
+        const normalized = String(type || '').toUpperCase();
+        if (normalized === 'BOOKING') return 'COURT';
+        if (normalized === 'PRODUCT') return 'PRODUCT';
+        if (normalized === 'SERVICE') return 'SERVICE';
+        return 'OTHER';
     }
 
     private resolveParticipantDisplayName(input: {
@@ -3911,6 +3986,161 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 }
             } satisfies PlayerBookingDto;
         });
+    }
+
+    async getPlayerBookingCheckout(bookingId: number, userId: number): Promise<PlayerBookingCheckoutDto> {
+        if (!Number.isInteger(userId) || userId <= 0) {
+            throw this.bookingForbidden();
+        }
+
+        const booking = await prisma.booking.findUnique({
+            where: { id: bookingId },
+            include: {
+                court: {
+                    include: {
+                        club: true
+                    }
+                },
+                client: {
+                    select: {
+                        userId: true
+                    }
+                },
+                participants: {
+                    select: {
+                        userId: true,
+                        status: true
+                    }
+                }
+            }
+        });
+
+        if (!booking) {
+            throw this.bookingNotFound('La reserva no existe.');
+        }
+
+        const isOwner = this.isExplicitBookingOwner(booking, userId);
+        const isParticipant = !isOwner && this.isBookingParticipantJoined(booking, userId);
+        if (!isOwner && !isParticipant) {
+            throw this.bookingForbidden('No tenés permiso para ver el estado de pago de esta reserva.');
+        }
+
+        const account = await prisma.account.findFirst({
+            where: {
+                clubId: booking.clubId,
+                sourceType: 'BOOKING',
+                sourceId: String(bookingId)
+            },
+            include: {
+                items: {
+                    orderBy: { createdAt: 'asc' },
+                    select: {
+                        id: true,
+                        description: true,
+                        quantity: true,
+                        unitPrice: true,
+                        total: true,
+                        type: true
+                    }
+                },
+                refunds: {
+                    select: {
+                        id: true,
+                        status: true,
+                        amount: true
+                    }
+                }
+            }
+        });
+
+        const now = new Date();
+        const bookingStarted = new Date(booking.startDateTime).getTime() <= now.getTime();
+        const bookingNotPayable = booking.status === 'CANCELLED' || booking.status === 'COMPLETED' || bookingStarted;
+
+        if (!account) {
+            return {
+                booking: {
+                    id: String(booking.id),
+                    publicCode: String(booking.displayCode || `RES-${booking.id}`),
+                    clubName: String(booking.court.club.name || 'Club'),
+                    courtName: String(booking.court.name || 'Cancha'),
+                    startDateTime: new Date(booking.startDateTime).toISOString(),
+                    endDateTime: new Date(booking.endDateTime).toISOString(),
+                    status: booking.status,
+                    myRole: isOwner ? 'OWNER' : 'PARTICIPANT'
+                },
+                account: null,
+                paymentSummary: this.resolvePlayerCheckoutPaymentSummary({
+                    totalAmount: 0,
+                    paidAmount: 0,
+                    accountMissing: true
+                }),
+                checkout: {
+                    enabled: false,
+                    reason: 'ACCOUNT_MISSING',
+                    futureProvider: null
+                }
+            };
+        }
+
+        const paid = await this.accountService.calculateNetPaidAmount(account.id);
+        const total = Number(Number(account.totalAmount || 0).toFixed(2));
+        const pending = Number(Math.max(0, total - paid).toFixed(2));
+        const hasRelevantRefunds = account.refunds.some((refund) => refund.status !== 'FAILED' && refund.status !== 'CANCELLED');
+
+        let checkoutReason: PlayerBookingCheckoutDto['checkout']['reason'] = 'UNKNOWN';
+        let futureProvider: PlayerBookingCheckoutDto['checkout']['futureProvider'] = null;
+
+        if (hasRelevantRefunds) {
+            checkoutReason = 'BOOKING_HAS_REFUNDS';
+        } else if (bookingNotPayable) {
+            checkoutReason = 'BOOKING_NOT_PAYABLE';
+        } else if (isParticipant) {
+            checkoutReason = 'PARTICIPANT_PAYMENTS_NOT_SUPPORTED';
+        } else if (pending <= 0.009) {
+            checkoutReason = 'NO_PENDING_BALANCE';
+        } else {
+            checkoutReason = 'PROVIDER_NOT_CONFIGURED';
+            futureProvider = 'MERCADO_PAGO';
+        }
+
+        return {
+            booking: {
+                id: String(booking.id),
+                publicCode: String(booking.displayCode || `RES-${booking.id}`),
+                clubName: String(booking.court.club.name || 'Club'),
+                courtName: String(booking.court.name || 'Cancha'),
+                startDateTime: new Date(booking.startDateTime).toISOString(),
+                endDateTime: new Date(booking.endDateTime).toISOString(),
+                status: booking.status,
+                myRole: isOwner ? 'OWNER' : 'PARTICIPANT'
+            },
+            account: {
+                id: account.id,
+                status: account.status,
+                total,
+                paid: Number(paid.toFixed(2)),
+                pending,
+                currency: 'ARS',
+                items: account.items.map((item) => ({
+                    label: String(item.description || 'Concepto'),
+                    quantity: Number(item.quantity || 1),
+                    unitPrice: Number(Number(item.unitPrice || 0).toFixed(2)),
+                    total: Number(Number(item.total || 0).toFixed(2)),
+                    type: this.mapPublicAccountItemType(item.type)
+                }))
+            },
+            paymentSummary: this.resolvePlayerCheckoutPaymentSummary({
+                totalAmount: total,
+                paidAmount: paid,
+                blockedByRefunds: hasRelevantRefunds
+            }),
+            checkout: {
+                enabled: false,
+                reason: checkoutReason,
+                futureProvider
+            }
+        };
     }
 
     async cancelPlayerBooking(bookingId: number, userId: number) {

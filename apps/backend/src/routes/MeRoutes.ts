@@ -30,6 +30,7 @@ const bookingService = new BookingService(
 const bookingController = new BookingController(bookingService);
 
 router.get('/bookings', authMiddleware, (req, res) => bookingController.getMyBookings(req, res));
+router.get('/bookings/:id/checkout', authMiddleware, (req, res) => bookingController.getMyBookingCheckout(req, res));
 router.get('/bookings/:id/participants', authMiddleware, (req, res) => bookingController.getMyBookingParticipants(req, res));
 router.post('/bookings/:id/participants/invite', authMiddleware, (req, res) => bookingController.inviteMyBookingParticipant(req, res));
 router.post('/bookings/:id/participants/:participantId/remove', authMiddleware, (req, res) => bookingController.removeMyBookingParticipant(req, res));

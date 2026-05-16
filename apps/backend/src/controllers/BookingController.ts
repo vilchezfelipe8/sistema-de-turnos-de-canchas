@@ -775,6 +775,25 @@ export class BookingController {
         }
     }
 
+    getMyBookingCheckout = async (req: Request, res: Response) => {
+        try {
+            const bookingId = Number(req.params.id);
+            if (!Number.isInteger(bookingId) || bookingId <= 0) {
+                return sendAppError(res, badRequest('Seleccioná una reserva válida.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const userId = Number((req as any)?.user?.userId || 0);
+            if (!Number.isInteger(userId) || userId <= 0) {
+                return sendAuthError(res, 401, ErrorCodes.AUTH_MISSING, 'Necesitás iniciar sesión para ver el estado de pago.');
+            }
+
+            const checkout = await this.bookingService.getPlayerBookingCheckout(bookingId, userId);
+            return res.json(checkout);
+        } catch (error: any) {
+            return sendAppError(res, error, 'No pudimos cargar el estado de pago de la reserva.');
+        }
+    }
+
     getMyBookingParticipants = async (req: Request, res: Response) => {
         try {
             const bookingId = Number(req.params.id);
