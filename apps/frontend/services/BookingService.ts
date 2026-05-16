@@ -5,7 +5,7 @@ import { fetchWithAuth, isAuthSessionInvalidatedError } from '../utils/apiClient
 import { getApiUrl } from '../utils/apiUrl';
 import { ClubService } from './ClubService';
 import { ClubAdminService, type BookingBillingConfig } from './ClubAdminService';
-import { hasAdminAccess, normalizeSessionUser } from '../utils/session';
+import { hasAdminAccess, hasOperatorAccess, normalizeSessionUser } from '../utils/session';
 import { getOrCreateBookingAccount, getAccountSummary, getAccountById, registerPayment } from './AccountService';
 import { parseApiErrorPayload, throwApiErrorFromResponse } from '../utils/apiError';
 
@@ -260,7 +260,7 @@ export const cancelBooking = async (
   if (rawUser) {
     const parsed = normalizeSessionUser(JSON.parse(rawUser || '{}'));
     const adminClubId = Number(parsed?.activeClubId);
-    if (hasAdminAccess(parsed) && Number.isFinite(adminClubId) && adminClubId > 0) {
+    if (hasOperatorAccess(parsed) && Number.isFinite(adminClubId) && adminClubId > 0) {
       const club = await ClubService.getClubById(adminClubId);
       return await ClubAdminService.cancelBooking(club.slug, bookingId, options);
     }
@@ -286,7 +286,7 @@ export const confirmBooking = async (bookingId: number) => {
   if (!rawUser) throw new Error('No se pudo resolver el club activo del administrador.');
   const parsed = normalizeSessionUser(JSON.parse(rawUser || '{}'));
   const adminClubId = Number(parsed?.activeClubId);
-  if (!hasAdminAccess(parsed) || !Number.isFinite(adminClubId) || adminClubId <= 0) {
+  if (!hasOperatorAccess(parsed) || !Number.isFinite(adminClubId) || adminClubId <= 0) {
     throw new Error('No se pudo resolver el club activo del administrador.');
   }
 
@@ -299,7 +299,7 @@ export const completeBooking = async (bookingId: number) => {
   if (!rawUser) throw new Error('No se pudo resolver el club activo del administrador.');
   const parsed = normalizeSessionUser(JSON.parse(rawUser || '{}'));
   const adminClubId = Number(parsed?.activeClubId);
-  if (!hasAdminAccess(parsed) || !Number.isFinite(adminClubId) || adminClubId <= 0) {
+  if (!hasOperatorAccess(parsed) || !Number.isFinite(adminClubId) || adminClubId <= 0) {
     throw new Error('No se pudo resolver el club activo del administrador.');
   }
 
@@ -452,7 +452,7 @@ export const getAdminSchedule = async (date: string) => {
 
     const parsed = normalizeSessionUser(JSON.parse(rawUser || '{}'));
     const adminClubId = Number(parsed?.activeClubId);
-    if (!hasAdminAccess(parsed) || !Number.isFinite(adminClubId) || adminClubId <= 0) {
+    if (!hasOperatorAccess(parsed) || !Number.isFinite(adminClubId) || adminClubId <= 0) {
       throw new Error('No se pudo resolver el club activo del administrador.');
     }
 
@@ -488,7 +488,7 @@ export const createFixedBooking = async (
 
   const parsed = normalizeSessionUser(JSON.parse(rawUser || '{}'));
   const adminClubId = Number(parsed?.activeClubId);
-  if (!hasAdminAccess(parsed) || !Number.isFinite(adminClubId) || adminClubId <= 0) {
+  if (!hasOperatorAccess(parsed) || !Number.isFinite(adminClubId) || adminClubId <= 0) {
     throw new Error('No se pudo resolver el club activo del administrador.');
   }
 
@@ -530,7 +530,7 @@ export const cancelFixedBooking = async (
 
   const parsed = normalizeSessionUser(JSON.parse(rawUser || '{}'));
   const adminClubId = Number(parsed?.activeClubId);
-  if (!hasAdminAccess(parsed) || !Number.isFinite(adminClubId) || adminClubId <= 0) {
+  if (!hasOperatorAccess(parsed) || !Number.isFinite(adminClubId) || adminClubId <= 0) {
     throw new Error('No se pudo resolver el club activo del administrador.');
   }
 
@@ -560,7 +560,7 @@ export const rescheduleFixedBooking = async (
 
   const parsed = normalizeSessionUser(JSON.parse(rawUser || '{}'));
   const adminClubId = Number(parsed?.activeClubId);
-  if (!hasAdminAccess(parsed) || !Number.isFinite(adminClubId) || adminClubId <= 0) {
+  if (!hasOperatorAccess(parsed) || !Number.isFinite(adminClubId) || adminClubId <= 0) {
     throw new Error('No se pudo resolver el club activo del administrador.');
   }
 

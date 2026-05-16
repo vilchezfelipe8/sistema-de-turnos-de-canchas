@@ -215,3 +215,10 @@ export const hasAdminAccess = (user?: SessionUser | null): boolean => {
   const activeRole = normalized.activeMembership?.role;
   return activeRole === 'OWNER' || activeRole === 'ADMIN';
 };
+
+export const hasOperatorAccess = (user?: SessionUser | null): boolean => {
+  const normalized = normalizeSessionUser(user ?? getStoredUser());
+  if (!normalized) return false;
+  const activeRole = normalized.activeMembership?.role;
+  return activeRole === 'OWNER' || activeRole === 'ADMIN' || activeRole === 'STAFF';
+};

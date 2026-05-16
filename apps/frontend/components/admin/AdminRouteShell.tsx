@@ -6,13 +6,14 @@ import NotFound from '../NotFound';
 import RouteTransitionScreen from '../RouteTransitionScreen';
 import { getPendingLogoutRedirect } from '../../services/AuthService';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
-import { hasAdminAccess } from '../../utils/session';
+import { hasAdminAccess, hasOperatorAccess } from '../../utils/session';
 import AdminPlaygroundShell from './AdminPlaygroundShell';
 
 type AdminRouteShellProps = {
   title: string;
   activeItem: string;
   fromPath: string;
+  requiredAccess?: 'admin' | 'operator';
   children: ReactNode | ((user: any) => ReactNode);
 };
 
@@ -20,6 +21,7 @@ export default function AdminRouteShell({
   title,
   activeItem,
   fromPath,
+  requiredAccess = 'admin',
   children,
 }: AdminRouteShellProps) {
   const router = useRouter();
@@ -42,7 +44,9 @@ export default function AdminRouteShell({
     );
   }
 
-  if (!hasAdminAccess(user)) {
+  const canAccess = requiredAccess === 'operator' ? hasOperatorAccess(user) : hasAdminAccess(user);
+
+  if (!canAccess) {
     return <NotFound message="No tenes permiso para acceder al panel de administracion." />;
   }
 

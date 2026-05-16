@@ -40,7 +40,7 @@ export default function AdminReportsPage() {
   };
 
   return (
-    <AdminRouteShell title="Informes | Pique Admin" activeItem="Informes" fromPath="/admin/informes">
+    <AdminRouteShell title="Informes | Pique Admin" activeItem="Informes" fromPath="/admin/informes" requiredAccess="operator">
       {(user) => {
         const userSlug = getActiveClubSlug(normalizeSessionUser(user as any));
 

@@ -6,7 +6,7 @@ import { logout } from '../services/AuthService';
 import { getMyBookings } from '../services/BookingService';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserTheme } from '../contexts/UserThemeContext';
-import { getActiveClubSlug, getLastClubSlug, hasAdminAccess, normalizeSessionUser } from '../utils/session';
+import { getActiveClubSlug, getLastClubSlug, hasOperatorAccess, normalizeSessionUser } from '../utils/session';
 import { reportUiError } from '../utils/uiError';
 import { isAuthSessionInvalidatedError } from '../utils/apiClient';
 import AppModal from './AppModal';
@@ -95,7 +95,7 @@ export default function Navbar({
   const { user: rawUser } = useAuth();
   const { isLight, toggleTheme } = useUserTheme();
   const user = rawUser ? normalizeSessionUser(rawUser as any) : null;
-  const isAdmin = user ? hasAdminAccess(user) : false;
+  const isAdmin = user ? hasOperatorAccess(user) : false;
   const [navHidden, setNavHidden] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);

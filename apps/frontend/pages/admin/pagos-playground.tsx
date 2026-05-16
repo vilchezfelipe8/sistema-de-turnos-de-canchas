@@ -57,7 +57,7 @@ import {
   type RefundRecord,
 } from '../../services/PaymentService';
 import { formatDateTime24 } from '../../utils/dateTime';
-import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser } from '../../utils/session';
+import { getActiveClubSlug, hasOperatorAccess, normalizeSessionUser } from '../../utils/session';
 import { showAdminToast } from '../../utils/adminToast';
 import { ADMIN_Z_INDEX } from '../../utils/adminZIndex';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
@@ -881,12 +881,12 @@ export default function AdminPaymentsPlaygroundPage() {
   }, []);
 
   useEffect(() => {
-    if (!authChecked || !user || !hasAdminAccess(user)) return;
+    if (!authChecked || !user || !hasOperatorAccess(user)) return;
     void refresh();
   }, [authChecked, refresh, user]);
 
   useEffect(() => {
-    if (!authChecked || !user || !hasAdminAccess(user)) return;
+    if (!authChecked || !user || !hasOperatorAccess(user)) return;
     const run = async () => {
       try {
         const slug = getActiveClubSlug(normalizeSessionUser(user as any));
@@ -919,13 +919,13 @@ export default function AdminPaymentsPlaygroundPage() {
   }, [activeTab, ensureAccountDetail, selectedAccountId]);
 
   useEffect(() => {
-    if (!authChecked || !user || !hasAdminAccess(user)) return;
+    if (!authChecked || !user || !hasOperatorAccess(user)) return;
     if (!isCashSectionTab(activeTab)) return;
     void loadCashSummary();
   }, [activeTab, authChecked, loadCashSummary, user]);
 
   useEffect(() => {
-    if (!authChecked || !user || !hasAdminAccess(user)) return;
+    if (!authChecked || !user || !hasOperatorAccess(user)) return;
     if (!isCashSectionTab(activeTab)) return;
     void loadCashShiftContext();
   }, [activeTab, authChecked, loadCashShiftContext, user]);
@@ -942,7 +942,7 @@ export default function AdminPaymentsPlaygroundPage() {
 
   // P2-D: Load POS report when REPORTS tab is active
   const loadPosReport = useCallback(async () => {
-    if (!authChecked || !user || !hasAdminAccess(user)) return;
+    if (!authChecked || !user || !hasOperatorAccess(user)) return;
     setPosReportLoading(true);
     setPosReportError('');
     try {
@@ -1801,7 +1801,7 @@ export default function AdminPaymentsPlaygroundPage() {
   if (!authChecked || !user) {
     return <RouteTransitionScreen message={authChecked ? 'Redirigiendo...' : 'Validando acceso...'} />;
   }
-  if (!hasAdminAccess(user)) {
+  if (!hasOperatorAccess(user)) {
     return <NotFound message="No tenés permiso para acceder al panel de administración." />;
   }
 

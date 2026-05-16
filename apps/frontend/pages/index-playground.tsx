@@ -9,7 +9,7 @@ import { Search, MapPin, Calendar, TrendingUp, ShieldCheck, ArrowRight, ArrowUp,
 import Link from 'next/link';
 import { logout } from '../services/AuthService';
 import { getMyBookings } from '../services/BookingService';
-import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser } from '../utils/session';
+import { getActiveClubSlug, hasOperatorAccess, normalizeSessionUser } from '../utils/session';
 import { reportUiError } from '../utils/uiError';
 import PiqueLogo from '../components/PiqueLogo';
 import { IoFootballOutline } from "react-icons/io5"; // Pelota de fútbol limpia
@@ -289,7 +289,7 @@ export default function Home() {
     const initials = `${first.charAt(0)}${last.charAt(0)}`.trim();
     return initials || 'TU';
   }, [user]);
-  const isAdmin = hasAdminAccess(user);
+  const isAdmin = hasOperatorAccess(user);
   const adminClubSlug = useMemo(() => {
     if (!user || !isAdmin) return null;
 

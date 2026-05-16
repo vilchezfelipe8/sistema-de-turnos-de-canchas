@@ -14,6 +14,7 @@ export type PlaygroundSidebarItem = {
   label: string;
   icon: typeof CalendarDays;
   href: string;
+  minAccess?: 'operator' | 'admin';
   /**
    * Fase 1.3: si `disabled` es true, el ítem es visible en el sidebar pero NO clickeable.
    * No navega, no tiene estado activo, y la URL directa redirige a /admin/agenda.
@@ -23,13 +24,13 @@ export type PlaygroundSidebarItem = {
 };
 
 export const PLAYGROUND_SIDEBAR_ITEMS: PlaygroundSidebarItem[] = [
-  { label: 'Calendario', icon: CalendarDays, href: '/admin/agenda' },
-  { label: 'Clientes', icon: Users, href: '/admin/clientes' },
-  { label: 'Caja', icon: CreditCard, href: '/admin/caja' },
-  { label: 'Reservas', icon: Receipt, href: '/admin/reservas', disabled: true },
-  { label: 'Tienda', icon: ShoppingBag, href: '/admin/tienda' },
-  { label: 'Mensajes', icon: MessageSquare, href: '/admin/mensajes', disabled: true },
-  { label: 'Facturacion', icon: ScrollText, href: '/admin/facturacion', disabled: true },
-  { label: 'Informes', icon: BarChart3, href: '/admin/informes' },
-  { label: 'Ajustes', icon: Settings, href: '/admin/ajustes' },
+  { label: 'Calendario', icon: CalendarDays, href: '/admin/agenda', minAccess: 'operator' },
+  { label: 'Clientes', icon: Users, href: '/admin/clientes', minAccess: 'admin' },
+  { label: 'Caja', icon: CreditCard, href: '/admin/caja', minAccess: 'operator' },
+  { label: 'Reservas', icon: Receipt, href: '/admin/reservas', disabled: true, minAccess: 'admin' },
+  { label: 'Tienda', icon: ShoppingBag, href: '/admin/tienda', minAccess: 'admin' },
+  { label: 'Mensajes', icon: MessageSquare, href: '/admin/mensajes', disabled: true, minAccess: 'admin' },
+  { label: 'Facturacion', icon: ScrollText, href: '/admin/facturacion', disabled: true, minAccess: 'admin' },
+  { label: 'Informes', icon: BarChart3, href: '/admin/informes', minAccess: 'operator' },
+  { label: 'Ajustes', icon: Settings, href: '/admin/ajustes', minAccess: 'admin' },
 ];

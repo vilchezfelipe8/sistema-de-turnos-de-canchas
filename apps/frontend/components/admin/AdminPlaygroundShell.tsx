@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { logout } from '../../services/AuthService';
 import { useUserTheme } from '../../contexts/UserThemeContext';
-import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser, setActiveClubId } from '../../utils/session';
+import { getActiveClubSlug, hasAdminAccess, hasOperatorAccess, normalizeSessionUser, setActiveClubId } from '../../utils/session';
 import { ADMIN_Z_INDEX } from '../../utils/adminZIndex';
 import { PLAYGROUND_SIDEBAR_ITEMS } from './playgroundNavigation';
 import PiqueLogo from '../PiqueLogo';
@@ -90,8 +90,17 @@ export default function AdminPlaygroundShell({
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
 
   const normalizedUser = useMemo(() => normalizeSessionUser(user || null), [user]);
-  const isAdmin = useMemo(() => hasAdminAccess(normalizedUser), [normalizedUser]);
+  const hasAdminPrivileges = useMemo(() => hasAdminAccess(normalizedUser), [normalizedUser]);
+  const hasOperatorPrivileges = useMemo(() => hasOperatorAccess(normalizedUser), [normalizedUser]);
   const adminClubSlug = useMemo(() => getActiveClubSlug(normalizedUser), [normalizedUser]);
+  const visibleSidebarItems = useMemo(
+    () =>
+      PLAYGROUND_SIDEBAR_ITEMS.filter((item) => {
+        if (item.minAccess === 'admin') return hasAdminPrivileges;
+        return hasOperatorPrivileges;
+      }),
+    [hasAdminPrivileges, hasOperatorPrivileges]
+  );
   const clubOptions = useMemo(
     () =>
       Array.isArray(normalizedUser?.memberships)
@@ -312,7 +321,7 @@ export default function AdminPlaygroundShell({
                   className="absolute right-0 mt-2 w-[220px] rounded-xl border border-p-border bg-p-surface p-1 shadow-p-lg"
                   style={{ zIndex: ADMIN_Z_INDEX.dropdown }}
                 >
-                  {isAdmin && (
+                  {hasOperatorPrivileges && (
                     <button
                       type="button"
                       onClick={() => {
@@ -325,7 +334,7 @@ export default function AdminPlaygroundShell({
                       Gestión
                     </button>
                   )}
-                  {isAdmin && adminClubSlug && (
+                  {hasOperatorPrivileges && adminClubSlug && (
                     <button
                       type="button"
                       onClick={() => {
@@ -404,7 +413,7 @@ export default function AdminPlaygroundShell({
             </button>
 
             <nav className="w-full space-y-1 px-2">
-              {PLAYGROUND_SIDEBAR_ITEMS.map(({ label, icon: Icon, href, disabled }) => {
+              {visibleSidebarItems.map(({ label, icon: Icon, href, disabled }) => {
                 const active = !disabled && label === activeItem;
                 return (
                   <button
@@ -453,7 +462,7 @@ export default function AdminPlaygroundShell({
           </main>
         </div>
         <nav className="flex h-[62px] shrink-0 items-center gap-1 overflow-x-auto border-t border-p-border bg-p-surface px-2 lg:hidden">
-          {PLAYGROUND_SIDEBAR_ITEMS.map(({ label, icon: Icon, href, disabled }) => {
+          {visibleSidebarItems.map(({ label, icon: Icon, href, disabled }) => {
             const active = !disabled && label === activeItem;
             return (
               <button

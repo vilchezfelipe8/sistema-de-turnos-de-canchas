@@ -25,7 +25,7 @@ import { reportUiError } from '../../utils/uiError';
 import { ADMIN_Z_INDEX_CLASS } from '../../utils/adminZIndex';
 import { AdminFeedbackBanner } from '../../components/admin/ui/AdminFeedback';
 import { showAdminToast } from '../../utils/adminToast';
-import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser } from '../../utils/session';
+import { getActiveClubSlug, hasOperatorAccess, normalizeSessionUser } from '../../utils/session';
 import { normalizeApiError } from '../../utils/apiError';
 import { resolveBookingErrorBehavior } from '../../utils/bookingErrorMap';
 import BookingDrawerShell from '../../modules/admin/bookingDrawer/components/BookingDrawerShell';
@@ -8502,7 +8502,7 @@ export default function AdminAgendaPlaygroundPage() {
   ]);
 
   if (!authChecked || !user) return <RouteTransitionScreen message={authChecked ? 'Redirigiendo...' : 'Validando acceso...'} />;
-  if (!hasAdminAccess(user)) return <NotFound message="No tenés permiso para acceder al panel de administración." />;
+  if (!hasOperatorAccess(user)) return <NotFound message="No tenés permiso para acceder al panel de administración." />;
   const recurringCourtSelectionLabel =
     selectedRecurringCourts.length === 0
       ? 'Seleccionar canchas'

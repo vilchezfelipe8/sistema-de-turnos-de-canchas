@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { login, register, requestMagicLink, verifyMagicLink } from '../services/AuthService';
 import { ClubService } from '../services/ClubService';
 import { Mail, Lock, User, Phone, UserPlus, LogIn, AlertCircle, Loader2, IdCard, CheckCircle, Eye, EyeOff, Zap } from 'lucide-react';
-import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser } from '../utils/session';
+import { getActiveClubSlug, hasOperatorAccess, normalizeSessionUser } from '../utils/session';
 import { buildCanonicalPhone, DEFAULT_PHONE_COUNTRY_ISO2, normalizePhoneCountryIso2, PHONE_COUNTRY_OPTIONS, resolveCallingCodeByIso2 } from '../utils/phone';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserTheme } from '../contexts/UserThemeContext';
@@ -128,7 +128,7 @@ export default function LoginPage() {
       returnTo && returnTo !== '/login' && !returnTo.startsWith('/login?') && !returnTo.startsWith('/login#')
         ? returnTo
         : null;
-    if (hasAdminAccess(normalizedUser)) return '/admin/agenda';
+    if (hasOperatorAccess(normalizedUser)) return '/admin/agenda';
     if (safeReturnTo) return safeReturnTo;
     const activeSlug = getActiveClubSlug(normalizedUser);
     if (activeSlug) return `/club/${activeSlug}`;
