@@ -52,6 +52,25 @@ if (IS_PRODUCTION) {
     console.error('❌ Missing ALLOWED_ORIGINS in production.');
     process.exit(1);
   }
+
+  const mercadoPagoEnabled = ['1', 'true', 'yes'].includes(String(process.env.MERCADO_PAGO_ENABLED || '').trim().toLowerCase());
+  if (mercadoPagoEnabled) {
+    const requiredMercadoPagoVars = [
+      'MERCADO_PAGO_CLIENT_ID',
+      'MERCADO_PAGO_CLIENT_SECRET',
+      'MERCADO_PAGO_REDIRECT_URI',
+      'MERCADO_PAGO_WEBHOOK_SECRET',
+      'INTEGRATION_SECRETS_KEY',
+      'APP_BASE_URL'
+    ] as const;
+
+    for (const key of requiredMercadoPagoVars) {
+      if (!String(process.env[key] || '').trim()) {
+        console.error(`❌ Missing ${key} in production while Mercado Pago is enabled.`);
+        process.exit(1);
+      }
+    }
+  }
 }
 
 const shouldRunApi = () => PROCESS_ROLE === 'all' || PROCESS_ROLE === 'api';

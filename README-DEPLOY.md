@@ -32,6 +32,18 @@ Recomendadas:
 - `AUTH_COOKIE_SAMESITE=lax`
 - `AUTH_COOKIE_DOMAIN=.tu-dominio.com` solo si frontend/backend comparten dominio padre y necesitás cookie compartida.
 
+Si vas a habilitar checkout online con Mercado Pago por club:
+
+- `MERCADO_PAGO_ENABLED=true`
+- `MERCADO_PAGO_CLIENT_ID`
+- `MERCADO_PAGO_CLIENT_SECRET`
+- `MERCADO_PAGO_REDIRECT_URI`
+- `MERCADO_PAGO_WEBHOOK_SECRET`
+- `APP_BASE_URL` (URL pública del backend)
+- `INTEGRATION_SECRETS_KEY` (secreto fuerte para cifrar tokens OAuth en base)
+
+No expongas tokens de clubes en logs, frontend ni variables compartidas.
+
 ## 3) CORS y cookies
 
 - CORS debe permitir solo orígenes reales del frontend.
