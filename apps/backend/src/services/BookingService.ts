@@ -31,6 +31,10 @@ import { generateDisplayCode } from '../utils/displayCode';
 import { getPhoneIdentityVariants, normalizeIdentityPhone, toDialablePhoneNumber } from '../utils/phone';
 import { normalizeEmail } from '../utils/magicLink';
 import { recordUserClientLinkAuditTx } from './UserClientLinkAudit';
+import { ClubPaymentIntegrationService } from './ClubPaymentIntegrationService';
+import { MercadoPagoService } from './MercadoPagoService';
+import { mercadoPagoConfig } from '../utils/mercadoPagoConfig';
+import { PaymentService } from './PaymentService';
 import { AppError, ErrorCodes, badRequest, conflict, forbidden, notFound } from '../errors';
 
 type CancelBookingReason = 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED';
@@ -173,7 +177,7 @@ export type PlayerBookingCheckoutDto = {
         label: string;
     };
     checkout: {
-        enabled: false;
+        enabled: boolean;
         reason:
             | 'PROVIDER_NOT_CONFIGURED'
             | 'BOOKING_NOT_PAYABLE'
@@ -181,9 +185,16 @@ export type PlayerBookingCheckoutDto = {
             | 'ACCOUNT_MISSING'
             | 'PARTICIPANT_PAYMENTS_NOT_SUPPORTED'
             | 'BOOKING_HAS_REFUNDS'
-            | 'UNKNOWN';
+            | 'UNKNOWN'
+            | null;
         futureProvider: 'MERCADO_PAGO' | null;
     };
+};
+
+export type PlayerBookingCheckoutStartDto = {
+    attemptId: string;
+    initPoint: string;
+    provider: 'MERCADO_PAGO';
 };
 
 type BookingPriceQuoteInput = {
@@ -258,6 +269,9 @@ export class BookingService {
     private readonly accountingService = new AccountingService();
     private readonly accountService = new AccountService();
     private readonly projectionService = new ProjectionService();
+    private readonly clubPaymentIntegrationService = new ClubPaymentIntegrationService();
+    private readonly mercadoPagoService = new MercadoPagoService();
+    private readonly paymentService = new PaymentService();
     private readonly bookingDomainService = new BookingDomainService();
     private readonly refundService = new RefundService();
     private readonly discountService = new DiscountService();
@@ -4088,6 +4102,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         const pending = Number(Math.max(0, total - paid).toFixed(2));
         const hasRelevantRefunds = account.refunds.some((refund) => refund.status !== 'FAILED' && refund.status !== 'CANCELLED');
 
+        const integrationStatus = await this.clubPaymentIntegrationService.getMercadoPagoIntegrationStatusForClub(booking.clubId);
+        let checkoutEnabled = false;
         let checkoutReason: PlayerBookingCheckoutDto['checkout']['reason'] = 'UNKNOWN';
         let futureProvider: PlayerBookingCheckoutDto['checkout']['futureProvider'] = null;
 
@@ -4099,9 +4115,13 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             checkoutReason = 'PARTICIPANT_PAYMENTS_NOT_SUPPORTED';
         } else if (pending <= 0.009) {
             checkoutReason = 'NO_PENDING_BALANCE';
-        } else {
+        } else if (!integrationStatus.connected) {
             checkoutReason = 'PROVIDER_NOT_CONFIGURED';
             futureProvider = 'MERCADO_PAGO';
+        } else {
+            futureProvider = 'MERCADO_PAGO';
+            checkoutEnabled = true;
+            checkoutReason = null;
         }
 
         return {
@@ -4136,11 +4156,284 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 blockedByRefunds: hasRelevantRefunds
             }),
             checkout: {
-                enabled: false,
+                enabled: checkoutEnabled,
                 reason: checkoutReason,
                 futureProvider
             }
         };
+    }
+
+    async createPlayerMercadoPagoCheckoutAttempt(bookingId: number, userId: number): Promise<PlayerBookingCheckoutStartDto> {
+        if (!Number.isInteger(userId) || userId <= 0) {
+            throw this.bookingForbidden();
+        }
+
+        const booking = await prisma.booking.findUnique({
+            where: { id: bookingId },
+            include: {
+                court: {
+                    include: {
+                        club: true
+                    }
+                },
+                client: {
+                    select: {
+                        userId: true,
+                        name: true,
+                        email: true
+                    }
+                },
+                user: {
+                    select: {
+                        firstName: true,
+                        lastName: true,
+                        email: true
+                    }
+                },
+                participants: {
+                    select: {
+                        userId: true,
+                        status: true
+                    }
+                }
+            }
+        });
+
+        if (!booking) {
+            throw this.bookingNotFound('La reserva no existe.');
+        }
+
+        const isOwner = this.isExplicitBookingOwner(booking, userId);
+        const isParticipant = !isOwner && this.isBookingParticipantJoined(booking, userId);
+        if (!isOwner) {
+            if (isParticipant) {
+                throw forbidden(
+                    'Por ahora el pago online está disponible solo para el titular de la reserva.',
+                    ErrorCodes.CHECKOUT_FORBIDDEN
+                );
+            }
+            throw this.bookingForbidden('No tenés permiso para iniciar el pago de esta reserva.');
+        }
+
+        const account = await prisma.account.findFirst({
+            where: {
+                clubId: booking.clubId,
+                sourceType: 'BOOKING',
+                sourceId: String(bookingId)
+            },
+            include: {
+                refunds: {
+                    select: {
+                        id: true,
+                        status: true
+                    }
+                }
+            }
+        });
+
+        if (!account) {
+            throw notFound('No encontramos una cuenta publicada para esta reserva.', ErrorCodes.CHECKOUT_ACCOUNT_NOT_FOUND);
+        }
+
+        const now = new Date();
+        if (
+            booking.status === 'CANCELLED' ||
+            booking.status === 'COMPLETED' ||
+            new Date(booking.startDateTime).getTime() <= now.getTime()
+        ) {
+            throw conflict('Esta reserva ya no está disponible para pago online.', ErrorCodes.CHECKOUT_NOT_AVAILABLE);
+        }
+
+        const hasRelevantRefunds = account.refunds.some((refund) => refund.status !== 'FAILED' && refund.status !== 'CANCELLED');
+        if (hasRelevantRefunds) {
+            throw conflict(
+                'Esta reserva tiene devoluciones o ajustes que debe revisar el club.',
+                ErrorCodes.CHECKOUT_NOT_AVAILABLE
+            );
+        }
+
+        const accessToken = await this.clubPaymentIntegrationService.getMercadoPagoAccessTokenForClub(booking.clubId);
+        if (!accessToken) {
+            throw conflict(
+                'El club todavía no tiene un proveedor de pago online configurado.',
+                ErrorCodes.CHECKOUT_PROVIDER_NOT_CONFIGURED
+            );
+        }
+
+        return prisma.$transaction(async (tx) => {
+            const lockedAccounts = await tx.$queryRaw<Array<{ id: string }>>`
+                SELECT "id"
+                FROM "Account"
+                WHERE "id" = ${account.id}
+                FOR UPDATE
+            `;
+
+            if (lockedAccounts.length === 0) {
+                throw notFound('Cuenta no encontrada.', ErrorCodes.ACCOUNT_NOT_FOUND);
+            }
+
+            const freshAccount = await tx.account.findUnique({
+                where: { id: account.id },
+                include: {
+                    items: {
+                        orderBy: { createdAt: 'asc' }
+                    },
+                    refunds: {
+                        select: {
+                            id: true,
+                            status: true
+                        }
+                    }
+                }
+            });
+
+            if (!freshAccount) {
+                throw notFound('Cuenta no encontrada.', ErrorCodes.ACCOUNT_NOT_FOUND);
+            }
+            if (freshAccount.status !== 'OPEN') {
+                throw conflict('La cuenta de esta reserva ya está cerrada.', ErrorCodes.ACCOUNT_CLOSED);
+            }
+
+            const paid = await this.accountService.calculateNetPaidAmountTx(tx, freshAccount.id);
+            const total = Number(Number(freshAccount.totalAmount || 0).toFixed(2));
+            const pending = Number(Math.max(0, total - paid).toFixed(2));
+            if (pending <= 0.009) {
+                throw conflict('Esta reserva no tiene saldo pendiente por ahora.', ErrorCodes.CHECKOUT_NO_PENDING_BALANCE);
+            }
+
+            if (freshAccount.refunds.some((refund) => refund.status !== 'FAILED' && refund.status !== 'CANCELLED')) {
+                throw conflict(
+                    'Esta reserva tiene devoluciones o ajustes que debe revisar el club.',
+                    ErrorCodes.CHECKOUT_NOT_AVAILABLE
+                );
+            }
+
+            const existingAttempt = await tx.onlinePaymentAttempt.findFirst({
+                where: {
+                    clubId: booking.clubId,
+                    bookingId,
+                    provider: 'MERCADO_PAGO',
+                    status: { in: ['CREATED', 'PENDING'] }
+                },
+                orderBy: { createdAt: 'desc' }
+            });
+
+            if (existingAttempt && Number(existingAttempt.amount || 0).toFixed(2) === pending.toFixed(2) && existingAttempt.initPoint) {
+                return {
+                    attemptId: existingAttempt.id,
+                    initPoint: String(existingAttempt.initPoint),
+                    provider: 'MERCADO_PAGO'
+                };
+            }
+
+            if (existingAttempt && Math.abs(Number(existingAttempt.amount || 0) - pending) > 0.009) {
+                await tx.onlinePaymentAttempt.update({
+                    where: { id: existingAttempt.id },
+                    data: {
+                        status: 'ERROR',
+                        failureReason: 'CHECKOUT_AMOUNT_CHANGED'
+                    }
+                });
+            }
+
+            const idempotencyKey = `booking:${bookingId}:user:${userId}:pending:${pending.toFixed(2)}`;
+            const attempt = await tx.onlinePaymentAttempt.create({
+                data: {
+                    clubId: booking.clubId,
+                    bookingId,
+                    accountId: freshAccount.id,
+                    userId,
+                    integrationId: (
+                        await tx.clubPaymentIntegration.findUnique({
+                            where: {
+                                clubId_provider: {
+                                    clubId: booking.clubId,
+                                    provider: 'MERCADO_PAGO'
+                                }
+                            },
+                            select: { id: true }
+                        })
+                    )?.id ?? null,
+                    provider: 'MERCADO_PAGO',
+                    status: 'CREATED',
+                    amount: pending,
+                    currency: 'ARS',
+                    idempotencyKey,
+                    externalReference: `booking-checkout:${bookingId}:attempt:${generateDisplayCode('CHK')}`
+                }
+            });
+
+            const ownerFirstName = String(booking.user?.firstName || '').trim();
+            const ownerLastName = String(booking.user?.lastName || '').trim();
+            const payerEmail = String(booking.user?.email || booking.client?.email || '').trim() || null;
+            const description = `Reserva ${booking.displayCode || `RES-${booking.id}`} - ${booking.court.club.name}`;
+            const publicBase = mercadoPagoConfig.frontendUrl || 'http://localhost:3001';
+            const bookingsUrl = `${publicBase}/bookings?booking=${encodeURIComponent(String(booking.id))}`;
+            const webhookUrl = `${mercadoPagoConfig.appBaseUrl}/api/webhooks/mercadopago?clubId=${encodeURIComponent(String(booking.clubId))}&attemptId=${encodeURIComponent(attempt.id)}`;
+
+            const preference = await this.mercadoPagoService.createPreference({
+                accessToken,
+                title: description,
+                description,
+                quantity: 1,
+                unitPrice: pending,
+                payer: payerEmail
+                    ? {
+                        name: ownerFirstName || booking.client?.name || 'Jugador',
+                        surname: ownerLastName || undefined,
+                        email: payerEmail
+                    }
+                    : undefined,
+                externalReference: attempt.id,
+                notificationUrl: webhookUrl,
+                successUrl: `${bookingsUrl}&checkoutStatus=success`,
+                pendingUrl: `${bookingsUrl}&checkoutStatus=pending`,
+                failureUrl: `${bookingsUrl}&checkoutStatus=failure`,
+                metadata: {
+                    attemptId: attempt.id,
+                    bookingId: booking.id,
+                    accountId: freshAccount.id,
+                    clubId: booking.clubId
+                }
+            });
+
+            const initPoint = String(preference.init_point || preference.sandbox_init_point || '').trim();
+            if (!initPoint) {
+                throw conflict('Mercado Pago no devolvió una URL válida para iniciar el pago.', ErrorCodes.CHECKOUT_NOT_AVAILABLE);
+            }
+
+            await tx.onlinePaymentAttempt.update({
+                where: { id: attempt.id },
+                data: {
+                    status: 'PENDING',
+                    providerPreferenceId: String(preference.id || '').trim() || null,
+                    initPoint,
+                    rawProviderData: preference as Prisma.InputJsonValue
+                }
+            });
+
+            await tx.auditLog.create({
+                data: {
+                    clubId: booking.clubId,
+                    userId,
+                    entity: 'ONLINE_PAYMENT_ATTEMPT',
+                    entityId: attempt.id,
+                    action: 'CHECKOUT_ATTEMPT_CREATED',
+                    payload: {
+                        provider: 'MERCADO_PAGO',
+                        bookingId: booking.id,
+                        accountId: freshAccount.id,
+                        amount: pending
+                    }
+                }
+            });
+
+            return {
+                attemptId: attempt.id,
+                initPoint,
+                provider: 'MERCADO_PAGO'
+            };
+        });
     }
 
     async cancelPlayerBooking(bookingId: number, userId: number) {
