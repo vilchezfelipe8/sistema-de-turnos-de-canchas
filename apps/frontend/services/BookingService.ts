@@ -101,7 +101,7 @@ export type PlayerBookingDto = {
     canView: true;
     canCancelBooking: boolean;
     canLeaveBooking: boolean;
-    canPay: false;
+    canPay: boolean;
     canInvitePlayers: boolean;
   };
 };
@@ -165,7 +165,7 @@ export type PlayerBookingCheckoutDto = {
     label: string;
   };
   checkout: {
-    enabled: false;
+    enabled: boolean;
     reason:
       | 'PROVIDER_NOT_CONFIGURED'
       | 'BOOKING_NOT_PAYABLE'
@@ -173,9 +173,16 @@ export type PlayerBookingCheckoutDto = {
       | 'ACCOUNT_MISSING'
       | 'PARTICIPANT_PAYMENTS_NOT_SUPPORTED'
       | 'BOOKING_HAS_REFUNDS'
-      | 'UNKNOWN';
+      | 'UNKNOWN'
+      | null;
     futureProvider: 'MERCADO_PAGO' | null;
   };
+};
+
+export type PlayerBookingCheckoutStartDto = {
+  attemptId: string;
+  initPoint: string;
+  provider: 'MERCADO_PAGO';
 };
 
 export const getBookingById = async (bookingId: number) => {
@@ -375,6 +382,21 @@ export const removeBookingParticipant = async (bookingId: number | string, parti
 
   if (!res.ok) {
     await throwApiErrorFromResponse(res, 'No pudimos remover al participante.');
+  }
+
+  return res.json();
+};
+
+export const createMercadoPagoCheckout = async (
+  bookingId: number | string
+): Promise<PlayerBookingCheckoutStartDto> => {
+  const res = await fetchWithAuth(`${apiBase()}/me/bookings/${bookingId}/checkout/mercadopago`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+
+  if (!res.ok) {
+    await throwApiErrorFromResponse(res, 'No pudimos iniciar el pago online.');
   }
 
   return res.json();

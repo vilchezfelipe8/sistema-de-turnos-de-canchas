@@ -6,6 +6,7 @@ import {
   cancelBooking,
   getBookingParticipants,
   getPlayerBookingCheckout,
+  createMercadoPagoCheckout,
   inviteBookingParticipant,
   removeBookingParticipant,
   getMyBookingInvitations,
@@ -174,12 +175,14 @@ export default function MyBookingsPage() {
   const [checkoutSummary, setCheckoutSummary] = useState<PlayerBookingCheckoutDto | null>(null);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState('');
+  const [checkoutSubmitting, setCheckoutSubmitting] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteName, setInviteName] = useState('');
   const [inviteFieldErrors, setInviteFieldErrors] = useState<Record<string, string>>({});
   const [inviteBannerError, setInviteBannerError] = useState('');
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
   const [participantActionId, setParticipantActionId] = useState<string | null>(null);
+  const [paymentBanner, setPaymentBanner] = useState<{ tone: 'success' | 'info' | 'error'; message: string } | null>(null);
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
@@ -240,6 +243,13 @@ export default function MyBookingsPage() {
         return 'Todavía no hay una cuenta publicada para esta reserva.';
       case 'CHECKOUT_NO_PENDING_BALANCE':
         return 'Esta reserva no tiene saldo pendiente por ahora.';
+      case 'CHECKOUT_ALREADY_PAID':
+        return 'Esta reserva ya no tiene saldo pendiente para pagar online.';
+      case 'CHECKOUT_AMOUNT_CHANGED':
+        return 'El saldo de esta reserva cambió. Volvé a revisar el estado de pago antes de intentar de nuevo.';
+      case 'PAYMENT_PROVIDER_NOT_CONFIGURED':
+      case 'PAYMENT_PROVIDER_AUTH_FAILED':
+        return 'El pago online no está disponible ahora mismo para este club.';
       case 'AUTH_MISSING':
       case 'AUTH_INVALID':
       case 'AUTH_EXPIRED':
@@ -385,6 +395,32 @@ export default function MyBookingsPage() {
   }, [selectedBooking]);
 
   useEffect(() => {
+    const checkoutStatus = String(router.query.checkoutStatus || '').trim().toLowerCase();
+    if (!checkoutStatus) return;
+
+    if (checkoutStatus === 'success') {
+      setPaymentBanner({
+        tone: 'success',
+        message: 'Mercado Pago recibió tu pago. Estamos validándolo con el club.'
+      });
+    } else if (checkoutStatus === 'pending') {
+      setPaymentBanner({
+        tone: 'info',
+        message: 'Tu pago quedó pendiente de confirmación en Mercado Pago.'
+      });
+    } else if (checkoutStatus === 'failure') {
+      setPaymentBanner({
+        tone: 'error',
+        message: 'No se pudo completar el pago online. Revisá el estado de pago o contactá al club.'
+      });
+    }
+
+    const nextQuery = { ...router.query } as Record<string, unknown>;
+    delete nextQuery.checkoutStatus;
+    void router.replace({ pathname: router.pathname, query: nextQuery as any }, undefined, { shallow: true });
+  }, [router]);
+
+  useEffect(() => {
     if (!reviewModalOpen) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !reviewSaving) setReviewModalOpen(false); };
     document.addEventListener('keydown', onKey);
@@ -418,6 +454,9 @@ export default function MyBookingsPage() {
     Math.max(0, Math.round((new Date(b.endDateTime).getTime() - new Date(b.startDateTime).getTime()) / 60000)) || 60;
 
   const getCheckoutReasonMessage = (checkout: PlayerBookingCheckoutDto) => {
+    if (checkout.checkout.enabled) {
+      return 'Mercado Pago está disponible para este pago. Cuando avances, el monto se toma desde la cuenta real de la reserva.';
+    }
     switch (checkout.checkout.reason) {
       case 'ACCOUNT_MISSING':
         return 'Todavía no hay una cuenta publicada para esta reserva. Contactá al club para confirmar el estado de pago.';
@@ -433,6 +472,21 @@ export default function MyBookingsPage() {
         return 'El pago online todavía no está disponible para este club. Contactá al club para pagar o resolver cambios.';
       default:
         return 'Todavía no pudimos habilitar el pago online para esta reserva.';
+    }
+  };
+
+  const handleStartOnlineCheckout = async () => {
+    if (!selectedBooking || !checkoutSummary?.checkout.enabled || checkoutSubmitting) return;
+    setCheckoutSubmitting(true);
+    try {
+      const payload = await createMercadoPagoCheckout(selectedBooking.id);
+      if (typeof window !== 'undefined') {
+        window.location.assign(payload.initPoint);
+      }
+    } catch (error) {
+      showError(toPublicBookingErrorMessage(error, 'No pudimos iniciar el pago online.'));
+    } finally {
+      setCheckoutSubmitting(false);
     }
   };
 
@@ -767,6 +821,37 @@ export default function MyBookingsPage() {
                   {cancelSuccessMessage}
                 </div>
               )}
+              {paymentBanner && (
+                <div
+                  style={{
+                    padding: '12px 16px',
+                    background: paymentBanner.tone === 'success'
+                      ? 'var(--positive-bg)'
+                      : paymentBanner.tone === 'error'
+                        ? 'var(--error-bg)'
+                        : 'var(--surface-2)',
+                    border: paymentBanner.tone === 'success'
+                      ? '1px solid var(--accent-border-subtle)'
+                      : paymentBanner.tone === 'error'
+                        ? '1px solid var(--error-bg)'
+                        : '1px solid var(--border-subtle)',
+                    borderRadius: 12,
+                    fontSize: 13,
+                    color: paymentBanner.tone === 'success'
+                      ? 'var(--accent-fg)'
+                      : paymentBanner.tone === 'error'
+                        ? 'var(--error-fg)'
+                        : 'var(--text-secondary)',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8
+                  }}
+                >
+                  <CheckCircle2 size={15} style={{ flexShrink: 0 }} />
+                  {paymentBanner.message}
+                </div>
+              )}
               {loading ? (
                 <div className="bk-empty">
                   <UserLoadingState mode="inline" message="Cargando reservas..." />
@@ -1079,13 +1164,19 @@ export default function MyBookingsPage() {
                       style={{
                         padding: '12px 14px',
                         borderRadius: 12,
-                        background: checkoutSummary.checkout.reason === 'NO_PENDING_BALANCE'
+                        background: checkoutSummary.checkout.enabled
+                          ? 'var(--positive-bg)'
+                          : checkoutSummary.checkout.reason === 'NO_PENDING_BALANCE'
                           ? 'var(--positive-bg)'
                           : 'var(--surface-2)',
-                        border: checkoutSummary.checkout.reason === 'NO_PENDING_BALANCE'
+                        border: checkoutSummary.checkout.enabled
+                          ? '1px solid var(--accent-border-subtle)'
+                          : checkoutSummary.checkout.reason === 'NO_PENDING_BALANCE'
                           ? '1px solid var(--accent-border-subtle)'
                           : '1px solid var(--border-subtle)',
-                        color: checkoutSummary.checkout.reason === 'NO_PENDING_BALANCE'
+                        color: checkoutSummary.checkout.enabled
+                          ? 'var(--accent-fg)'
+                          : checkoutSummary.checkout.reason === 'NO_PENDING_BALANCE'
                           ? 'var(--accent-fg)'
                           : 'var(--text-secondary)',
                         fontSize: 13,
@@ -1095,6 +1186,18 @@ export default function MyBookingsPage() {
                     >
                       {getCheckoutReasonMessage(checkoutSummary)}
                     </div>
+
+                    {checkoutSummary.checkout.enabled && (
+                      <button
+                        type="button"
+                        className="bk-action-btn bk-action-rebook"
+                        onClick={handleStartOnlineCheckout}
+                        disabled={checkoutSubmitting}
+                      >
+                        <Ticket size={15} />
+                        {checkoutSubmitting ? 'Redirigiendo...' : 'Pagar online con Mercado Pago'}
+                      </button>
+                    )}
                   </>
                 ) : null}
               </div>
