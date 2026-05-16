@@ -68,3 +68,54 @@
   - refunds online automáticos,
   - Stripe,
   - Open Match y social.
+
+## Carriles futuros fuera del checkout jugador
+
+Estos carriles quedan documentados para backlog futuro y no deben mezclarse con `I.3B/I.3C`.
+
+### 1. Billing-SaaS — Suscripción del club
+
+Flujo distinto al checkout de reservas:
+
+- pagador: club,
+- cobrador: Pique,
+- objetivo: suscripción SaaS de la plataforma,
+- proveedor a definir más adelante: Stripe Billing, Mercado Pago suscripciones o checkout recurrente/manual,
+- no impacta `Account BOOKING`,
+- no impacta la caja del club,
+- no usa el token OAuth del club como vendedor.
+
+### 2. Profesores — Clases y liquidaciones
+
+Análisis futuro para resolver, según el modelo operativo final:
+
+- jugador paga clase al club,
+- club liquida al profesor,
+- profesor cobra directo,
+- comisiones,
+- reportes,
+- responsabilidades fiscales.
+
+No forma parte del checkout actual de reservas.
+
+### 3. Proveedores / Cuentas por pagar
+
+Módulo futuro separado para:
+
+- proveedores,
+- compras,
+- gastos,
+- facturas,
+- pagos,
+- impacto en caja/contabilidad,
+- reportes.
+
+No forma parte del checkout actual de reservas.
+
+### Regla de separación
+
+`I.3B/I.3C` sigue siendo únicamente:
+
+- jugador -> club,
+- por reservas,
+- usando `Account BOOKING` como fuente de verdad.
