@@ -32,6 +32,18 @@ enum BookingStatus {
   COMPLETED
 }
 
+enum BookingParticipantStatus {
+  INVITED
+  JOINED
+  DECLINED
+  LEFT
+  REMOVED
+}
+
+enum BookingParticipantRole {
+  PARTICIPANT
+}
+
 enum BookingConfirmationMode {
   AUTOMATIC
   MANUAL
@@ -230,6 +242,8 @@ model User {
   dni       String?
 
   bookings      Booking[]
+  bookingParticipants BookingParticipant[]
+  bookingParticipantInvitationsSent BookingParticipant[] @relation("BookingParticipantInvitedBy")
   clients       Client[]
   fixedBookings FixedBooking[]
   memberships   Membership[]
@@ -594,6 +608,7 @@ model Booking {
   fixedBookingId Int?
   fixedBooking   FixedBooking? @relation(fields: [fixedBookingId], references: [id])
   billingConfig  BookingBillingConfig?
+  participants   BookingParticipant[]
   reviews        ClubReview[]
 
   @@index([courtId, startDateTime], map: "booking_court_day")
@@ -602,6 +617,31 @@ model Booking {
   @@index([activityId, startDateTime], map: "booking_activity_day")
   @@index([startDateTime])
   @@index([status, startDateTime, autoCancelledAt], map: "booking_pending_autocancel_idx")
+}
+
+model BookingParticipant {
+  id              String                   @id @default(cuid())
+  bookingId       Int
+  booking         Booking                  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  userId          Int?
+  user            User?                    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  invitedEmail    String?
+  invitedName     String?
+  status          BookingParticipantStatus @default(INVITED)
+  role            BookingParticipantRole   @default(PARTICIPANT)
+  invitedByUserId Int?
+  invitedByUser   User?                    @relation("BookingParticipantInvitedBy", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  acceptedAt      DateTime?                @db.Timestamptz(3)
+  declinedAt      DateTime?                @db.Timestamptz(3)
+  leftAt          DateTime?                @db.Timestamptz(3)
+  removedAt       DateTime?                @db.Timestamptz(3)
+  createdAt       DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime                 @updatedAt @db.Timestamptz(3)
+
+  @@unique([bookingId, userId])
+  @@index([bookingId, status])
+  @@index([userId, status])
+  @@index([invitedEmail, status])
 }
 
 model BookingBillingConfig {
