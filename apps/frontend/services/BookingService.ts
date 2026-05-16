@@ -75,6 +75,37 @@ export type BookingDomainEvent = {
   processed: boolean;
 };
 
+export type PlayerBookingDto = {
+  id: string;
+  publicCode: string;
+  club: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+  court: {
+    name: string;
+  };
+  activity: {
+    name: string;
+  } | null;
+  startDateTime: string;
+  endDateTime: string;
+  status: 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED';
+  myRole: 'OWNER';
+  paymentSummary: {
+    status: 'NOT_REQUIRED' | 'PENDING' | 'PARTIAL' | 'PAID';
+    label: string;
+  };
+  capabilities: {
+    canView: true;
+    canCancelBooking: boolean;
+    canLeaveBooking: false;
+    canPay: false;
+    canInvitePlayers: false;
+  };
+};
+
 export const getBookingById = async (bookingId: number) => {
   const res = await fetchWithAuth(`${apiBase()}/bookings/${bookingId}`, {
     method: 'GET',
@@ -187,9 +218,9 @@ export const getBookingQuote = async (input: {
 };
 
 // --- 2. OBTENER MIS RESERVAS (HISTORIAL) ---
-export const getMyBookings = async (userId: number) => {
+export const getMyBookings = async (_userId?: number): Promise<PlayerBookingDto[]> => {
     try {
-      const res = await fetchWithAuth(`${apiBase()}/bookings/history/${userId}`, {
+      const res = await fetchWithAuth(`${apiBase()}/me/bookings`, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' }
       });
@@ -204,9 +235,10 @@ export const getMyBookings = async (userId: number) => {
             }
           } catch {
           }
-          throw new Error('Error al cargar el historial');
+          await throwApiErrorFromResponse(res, 'No pudimos cargar tus reservas.');
       }
-      return res.json();
+      const payload = await res.json();
+      return Array.isArray(payload?.items) ? payload.items : [];
     } catch (error) {
       if (isAuthSessionInvalidatedError(error)) {
         return [];
@@ -246,7 +278,7 @@ export const getBookingTimelineEvents = async (
 
 // --- 3. CANCELAR UNA RESERVA ---
 export const cancelBooking = async (
-  bookingId: number,
+  bookingId: number | string,
   options?: {
     refund?: {
       amount?: number;
@@ -256,29 +288,26 @@ export const cancelBooking = async (
     };
   }
 ) => {
+  const safeBookingId = typeof bookingId === 'string' ? Number(bookingId) : bookingId;
   const rawUser = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
   if (rawUser) {
     const parsed = normalizeSessionUser(JSON.parse(rawUser || '{}'));
     const adminClubId = Number(parsed?.activeClubId);
     if (hasOperatorAccess(parsed) && Number.isFinite(adminClubId) && adminClubId > 0) {
       const club = await ClubService.getClubById(adminClubId);
-      return await ClubAdminService.cancelBooking(club.slug, bookingId, options);
+      return await ClubAdminService.cancelBooking(club.slug, safeBookingId, options);
     }
   }
 
-  const res = await fetchWithAuth(`${apiBase()}/bookings/cancel`, {
+  const publicRes = await fetchWithAuth(`${apiBase()}/me/bookings/${bookingId}/cancel`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      bookingId,
-      ...(options?.refund ? { refund: options.refund } : {})
-    })
+    headers: { 'Content-Type': 'application/json' }
   });
 
-    if (!res.ok) {
-        await throwApiErrorFromResponse(res, 'No se pudo cancelar el turno');
-    }
-    return res.json();
+  if (!publicRes.ok) {
+    await throwApiErrorFromResponse(publicRes, 'No se pudo cancelar la reserva.');
+  }
+  return publicRes.json();
 };
 
 export const confirmBooking = async (bookingId: number) => {

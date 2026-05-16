@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
 import DarkPageLayout from '../components/DarkPageLayout';
-import { getMyBookings, cancelBooking } from '../services/BookingService';
+import { getMyBookings, cancelBooking, type PlayerBookingDto } from '../services/BookingService';
 import { getMyReviewForClub, upsertMyClubReview } from '../services/ClubReviewService';
 import AppModal from '../components/AppModal';
 import { extractErrorMessage } from '../utils/uiError';
@@ -10,6 +10,7 @@ import { getPendingLogoutRedirect } from '../services/AuthService';
 import Link from 'next/link';
 import UserLoadingState from '../components/UserLoadingState';
 import { Calendar, Clock, MapPin, Ticket, ArrowRight, Search, XCircle, CheckCircle2, Star, MessageSquare, X } from 'lucide-react';
+import { normalizeApiError } from '../utils/apiError';
 
 const PAGE_CSS = `
   .bk-layout { display:grid; grid-template-columns:1.4fr 1fr; gap:24px; align-items:start; }
@@ -128,9 +129,9 @@ const PAGE_CSS = `
 export default function MyBookingsPage() {
   const router = useRouter();
   const { authChecked, user } = useValidateAuth();
-  const [bookings, setBookings] = useState<any[]>([]);
+  const [bookings, setBookings] = useState<PlayerBookingDto[]>([]);
   const [activeTab, setActiveTab] = useState<'ACTIVE' | 'PAST' | 'CANCELLED'>('ACTIVE');
-  const [selectedBooking, setSelectedBooking] = useState<any | null>(null);
+  const [selectedBooking, setSelectedBooking] = useState<PlayerBookingDto | null>(null);
   const selectedDetailRef = useRef<HTMLDivElement | null>(null);
   const bookingRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const [loading, setLoading] = useState(true);
@@ -165,6 +166,31 @@ export default function MyBookingsPage() {
 
   const showError = (message: string) => setModalState({ show: true, title: 'Error', message, isWarning: true, cancelText: '', confirmText: 'Aceptar' });
 
+  const toPublicBookingErrorMessage = (error: unknown, fallback: string) => {
+    const normalized = normalizeApiError(error, fallback);
+    switch (normalized.code) {
+      case 'BOOKING_HAS_PAYMENTS':
+        return 'Esta reserva tiene pagos registrados. Contactá al club para cancelarla.';
+      case 'BOOKING_CANCELLATION_NOT_ALLOWED':
+      case 'BOOKING_IN_PAST':
+        return 'Esta reserva ya comenzó o ya pasó, así que no se puede cancelar desde acá.';
+      case 'BOOKING_INVALID_STATUS':
+        return 'Esta reserva ya no está disponible para cancelación.';
+      case 'BOOKING_FORBIDDEN':
+      case 'FORBIDDEN':
+        return 'No tenés permiso para gestionar esta reserva.';
+      case 'BOOKING_NOT_FOUND':
+        return 'No encontramos esa reserva.';
+      case 'AUTH_MISSING':
+      case 'AUTH_INVALID':
+      case 'AUTH_EXPIRED':
+      case 'AUTH_REVOKED':
+        return 'Necesitás iniciar sesión de nuevo para continuar.';
+      default:
+        return extractErrorMessage(normalized, fallback);
+    }
+  };
+
   const showConfirm = (options: {
     title: string; message: string; confirmText?: string; cancelText?: string;
     isWarning?: boolean; onConfirm: () => Promise<void> | void;
@@ -186,9 +212,9 @@ export default function MyBookingsPage() {
     if (!user) return;
     try {
       const data = await getMyBookings(user.id);
-      setBookings(data.sort((a: any, b: any) => new Date(b.startDateTime).getTime() - new Date(a.startDateTime).getTime()));
-    } catch (err: any) {
-      setError(extractErrorMessage(err, 'No pudimos cargar tus reservas. Recargá la página.'));
+      setBookings(data.sort((a, b) => new Date(b.startDateTime).getTime() - new Date(a.startDateTime).getTime()));
+    } catch (err: unknown) {
+      setError(toPublicBookingErrorMessage(err, 'No pudimos cargar tus reservas. Recargá la página.'));
     } finally {
       setLoading(false);
     }
@@ -204,7 +230,7 @@ export default function MyBookingsPage() {
 
   const { activeBookings, pastBookings, cancelledBookings } = useMemo(() => {
     const now = new Date();
-    const active: any[] = [], past: any[] = [], cancelled: any[] = [];
+    const active: PlayerBookingDto[] = [], past: PlayerBookingDto[] = [], cancelled: PlayerBookingDto[] = [];
     bookings.forEach(b => {
       const end = b.endDateTime ? new Date(b.endDateTime) : new Date(b.startDateTime);
       if (b.status === 'CANCELLED') cancelled.push(b);
@@ -252,34 +278,24 @@ export default function MyBookingsPage() {
     date.toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' })
       .replace(/^\w/, c => c.toUpperCase());
 
-  const getDuration = (b: any) => {
-    if (b.endDateTime) {
-      const d = Math.max(0, Math.round((new Date(b.endDateTime).getTime() - new Date(b.startDateTime).getTime()) / 60000));
-      if (d) return d;
-    }
-    return b.activity?.defaultDurationMinutes || 60;
-  };
-
-  const formatCurrency = (v: number) => v.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 });
-
-  const getConsumptionTotal = (b: any) =>
-    Array.isArray(b.items) ? b.items.reduce((t: number, i: any) => t + Number(i.price || 0) * Number(i.quantity || 0), 0) : 0;
+  const getDuration = (b: PlayerBookingDto) =>
+    Math.max(0, Math.round((new Date(b.endDateTime).getTime() - new Date(b.startDateTime).getTime()) / 60000)) || 60;
 
   const resolveReviewAnchorForClub = (clubSlug: string) =>
-    bookings.find((booking: any) => {
-      const bookingClubSlug = String(booking?.court?.club?.slug || '').trim();
+    bookings.find((booking) => {
+      const bookingClubSlug = String(booking?.club?.slug || '').trim();
       const status = String(booking?.status || '').toUpperCase();
-      return bookingClubSlug === clubSlug && status === 'COMPLETED' && Number.isInteger(Number(booking?.id || 0));
+      return bookingClubSlug === clubSlug && status === 'COMPLETED' && String(booking?.id || '').trim().length > 0;
     }) || null;
 
-  const selectedBookingClubSlug = String(selectedBooking?.court?.club?.slug || '').trim();
+  const selectedBookingClubSlug = String(selectedBooking?.club?.slug || '').trim();
   const selectedClubHasCompletedBooking = Boolean(
     selectedBookingClubSlug && resolveReviewAnchorForClub(selectedBookingClubSlug)
   );
 
-  const CANCEL_CONFIRM_MESSAGE = 'Vas a cancelar tu reserva. Si ya realizaste un pago o seña, el club deberá revisar la devolución según sus condiciones.';
+  const CANCEL_CONFIRM_MESSAGE = 'Vas a cancelar tu reserva. Si el club ya registró pagos, la cancelación se resuelve directamente con ellos.';
 
-  const handleCancel = (id: number) => {
+  const handleCancel = (id: string) => {
     if (cancellingBooking) return;
     setModalState({
       show: true,
@@ -310,8 +326,8 @@ export default function MyBookingsPage() {
             message: (
               <span>
                 {CANCEL_CONFIRM_MESSAGE}
-                <span style={{ display: 'block', marginTop: 10, color: 'var(--error-fg)', fontSize: 13, fontWeight: 600 }}>
-                  {extractErrorMessage(e, 'No pudimos cancelar la reserva. Intentá nuevamente.')}
+              <span style={{ display: 'block', marginTop: 10, color: 'var(--error-fg)', fontSize: 13, fontWeight: 600 }}>
+                  {toPublicBookingErrorMessage(e, 'No pudimos cancelar la reserva. Intentá nuevamente.')}
                 </span>
               </span>
             ),
@@ -323,8 +339,8 @@ export default function MyBookingsPage() {
     });
   };
 
-  const handleOpenReviewModal = async (booking: any) => {
-    const clubSlug = String(booking?.court?.club?.slug || '').trim();
+  const handleOpenReviewModal = async (booking: PlayerBookingDto) => {
+    const clubSlug = String(booking?.club?.slug || '').trim();
     const anchor = resolveReviewAnchorForClub(clubSlug);
     const bookingId = Number(anchor?.id || 0);
     if (!clubSlug || !Number.isInteger(bookingId) || bookingId <= 0) {
@@ -338,7 +354,7 @@ export default function MyBookingsPage() {
       const existing = await getMyReviewForClub(clubSlug);
       if (existing) { setReviewRating(Number(existing.rating || 5)); setReviewComment(String(existing.comment || '')); }
       else { setReviewRating(5); setReviewComment(''); }
-    } catch (e: any) {
+    } catch (e: unknown) {
       showError(extractErrorMessage(e, 'No se pudo cargar tu reseña.'));
       setReviewModalOpen(false);
     } finally { setReviewLoading(false); }
@@ -346,7 +362,7 @@ export default function MyBookingsPage() {
 
   const handleSubmitReview = async () => {
     if (!selectedBooking) return;
-    const clubSlug = String(selectedBooking?.court?.club?.slug || '').trim();
+    const clubSlug = String(selectedBooking?.club?.slug || '').trim();
     const bookingId = Number(reviewAnchorBookingId || 0);
     if (!clubSlug || !Number.isInteger(bookingId) || bookingId <= 0) {
       showError('No pudimos identificar una reserva completada para este club.');
@@ -359,7 +375,7 @@ export default function MyBookingsPage() {
       setReviewComment('');
       setReviewAnchorBookingId(null);
       showConfirm({ title: 'Reseña guardada', message: 'Tu reseña fue guardada correctamente.', confirmText: 'Aceptar', cancelText: '', isWarning: false, onConfirm: async () => {} });
-    } catch (e: any) {
+    } catch (e: unknown) {
       showError(extractErrorMessage(e, 'No se pudo guardar la reseña.'));
     } finally { setReviewSaving(false); }
   };
@@ -462,7 +478,7 @@ export default function MyBookingsPage() {
                   return (
                     <div
                       key={booking.id}
-                      ref={el => { bookingRefs.current[booking.id] = el; }}
+                      ref={el => { bookingRefs.current[Number(booking.id)] = el; }}
                       tabIndex={-1}
                       className={`bk-card${isSelected ? ' bk-selected' : ''}`}
                       onClick={() => setSelectedBooking(booking)}
@@ -472,13 +488,15 @@ export default function MyBookingsPage() {
                         <span className="bk-date-month">{date.toLocaleString('es-AR', { month: 'short' }).replace('.', '')}</span>
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div className="bk-card-club">{booking.court?.club?.name || 'Club'}</div>
+                        <div className="bk-card-club">{booking.club?.name || 'Club'}</div>
                         <div className="bk-card-meta">
                           {booking.activity?.name && <span className="bk-card-chip">{booking.activity.name}</span>}
+                          <span className="bk-card-chip">Titular</span>
                           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                             <Clock size={10} /> {formatTime(date)}
                           </span>
                           {booking.court?.name && <span style={{ color: 'var(--text-muted)' }}>{booking.court.name}</span>}
+                          <span style={{ color: 'var(--text-muted)' }}>{booking.paymentSummary.label}</span>
                         </div>
                       </div>
                       <ArrowRight size={16} style={{ color: isSelected ? 'var(--brand)' : 'var(--text-muted)', flexShrink: 0, transition: 'color .2s' }} />
@@ -500,7 +518,7 @@ export default function MyBookingsPage() {
                 <Ticket size={12} /> Ticket de reserva
               </div>
               <div className="bk-detail-court">{selectedBooking.court?.name || 'Cancha'}</div>
-              <div className="bk-detail-activity">{selectedBooking.activity?.name || 'Deporte'} · {selectedBooking.court?.club?.name}</div>
+              <div className="bk-detail-activity">{selectedBooking.activity?.name || 'Deporte'} · {selectedBooking.club?.name}</div>
 
               <hr className="p-public-divider" style={{ margin: '0 0 16px' }} />
 
@@ -522,45 +540,38 @@ export default function MyBookingsPage() {
                 <div className="bk-detail-row">
                   <div className="bk-detail-icon"><MapPin size={16} /></div>
                   <div>
-                    <div className="bk-detail-row-label">Ubicación</div>
-                    <div className="bk-detail-row-val">
-                      {Array.from(new Set([
-                        selectedBooking.court?.club?.addressLine,
-                        selectedBooking.court?.club?.address,
-                        selectedBooking.court?.club?.street,
-                        selectedBooking.court?.club?.city
-                      ].filter(Boolean))).join(', ') || 'Dirección no disponible'}
-                    </div>
+                    <div className="bk-detail-row-label">Club</div>
+                    <div className="bk-detail-row-val">{selectedBooking.club?.name || 'Club'}</div>
+                  </div>
+                </div>
+                <div className="bk-detail-row">
+                  <div className="bk-detail-icon"><Ticket size={16} /></div>
+                  <div>
+                    <div className="bk-detail-row-label">Código</div>
+                    <div className="bk-detail-row-val">{selectedBooking.publicCode}</div>
                   </div>
                 </div>
               </div>
 
-              {/* Total */}
               <div className="bk-detail-total">
-                <div>
-                  <div className="bk-detail-total-label">Total</div>
-                  {activeTab === 'PAST' && getConsumptionTotal(selectedBooking) > 0 && (
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>+ consumos: {formatCurrency(getConsumptionTotal(selectedBooking))}</div>
-                  )}
-                </div>
-                <div className="bk-detail-total-val">{formatCurrency(selectedBooking.price || 0)}</div>
+                <div className="bk-detail-total-label">Estado de pago</div>
+                <div className="bk-detail-total-val" style={{ fontSize: 18 }}>{selectedBooking.paymentSummary.label}</div>
               </div>
 
-              {/* Actions */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {activeTab === 'ACTIVE' && (
+                {activeTab === 'ACTIVE' && selectedBooking.capabilities?.canCancelBooking && (
                   <button className="bk-action-btn bk-action-cancel" onClick={() => handleCancel(selectedBooking.id)}>
                     <XCircle size={15} /> Cancelar reserva
                   </button>
                 )}
-                {(activeTab === 'PAST' || activeTab === 'CANCELLED') && selectedBooking.court?.club?.slug && (
+                {(activeTab === 'PAST' || activeTab === 'CANCELLED') && selectedBooking.club?.slug && (
                   <>
                     {activeTab === 'PAST' && selectedClubHasCompletedBooking && (
                       <button className="bk-action-btn bk-action-review" onClick={() => handleOpenReviewModal(selectedBooking)}>
                         <MessageSquare size={15} /> Dejar / editar reseña del club
                       </button>
                     )}
-                    <Link href={`/club/${selectedBooking.court.club.slug}`} className="bk-action-btn bk-action-rebook">
+                    <Link href={`/club/${selectedBooking.club.slug}`} className="bk-action-btn bk-action-rebook">
                       <CheckCircle2 size={15} /> Volver a reservar
                     </Link>
                   </>
@@ -610,7 +621,7 @@ export default function MyBookingsPage() {
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 22 }}>
               <div>
                 <div className="bk-review-h">Tu reseña del club</div>
-                <div className="bk-review-sub">{selectedBooking?.court?.club?.name || 'Club'} · Una reseña por club, editala cuando quieras.</div>
+                <div className="bk-review-sub">{selectedBooking?.club?.name || 'Club'} · Una reseña por club, editala cuando quieras.</div>
               </div>
               <button
                 type="button"
