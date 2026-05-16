@@ -92,7 +92,7 @@ export type PlayerBookingDto = {
   startDateTime: string;
   endDateTime: string;
   status: 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED';
-  myRole: 'OWNER';
+  myRole: 'OWNER' | 'PARTICIPANT';
   paymentSummary: {
     status: 'NOT_REQUIRED' | 'PENDING' | 'PARTIAL' | 'PAID';
     label: string;
@@ -100,10 +100,38 @@ export type PlayerBookingDto = {
   capabilities: {
     canView: true;
     canCancelBooking: boolean;
-    canLeaveBooking: false;
+    canLeaveBooking: boolean;
     canPay: false;
-    canInvitePlayers: false;
+    canInvitePlayers: boolean;
   };
+};
+
+export type PlayerBookingParticipantDto = {
+  id: string;
+  displayName: string;
+  status: 'INVITED' | 'JOINED' | 'DECLINED' | 'LEFT' | 'REMOVED';
+  role: 'PARTICIPANT';
+  isMe: boolean;
+  invitedEmail?: string | null;
+  canManage: boolean;
+};
+
+export type PlayerBookingInvitationDto = {
+  id: string;
+  bookingId: string;
+  bookingPublicCode: string;
+  club: {
+    name: string;
+    slug: string;
+  };
+  court: {
+    name: string;
+  };
+  startDateTime: string;
+  endDateTime: string;
+  invitedName?: string | null;
+  invitedEmail?: string | null;
+  status: 'INVITED';
 };
 
 export const getBookingById = async (bookingId: number) => {

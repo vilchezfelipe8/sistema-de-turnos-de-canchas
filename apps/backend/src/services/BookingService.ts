@@ -100,7 +100,7 @@ export type PlayerBookingDto = {
     startDateTime: string;
     endDateTime: string;
     status: 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED';
-    myRole: 'OWNER';
+    myRole: 'OWNER' | 'PARTICIPANT';
     paymentSummary: {
         status: 'NOT_REQUIRED' | 'PENDING' | 'PARTIAL' | 'PAID';
         label: string;
@@ -3810,7 +3810,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             where: {
                 OR: [
                     { userId },
-                    { client: { userId } }
+                    { client: { userId } },
+                    { participants: { some: { userId, status: 'JOINED' } } }
                 ]
             },
             include: {
@@ -3821,13 +3822,22 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         id: true,
                         userId: true
                     }
+                },
+                participants: {
+                    select: {
+                        id: true,
+                        userId: true,
+                        status: true
+                    }
                 }
             },
             orderBy: { startDateTime: 'desc' }
         });
 
-        const explicitBookings = bookings.filter((booking) => this.isExplicitBookingOwner(booking, userId));
-        const bookingIds = explicitBookings.map((booking) => Number(booking.id)).filter((id) => Number.isInteger(id) && id > 0);
+        const visibleBookings = bookings.filter((booking) =>
+            this.isExplicitBookingOwner(booking, userId) || this.isBookingParticipantJoined(booking, userId)
+        );
+        const bookingIds = visibleBookings.map((booking) => Number(booking.id)).filter((id) => Number.isInteger(id) && id > 0);
 
         const accounts = bookingIds.length > 0
             ? await prisma.account.findMany({
@@ -3856,18 +3866,22 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
         const now = new Date();
 
-        return explicitBookings.map((booking) => {
+        return visibleBookings.map((booking) => {
             const startDateTime = new Date(booking.startDateTime);
             const paymentData = paymentSummaryByBookingId.get(Number(booking.id)) ?? {
                 totalAmount: 0,
                 paidAmount: 0
             };
+            const isOwner = this.isExplicitBookingOwner(booking, userId);
+            const isParticipant = !isOwner && this.isBookingParticipantJoined(booking, userId);
             const hasRegisteredPayments = paymentData.paidAmount > 0.009;
             const canCancelBooking =
-                this.isExplicitBookingOwner(booking, userId) &&
+                isOwner &&
                 (booking.status === 'PENDING' || booking.status === 'CONFIRMED') &&
                 startDateTime.getTime() > now.getTime() &&
                 !hasRegisteredPayments;
+            const canInvitePlayers = isOwner && this.canInviteParticipantsForPlayerBooking(booking, userId, now);
+            const canLeaveBooking = isParticipant && this.canLeavePlayerBooking(booking, now);
 
             return {
                 id: String(booking.id),
@@ -3886,14 +3900,14 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 startDateTime: new Date(booking.startDateTime).toISOString(),
                 endDateTime: new Date(booking.endDateTime).toISOString(),
                 status: booking.status,
-                myRole: 'OWNER',
+                myRole: isOwner ? 'OWNER' : 'PARTICIPANT',
                 paymentSummary: this.resolvePlayerPaymentSummary(paymentData),
                 capabilities: {
                     canView: true,
                     canCancelBooking,
-                    canLeaveBooking: false,
+                    canLeaveBooking,
                     canPay: false,
-                    canInvitePlayers: false
+                    canInvitePlayers
                 }
             } satisfies PlayerBookingDto;
         });
