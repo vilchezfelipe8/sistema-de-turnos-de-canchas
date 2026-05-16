@@ -220,7 +220,7 @@ describe('ErrorCodes — catálogo', () => {
       'PRODUCT_NOT_FOUND', 'PRODUCT_INACTIVE', 'STOCK_INSUFFICIENT',
       'SERVICE_NOT_FOUND', 'SERVICE_INACTIVE', 'PRICE_RULE_NOT_FOUND',
       // General
-      'INVALID_INPUT', 'UNEXPECTED_ERROR',
+      'INVALID_INPUT', 'CSRF_INVALID', 'UNEXPECTED_ERROR',
     ];
     for (const code of required) {
       assert.ok(
