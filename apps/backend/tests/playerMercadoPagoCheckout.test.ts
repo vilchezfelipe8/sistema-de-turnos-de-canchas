@@ -98,6 +98,7 @@ test('titular crea intento Mercado Pago sin crear Payment ni CashMovement', asyn
   const service = createService();
   let createdAttempt: any = null;
   let updatedAttempt: any = null;
+  let preferenceInput: any = null;
   let preferenceCalled = false;
   let paymentCreated = false;
   let cashMovementCreated = false;
@@ -140,8 +141,9 @@ test('titular crea intento Mercado Pago sin crear Payment ni CashMovement', asyn
         })
     },
     async () => {
-      (service as any).mercadoPagoService.createPreference = async () => {
+      (service as any).mercadoPagoService.createPreference = async (input: any) => {
         preferenceCalled = true;
+        preferenceInput = input;
         return {
           id: 'pref-1',
           init_point: 'https://mp.example.test/init-point'
@@ -158,6 +160,8 @@ test('titular crea intento Mercado Pago sin crear Payment ni CashMovement', asyn
       assert.match(createdAttempt.idempotencyKey, /booking:801:user:77:pending:6000\.00/);
       assert.equal(updatedAttempt.status, 'PENDING');
       assert.equal(preferenceCalled, true);
+      assert.equal(preferenceInput.title, 'Reserva de cancha - Club Norte');
+      assert.equal(preferenceInput.description, 'Cancha 1 · Club Norte');
       assert.equal(paymentCreated, false);
       assert.equal(cashMovementCreated, false);
     }

@@ -4366,7 +4366,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             const ownerFirstName = String(booking.user?.firstName || '').trim();
             const ownerLastName = String(booking.user?.lastName || '').trim();
             const payerEmail = String(booking.user?.email || booking.client?.email || '').trim() || null;
-            const description = `Reserva ${booking.displayCode || `RES-${booking.id}`} - ${booking.court.club.name}`;
+            const preferenceTitle = `Reserva de cancha - ${booking.court.club.name}`;
+            const preferenceDescription = `${booking.court.name} · ${booking.court.club.name}`;
             const publicBase = mercadoPagoConfig.frontendUrl || 'http://localhost:3001';
             const backendBase = mercadoPagoConfig.appBaseUrl || 'http://localhost:3000';
             const buildBookingsReturnUrl = (checkoutStatus: 'success' | 'pending' | 'failure') => {
@@ -4381,8 +4382,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
             const preference = await this.mercadoPagoService.createPreference({
                 accessToken,
-                title: description,
-                description,
+                title: preferenceTitle,
+                description: preferenceDescription,
                 quantity: 1,
                 unitPrice: pending,
                 payer: payerEmail
