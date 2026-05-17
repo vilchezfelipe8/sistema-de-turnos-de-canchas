@@ -18,6 +18,7 @@ Obligatorias en producción:
 
 - `NODE_ENV=production`
 - `DATABASE_URL`
+- `DIRECT_DATABASE_URL` (sin pgbouncer; usada por Prisma Migrate)
 - `JWT_SECRET`
 - `AUTH_REFRESH_PEPPER` (secreto fuerte y único)
 - `FRONTEND_URL` (URL pública frontend)
@@ -29,6 +30,8 @@ Obligatorias en producción:
 
 Recomendadas:
 
+- `REDIS_URL`
+- `READ_DATABASE_URL`
 - `AUTH_COOKIE_SAMESITE=lax`
 - `AUTH_COOKIE_DOMAIN=.tu-dominio.com` solo si frontend/backend comparten dominio padre y necesitás cookie compartida.
 
@@ -44,7 +47,35 @@ Si vas a habilitar checkout online con Mercado Pago por club:
 
 No expongas tokens de clubes en logs, frontend ni variables compartidas.
 
-## 3) CORS y cookies
+## 3) Migraciones y base limpia
+
+No uses `prisma db push` como estrategia de staging/producción.
+
+Secuencia recomendada para una DB nueva:
+
+```bash
+cd apps/backend
+npx prisma validate
+npx prisma migrate deploy
+npx prisma generate
+ALLOW_SEED=true npx prisma db seed
+```
+
+Notas operativas:
+
+- `DATABASE_URL` puede apuntar a pgbouncer para runtime.
+- `DIRECT_DATABASE_URL` debe apuntar a PostgreSQL directo, sin pgbouncer, para migraciones.
+- La validación pre-piloto mostró que las migraciones aplican completas en un entorno Linux/Node 20 limpio.
+- Si en macOS local ves `Schema engine error` genérico con Prisma 5.22, no tomes eso como fallo del historial SQL; verificá `migrate deploy` en un contenedor Linux o en staging/CI, que es el entorno objetivo.
+
+Si una migración falla:
+
+1. frenar deploy;
+2. revisar la migración exacta y el SQL en `_prisma_migrations`;
+3. no compensar con `db push`;
+4. corregir con una nueva migración o reparar una migration no aplicada en entornos compartidos.
+
+## 4) CORS y cookies
 
 - CORS debe permitir solo orígenes reales del frontend.
 - `credentials` está habilitado en backend y frontend.
@@ -57,7 +88,7 @@ No expongas tokens de clubes en logs, frontend ni variables compartidas.
   - `AUTH_COOKIE_SECURE=true`
   - `AUTH_COOKIE_DOMAIN=` vacío para mantener cookie host-only del backend.
 
-## 4) Flujo de despliegue (resumen)
+## 5) Flujo de despliegue (resumen)
 
 ```bash
 docker-compose build
@@ -66,7 +97,7 @@ docker-compose logs -f backend
 docker-compose logs -f frontend
 ```
 
-## 5) Validación post-deploy (auth)
+## 6) Validación post-deploy (auth)
 
 1. Login exitoso desde frontend.
 2. Requests autenticadas responden 200 usando cookies.
@@ -74,9 +105,11 @@ docker-compose logs -f frontend
 4. Logout invalida sesión y limpia estado.
 5. Sesión expirada redirige a login con mensaje entendible (sin stack trace).
 
-## 6) Riesgos comunes
+## 7) Riesgos comunes
 
 - `ALLOWED_ORIGINS` sin configurar: puede bloquear frontend o abrir CORS más de lo deseado.
 - `AUTH_COOKIE_SECURE=false` en producción: sesión vulnerable o rechazada por navegador en escenarios cross-site.
 - `AUTH_REFRESH_PEPPER` débil/default: riesgo criptográfico de refresh tokens.
 - `AUTH_ALLOW_BEARER_LEGACY=true` sin necesidad: superficie extra de ataque.
+- `DIRECT_DATABASE_URL` ausente o pasando por pgbouncer: `migrate deploy` puede fallar o quedar inconsistente.
+- usar `db push` para “destrabar” staging/prod: deriva de esquema fuera del historial versionado.
