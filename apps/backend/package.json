@@ -31,7 +31,7 @@
     "clubs:media:backfill": "ts-node src/scripts/backfillClubMediaDefaults.ts",
     "db:fix-client-contact-uniques": "ts-node src/scripts/dropLegacyClientContactUniqueIndexes.ts",
     "db:setup": "bash setup-db-simple.sh",
-    "db:setup:win": "setup-db.bat",
+    "db:setup:win": "node -e \"console.error('db:setup:win no soportado por ahora; usar WSL o bash setup-db-simple.sh'); process.exit(1)\"",
     "db:reset": "docker rm -f sistema-postgres && npm run db:setup",
     "db:push": "prisma db push --accept-data-loss",
     "db:seed": "prisma db seed",
