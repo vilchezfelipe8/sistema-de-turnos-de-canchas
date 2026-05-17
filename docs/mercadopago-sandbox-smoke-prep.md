@@ -205,3 +205,47 @@ I.3C solo se cierra cuando:
 - `Account BOOKING` baja `pending` correctamente,
 - no se crea `CashMovement POS`,
 - webhook duplicado no duplica `Payment` ni allocations.
+
+## 9. I.3C real — Smoke Mercado Pago con pago real controlado
+
+Estado: **cerrado**.
+
+### Validado
+
+- Pago real aprobado.
+- Webhook real recibido.
+- `OnlinePaymentAttempt` pasó a `APPROVED`.
+- Se creó un único `Payment` con `source=ONLINE`.
+- Se creó una única `PaymentAllocation`.
+- `Account BOOKING` quedó con `paid = total` y `pending = 0`.
+- No se creó `CashMovement POS`.
+- No se requirió caja abierta.
+- Return URL no confirmó el pago.
+- Replay de webhook devolvió `alreadyProcessed: true`.
+- Idempotencia validada.
+
+### Datos no sensibles del smoke
+
+- `bookingId`: `189`
+- `attemptId`: `cmp93etif018811toohsmhah0`
+- provider payment id: `158897986909`
+- amount: `466.67`
+- provider status: `approved`
+- payment source: `ONLINE`
+
+### Conclusión
+
+La implementación de Mercado Pago queda validada end-to-end para un pago real controlado.
+
+Queda fuera de este cierre:
+
+- pagos por participante,
+- refunds online automáticos,
+- Open Match,
+- marketplace/comunidad,
+- conciliación avanzada,
+- panel admin de intentos online,
+- chargebacks/disputas,
+- suscripción SaaS del club,
+- profesores/liquidaciones,
+- proveedores/cuentas por pagar.

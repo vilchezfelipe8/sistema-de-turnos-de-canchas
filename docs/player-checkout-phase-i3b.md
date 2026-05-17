@@ -120,32 +120,56 @@ No forma parte del checkout actual de reservas.
 - por reservas,
 - usando `Account BOOKING` como fuente de verdad.
 
-## Estado actual de I.3C
+## Estado final de I.3C
 
-`I.3C — Smoke Mercado Pago sandbox` queda **parcial / no cerrada**.
+`I.3C` queda **cerrada** por validación en smoke real controlado.
 
-Quedó validado:
+### Sandbox
 
-- OAuth seller sandbox por club,
-- integración persistida por club,
-- creation de preference/initPoint real,
-- `OnlinePaymentAttempt`,
-- ausencia de `Payment` antes del webhook,
-- ausencia de `CashMovement POS`,
-- separación correcta entre return URL y webhook.
+El smoke sandbox quedó **parcial / no cerrado** por limitaciones del sandbox de Mercado Pago:
 
-Quedó bloqueado:
+- checkout y preference se generaban correctamente,
+- no había `Payment` antes del webhook,
+- no había `CashMovement POS`,
+- pero el pago sandbox aprobado no resultó confiable para cerrar la fase.
 
-- completar un pago sandbox aprobado,
-- recibir un webhook aprobado real,
-- validar creación real de `Payment ONLINE`,
-- validar idempotencia real con webhook duplicado.
+### Real
 
-Diagnóstico probable:
+El smoke real quedó **cerrado** con estas validaciones:
 
-- comportamiento o restricción del sandbox de Mercado Pago,
-- buyer sandbox no apto o wallet de prueba con limitaciones,
-- seller y buyer mal mezclados en alguna sesión,
-- o configuración sandbox irregular.
+- pago real aprobado,
+- webhook real recibido,
+- `OnlinePaymentAttempt` en `APPROVED`,
+- un único `Payment` con `source=ONLINE`,
+- una única `PaymentAllocation`,
+- `Account BOOKING` con `paid = total` y `pending = 0`,
+- sin `CashMovement POS`,
+- sin caja abierta obligatoria,
+- return URL sin confirmar el pago,
+- replay de webhook con `alreadyProcessed: true`.
 
-Mientras ese smoke no cierre, los pagos online no deben considerarse listos para piloto.
+Datos no sensibles del smoke real:
+
+- `bookingId`: `189`
+- `attemptId`: `cmp93etif018811toohsmhah0`
+- provider payment id: `158897986909`
+- amount: `466.67`
+- provider status: `approved`
+- payment source: `ONLINE`
+
+Conclusión:
+
+La implementación de Mercado Pago queda validada end-to-end para un pago real controlado.
+
+Sigue fuera de alcance de este cierre:
+
+- pagos por participante,
+- refunds online automáticos,
+- Open Match,
+- marketplace/comunidad,
+- conciliación avanzada,
+- panel admin de intentos online,
+- chargebacks/disputas,
+- suscripción SaaS del club,
+- profesores/liquidaciones,
+- proveedores/cuentas por pagar.
