@@ -284,6 +284,41 @@ export class BookingController {
                     /** Caso C: el admin confirmó crear un cliente nuevo pese a candidatos existentes */
                     duplicateResolution: z.enum(['CREATE_NEW']).optional()
                 }).optional(),
+                ownerSelection: z.discriminatedUnion('kind', [
+                    z.object({
+                        kind: z.literal('clubClient'),
+                        clientId: optionalTrimmedString(1),
+                    }),
+                    z.object({
+                        kind: z.literal('linked'),
+                        userId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                        personKey: optionalTrimmedString(2),
+                        searchQuery: optionalTrimmedString(2),
+                    }),
+                    z.object({
+                        kind: z.literal('systemUser'),
+                        userId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                        personKey: optionalTrimmedString(2),
+                        searchQuery: optionalTrimmedString(2),
+                    }),
+                    z.object({
+                        kind: z.literal('newClient'),
+                        name: optionalTrimmedString(2),
+                        phone: optionalTrimmedString(),
+                        phoneCountryCode: optionalTrimmedString(),
+                        phoneNumberLocal: optionalTrimmedString(),
+                        email: z.preprocess(
+                            (v) => {
+                                if (typeof v !== 'string') return v;
+                                const trimmed = v.trim();
+                                return trimmed.length === 0 ? undefined : trimmed;
+                            },
+                            z.string().email().optional()
+                        ),
+                        dni: optionalTrimmedString(),
+                        duplicateResolution: z.enum(['CREATE_NEW']).optional()
+                    })
+                ]).optional(),
                 applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional())
             });
 
@@ -297,8 +332,22 @@ export class BookingController {
                 return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
 
-            let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, clientId, client, applyDiscount } = parsed.data;
+            let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, clientId, client, ownerSelection, applyDiscount } = parsed.data;
             clientId = clientId ? sanitizeString(clientId, 64) : undefined;
+            if (ownerSelection?.kind === 'clubClient') {
+                clientId = sanitizeString(String(ownerSelection.clientId || ''), 64) || clientId;
+            }
+            if (ownerSelection?.kind === 'newClient') {
+                client = {
+                    name: ownerSelection.name,
+                    phone: ownerSelection.phone,
+                    phoneCountryCode: ownerSelection.phoneCountryCode,
+                    phoneNumberLocal: ownerSelection.phoneNumberLocal,
+                    email: ownerSelection.email,
+                    dni: ownerSelection.dni,
+                    duplicateResolution: ownerSelection.duplicateResolution
+                };
+            }
             const sanitizedClient = client
                 ? {
                     name: client.name ? sanitizeString(client.name, 200) : '',
@@ -399,9 +448,17 @@ export class BookingController {
                     duplicateResolution: sanitizedClient?.duplicateResolution ?? undefined
                 }
                 : undefined;
+            const adminOwnerUserSelection =
+                isTenantOperator && (ownerSelection?.kind === 'linked' || ownerSelection?.kind === 'systemUser')
+                    ? {
+                        userId: Number(ownerSelection.userId),
+                        personKey: sanitizeString(String(ownerSelection.personKey || ''), 255),
+                        searchQuery: sanitizeString(String(ownerSelection.searchQuery || ''), 255)
+                    }
+                    : null;
 
             const hasAdminClientInput = Boolean(clientId || adminClientDraft?.name);
-            const useAdminClientMode = Boolean(isTenantOperator && hasAdminClientInput);
+            const useAdminClientMode = Boolean(isTenantOperator && (hasAdminClientInput || adminOwnerUserSelection));
             const effectiveUserId = useAdminClientMode ? null : tokenUserId;
 
             if (!effectiveUserId && !useAdminClientMode) {
@@ -423,7 +480,8 @@ export class BookingController {
                     applyDiscount: useAdminClientMode && canApplyDiscountOverride ? applyDiscount : false,
                     actorUserId: Number(user?.userId || 0) || null,
                     clientId: clientId || null,
-                    clientDraft: useAdminClientMode && adminClientDraft?.name ? adminClientDraft : null
+                    clientDraft: useAdminClientMode && adminClientDraft?.name ? adminClientDraft : null,
+                    ownerUserSelection: useAdminClientMode ? adminOwnerUserSelection : null
                 }
             );
 
@@ -1336,6 +1394,38 @@ export class BookingController {
                     ),
                     dni: optionalTrimmedString()
                 }).optional(),
+                ownerSelection: z.discriminatedUnion('kind', [
+                    z.object({
+                        kind: z.literal('clubClient'),
+                        clientId: optionalTrimmedString(1),
+                    }),
+                    z.object({
+                        kind: z.literal('linked'),
+                        userId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                        personKey: optionalTrimmedString(2),
+                        searchQuery: optionalTrimmedString(2),
+                    }),
+                    z.object({
+                        kind: z.literal('systemUser'),
+                        userId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                        personKey: optionalTrimmedString(2),
+                        searchQuery: optionalTrimmedString(2),
+                    }),
+                    z.object({
+                        kind: z.literal('newClient'),
+                        name: optionalTrimmedString(2),
+                        phone: optionalTrimmedString(),
+                        email: z.preprocess(
+                            (v) => {
+                                if (typeof v !== 'string') return v;
+                                const trimmed = v.trim();
+                                return trimmed.length === 0 ? undefined : trimmed;
+                            },
+                            z.string().email().optional()
+                        ),
+                        dni: optionalTrimmedString()
+                    })
+                ]).optional(),
                 allowOverlappingSeries: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional(),
                 everyDays: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
                 repetitions: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
@@ -1345,7 +1435,29 @@ export class BookingController {
             if (!parsed.success) {
                 return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
-            const { userId, courtId, activityId, startDateTime, durationMinutes, clientId, client, allowOverlappingSeries, everyDays, repetitions, previewConflictsOnly } = parsed.data;
+            let { userId, courtId, activityId, startDateTime, durationMinutes, clientId, client, ownerSelection, allowOverlappingSeries, everyDays, repetitions, previewConflictsOnly } = parsed.data;
+            if (ownerSelection?.kind === 'clubClient') {
+                clientId = ownerSelection.clientId;
+            }
+            if (ownerSelection?.kind === 'newClient') {
+                client = {
+                    name: ownerSelection.name,
+                    phone: ownerSelection.phone,
+                    email: ownerSelection.email,
+                    dni: ownerSelection.dni
+                };
+            }
+            const ownerUserSelection =
+                ownerSelection?.kind === 'linked' || ownerSelection?.kind === 'systemUser'
+                    ? {
+                        userId: Number(ownerSelection.userId),
+                        personKey: sanitizeString(String(ownerSelection.personKey || ''), 255),
+                        searchQuery: sanitizeString(String(ownerSelection.searchQuery || ''), 255)
+                    }
+                    : null;
+            if (ownerUserSelection) {
+                userId = Number(ownerUserSelection.userId);
+            }
             const user = (req as any).user;
             const membershipRole = String((req as any).membershipRole || '').trim();
             const isTenantOperator = TENANT_OPERATOR_ROLES.has(membershipRole);
@@ -1390,6 +1502,7 @@ export class BookingController {
                     userId: userId ? Number(userId) : null,
                     clientId: safeClientId || null,
                     clientDraft: sanitizedClient?.name ? sanitizedClient : null,
+                    ownerUserSelection,
                     clubId,
                     actorUserId: Number(user?.userId || 0) || null,
                     allowOverlappingSeries: Boolean(allowOverlappingSeries),
@@ -1665,6 +1778,16 @@ export class BookingController {
     // Solo OWNER/ADMIN. Bloqueado si existen pagos o devoluciones.
     changeBookingClient = async (req: Request, res: Response) => {
         try {
+            const optionalTrimmedString = (minLength?: number) =>
+                z.preprocess(
+                    (v) => {
+                        if (typeof v !== 'string') return v;
+                        const trimmed = v.trim();
+                        return trimmed.length === 0 ? undefined : trimmed;
+                    },
+                    minLength ? z.string().min(minLength).optional() : z.string().optional()
+                );
+
             const bookingId = Number(req.params.id);
             if (!Number.isInteger(bookingId) || bookingId <= 0) {
                 return res.status(400).json({ error: 'bookingId inválido' });
@@ -1680,24 +1803,109 @@ export class BookingController {
                 return res.status(401).json({ error: 'No autenticado' });
             }
 
-            const newClientId = String(req.body?.newClientId ?? '').trim();
-            if (!newClientId) {
+            const schema = z.object({
+                newClientId: optionalTrimmedString(),
+                newClient: z.object({
+                    name: optionalTrimmedString(2),
+                    phone: optionalTrimmedString(),
+                    email: z.preprocess(
+                        (v) => {
+                            if (typeof v !== 'string') return v;
+                            const trimmed = v.trim();
+                            return trimmed.length === 0 ? undefined : trimmed;
+                        },
+                        z.string().email().optional()
+                    ),
+                    dni: optionalTrimmedString(),
+                    duplicateResolution: z.enum(['CREATE_NEW']).optional()
+                }).optional(),
+                ownerSelection: z.discriminatedUnion('kind', [
+                    z.object({
+                        kind: z.literal('linked'),
+                        userId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                        personKey: optionalTrimmedString(2),
+                        searchQuery: optionalTrimmedString(2),
+                    }),
+                    z.object({
+                        kind: z.literal('systemUser'),
+                        userId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                        personKey: optionalTrimmedString(2),
+                        searchQuery: optionalTrimmedString(2),
+                    }),
+                    z.object({
+                        kind: z.literal('newClient'),
+                        name: optionalTrimmedString(2),
+                        phone: optionalTrimmedString(),
+                        email: z.preprocess(
+                            (v) => {
+                                if (typeof v !== 'string') return v;
+                                const trimmed = v.trim();
+                                return trimmed.length === 0 ? undefined : trimmed;
+                            },
+                            z.string().email().optional()
+                        ),
+                        dni: optionalTrimmedString(),
+                        duplicateResolution: z.enum(['CREATE_NEW']).optional()
+                    })
+                ]).optional(),
+                reason: optionalTrimmedString(),
+            });
+
+            const parsed = schema.safeParse(req.body ?? {});
+            if (!parsed.success) {
                 return sendControllerAppError(res, {
                     statusCode: 400,
                     code: ErrorCodes.VALIDATION_ERROR,
                     message: 'Revisá los campos marcados.',
-                    fieldErrors: { newClientId: 'Seleccioná un cliente para continuar.' }
+                    fieldErrors: { owner: 'Seleccioná una persona válida para continuar.' }
                 });
             }
 
-            const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() || null : null;
+            let { newClientId, newClient, ownerSelection, reason } = parsed.data;
+            newClientId = String(newClientId || '').trim();
+            if (ownerSelection?.kind === 'newClient') {
+                newClient = {
+                    name: ownerSelection.name,
+                    phone: ownerSelection.phone,
+                    email: ownerSelection.email,
+                    dni: ownerSelection.dni,
+                    duplicateResolution: ownerSelection.duplicateResolution
+                };
+            }
+            const ownerUserSelection =
+                ownerSelection?.kind === 'linked' || ownerSelection?.kind === 'systemUser'
+                    ? {
+                        userId: Number(ownerSelection.userId),
+                        personKey: sanitizeString(String(ownerSelection.personKey || ''), 255),
+                        searchQuery: sanitizeString(String(ownerSelection.searchQuery || ''), 255)
+                    }
+                    : null;
+
+            if (!newClientId && !ownerUserSelection && !String(newClient?.name || '').trim()) {
+                return sendControllerAppError(res, {
+                    statusCode: 400,
+                    code: ErrorCodes.VALIDATION_ERROR,
+                    message: 'Revisá los campos marcados.',
+                    fieldErrors: { owner: 'Seleccioná una persona válida para continuar.' }
+                });
+            }
 
             const updated = await this.bookingService.changeBookingClient({
                 bookingId,
-                newClientId,
+                newClientId: newClientId || null,
+                newClientDraft: newClient
+                    ? {
+                        name: sanitizeString(String(newClient.name || ''), 200),
+                        phone: newClient.phone ? sanitizeString(newClient.phone, 30) : undefined,
+                        email: newClient.email ? sanitizeString(newClient.email, 254) : undefined,
+                        dni: newClient.dni ? sanitizeString(newClient.dni, 20) : undefined,
+                        duplicateResolution: newClient.duplicateResolution ?? undefined
+                    }
+                    : null,
+                ownerUserSelection,
                 actorUserId,
                 clubId,
-                reason
+                reason: reason || null
             });
 
             return res.json({

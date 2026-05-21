@@ -35,6 +35,7 @@ import { ClubPaymentIntegrationService } from './ClubPaymentIntegrationService';
 import { MercadoPagoService } from './MercadoPagoService';
 import { mercadoPagoConfig } from '../utils/mercadoPagoConfig';
 import { PaymentService } from './PaymentService';
+import { PersonService } from './PersonService';
 import { AppError, ErrorCodes, badRequest, conflict, forbidden, notFound } from '../errors';
 
 type CancelBookingReason = 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED';
@@ -64,6 +65,11 @@ type CreateBookingOptions = {
         /** Caso C: el admin confirmó crear un cliente nuevo aunque coincida con un existente */
         duplicateResolution?: 'CREATE_NEW' | null;
     } | null;
+    ownerUserSelection?: {
+        userId: number;
+        personKey: string;
+        searchQuery: string;
+    } | null;
 };
 
 type CreateFixedBookingOptions = {
@@ -76,6 +82,11 @@ type CreateFixedBookingOptions = {
         dni?: string | null;
         /** Caso C: el admin confirmó crear un cliente nuevo aunque coincida con un existente */
         duplicateResolution?: 'CREATE_NEW' | null;
+    } | null;
+    ownerUserSelection?: {
+        userId: number;
+        personKey: string;
+        searchQuery: string;
     } | null;
     clubId?: number;
     actorUserId?: number | null;
@@ -272,6 +283,7 @@ export class BookingService {
     private readonly clubPaymentIntegrationService = new ClubPaymentIntegrationService();
     private readonly mercadoPagoService = new MercadoPagoService();
     private readonly paymentService = new PaymentService();
+    private readonly personService = new PersonService();
     private readonly bookingDomainService = new BookingDomainService();
     private readonly refundService = new RefundService();
     private readonly discountService = new DiscountService();
@@ -315,6 +327,19 @@ export class BookingService {
 
     private invalidInput(message: string, meta?: Record<string, unknown>) {
         return badRequest(message, ErrorCodes.INVALID_INPUT, meta);
+    }
+
+    private parseOwnerUserSelection(selection: CreateBookingOptions['ownerUserSelection'] | CreateFixedBookingOptions['ownerUserSelection']) {
+        const safeUserId = Number(selection?.userId || 0);
+        const personKey = String(selection?.personKey || '').trim();
+        const searchQuery = String(selection?.searchQuery || '').trim();
+        if (!Number.isInteger(safeUserId) || safeUserId <= 0) return null;
+        if (!personKey || searchQuery.length < 2) return null;
+        return {
+            userId: safeUserId,
+            personKey,
+            searchQuery
+        };
     }
 
     private clubConfigInvalid(message: string) {
@@ -2790,11 +2815,16 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         const requestedClientId = String(options?.clientId || '').trim();
         const requestedClientDraftName = String(options?.clientDraft?.name || '').trim();
         const requestedClientDraftPhone = this.normalizePhone(options?.clientDraft?.phone);
+        const requestedOwnerUserSelection = this.parseOwnerUserSelection(options?.ownerUserSelection);
+        let explicitOwnerUser: User | null = null;
         // requestedClientDraftEmail eliminado (Fase 1.2): email ya no es obligatorio en alta rápida admin.
 
         if (userId) {
             user = await this.userRepo.findById(userId);
             if (!user) throw this.clientNotFound('Usuario no encontrado');
+        } else if (requestedOwnerUserSelection) {
+            explicitOwnerUser = await this.userRepo.findById(requestedOwnerUserSelection.userId);
+            if (!explicitOwnerUser) throw this.clientNotFound('Usuario no encontrado');
         } else {
             if (!requestedClientId && requestedClientDraftName.length < 2) {
                 throw this.invalidInput('Debes seleccionar un cliente o cargar un alta rápida válida.');
@@ -2815,12 +2845,13 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             throw forbidden('La actividad no pertenece al club de la cancha', ErrorCodes.ACTIVITY_OUT_OF_CLUB);
         }
         const bookingClubId = (court as any).club.id;
+        const bookingOwnerUser = explicitOwnerUser || user;
         const isProfessorClient = await this.resolveClientProfessorStatus({
             clubId: bookingClubId,
             clientId: options?.clientId ?? null,
-            userId: user?.id ?? null,
-            clientEmail: options?.clientDraft?.email ?? user?.email ?? undefined,
-            clientPhone: options?.clientDraft?.phone ?? user?.phoneNumber ?? undefined,
+            userId: bookingOwnerUser?.id ?? null,
+            clientEmail: options?.clientDraft?.email ?? bookingOwnerUser?.email ?? undefined,
+            clientPhone: options?.clientDraft?.phone ?? bookingOwnerUser?.phoneNumber ?? undefined,
             clientDni: options?.clientDraft?.dni ?? undefined
         });
         const clubConfig = this.resolveClubConfig((court as any)?.club);
@@ -2992,6 +3023,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             let saved;
             try {
                 let resolvedClient: any = null;
+                let resolvedBookingUserId: number | null = bookingOwnerUser?.id ?? null;
 
                 if (requestedClientId) {
                     resolvedClient = await tx.client.findFirst({
@@ -3005,27 +3037,47 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     }
                 }
 
+                if (!resolvedClient && requestedOwnerUserSelection) {
+                    await this.personService.validateSearchSelection(bookingClubId, {
+                        query: requestedOwnerUserSelection.searchQuery,
+                        personKey: requestedOwnerUserSelection.personKey,
+                        userId: requestedOwnerUserSelection.userId,
+                        allowedKinds: ['linked', 'systemUser']
+                    });
+
+                    resolvedClient = await this.personService.ensureClientForUser(
+                        bookingClubId,
+                        requestedOwnerUserSelection.userId,
+                        {
+                            actorUserId: Number(options?.actorUserId || 0) || null,
+                            source: 'ADMIN_SELECTED_USER',
+                            tx,
+                        }
+                    );
+                    resolvedBookingUserId = requestedOwnerUserSelection.userId;
+                }
+
                 if (!resolvedClient) {
                     let dniForClient: string | null = options?.clientDraft?.dni ?? null;
-                    if (!dniForClient && user?.id) {
+                    if (!dniForClient && bookingOwnerUser?.id) {
                         const dbUser = await tx.user.findUnique({
-                            where: { id: Number(user.id) },
+                            where: { id: Number(bookingOwnerUser.id) },
                             select: { dni: true }
                         });
                         dniForClient = dbUser?.dni || null;
                     }
 
                     const draftName = String(options?.clientDraft?.name || '').trim()
-                        || `${user?.firstName || ''} ${user?.lastName || ''}`.trim()
-                        || user?.firstName
+                        || `${bookingOwnerUser?.firstName || ''} ${bookingOwnerUser?.lastName || ''}`.trim()
+                        || bookingOwnerUser?.firstName
                         || 'Cliente';
 
                     resolvedClient = await this.resolveOrCreateClient(tx, {
                         clubId: bookingClubId,
-                        userId: user?.id ?? null,
+                        userId: bookingOwnerUser?.id ?? null,
                         name: draftName,
-                        phone: options?.clientDraft?.phone ?? user?.phoneNumber ?? null,
-                        email: options?.clientDraft?.email ?? user?.email ?? null,
+                        phone: options?.clientDraft?.phone ?? bookingOwnerUser?.phoneNumber ?? null,
+                        email: options?.clientDraft?.email ?? bookingOwnerUser?.email ?? null,
                         dni: dniForClient,
                         forceCreateNew: options?.clientDraft?.duplicateResolution === 'CREATE_NEW'
                     });
@@ -3047,7 +3099,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         listPrice: finalPrice,
                         price: finalPrice,
                         status: initialStatus,
-                        userId: user ? user.id : null,
+                        userId: resolvedBookingUserId,
                         clientId: resolvedClient.id,
                         courtId: courtId,
                         activityId: activityId,
@@ -3121,7 +3173,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 await this.eventService.bookingCreated(bookingClubId, {
                     bookingId: saved.id,
                     clubId: bookingClubId,
-                    userId: user?.id ?? null,
+                    userId: resolvedBookingUserId,
                     courtId,
                     activityId,
                     amount: Number(saved.price || 0)
@@ -3137,10 +3189,10 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
                 const clientName = String(
                     resolvedClient?.name
-                    || user?.firstName
+                    || bookingOwnerUser?.firstName
                     || 'Jugador'
                 );
-                const clientPhone = resolvedClient?.phone || user?.phoneNumber || null;
+                const clientPhone = resolvedClient?.phone || bookingOwnerUser?.phoneNumber || null;
                 const clubPhone = (court as any)?.club?.phone ?? null;
                 const timeZone = clubConfig?.timeZone ?? 'America/Argentina/Buenos_Aires';
                 const adminMemberships = await tx.membership.findMany({
@@ -3194,7 +3246,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
         await this.auditLogService.create({
             clubId: (court as any).club.id,
-            userId: user?.id ?? null,
+            userId: Number(options?.actorUserId || bookingOwnerUser?.id || 0) || null,
             entity: 'Booking',
             entityId: String(created.id),
             action: 'BOOKING_CREATE',
@@ -3591,39 +3643,56 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
     // Bloqueado si la cuenta tiene pagos o devoluciones registrados.
     async changeBookingClient(params: {
         bookingId: number;
-        newClientId: string;
+        newClientId?: string | null;
+        newClientDraft?: {
+            name: string;
+            phone?: string | null;
+            email?: string | null;
+            dni?: string | null;
+            duplicateResolution?: 'CREATE_NEW' | null;
+        } | null;
+        ownerUserSelection?: {
+            userId: number;
+            personKey: string;
+            searchQuery: string;
+        } | null;
         actorUserId: number;
         clubId: number;
         reason?: string | null;
     }) {
-        const { bookingId, newClientId, actorUserId, clubId, reason } = params;
+        const {
+            bookingId,
+            actorUserId,
+            clubId,
+            reason,
+            newClientDraft,
+            ownerUserSelection,
+        } = params;
+        const newClientId = String(params.newClientId || '').trim();
+        const parsedOwnerUserSelection = this.parseOwnerUserSelection(ownerUserSelection);
+        const requestedClientDraftName = String(newClientDraft?.name || '').trim();
+        const requestedClientDraftPhone = this.normalizePhone(newClientDraft?.phone);
+
+        if (!newClientId && !parsedOwnerUserSelection && requestedClientDraftName.length < 2) {
+            throw this.invalidInput('Seleccioná una persona o cargá un nuevo titular válido.');
+        }
+        if (!newClientId && !parsedOwnerUserSelection && !requestedClientDraftPhone) {
+            throw this.invalidInput('El teléfono es obligatorio para cargar un nuevo titular.');
+        }
 
         return prisma.$transaction(async (tx) => {
             // 1. Cargar la reserva y validar que pertenece al club
             const booking = await tx.booking.findFirst({
                 where: { id: bookingId, clubId },
-                select: { id: true, clubId: true, clientId: true, status: true }
+                select: { id: true, clubId: true, clientId: true, userId: true, status: true }
             });
             if (!booking) {
                 throw this.bookingNotFound('Reserva no encontrada o no pertenece al club');
             }
 
             const oldClientId = booking.clientId;
-
-            if (oldClientId === newClientId) {
-                throw badRequest('El nuevo titular es el mismo que el actual', ErrorCodes.INVALID_INPUT);
-            }
             if (!['PENDING', 'CONFIRMED'].includes(String(booking.status || ''))) {
                 throw this.bookingInvalidStatus('No se puede cambiar el titular en el estado actual de la reserva.');
-            }
-
-            // 2. Validar que el nuevo cliente pertenece al mismo club
-            const newClient = await tx.client.findFirst({
-                where: { id: newClientId, clubId },
-                select: { id: true, name: true }
-            });
-            if (!newClient) {
-                throw this.clientNotFound('El cliente seleccionado no existe en este club');
             }
 
             // 3. Bloquear si la cuenta tiene pagos o devoluciones
@@ -3649,13 +3718,73 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 );
             }
 
+            let nextClient: { id: string; name: string; userId?: number | null } | null = null;
+            let nextBookingUserId: number | null = null;
+
+            if (newClientId) {
+                nextClient = await tx.client.findFirst({
+                    where: { id: newClientId, clubId },
+                    select: { id: true, name: true, userId: true }
+                });
+                if (!nextClient) {
+                    throw this.clientNotFound('El cliente seleccionado no existe en este club');
+                }
+            } else if (parsedOwnerUserSelection) {
+                await this.personService.validateSearchSelection(clubId, {
+                    query: parsedOwnerUserSelection.searchQuery,
+                    personKey: parsedOwnerUserSelection.personKey,
+                    userId: parsedOwnerUserSelection.userId,
+                    allowedKinds: ['linked', 'systemUser']
+                });
+
+                const ensuredClient = await this.personService.ensureClientForUser(
+                    clubId,
+                    parsedOwnerUserSelection.userId,
+                    {
+                        actorUserId,
+                        source: 'ADMIN_SELECTED_USER',
+                        tx,
+                    }
+                );
+                nextClient = {
+                    id: String(ensuredClient.id),
+                    name: String(ensuredClient.name || '').trim() || 'Cliente',
+                    userId: Number.isInteger(Number(ensuredClient.userId)) ? Number(ensuredClient.userId) : null
+                };
+                nextBookingUserId = parsedOwnerUserSelection.userId;
+            } else {
+                const resolvedClient = await this.resolveOrCreateClient(tx, {
+                    clubId,
+                    userId: null,
+                    name: requestedClientDraftName,
+                    phone: requestedClientDraftPhone,
+                    email: newClientDraft?.email ?? null,
+                    dni: newClientDraft?.dni ?? null,
+                    forceCreateNew: newClientDraft?.duplicateResolution === 'CREATE_NEW'
+                });
+                nextClient = {
+                    id: String(resolvedClient.id),
+                    name: String(resolvedClient.name || '').trim() || 'Cliente',
+                    userId: Number.isInteger(Number(resolvedClient.userId)) ? Number(resolvedClient.userId) : null
+                };
+            }
+
+            if (!nextClient) {
+                throw this.clientNotFound('No se pudo resolver el nuevo titular');
+            }
+
+            if (oldClientId === nextClient.id && Number(booking.userId || 0) === Number(nextBookingUserId || 0)) {
+                throw badRequest('El nuevo titular es el mismo que el actual', ErrorCodes.INVALID_INPUT);
+            }
+
             // 4. Cambiar el titular
             const updated = await tx.booking.update({
                 where: { id: bookingId },
-                data: { clientId: newClientId },
+                data: { clientId: nextClient.id, userId: nextBookingUserId },
                 select: {
                     id: true,
                     clientId: true,
+                    userId: true,
                     client: { select: { id: true, name: true } }
                 }
             });
@@ -3673,9 +3802,9 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             });
 
             const oldBookingClientRef = `booking-client:${oldClientId}`;
-            const newBookingClientRef = `booking-client:${newClientId}`;
+            const newBookingClientRef = `booking-client:${nextClient.id}`;
             const oldClientRef = `client:${oldClientId}`;
-            const newClientRef = `client:${newClientId}`;
+            const newClientRef = `client:${nextClient.id}`;
 
             const replaceRef = (input: unknown): string => {
                 const raw = String(input || '').trim();
@@ -3715,7 +3844,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         ...participant,
                         ref: nextRef,
                         name: shouldRenameOwner
-                            ? String(newClient.name || (participant as any)?.name || '').trim()
+                            ? String(nextClient.name || (participant as any)?.name || '').trim()
                             : (participant as any)?.name
                     };
                 });
@@ -3742,11 +3871,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             await this.eventService.bookingClientChanged(clubId, {
                 bookingId,
                 oldClientId,
-                newClientId,
+                newClientId: nextClient.id,
                 oldClientRef: oldBookingClientRef,
                 newClientRef: newBookingClientRef,
                 oldClientName: null,
-                newClientName: newClient.name,
+                newClientName: nextClient.name,
                 actorUserId,
                 reason: reason ?? null,
                 source: 'MANUAL'
@@ -3761,7 +3890,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 action: 'BOOKING_CLIENT_CHANGED',
                 payload: {
                     oldClientId,
-                    newClientId,
+                    newClientId: nextClient.id,
+                    newUserId: nextBookingUserId,
                     actorUserId,
                     reason: reason ?? null
                 }
@@ -5926,25 +6056,27 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         startDateTime: Date,
         options?: CreateFixedBookingOptions
     ) {
+        const requestedOwnerUserSelection = this.parseOwnerUserSelection(options?.ownerUserSelection);
         const requestedUserId = Number.isInteger(Number(options?.userId)) && Number(options?.userId) > 0
             ? Number(options?.userId)
             : null;
+        const effectiveRequestedUserId = requestedOwnerUserSelection?.userId ?? requestedUserId;
         const requestedClientId = String(options?.clientId || '').trim();
         const requestedClientDraftName = String(options?.clientDraft?.name || '').trim();
         const requestedClientDraftPhone = this.normalizePhone(options?.clientDraft?.phone);
         // requestedClientDraftEmail eliminado (Fase 1.2): email ya no es obligatorio en alta rápida admin.
 
-        if (!requestedClientId && !requestedUserId && requestedClientDraftName.length < 2) {
+        if (!requestedClientId && !effectiveRequestedUserId && requestedClientDraftName.length < 2) {
             throw this.invalidInput('Debes seleccionar un cliente o cargar un alta rápida válida.');
         }
         // Fase 1.2: email es opcional. Solo phone es obligatorio.
-        if (!requestedClientId && !requestedUserId && !requestedClientDraftPhone) {
+        if (!requestedClientId && !effectiveRequestedUserId && !requestedClientDraftPhone) {
             throw this.invalidInput('El teléfono es obligatorio para el alta rápida de cliente.');
         }
 
         let user: User | null = null;
-        if (requestedUserId) {
-            user = await this.userRepo.findById(requestedUserId);
+        if (effectiveRequestedUserId) {
+            user = await this.userRepo.findById(effectiveRequestedUserId);
             if (!user) throw this.clientNotFound('Usuario no encontrado');
         }
 
@@ -6113,28 +6245,47 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     userId: Number.isInteger(Number(existingClient.userId)) ? Number(existingClient.userId) : null,
                     phone: existingClient.phone ?? null
                 };
-            } else if (!requestedUserId && requestedClientDraftName.length < 2) {
+            } else if (!effectiveRequestedUserId && requestedClientDraftName.length < 2) {
                 throw this.clientNotFound('Cliente no encontrado para el club seleccionado');
             }
         }
 
         if (!resolvedFixedClient) {
-            const draftName = requestedClientDraftName
-                || `${user?.firstName || ''} ${user?.lastName || ''}`.trim()
-                || user?.firstName
-                || 'Cliente';
-            const draftPhone = options?.clientDraft?.phone ?? user?.phoneNumber ?? null;
-            const draftEmail = options?.clientDraft?.email ?? user?.email ?? null;
-            let draftDni = options?.clientDraft?.dni ?? null;
-            if (!draftDni && user?.id) {
-                const dbUser = await prisma.user.findUnique({
-                    where: { id: Number(user.id) },
-                    select: { dni: true }
-                });
-                draftDni = dbUser?.dni || null;
-            }
-
             const resolvedClient = await prisma.$transaction(async (tx) => {
+                if (requestedOwnerUserSelection) {
+                    await this.personService.validateSearchSelection(fixedClubId, {
+                        query: requestedOwnerUserSelection.searchQuery,
+                        personKey: requestedOwnerUserSelection.personKey,
+                        userId: requestedOwnerUserSelection.userId,
+                        allowedKinds: ['linked', 'systemUser']
+                    });
+
+                    return this.personService.ensureClientForUser(
+                        fixedClubId,
+                        requestedOwnerUserSelection.userId,
+                        {
+                            actorUserId: Number(options?.actorUserId || 0) || null,
+                            source: 'ADMIN_SELECTED_USER',
+                            tx,
+                        }
+                    );
+                }
+
+                const draftName = requestedClientDraftName
+                    || `${user?.firstName || ''} ${user?.lastName || ''}`.trim()
+                    || user?.firstName
+                    || 'Cliente';
+                const draftPhone = options?.clientDraft?.phone ?? user?.phoneNumber ?? null;
+                const draftEmail = options?.clientDraft?.email ?? user?.email ?? null;
+                let draftDni = options?.clientDraft?.dni ?? null;
+                if (!draftDni && user?.id) {
+                    const dbUser = await prisma.user.findUnique({
+                        where: { id: Number(user.id) },
+                        select: { dni: true }
+                    });
+                    draftDni = dbUser?.dni || null;
+                }
+
                 return this.resolveOrCreateClient(tx, {
                     clubId: fixedClubId,
                     userId: user?.id ?? null,
@@ -6257,7 +6408,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
                 try {
                     const createdBooking = await this.createBooking(
-                        resolvedFixedClient?.userId ? Number(resolvedFixedClient.userId) : null,
+                        requestedOwnerUserSelection ? null : (resolvedFixedClient?.userId ? Number(resolvedFixedClient.userId) : null),
                         courtId,
                         currentStart,
                         activityId,
@@ -6267,7 +6418,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                             skipAccountCreation: true,
                             skipAdvanceLimit: true,
                             actorUserId: options?.actorUserId ?? null,
-                            clientId: fixedClientId
+                            clientId: requestedOwnerUserSelection ? null : fixedClientId,
+                            ownerUserSelection: requestedOwnerUserSelection || null
                         }
                     );
 

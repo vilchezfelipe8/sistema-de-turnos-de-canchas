@@ -456,12 +456,60 @@ export class PersonService {
     return [this.buildNewClientSuggestion(search)];
   }
 
+  async validateSearchSelection(
+    clubId: number,
+    input: {
+      query: string;
+      personKey: string;
+      userId?: number | null;
+      clientId?: string | null;
+      allowedKinds?: Array<PersonSearchResult['kind']>;
+    }
+  ) {
+    const query = String(input.query || '').trim();
+    const personKey = String(input.personKey || '').trim();
+    const safeUserId = Number(input.userId || 0);
+    const safeClientId = String(input.clientId || '').trim();
+
+    if (query.length < 2) {
+      throw badRequest('La búsqueda de persona es inválida.', ErrorCodes.INVALID_INPUT);
+    }
+    if (!personKey) {
+      throw badRequest('La selección de persona es inválida.', ErrorCodes.INVALID_INPUT);
+    }
+
+    const rows = await this.searchPeople(Number(clubId), query);
+    const matched = rows.find((row) => String(row.personKey || '').trim() === personKey) || null;
+
+    if (!matched) {
+      throw badRequest(
+        'La persona seleccionada ya no está disponible. Volvé a buscar y seleccionarla de nuevo.',
+        ErrorCodes.INVALID_INPUT
+      );
+    }
+
+    if (Array.isArray(input.allowedKinds) && input.allowedKinds.length > 0 && !input.allowedKinds.includes(matched.kind)) {
+      throw badRequest('La persona seleccionada no es válida para este flujo.', ErrorCodes.INVALID_INPUT);
+    }
+
+    if (safeUserId > 0 && Number(matched.userId || 0) !== safeUserId) {
+      throw badRequest('La selección de usuario ya no coincide con la búsqueda actual.', ErrorCodes.INVALID_INPUT);
+    }
+
+    if (safeClientId && String(matched.clientId || '').trim() !== safeClientId) {
+      throw badRequest('La selección de cliente ya no coincide con la búsqueda actual.', ErrorCodes.INVALID_INPUT);
+    }
+
+    return matched;
+  }
+
   async ensureClientForUser(
     clubId: number,
     userId: number,
     options?: {
       actorUserId?: number | null;
       source?: 'ADMIN_SELECTED_USER' | 'SELF_BOOKING' | 'PAYMENT_CLAIM' | 'MANUAL_ADMIN';
+      tx?: Prisma.TransactionClient;
     }
   ) {
     const safeUserId = Number(userId || 0);
@@ -469,7 +517,7 @@ export class PersonService {
       throw badRequest('Usuario inválido para asociar al club.', ErrorCodes.INVALID_INPUT);
     }
 
-    return prisma.$transaction(async (tx) => {
+    const run = async (tx: Prisma.TransactionClient) => {
       const user = await tx.user.findUnique({
         where: { id: safeUserId },
         select: {
@@ -609,6 +657,9 @@ export class PersonService {
       });
 
       return created;
-    });
+    };
+
+    if (options?.tx) return run(options.tx);
+    return prisma.$transaction(run);
   }
 }
