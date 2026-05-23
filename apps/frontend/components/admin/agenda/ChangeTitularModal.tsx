@@ -158,7 +158,7 @@ export default function ChangeTitularModal({
             >
               <p className="text-[13px] font-semibold text-p-text">Cargar nuevo titular</p>
               <p className="mt-0.5 text-[12px] text-p-text-muted">
-                Usar “{search.trim() || 'Nuevo titular'}” y completar teléfono, email o DNI acá mismo.
+                Usar “{search.trim() || 'Nuevo titular'}”, cargar teléfono y, si querés, sumar email o DNI acá mismo.
               </p>
             </button>
           </div>

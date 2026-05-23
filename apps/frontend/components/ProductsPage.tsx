@@ -309,7 +309,7 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
             <button
               type="button"
               onClick={openNew}
-              className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 transition hover:bg-ink-800 sm:w-auto"
+              className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 shadow-p-md transition hover:bg-ink-800 hover:shadow-p-md sm:w-auto"
             >
               <Plus size={14} strokeWidth={2.5} />
               Nuevo producto

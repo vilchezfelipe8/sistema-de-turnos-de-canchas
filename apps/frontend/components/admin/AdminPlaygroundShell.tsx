@@ -217,10 +217,8 @@ export default function AdminPlaygroundShell({
         <header className="relative flex h-16 items-center overflow-visible bg-p-surface border-b border-p-border px-4 lg:px-6" style={{ zIndex: ADMIN_Z_INDEX.shellHeader }}>
           <div className="hidden w-[168px] items-center gap-2 overflow-hidden transition-[width] duration-200 ease-out lg:flex">
             <Link
-              href="https://pique.ar"
-              aria-label="Ir a pique.ar"
-              target="_blank"
-              rel="noopener noreferrer"
+              href="/"
+              aria-label="Ir al inicio"
               className="inline-flex items-center"
             >
               <PiqueLogo
@@ -234,10 +232,8 @@ export default function AdminPlaygroundShell({
 
           <div className="flex items-center gap-2 lg:hidden">
             <Link
-              href="https://pique.ar"
-              aria-label="Ir a pique.ar"
-              target="_blank"
-              rel="noopener noreferrer"
+              href="/"
+              aria-label="Ir al inicio"
               className="inline-flex items-center"
             >
               <PiqueLogo variant={isLight ? 'horizontal' : 'horizontalDark'} className="h-9 w-auto" />
