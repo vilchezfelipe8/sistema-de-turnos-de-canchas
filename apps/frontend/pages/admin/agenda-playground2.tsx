@@ -348,9 +348,30 @@ function resolveHoverParticipantsForBooking(booking: Booking) {
     })
     .filter((participant) => participant.name.trim().length > 0);
 
+  const dedupedParticipants = normalizedParticipants.reduce<typeof normalizedParticipants>((accumulator, participant) => {
+    const participantRefKey = String(participant.ref || '').trim().toLowerCase();
+    const participantNameKey = String(participant.name || '').trim().toLowerCase();
+    const existingIndex = accumulator.findIndex((current) => {
+      const currentRefKey = String(current.ref || '').trim().toLowerCase();
+      const currentNameKey = String(current.name || '').trim().toLowerCase();
+      return (
+        (participantRefKey && currentRefKey && participantRefKey === currentRefKey) ||
+        (!participantRefKey && !currentRefKey && participantNameKey && participantNameKey === currentNameKey)
+      );
+    });
+    if (existingIndex === -1) {
+      accumulator.push(participant);
+      return accumulator;
+    }
+    if (participant.isOwner && !accumulator[existingIndex].isOwner) {
+      accumulator[existingIndex] = participant;
+    }
+    return accumulator;
+  }, []);
+
   const participants =
-    normalizedParticipants.length > 0
-      ? normalizedParticipants
+    dedupedParticipants.length > 0
+      ? dedupedParticipants
       : [{
           id: `owner-${booking.id}`,
           ref: chargeResponsibleRef || '',
@@ -566,6 +587,31 @@ function resolveBookingParticipantsCount(
   return hasOwnerLikeName ? 1 : 0;
 }
 
+function mapScheduleParticipantForHover(rawParticipant: any, ownerFallbackName: string) {
+  const ref = String(
+    rawParticipant?.entityRef ||
+      rawParticipant?.ref ||
+      (rawParticipant?.clientId ? `client:${String(rawParticipant.clientId).trim()}` : '') ||
+      (rawParticipant?.userId ? `user:${Number(rawParticipant.userId)}` : '')
+  ).trim();
+  const role = String(rawParticipant?.role || '').trim().toUpperCase();
+  const name = String(
+    rawParticipant?.displayName ||
+      rawParticipant?.invitedName ||
+      rawParticipant?.name ||
+      rawParticipant?.client?.name ||
+      rawParticipant?.user?.name ||
+      ''
+  ).trim();
+  const isOwner = role === 'ORGANIZER' || Boolean(rawParticipant?.isOwner) || isOwnerLikeParticipantRef(ref);
+
+  return {
+    ref,
+    name: name || (isOwner ? ownerFallbackName : ''),
+    isOwner,
+  };
+}
+
 function resolveHasPendingNotification(
   bookingRaw: any,
   fallbackPending: boolean
@@ -650,6 +696,11 @@ function parseScheduleSlotToBooking(slot: any): Booking | null {
     booking?.hoverPayment && typeof booking.hoverPayment === 'object'
       ? (booking.hoverPayment as Record<string, unknown>)
       : null;
+  const fallbackHoverParticipants = Array.isArray(booking?.participants)
+    ? booking.participants
+        .map((rawParticipant: any) => mapScheduleParticipantForHover(rawParticipant, resolvedTitle))
+        .filter((participant: { ref: string; name: string }) => participant.ref || participant.name)
+    : [];
   const participantsCount = resolveBookingParticipantsCount(booking, hoverPaymentRaw, resolvedTitle);
   const hasPendingNotification = resolveHasPendingNotification(booking, state === 'pending');
   const hoverPaymentStatusRaw = String(hoverPaymentRaw?.status || '').trim().toUpperCase();
@@ -702,7 +753,7 @@ function parseScheduleSlotToBooking(slot: any): Booking | null {
               isOwner: Boolean(rawParticipant?.isOwner),
             }))
             .filter((participant: { ref: string; name: string }) => participant.ref || participant.name)
-        : undefined,
+        : fallbackHoverParticipants,
       payerParticipants: Array.isArray(hoverPaymentRaw?.payerParticipants)
         ? hoverPaymentRaw.payerParticipants
             .map((rawPayer: any) => ({

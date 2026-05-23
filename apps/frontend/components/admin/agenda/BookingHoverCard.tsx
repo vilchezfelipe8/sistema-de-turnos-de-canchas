@@ -1,6 +1,7 @@
 type BookingHoverParticipant = {
   id: string;
   name: string;
+  isOwner?: boolean;
   modeLabel: string;
   status: 'UNPAID' | 'PARTIAL' | 'PAID';
   payable: boolean;
@@ -26,6 +27,40 @@ function formatCompactAmount(amount: number): string {
   if (!Number.isFinite(safeAmount)) return '$0';
   if (safeAmount >= 1000) return `$${Math.round(safeAmount / 1000)}k`;
   return `$${Math.round(safeAmount)}`;
+}
+
+function initialsFromName(name: string): string {
+  const tokens = String(name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (tokens.length === 0) return '?';
+  if (tokens.length === 1) return tokens[0].slice(0, 1).toUpperCase();
+  return `${tokens[0].slice(0, 1)}${tokens[tokens.length - 1].slice(0, 1)}`.toUpperCase();
+}
+
+function HoverPersonRow({
+  name,
+  amount,
+}: {
+  name: string;
+  amount?: number;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <div className="min-w-0 flex items-center gap-2">
+        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#262c42] text-[11px] font-bold text-p-text-muted">
+          {initialsFromName(name)}
+        </span>
+        <p className="truncate text-[12px] font-semibold text-p-text min-w-0">{name}</p>
+      </div>
+      {Number.isFinite(amount) && Number(amount) > 0.009 && (
+        <span className="text-[10px] font-bold text-p-text-muted whitespace-nowrap">
+          {formatCompactAmount(Number(amount || 0))}
+        </span>
+      )}
+    </div>
+  );
 }
 
 function CompactStateIcon({ state }: { state: 'UNPAID' | 'PARTIAL' | 'PAID' }) {
@@ -66,7 +101,10 @@ function CompactStateIcon({ state }: { state: 'UNPAID' | 'PARTIAL' | 'PAID' }) {
 }
 
 export default function BookingHoverCard({ x, y, participants }: BookingHoverCardProps) {
-  const rows = participants;
+  const ownerRow = participants.find((participant) => participant.isOwner) || participants[0] || null;
+  const participantRows = participants.filter((participant) => !participant.isOwner);
+  const visibleParticipantRows = participantRows.slice(0, 2);
+  const hiddenParticipantsCount = Math.max(0, participantRows.length - visibleParticipantRows.length);
 
   const chargeableParticipants = participants.filter((participant) => participant.payable !== false);
   const totalDebt = Number(
@@ -103,24 +141,29 @@ export default function BookingHoverCard({ x, y, participants }: BookingHoverCar
           )}
         </div>
       </div>
-      <div className="px-2 py-1.5">
-        {rows.map((participant) => (
-          <div key={participant.id} className="grid grid-cols-[16px_1fr] items-start gap-2 px-1 py-1.5">
-            <div className="grid h-4 w-4 place-items-center rounded-full bg-p-surface-2 text-[9px] font-bold text-p-text-secondary">
-              {participant.name.charAt(0).toUpperCase()}
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <p className="truncate text-[11px] font-semibold min-w-0">{participant.name}</p>
-                {participant.payable !== false && participant.debtAmount > 0.009 && (
-                  <span className="text-[10px] font-bold text-p-text-muted whitespace-nowrap">
-                    {formatCompactAmount(Number(participant.debtAmount || 0))}
-                  </span>
-                )}
-              </div>
+      <div className="px-3 py-2">
+        {ownerRow && (
+          <div className="min-w-0">
+            <HoverPersonRow
+              name={ownerRow.name}
+              amount={ownerRow.payable !== false ? Number(ownerRow.debtAmount || 0) : 0}
+            />
+          </div>
+        )}
+        {participantRows.length > 0 && (
+          <div className="mt-2">
+            <div className="space-y-1.5">
+              {visibleParticipantRows.map((participant) => (
+                <HoverPersonRow key={participant.id} name={participant.name} />
+              ))}
+              {hiddenParticipantsCount > 0 && (
+                <p className="pl-9 text-[10px] font-medium text-p-text-muted">
+                  +{hiddenParticipantsCount} más
+                </p>
+              )}
             </div>
           </div>
-        ))}
+        )}
       </div>
     </div>
   );

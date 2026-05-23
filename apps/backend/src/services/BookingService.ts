@@ -6292,7 +6292,16 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         court: true,
         activity: true,
         user: true,
-        client: true
+        client: true,
+        participants: {
+            include: {
+                client: true,
+                user: true
+            },
+            orderBy: {
+                createdAt: 'asc'
+            }
+        }
     }
 });
 
@@ -6353,6 +6362,35 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     (participant) => participant.name && isOwnerLikeRef(String(participant.ref || ''))
                 );
                 if (owner?.name) return owner.name;
+            }
+            return '';
+        };
+        const resolveScheduleParticipantName = (participant: any) => {
+            const displayName = String(participant?.displayName || '').trim();
+            if (displayName) return displayName;
+            const invitedName = String(participant?.invitedName || '').trim();
+            if (invitedName) return invitedName;
+            const clientName = String(participant?.client?.name || '').trim();
+            if (clientName) return clientName;
+            const userFirstName = String(participant?.user?.firstName || '').trim();
+            const userLastName = String(participant?.user?.lastName || '').trim();
+            const userName = `${userFirstName} ${userLastName}`.trim();
+            if (userName) return userName;
+            return '';
+        };
+        const resolveScheduleParticipantRef = (participant: any) => {
+            const role = String(participant?.role || '').trim().toUpperCase();
+            const clientId = String(participant?.clientId || participant?.client?.id || '').trim();
+            if (clientId) {
+                return role === 'ORGANIZER'
+                    ? `booking-client:${clientId}`
+                    : `participant-client:${clientId}`;
+            }
+            const userId = Number(participant?.userId || participant?.user?.id || 0);
+            if (Number.isFinite(userId) && userId > 0) {
+                return role === 'ORGANIZER'
+                    ? `booking-user:${userId}`
+                    : `participant-user:${userId}`;
             }
             return '';
         };
@@ -6672,7 +6710,26 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 : [];
             const sidebarParticipants = resolveSidebarParticipantsFromMetadata(billingConfig?.metadataJson);
             const assignmentRefs = resolveParticipantRefsFromAssignments(billingConfig?.assignmentsJson);
+            const realScheduleParticipants = Array.isArray((booking as any).participants)
+                ? (booking as any).participants
+                    .filter((participant: any) => {
+                        const status = String(participant?.status || '').trim().toUpperCase();
+                        return status !== 'REMOVED' && status !== 'LEFT' && status !== 'DECLINED';
+                    })
+                    .map((participant: any) => ({
+                        ref: resolveScheduleParticipantRef(participant),
+                        name: resolveScheduleParticipantName(participant),
+                        isOwner: String(participant?.role || '').trim().toUpperCase() === 'ORGANIZER'
+                    }))
+                    .filter((participant: { ref: string; name: string; isOwner: boolean }) =>
+                        Boolean(participant.ref || participant.name)
+                    )
+                : [];
             const hoverParticipants = (() => {
+                if (realScheduleParticipants.length > 0) {
+                    return realScheduleParticipants;
+                }
+
                 if (sidebarParticipants.length > 0) {
                     return sidebarParticipants.map((participant) => ({
                         ref: String(participant.ref || '').trim(),
