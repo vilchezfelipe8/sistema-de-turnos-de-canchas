@@ -5,7 +5,7 @@ import type { ClubOperationalStatus, FixedBookingSettingsByActivity } from '../e
 import { Court } from '../entities/Court';
 import { Prisma } from '@prisma/client';
 import { normalizeEmail } from '../utils/magicLink';
-import { normalizeIdentityPhone } from '../utils/phone';
+import { getPhoneIdentityVariants, normalizeIdentityPhone } from '../utils/phone';
 import { ErrorCodes, badRequest, conflict, forbidden, notFound } from '../errors';
 import { PersonService, type PersonSearchResult } from './PersonService';
 
@@ -221,184 +221,149 @@ export class ClubService {
     async searchParticipants(clubId: number, query?: string) {
         const search = String(query || '').trim();
         if (!search) return [];
-
-        const prismaAny = prisma as any;
-        const clients: any[] = await prismaAny.client.findMany({
-            where: {
-                clubId,
-                OR: [
-                    { name: { contains: search, mode: 'insensitive' } },
-                    { phone: { contains: search, mode: 'insensitive' } },
-                    { dni: { contains: search, mode: 'insensitive' } },
-                    { email: { contains: search, mode: 'insensitive' } }
-                ]
-            },
-            orderBy: { createdAt: 'desc' },
-            take: 24
-        });
-
-        const clientResults = this.dedupeClientSearchRows(clients).map((client) => ({
-            id: `client-${client.id}`,
-            name: client.name,
-            phone: client.phone || '',
-            email: client.email || '',
-            dni: client.dni || '',
-            isProfessor: Boolean(client.isProfessor),
-            sourceType: 'clubClient' as const,
-            userId: client.userId || null
-        }));
-
-        const linkedUserIds = new Set<number>(
-            clientResults
-                .map((item) => Number(item.userId))
-                .filter((value) => Number.isInteger(value) && value > 0)
-        );
-
-        const users: any[] = await prismaAny.user.findMany({
-            where: {
-                AND: [
-                    {
-                        OR: [
-                            { memberships: { some: { clubId } } },
-                            { clients: { some: { clubId } } }
-                        ]
-                    },
-                    {
-                        OR: [
-                            { firstName: { contains: search, mode: 'insensitive' } },
-                            { lastName: { contains: search, mode: 'insensitive' } },
-                            { email: { contains: search, mode: 'insensitive' } },
-                            { phoneNumber: { contains: search, mode: 'insensitive' } }
-                        ]
-                    }
-                ]
-            },
-            select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true,
-                phoneNumber: true
-            },
-            orderBy: { id: 'desc' },
-            take: 24
-        });
-
-        const systemUserResults = users
-            .filter((user) => !linkedUserIds.has(Number(user.id)))
-            .map((user) => {
-                const fullName = `${String(user.firstName || '').trim()} ${String(user.lastName || '').trim()}`.trim();
-                return {
-                    id: `user-${user.id}`,
-                    name: fullName || String(user.email || '').trim() || `Usuario ${user.id}`,
-                    phone: String(user.phoneNumber || '').trim(),
-                    email: String(user.email || '').trim(),
-                    dni: '',
-                    isProfessor: false,
-                    sourceType: 'systemUser' as const,
-                    userId: user.id
-                };
-            });
-
-        return this.dedupeParticipantSearchRows([...clientResults, ...systemUserResults]).slice(0, 8);
+        const rows = await this.personService.searchPeople(clubId, search);
+        return rows
+            .filter((row) => row.kind !== 'newClientSuggestion')
+            .map((row) => ({
+                id: row.kind === 'systemUser' ? `user-${row.userId}` : `client-${row.clientId}`,
+                name: row.displayName,
+                phone: String(row.phone || '').trim(),
+                email: String(row.email || '').trim(),
+                dni: String(row.dni || '').trim(),
+                isProfessor: false,
+                sourceType: row.kind === 'systemUser' ? ('systemUser' as const) : ('clubClient' as const),
+                userId: row.userId ?? null
+            }))
+            .slice(0, 8);
     }
 
     async searchPeople(clubId: number, query?: string): Promise<PersonSearchResult[]> {
         return this.personService.searchPeople(clubId, query);
     }
 
-    private normalizeSearchEmail(value: string | null | undefined) {
-        const normalized = normalizeEmail(String(value || ''));
-        return normalized || null;
-    }
-
-    private normalizeSearchPhone(value: string | null | undefined) {
-        return normalizeIdentityPhone(value);
-    }
-
-    private normalizeSearchDni(value: string | null | undefined) {
-        const normalized = String(value || '').replace(/\D/g, '');
-        return normalized.length >= 6 ? normalized : null;
-    }
-
-    private buildIdentityTokens(input: {
-        userId?: number | null;
-        email?: string | null;
-        phone?: string | null;
-        dni?: string | null;
-    }) {
-        const tokens: string[] = [];
-        const userId = Number(input.userId || 0);
-        if (Number.isInteger(userId) && userId > 0) tokens.push(`user:${userId}`);
-        const email = this.normalizeSearchEmail(input.email);
-        if (email) tokens.push(`email:${email}`);
-        const phone = this.normalizeSearchPhone(input.phone);
-        if (phone) tokens.push(`phone:${phone}`);
-        const dni = this.normalizeSearchDni(input.dni);
-        if (dni) tokens.push(`dni:${dni}`);
-        return tokens;
-    }
-
     private dedupeClientSearchRows(rows: any[]) {
-        const tokenOwner = new Map<string, string>();
+        const seenIds = new Set<string>();
         const deduped: any[] = [];
 
         for (const row of Array.isArray(rows) ? rows : []) {
             const id = String(row?.id || '').trim();
             if (!id) continue;
-            const tokens = this.buildIdentityTokens({
-                userId: row?.userId ?? null,
-                email: row?.email ?? null,
-                phone: row?.phone ?? null,
-                dni: row?.dni ?? null
-            });
-            if (tokens.length > 0 && tokens.some((token) => tokenOwner.has(token))) {
-                continue;
-            }
+            if (seenIds.has(id)) continue;
+            seenIds.add(id);
             deduped.push(row);
-            for (const token of tokens) tokenOwner.set(token, id);
         }
 
         return deduped;
     }
 
-    private dedupeParticipantSearchRows(rows: Array<{
-        id: string;
-        name: string;
-        phone?: string;
-        email?: string;
-        dni?: string;
-        isProfessor?: boolean;
-        sourceType: 'clubClient' | 'systemUser';
-        userId?: number | null;
-    }>) {
-        const tokenOwner = new Map<string, string>();
-        const deduped: Array<{
-            id: string;
-            name: string;
-            phone?: string;
-            email?: string;
-            dni?: string;
-            isProfessor?: boolean;
-            sourceType: 'clubClient' | 'systemUser';
-            userId?: number | null;
-        }> = [];
+    private buildClientCreateLockKey(input: {
+        clubId: number;
+        phone?: string | null;
+        email?: string | null;
+        dni?: string | null;
+    }) {
+        const fragments = [
+            `club:${Number(input.clubId || 0)}`,
+            normalizeEmail(String(input.email || '')) ? `email:${normalizeEmail(String(input.email || ''))}` : null,
+            String(input.phone || '').trim() ? `phone:${String(input.phone).trim()}` : null,
+            String(input.dni || '').trim() ? `dni:${String(input.dni).trim()}` : null,
+        ].filter(Boolean);
+        return fragments.join('|') || `club:${Number(input.clubId || 0)}|anonymous`;
+    }
 
-        for (const row of rows) {
-            const tokens = this.buildIdentityTokens({
-                userId: row.userId ?? null,
-                email: row.email ?? null,
-                phone: row.phone ?? null,
-                dni: row.dni ?? null
-            });
-            if (tokens.length > 0 && tokens.some((token) => tokenOwner.has(token))) {
-                continue;
-            }
-            deduped.push(row);
-            for (const token of tokens) tokenOwner.set(token, row.id);
+    private async acquireClientCreateLockTx(
+        tx: Prisma.TransactionClient,
+        input: {
+            clubId: number;
+            phone?: string | null;
+            email?: string | null;
+            dni?: string | null;
+        }
+    ) {
+        const key = this.buildClientCreateLockKey(input);
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+    }
+
+    private async findDuplicateClientCandidatesTx(
+        tx: Prisma.TransactionClient,
+        input: {
+            clubId: number;
+            phone?: string | null;
+            email?: string | null;
+            dni?: string | null;
+        }
+    ) {
+        const phone = String(input.phone || '').trim();
+        const email = normalizeEmail(String(input.email || ''));
+        const dni = String(input.dni || '').trim();
+        const phoneVariants = phone ? getPhoneIdentityVariants(phone) : [];
+        const or: Prisma.ClientWhereInput[] = [];
+        if (dni) or.push({ dni });
+        if (email) or.push({ email });
+        if (phoneVariants.length > 0) or.push({ phone: { in: phoneVariants } });
+        if (or.length === 0) {
+            return {
+                matches: [] as Array<{
+                    id: string;
+                    name: string;
+                    phone: string | null;
+                    email: string | null;
+                    dni: string | null;
+                    userId: number | null;
+                    matchedBy: string[];
+                }>,
+                signals: [] as string[]
+            };
         }
 
-        return deduped;
+        const rows = await tx.client.findMany({
+            where: {
+                clubId: Number(input.clubId),
+                OR: or
+            },
+            select: {
+                id: true,
+                name: true,
+                phone: true,
+                email: true,
+                dni: true,
+                userId: true,
+                createdAt: true
+            },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
+        });
+
+        const matches = rows.map((row) => {
+            const matchedBy: string[] = [];
+            if (dni && String(row.dni || '').trim() === dni) matchedBy.push('DNI');
+            if (email && normalizeEmail(String(row.email || '')) === email) matchedBy.push('EMAIL');
+            if (
+                phone &&
+                String(row.phone || '').trim() &&
+                getPhoneIdentityVariants(String(row.phone || '').trim()).some((variant) => phoneVariants.includes(variant))
+            ) {
+                matchedBy.push('PHONE');
+            }
+            return {
+                id: String(row.id),
+                name: String(row.name || '').trim() || 'Cliente sin nombre',
+                phone: row.phone || null,
+                email: row.email || null,
+                dni: row.dni || null,
+                userId: Number(row.userId || 0) > 0 ? Number(row.userId) : null,
+                matchedBy
+            };
+        });
+
+        const signals = Array.from(
+            new Set(
+                matches
+                    .flatMap((row) => row.matchedBy)
+                    .filter((value) => value === 'DNI' || value === 'EMAIL' || value === 'PHONE')
+            )
+        );
+
+        return { matches, signals };
     }
 
     async createClient(clubId: number, input: {
@@ -407,6 +372,7 @@ export class ClubService {
         dni?: string | null;
         email?: string | null;
         isProfessor?: boolean;
+        forceCreateNew?: boolean;
     }) {
         const club = await prisma.club.findUnique({
             where: { id: clubId },
@@ -426,15 +392,52 @@ export class ClubService {
         if (normalizedDni && normalizedDni.length < 6) throw badRequest('DNI inválido', ErrorCodes.INVALID_INPUT);
 
         try {
-            return await prisma.client.create({
-                data: {
+            return await prisma.$transaction(async (tx) => {
+                await this.acquireClientCreateLockTx(tx, {
                     clubId,
-                    name: normalizedName,
                     phone: normalizedPhone,
-                    dni: normalizedDni || null,
-                    email: normalizedEmail || null,
-                    isProfessor: Boolean(input.isProfessor)
+                    email: normalizedEmail,
+                    dni: normalizedDni
+                });
+
+                const duplicates = await this.findDuplicateClientCandidatesTx(tx, {
+                    clubId,
+                    phone: normalizedPhone,
+                    email: normalizedEmail,
+                    dni: normalizedDni
+                });
+
+                if (duplicates.matches.length > 0 && !input.forceCreateNew) {
+                    throw conflict(
+                        'Ya existen clientes con datos similares. Revisá antes de crear uno nuevo.',
+                        ErrorCodes.CLIENT_POSSIBLE_DUPLICATE,
+                        {
+                            primaryClientId: duplicates.matches[0]?.id || null,
+                            candidateClientIds: duplicates.matches.map((row) => row.id),
+                            candidates: duplicates.matches.map((row) => ({
+                                id: row.id,
+                                name: row.name,
+                                phone: row.phone,
+                                email: row.email,
+                                dni: row.dni,
+                                userId: row.userId
+                            })),
+                            signals: duplicates.signals,
+                            reasonType: duplicates.signals.length === 1 ? duplicates.signals[0] : 'MULTI_SIGNAL_CONFLICT'
+                        }
+                    );
                 }
+
+                return tx.client.create({
+                    data: {
+                        clubId,
+                        name: normalizedName,
+                        phone: normalizedPhone,
+                        dni: normalizedDni || null,
+                        email: normalizedEmail || null,
+                        isProfessor: Boolean(input.isProfessor)
+                    }
+                });
             });
         } catch (error: any) {
             if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {

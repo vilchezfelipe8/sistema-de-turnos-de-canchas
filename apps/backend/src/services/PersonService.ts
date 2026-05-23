@@ -79,45 +79,16 @@ export class PersonService {
     return Array.from(new Set(tokens));
   }
 
-  private buildStrongOverlapTokens(client: PersonClientRow, user: PersonUserRow) {
-    const overlap = new Set<string>();
-    const clientTokens = this.buildIdentityTokens({
-      userId: client.userId,
-      email: client.email,
-      phone: client.phone,
-      dni: client.dni
-    });
-    const userTokens = new Set(
-      this.buildIdentityTokens({
-        userId: user.id,
-        email: user.email,
-        phone: user.phoneNumber,
-        dni: user.dni
-      })
-    );
-    for (const token of clientTokens) {
-      if (token.startsWith('user:')) continue;
-      if (userTokens.has(token)) overlap.add(token);
-    }
-    return Array.from(overlap);
-  }
-
   private dedupeClientRows(rows: PersonClientRow[]) {
-    const tokenOwner = new Map<string, string>();
+    const seenIds = new Set<string>();
     const deduped: PersonClientRow[] = [];
 
     for (const row of Array.isArray(rows) ? rows : []) {
       const id = String(row?.id || '').trim();
       if (!id) continue;
-      const tokens = this.buildIdentityTokens({
-        userId: row.userId,
-        email: row.email,
-        phone: row.phone,
-        dni: row.dni
-      });
-      if (tokens.length > 0 && tokens.some((token) => tokenOwner.has(token))) continue;
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
       deduped.push(row);
-      for (const token of tokens) tokenOwner.set(token, id);
     }
 
     return deduped;
@@ -144,39 +115,9 @@ export class PersonService {
   }
 
   private collapsePeople(rows: PersonSearchResult[]) {
-    const tokenOwner = new Map<string, string>();
     const resultByKey = new Map<string, PersonSearchResult>();
-    const score = (row: PersonSearchResult) => {
-      if (row.kind === 'linked') return 4;
-      if (row.kind === 'clubClient') return 3;
-      if (row.kind === 'systemUser') return 2;
-      return 1;
-    };
-
     for (const row of rows) {
-      const tokens = this.buildIdentityTokens({
-        userId: row.userId,
-        email: row.email,
-        phone: row.phone,
-        dni: row.dni
-      });
-
-      const conflictingOwnerKey = tokens.find((token) => tokenOwner.has(token))
-        ? tokenOwner.get(tokens.find((token) => tokenOwner.has(token)) as string) || null
-        : null;
-
-      if (!conflictingOwnerKey) {
-        resultByKey.set(row.personKey, row);
-        for (const token of tokens) tokenOwner.set(token, row.personKey);
-        continue;
-      }
-
-      const existing = resultByKey.get(conflictingOwnerKey);
-      if (!existing) continue;
-      if (score(row) > score(existing)) {
-        resultByKey.set(conflictingOwnerKey, row);
-        for (const token of tokens) tokenOwner.set(token, conflictingOwnerKey);
-      }
+      if (!resultByKey.has(row.personKey)) resultByKey.set(row.personKey, row);
     }
 
     return Array.from(resultByKey.values());
@@ -371,6 +312,27 @@ export class PersonService {
         })
       : [];
 
+    const explicitlyLinkedUserIds = Array.from(
+      new Set(
+        dedupedClients
+          .map((client) => Number(client.userId || 0))
+          .filter((value) => Number.isInteger(value) && value > 0)
+      )
+    );
+    const linkedUsersById = explicitlyLinkedUserIds.length > 0
+      ? await prisma.user.findMany({
+          where: { id: { in: explicitlyLinkedUserIds } },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phoneNumber: true,
+            dni: true
+          }
+        })
+      : [];
+
     const userMap = new Map<number, PersonUserRow>();
     for (const user of relatedUsers) {
       userMap.set(Number(user.id), {
@@ -388,33 +350,30 @@ export class PersonService {
         matchedByExactIdentity: true
       });
     }
+    for (const user of linkedUsersById) {
+      const id = Number(user.id);
+      const previous = userMap.get(id);
+      userMap.set(id, {
+        ...user,
+        relatedToClub: previous?.relatedToClub ?? true,
+        matchedByExactIdentity: previous?.matchedByExactIdentity ?? false
+      });
+    }
     const users = Array.from(userMap.values());
 
     const usedUserIds = new Set<number>();
     const personRows: PersonSearchResult[] = [];
 
     for (const client of dedupedClients) {
-      const directlyLinkedUser = Number(client.userId || 0) > 0
-        ? users.find((user) => Number(user.id) === Number(client.userId))
+      const linkedUser = Number(client.userId || 0) > 0
+        ? users.find((user) => Number(user.id) === Number(client.userId)) || null
         : null;
 
-      const relatedStrongMatch = directlyLinkedUser
-        ? directlyLinkedUser
-        : users.find((user) => {
-            if (!user.relatedToClub) return false;
-            return this.buildStrongOverlapTokens(client, user).length > 0;
-          }) || null;
+      if (linkedUser) usedUserIds.add(Number(linkedUser.id));
 
-      if (relatedStrongMatch) usedUserIds.add(Number(relatedStrongMatch.id));
-
-      const linked = Boolean(directlyLinkedUser || relatedStrongMatch);
-      const linkedUser = directlyLinkedUser || relatedStrongMatch;
+      const linked = Boolean(linkedUser);
       const badges = linked ? ['Cliente del club', 'Usuario Pique'] : ['Cliente del club'];
-      const sourceReason = directlyLinkedUser
-        ? 'Cliente vinculado a usuario'
-        : relatedStrongMatch
-          ? 'Cliente y usuario relacionados en el club'
-          : 'Cliente del club';
+      const sourceReason = linkedUser ? 'Cliente vinculado a usuario' : 'Cliente del club';
 
       personRows.push({
         personKey: linkedUser
@@ -579,6 +538,31 @@ export class PersonService {
       });
 
       if (strongMatches.canonical) {
+        if (strongMatches.matches.length > 1) {
+          throw conflict(
+            'Se encontraron varios clientes del club con los mismos datos. Elegí el cliente correcto antes de vincular este usuario.',
+            ErrorCodes.CLIENT_POSSIBLE_DUPLICATE,
+            {
+              userId: safeUserId,
+              primaryClientId: String(strongMatches.canonical.id),
+              candidateClientIds: strongMatches.matches.map((match) => String(match.id)),
+              candidates: strongMatches.matches.map((match) => ({
+                id: String(match.id),
+                name: String(match.name || '').trim() || 'Cliente sin nombre',
+                phone: match.phone || null,
+                email: match.email || null,
+                dni: match.dni || null,
+                userId: Number(match.userId || 0) > 0 ? Number(match.userId) : null
+              })),
+              signals: {
+                matchedBy: Array.isArray((strongMatches.canonical as any).matchedBy)
+                  ? (strongMatches.canonical as any).matchedBy
+                  : []
+              }
+            }
+          );
+        }
+
         const canonicalUserId = Number((strongMatches.canonical as any).userId || 0);
         if (canonicalUserId > 0 && canonicalUserId !== safeUserId) {
           throw conflict(

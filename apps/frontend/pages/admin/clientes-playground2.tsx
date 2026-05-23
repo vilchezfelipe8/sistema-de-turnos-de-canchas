@@ -16,6 +16,9 @@ import {
 import AdminPlaygroundShell from '../../components/admin/AdminPlaygroundShell';
 import AdminAppModal from '../../components/admin/ui/AdminAppModal';
 import AdminDuplicateIncidents from '../../components/admin/AdminDuplicateIncidents';
+import DuplicateClientDecisionModal, {
+  type DuplicateClientDecisionCandidate,
+} from '../../components/admin/agenda/DuplicateClientDecisionModal';
 import ClientsTable from '../../modules/clientes/components/ClientsTable';
 import { AdminDrawer, AdminDrawerSection, AdminFeedbackBanner, AdminFilterToolbar, AdminInlineError, AdminSegmentedControl } from '../../components/admin/ui';
 import NotFound from '../../components/NotFound';
@@ -23,9 +26,9 @@ import RouteTransitionScreen from '../../components/RouteTransitionScreen';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
 import { getPendingLogoutRedirect } from '../../services/AuthService';
 import { ClientService } from '../../services/ClientService';
-import { ClubAdminService } from '../../services/ClubAdminService';
+import { ClubAdminService, type PersonSearchResult } from '../../services/ClubAdminService';
 import { formatDateTime24 } from '../../utils/dateTime';
-import { getApiErrorMeta, getApiFieldErrors } from '../../utils/apiError';
+import { getApiErrorMeta, getApiFieldErrors, normalizeApiError } from '../../utils/apiError';
 import { showAdminToast } from '../../utils/adminToast';
 import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser } from '../../utils/session';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
@@ -44,6 +47,14 @@ import {
 
 type ClientsView = 'directory' | 'debt' | 'history' | 'incidents';
 type ClientActionSidebarView = 'none' | 'client_create' | 'client_edit' | 'client_profile' | 'client_delete';
+type ClientSearchRow = {
+  id: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  dni?: string;
+  isProfessor?: boolean;
+};
 
 
 const EPSILON = 0.009;
@@ -61,6 +72,7 @@ const normalizeClientFormError = (error: unknown) => {
 
 const isExpectedClientFormError = (message: string) =>
   /ya existe un cliente/i.test(message) ||
+  /datos similares/i.test(message) ||
   /obligatorio|inv[aá]lido|ingresa|dni/i.test(message);
 
 const resolveClientIdentityError = (error: unknown, fallback: string) => {
@@ -79,6 +91,23 @@ const resolveClientIdentityError = (error: unknown, fallback: string) => {
     return `${base} Usuario vinculado actual: #${linkedUserId}.`;
   }
   return base;
+};
+
+const parseDuplicateClientCandidates = (error: unknown): DuplicateClientDecisionCandidate[] => {
+  const meta = getApiErrorMeta(error);
+  const rawCandidates = Array.isArray(meta?.candidates) ? meta?.candidates : [];
+  return rawCandidates.reduce<DuplicateClientDecisionCandidate[]>((acc, candidate) => {
+    const row = candidate && typeof candidate === 'object' ? (candidate as Record<string, unknown>) : null;
+    const id = String(row?.id || '').trim();
+    if (!id) return acc;
+    acc.push({
+      id,
+      name: String(row?.name || '').trim() || 'Cliente sin nombre',
+      phone: String(row?.phone || '').trim() || undefined,
+      email: String(row?.email || '').trim() || undefined,
+    });
+    return acc;
+  }, []);
 };
 
 const formatDate = (dateInput: any) => {
@@ -209,20 +238,24 @@ export default function AdminClientesPlayground2Page() {
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkSearchTerm, setLinkSearchTerm] = useState('');
-  const [linkSearchResults, setLinkSearchResults] = useState<any[]>([]);
+  const [linkSearchResults, setLinkSearchResults] = useState<PersonSearchResult[]>([]);
   const [linkSearchLoading, setLinkSearchLoading] = useState(false);
-  const [linkSelectedUser, setLinkSelectedUser] = useState<any | null>(null);
+  const [linkSelectedUser, setLinkSelectedUser] = useState<PersonSearchResult | null>(null);
   const [linkError, setLinkError] = useState('');
   const [unlinkConfirmOpen, setUnlinkConfirmOpen] = useState(false);
   const [unlinkBusy, setUnlinkBusy] = useState(false);
   const [mergeModalOpen, setMergeModalOpen] = useState(false);
   const [mergeBusy, setMergeBusy] = useState(false);
   const [mergeSearchTerm, setMergeSearchTerm] = useState('');
-  const [mergeSearchResults, setMergeSearchResults] = useState<any[]>([]);
+  const [mergeSearchResults, setMergeSearchResults] = useState<ClientSearchRow[]>([]);
   const [mergeSearchLoading, setMergeSearchLoading] = useState(false);
-  const [mergeSelectedTarget, setMergeSelectedTarget] = useState<any | null>(null);
+  const [mergeSelectedTarget, setMergeSelectedTarget] = useState<ClientSearchRow | null>(null);
   const [mergeNotes, setMergeNotes] = useState('');
   const [mergeError, setMergeError] = useState('');
+  const [clientDuplicateModalOpen, setClientDuplicateModalOpen] = useState(false);
+  const [clientDuplicateCandidates, setClientDuplicateCandidates] = useState<DuplicateClientDecisionCandidate[]>([]);
+  const [clientDuplicateSelectedId, setClientDuplicateSelectedId] = useState('');
+  const [clientDuplicateError, setClientDuplicateError] = useState('');
 
   const [selectedClientDiscountAssignments, setSelectedClientDiscountAssignments] = useState<any[]>([]);
   const [loadingDiscountAssignments, setLoadingDiscountAssignments] = useState(false);
@@ -277,6 +310,13 @@ export default function AdminClientesPlayground2Page() {
     setMergeModalOpen(true);
   }, [resetMergeModal]);
 
+  const resetClientDuplicateModal = useCallback(() => {
+    setClientDuplicateModalOpen(false);
+    setClientDuplicateCandidates([]);
+    setClientDuplicateSelectedId('');
+    setClientDuplicateError('');
+  }, []);
+
   useEffect(() => {
     if (!authChecked || user) return;
     if (getPendingLogoutRedirect()) return;
@@ -299,15 +339,18 @@ export default function AdminClientesPlayground2Page() {
     let cancelled = false;
     setLinkSearchLoading(true);
     const timeout = window.setTimeout(() => {
-      ClientService.searchByClubSlug(slug, query)
+      ClubAdminService.searchPeople(slug, query)
         .then((rows) => {
           if (cancelled) return;
-          const systemUsers = (Array.isArray(rows) ? rows : []).filter(
-            (row: any) => row?.sourceType === 'systemUser' && Number(row?.userId || 0) > 0
+          const users = (Array.isArray(rows) ? rows : []).filter(
+            (row: PersonSearchResult) =>
+              Number(row?.userId || 0) > 0 &&
+              row?.kind !== 'clubClient' &&
+              row?.kind !== 'newClientSuggestion'
           );
-          setLinkSearchResults(systemUsers);
+          setLinkSearchResults(users);
           setLinkSelectedUser((prev) =>
-            prev && systemUsers.some((row: any) => Number(row.userId) === Number(prev.userId)) ? prev : null
+            prev && users.some((row: PersonSearchResult) => Number(row.userId) === Number(prev.userId)) ? prev : null
           );
         })
         .catch((error) => {
@@ -342,16 +385,16 @@ export default function AdminClientesPlayground2Page() {
     let cancelled = false;
     setMergeSearchLoading(true);
     const timeout = window.setTimeout(() => {
-      ClientService.searchByClubSlug(slug, query)
+      ClubAdminService.getClients(slug, query)
         .then((rows) => {
           if (cancelled) return;
           const candidates = (Array.isArray(rows) ? rows : []).filter(
-            (row: any) =>
-              row?.sourceType === 'clubClient' && String(row?.id || '') !== `client-${String(selectedClientId)}`
+            (row: ClientSearchRow) =>
+              String(row?.id || '') !== String(selectedClientId)
           );
           setMergeSearchResults(candidates);
           setMergeSelectedTarget((prev) =>
-            prev && candidates.some((row: any) => String(row.id) === String(prev.id)) ? prev : null
+            prev && candidates.some((row: ClientSearchRow) => String(row.id) === String(prev.id)) ? prev : null
           );
         })
         .catch((error) => {
@@ -469,6 +512,7 @@ export default function AdminClientesPlayground2Page() {
   const openCreateClient = () => {
     setErrorMessage('');
     setClientFieldErrors({});
+    resetClientDuplicateModal();
     setEditingClientId('');
     setClientForm({
       name: '',
@@ -484,6 +528,7 @@ export default function AdminClientesPlayground2Page() {
   const openEditClient = (client: any) => {
     setErrorMessage('');
     setClientFieldErrors({});
+    resetClientDuplicateModal();
     const splitPhone = splitCanonicalPhone(String(client?.phone || ''), clubPhoneCountryIso2);
     setEditingClientId(String(client?.id || ''));
     setClientForm({
@@ -507,7 +552,7 @@ export default function AdminClientesPlayground2Page() {
     setSidebarView('client_delete');
   };
 
-  const submitClient = async () => {
+  const submitClient = async (options?: { forceCreateNew?: boolean }) => {
     const slug = resolveClubSlug();
     if (!slug) {
       setErrorMessage('No se pudo resolver el club activo.');
@@ -547,6 +592,7 @@ export default function AdminClientesPlayground2Page() {
       setSubmittingClient(true);
       setErrorMessage('');
       setClientFieldErrors({});
+      setClientDuplicateError('');
       const payload = {
         name,
         phone: canonicalPhone || undefined,
@@ -555,6 +601,7 @@ export default function AdminClientesPlayground2Page() {
         dni: dni || undefined,
         email: email || undefined,
         isProfessor: Boolean(clientForm.isProfessor),
+        ...(options?.forceCreateNew ? { forceCreateNew: true } : {}),
       };
 
       if (editingClientId) {
@@ -565,6 +612,7 @@ export default function AdminClientesPlayground2Page() {
         setSuccessMessage('Cliente creado correctamente.');
       }
 
+      resetClientDuplicateModal();
       setSidebarView('none');
       const updated = await loadClients();
       if (editingClientId) {
@@ -572,11 +620,24 @@ export default function AdminClientesPlayground2Page() {
         if (found) setSelectedClientId(String(found.id));
       }
     } catch (error: any) {
+      const normalized = normalizeApiError(error);
       const apiFieldErrors = getApiFieldErrors(error);
       const apiMeta = getApiErrorMeta(error);
       const message = normalizeClientFormError(error);
       if (!isExpectedClientFormError(message)) {
         reportUiError({ area: 'ClientesPlayground', action: 'submitClient' }, error);
+      }
+      const rawCode = String(normalized.code || '').trim().toUpperCase();
+      const hasDuplicateCandidates = Array.isArray(apiMeta?.candidateClientIds) && apiMeta.candidateClientIds.length > 0;
+      if (!editingClientId && (rawCode === 'CLIENT_POSSIBLE_DUPLICATE' || hasDuplicateCandidates)) {
+        const candidates = parseDuplicateClientCandidates(error);
+        const meta = getApiErrorMeta(error);
+        const suggestedId = String(meta?.primaryClientId || candidates[0]?.id || '').trim();
+        setClientDuplicateCandidates(candidates);
+        setClientDuplicateSelectedId(suggestedId);
+        setClientDuplicateError('');
+        setClientDuplicateModalOpen(true);
+        return;
       }
       if (Object.keys(apiFieldErrors).length > 0) {
         setClientFieldErrors(apiFieldErrors);
@@ -608,6 +669,24 @@ export default function AdminClientesPlayground2Page() {
     } finally {
       setDeletingClient(false);
     }
+  };
+
+  const applyExistingDuplicateClient = async () => {
+    const targetClientId = String(clientDuplicateSelectedId || '').trim();
+    if (!targetClientId) {
+      setClientDuplicateError('Seleccioná un cliente existente para continuar.');
+      return;
+    }
+
+    resetClientDuplicateModal();
+    setSidebarView('client_profile');
+    setSelectedClientId(targetClientId);
+    setSuccessMessage('Se seleccionó el cliente existente para continuar.');
+  };
+
+  const forceCreateDuplicateClient = async () => {
+    setClientDuplicateError('');
+    await submitClient({ forceCreateNew: true });
   };
 
   const submitLinkUser = async () => {
@@ -696,8 +775,9 @@ export default function AdminClientesPlayground2Page() {
     if (deletingClient || submittingClient) return;
     setErrorMessage('');
     setSelectedClientId('');
+    resetClientDuplicateModal();
     setSidebarView('none');
-  }, [deletingClient, submittingClient]);
+  }, [deletingClient, resetClientDuplicateModal, submittingClient]);
 
 
   useEffect(() => {
@@ -1664,27 +1744,45 @@ export default function AdminClientesPlayground2Page() {
             <div className="max-h-64 space-y-2 overflow-auto">
               {linkSearchLoading ? <p className="text-[12px] text-p-text-muted">Buscando usuarios...</p> : null}
               {!linkSearchLoading && linkSearchTerm.trim().length >= 2 && linkSearchResults.length === 0 ? (
-                <p className="text-[12px] text-p-text-muted">No se encontraron usuarios del club para vincular.</p>
+                <p className="text-[12px] text-p-text-muted">No se encontraron usuarios permitidos para vincular con esa búsqueda.</p>
               ) : null}
-              {linkSearchResults.map((row: any) => {
+              {linkSearchResults.map((row) => {
                 const selected = Number(linkSelectedUser?.userId || 0) === Number(row?.userId || 0);
                 return (
                   <button
-                    key={String(row?.id || row?.userId)}
+                    key={String(row?.personKey || row?.userId)}
                     type="button"
                     onClick={() => setLinkSelectedUser(row)}
                     className={`w-full rounded-xl border p-3 text-left text-[13px] transition ${
                       selected ? 'border-p-accent bg-p-positive-bg' : 'border-p-border bg-p-surface-2 hover:bg-p-surface'
                     }`}
                   >
-                    <p className="font-semibold text-p-text">{String(row?.name || `Usuario ${row?.userId || ''}`)}</p>
+                    <p className="font-semibold text-p-text">{String(row?.displayName || `Usuario ${row?.userId || ''}`)}</p>
                     <p className="mt-0.5 text-p-text-muted">{String(row?.email || row?.phone || '-')}</p>
+                    {Array.isArray(row?.badges) && row.badges.length > 0 ? (
+                      <p className="mt-1 text-[11px] text-p-text-muted">{row.badges.join(' · ')}</p>
+                    ) : null}
                   </button>
                 );
               })}
             </div>
           </div>
         }
+      />
+      <DuplicateClientDecisionModal
+        open={clientDuplicateModalOpen}
+        candidates={clientDuplicateCandidates}
+        selectedClientId={clientDuplicateSelectedId}
+        loading={submittingClient}
+        error={clientDuplicateError}
+        onSelectClient={setClientDuplicateSelectedId}
+        onClose={resetClientDuplicateModal}
+        onUseExisting={() => {
+          void applyExistingDuplicateClient();
+        }}
+        onCreateNew={() => {
+          void forceCreateDuplicateClient();
+        }}
       />
       <AdminAppModal
         show={unlinkConfirmOpen}

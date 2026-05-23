@@ -8,6 +8,7 @@ import { sanitizeString } from '../utils/sanitize';
 import { normalizeIdentityPhone } from '../utils/phone';
 import { AuditLogService } from '../services/AuditLogService';
 import { ClientIdentityAdminService } from '../services/ClientIdentityAdminService';
+import { ClientDuplicateIncidentService } from '../services/ClientDuplicateIncidentService';
 
 const fixedBookingActivityConfigSchema = z.object({
     fixedBookingDaysAhead: z.union([z.number(), z.string()]).transform((v) => Number(v)).pipe(z.number().int().positive()),
@@ -151,6 +152,7 @@ export class ClubController {
     private readonly mediaStorageService = new MediaStorageService();
     private readonly auditLogService = new AuditLogService();
     private readonly clientIdentityAdminService = new ClientIdentityAdminService();
+    private readonly duplicateIncidentService = new ClientDuplicateIncidentService();
     constructor(private clubService: ClubService) {}
 
     createClub = async (req: Request, res: Response) => {
@@ -737,7 +739,8 @@ export class ClubController {
                 phoneNumberLocal: z.string().trim().optional().nullable(),
                 dni: z.string().trim().optional().nullable(),
                 email: z.string().trim().email().optional().nullable(),
-                isProfessor: z.boolean().optional()
+                isProfessor: z.boolean().optional(),
+                forceCreateNew: z.boolean().optional()
             });
             const parsed = bodySchema.safeParse(req.body);
             if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
@@ -765,10 +768,14 @@ export class ClubController {
                 phone: normalizedPhone,
                 dni: parsed.data.dni ? sanitizeString(parsed.data.dni, 40) : null,
                 email: parsed.data.email ? sanitizeString(parsed.data.email, 120).toLowerCase() : null,
-                isProfessor: Boolean(parsed.data.isProfessor)
+                isProfessor: Boolean(parsed.data.isProfessor),
+                forceCreateNew: Boolean(parsed.data.forceCreateNew)
             });
             return res.status(201).json(client);
         } catch (error: any) {
+            if ((error instanceof Error && (error as any).code === 'CLIENT_POSSIBLE_DUPLICATE') || error?.code === 'CLIENT_POSSIBLE_DUPLICATE') {
+                await this.registerDuplicateIncidentFromClientCreateError(req, error);
+            }
             return sendAppError(res, error, 'No se pudo crear el cliente');
         }
     };
@@ -918,4 +925,46 @@ export class ClubController {
             return sendAppError(res, error, 'No se pudo fusionar el cliente');
         }
     };
+
+    private async registerDuplicateIncidentFromClientCreateError(req: Request, error: any) {
+        try {
+            const club = (req as any).club;
+            const clubId = Number(club?.id || 0);
+            if (!Number.isInteger(clubId) || clubId <= 0) return;
+
+            const details = (error && typeof error === 'object') ? (error.meta || error.details || {}) : {};
+            const candidateClientIds: string[] = Array.from(
+                new Set(
+                    (Array.isArray(details?.candidateClientIds) ? details.candidateClientIds : [])
+                        .map((value: unknown) => String(value || '').trim())
+                        .filter((value: string): value is string => value.length > 0)
+                )
+            );
+            if (candidateClientIds.length === 0) return;
+
+            const actorUserId = Number((req as any)?.user?.userId || 0);
+
+            await this.duplicateIncidentService.createOrReuseIncident({
+                clubId,
+                sourceType: 'ADMIN',
+                reasonType: String(details?.reasonType || 'MULTI_SIGNAL_CONFLICT'),
+                primaryClientId: details?.primaryClientId ? String(details.primaryClientId) : null,
+                candidateClientIds,
+                payload: {
+                    endpoint: 'createClubClient',
+                    actorUserId: Number.isInteger(actorUserId) && actorUserId > 0 ? actorUserId : null,
+                    draft: {
+                        name: req.body?.name ?? null,
+                        phone: req.body?.phone ?? req.body?.phoneNumberLocal ?? null,
+                        dni: req.body?.dni ?? null,
+                        email: req.body?.email ?? null,
+                        isProfessor: req.body?.isProfessor ?? null
+                    },
+                    signals: details?.signals || null
+                }
+            });
+        } catch (incidentError) {
+            console.warn('No se pudo registrar incidente de duplicado en alta de cliente', incidentError);
+        }
+    }
 }

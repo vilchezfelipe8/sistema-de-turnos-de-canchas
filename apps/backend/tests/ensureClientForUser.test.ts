@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { prisma } from '../src/prisma';
 import { PersonService } from '../src/services/PersonService';
+import { AppError } from '../src/errors';
 
 type MemoryClient = {
   id: string;
@@ -198,6 +199,60 @@ test('ensureClientForUser reutiliza client fuerte por email/teléfono y lo vincu
     assert.equal(client.id, 'client-existing');
     assert.equal(client.userId, 9);
     assert.equal(harness.clients.length, 1);
+  } finally {
+    (prisma as any).$transaction = originalTransaction;
+  }
+});
+
+test('ensureClientForUser no elige arbitrariamente si hay múltiples clients candidatos por identidad fuerte', async () => {
+  const originalTransaction = (prisma as any).$transaction;
+  const harness = buildTransactionHarness({
+    clients: [
+      {
+        id: 'client-a',
+        clubId: 5,
+        userId: null,
+        name: 'Familia Uno',
+        phone: '+5493515554444',
+        email: 'familia@pique.test',
+        dni: null,
+        createdAt: new Date('2026-05-20T09:00:00.000Z')
+      },
+      {
+        id: 'client-b',
+        clubId: 5,
+        userId: null,
+        name: 'Familia Dos',
+        phone: '+5493515554444',
+        email: 'familia@pique.test',
+        dni: null,
+        createdAt: new Date('2026-05-20T10:00:00.000Z')
+      }
+    ],
+    users: [
+      {
+        id: 9,
+        firstName: 'Lucía',
+        lastName: 'Díaz',
+        email: 'familia@pique.test',
+        phoneNumber: '+5493515554444',
+        dni: null
+      }
+    ]
+  });
+  (prisma as any).$transaction = async (callback: any) => callback(harness.tx);
+
+  try {
+    await assert.rejects(
+      () => createService().ensureClientForUser(5, 9, { source: 'ADMIN_SELECTED_USER' }),
+      (error: any) => {
+        assert.ok(error instanceof AppError);
+        assert.equal(error.code, 'CLIENT_POSSIBLE_DUPLICATE');
+        assert.deepEqual(error.meta?.candidateClientIds, ['client-a', 'client-b']);
+        return true;
+      }
+    );
+    assert.equal(harness.clients.length, 2);
   } finally {
     (prisma as any).$transaction = originalTransaction;
   }

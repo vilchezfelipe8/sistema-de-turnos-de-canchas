@@ -1,4 +1,5 @@
 import { fetchWithAuth } from '../utils/apiClient';
+import { throwApiErrorFromResponse } from '../utils/apiError';
 import { getApiUrl } from '../utils/apiUrl';
 import { getActiveClubSlug, normalizeSessionUser } from '../utils/session';
 
@@ -12,8 +13,7 @@ export class ClientService {
     );
 
     if (!res.ok) {
-      const error = await res.json().catch(() => ({}));
-      throw new Error(error.error || 'No se pudo buscar clientes');
+      await throwApiErrorFromResponse(res, 'No se pudo buscar clientes');
     }
     const payload = await res.json();
     if (!Array.isArray(payload)) {
@@ -75,6 +75,7 @@ export class ClientService {
     dni?: string;
     email?: string;
     isProfessor?: boolean;
+    forceCreateNew?: boolean;
   }) {
     const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/clients`, {
       method: 'POST',
@@ -82,8 +83,7 @@ export class ClientService {
       body: JSON.stringify(body)
     });
     if (!res.ok) {
-      const error = await res.json().catch(() => ({}));
-      throw new Error(error.error || 'No se pudo crear el cliente');
+      await throwApiErrorFromResponse(res, 'No se pudo crear el cliente');
     }
     return res.json();
   }
@@ -103,8 +103,7 @@ export class ClientService {
       body: JSON.stringify(body)
     });
     if (!res.ok) {
-      const error = await res.json().catch(() => ({}));
-      throw new Error(error.error || 'No se pudo actualizar el cliente');
+      await throwApiErrorFromResponse(res, 'No se pudo actualizar el cliente');
     }
     return res.json();
   }
@@ -114,8 +113,7 @@ export class ClientService {
       method: 'DELETE'
     });
     if (!res.ok) {
-      const error = await res.json().catch(() => ({}));
-      throw new Error(error.error || 'No se pudo eliminar el cliente');
+      await throwApiErrorFromResponse(res, 'No se pudo eliminar el cliente');
     }
     return true;
   }
@@ -130,8 +128,7 @@ export class ClientService {
       }
     );
     if (!res.ok) {
-      const error = await res.json().catch(() => ({}));
-      throw new Error(error.error || 'No se pudo vincular el cliente al usuario');
+      await throwApiErrorFromResponse(res, 'No se pudo vincular el cliente al usuario');
     }
     return res.json();
   }
@@ -145,8 +142,7 @@ export class ClientService {
       }
     );
     if (!res.ok) {
-      const error = await res.json().catch(() => ({}));
-      throw new Error(error.error || 'No se pudo desvincular el cliente del usuario');
+      await throwApiErrorFromResponse(res, 'No se pudo desvincular el cliente del usuario');
     }
     return res.json();
   }
@@ -170,8 +166,7 @@ export class ClientService {
       }
     );
     if (!res.ok) {
-      const error = await res.json().catch(() => ({}));
-      throw new Error(error.error || 'No se pudo fusionar el cliente');
+      await throwApiErrorFromResponse(res, 'No se pudo fusionar el cliente');
     }
     return res.json();
   }

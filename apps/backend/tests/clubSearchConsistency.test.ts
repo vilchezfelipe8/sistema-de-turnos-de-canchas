@@ -7,26 +7,26 @@ function createService() {
   return new ClubService({} as any, {} as any);
 }
 
-test('getClients devuelve solo clients deduplicados aunque exista un user equivalente', async () => {
+test('getClients devuelve todos los clients distintos del club aunque compartan teléfono o email', async () => {
   const service = createService();
   const originalClientFindMany = (prisma as any).client.findMany;
 
   (prisma as any).client.findMany = async () => ([
     {
-      id: 'client-new',
-      name: 'Admin Las Tejas',
+      id: 'client-hijo',
+      name: 'Juan Hijo',
       phone: '+5493571359791',
-      email: 'admin@lastejas.com',
+      email: 'familia@pique.test',
       dni: '',
       isProfessor: false,
       userId: null,
       createdAt: new Date('2026-05-19T21:02:15.856Z')
     },
     {
-      id: 'client-old',
-      name: 'Admin Las Tejas',
+      id: 'client-padre',
+      name: 'Juan Padre',
       phone: '+5493571359791',
-      email: 'admin@lastejas.com',
+      email: 'familia@pique.test',
       dni: '',
       isProfessor: false,
       userId: null,
@@ -35,85 +35,120 @@ test('getClients devuelve solo clients deduplicados aunque exista un user equiva
   ]);
 
   try {
-    const results = await service.getClients(5, 'admin las tejas');
-    assert.equal(results.length, 1);
-    assert.equal(results[0]?.name, 'Admin Las Tejas');
+    const results = await service.getClients(5, 'familia');
+    assert.equal(results.length, 2);
+    assert.deepEqual(
+      results.map((row) => row.id),
+      ['client-hijo', 'client-padre']
+    );
   } finally {
     (prisma as any).client.findMany = originalClientFindMany;
   }
 });
 
-test('searchParticipants deduplica 2 clients iguales + 1 user igual y prefiere mostrar client', async () => {
+test('searchParticipants devuelve todos los clients distintos que matcheen aunque compartan teléfono o email', async () => {
   const service = createService();
-  const originalClientFindMany = (prisma as any).client.findMany;
-  const originalUserFindMany = (prisma as any).user.findMany;
+  const originalSearchPeople = (service as any).personService.searchPeople;
 
-  (prisma as any).client.findMany = async () => ([
+  (service as any).personService.searchPeople = async () => ([
     {
-      id: 'client-new',
-      name: 'Admin Las Tejas',
-      phone: '+5493571359791',
-      email: 'admin@lastejas.com',
-      dni: '',
-      isProfessor: false,
+      personKey: 'client:client-hijo',
+      kind: 'clubClient',
+      clientId: 'client-hijo',
       userId: null,
-      createdAt: new Date('2026-05-19T21:02:15.856Z')
+      displayName: 'Juan Hijo',
+      email: 'familia@pique.test',
+      phone: '+5493571359791',
+      dni: null,
+      badges: ['Cliente del club']
     },
     {
-      id: 'client-old',
-      name: 'Admin Las Tejas',
-      phone: '+5493571359791',
-      email: 'admin@lastejas.com',
-      dni: '',
-      isProfessor: false,
+      personKey: 'client:client-padre',
+      kind: 'clubClient',
+      clientId: 'client-padre',
       userId: null,
-      createdAt: new Date('2026-05-19T20:02:15.856Z')
-    }
-  ]);
-  (prisma as any).user.findMany = async () => ([
-    {
-      id: 1,
-      firstName: 'Admin',
-      lastName: 'Las Tejas',
-      email: 'admin@lastejas.com',
-      phoneNumber: '+54 9 357 135 9791'
+      displayName: 'Juan Padre',
+      email: 'familia@pique.test',
+      phone: '+5493571359791',
+      dni: null,
+      badges: ['Cliente del club']
     }
   ]);
 
   try {
-    const results = await service.searchParticipants(5, 'admin las tejas');
-    assert.equal(results.length, 1);
-    assert.equal(results[0]?.sourceType, 'clubClient');
-    assert.equal(results[0]?.name, 'Admin Las Tejas');
+    const results = await service.searchParticipants(5, 'familia');
+    assert.equal(results.length, 2);
+    assert.ok(results.every((row) => row.sourceType === 'clubClient'));
   } finally {
-    (prisma as any).client.findMany = originalClientFindMany;
-    (prisma as any).user.findMany = originalUserFindMany;
+    (service as any).personService.searchPeople = originalSearchPeople;
   }
 });
 
-test('searchParticipants puede mostrar systemUser cuando no existe client del club', async () => {
+test('searchParticipants colapsa Client + User vinculados explícitamente en una sola opción clubClient', async () => {
   const service = createService();
-  const originalClientFindMany = (prisma as any).client.findMany;
-  const originalUserFindMany = (prisma as any).user.findMany;
+  const originalSearchPeople = (service as any).personService.searchPeople;
 
-  (prisma as any).client.findMany = async () => [];
-  (prisma as any).user.findMany = async () => ([
+  (service as any).personService.searchPeople = async () => ([
     {
-      id: 7,
-      firstName: 'Ana',
-      lastName: 'Pérez',
+      personKey: 'linked:client:client-1:user:7',
+      kind: 'linked',
+      clientId: 'client-1',
+      userId: 7,
+      displayName: 'Ana Pérez',
       email: 'ana@example.com',
-      phoneNumber: '+54 9 351 222 3333'
+      phone: '+5493512223333',
+      dni: null,
+      badges: ['Cliente del club', 'Usuario Pique']
     }
   ]);
 
   try {
     const results = await service.searchParticipants(5, 'ana');
     assert.equal(results.length, 1);
-    assert.equal(results[0]?.sourceType, 'systemUser');
+    assert.equal(results[0]?.sourceType, 'clubClient');
     assert.equal(results[0]?.userId, 7);
   } finally {
-    (prisma as any).client.findMany = originalClientFindMany;
-    (prisma as any).user.findMany = originalUserFindMany;
+    (service as any).personService.searchPeople = originalSearchPeople;
+  }
+});
+
+test('searchParticipants no colapsa client y user no vinculados solo por compartir email o teléfono', async () => {
+  const service = createService();
+  const originalSearchPeople = (service as any).personService.searchPeople;
+
+  (service as any).personService.searchPeople = async () => ([
+    {
+      personKey: 'client:client-1',
+      kind: 'clubClient',
+      clientId: 'client-1',
+      userId: null,
+      displayName: 'Juan Cliente',
+      email: 'juan@pique.test',
+      phone: '+5493510000001',
+      dni: null,
+      badges: ['Cliente del club']
+    },
+    {
+      personKey: 'user:44',
+      kind: 'systemUser',
+      clientId: null,
+      userId: 44,
+      displayName: 'Juan Usuario',
+      email: 'juan@pique.test',
+      phone: '+5493510000001',
+      dni: null,
+      badges: ['Usuario Pique']
+    }
+  ]);
+
+  try {
+    const results = await service.searchParticipants(5, 'juan@pique.test');
+    assert.equal(results.length, 2);
+    assert.deepEqual(
+      results.map((row) => row.sourceType),
+      ['clubClient', 'systemUser']
+    );
+  } finally {
+    (service as any).personService.searchPeople = originalSearchPeople;
   }
 });

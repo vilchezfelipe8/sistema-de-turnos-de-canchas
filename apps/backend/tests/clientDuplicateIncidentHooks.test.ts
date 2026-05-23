@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BookingController } from '../src/controllers/BookingController';
 import { CashController } from '../src/controllers/CashController';
+import { ClubController } from '../src/controllers/ClubController';
 import { prisma } from '../src/prisma';
 import { conflict, ErrorCodes } from '../src/errors';
 
@@ -230,4 +231,56 @@ test('cash registra incidente cuando detecta CLIENT_POSSIBLE_DUPLICATE', async (
   assert.equal(registeredPayload?.clubId, 12);
   assert.equal(registeredPayload?.sourceType, 'CASH');
   assert.deepEqual(registeredPayload?.candidateClientIds, ['cash-1', 'cash-2']);
+});
+
+test('alta de cliente admin registra incidente cuando detecta CLIENT_POSSIBLE_DUPLICATE', async () => {
+  const controller = new ClubController({
+    createClient: async () => {
+      throw conflict(
+        'Ya existen clientes con datos similares. Revisá antes de crear uno nuevo.',
+        ErrorCodes.CLIENT_POSSIBLE_DUPLICATE,
+        {
+          primaryClientId: 'client-1',
+          candidateClientIds: ['client-1', 'client-2'],
+          reasonType: 'PHONE',
+          signals: ['PHONE']
+        }
+      );
+    }
+  } as any);
+
+  let registeredPayload: any = null;
+  (controller as any).duplicateIncidentService = {
+    createOrReuseIncident: async (payload: any) => {
+      registeredPayload = payload;
+      return { id: 'inc-admin-1' };
+    }
+  };
+
+  const req: any = {
+    body: {
+      name: 'Juan Nuevo',
+      phone: '+5493511111111',
+      phoneCountryCode: 'AR',
+      phoneNumberLocal: '3511111111',
+      email: 'familia@pique.test',
+      dni: '',
+      isProfessor: false
+    },
+    user: { userId: 321 },
+    club: {
+      id: 5,
+      country: 'AR'
+    }
+  };
+  const { res, payload } = buildRes();
+
+  await controller.createClubClient(req, res);
+
+  assert.equal(payload.statusCode, 409);
+  assert.equal(payload.body?.code, ErrorCodes.CLIENT_POSSIBLE_DUPLICATE);
+  assert.equal(registeredPayload?.clubId, 5);
+  assert.equal(registeredPayload?.sourceType, 'ADMIN');
+  assert.equal(registeredPayload?.reasonType, 'PHONE');
+  assert.deepEqual(registeredPayload?.candidateClientIds, ['client-1', 'client-2']);
 });
