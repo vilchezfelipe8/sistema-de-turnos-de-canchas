@@ -183,6 +183,22 @@ export type ParticipantSuggestion = {
   selectedUserId?: number;
 };
 
+export type BookingHistoryTimelineEvent = {
+  id: string;
+  title: string;
+  detail: string;
+  dateKey: string;
+  dateLabel: string;
+  timeLabel: string;
+  sortKey: number;
+};
+
+export type BookingHistoryTimelineGroup = {
+  dateKey: string;
+  dateLabel: string;
+  events: BookingHistoryTimelineEvent[];
+};
+
 export type BookingKind = 'regular' | 'recurringV2' | 'privateClass' | 'courseClass' | 'block';
 export type RecurringFrequencyPreset = 'weekly' | 'biweekly' | 'custom';
 export type CancelRefundReasonType =

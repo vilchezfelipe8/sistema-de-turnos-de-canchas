@@ -2,7 +2,7 @@ import Head from 'next/head';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/router';
-import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock3, MoreVertical, Pencil, Plus, Repeat, Search, User, Users, CreditCard, Settings, X, Receipt, BarChart3, Trophy, MessageSquare, ShoppingBag, FileText, GraduationCap, Lock, Trash2 } from 'lucide-react';
+import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock3, MoreVertical, Pencil, Plus, Repeat, Search, User, Users, Settings, X, BarChart3, Trophy, MessageSquare, ShoppingBag, FileText, GraduationCap, Lock, Trash2 } from 'lucide-react';
 import NotFound from '../../components/NotFound';
 import RouteTransitionScreen from '../../components/RouteTransitionScreen';
 import AdminPlaygroundShell from '../../components/admin/AdminPlaygroundShell';
@@ -15,10 +15,14 @@ import AgendaToolbar from '../../components/admin/agenda/AgendaToolbar';
 import BookingHoverCard from '../../components/admin/agenda/BookingHoverCard';
 import ChangeTitularModal, { type ChangeTitularCandidate } from '../../components/admin/agenda/ChangeTitularModal';
 import DuplicateClientDecisionModal from '../../components/admin/agenda/DuplicateClientDecisionModal';
+import BookingAccountSummarySection from '../../components/admin/agenda/sections/BookingAccountSummarySection';
+import BookingHistorySection from '../../components/admin/agenda/sections/BookingHistorySection';
 import type {
   Booking,
   BookingConsumptionItem,
+  BookingHistoryTimelineEvent,
   BookingDropPreview,
+  BookingHistoryTimelineGroup,
   BookingKind,
   CancelRefundReasonType,
   ClubProductOption,
@@ -5200,16 +5204,8 @@ export default function AdminAgendaPlaygroundPage() {
     Boolean(selectedConsumptionProduct) &&
     selectedConsumptionQuantity > 0 &&
     (selectedConsumptionProduct?.stock == null || selectedConsumptionProduct.stock >= selectedConsumptionQuantity);
-  const simplifiedReservationHistoryTimeline = (() => {
-    const events: Array<{
-      id: string;
-      title: string;
-      detail: string;
-      dateKey: string;
-      dateLabel: string;
-      timeLabel: string;
-      sortKey: number;
-    }> = [];
+  const simplifiedReservationHistoryTimeline: BookingHistoryTimelineGroup[] = (() => {
+    const events: BookingHistoryTimelineEvent[] = [];
 
     const sourceStart = String(bookingDrawerState.draft?.operational.startDateTime || '');
     const startDate = sourceStart ? new Date(sourceStart) : null;
@@ -7879,132 +7875,44 @@ export default function AdminAgendaPlaygroundPage() {
                       )}
 
                       {showSimplifiedHistorySection && (
-                      <section
-                        className={`rounded-xl border border-p-border bg-p-surface-2 p-4 ${
-                          showSimplifiedDetailsSection ? 'mt-2' : 'mt-0'
-                        }`}
-                      >
-                          <p className="text-[18px] font-semibold text-p-text">Historial de la reserva</p>
-
-                          {bookingTimelineLoading && simplifiedReservationHistoryTimeline.length > 0 && (
-                            <p className="mt-3 text-[12px] text-p-text-muted">Actualizando historial...</p>
-                          )}
-                          {bookingTimelineError && (
-                            <p className="mt-3 text-[13px] text-p-error">{bookingTimelineError}</p>
-                          )}
-
-                          {bookingTimelineLoading && simplifiedReservationHistoryTimeline.length === 0 ? (
-                            <div className="mt-4 flex items-center justify-center gap-3 rounded-xl border border-p-border bg-p-surface px-4 py-5">
-                              <div className="h-5 w-5 rounded-full border-2 border-p-accent border-t-p-accent animate-spin" />
-                              <p className="text-[13px] text-p-text-secondary">Cargando historial de la reserva...</p>
-                            </div>
-                          ) : simplifiedReservationHistoryTimeline.length === 0 ? (
-                            <p className="mt-3 text-[13px] text-p-text-muted">Todavía no hay eventos en el historial.</p>
-                          ) : (
-                            <div className="mt-3 space-y-4">
-                              {simplifiedReservationHistoryTimeline.map((group) => (
-                                <div key={`history-group-${group.dateKey}`}>
-                                  <div className="inline-flex rounded-full border border-p-border bg-p-surface px-3 py-1 text-[11px] font-semibold text-p-text-secondary">
-                                    {group.dateLabel}
-                                  </div>
-                                  <div className="mt-2 rounded-xl border border-p-border bg-p-surface px-3 py-2 space-y-0">
-                                    {group.events.map((event, index) => (
-                                      <div
-                                        key={`history-event-${event.id}`}
-                                        className="grid grid-cols-[18px_1fr_auto] gap-2"
-                                      >
-                                        <div className="relative pt-1">
-                                          <span className="absolute left-[4px] top-1.5 h-2.5 w-2.5 rounded-full bg-p-accent" />
-                                          {index < group.events.length - 1 && (
-                                            <span className="absolute left-[8px] top-4 bottom-[-12px] w-px bg-p-positive-bg" />
-                                          )}
-                                        </div>
-                                        <div className="pb-3">
-                                          <p className="text-[14px] font-semibold leading-[1.3] text-p-text">
-                                            {event.title}
-                                          </p>
-                                          <p className="mt-0.5 text-[12px] text-p-text-muted">{event.detail}</p>
-                                        </div>
-                                        <p className="pt-0.5 text-[12px] font-semibold text-p-text-secondary">
-                                          {event.timeLabel}
-                                        </p>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </section>
+                        <BookingHistorySection
+                          groups={simplifiedReservationHistoryTimeline}
+                          loading={bookingTimelineLoading}
+                          error={bookingTimelineError}
+                          className={showSimplifiedDetailsSection ? 'mt-2' : 'mt-0'}
+                        />
                       )}
 
                       {showSimplifiedBillingSection && (
                       <>
                       {simplifiedIsEditingReservation && (
-                        <section className="rounded-xl border border-p-border bg-p-surface-2 p-4">
-                          <div className="flex items-center justify-between">
-                            <p className="text-[18px] font-semibold text-p-text">Cuenta</p>
-                            <span
-                              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                                simplifiedPaymentStatusLabel === 'Pagado'
-                                  ? 'bg-p-positive-bg text-p-positive'
-                                  : simplifiedPaymentStatusLabel === 'Parcial'
-                                    ? 'bg-p-warning-bg text-p-warning'
-                                    : 'bg-p-surface-3 text-p-text-secondary'
-                              }`}
-                            >
-                              {simplifiedPaymentStatusLabel}
-                            </span>
-                          </div>
-                          <div className="mt-2 grid grid-cols-3 gap-2 text-[12px] text-p-text-muted">
-                            <div className="rounded-lg bg-p-surface px-2 py-1.5">
-                              <p>Total</p>
-                              <p className="text-[15px] font-semibold text-p-text">
-                                {isFinancialDisplayPending ? '--' : `${simplifiedFinancialTotal.toFixed(2)} $`}
-                              </p>
-                            </div>
-                            <div className="rounded-lg bg-p-surface px-2 py-1.5">
-                              <p>Pagado</p>
-                              <p className="text-[15px] font-semibold text-p-positive">
-                                {isFinancialDisplayPending ? '--' : `${simplifiedPaidAmount.toFixed(2)} $`}
-                              </p>
-                            </div>
-                            <div className="rounded-lg bg-p-surface px-2 py-1.5">
-                              <p>Deuda</p>
-                              <p className="text-[15px] font-semibold text-p-warning">
-                                {isFinancialDisplayPending ? '--' : `${simplifiedRemainingAmount.toFixed(2)} $`}
-                              </p>
-                            </div>
-                          </div>
-                          <p className="mt-2 text-[12px] text-p-text-muted">
-                            Cancha: {bookingCourtAmount.toFixed(2)} $ · Consumos: {bookingItemsAmount.toFixed(2)} $
-                          </p>
-                          <div className="mt-3 flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => void openAgendaAccountDrawer(persistedEditingBookingId || 0, 'overview')}
-                              disabled={!persistedEditingBookingId}
-                              className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[14px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-50"
-                            >
-                              <Receipt size={14} />
-                              Ver cuenta
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void openAgendaAccountDrawer(persistedEditingBookingId || 0, 'payment')}
-                              disabled={!simplifiedCanRegisterPayment}
-                              className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-4 text-[14px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-50"
-                            >
-                              <CreditCard size={14} />
-                              Cobrar
-                            </button>
-                            {!persistedEditingBookingId ? (
-                              <p className="text-[12px] text-p-text-muted">Primero creá la reserva.</p>
-                            ) : isPaymentLockedByManualPending ? (
-                              <p className="text-[12px] text-p-text-muted">Confirmá la reserva para habilitar pagos.</p>
-                            ) : null}
-                          </div>
-                        </section>
+                        <BookingAccountSummarySection
+                          title="Cuenta"
+                          statusLabel={simplifiedPaymentStatusLabel}
+                          showStatusBadge
+                          showActionIcons
+                          totalAmount={simplifiedFinancialTotal}
+                          paidAmount={simplifiedPaidAmount}
+                          remainingAmount={simplifiedRemainingAmount}
+                          courtAmount={bookingCourtAmount}
+                          consumptionsAmount={bookingItemsAmount}
+                          isPending={isFinancialDisplayPending}
+                          onOpenOverview={() => {
+                            void openAgendaAccountDrawer(persistedEditingBookingId || 0, 'overview');
+                          }}
+                          onOpenPayment={() => {
+                            void openAgendaAccountDrawer(persistedEditingBookingId || 0, 'payment');
+                          }}
+                          disableOverview={!persistedEditingBookingId}
+                          disablePayment={!simplifiedCanRegisterPayment}
+                          helperMessage={
+                            !persistedEditingBookingId
+                              ? 'Primero creá la reserva.'
+                              : isPaymentLockedByManualPending
+                                ? 'Confirmá la reserva para habilitar pagos.'
+                                : null
+                          }
+                        />
                       )}
 
                       <section className="mt-4">
@@ -8990,54 +8898,30 @@ export default function AdminAgendaPlaygroundPage() {
                         )}
                       </div>
                     ) : (
-                      <div className="mt-3 rounded-xl border border-p-border bg-p-surface-2 p-4">
-                        <div className="grid grid-cols-3 gap-2 text-[12px] text-p-text-muted">
-                          <div className="rounded-lg bg-p-surface px-2 py-1.5">
-                            <p>Total</p>
-                            <p className="text-[15px] font-semibold text-p-text">
-                              {isFinancialDisplayPending ? '--' : `${simplifiedFinancialTotal.toFixed(2)} $`}
-                            </p>
-                          </div>
-                          <div className="rounded-lg bg-p-surface px-2 py-1.5">
-                            <p>Pagado</p>
-                            <p className="text-[15px] font-semibold text-p-positive">
-                              {isFinancialDisplayPending ? '--' : `${simplifiedPaidAmount.toFixed(2)} $`}
-                            </p>
-                          </div>
-                          <div className="rounded-lg bg-p-surface px-2 py-1.5">
-                            <p>Deuda</p>
-                            <p className="text-[15px] font-semibold text-p-warning">
-                              {isFinancialDisplayPending ? '--' : `${simplifiedRemainingAmount.toFixed(2)} $`}
-                            </p>
-                          </div>
-                        </div>
-                        <p className="mt-2 text-[12px] text-p-text-muted">
-                          Cancha: {bookingCourtAmount.toFixed(2)} $ · Consumos: {bookingItemsAmount.toFixed(2)} $
-                        </p>
-                        <div className="mt-3 flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => void openAgendaAccountDrawer(persistedEditingBookingId || 0, 'overview')}
-                            disabled={!persistedEditingBookingId}
-                            className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[14px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-50"
-                          >
-                            Ver cuenta
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void openAgendaAccountDrawer(persistedEditingBookingId || 0, 'payment')}
-                            disabled={!simplifiedCanRegisterPayment}
-                            className="h-10 rounded-xl bg-ink-900 px-4 text-[14px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-50"
-                          >
-                            Cobrar
-                          </button>
-                          {!persistedEditingBookingId ? (
-                            <p className="text-[12px] text-p-text-muted">Primero creá la reserva.</p>
-                          ) : isPaymentLockedByManualPending ? (
-                            <p className="text-[12px] text-p-text-muted">Confirmá la reserva para habilitar pagos.</p>
-                          ) : null}
-                        </div>
-                      </div>
+                      <BookingAccountSummarySection
+                        className="mt-3"
+                        totalAmount={simplifiedFinancialTotal}
+                        paidAmount={simplifiedPaidAmount}
+                        remainingAmount={simplifiedRemainingAmount}
+                        courtAmount={bookingCourtAmount}
+                        consumptionsAmount={bookingItemsAmount}
+                        isPending={isFinancialDisplayPending}
+                        onOpenOverview={() => {
+                          void openAgendaAccountDrawer(persistedEditingBookingId || 0, 'overview');
+                        }}
+                        onOpenPayment={() => {
+                          void openAgendaAccountDrawer(persistedEditingBookingId || 0, 'payment');
+                        }}
+                        disableOverview={!persistedEditingBookingId}
+                        disablePayment={!simplifiedCanRegisterPayment}
+                        helperMessage={
+                          !persistedEditingBookingId
+                            ? 'Primero creá la reserva.'
+                            : isPaymentLockedByManualPending
+                              ? 'Confirmá la reserva para habilitar pagos.'
+                              : null
+                        }
+                      />
                     )}
                   </section>
 
