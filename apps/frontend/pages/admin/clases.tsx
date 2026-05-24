@@ -1625,6 +1625,13 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
   const editingEnrollmentPasses = editingEnrollment
     ? classPassesByStudent[editingEnrollment.studentClientId] || []
     : [];
+  const editingEnrollmentForCredit = useMemo(() => {
+    if (!editingEnrollment) return null;
+    return {
+      ...editingEnrollment,
+      attendanceStatus: editingEnrollmentId ? enrollmentForm.attendanceStatus : editingEnrollment.attendanceStatus,
+    };
+  }, [editingEnrollment, editingEnrollmentId, enrollmentForm.attendanceStatus]);
   const classFormContent = (
     <form id="class-session-form" onSubmit={submitForm} className="space-y-4">
       {formError && <AdminInlineError>{formError}</AdminInlineError>}
@@ -2191,7 +2198,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           </AdminDrawerSection>
 
           <AdminDrawerSection title="Tarjetita digital" className={drawerSectionCardClass}>
-            {!editingEnrollmentId || !editingEnrollment ? (
+            {!editingEnrollmentId || !editingEnrollment || !editingEnrollmentForCredit ? (
               <div className={helperCardClass}>
                 <p className="font-semibold text-p-text">Créditos después de guardar</p>
                 <p className="mt-1">
@@ -2209,9 +2216,18 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
 
                 <div className="grid gap-3 md:grid-cols-3">
                   <SummaryBlock label="Pago actual" value={paymentStatusLabel(editingEnrollment.paymentStatus)} />
-                  <SummaryBlock label="Asistencia" value={attendanceStatusLabel(editingEnrollment.attendanceStatus)} />
+                  <SummaryBlock label="Asistencia" value={attendanceStatusLabel(editingEnrollmentForCredit.attendanceStatus)} />
                   <SummaryBlock label="Consumos" value={String(editingEnrollmentCreditUsages.length)} />
                 </div>
+
+                {resolveCreditUsageReason(editingEnrollmentForCredit.attendanceStatus) === 'MANUAL_ADJUSTMENT' ? (
+                  <div className="rounded-xl border border-p-border-strong bg-p-surface px-3 py-3 text-[12px] text-p-text-secondary">
+                    <p className="font-semibold text-p-text">Consumo manual</p>
+                    <p className="mt-1">
+                      La asistencia todavía no define un motivo automático. Si consumís ahora, la tarjetita se va a registrar como ajuste manual.
+                    </p>
+                  </div>
+                ) : null}
 
                 {creditUsageError ? <AdminInlineError>{creditUsageError}</AdminInlineError> : null}
                 {classPassesError ? <AdminInlineError>{classPassesError}</AdminInlineError> : null}
@@ -2255,7 +2271,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                       const hasUsage = editingEnrollmentCreditUsages.some((usage) => usage.classPassId === classPass.id);
                       const availability = resolveClassPassAvailability({
                         classPass,
-                        enrollment: editingEnrollment,
+                        enrollment: editingEnrollmentForCredit,
                         selectedClass,
                         hasUsage,
                       });
@@ -2297,13 +2313,17 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                                 onClick={() =>
                                   setCreditUsageConfirmState({
                                     classPass,
-                                    enrollment: editingEnrollment,
+                                    enrollment: editingEnrollmentForCredit,
                                     reason: availability.reason,
                                   })
                                 }
                                 className="inline-flex h-8 items-center justify-center rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:bg-ink-700/50"
                               >
-                                {creditUsageBusyPassId === classPass.id ? 'Consumiendo...' : 'Consumir 1 crédito'}
+                                {creditUsageBusyPassId === classPass.id
+                                  ? 'Consumiendo...'
+                                  : availability.reason === 'MANUAL_ADJUSTMENT'
+                                    ? 'Consumir crédito manualmente'
+                                    : 'Consumir 1 crédito'}
                               </button>
                             </div>
                           </div>
@@ -2342,7 +2362,11 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         onClose={() => {
           if (!creditUsageBusyPassId) setCreditUsageConfirmState(null);
         }}
-        title="Confirmar consumo de crédito"
+        title={
+          creditUsageConfirmState?.reason === 'MANUAL_ADJUSTMENT'
+            ? 'Confirmar consumo manual de crédito'
+            : 'Confirmar consumo de crédito'
+        }
         message={
           creditUsageConfirmState ? (
             <div className="space-y-3">
@@ -2350,6 +2374,12 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                 Vas a consumir <strong>1 crédito</strong> de la tarjetita digital para cubrir esta inscripción.
                 Esto <strong>no registra un pago</strong> ni cambia la asistencia.
               </p>
+              {creditUsageConfirmState.reason === 'MANUAL_ADJUSTMENT' ? (
+                <p className="rounded-xl border border-p-border-strong bg-p-surface px-3 py-3 text-[12px] text-p-text-secondary">
+                  La asistencia todavía no define un motivo automático. Este consumo se va a registrar como
+                  <strong> ajuste manual</strong>.
+                </p>
+              ) : null}
               <div className="grid gap-3 sm:grid-cols-2">
                 <SummaryBlock label="Alumno" value={creditUsageConfirmState.enrollment.snapshotName} />
                 <SummaryBlock label="Pack" value={creditUsageConfirmState.classPass.packageName} />
@@ -2371,7 +2401,13 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           ) : null
         }
         cancelText="Cancelar"
-        confirmText={creditUsageBusyPassId ? 'Consumiendo...' : 'Consumir crédito'}
+        confirmText={
+          creditUsageBusyPassId
+            ? 'Consumiendo...'
+            : creditUsageConfirmState?.reason === 'MANUAL_ADJUSTMENT'
+              ? 'Consumir manualmente'
+              : 'Consumir crédito'
+        }
         confirmDisabled={Boolean(creditUsageBusyPassId)}
         onConfirm={() => {
           void consumeClassPassCredit();
