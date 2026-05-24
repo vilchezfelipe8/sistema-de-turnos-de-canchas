@@ -15,8 +15,6 @@ const attendanceStatusSchema = z.enum([
   'ATTENDED',
   'ABSENT',
   'NO_SHOW',
-  'CANCELLED_ON_TIME',
-  'CANCELLED_LATE',
 ]);
 
 const createEnrollmentSchema = z.object({

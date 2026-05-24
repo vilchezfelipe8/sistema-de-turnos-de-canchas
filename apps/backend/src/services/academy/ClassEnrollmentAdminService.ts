@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../prisma';
 import { ErrorCodes, badRequest, conflict, notFound } from '../../errors';
 import { AcademyAdminValidationService } from './AcademyAdminValidation';
@@ -235,31 +236,45 @@ export class ClassEnrollmentAdminService {
       billingResponsibleClientId = responsible.id;
     }
 
-    const created = await prisma.classEnrollment.create({
-      data: {
-        clubId,
-        classSessionId: String(classSessionId),
-        studentClientId: client.id,
-        studentUserId: safeUserId,
-        billingResponsibleClientId,
-        snapshotName: client.name,
-        snapshotEmail: client.email,
-        snapshotPhone: client.phone,
-        priceAtEnrollment: classSession.pricePerStudent ? classSession.pricePerStudent : 0,
-        paidAmount: 0,
-        enrollmentStatus: enrollmentStatus as any,
-        attendanceStatus: 'PENDING',
-        paymentStatus: 'UNPAID',
-        notes: normalizeOptionalString(input.notes),
-        createdByUserId: Number(actorUserId),
-      },
-      include: {
-        studentClient: { select: { id: true, name: true } },
-        studentUser: { select: { id: true, email: true, firstName: true, lastName: true } },
-        billingResponsibleClient: { select: { id: true, name: true } },
-        createdByUser: { select: { id: true, email: true, firstName: true, lastName: true } },
-      },
-    });
+    let created;
+    try {
+      created = await prisma.classEnrollment.create({
+        data: {
+          clubId,
+          classSessionId: String(classSessionId),
+          studentClientId: client.id,
+          studentUserId: safeUserId,
+          billingResponsibleClientId,
+          snapshotName: client.name,
+          snapshotEmail: client.email,
+          snapshotPhone: client.phone,
+          priceAtEnrollment: classSession.pricePerStudent ? classSession.pricePerStudent : 0,
+          paidAmount: 0,
+          enrollmentStatus: enrollmentStatus as any,
+          attendanceStatus: 'PENDING',
+          paymentStatus: 'UNPAID',
+          notes: normalizeOptionalString(input.notes),
+          createdByUserId: Number(actorUserId),
+        },
+        include: {
+          studentClient: { select: { id: true, name: true } },
+          studentUser: { select: { id: true, email: true, firstName: true, lastName: true } },
+          billingResponsibleClient: { select: { id: true, name: true } },
+          createdByUser: { select: { id: true, email: true, firstName: true, lastName: true } },
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw conflict(
+          'Ese alumno ya tiene una inscripción activa en esta clase.',
+          ErrorCodes.CLASS_SESSION_ENROLLMENT_CONFLICT
+        );
+      }
+      throw error;
+    }
 
     return this.mapRow(created);
   }
@@ -356,13 +371,7 @@ export class ClassEnrollmentAdminService {
     clubId: number,
     classSessionId: string,
     enrollmentId: string,
-    attendanceStatus:
-      | 'PENDING'
-      | 'ATTENDED'
-      | 'ABSENT'
-      | 'NO_SHOW'
-      | 'CANCELLED_ON_TIME'
-      | 'CANCELLED_LATE'
+    attendanceStatus: 'PENDING' | 'ATTENDED' | 'ABSENT' | 'NO_SHOW'
   ) {
     const existing = await prisma.classEnrollment.findFirst({
       where: {
@@ -370,10 +379,16 @@ export class ClassEnrollmentAdminService {
         classSessionId: String(classSessionId),
         clubId,
       },
-      select: { id: true },
+      select: { id: true, enrollmentStatus: true },
     });
     if (!existing) {
       throw notFound('Inscripción no encontrada.', ErrorCodes.CLASS_ENROLLMENT_NOT_FOUND);
+    }
+    if (existing.enrollmentStatus === 'CANCELLED') {
+      throw badRequest(
+        'No se puede tomar asistencia sobre una inscripción cancelada.',
+        ErrorCodes.INVALID_INPUT
+      );
     }
 
     const updated = await prisma.classEnrollment.update({
