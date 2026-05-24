@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../prisma';
-import { ErrorCodes, badRequest, conflict } from '../../errors';
+import { ErrorCodes, badRequest, conflict, notFound } from '../../errors';
 import { AcademyAdminValidationService } from './AcademyAdminValidation';
 import { normalizeOptionalString } from './academyAdminUtils';
 
@@ -168,6 +168,11 @@ export class ClassCreditUsageAdminService {
   async create(clubId: number, classPassId: string, actorUserId: number, input: CreateClassCreditUsageInput) {
     await this.validation.assertUserBelongsToClub(clubId, actorUserId);
 
+    const safeClassPassId = String(classPassId || '').trim();
+    if (!safeClassPassId) {
+      throw badRequest('Pack inválido.', ErrorCodes.INVALID_INPUT);
+    }
+
     const safeEnrollmentId = String(input.classEnrollmentId || '').trim();
     if (!safeEnrollmentId) {
       throw badRequest('Inscripción inválida.', ErrorCodes.INVALID_INPUT);
@@ -175,95 +180,123 @@ export class ClassCreditUsageAdminService {
 
     const creditsUsed = this.ensurePositiveCredits(input.creditsUsed);
 
-    const [classPass, classEnrollment] = await Promise.all([
-      this.validation.assertClassPassBelongsToClub(clubId, classPassId),
-      prisma.classEnrollment.findFirst({
-        where: { id: safeEnrollmentId, clubId },
-        select: {
-          id: true,
-          clubId: true,
-          classSessionId: true,
-          studentClientId: true,
-          enrollmentStatus: true,
-          attendanceStatus: true,
-          paymentStatus: true,
-          classSession: {
-            select: {
-              id: true,
-              teacherId: true,
-              activityTypeId: true,
-              classType: true,
-            },
-          },
-        },
-      }),
-    ]);
-
-    if (!classEnrollment) {
-      throw badRequest('Inscripción inválida.', ErrorCodes.CLASS_ENROLLMENT_NOT_FOUND);
-    }
-
-    const effectiveStatus = this.effectivePassStatus({
-      status: String(classPass.status),
-      expiresAt: classPass.expiresAt,
-      remainingCredits: Number(classPass.remainingCredits),
-    });
-    if (effectiveStatus !== 'ACTIVE') {
-      throw badRequest('El pack no está disponible para consumir créditos.', ErrorCodes.CLASS_PASS_INVALID_STATUS);
-    }
-
-    if (Number(classPass.totalCredits) !== Number(classPass.usedCredits) + Number(classPass.remainingCredits)) {
-      throw badRequest('El pack tiene un saldo inconsistente.', ErrorCodes.INVALID_INPUT);
-    }
-
-    if (Number(classPass.remainingCredits) < creditsUsed) {
-      throw conflict('El pack no tiene créditos suficientes.', ErrorCodes.CLASS_PASS_INSUFFICIENT_CREDITS);
-    }
-
-    if (!classPass.transferable && classEnrollment.studentClientId !== classPass.beneficiaryClientId) {
-      throw badRequest(
-        'Este pack solo puede usarse para el beneficiario configurado.',
-        ErrorCodes.CLASS_PASS_ENROLLMENT_MISMATCH
-      );
-    }
-
-    if (classPass.activityTypeId && classEnrollment.classSession.activityTypeId !== Number(classPass.activityTypeId)) {
-      throw badRequest(
-        'El pack no aplica a la actividad de esta clase.',
-        ErrorCodes.CLASS_PASS_ENROLLMENT_MISMATCH
-      );
-    }
-
-    if (classPass.classType && classEnrollment.classSession.classType !== classPass.classType) {
-      throw badRequest(
-        'El pack no aplica al formato de esta clase.',
-        ErrorCodes.CLASS_PASS_ENROLLMENT_MISMATCH
-      );
-    }
-
-    if (classPass.teacherId && classEnrollment.classSession.teacherId !== classPass.teacherId) {
-      throw badRequest(
-        'El pack no aplica al profesor de esta clase.',
-        ErrorCodes.CLASS_PASS_ENROLLMENT_MISMATCH
-      );
-    }
-
-    if (
-      classEnrollment.enrollmentStatus === 'CANCELLED' &&
-      !['LATE_CANCEL', 'NO_SHOW'].includes(String(input.reason))
-    ) {
-      throw badRequest(
-        'Las inscripciones canceladas solo admiten consumo por cancelación tardía o no show.',
-        ErrorCodes.INVALID_INPUT
-      );
-    }
-
     try {
       const created = await prisma.$transaction(async (tx) => {
+        const [classPass, classEnrollment] = await Promise.all([
+          tx.classPass.findFirst({
+            where: { id: safeClassPassId, clubId },
+            select: {
+              id: true,
+              clubId: true,
+              ownerClientId: true,
+              beneficiaryClientId: true,
+              activityTypeId: true,
+              classType: true,
+              teacherId: true,
+              totalCredits: true,
+              usedCredits: true,
+              remainingCredits: true,
+              expiresAt: true,
+              transferable: true,
+              status: true,
+            },
+          }),
+          tx.classEnrollment.findFirst({
+            where: { id: safeEnrollmentId, clubId },
+            select: {
+              id: true,
+              clubId: true,
+              classSessionId: true,
+              studentClientId: true,
+              enrollmentStatus: true,
+              attendanceStatus: true,
+              paymentStatus: true,
+              classSession: {
+                select: {
+                  id: true,
+                  teacherId: true,
+                  activityTypeId: true,
+                  classType: true,
+                },
+              },
+            },
+          }),
+        ]);
+
+        if (!classPass) {
+          throw notFound('Pack de clases no encontrado.', ErrorCodes.CLASS_PASS_NOT_FOUND);
+        }
+
+        if (!classEnrollment) {
+          throw notFound('Inscripción no encontrada.', ErrorCodes.CLASS_ENROLLMENT_NOT_FOUND);
+        }
+
+        const effectiveStatus = this.effectivePassStatus({
+          status: String(classPass.status),
+          expiresAt: classPass.expiresAt,
+          remainingCredits: Number(classPass.remainingCredits),
+        });
+        if (effectiveStatus !== 'ACTIVE') {
+          throw badRequest('El pack no está disponible para consumir créditos.', ErrorCodes.CLASS_PASS_INVALID_STATUS);
+        }
+
+        if (Number(classPass.totalCredits) !== Number(classPass.usedCredits) + Number(classPass.remainingCredits)) {
+          throw badRequest('El pack tiene un saldo inconsistente.', ErrorCodes.INVALID_INPUT);
+        }
+
+        if (Number(classPass.remainingCredits) < creditsUsed) {
+          throw conflict('El pack no tiene créditos suficientes.', ErrorCodes.CLASS_PASS_INSUFFICIENT_CREDITS);
+        }
+
+        if (!classPass.transferable && classEnrollment.studentClientId !== classPass.beneficiaryClientId) {
+          throw badRequest(
+            'Este pack solo puede usarse para el beneficiario configurado.',
+            ErrorCodes.CLASS_PASS_ENROLLMENT_MISMATCH
+          );
+        }
+
+        if (classPass.activityTypeId && classEnrollment.classSession.activityTypeId !== Number(classPass.activityTypeId)) {
+          throw badRequest(
+            'El pack no aplica a la actividad de esta clase.',
+            ErrorCodes.CLASS_PASS_ENROLLMENT_MISMATCH
+          );
+        }
+
+        if (classPass.classType && classEnrollment.classSession.classType !== classPass.classType) {
+          throw badRequest(
+            'El pack no aplica al formato de esta clase.',
+            ErrorCodes.CLASS_PASS_ENROLLMENT_MISMATCH
+          );
+        }
+
+        if (classPass.teacherId && classEnrollment.classSession.teacherId !== classPass.teacherId) {
+          throw badRequest(
+            'El pack no aplica al profesor de esta clase.',
+            ErrorCodes.CLASS_PASS_ENROLLMENT_MISMATCH
+          );
+        }
+
+        if (
+          classEnrollment.enrollmentStatus === 'CANCELLED' &&
+          !['LATE_CANCEL', 'NO_SHOW'].includes(String(input.reason))
+        ) {
+          throw badRequest(
+            'Las inscripciones canceladas solo admiten consumo por cancelación tardía o no show.',
+            ErrorCodes.INVALID_INPUT
+          );
+        }
+
+        if (!['UNPAID', 'PARTIAL'].includes(String(classEnrollment.paymentStatus))) {
+          throw badRequest(
+            'La inscripción ya tiene un estado de pago que no permite cubrirla con crédito.',
+            ErrorCodes.INVALID_INPUT
+          );
+        }
+
         const usage = await tx.classCreditUsage.create({
           data: {
             clubId,
-            classPassId: String(classPassId),
+            classPassId: safeClassPassId,
             classEnrollmentId: safeEnrollmentId,
             creditsUsed,
             reason: input.reason as any,
@@ -272,17 +305,35 @@ export class ClassCreditUsageAdminService {
           },
         });
 
-        const nextRemainingCredits = Number(classPass.remainingCredits) - creditsUsed;
-        const nextUsedCredits = Number(classPass.usedCredits) + creditsUsed;
-
-        await tx.classPass.update({
-          where: { id: String(classPassId) },
+        const updatedPass = await tx.classPass.updateMany({
+          where: {
+            id: safeClassPassId,
+            clubId,
+            status: 'ACTIVE',
+            remainingCredits: { gte: creditsUsed },
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          },
           data: {
-            usedCredits: nextUsedCredits,
-            remainingCredits: nextRemainingCredits,
-            status: nextRemainingCredits === 0 ? 'DEPLETED' : classPass.status,
+            usedCredits: { increment: creditsUsed },
+            remainingCredits: { decrement: creditsUsed },
           },
         });
+
+        if (updatedPass.count !== 1) {
+          throw conflict('El pack ya no tiene créditos disponibles.', ErrorCodes.CLASS_PASS_INSUFFICIENT_CREDITS);
+        }
+
+        const refreshedPass = await tx.classPass.findFirstOrThrow({
+          where: { id: safeClassPassId, clubId },
+          select: { id: true, remainingCredits: true },
+        });
+
+        if (Number(refreshedPass.remainingCredits) === 0) {
+          await tx.classPass.update({
+            where: { id: safeClassPassId },
+            data: { status: 'DEPLETED' },
+          });
+        }
 
         await tx.classEnrollment.update({
           where: { id: safeEnrollmentId },
@@ -308,13 +359,19 @@ export class ClassCreditUsageAdminService {
             createdByUser: { select: { id: true, email: true, firstName: true, lastName: true } },
           },
         });
-      });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
       return this.mapRow(created);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw conflict(
           'Ese pack ya fue consumido para esta inscripción.',
+          ErrorCodes.CLASS_CREDIT_USAGE_CONFLICT
+        );
+      }
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
+        throw conflict(
+          'El pack cambió mientras intentabas consumirlo. Actualizá e intentá de nuevo.',
           ErrorCodes.CLASS_CREDIT_USAGE_CONFLICT
         );
       }
