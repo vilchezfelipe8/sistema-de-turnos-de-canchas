@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pencil, Plus, Search, UserPlus, Users, XCircle } from 'lucide-react';
 import AdminRouteShell from '../../components/admin/AdminRouteShell';
 import {
+  AdminAppModal,
   AdminDataTable,
   AdminDrawer,
   AdminDrawerSection,
@@ -17,8 +18,11 @@ import {
 import {
   ClubAdminService,
   type AdminClassAttendanceStatus,
+  type AdminClassCreditUsage,
+  type AdminClassCreditUsageReason,
   type AdminClassEnrollment,
   type AdminClassEnrollmentStatus,
+  type AdminClassPass,
   type AdminClassPaymentStatus,
   type AdminClassSession,
   type AdminClassSessionStatus,
@@ -290,6 +294,65 @@ const paymentStatusLabel = (status: AdminClassPaymentStatus) => {
   }
 };
 
+const classPassStatusLabel = (status: AdminClassPass['status'] | string) => {
+  switch (status) {
+    case 'ACTIVE':
+      return 'Activo';
+    case 'EXPIRED':
+      return 'Vencido';
+    case 'DEPLETED':
+      return 'Sin saldo';
+    case 'CANCELLED':
+      return 'Cancelado';
+    default:
+      return status;
+  }
+};
+
+const creditUsageReasonLabel = (reason: AdminClassCreditUsageReason) => {
+  switch (reason) {
+    case 'ATTENDANCE':
+      return 'Asistencia';
+    case 'LATE_CANCEL':
+      return 'Cancelación tardía';
+    case 'NO_SHOW':
+      return 'No show';
+    case 'MANUAL_ADJUSTMENT':
+      return 'Ajuste manual';
+    case 'REFUND_REVERSAL':
+      return 'Reversión';
+    default:
+      return reason;
+  }
+};
+
+const resolveCreditUsageReason = (
+  attendanceStatus: AdminClassAttendanceStatus
+): AdminClassCreditUsageReason => {
+  switch (attendanceStatus) {
+    case 'ATTENDED':
+      return 'ATTENDANCE';
+    case 'NO_SHOW':
+      return 'NO_SHOW';
+    case 'CANCELLED_LATE':
+      return 'LATE_CANCEL';
+    default:
+      return 'MANUAL_ADJUSTMENT';
+  }
+};
+
+const effectiveClassPassStatus = (classPass: AdminClassPass): AdminClassPass['status'] => {
+  if (classPass.status === 'CANCELLED') return 'CANCELLED';
+  if (classPass.remainingCredits <= 0 || classPass.status === 'DEPLETED') return 'DEPLETED';
+  if (classPass.expiresAt) {
+    const expiresAt = new Date(classPass.expiresAt);
+    if (!Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() <= Date.now()) {
+      return 'EXPIRED';
+    }
+  }
+  return 'ACTIVE';
+};
+
 const statusToneClasses = (status: AdminClassSessionStatus) => {
   switch (status) {
     case 'CONFIRMED':
@@ -316,6 +379,140 @@ const enrollmentToneClasses = (status: AdminClassEnrollmentStatus) => {
     default:
       return 'border-p-error bg-p-error-bg text-[var(--error-fg)]';
   }
+};
+
+const classPassToneClasses = (status: AdminClassPass['status']) => {
+  switch (status) {
+    case 'ACTIVE':
+      return 'border-p-positive bg-p-positive-bg text-p-positive';
+    case 'DEPLETED':
+      return 'border-p-border bg-p-surface-2 text-p-text-muted';
+    case 'EXPIRED':
+      return 'border-p-border-strong bg-p-surface text-p-text-secondary';
+    case 'CANCELLED':
+    default:
+      return 'border-p-error bg-p-error-bg text-[var(--error-fg)]';
+  }
+};
+
+type ClassPassAvailability = {
+  usable: boolean;
+  effectiveStatus: AdminClassPass['status'];
+  disabledReason: string | null;
+  reason: AdminClassCreditUsageReason;
+};
+
+const resolveClassPassAvailability = ({
+  classPass,
+  enrollment,
+  selectedClass,
+  hasUsage,
+}: {
+  classPass: AdminClassPass;
+  enrollment: AdminClassEnrollment;
+  selectedClass: AdminClassSession;
+  hasUsage: boolean;
+}): ClassPassAvailability => {
+  const reason = resolveCreditUsageReason(enrollment.attendanceStatus);
+  const effectiveStatus = effectiveClassPassStatus(classPass);
+
+  if (hasUsage) {
+    return {
+      usable: false,
+      effectiveStatus,
+      reason,
+      disabledReason: 'Ese pack ya se consumió para esta inscripción.',
+    };
+  }
+
+  if (['COVERED_BY_CREDIT', 'PAID', 'REFUNDED'].includes(enrollment.paymentStatus)) {
+    return {
+      usable: false,
+      effectiveStatus,
+      reason,
+      disabledReason: 'El estado de pago actual ya no admite cubrir esta inscripción con crédito.',
+    };
+  }
+
+  if (effectiveStatus !== 'ACTIVE') {
+    return {
+      usable: false,
+      effectiveStatus,
+      reason,
+      disabledReason: 'El pack no está disponible para consumir créditos.',
+    };
+  }
+
+  if (classPass.remainingCredits < 1) {
+    return {
+      usable: false,
+      effectiveStatus,
+      reason,
+      disabledReason: 'El pack no tiene saldo suficiente.',
+    };
+  }
+
+  if (enrollment.enrollmentStatus === 'CANCELLED' && !['LATE_CANCEL', 'NO_SHOW'].includes(reason)) {
+    return {
+      usable: false,
+      effectiveStatus,
+      reason,
+      disabledReason: 'Las inscripciones canceladas solo admiten crédito por cancelación tardía o no show.',
+    };
+  }
+
+  if (!classPass.transferable && classPass.beneficiaryClientId !== enrollment.studentClientId) {
+    return {
+      usable: false,
+      effectiveStatus,
+      reason,
+      disabledReason: 'Este pack solo aplica al beneficiario configurado.',
+    };
+  }
+
+  if (classPass.activityTypeId && classPass.activityTypeId !== selectedClass.activityTypeId) {
+    return {
+      usable: false,
+      effectiveStatus,
+      reason,
+      disabledReason: 'La actividad de la clase no coincide con la del pack.',
+    };
+  }
+
+  if (classPass.classType && classPass.classType !== selectedClass.classType) {
+    return {
+      usable: false,
+      effectiveStatus,
+      reason,
+      disabledReason: 'El formato de la clase no coincide con el pack.',
+    };
+  }
+
+  if (classPass.teacherId && classPass.teacherId !== selectedClass.teacherId) {
+    return {
+      usable: false,
+      effectiveStatus,
+      reason,
+      disabledReason: 'El pack está restringido a otro profesor.',
+    };
+  }
+
+  return {
+    usable: true,
+    effectiveStatus,
+    reason,
+    disabledReason: null,
+  };
+};
+
+const buildClassPassRestrictionList = (classPass: AdminClassPass) => {
+  const items: string[] = [];
+  if (classPass.activityType?.name) items.push(`Actividad: ${classPass.activityType.name}`);
+  if (classPass.classType) items.push(`Formato: ${classTypeLabel(classPass.classType)}`);
+  if (classPass.teacher?.displayName) items.push(`Profesor: ${classPass.teacher.displayName}`);
+  if (classPass.expiresAt) items.push(`Vence: ${formatDateTime(classPass.expiresAt)}`);
+  if (classPass.transferable) items.push('Transferible dentro del club');
+  return items;
 };
 
 const personSecondaryLine = (row: { email?: string | null; phone?: string | null; dni?: string | null }) =>
@@ -460,6 +657,26 @@ const translateEnrollmentError = (error: unknown, fallback: string) => {
   }
 };
 
+const translateClassPassError = (error: unknown, fallback: string) => {
+  const normalized = normalizeApiError(error, fallback);
+  switch (normalized.code) {
+    case 'CLASS_PASS_INSUFFICIENT_CREDITS':
+      return 'El pack ya no tiene saldo suficiente.';
+    case 'CLASS_PASS_INVALID_STATUS':
+      return 'El pack ya no está disponible para consumir créditos.';
+    case 'CLASS_PASS_ENROLLMENT_MISMATCH':
+      return 'Ese pack no aplica a esta clase o a este alumno.';
+    case 'CLASS_CREDIT_USAGE_CONFLICT':
+      return 'Ese crédito ya fue consumido o cambió mientras lo estabas registrando.';
+    case 'CLASS_PASS_NOT_FOUND':
+      return 'El pack elegido ya no está disponible.';
+    case 'INVALID_INPUT':
+      return extractErrorMessage(normalized, 'No se pudo consumir el crédito de la tarjetita.');
+    default:
+      return extractErrorMessage(normalized, fallback);
+  }
+};
+
 function usePersonSearchResults(
   clubSlug: string,
   query: string,
@@ -540,6 +757,18 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
   const [enrollmentFieldErrors, setEnrollmentFieldErrors] = useState<Record<string, string>>({});
   const [enrollmentSubmitting, setEnrollmentSubmitting] = useState(false);
   const [enrollmentStatusBusyId, setEnrollmentStatusBusyId] = useState<string | null>(null);
+  const [classPassesByStudent, setClassPassesByStudent] = useState<Record<string, AdminClassPass[]>>({});
+  const [classPassesLoading, setClassPassesLoading] = useState(false);
+  const [classPassesError, setClassPassesError] = useState('');
+  const [creditUsagesByEnrollment, setCreditUsagesByEnrollment] = useState<Record<string, AdminClassCreditUsage[]>>({});
+  const [creditUsageLoading, setCreditUsageLoading] = useState(false);
+  const [creditUsageError, setCreditUsageError] = useState('');
+  const [creditUsageBusyPassId, setCreditUsageBusyPassId] = useState<string | null>(null);
+  const [creditUsageConfirmState, setCreditUsageConfirmState] = useState<{
+    classPass: AdminClassPass;
+    enrollment: AdminClassEnrollment;
+    reason: AdminClassCreditUsageReason;
+  } | null>(null);
 
   const loadClassSessions = useCallback(async () => {
     if (!clubSlug) {
@@ -613,6 +842,74 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     [clubSlug]
   );
 
+  const loadClassPassesForStudents = useCallback(
+    async (studentClientIds: string[], mode: 'replace' | 'merge' = 'replace') => {
+      if (!clubSlug) {
+        if (mode === 'replace') setClassPassesByStudent({});
+        setClassPassesLoading(false);
+        return;
+      }
+
+      const uniqueStudentIds = Array.from(
+        new Set(studentClientIds.map((value) => String(value || '').trim()).filter(Boolean))
+      );
+
+      if (!uniqueStudentIds.length) {
+        if (mode === 'replace') setClassPassesByStudent({});
+        setClassPassesLoading(false);
+        setClassPassesError('');
+        return;
+      }
+
+      try {
+        setClassPassesLoading(true);
+        setClassPassesError('');
+        const pairs = await Promise.all(
+          uniqueStudentIds.map(async (studentClientId) => {
+            const rows = await ClubAdminService.getClassPasses(clubSlug, {
+              beneficiaryClientId: studentClientId,
+              status: 'ACTIVE',
+            });
+            return [studentClientId, rows] as const;
+          })
+        );
+
+        const nextMap = Object.fromEntries(pairs) as Record<string, AdminClassPass[]>;
+        setClassPassesByStudent((prev) => (mode === 'merge' ? { ...prev, ...nextMap } : nextMap));
+      } catch (error) {
+        reportUiError({ area: 'AdminClassesPage', action: 'loadClassPassesForStudents' }, error);
+        if (mode === 'replace') setClassPassesByStudent({});
+        setClassPassesError(
+          translateClassPassError(error, 'No se pudieron cargar los packs de clases del alumno.')
+        );
+      } finally {
+        setClassPassesLoading(false);
+      }
+    },
+    [clubSlug]
+  );
+
+  const loadEnrollmentCreditUsages = useCallback(
+    async (enrollmentId: string) => {
+      if (!clubSlug) return;
+      try {
+        setCreditUsageLoading(true);
+        setCreditUsageError('');
+        const rows = await ClubAdminService.getEnrollmentCreditUsages(clubSlug, enrollmentId);
+        setCreditUsagesByEnrollment((prev) => ({ ...prev, [enrollmentId]: rows }));
+      } catch (error) {
+        reportUiError({ area: 'AdminClassesPage', action: 'loadEnrollmentCreditUsages' }, error);
+        setCreditUsagesByEnrollment((prev) => ({ ...prev, [enrollmentId]: [] }));
+        setCreditUsageError(
+          translateClassPassError(error, 'No se pudieron cargar los consumos de crédito de esta inscripción.')
+        );
+      } finally {
+        setCreditUsageLoading(false);
+      }
+    },
+    [clubSlug]
+  );
+
   useEffect(() => {
     void loadClassSessions();
     void loadOptions();
@@ -623,10 +920,21 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       setEnrollments([]);
       setEnrollmentsError('');
       setEnrollmentsLoading(false);
+      setClassPassesByStudent({});
+      setClassPassesError('');
+      setClassPassesLoading(false);
+      setCreditUsagesByEnrollment({});
+      setCreditUsageError('');
+      setCreditUsageLoading(false);
       return;
     }
     void loadEnrollments(selectedClassId);
   }, [loadEnrollments, selectedClassId]);
+
+  useEffect(() => {
+    if (!selectedClassId) return;
+    void loadClassPassesForStudents(enrollments.map((row) => row.studentClientId), 'replace');
+  }, [enrollments, loadClassPassesForStudents, selectedClassId]);
 
   const summary = useMemo(() => {
     const activeCount = classSessions.filter((row) => ['DRAFT', 'SCHEDULED', 'CONFIRMED'].includes(row.status)).length;
@@ -686,6 +994,21 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     return enrollments;
   }, [enrollmentFilter, enrollments]);
 
+  const editingEnrollment = useMemo(
+    () => enrollments.find((row) => row.id === editingEnrollmentId) || null,
+    [editingEnrollmentId, enrollments]
+  );
+
+  const editingEnrollmentCreditUsages = useMemo(
+    () => (editingEnrollmentId ? creditUsagesByEnrollment[editingEnrollmentId] || [] : []),
+    [creditUsagesByEnrollment, editingEnrollmentId]
+  );
+
+  useEffect(() => {
+    if (!editingEnrollmentId || !enrollmentModalOpen) return;
+    void loadEnrollmentCreditUsages(editingEnrollmentId);
+  }, [editingEnrollmentId, enrollmentModalOpen, loadEnrollmentCreditUsages]);
+
   const resetClassForm = useCallback(() => {
     setForm(buildEmptyClassForm());
     setFormError('');
@@ -698,6 +1021,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     setEnrollmentFormError('');
     setEnrollmentFieldErrors({});
     setEditingEnrollmentId(null);
+    setCreditUsageError('');
+    setCreditUsageConfirmState(null);
   }, []);
 
   const openCreateModal = useCallback(() => {
@@ -880,6 +1205,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     });
     setEnrollmentFormError('');
     setEnrollmentFieldErrors({});
+    setCreditUsageError('');
     setEnrollmentModalOpen(true);
   }, []);
 
@@ -987,12 +1313,91 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     [clubSlug, enrollmentStatusBusyId, loadEnrollments, selectedClass]
   );
 
+  const consumeClassPassCredit = useCallback(async () => {
+    if (!clubSlug || !selectedClass || !creditUsageConfirmState || creditUsageBusyPassId) return;
+
+    const { classPass, enrollment, reason } = creditUsageConfirmState;
+    try {
+      setCreditUsageBusyPassId(classPass.id);
+      await ClubAdminService.createClassPassUsage(clubSlug, classPass.id, {
+        classEnrollmentId: enrollment.id,
+        creditsUsed: 1,
+        reason,
+      });
+
+      showAdminToast('Crédito consumido.');
+      setCreditUsageConfirmState(null);
+      await loadEnrollments(selectedClass.id);
+      await Promise.all([
+        loadClassPassesForStudents([enrollment.studentClientId], 'merge'),
+        loadEnrollmentCreditUsages(enrollment.id),
+      ]);
+      setFeedback(null);
+    } catch (error) {
+      reportUiError({ area: 'AdminClassesPage', action: 'consumeClassPassCredit' }, error);
+      const message = translateClassPassError(error, 'No se pudo consumir el crédito de la tarjetita.');
+      setCreditUsageError(message);
+      setEnrollmentFormError(message);
+    } finally {
+      setCreditUsageBusyPassId(null);
+    }
+  }, [
+    clubSlug,
+    creditUsageBusyPassId,
+    creditUsageConfirmState,
+    loadClassPassesForStudents,
+    loadEnrollmentCreditUsages,
+    loadEnrollments,
+    selectedClass,
+  ]);
+
   const attendanceOptions = useMemo(
     () =>
       editingEnrollmentId && enrollmentForm.attendanceStatus.startsWith('CANCELLED')
         ? CANCELLED_ATTENDANCE_OPTIONS
         : ACTIVE_ATTENDANCE_OPTIONS,
     [editingEnrollmentId, enrollmentForm.attendanceStatus]
+  );
+
+  const compatiblePassSummary = useCallback(
+    (enrollment: AdminClassEnrollment) => {
+      if (!selectedClass) {
+        return { label: 'Sin contexto de clase', muted: true };
+      }
+
+      if (enrollment.paymentStatus === 'COVERED_BY_CREDIT') {
+        return { label: 'Cubierto por crédito', muted: false };
+      }
+
+      if (['PAID', 'REFUNDED'].includes(enrollment.paymentStatus)) {
+        return { label: 'No aplica por estado de pago', muted: true };
+      }
+
+      const passes = classPassesByStudent[enrollment.studentClientId] || [];
+      if (!passes.length) {
+        return { label: classPassesLoading ? 'Cargando packs...' : 'Sin packs activos', muted: true };
+      }
+
+      const usablePasses = passes.filter((classPass) =>
+        resolveClassPassAvailability({
+          classPass,
+          enrollment,
+          selectedClass,
+          hasUsage: false,
+        }).usable
+      );
+
+      if (!usablePasses.length) {
+        return { label: 'Sin packs compatibles', muted: true };
+      }
+
+      const availableCredits = usablePasses.reduce((total, classPass) => total + Number(classPass.remainingCredits || 0), 0);
+      return {
+        label: `${usablePasses.length} pack${usablePasses.length === 1 ? '' : 's'} · ${availableCredits} crédito${availableCredits === 1 ? '' : 's'}`,
+        muted: false,
+      };
+    },
+    [classPassesByStudent, classPassesLoading, selectedClass]
   );
 
   const classColumns = useMemo<AdminDataTableColumn<AdminClassSession>[]>(
@@ -1156,6 +1561,22 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         render: (enrollment) => <span className="text-[12px] text-p-text-secondary">{formatCurrency(enrollment.priceAtEnrollment)}</span>,
       },
       {
+        key: 'credits',
+        label: 'Créditos',
+        width: 'w-[170px]',
+        render: (enrollment) => {
+          const summary = compatiblePassSummary(enrollment);
+          return (
+            <div className="text-[12px] text-p-text-secondary">
+              <p className={summary.muted ? 'text-p-text-muted' : 'font-medium text-p-text'}>
+                {summary.label}
+              </p>
+              <p className="mt-0.5 text-p-text-muted">Abrí la inscripción para usar la tarjetita.</p>
+            </div>
+          );
+        },
+      },
+      {
         key: 'notes',
         label: 'Notas',
         render: (enrollment) => (
@@ -1193,7 +1614,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         ),
       },
     ],
-    [cancelEnrollment, enrollmentStatusBusyId, openEnrollmentEditModal]
+    [cancelEnrollment, compatiblePassSummary, enrollmentStatusBusyId, openEnrollmentEditModal]
   );
 
   const canCreateClass = teachers.length > 0 && !optionsLoading;
@@ -1201,6 +1622,9 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
   const activeEnrollmentCount = enrollmentActiveCount(enrollments);
   const waitlistedCount = enrollmentWaitlistCount(enrollments);
   const cancelledEnrollmentCount = enrollmentCancelledCount(enrollments);
+  const editingEnrollmentPasses = editingEnrollment
+    ? classPassesByStudent[editingEnrollment.studentClientId] || []
+    : [];
   const classFormContent = (
     <form id="class-session-form" onSubmit={submitForm} className="space-y-4">
       {formError && <AdminInlineError>{formError}</AdminInlineError>}
@@ -1765,8 +2189,194 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
               />
             </div>
           </AdminDrawerSection>
+
+          <AdminDrawerSection title="Tarjetita digital" className={drawerSectionCardClass}>
+            {!editingEnrollmentId || !editingEnrollment ? (
+              <div className={helperCardClass}>
+                <p className="font-semibold text-p-text">Créditos después de guardar</p>
+                <p className="mt-1">
+                  Guardá primero la inscripción. Después vas a poder ver packs compatibles, saldo y consumir un crédito manualmente.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className={helperCardClass}>
+                  <p className="font-semibold text-p-text">Consumir crédito no registra un pago</p>
+                  <p className="mt-1">
+                    Esta acción solo usa un crédito del pack para cubrir la inscripción. No modifica asistencia ni genera cobros en cuenta.
+                  </p>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-3">
+                  <SummaryBlock label="Pago actual" value={paymentStatusLabel(editingEnrollment.paymentStatus)} />
+                  <SummaryBlock label="Asistencia" value={attendanceStatusLabel(editingEnrollment.attendanceStatus)} />
+                  <SummaryBlock label="Consumos" value={String(editingEnrollmentCreditUsages.length)} />
+                </div>
+
+                {creditUsageError ? <AdminInlineError>{creditUsageError}</AdminInlineError> : null}
+                {classPassesError ? <AdminInlineError>{classPassesError}</AdminInlineError> : null}
+
+                {editingEnrollmentCreditUsages.length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-[12px] font-semibold text-p-text">Trazabilidad registrada</p>
+                    <div className="space-y-2">
+                      {editingEnrollmentCreditUsages.map((usage) => (
+                        <div key={usage.id} className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-[13px] font-semibold text-p-text">
+                              {usage.classPass?.packageName || 'Pack sin referencia'}
+                            </p>
+                            <span className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 text-[11px] font-semibold text-p-text-secondary">
+                              {usage.creditsUsed} crédito{usage.creditsUsed === 1 ? '' : 's'}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-[12px] text-p-text-secondary">
+                            {creditUsageReasonLabel(usage.reason)} · {formatDateTime(usage.usedAt)}
+                          </p>
+                          {usage.notes ? <p className="mt-1 text-[12px] text-p-text-muted">{usage.notes}</p> : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {classPassesLoading && editingEnrollmentPasses.length === 0 ? (
+                  <div className={helperCardClass}>Cargando packs activos del alumno...</div>
+                ) : editingEnrollmentPasses.length === 0 ? (
+                  <div className={helperCardClass}>
+                    <p className="font-semibold text-p-text">Sin packs activos</p>
+                    <p className="mt-1">
+                      Este alumno no tiene una tarjetita digital activa y compatible para consumir desde esta clase.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {editingEnrollmentPasses.map((classPass) => {
+                      const hasUsage = editingEnrollmentCreditUsages.some((usage) => usage.classPassId === classPass.id);
+                      const availability = resolveClassPassAvailability({
+                        classPass,
+                        enrollment: editingEnrollment,
+                        selectedClass,
+                        hasUsage,
+                      });
+                      const restrictionItems = buildClassPassRestrictionList(classPass);
+                      const ownerIsDifferent =
+                        classPass.ownerClient?.id && classPass.ownerClient.id !== classPass.beneficiaryClientId;
+
+                      return (
+                        <div key={classPass.id} className="rounded-xl border border-p-border bg-p-surface px-4 py-4">
+                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="truncate text-[13px] font-semibold text-p-text">{classPass.packageName}</p>
+                                <span
+                                  className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${classPassToneClasses(
+                                    availability.effectiveStatus
+                                  )}`}
+                                >
+                                  {classPassStatusLabel(availability.effectiveStatus)}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-[12px] text-p-text-secondary">
+                                {classPass.remainingCredits}/{classPass.totalCredits} créditos disponibles
+                              </p>
+                              {ownerIsDifferent ? (
+                                <p className="mt-1 text-[12px] text-p-text-muted">
+                                  Titular: {classPass.ownerClient?.name || 'Cliente del club'}
+                                </p>
+                              ) : null}
+                            </div>
+
+                            <div className="flex flex-col items-start gap-2 md:items-end">
+                              <span className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 text-[11px] font-semibold text-p-text-secondary">
+                                Motivo: {creditUsageReasonLabel(availability.reason)}
+                              </span>
+                              <button
+                                type="button"
+                                disabled={!availability.usable || creditUsageBusyPassId === classPass.id}
+                                onClick={() =>
+                                  setCreditUsageConfirmState({
+                                    classPass,
+                                    enrollment: editingEnrollment,
+                                    reason: availability.reason,
+                                  })
+                                }
+                                className="inline-flex h-8 items-center justify-center rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:bg-ink-700/50"
+                              >
+                                {creditUsageBusyPassId === classPass.id ? 'Consumiendo...' : 'Consumir 1 crédito'}
+                              </button>
+                            </div>
+                          </div>
+
+                          {restrictionItems.length > 0 ? (
+                            <div className="mt-3 flex flex-wrap gap-1.5">
+                              {restrictionItems.map((item) => (
+                                <span
+                                  key={`${classPass.id}-${item}`}
+                                  className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 text-[11px] font-medium text-p-text-secondary"
+                                >
+                                  {item}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="mt-3 text-[12px] text-p-text-muted">Sin restricciones específicas para esta clase.</p>
+                          )}
+
+                          {!availability.usable && availability.disabledReason ? (
+                            <p className="mt-3 text-[12px] text-[var(--error-fg)]">{availability.disabledReason}</p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </AdminDrawerSection>
         </form>
       </AdminDrawer>
+
+      <AdminAppModal
+        show={Boolean(creditUsageConfirmState)}
+        onClose={() => {
+          if (!creditUsageBusyPassId) setCreditUsageConfirmState(null);
+        }}
+        title="Confirmar consumo de crédito"
+        message={
+          creditUsageConfirmState ? (
+            <div className="space-y-3">
+              <p>
+                Vas a consumir <strong>1 crédito</strong> de la tarjetita digital para cubrir esta inscripción.
+                Esto <strong>no registra un pago</strong> ni cambia la asistencia.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <SummaryBlock label="Alumno" value={creditUsageConfirmState.enrollment.snapshotName} />
+                <SummaryBlock label="Pack" value={creditUsageConfirmState.classPass.packageName} />
+                <SummaryBlock
+                  label="Créditos actuales"
+                  value={`${creditUsageConfirmState.classPass.remainingCredits}/${creditUsageConfirmState.classPass.totalCredits}`}
+                />
+                <SummaryBlock
+                  label="Restantes estimados"
+                  value={String(Math.max(0, creditUsageConfirmState.classPass.remainingCredits - 1))}
+                />
+                <SummaryBlock label="Motivo" value={creditUsageReasonLabel(creditUsageConfirmState.reason)} />
+                <SummaryBlock
+                  label="Estado de pago"
+                  value={paymentStatusLabel(creditUsageConfirmState.enrollment.paymentStatus)}
+                />
+              </div>
+            </div>
+          ) : null
+        }
+        cancelText="Cancelar"
+        confirmText={creditUsageBusyPassId ? 'Consumiendo...' : 'Consumir crédito'}
+        confirmDisabled={Boolean(creditUsageBusyPassId)}
+        onConfirm={() => {
+          void consumeClassPassCredit();
+        }}
+      />
     </div>
   );
 }
