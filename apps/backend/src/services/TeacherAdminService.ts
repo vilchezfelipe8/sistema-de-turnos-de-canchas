@@ -1,5 +1,5 @@
 import { prisma } from '../prisma';
-import { ErrorCodes, badRequest, conflict, notFound } from '../errors';
+import { ErrorCodes, badRequest, conflict, forbidden, notFound } from '../errors';
 
 type TeacherInput = {
   clientId?: string | null;
@@ -48,6 +48,44 @@ const normalizeSpecialties = (value: unknown) => {
 };
 
 export class TeacherAdminService {
+  private async assertUserBelongsToClub(clubId: number, userId: number) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!user) {
+      throw notFound('Usuario no encontrado.', ErrorCodes.USER_NOT_FOUND);
+    }
+
+    const [membership, linkedClient] = await Promise.all([
+      prisma.membership.findUnique({
+        where: {
+          userId_clubId: {
+            userId: Number(userId),
+            clubId: Number(clubId),
+          },
+        },
+        select: { userId: true },
+      }),
+      prisma.client.findFirst({
+        where: {
+          clubId: Number(clubId),
+          userId: Number(userId),
+        },
+        select: { id: true },
+      }),
+    ]);
+
+    if (!membership && !linkedClient) {
+      throw forbidden('El usuario no pertenece a este club.', ErrorCodes.FORBIDDEN);
+    }
+
+    return {
+      userId: Number(user.id),
+      linkedClientId: linkedClient?.id ? String(linkedClient.id) : null,
+    };
+  }
+
   private mapTeacher(row: any): TeacherSummary {
     return {
       id: String(row.id),
@@ -106,15 +144,9 @@ export class TeacherAdminService {
       }
     }
 
-    let user: { id: number } | null = null;
+    let user: { userId: number; linkedClientId: string | null } | null = null;
     if (safeUserId) {
-      user = await prisma.user.findUnique({
-        where: { id: safeUserId },
-        select: { id: true },
-      });
-      if (!user) {
-        throw notFound('Usuario no encontrado.', ErrorCodes.USER_NOT_FOUND);
-      }
+      user = await this.assertUserBelongsToClub(clubId, safeUserId);
       const teacherByUser = await prisma.teacher.findFirst({
         where: {
           clubId,
@@ -131,6 +163,13 @@ export class TeacherAdminService {
     if (client?.userId && safeUserId && Number(client.userId) !== safeUserId) {
       throw conflict(
         'El cliente seleccionado ya está vinculado a otro usuario. Revisá la identidad elegida.',
+        ErrorCodes.CLIENT_LINK_CONFLICT
+      );
+    }
+
+    if (safeClientId && user?.linkedClientId && user.linkedClientId !== safeClientId) {
+      throw conflict(
+        'El usuario seleccionado ya está vinculado a otro cliente del club. Revisá la identidad elegida.',
         ErrorCodes.CLIENT_LINK_CONFLICT
       );
     }
