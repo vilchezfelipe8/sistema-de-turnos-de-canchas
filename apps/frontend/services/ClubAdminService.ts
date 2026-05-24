@@ -106,6 +106,53 @@ export type AdminTeacher = {
   updatedAt: string;
 };
 
+export type AdminClassSessionStatus = 'DRAFT' | 'SCHEDULED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED';
+export type AdminClassSessionVisibility = 'PUBLIC' | 'PRIVATE';
+export type AdminClassSessionType = 'INDIVIDUAL' | 'GROUP';
+
+export type AdminClassSession = {
+  id: string;
+  clubId: number;
+  teacherId: string;
+  visibility: AdminClassSessionVisibility;
+  classType: AdminClassSessionType;
+  activityTypeId: number | null;
+  courtId: number | null;
+  startsAt: string;
+  endsAt: string;
+  durationMinutes: number;
+  capacity: number;
+  pricePerStudent: number | null;
+  status: AdminClassSessionStatus;
+  level: string | null;
+  description: string | null;
+  requiresApproval: boolean;
+  requiresPaymentToEnroll: boolean;
+  createdByUserId: number;
+  metadata: unknown;
+  teacher: {
+    id: string;
+    displayName: string;
+    isActive: boolean;
+  } | null;
+  court: {
+    id: number;
+    name: string;
+  } | null;
+  activityType: {
+    id: number;
+    name: string;
+  } | null;
+  createdByUser: {
+    id: number;
+    email: string;
+    firstName?: string | null;
+    lastName?: string | null;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type AuditLogUser = {
   id: number;
   firstName?: string | null;
@@ -887,6 +934,108 @@ export class ClubAdminService {
     });
     if (!res.ok) {
       throw await parseApiErrorResponse(res, 'Error al actualizar estado del profesor');
+    }
+    return res.json();
+  }
+
+  static async getClassSessions(slug: string): Promise<AdminClassSession[]> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/class-sessions`, {
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) {
+      throw await parseApiErrorResponse(res, 'Error al cargar clases');
+    }
+    const rows = await res.json();
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  static async getClassSession(slug: string, id: string): Promise<AdminClassSession> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/class-sessions/${id}`, {
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) {
+      throw await parseApiErrorResponse(res, 'Error al cargar clase');
+    }
+    return res.json();
+  }
+
+  static async createClassSession(
+    slug: string,
+    data: {
+      teacherId: string;
+      visibility: AdminClassSessionVisibility;
+      classType: AdminClassSessionType;
+      activityTypeId?: number | null;
+      courtId?: number | null;
+      startsAt: string;
+      endsAt: string;
+      durationMinutes: number;
+      capacity: number;
+      pricePerStudent?: number | null;
+      status?: AdminClassSessionStatus;
+      level?: string | null;
+      description?: string | null;
+      requiresApproval?: boolean;
+      requiresPaymentToEnroll?: boolean;
+      metadata?: unknown;
+    }
+  ): Promise<AdminClassSession> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/class-sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      throw await parseApiErrorResponse(res, 'Error al crear clase');
+    }
+    return res.json();
+  }
+
+  static async updateClassSession(
+    slug: string,
+    id: string,
+    data: {
+      teacherId?: string;
+      visibility?: AdminClassSessionVisibility;
+      classType?: AdminClassSessionType;
+      activityTypeId?: number | null;
+      courtId?: number | null;
+      startsAt?: string;
+      endsAt?: string;
+      durationMinutes?: number;
+      capacity?: number;
+      pricePerStudent?: number | null;
+      status?: AdminClassSessionStatus;
+      level?: string | null;
+      description?: string | null;
+      requiresApproval?: boolean;
+      requiresPaymentToEnroll?: boolean;
+      metadata?: unknown;
+    }
+  ): Promise<AdminClassSession> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/class-sessions/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      throw await parseApiErrorResponse(res, 'Error al actualizar clase');
+    }
+    return res.json();
+  }
+
+  static async setClassSessionStatus(
+    slug: string,
+    id: string,
+    status: AdminClassSessionStatus
+  ): Promise<AdminClassSession> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/class-sessions/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+    if (!res.ok) {
+      throw await parseApiErrorResponse(res, 'Error al actualizar estado de la clase');
     }
     return res.json();
   }

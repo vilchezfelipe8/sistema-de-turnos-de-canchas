@@ -46,6 +46,11 @@ const HELP_TIPS_BY_SECTION: Record<string, string[]> = {
     'Mantené separados el perfil del profesor y las clases que dicte.',
     'Usá estado activo/inactivo para retirarlos sin perder trazabilidad.',
   ],
+  Clases: [
+    'Visibilidad y formato son ejes distintos: una clase pública puede ser individual.',
+    'Asociá profesor, cancha y actividad solo cuando correspondan al dominio real de la clase.',
+    'Todavía no mezcles inscripciones, cobros ni agenda compuesta en esta fase.',
+  ],
   Caja: [
     'Registra pagos parciales cuando no se abone el total.',
     'Verifica el responsable de cobro antes de confirmar.',
