@@ -1,3 +1,4 @@
+import type { GetServerSideProps } from 'next';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pencil, Plus, Search, UserPlus, Users, XCircle } from 'lucide-react';
 import AdminRouteShell from '../../components/admin/AdminRouteShell';
@@ -9,8 +10,7 @@ import {
   AdminFeedbackBanner,
   AdminFilterToolbar,
   AdminInlineError,
-  AdminModal,
-  AdminPageHeader,
+  MetricCard,
   AdminPanel,
   AdminSegmentedControl,
 } from '../../components/admin/ui';
@@ -205,6 +205,11 @@ const parseOptionalPositiveNumber = (value: string) => {
   if (!Number.isFinite(parsed) || parsed < 0) return Number.NaN;
   return parsed;
 };
+
+const drawerSectionCardClass = 'rounded-2xl border border-p-border bg-p-surface-2 p-4';
+const fieldInputClass =
+  'h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text shadow-p-card outline-none transition focus:border-p-accent focus:ring-2 focus:ring-lima-300/30';
+const helperCardClass = 'rounded-xl border border-p-border bg-p-surface p-3 text-[13px] text-p-text-secondary';
 
 const durationFromForm = (form: ClassFormState) => {
   const start = new Date(form.startsAt);
@@ -496,13 +501,13 @@ function usePersonSearchResults(
 
 export default function AdminClassesPage() {
   return (
-    <AdminRouteShell title="Clases | Pique Admin" activeItem="Clases" fromPath="/admin/clases">
+    <AdminRouteShell title="Academia | Pique Admin" activeItem="Academia" fromPath="/admin/academia">
       {(user) => <AdminClassesPageContent user={user} />}
     </AdminRouteShell>
   );
 }
 
-function AdminClassesPageContent({ user }: { user: any }) {
+export function AdminClassesPageContent({ user, embedded = false }: { user: any; embedded?: boolean }) {
   const normalizedUser = useMemo(() => normalizeSessionUser(user || null), [user]);
   const clubSlug = useMemo(() => getActiveClubSlug(normalizedUser), [normalizedUser]);
 
@@ -624,13 +629,13 @@ function AdminClassesPageContent({ user }: { user: any }) {
   }, [loadEnrollments, selectedClassId]);
 
   const summary = useMemo(() => {
+    const activeCount = classSessions.filter((row) => ['DRAFT', 'SCHEDULED', 'CONFIRMED'].includes(row.status)).length;
     const publicCount = classSessions.filter((row) => row.visibility === 'PUBLIC').length;
-    const groupCount = classSessions.filter((row) => row.classType === 'GROUP').length;
     const cancelled = classSessions.filter((row) => row.status === 'CANCELLED').length;
     return {
       total: classSessions.length,
+      activeCount,
       publicCount,
-      groupCount,
       cancelled,
     };
   }, [classSessions]);
@@ -1196,58 +1201,235 @@ function AdminClassesPageContent({ user }: { user: any }) {
   const activeEnrollmentCount = enrollmentActiveCount(enrollments);
   const waitlistedCount = enrollmentWaitlistCount(enrollments);
   const cancelledEnrollmentCount = enrollmentCancelledCount(enrollments);
+  const classFormContent = (
+    <form id="class-session-form" onSubmit={submitForm} className="space-y-4">
+      {formError && <AdminInlineError>{formError}</AdminInlineError>}
+
+      <AdminDrawerSection title="Configuración base" className={drawerSectionCardClass}>
+        <div className="space-y-4">
+          <div className={helperCardClass}>
+            <p className="font-semibold text-p-text">Visibilidad y formato se definen por separado</p>
+            <p className="mt-1">
+              Una clase pública puede ser individual, y una clase privada puede ser grupal. El cupo depende del formato, no de la visibilidad.
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <SelectField
+              label="Profesor"
+              value={form.teacherId}
+              onChange={(value) => setForm((prev) => ({ ...prev, teacherId: value }))}
+              error={fieldErrors.teacherId}
+              required
+              options={[
+                { value: '', label: optionsLoading ? 'Cargando profesores...' : 'Seleccionar profesor' },
+                ...teachers.map((teacher) => ({
+                  value: teacher.id,
+                  label: teacher.isActive ? teacher.displayName : `${teacher.displayName} (inactivo)`,
+                })),
+              ]}
+              inputClassName={fieldInputClass}
+            />
+            <SelectField
+              label="Estado"
+              value={form.status}
+              onChange={(value) => setForm((prev) => ({ ...prev, status: value as AdminClassSessionStatus }))}
+              error={fieldErrors.status}
+              options={CLASS_STATUS_OPTIONS}
+              inputClassName={fieldInputClass}
+            />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-[12px] font-semibold text-p-text">Visibilidad</label>
+              <AdminSegmentedControl
+                options={[
+                  { value: 'PUBLIC', label: 'Pública' },
+                  { value: 'PRIVATE', label: 'Privada' },
+                ]}
+                value={form.visibility}
+                onChange={(value) => setForm((prev) => ({ ...prev, visibility: value as AdminClassSessionVisibility }))}
+                ariaLabel="Visibilidad de la clase"
+              />
+              {fieldErrors.visibility && <p className="text-[11px] text-[var(--error-fg)]">{fieldErrors.visibility}</p>}
+            </div>
+            <div className="space-y-2">
+              <label className="text-[12px] font-semibold text-p-text">Formato</label>
+              <AdminSegmentedControl
+                options={[
+                  { value: 'INDIVIDUAL', label: 'Individual' },
+                  { value: 'GROUP', label: 'Grupal' },
+                ]}
+                value={form.classType}
+                onChange={(value) => updateClassType(value as AdminClassSessionType)}
+                ariaLabel="Formato de la clase"
+              />
+              {fieldErrors.classType && <p className="text-[11px] text-[var(--error-fg)]">{fieldErrors.classType}</p>}
+            </div>
+          </div>
+        </div>
+      </AdminDrawerSection>
+
+      <AdminDrawerSection title="Recursos y horario" className={drawerSectionCardClass}>
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <SelectField
+              label="Cancha"
+              value={form.courtId}
+              onChange={(value) => setForm((prev) => ({ ...prev, courtId: value }))}
+              error={fieldErrors.courtId}
+              options={[
+                { value: '', label: 'Sin cancha asignada' },
+                ...courts.map((court) => ({ value: String(court.id), label: court.name })),
+              ]}
+              inputClassName={fieldInputClass}
+            />
+            <SelectField
+              label="Actividad"
+              value={form.activityTypeId}
+              onChange={(value) => setForm((prev) => ({ ...prev, activityTypeId: value }))}
+              error={fieldErrors.activityTypeId}
+              options={[
+                { value: '', label: 'Sin actividad específica' },
+                ...activityTypes.map((activity) => ({ value: String(activity.id), label: activity.name })),
+              ]}
+              inputClassName={fieldInputClass}
+            />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field
+              label="Inicio"
+              type="datetime-local"
+              value={form.startsAt}
+              onChange={(value) => setForm((prev) => ({ ...prev, startsAt: value }))}
+              error={fieldErrors.startsAt}
+              required
+              inputClassName={fieldInputClass}
+            />
+            <Field
+              label="Fin"
+              type="datetime-local"
+              value={form.endsAt}
+              onChange={(value) => setForm((prev) => ({ ...prev, endsAt: value }))}
+              error={fieldErrors.endsAt}
+              required
+              inputClassName={fieldInputClass}
+            />
+          </div>
+        </div>
+      </AdminDrawerSection>
+
+      <AdminDrawerSection title="Capacidad y reglas" className={drawerSectionCardClass}>
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-3">
+            <Field
+              label="Duración"
+              value={durationMinutes > 0 ? String(durationMinutes) : ''}
+              onChange={() => undefined}
+              disabled
+              placeholder="Se calcula sola"
+              hint="Se calcula a partir del inicio y el fin."
+              inputClassName={fieldInputClass}
+            />
+            <Field
+              label="Capacidad"
+              type="number"
+              value={form.capacity}
+              onChange={(value) => setForm((prev) => ({ ...prev, capacity: value }))}
+              error={fieldErrors.capacity}
+              required
+              disabled={form.classType === 'INDIVIDUAL'}
+              hint={form.classType === 'INDIVIDUAL' ? 'Las clases individuales usan cupo 1.' : 'Para clases grupales debe ser mayor a 1.'}
+              inputClassName={fieldInputClass}
+            />
+            <Field
+              label="Precio por alumno"
+              type="number"
+              value={form.pricePerStudent}
+              onChange={(value) => setForm((prev) => ({ ...prev, pricePerStudent: value }))}
+              error={fieldErrors.pricePerStudent}
+              placeholder="Opcional"
+              inputClassName={fieldInputClass}
+            />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field
+              label="Nivel"
+              value={form.level}
+              onChange={(value) => setForm((prev) => ({ ...prev, level: value }))}
+              error={fieldErrors.level}
+              placeholder="Ej: Inicial, Intermedio"
+              inputClassName={fieldInputClass}
+            />
+            <div className="space-y-2">
+              <label className="text-[12px] font-semibold text-p-text">Reglas rápidas</label>
+              <div className="grid gap-2">
+                <CheckboxField
+                  label="Requiere aprobación para inscribirse"
+                  checked={form.requiresApproval}
+                  onChange={(checked) => setForm((prev) => ({ ...prev, requiresApproval: checked }))}
+                />
+                <CheckboxField
+                  label="Requiere pago para habilitar inscripción"
+                  checked={form.requiresPaymentToEnroll}
+                  onChange={(checked) => setForm((prev) => ({ ...prev, requiresPaymentToEnroll: checked }))}
+                />
+              </div>
+            </div>
+          </div>
+
+          <TextAreaField
+            label="Descripción"
+            value={form.description}
+            onChange={(value) => setForm((prev) => ({ ...prev, description: value }))}
+            error={fieldErrors.description}
+            placeholder="Contexto operativo de la clase, objetivo o notas visibles para el admin."
+            inputClassName={`${fieldInputClass} min-h-[112px] py-2`}
+          />
+        </div>
+      </AdminDrawerSection>
+    </form>
+  );
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4 pb-4 lg:p-6 lg:pb-6">
-      <AdminPageHeader
-        eyebrow="Academia"
-        title="Clases"
-        description="Gestioná clases básicas del club sin mezclar todavía agenda compuesta, cobros ni créditos."
-        actions={
-          <button
-            type="button"
-            onClick={openCreateModal}
-            disabled={!canCreateClass}
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:bg-ink-700/60"
-          >
-            <Plus size={15} />
-            Nueva clase
-          </button>
-        }
-      />
-
-      <AdminFeedbackBanner tone="success" title="Diseño del modelo">
-        La visibilidad define si la clase se publica o queda cerrada. El formato define si la clase es individual o grupal.
-      </AdminFeedbackBanner>
-
+    <div
+      className={`flex h-full min-h-0 flex-col gap-4 overflow-y-auto ${
+        embedded ? 'px-0 pb-6' : 'p-4 pb-4 lg:p-6 lg:pb-6'
+      }`}
+    >
       {feedback && (
         <AdminFeedbackBanner tone={feedback.tone} title={feedback.tone === 'error' ? 'Error' : 'Listo'}>
           {feedback.message}
         </AdminFeedbackBanner>
       )}
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-        <AdminPanel title="Clases" bodyClassName="px-4 py-4">
-          <p className="text-[28px] font-semibold text-p-text">{summary.total}</p>
-          <p className="mt-1 text-[12px] text-p-text-muted">Total cargadas en el club</p>
-        </AdminPanel>
-        <AdminPanel title="Públicas" bodyClassName="px-4 py-4">
-          <p className="text-[28px] font-semibold text-p-accent">{summary.publicCount}</p>
-          <p className="mt-1 text-[12px] text-p-text-muted">Visibles para oferta futura</p>
-        </AdminPanel>
-        <AdminPanel title="Grupales" bodyClassName="px-4 py-4">
-          <p className="text-[28px] font-semibold text-p-text">{summary.groupCount}</p>
-          <p className="mt-1 text-[12px] text-p-text-muted">Formato con más de un cupo</p>
-        </AdminPanel>
-        <AdminPanel title="Canceladas" bodyClassName="px-4 py-4">
-          <p className="text-[28px] font-semibold text-[var(--error-fg)]">{summary.cancelled}</p>
-          <p className="mt-1 text-[12px] text-p-text-muted">Conservadas por trazabilidad</p>
-        </AdminPanel>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <MetricCard
+          label="Programadas"
+          value={summary.activeCount}
+          format="number"
+          delta={{ value: summary.total, label: `de ${summary.total} cargadas` }}
+        />
+        <MetricCard
+          label="Públicas"
+          value={summary.publicCount}
+          format="number"
+          valueColor="var(--accent-fg)"
+        />
+        <MetricCard
+          label="Canceladas"
+          value={summary.cancelled}
+          format="number"
+          valueColor={summary.cancelled > 0 ? 'var(--error-fg)' : 'var(--positive-fg)'}
+        />
       </div>
 
       <AdminPanel
-        title="Listado"
-        description="Base operativa de clases: profesor, horario, visibilidad, formato, capacidad y estado."
+        title="Base de clases"
+        description="Profesor, horario, visibilidad, formato, cupo y estado operativo."
         bodyClassName="p-0"
         actions={
           <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-2 sm:flex-nowrap sm:justify-end">
@@ -1261,6 +1443,7 @@ function AdminClassesPageContent({ user }: { user: any }) {
               value={statusFilter}
               onChange={(value) => setStatusFilter(value as ClassStatusFilter)}
               ariaLabel="Filtro de estado de clases"
+              density="compact"
               className="w-fit"
             />
             <div className="relative w-full sm:w-[320px] sm:flex-none">
@@ -1273,6 +1456,15 @@ function AdminClassesPageContent({ user }: { user: any }) {
                 onChange={(event) => setSearchTerm(event.target.value)}
               />
             </div>
+            <button
+              type="button"
+              onClick={openCreateModal}
+              disabled={!canCreateClass}
+              className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 shadow-p-md transition hover:bg-ink-800 hover:shadow-p-md disabled:cursor-not-allowed disabled:bg-ink-700/60 sm:w-auto"
+            >
+              <Plus size={14} />
+              Nueva clase
+            </button>
           </AdminFilterToolbar>
         }
       >
@@ -1306,7 +1498,7 @@ function AdminClassesPageContent({ user }: { user: any }) {
       </AdminPanel>
 
       <AdminDrawer
-        open={Boolean(selectedClass)}
+        open={Boolean(selectedClass) && !modalOpen && !enrollmentModalOpen}
         onClose={() => setSelectedClassId(null)}
         title={selectedClass ? selectedClass.teacher?.displayName || 'Clase sin profesor' : 'Clase'}
         subtitle={
@@ -1365,14 +1557,18 @@ function AdminClassesPageContent({ user }: { user: any }) {
         ) : null}
       </AdminDrawer>
 
-      <AdminModal
+      <AdminDrawer
         open={modalOpen}
         onClose={closeModal}
         title={editingClassId ? 'Editar clase' : 'Nueva clase'}
-        description="Fase 3 de Academia: clase básica como entidad propia, sin inscripciones ni agenda compuesta todavía."
-        maxWidthClassName="max-w-[780px]"
+        subtitle={
+          editingClassId
+            ? 'Ajustá los datos operativos de la clase desde el panel lateral, sin mezclar agenda ni cobros.'
+            : 'Creá la clase desde el panel lateral, manteniendo la página principal como espacio de listado y operación general.'
+        }
+        size="lg"
         footer={
-          <>
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
               onClick={closeModal}
@@ -1388,190 +1584,24 @@ function AdminClassesPageContent({ user }: { user: any }) {
             >
               {submitting ? 'Guardando...' : editingClassId ? 'Guardar cambios' : 'Crear clase'}
             </button>
-          </>
+          </div>
         }
       >
-        <form id="class-session-form" onSubmit={submitForm} className="space-y-4">
-          {formError && <AdminInlineError>{formError}</AdminInlineError>}
+        {classFormContent}
+      </AdminDrawer>
 
-          <div className="rounded-xl border border-p-border bg-p-surface-2 px-4 py-3 text-[12px] text-p-text-secondary">
-            <p className="font-semibold text-p-text">Visibilidad y formato se definen por separado</p>
-            <p className="mt-1">
-              Una clase pública puede ser individual, y una clase privada puede ser grupal. El cupo depende del formato, no de la visibilidad.
-            </p>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <SelectField
-              label="Profesor"
-              value={form.teacherId}
-              onChange={(value) => setForm((prev) => ({ ...prev, teacherId: value }))}
-              error={fieldErrors.teacherId}
-              required
-              options={[
-                { value: '', label: optionsLoading ? 'Cargando profesores...' : 'Seleccionar profesor' },
-                ...teachers.map((teacher) => ({
-                  value: teacher.id,
-                  label: teacher.isActive ? teacher.displayName : `${teacher.displayName} (inactivo)`,
-                })),
-              ]}
-            />
-            <SelectField
-              label="Estado"
-              value={form.status}
-              onChange={(value) => setForm((prev) => ({ ...prev, status: value as AdminClassSessionStatus }))}
-              error={fieldErrors.status}
-              options={CLASS_STATUS_OPTIONS}
-            />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <label className="text-[12px] font-semibold text-p-text">Visibilidad</label>
-              <AdminSegmentedControl
-                options={[
-                  { value: 'PUBLIC', label: 'Pública' },
-                  { value: 'PRIVATE', label: 'Privada' },
-                ]}
-                value={form.visibility}
-                onChange={(value) => setForm((prev) => ({ ...prev, visibility: value as AdminClassSessionVisibility }))}
-                ariaLabel="Visibilidad de la clase"
-              />
-              {fieldErrors.visibility && <p className="text-[11px] text-[var(--error-fg)]">{fieldErrors.visibility}</p>}
-            </div>
-            <div className="space-y-2">
-              <label className="text-[12px] font-semibold text-p-text">Formato</label>
-              <AdminSegmentedControl
-                options={[
-                  { value: 'INDIVIDUAL', label: 'Individual' },
-                  { value: 'GROUP', label: 'Grupal' },
-                ]}
-                value={form.classType}
-                onChange={(value) => updateClassType(value as AdminClassSessionType)}
-                ariaLabel="Formato de la clase"
-              />
-              {fieldErrors.classType && <p className="text-[11px] text-[var(--error-fg)]">{fieldErrors.classType}</p>}
-            </div>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <SelectField
-              label="Cancha"
-              value={form.courtId}
-              onChange={(value) => setForm((prev) => ({ ...prev, courtId: value }))}
-              error={fieldErrors.courtId}
-              options={[
-                { value: '', label: 'Sin cancha asignada' },
-                ...courts.map((court) => ({ value: String(court.id), label: court.name })),
-              ]}
-            />
-            <SelectField
-              label="Actividad"
-              value={form.activityTypeId}
-              onChange={(value) => setForm((prev) => ({ ...prev, activityTypeId: value }))}
-              error={fieldErrors.activityTypeId}
-              options={[
-                { value: '', label: 'Sin actividad específica' },
-                ...activityTypes.map((activity) => ({ value: String(activity.id), label: activity.name })),
-              ]}
-            />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field
-              label="Inicio"
-              type="datetime-local"
-              value={form.startsAt}
-              onChange={(value) => setForm((prev) => ({ ...prev, startsAt: value }))}
-              error={fieldErrors.startsAt}
-              required
-            />
-            <Field
-              label="Fin"
-              type="datetime-local"
-              value={form.endsAt}
-              onChange={(value) => setForm((prev) => ({ ...prev, endsAt: value }))}
-              error={fieldErrors.endsAt}
-              required
-            />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            <Field
-              label="Duración"
-              value={durationMinutes > 0 ? String(durationMinutes) : ''}
-              onChange={() => undefined}
-              disabled
-              placeholder="Se calcula sola"
-              hint="Se calcula a partir del inicio y el fin."
-            />
-            <Field
-              label="Capacidad"
-              type="number"
-              value={form.capacity}
-              onChange={(value) => setForm((prev) => ({ ...prev, capacity: value }))}
-              error={fieldErrors.capacity}
-              required
-              disabled={form.classType === 'INDIVIDUAL'}
-              hint={form.classType === 'INDIVIDUAL' ? 'Las clases individuales usan cupo 1.' : 'Para clases grupales debe ser mayor a 1.'}
-            />
-            <Field
-              label="Precio por alumno"
-              type="number"
-              value={form.pricePerStudent}
-              onChange={(value) => setForm((prev) => ({ ...prev, pricePerStudent: value }))}
-              error={fieldErrors.pricePerStudent}
-              placeholder="Opcional"
-            />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field
-              label="Nivel"
-              value={form.level}
-              onChange={(value) => setForm((prev) => ({ ...prev, level: value }))}
-              error={fieldErrors.level}
-              placeholder="Ej: Inicial, Intermedio"
-            />
-            <div className="space-y-2">
-              <label className="text-[12px] font-semibold text-p-text">Reglas rápidas</label>
-              <div className="grid gap-2">
-                <CheckboxField
-                  label="Requiere aprobación para inscribirse"
-                  checked={form.requiresApproval}
-                  onChange={(checked) => setForm((prev) => ({ ...prev, requiresApproval: checked }))}
-                />
-                <CheckboxField
-                  label="Requiere pago para habilitar inscripción"
-                  checked={form.requiresPaymentToEnroll}
-                  onChange={(checked) => setForm((prev) => ({ ...prev, requiresPaymentToEnroll: checked }))}
-                />
-              </div>
-            </div>
-          </div>
-
-          <TextAreaField
-            label="Descripción"
-            value={form.description}
-            onChange={(value) => setForm((prev) => ({ ...prev, description: value }))}
-            error={fieldErrors.description}
-            placeholder="Contexto operativo de la clase, objetivo o notas visibles para el admin."
-          />
-        </form>
-      </AdminModal>
-
-      <AdminModal
+      <AdminDrawer
         open={enrollmentModalOpen}
         onClose={closeEnrollmentModal}
         title={editingEnrollmentId ? 'Editar inscripción' : 'Agregar alumno'}
-        description={
+        subtitle={
           editingEnrollmentId
             ? 'Ajustá responsable, notas o referencia explícita de usuario sin mezclar asistencia ni pagos.'
             : 'Seleccioná explícitamente al alumno y, si corresponde, un responsable de pago opcional.'
         }
-        maxWidthClassName="max-w-[760px]"
+        size="lg"
         footer={
-          <>
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
               onClick={closeEnrollmentModal}
@@ -1587,147 +1617,163 @@ function AdminClassesPageContent({ user }: { user: any }) {
             >
               {enrollmentSubmitting ? 'Guardando...' : editingEnrollmentId ? 'Guardar inscripción' : 'Agregar alumno'}
             </button>
-          </>
+          </div>
         }
       >
         <form id="class-enrollment-form" onSubmit={submitEnrollmentForm} className="space-y-4">
           {enrollmentFormError && <AdminInlineError>{enrollmentFormError}</AdminInlineError>}
 
-          <div className="rounded-xl border border-p-border bg-p-surface-2 px-4 py-3 text-[12px] text-p-text-secondary">
-            <p className="font-semibold text-p-text">Alumno y responsable no son lo mismo</p>
-            <p className="mt-1">
-              Alumno es quien toma la clase. Responsable es quien paga o administra, y puede ser otra persona.
-            </p>
-          </div>
+          <AdminDrawerSection title="Identidad y responsable" className={drawerSectionCardClass}>
+            <div className="space-y-4">
+              <div className={helperCardClass}>
+                <p className="font-semibold text-p-text">Alumno y responsable no son lo mismo</p>
+                <p className="mt-1">
+                  Alumno es quien toma la clase. Responsable es quien paga o administra, y puede ser otra persona.
+                </p>
+              </div>
 
-          {editingEnrollmentId ? (
-            <div className="rounded-xl border border-p-border bg-p-surface px-4 py-3">
-              <p className="text-[12px] font-semibold text-p-text">Alumno</p>
-              <p className="mt-1 text-[13px] font-medium text-p-text">
-                {enrollmentForm.selectedStudent?.displayName || 'Sin alumno'}
-              </p>
-              <p className="mt-1 text-[12px] text-p-text-muted">
-                {enrollmentForm.selectedStudent ? personSecondaryLine(enrollmentForm.selectedStudent) : 'Sin datos'}
-              </p>
+              {editingEnrollmentId ? (
+                <div className="rounded-xl border border-p-border bg-p-surface px-4 py-3">
+                  <p className="text-[12px] font-semibold text-p-text">Alumno</p>
+                  <p className="mt-1 text-[13px] font-medium text-p-text">
+                    {enrollmentForm.selectedStudent?.displayName || 'Sin alumno'}
+                  </p>
+                  <p className="mt-1 text-[12px] text-p-text-muted">
+                    {enrollmentForm.selectedStudent ? personSecondaryLine(enrollmentForm.selectedStudent) : 'Sin datos'}
+                  </p>
+                </div>
+              ) : (
+                <PersonSearchSelectField
+                  label="Alumno"
+                  required
+                  placeholder="Buscar alumno por nombre, teléfono o email..."
+                  selected={enrollmentForm.selectedStudent}
+                  query={enrollmentForm.studentQuery}
+                  onQueryChange={(value) => setEnrollmentForm((prev) => ({ ...prev, studentQuery: value }))}
+                  results={studentSearch.results}
+                  loading={studentSearch.loading}
+                  onSelect={(candidate) =>
+                    setEnrollmentForm((prev) => ({
+                      ...prev,
+                      selectedStudent: candidate,
+                      studentQuery: '',
+                      selectedStudentUser: candidate.userId ? candidate : null,
+                      studentUserQuery: '',
+                    }))
+                  }
+                  onClear={() =>
+                    setEnrollmentForm((prev) => ({
+                      ...prev,
+                      selectedStudent: null,
+                      studentQuery: '',
+                      selectedStudentUser: null,
+                      studentUserQuery: '',
+                    }))
+                  }
+                  error={enrollmentFieldErrors.studentClientId}
+                  helper="Solo se pueden inscribir clientes del club. Si la búsqueda sugiere crear uno nuevo, hacelo primero desde Clientes."
+                />
+              )}
+
+              <PersonSearchSelectField
+                label="Usuario del alumno"
+                placeholder="Buscar usuario explícito del alumno..."
+                selected={enrollmentForm.selectedStudentUser}
+                query={enrollmentForm.studentUserQuery}
+                onQueryChange={(value) => setEnrollmentForm((prev) => ({ ...prev, studentUserQuery: value }))}
+                results={studentUserSearch.results}
+                loading={studentUserSearch.loading}
+                onSelect={(candidate) =>
+                  setEnrollmentForm((prev) => ({
+                    ...prev,
+                    selectedStudentUser: candidate,
+                    studentUserQuery: '',
+                  }))
+                }
+                onClear={() =>
+                  setEnrollmentForm((prev) => ({
+                    ...prev,
+                    selectedStudentUser: null,
+                    studentUserQuery: '',
+                  }))
+                }
+                error={enrollmentFieldErrors.studentUserId}
+                helper="Opcional. Se guarda solo por selección explícita y no crea vínculos automáticos."
+                disabled={!editingEnrollmentId && !enrollmentForm.selectedStudent}
+              />
+
+              <PersonSearchSelectField
+                label="Responsable de pago"
+                placeholder="Buscar responsable opcional..."
+                selected={enrollmentForm.selectedResponsible}
+                query={enrollmentForm.responsibleQuery}
+                onQueryChange={(value) => setEnrollmentForm((prev) => ({ ...prev, responsibleQuery: value }))}
+                results={responsibleSearch.results}
+                loading={responsibleSearch.loading}
+                onSelect={(candidate) =>
+                  setEnrollmentForm((prev) => ({
+                    ...prev,
+                    selectedResponsible: candidate,
+                    responsibleQuery: '',
+                  }))
+                }
+                onClear={() =>
+                  setEnrollmentForm((prev) => ({
+                    ...prev,
+                    selectedResponsible: null,
+                    responsibleQuery: '',
+                  }))
+                }
+                error={enrollmentFieldErrors.billingResponsibleClientId}
+                helper="Opcional. Puede ser distinto del alumno y en esta fase solo se valida que pertenezca al club."
+              />
             </div>
-          ) : (
-            <PersonSearchSelectField
-              label="Alumno"
-              required
-              placeholder="Buscar alumno por nombre, teléfono o email..."
-              selected={enrollmentForm.selectedStudent}
-              query={enrollmentForm.studentQuery}
-              onQueryChange={(value) => setEnrollmentForm((prev) => ({ ...prev, studentQuery: value }))}
-              results={studentSearch.results}
-              loading={studentSearch.loading}
-              onSelect={(candidate) =>
-                setEnrollmentForm((prev) => ({
-                  ...prev,
-                  selectedStudent: candidate,
-                  studentQuery: '',
-                  selectedStudentUser: candidate.userId ? candidate : null,
-                  studentUserQuery: '',
-                }))
-              }
-              onClear={() =>
-                setEnrollmentForm((prev) => ({
-                  ...prev,
-                  selectedStudent: null,
-                  studentQuery: '',
-                  selectedStudentUser: null,
-                  studentUserQuery: '',
-                }))
-              }
-              error={enrollmentFieldErrors.studentClientId}
-              helper="Solo se pueden inscribir clientes del club. Si la búsqueda sugiere crear uno nuevo, hacelo primero desde Clientes."
-            />
-          )}
+          </AdminDrawerSection>
 
-          <PersonSearchSelectField
-            label="Usuario del alumno"
-            placeholder="Buscar usuario explícito del alumno..."
-            selected={enrollmentForm.selectedStudentUser}
-            query={enrollmentForm.studentUserQuery}
-            onQueryChange={(value) => setEnrollmentForm((prev) => ({ ...prev, studentUserQuery: value }))}
-            results={studentUserSearch.results}
-            loading={studentUserSearch.loading}
-            onSelect={(candidate) =>
-              setEnrollmentForm((prev) => ({
-                ...prev,
-                selectedStudentUser: candidate,
-                studentUserQuery: '',
-              }))
-            }
-            onClear={() =>
-              setEnrollmentForm((prev) => ({
-                ...prev,
-                selectedStudentUser: null,
-                studentUserQuery: '',
-              }))
-            }
-            error={enrollmentFieldErrors.studentUserId}
-            helper="Opcional. Se guarda solo por selección explícita y no crea vínculos automáticos."
-            disabled={!editingEnrollmentId && !enrollmentForm.selectedStudent}
-          />
+          <AdminDrawerSection title="Asistencia y notas" className={drawerSectionCardClass}>
+            <div className="space-y-4">
+              {editingEnrollmentId ? (
+                <SelectField
+                  label="Asistencia"
+                  value={enrollmentForm.attendanceStatus}
+                  onChange={(value) =>
+                    setEnrollmentForm((prev) => ({
+                      ...prev,
+                      attendanceStatus: value as AdminClassAttendanceStatus,
+                    }))
+                  }
+                  error={enrollmentFieldErrors.attendanceStatus}
+                  options={attendanceOptions}
+                  inputClassName={fieldInputClass}
+                />
+              ) : (
+                <div className={helperCardClass}>
+                  <p className="font-semibold text-p-text">Asistencia inicial</p>
+                  <p className="mt-1">
+                    Las nuevas inscripciones arrancan como pendiente. La asistencia se gestiona después desde la edición del alumno.
+                  </p>
+                </div>
+              )}
 
-          <PersonSearchSelectField
-            label="Responsable de pago"
-            placeholder="Buscar responsable opcional..."
-            selected={enrollmentForm.selectedResponsible}
-            query={enrollmentForm.responsibleQuery}
-            onQueryChange={(value) => setEnrollmentForm((prev) => ({ ...prev, responsibleQuery: value }))}
-            results={responsibleSearch.results}
-            loading={responsibleSearch.loading}
-            onSelect={(candidate) =>
-              setEnrollmentForm((prev) => ({
-                ...prev,
-                selectedResponsible: candidate,
-                responsibleQuery: '',
-              }))
-            }
-            onClear={() =>
-              setEnrollmentForm((prev) => ({
-                ...prev,
-                selectedResponsible: null,
-                responsibleQuery: '',
-              }))
-            }
-            error={enrollmentFieldErrors.billingResponsibleClientId}
-            helper="Opcional. Puede ser distinto del alumno y en esta fase solo se valida que pertenezca al club."
-          />
-
-          {editingEnrollmentId ? (
-            <SelectField
-              label="Asistencia"
-              value={enrollmentForm.attendanceStatus}
-              onChange={(value) =>
-                setEnrollmentForm((prev) => ({
-                  ...prev,
-                  attendanceStatus: value as AdminClassAttendanceStatus,
-                }))
-              }
-              error={enrollmentFieldErrors.attendanceStatus}
-              options={attendanceOptions}
-            />
-          ) : (
-            <div className="rounded-xl border border-p-border bg-p-surface-2 px-4 py-3 text-[12px] text-p-text-secondary">
-              <p className="font-semibold text-p-text">Asistencia inicial</p>
-              <p className="mt-1">Las nuevas inscripciones arrancan como pendiente. La asistencia se gestiona después desde la edición del alumno.</p>
+              <TextAreaField
+                label="Notas"
+                value={enrollmentForm.notes}
+                onChange={(value) => setEnrollmentForm((prev) => ({ ...prev, notes: value }))}
+                error={enrollmentFieldErrors.notes}
+                placeholder="Notas operativas sobre esta inscripción."
+                inputClassName={`${fieldInputClass} min-h-[112px] py-2`}
+              />
             </div>
-          )}
-
-          <TextAreaField
-            label="Notas"
-            value={enrollmentForm.notes}
-            onChange={(value) => setEnrollmentForm((prev) => ({ ...prev, notes: value }))}
-            error={enrollmentFieldErrors.notes}
-            placeholder="Notas operativas sobre esta inscripción."
-          />
+          </AdminDrawerSection>
         </form>
-      </AdminModal>
+      </AdminDrawer>
     </div>
   );
 }
+
+export const getServerSideProps: GetServerSideProps = async () => ({
+  redirect: { destination: '/admin/academia?tab=clases', permanent: false },
+});
 
 function Field({
   label,
@@ -1739,6 +1785,7 @@ function Field({
   placeholder,
   hint,
   disabled = false,
+  inputClassName,
 }: {
   label: string;
   value: string;
@@ -1749,6 +1796,7 @@ function Field({
   placeholder?: string;
   hint?: string;
   disabled?: boolean;
+  inputClassName?: string;
 }) {
   return (
     <div className="space-y-1.5">
@@ -1762,7 +1810,10 @@ function Field({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         disabled={disabled}
-        className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none transition focus:border-p-accent disabled:cursor-not-allowed disabled:bg-p-surface-2 disabled:text-p-text-muted"
+        className={
+          inputClassName ||
+          'h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none transition focus:border-p-accent disabled:cursor-not-allowed disabled:bg-p-surface-2 disabled:text-p-text-muted'
+        }
       />
       {hint && !error && <p className="text-[11px] text-p-text-muted">{hint}</p>}
       {error && <p className="text-[11px] text-[var(--error-fg)]">{error}</p>}
@@ -1777,6 +1828,7 @@ function SelectField({
   error,
   required = false,
   options,
+  inputClassName,
 }: {
   label: string;
   value: string;
@@ -1784,6 +1836,7 @@ function SelectField({
   error?: string;
   required?: boolean;
   options: Array<{ value: string; label: string }>;
+  inputClassName?: string;
 }) {
   return (
     <div className="space-y-1.5">
@@ -1794,7 +1847,10 @@ function SelectField({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none transition focus:border-p-accent"
+        className={
+          inputClassName ||
+          'h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none transition focus:border-p-accent'
+        }
       >
         {options.map((option) => (
           <option key={`${label}-${option.value || 'empty'}`} value={option.value}>
@@ -1813,12 +1869,14 @@ function TextAreaField({
   onChange,
   error,
   placeholder,
+  inputClassName,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   error?: string;
   placeholder?: string;
+  inputClassName?: string;
 }) {
   return (
     <div className="space-y-1.5">
@@ -1828,7 +1886,10 @@ function TextAreaField({
         onChange={(event) => onChange(event.target.value)}
         rows={4}
         placeholder={placeholder}
-        className="w-full rounded-xl border border-p-border bg-p-surface px-3 py-2 text-[13px] text-p-text outline-none transition focus:border-p-accent"
+        className={
+          inputClassName ||
+          'w-full rounded-xl border border-p-border bg-p-surface px-3 py-2 text-[13px] text-p-text outline-none transition focus:border-p-accent'
+        }
       />
       {error && <p className="text-[11px] text-[var(--error-fg)]">{error}</p>}
     </div>
@@ -1893,8 +1954,6 @@ function ClassSessionDrawerContent({
   onEnrollmentRowClick: (row: AdminClassEnrollment) => void;
   onAddEnrollment: () => void;
 }) {
-  const drawerSectionCardClass = 'rounded-xl border border-p-border bg-p-surface-2 px-4 py-4';
-
   return (
     <>
       <AdminDrawerSection title="Resumen" className={drawerSectionCardClass}>
@@ -1953,6 +2012,7 @@ function ClassSessionDrawerContent({
               value={enrollmentFilter}
               onChange={(value) => onEnrollmentFilterChange(value as EnrollmentFilter)}
               ariaLabel="Filtro de inscripciones"
+              density="compact"
               className="w-fit"
             />
           </AdminFilterToolbar>

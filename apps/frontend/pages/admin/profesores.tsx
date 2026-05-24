@@ -1,14 +1,16 @@
+import type { GetServerSideProps } from 'next';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Pencil, Plus, Search, UserRoundX } from 'lucide-react';
 import AdminRouteShell from '../../components/admin/AdminRouteShell';
 import {
   AdminDataTable,
+  AdminDrawer,
+  AdminDrawerSection,
   type AdminDataTableColumn,
   AdminFeedbackBanner,
   AdminFilterToolbar,
   AdminInlineError,
-  AdminModal,
-  AdminPageHeader,
+  MetricCard,
   AdminPanel,
   AdminSegmentedControl,
 } from '../../components/admin/ui';
@@ -60,15 +62,20 @@ const parseSpecialties = (raw: string) =>
     )
   );
 
+const drawerSectionCardClass = 'rounded-2xl border border-p-border bg-p-surface-2 p-4';
+const fieldInputClass =
+  'h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text shadow-p-card outline-none transition focus:border-p-accent focus:ring-2 focus:ring-lima-300/30';
+const sectionNoteClass = 'rounded-xl border border-p-border bg-p-surface p-3 text-[13px] text-p-text-secondary';
+
 export default function AdminTeachersPage() {
   return (
-    <AdminRouteShell title="Profesores | Pique Admin" activeItem="Profesores" fromPath="/admin/profesores">
+    <AdminRouteShell title="Academia | Pique Admin" activeItem="Academia" fromPath="/admin/academia">
       {(user) => <AdminTeachersPageContent user={user} />}
     </AdminRouteShell>
   );
 }
 
-function AdminTeachersPageContent({ user }: { user: any }) {
+export function AdminTeachersPageContent({ user, embedded = false }: { user: any; embedded?: boolean }) {
   const normalizedUser = useMemo(() => normalizeSessionUser(user || null), [user]);
   const clubSlug = useMemo(() => getActiveClubSlug(normalizedUser), [normalizedUser]);
 
@@ -337,48 +344,114 @@ function AdminTeachersPageContent({ user }: { user: any }) {
     [openEditModal, statusBusyId, toggleTeacherStatus]
   );
 
-  return (
-    <div className="flex h-full min-h-0 flex-col gap-4 p-4 pb-0 lg:p-6 lg:pb-0">
-      <AdminPageHeader
-        eyebrow="Academia"
-        title="Profesores"
-        description="Gestioná el padrón de profesores del club sin mezclarlo todavía con clases, agenda o cobros."
-        actions={
-          <button
-            type="button"
-            onClick={openCreateModal}
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800"
-          >
-            <Plus size={15} />
-            Nuevo profesor
-          </button>
-        }
-      />
+  const teacherFormContent = (
+    <form id="teacher-form" onSubmit={submitForm} className="space-y-4">
+      {formError && <AdminInlineError>{formError}</AdminInlineError>}
 
+      <AdminDrawerSection title="Datos básicos" className={drawerSectionCardClass}>
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field
+              label="Nombre"
+              value={form.displayName}
+              onChange={(value) => setForm((prev) => ({ ...prev, displayName: value }))}
+              error={fieldErrors.displayName}
+              required
+              inputClassName={fieldInputClass}
+            />
+            <Field
+              label="Teléfono"
+              value={form.phone}
+              onChange={(value) => setForm((prev) => ({ ...prev, phone: value }))}
+              error={fieldErrors.phone}
+              inputClassName={fieldInputClass}
+            />
+          </div>
+
+          <Field
+            label="Email"
+            type="email"
+            value={form.email}
+            onChange={(value) => setForm((prev) => ({ ...prev, email: value }))}
+            error={fieldErrors.email}
+            inputClassName={fieldInputClass}
+          />
+
+          <Field
+            label="Especialidades"
+            value={form.specialtiesText}
+            onChange={(value) => setForm((prev) => ({ ...prev, specialtiesText: value }))}
+            error={fieldErrors.specialties}
+            placeholder="Ej: Pádel, Tenis, Preparación física"
+            hint="Separalas con coma. Se guardan como tags simples."
+            inputClassName={fieldInputClass}
+          />
+        </div>
+      </AdminDrawerSection>
+
+      <AdminDrawerSection title="Contexto operativo" className={drawerSectionCardClass}>
+        <div className="space-y-4">
+          <div className={sectionNoteClass}>
+            Este padrón define identidad y disponibilidad operativa del profesor. Las clases que dicte se gestionan aparte.
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[12px] font-semibold text-p-text">Notas</label>
+            <textarea
+              value={form.notes}
+              onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
+              rows={4}
+              className={`${fieldInputClass} min-h-[112px] py-2`}
+              placeholder="Información operativa, disponibilidad general o contexto del profesor."
+            />
+            {fieldErrors.notes && <p className="text-[11px] text-[var(--error-fg)]">{fieldErrors.notes}</p>}
+          </div>
+
+          <label className="flex items-center gap-2 rounded-xl border border-p-border bg-p-surface px-3 py-2 text-[13px] text-p-text">
+            <input
+              type="checkbox"
+              checked={form.isInternal}
+              onChange={(event) => setForm((prev) => ({ ...prev, isInternal: event.target.checked }))}
+              className="h-4 w-4 rounded border-p-border"
+            />
+            Profesor interno del club
+          </label>
+        </div>
+      </AdminDrawerSection>
+    </form>
+  );
+
+  return (
+    <div
+      className={`flex h-full min-h-0 flex-col gap-4 overflow-y-auto ${
+        embedded ? 'px-0 pb-6' : 'p-4 pb-4 lg:p-6 lg:pb-6'
+      }`}
+    >
       {feedback && (
         <AdminFeedbackBanner tone={feedback.tone} title={feedback.tone === 'error' ? 'Error' : 'Listo'}>
           {feedback.message}
         </AdminFeedbackBanner>
       )}
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <AdminPanel title="Profesores" bodyClassName="px-4 py-4">
-          <p className="text-[28px] font-semibold text-p-text">{summary.total}</p>
-          <p className="mt-1 text-[12px] text-p-text-muted">Total cargados en el club</p>
-        </AdminPanel>
-        <AdminPanel title="Activos" bodyClassName="px-4 py-4">
-          <p className="text-[28px] font-semibold text-p-positive">{summary.active}</p>
-          <p className="mt-1 text-[12px] text-p-text-muted">Disponibles para futuras clases</p>
-        </AdminPanel>
-        <AdminPanel title="Inactivos" bodyClassName="px-4 py-4">
-          <p className="text-[28px] font-semibold text-p-text">{summary.inactive}</p>
-          <p className="mt-1 text-[12px] text-p-text-muted">Conservados por trazabilidad</p>
-        </AdminPanel>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <MetricCard
+          label="Activos"
+          value={summary.active}
+          format="number"
+          valueColor="var(--positive-fg)"
+          delta={{ value: summary.total, label: `de ${summary.total} cargados` }}
+        />
+        <MetricCard
+          label="Inactivos"
+          value={summary.inactive}
+          format="number"
+          valueColor={summary.inactive > 0 ? 'var(--text-muted)' : 'var(--positive-fg)'}
+        />
       </div>
 
       <AdminPanel
-        title="Listado"
-        description="Alta, edición y estado operativo de profesores del club."
+        title="Padrón de profesores"
+        description="Alta, edición y estado operativo del equipo docente."
         bodyClassName="p-0"
         actions={
           <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-2 sm:flex-nowrap sm:justify-end">
@@ -391,6 +464,7 @@ function AdminTeachersPageContent({ user }: { user: any }) {
               value={statusFilter}
               onChange={(value) => setStatusFilter(value as TeacherStatusFilter)}
               ariaLabel="Filtro de estado de profesores"
+              density="compact"
               className="w-fit"
             />
             <div className="relative w-full sm:w-[300px] sm:flex-none">
@@ -403,6 +477,14 @@ function AdminTeachersPageContent({ user }: { user: any }) {
                 onChange={(event) => setSearchTerm(event.target.value)}
               />
             </div>
+            <button
+              type="button"
+              onClick={openCreateModal}
+              className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 shadow-p-md transition hover:bg-ink-800 hover:shadow-p-md sm:w-auto"
+            >
+              <Plus size={14} strokeWidth={2.5} />
+              Nuevo profesor
+            </button>
           </AdminFilterToolbar>
         }
       >
@@ -429,13 +511,14 @@ function AdminTeachersPageContent({ user }: { user: any }) {
         />
       </AdminPanel>
 
-      <AdminModal
+      <AdminDrawer
         open={modalOpen}
         onClose={closeModal}
         title={editingTeacherId ? 'Editar profesor' : 'Nuevo profesor'}
-        description="Fase 1 de Academia: solo padrón de profesores, sin clases ni agenda todavía."
+        subtitle="Padrón de profesores con el mismo lenguaje visual del resto del admin: datos, contexto y acciones en un panel lateral."
+        size="md"
         footer={
-          <>
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
               onClick={closeModal}
@@ -451,71 +534,18 @@ function AdminTeachersPageContent({ user }: { user: any }) {
             >
               {submitting ? 'Guardando...' : editingTeacherId ? 'Guardar cambios' : 'Crear profesor'}
             </button>
-          </>
+          </div>
         }
       >
-        <form id="teacher-form" onSubmit={submitForm} className="space-y-4">
-          {formError && <AdminInlineError>{formError}</AdminInlineError>}
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field
-              label="Nombre"
-              value={form.displayName}
-              onChange={(value) => setForm((prev) => ({ ...prev, displayName: value }))}
-              error={fieldErrors.displayName}
-              required
-            />
-            <Field
-              label="Teléfono"
-              value={form.phone}
-              onChange={(value) => setForm((prev) => ({ ...prev, phone: value }))}
-              error={fieldErrors.phone}
-            />
-          </div>
-
-          <Field
-            label="Email"
-            type="email"
-            value={form.email}
-            onChange={(value) => setForm((prev) => ({ ...prev, email: value }))}
-            error={fieldErrors.email}
-          />
-
-          <Field
-            label="Especialidades"
-            value={form.specialtiesText}
-            onChange={(value) => setForm((prev) => ({ ...prev, specialtiesText: value }))}
-            error={fieldErrors.specialties}
-            placeholder="Ej: Pádel, Tenis, Preparación física"
-            hint="Separalas con coma. Se guardan como tags simples."
-          />
-
-          <div className="space-y-1.5">
-            <label className="text-[12px] font-semibold text-p-text">Notas</label>
-            <textarea
-              value={form.notes}
-              onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
-              rows={4}
-              className="w-full rounded-xl border border-p-border bg-p-surface px-3 py-2 text-[13px] text-p-text outline-none transition focus:border-p-accent"
-              placeholder="Información operativa, disponibilidad general o contexto del profesor."
-            />
-            {fieldErrors.notes && <p className="text-[11px] text-[var(--error-fg)]">{fieldErrors.notes}</p>}
-          </div>
-
-          <label className="flex items-center gap-2 rounded-xl border border-p-border bg-p-surface px-3 py-2 text-[13px] text-p-text">
-            <input
-              type="checkbox"
-              checked={form.isInternal}
-              onChange={(event) => setForm((prev) => ({ ...prev, isInternal: event.target.checked }))}
-              className="h-4 w-4 rounded border-p-border"
-            />
-            Profesor interno del club
-          </label>
-        </form>
-      </AdminModal>
+        {teacherFormContent}
+      </AdminDrawer>
     </div>
   );
 }
+
+export const getServerSideProps: GetServerSideProps = async () => ({
+  redirect: { destination: '/admin/academia?tab=profesores', permanent: false },
+});
 
 function Field({
   label,
@@ -526,6 +556,7 @@ function Field({
   type = 'text',
   placeholder,
   hint,
+  inputClassName,
 }: {
   label: string;
   value: string;
@@ -535,6 +566,7 @@ function Field({
   type?: string;
   placeholder?: string;
   hint?: string;
+  inputClassName?: string;
 }) {
   return (
     <div className="space-y-1.5">
@@ -547,7 +579,7 @@ function Field({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none transition focus:border-p-accent"
+        className={inputClassName || "h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none transition focus:border-p-accent"}
       />
       {hint && !error && <p className="text-[11px] text-p-text-muted">{hint}</p>}
       {error && <p className="text-[11px] text-[var(--error-fg)]">{error}</p>}

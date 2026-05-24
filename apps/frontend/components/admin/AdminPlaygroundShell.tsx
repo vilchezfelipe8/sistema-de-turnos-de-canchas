@@ -41,6 +41,11 @@ const HELP_TIPS_BY_SECTION: Record<string, string[]> = {
     'Completá datos clave para evitar errores al cobrar o contactar.',
     'Revisá historial antes de crear duplicados.',
   ],
+  Academia: [
+    'Profesores y clases viven dentro del mismo módulo y se ordenan por subtabs.',
+    'Usá Clases para la operación diaria y Profesores para el padrón docente.',
+    'La agenda, los cobros y el jugador siguen fuera de este flujo por ahora.',
+  ],
   Profesores: [
     'Da de alta profesores aunque todavía no tengan usuario en la app.',
     'Mantené separados el perfil del profesor y las clases que dicte.',
