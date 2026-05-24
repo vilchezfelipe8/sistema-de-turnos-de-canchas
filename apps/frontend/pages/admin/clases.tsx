@@ -337,6 +337,12 @@ const buildStudentUserCandidate = (
   row: PersonSearchResult,
   studentClientId: string | null
 ): EnrollmentPersonOption => {
+  if (row.kind === 'newClientSuggestion') {
+    return {
+      ...row,
+      disabledReason: 'No se puede usar una sugerencia nueva como usuario del alumno. Resolvé esa identidad desde Clientes.',
+    };
+  }
   if (!row.userId) {
     return {
       ...row,
@@ -1075,8 +1081,13 @@ function AdminClassesPageContent({ user }: { user: any }) {
             <p>{enrollment.billingResponsibleClient?.name || 'Sin responsable cargado'}</p>
             <p className="mt-0.5 text-p-text-muted">
               {enrollment.studentUser
-                ? [enrollment.studentUser.firstName, enrollment.studentUser.lastName].filter(Boolean).join(' ').trim() || enrollment.studentUser.email
-                : 'Sin usuario de app explícito'}
+                ? `Usuario del alumno: ${
+                    [enrollment.studentUser.firstName, enrollment.studentUser.lastName]
+                      .filter(Boolean)
+                      .join(' ')
+                      .trim() || enrollment.studentUser.email
+                  }`
+                : 'Alumno sin usuario de app explícito'}
             </p>
           </div>
         ),
