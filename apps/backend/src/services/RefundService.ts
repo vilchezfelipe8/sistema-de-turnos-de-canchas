@@ -330,6 +330,24 @@ export class RefundService {
       cashShiftId: input.cashShiftId ?? refund.cashShiftId ?? undefined
     });
 
+    const executedAt = new Date();
+    await tx.refund.update({
+      where: { id: refund.id },
+      data: {
+        status: 'EXECUTED',
+        cashShiftId: resolvedCashShiftId,
+        executedAt,
+        executedByUserId: input.executedByUserId ?? refund.executedByUserId ?? refund.createdByUserId ?? null,
+        executionReference: input.executionReference ?? refund.executionReference,
+        executionNotes: input.executionNotes ?? refund.executionNotes,
+        cancelledAt: null,
+        cancelledByUserId: null,
+        cancelReason: null,
+        failedAt: null,
+        failedReason: null
+      }
+    });
+
     await this.accountingService.createRefundTransaction(tx, {
       clubId: refund.clubId,
       type: 'REFUND',
@@ -344,9 +362,10 @@ export class RefundService {
       createdByUserId: input.executedByUserId ?? refund.createdByUserId ?? null
     });
 
+    const shouldSyncEnrollmentAccountStatus = refund.payment.account.sourceType === 'CLASS_ENROLLMENT';
     const accountBalance = await this.accountService.reconcilePaidAmountTx(tx, refund.accountId, {
-      updateStatus: false,
-      reopenIfRemaining: false
+      updateStatus: shouldSyncEnrollmentAccountStatus,
+      reopenIfRemaining: shouldSyncEnrollmentAccountStatus
     });
 
     if (refund.payment.account.sourceType === 'CLASS_ENROLLMENT') {
@@ -368,24 +387,6 @@ export class RefundService {
         refundId: refund.id,
         cashShiftId: resolvedCashShiftId,
         createdByUserId: input.executedByUserId ?? refund.createdByUserId ?? null
-      }
-    });
-
-    const executedAt = new Date();
-    await tx.refund.update({
-      where: { id: refund.id },
-      data: {
-        status: 'EXECUTED',
-        cashShiftId: resolvedCashShiftId,
-        executedAt,
-        executedByUserId: input.executedByUserId ?? refund.executedByUserId ?? refund.createdByUserId ?? null,
-        executionReference: input.executionReference ?? refund.executionReference,
-        executionNotes: input.executionNotes ?? refund.executionNotes,
-        cancelledAt: null,
-        cancelledByUserId: null,
-        cancelReason: null,
-        failedAt: null,
-        failedReason: null
       }
     });
 
@@ -428,15 +429,16 @@ export class RefundService {
     }
 
     if (payment.account.status !== 'OPEN') {
-      if (payment.account.sourceType !== 'BOOKING') {
+      if (payment.account.sourceType === 'BOOKING') {
+        const bookingForClosedAccount = await tx.booking.findUnique({
+          where: { id: Number(payment.account.sourceId) },
+          select: { status: true }
+        });
+        if (!bookingForClosedAccount || bookingForClosedAccount.status !== 'CANCELLED') {
+          throw conflict('No se puede devolver un pago de una reserva no cancelada con cuenta cerrada.', ErrorCodes.ACCOUNT_CLOSED);
+        }
+      } else if (payment.account.sourceType !== 'CLASS_ENROLLMENT') {
         throw conflict('No se puede devolver un pago de una cuenta cerrada.', ErrorCodes.ACCOUNT_CLOSED);
-      }
-      const bookingForClosedAccount = await tx.booking.findUnique({
-        where: { id: Number(payment.account.sourceId) },
-        select: { status: true }
-      });
-      if (!bookingForClosedAccount || bookingForClosedAccount.status !== 'CANCELLED') {
-        throw conflict('No se puede devolver un pago de una reserva no cancelada con cuenta cerrada.', ErrorCodes.ACCOUNT_CLOSED);
       }
     }
 
