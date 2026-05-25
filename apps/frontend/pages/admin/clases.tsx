@@ -78,6 +78,21 @@ type EnrollmentFormState = {
   notes: string;
 };
 
+type ClassPassFormState = {
+  packageName: string;
+  totalCredits: string;
+  expiresAt: string;
+  ownerClientId: string;
+  ownerClientName: string;
+  beneficiaryClientId: string;
+  beneficiaryClientName: string;
+  restrictToActivity: boolean;
+  restrictToClassType: boolean;
+  restrictToTeacher: boolean;
+  transferable: boolean;
+  notes: string;
+};
+
 const CLASS_STATUS_OPTIONS: Array<{ value: AdminClassSessionStatus; label: string }> = [
   { value: 'DRAFT', label: 'Borrador' },
   { value: 'SCHEDULED', label: 'Programada' },
@@ -147,6 +162,38 @@ const buildEmptyEnrollmentForm = (): EnrollmentFormState => ({
   initialAttendanceStatus: 'PENDING',
   notes: '',
 });
+
+const buildDefaultClassPassForm = ({
+  enrollment,
+  selectedClass,
+}: {
+  enrollment: AdminClassEnrollment;
+  selectedClass: AdminClassSession;
+}): ClassPassFormState => {
+  const ownerClientId = enrollment.billingResponsibleClientId || enrollment.studentClientId;
+  const ownerClientName =
+    enrollment.billingResponsibleClient?.name ||
+    enrollment.studentClient?.name ||
+    enrollment.snapshotName ||
+    'Cliente del club';
+  const beneficiaryClientName =
+    enrollment.studentClient?.name || enrollment.snapshotName || 'Alumno';
+
+  return {
+    packageName: 'Pack 4 clases',
+    totalCredits: '4',
+    expiresAt: '',
+    ownerClientId,
+    ownerClientName,
+    beneficiaryClientId: enrollment.studentClientId,
+    beneficiaryClientName,
+    restrictToActivity: Boolean(selectedClass.activityTypeId),
+    restrictToClassType: Boolean(selectedClass.classType),
+    restrictToTeacher: Boolean(selectedClass.teacherId),
+    transferable: false,
+    notes: '',
+  };
+};
 
 const ACTIVE_ATTENDANCE_OPTIONS: Array<{ value: AdminClassAttendanceStatus; label: string }> = [
   { value: 'PENDING', label: 'Pendiente' },
@@ -677,6 +724,22 @@ const translateClassPassError = (error: unknown, fallback: string) => {
   }
 };
 
+const translateCreateClassPassError = (error: unknown, fallback: string) => {
+  const normalized = normalizeApiError(error, fallback);
+  switch (normalized.code) {
+    case 'CLIENT_NOT_FOUND':
+      return 'El titular o beneficiario seleccionado ya no pertenece a este club.';
+    case 'USER_NOT_FOUND':
+      return 'La referencia de usuario del pack ya no está disponible.';
+    case 'FORBIDDEN':
+      return 'No se pudo asignar el pack con los datos actuales del club.';
+    case 'INVALID_INPUT':
+      return extractErrorMessage(normalized, 'Revisá los datos del pack antes de guardarlo.');
+    default:
+      return extractErrorMessage(normalized, fallback);
+  }
+};
+
 function usePersonSearchResults(
   clubSlug: string,
   query: string,
@@ -769,6 +832,11 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     enrollment: AdminClassEnrollment;
     reason: AdminClassCreditUsageReason;
   } | null>(null);
+  const [classPassDrawerOpen, setClassPassDrawerOpen] = useState(false);
+  const [classPassForm, setClassPassForm] = useState<ClassPassFormState | null>(null);
+  const [classPassFormError, setClassPassFormError] = useState('');
+  const [classPassFieldErrors, setClassPassFieldErrors] = useState<Record<string, string>>({});
+  const [classPassSubmitting, setClassPassSubmitting] = useState(false);
 
   const loadClassSessions = useCallback(async () => {
     if (!clubSlug) {
@@ -1023,6 +1091,10 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     setEditingEnrollmentId(null);
     setCreditUsageError('');
     setCreditUsageConfirmState(null);
+    setClassPassDrawerOpen(false);
+    setClassPassForm(null);
+    setClassPassFormError('');
+    setClassPassFieldErrors({});
   }, []);
 
   const openCreateModal = useCallback(() => {
@@ -1220,6 +1292,22 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     resetEnrollmentForm();
   }, [resetEnrollmentForm]);
 
+  const openClassPassDrawer = useCallback(() => {
+    if (!editingEnrollment || !selectedClass) return;
+    setClassPassForm(buildDefaultClassPassForm({ enrollment: editingEnrollment, selectedClass }));
+    setClassPassFormError('');
+    setClassPassFieldErrors({});
+    setClassPassDrawerOpen(true);
+  }, [editingEnrollment, selectedClass]);
+
+  const closeClassPassDrawer = useCallback(() => {
+    if (classPassSubmitting) return;
+    setClassPassDrawerOpen(false);
+    setClassPassForm(null);
+    setClassPassFormError('');
+    setClassPassFieldErrors({});
+  }, [classPassSubmitting]);
+
   const studentSearch = usePersonSearchResults(
     clubSlug || '',
     enrollmentForm.studentQuery,
@@ -1350,6 +1438,69 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     loadEnrollments,
     selectedClass,
   ]);
+
+  const submitClassPassForm = useCallback(
+    async (event: React.FormEvent) => {
+      event.preventDefault();
+      if (!clubSlug || !selectedClass || !editingEnrollment || !classPassForm || classPassSubmitting) return;
+
+      const totalCredits = Number(classPassForm.totalCredits);
+      if (!classPassForm.packageName.trim()) {
+        setClassPassFormError('Ingresá un nombre para el pack.');
+        setClassPassFieldErrors({ packageName: 'Elegí un nombre.' });
+        return;
+      }
+      if (!Number.isInteger(totalCredits) || totalCredits <= 0) {
+        setClassPassFormError('La cantidad de créditos debe ser un entero mayor a 0.');
+        setClassPassFieldErrors({ totalCredits: 'Ingresá créditos válidos.' });
+        return;
+      }
+
+      try {
+        setClassPassSubmitting(true);
+        setClassPassFormError('');
+        setClassPassFieldErrors({});
+
+        await ClubAdminService.createClassPass(clubSlug, {
+          ownerClientId: classPassForm.ownerClientId,
+          beneficiaryClientId: classPassForm.beneficiaryClientId,
+          beneficiaryUserId: editingEnrollment.studentUserId ?? null,
+          packageName: classPassForm.packageName.trim(),
+          totalCredits,
+          expiresAt: classPassForm.expiresAt ? localInputToIso(classPassForm.expiresAt) : null,
+          activityTypeId: classPassForm.restrictToActivity ? selectedClass.activityTypeId : null,
+          classType: classPassForm.restrictToClassType ? selectedClass.classType : null,
+          teacherId: classPassForm.restrictToTeacher ? selectedClass.teacherId : null,
+          transferable: classPassForm.transferable,
+          notes: normalizeOptionalText(classPassForm.notes),
+        });
+
+        showAdminToast('Pack asignado.');
+        await loadClassPassesForStudents([editingEnrollment.studentClientId], 'merge');
+        setClassPassDrawerOpen(false);
+        setClassPassForm(null);
+        setClassPassFormError('');
+        setClassPassFieldErrors({});
+        setFeedback(null);
+      } catch (error) {
+        reportUiError({ area: 'AdminClassesPage', action: 'submitClassPassForm' }, error);
+        setClassPassFieldErrors(getApiFieldErrors(error));
+        setClassPassFormError(
+          translateCreateClassPassError(error, 'No se pudo asignar la tarjetita digital al alumno.')
+        );
+      } finally {
+        setClassPassSubmitting(false);
+      }
+    },
+    [
+      classPassForm,
+      classPassSubmitting,
+      clubSlug,
+      editingEnrollment,
+      loadClassPassesForStudents,
+      selectedClass,
+    ]
+  );
 
   const attendanceOptions = useMemo(
     () =>
@@ -1825,6 +1976,126 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     </form>
   );
 
+  const classPassFormContent = classPassForm ? (
+    <form id="class-pass-form" onSubmit={submitClassPassForm} className="space-y-4">
+      {classPassFormError ? <AdminInlineError>{classPassFormError}</AdminInlineError> : null}
+
+      <AdminDrawerSection title="Titular y beneficiario" className={drawerSectionCardClass}>
+        <div className="space-y-4">
+          <div className={helperCardClass}>
+            <p className="font-semibold text-p-text">Asignar créditos no registra un pago</p>
+            <p className="mt-1">
+              Esta acción crea una tarjetita digital para el alumno. El cobro de ese pack queda para una fase futura con AccountDrawer.
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field
+              label="Titular del pack"
+              value={classPassForm.ownerClientName}
+              onChange={() => undefined}
+              disabled
+              hint="Por ahora se toma el responsable cargado en la inscripción. Si no existe, usa al alumno."
+              inputClassName={fieldInputClass}
+            />
+            <Field
+              label="Beneficiario"
+              value={classPassForm.beneficiaryClientName}
+              onChange={() => undefined}
+              disabled
+              hint="El pack se asigna al alumno de esta inscripción."
+              inputClassName={fieldInputClass}
+            />
+          </div>
+        </div>
+      </AdminDrawerSection>
+
+      <AdminDrawerSection title="Pack y vigencia" className={drawerSectionCardClass}>
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field
+              label="Nombre del pack"
+              value={classPassForm.packageName}
+              onChange={(value) => setClassPassForm((prev) => (prev ? { ...prev, packageName: value } : prev))}
+              error={classPassFieldErrors.packageName}
+              required
+              inputClassName={fieldInputClass}
+            />
+            <Field
+              label="Créditos"
+              type="number"
+              value={classPassForm.totalCredits}
+              onChange={(value) =>
+                setClassPassForm((prev) => {
+                  if (!prev) return prev;
+                  const nextCredits = String(value || '');
+                  const autoName = /^Pack \d+ clases?$/.test(prev.packageName.trim());
+                  return {
+                    ...prev,
+                    totalCredits: nextCredits,
+                    packageName:
+                      autoName && /^\d+$/.test(nextCredits)
+                        ? `Pack ${nextCredits} clase${Number(nextCredits) === 1 ? '' : 's'}`
+                        : prev.packageName,
+                  };
+                })
+              }
+              error={classPassFieldErrors.totalCredits}
+              required
+              inputClassName={fieldInputClass}
+            />
+          </div>
+
+          <Field
+            label="Vencimiento"
+            type="datetime-local"
+            value={classPassForm.expiresAt}
+            onChange={(value) => setClassPassForm((prev) => (prev ? { ...prev, expiresAt: value } : prev))}
+            error={classPassFieldErrors.expiresAt}
+            hint="Opcional. Si lo dejás vacío, el pack queda sin vencimiento."
+            inputClassName={fieldInputClass}
+          />
+        </div>
+      </AdminDrawerSection>
+
+      <AdminDrawerSection title="Restricciones" className={drawerSectionCardClass}>
+        <div className="space-y-3">
+          <CheckboxField
+            label={`Restringir a la actividad actual${selectedClass?.activityType?.name ? ` (${selectedClass.activityType.name})` : ''}`}
+            checked={classPassForm.restrictToActivity}
+            onChange={(checked) => setClassPassForm((prev) => (prev ? { ...prev, restrictToActivity: checked } : prev))}
+          />
+          <CheckboxField
+            label={`Restringir al formato actual${selectedClass ? ` (${classTypeLabel(selectedClass.classType)})` : ''}`}
+            checked={classPassForm.restrictToClassType}
+            onChange={(checked) => setClassPassForm((prev) => (prev ? { ...prev, restrictToClassType: checked } : prev))}
+          />
+          <CheckboxField
+            label={`Restringir al profesor actual${selectedClass?.teacher?.displayName ? ` (${selectedClass.teacher.displayName})` : ''}`}
+            checked={classPassForm.restrictToTeacher}
+            onChange={(checked) => setClassPassForm((prev) => (prev ? { ...prev, restrictToTeacher: checked } : prev))}
+          />
+          <CheckboxField
+            label="Pack transferible dentro del club"
+            checked={classPassForm.transferable}
+            onChange={(checked) => setClassPassForm((prev) => (prev ? { ...prev, transferable: checked } : prev))}
+          />
+        </div>
+      </AdminDrawerSection>
+
+      <AdminDrawerSection title="Notas" className={drawerSectionCardClass}>
+        <TextAreaField
+          label="Notas"
+          value={classPassForm.notes}
+          onChange={(value) => setClassPassForm((prev) => (prev ? { ...prev, notes: value } : prev))}
+          error={classPassFieldErrors.notes}
+          placeholder="Contexto operativo del pack o aclaraciones del titular."
+          inputClassName={`${fieldInputClass} min-h-[112px] py-2`}
+        />
+      </AdminDrawerSection>
+    </form>
+  ) : null;
+
   return (
     <div
       className={`flex h-full min-h-0 flex-col gap-4 overflow-y-auto ${
@@ -2022,7 +2293,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       </AdminDrawer>
 
       <AdminDrawer
-        open={enrollmentModalOpen}
+        open={enrollmentModalOpen && !classPassDrawerOpen}
         onClose={closeEnrollmentModal}
         title={editingEnrollmentId ? 'Editar inscripción' : 'Agregar alumno'}
         subtitle={
@@ -2207,6 +2478,20 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
               </div>
             ) : (
               <div className="space-y-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-[13px] text-p-text-secondary">
+                    Packs disponibles, saldo y consumo manual de créditos para esta inscripción.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={openClassPassDrawer}
+                    className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text transition hover:border-p-border-strong hover:text-p-text"
+                  >
+                    <Plus size={14} />
+                    Asignar pack
+                  </button>
+                </div>
+
                 <div className={helperCardClass}>
                   <p className="font-semibold text-p-text">Consumir crédito no registra un pago</p>
                   <p className="mt-1">
@@ -2355,6 +2640,35 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             )}
           </AdminDrawerSection>
         </form>
+      </AdminDrawer>
+
+      <AdminDrawer
+        open={classPassDrawerOpen}
+        onClose={closeClassPassDrawer}
+        title="Asignar pack"
+        subtitle="Creá una tarjetita digital para este alumno sin registrar cobro ni tocar el estado de pago de la inscripción."
+        size="md"
+        footer={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={closeClassPassDrawer}
+              className="inline-flex h-9 items-center justify-center rounded-lg border border-p-border px-3 text-sm font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              form="class-pass-form"
+              disabled={classPassSubmitting}
+              className="inline-flex h-9 items-center justify-center rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800 disabled:cursor-wait disabled:opacity-70"
+            >
+              {classPassSubmitting ? 'Asignando...' : 'Asignar pack'}
+            </button>
+          </div>
+        }
+      >
+        {classPassFormContent}
       </AdminDrawer>
 
       <AdminAppModal
