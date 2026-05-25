@@ -79,19 +79,26 @@ export class ClassPassAdminService {
   }
 
   private mapRow(row: any): ClassPassSummary {
+    const ownerUserId =
+      row.ownerUserId === null || row.ownerUserId === undefined ? null : Number(row.ownerUserId);
+    const beneficiaryUserId =
+      row.beneficiaryUserId === null || row.beneficiaryUserId === undefined ? null : Number(row.beneficiaryUserId);
+    const activityTypeId =
+      row.activityTypeId === null || row.activityTypeId === undefined ? null : Number(row.activityTypeId);
+
     return {
       id: String(row.id),
       clubId: Number(row.clubId),
       ownerClientId: String(row.ownerClientId),
-      ownerUserId: Number.isFinite(Number(row.ownerUserId)) ? Number(row.ownerUserId) : null,
+      ownerUserId: Number.isFinite(ownerUserId ?? Number.NaN) ? ownerUserId : null,
       beneficiaryClientId: String(row.beneficiaryClientId),
-      beneficiaryUserId: Number.isFinite(Number(row.beneficiaryUserId)) ? Number(row.beneficiaryUserId) : null,
+      beneficiaryUserId: Number.isFinite(beneficiaryUserId ?? Number.NaN) ? beneficiaryUserId : null,
       packageName: String(row.packageName || '').trim(),
       totalCredits: Number(row.totalCredits),
       usedCredits: Number(row.usedCredits),
       remainingCredits: Number(row.remainingCredits),
       expiresAt: row.expiresAt ? new Date(row.expiresAt).toISOString() : null,
-      activityTypeId: Number.isFinite(Number(row.activityTypeId)) ? Number(row.activityTypeId) : null,
+      activityTypeId: Number.isFinite(activityTypeId ?? Number.NaN) ? activityTypeId : null,
       classType: row.classType ? String(row.classType) : null,
       teacherId: row.teacherId ? String(row.teacherId) : null,
       transferable: Boolean(row.transferable),
