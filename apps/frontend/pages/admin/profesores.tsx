@@ -1,6 +1,9 @@
 import type { GetServerSideProps } from 'next';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Pencil, Plus, Search, UserRoundX } from 'lucide-react';
+import {
+  AcademyStatusBadge,
+} from '../../components/admin/academy/AcademyVisual';
 import AdminRouteShell from '../../components/admin/AdminRouteShell';
 import {
   AdminDataTable,
@@ -66,6 +69,9 @@ const drawerSectionCardClass = 'rounded-2xl border border-p-border bg-p-surface-
 const fieldInputClass =
   'h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text shadow-p-card outline-none transition focus:border-p-accent focus:ring-2 focus:ring-lima-300/30';
 const sectionNoteClass = 'rounded-xl border border-p-border bg-p-surface p-3 text-[13px] text-p-text-secondary';
+const academyMetricCardClass = 'rounded-[22px] border-p-border bg-p-surface px-5 py-4 shadow-p-card';
+const academyPanelClass = 'overflow-hidden rounded-[24px] border-p-border bg-p-surface shadow-p-card';
+const academyPanelHeaderClass = 'border-b border-p-border px-4 py-4 lg:px-5';
 
 export default function AdminTeachersPage() {
   return (
@@ -247,23 +253,17 @@ export function AdminTeachersPageContent({ user, embedded = false }: { user: any
             <p className="truncate font-semibold text-p-text">{teacher.displayName}</p>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-p-text-muted">
               <span
-                className={`inline-flex rounded-full border px-2 py-0.5 font-semibold ${
-                  teacher.isActive
-                    ? 'border-p-positive bg-p-positive-bg text-p-positive'
-                    : 'border-p-border bg-p-surface-2 text-p-text-muted'
-                }`}
+                className="inline-flex"
               >
-                {teacher.isActive ? 'Activo' : 'Inactivo'}
+                <AcademyStatusBadge
+                  label={teacher.isActive ? 'Activo' : 'Inactivo'}
+                  tone={teacher.isActive ? 'success' : 'muted'}
+                />
               </span>
-              <span
-                className={`inline-flex rounded-full border px-2 py-0.5 font-semibold ${
-                  teacher.isInternal
-                    ? 'border-p-accent bg-p-surface-2 text-p-accent'
-                    : 'border-p-border bg-p-surface-2 text-p-text-muted'
-                }`}
-              >
-                {teacher.isInternal ? 'Interno' : 'Externo'}
-              </span>
+              <AcademyStatusBadge
+                label={teacher.isInternal ? 'Interno' : 'Externo'}
+                tone={teacher.isInternal ? 'accent' : 'neutral'}
+              />
             </div>
           </div>
         ),
@@ -287,13 +287,13 @@ export function AdminTeachersPageContent({ user, embedded = false }: { user: any
               {teacher.specialties.slice(0, 3).map((specialty) => (
                 <span
                   key={specialty}
-                  className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 text-[11px] font-medium text-p-text-secondary"
+                  className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2.5 py-1 text-[11px] font-medium text-p-text-secondary"
                 >
                   {specialty}
                 </span>
               ))}
               {teacher.specialties.length > 3 && (
-                <span className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 text-[11px] font-medium text-p-text-muted">
+                <span className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2.5 py-1 text-[11px] font-medium text-p-text-muted">
                   +{teacher.specialties.length - 3}
                 </span>
               )}
@@ -319,7 +319,7 @@ export function AdminTeachersPageContent({ user, embedded = false }: { user: any
             <button
               type="button"
               onClick={() => void openEditModal(teacher.id)}
-              className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-p-border bg-p-surface px-2.5 text-[11px] font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
+              className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-p-border bg-p-surface px-2.5 text-[11px] font-semibold text-p-text-muted transition hover:border-p-border-strong hover:bg-p-surface-2 hover:text-p-text"
             >
               <Pencil size={13} />
               Editar
@@ -328,7 +328,7 @@ export function AdminTeachersPageContent({ user, embedded = false }: { user: any
               type="button"
               onClick={() => void toggleTeacherStatus(teacher)}
               disabled={statusBusyId === teacher.id}
-              className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg px-2.5 text-[11px] font-semibold transition ${
+              className={`inline-flex h-8 items-center justify-center gap-1 rounded-lg px-2.5 text-[11px] font-semibold shadow-sm transition ${
                 teacher.isActive
                   ? 'border border-p-error bg-p-error-bg text-[var(--error-fg)] hover:bg-[var(--error-fg)] hover:text-ink-50'
                   : 'border border-p-positive bg-p-positive-bg text-p-positive hover:bg-p-positive hover:text-ink-900'
@@ -440,19 +440,23 @@ export function AdminTeachersPageContent({ user, embedded = false }: { user: any
           format="number"
           valueColor="var(--positive-fg)"
           delta={{ value: summary.total, label: `de ${summary.total} cargados` }}
+          className={academyMetricCardClass}
         />
         <MetricCard
           label="Inactivos"
           value={summary.inactive}
           format="number"
           valueColor={summary.inactive > 0 ? 'var(--text-muted)' : 'var(--positive-fg)'}
+          className={academyMetricCardClass}
         />
       </div>
 
       <AdminPanel
         title="Padrón de profesores"
-        description="Alta, edición y estado operativo del equipo docente."
+        description="Equipo docente listo para operar clases, con estado, contacto y especialidades a mano."
         bodyClassName="p-0"
+        className={academyPanelClass}
+        headerClassName={academyPanelHeaderClass}
         actions={
           <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-2 sm:flex-nowrap sm:justify-end">
             <AdminSegmentedControl
@@ -496,7 +500,7 @@ export function AdminTeachersPageContent({ user, embedded = false }: { user: any
           onRowClick={(row) => void openEditModal(row.id)}
           empty={{
             title: 'Todavía no hay profesores cargados',
-            description: 'Creá el primer profesor para dejar lista la base del módulo Academia.',
+            description: 'Sumá el primer profesor para empezar a programar clases y ordenar la operación diaria.',
             action: (
               <button
                 type="button"

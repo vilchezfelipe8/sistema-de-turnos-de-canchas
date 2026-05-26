@@ -1,6 +1,20 @@
 import type { GetServerSideProps } from 'next';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pencil, Plus, Search, UserPlus, Users, XCircle } from 'lucide-react';
+import {
+  AcademyEmptyState,
+  AcademyStatusBadge,
+  academyAttendanceLabel,
+  academyAttendanceTone,
+  academyEnrollmentLabel,
+  academyEnrollmentTone,
+  academyFinancialStateLabel,
+  academyFinancialStateTone,
+  academyPassStatusLabel,
+  academyPassStatusTone,
+  academyPaymentLabel,
+  academyPaymentTone,
+} from '../../components/admin/academy/AcademyVisual';
 import AdminRouteShell from '../../components/admin/AdminRouteShell';
 import AccountDrawer, {
   type AccountDrawerContext,
@@ -45,6 +59,7 @@ import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 
 type ClassStatusFilter = 'all' | 'active' | 'completed' | 'cancelled';
 type EnrollmentFilter = 'active' | 'all' | 'cancelled';
+type EnrollmentDrawerTab = 'summary' | 'credits' | 'account' | 'traceability';
 
 type CourtOption = {
   id: number;
@@ -269,10 +284,13 @@ const parseOptionalPositiveNumber = (value: string) => {
   return parsed;
 };
 
-const drawerSectionCardClass = 'rounded-2xl border border-p-border bg-p-surface-2 p-4';
+const drawerSectionCardClass = 'rounded-[22px] border border-p-border bg-p-surface-2 p-4 md:p-5';
 const fieldInputClass =
   'h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text shadow-p-card outline-none transition focus:border-p-accent focus:ring-2 focus:ring-lima-300/30';
-const helperCardClass = 'rounded-xl border border-p-border bg-p-surface p-3 text-[13px] text-p-text-secondary';
+const helperCardClass = 'rounded-2xl border border-p-border bg-p-surface p-4 text-[13px] text-p-text-secondary';
+const academyMetricCardClass = 'rounded-[22px] border-p-border bg-p-surface px-5 py-4 shadow-p-card';
+const academyPanelClass = 'overflow-hidden rounded-[24px] border-p-border bg-p-surface shadow-p-card';
+const academyPanelHeaderClass = 'border-b border-p-border px-4 py-4 lg:px-5';
 
 const durationFromForm = (form: ClassFormState) => {
   const start = new Date(form.startsAt);
@@ -317,88 +335,12 @@ const enrollmentStatusLabel = (status: AdminClassEnrollmentStatus) => {
   }
 };
 
-const attendanceStatusLabel = (status: AdminClassAttendanceStatus) => {
-  switch (status) {
-    case 'PENDING':
-      return 'Pendiente';
-    case 'ATTENDED':
-      return 'Asistió';
-    case 'ABSENT':
-      return 'Ausente';
-    case 'NO_SHOW':
-      return 'No show';
-    case 'CANCELLED_ON_TIME':
-      return 'Canceló a tiempo';
-    case 'CANCELLED_LATE':
-      return 'Canceló tarde';
-    default:
-      return status;
-  }
-};
-
-const paymentStatusLabel = (status: AdminClassPaymentStatus) => {
-  switch (status) {
-    case 'UNPAID':
-      return 'Impago';
-    case 'PARTIAL':
-      return 'Pago parcial';
-    case 'PAID':
-      return 'Pagado';
-    case 'COVERED_BY_CREDIT':
-      return 'Cubierto por crédito';
-    case 'REFUNDED':
-      return 'Reintegrado';
-    default:
-      return status;
-  }
-};
-
-const classPassStatusLabel = (status: AdminClassPass['status'] | string) => {
-  switch (status) {
-    case 'ACTIVE':
-      return 'Activo';
-    case 'EXPIRED':
-      return 'Vencido';
-    case 'DEPLETED':
-      return 'Sin saldo';
-    case 'CANCELLED':
-      return 'Cancelado';
-    default:
-      return status;
-  }
-};
-
-const academyFinancialStateLabel = (
+const paymentStatusLabel = (status: AdminClassPaymentStatus) => academyPaymentLabel(status);
+const attendanceStatusLabel = (status: AdminClassAttendanceStatus) => academyAttendanceLabel(status);
+const classPassStatusLabel = (status: AdminClassPass['status'] | string) => academyPassStatusLabel(status);
+const academyFinancialLabel = (
   state: AdminClassPass['financial']['state'] | AdminClassEnrollmentAccount['financialStatus']
-) => {
-  switch (state) {
-    case 'PENDING':
-      return 'Pendiente de cobro';
-    case 'PARTIAL':
-      return 'Cobro parcial';
-    case 'PAID':
-      return 'Cobrado';
-    case 'NO_ACCOUNT':
-    default:
-      return 'Sin cuenta';
-  }
-};
-
-const academyFinancialToneClasses = (
-  state: AdminClassPass['financial']['state'] | AdminClassEnrollmentAccount['financialStatus']
-) => {
-  switch (state) {
-    case 'PAID':
-      return 'border-p-positive bg-p-positive-bg text-p-positive';
-    case 'PARTIAL':
-      return 'border-p-border-strong bg-p-surface text-p-text';
-    case 'PENDING':
-      return 'border-p-accent/40 bg-p-surface text-p-accent';
-    case 'NO_ACCOUNT':
-    default:
-      return 'border-p-border bg-p-surface-2 text-p-text-muted';
-  }
-};
+) => academyFinancialStateLabel(state);
 
 const creditUsageReasonLabel = (reason: AdminClassCreditUsageReason) => {
   switch (reason) {
@@ -461,29 +403,11 @@ const statusToneClasses = (status: AdminClassSessionStatus) => {
 };
 
 const enrollmentToneClasses = (status: AdminClassEnrollmentStatus) => {
-  switch (status) {
-    case 'ENROLLED':
-      return 'border-p-positive bg-p-positive-bg text-p-positive';
-    case 'WAITLISTED':
-      return 'border-p-border-strong bg-p-surface text-p-text';
-    case 'CANCELLED':
-    default:
-      return 'border-p-error bg-p-error-bg text-[var(--error-fg)]';
-  }
+  return academyEnrollmentTone(status);
 };
 
 const classPassToneClasses = (status: AdminClassPass['status']) => {
-  switch (status) {
-    case 'ACTIVE':
-      return 'border-p-positive bg-p-positive-bg text-p-positive';
-    case 'DEPLETED':
-      return 'border-p-border bg-p-surface-2 text-p-text-muted';
-    case 'EXPIRED':
-      return 'border-p-border-strong bg-p-surface text-p-text-secondary';
-    case 'CANCELLED':
-    default:
-      return 'border-p-error bg-p-error-bg text-[var(--error-fg)]';
-  }
+  return academyPassStatusTone(status);
 };
 
 type ClassPassAvailability = {
@@ -775,7 +699,7 @@ const translateClassPassError = (error: unknown, fallback: string) => {
     case 'CLASS_PASS_NOT_FOUND':
       return 'El pack elegido ya no está disponible.';
     case 'INVALID_INPUT':
-      return extractErrorMessage(normalized, 'No se pudo consumir el crédito de la tarjetita.');
+      return extractErrorMessage(normalized, 'No se pudo consumir el crédito del pack.');
     default:
       return extractErrorMessage(normalized, fallback);
   }
@@ -888,6 +812,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
   const [enrollmentFilter, setEnrollmentFilter] = useState<EnrollmentFilter>('active');
   const [enrollmentModalOpen, setEnrollmentModalOpen] = useState(false);
   const [editingEnrollmentId, setEditingEnrollmentId] = useState<string | null>(null);
+  const [enrollmentDrawerTab, setEnrollmentDrawerTab] = useState<EnrollmentDrawerTab>('summary');
   const [enrollmentForm, setEnrollmentForm] = useState<EnrollmentFormState>(() => buildEmptyEnrollmentForm());
   const [enrollmentFormError, setEnrollmentFormError] = useState('');
   const [enrollmentFieldErrors, setEnrollmentFieldErrors] = useState<Record<string, string>>({});
@@ -900,6 +825,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
   const [creditUsageLoading, setCreditUsageLoading] = useState(false);
   const [creditUsageError, setCreditUsageError] = useState('');
   const [creditUsageBusyPassId, setCreditUsageBusyPassId] = useState<string | null>(null);
+  const [quickAttendanceBusyId, setQuickAttendanceBusyId] = useState<string | null>(null);
+  const [quickCreditBusyEnrollmentId, setQuickCreditBusyEnrollmentId] = useState<string | null>(null);
   const [creditUsageConfirmState, setCreditUsageConfirmState] = useState<{
     classPass: AdminClassPass;
     enrollment: AdminClassEnrollment;
@@ -1212,6 +1139,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
 
   const resetEnrollmentForm = useCallback(() => {
     setEnrollmentForm(buildEmptyEnrollmentForm());
+    setEnrollmentDrawerTab('summary');
     setEnrollmentFormError('');
     setEnrollmentFieldErrors({});
     setEditingEnrollmentId(null);
@@ -1388,27 +1316,32 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
 
   const openEnrollmentCreateModal = useCallback(() => {
     resetEnrollmentForm();
+    setEnrollmentDrawerTab('summary');
     setEnrollmentModalOpen(true);
   }, [resetEnrollmentForm]);
 
-  const openEnrollmentEditModal = useCallback((enrollment: AdminClassEnrollment) => {
-    setEditingEnrollmentId(enrollment.id);
-    setEnrollmentForm({
-      selectedStudent: buildStudentOptionFromEnrollment(enrollment),
-      studentQuery: '',
-      selectedStudentUser: buildStudentUserOptionFromEnrollment(enrollment),
-      studentUserQuery: '',
-      selectedResponsible: buildResponsibleOptionFromEnrollment(enrollment),
-      responsibleQuery: '',
-      attendanceStatus: enrollment.attendanceStatus,
-      initialAttendanceStatus: enrollment.attendanceStatus,
-      notes: enrollment.notes || '',
-    });
-    setEnrollmentFormError('');
-    setEnrollmentFieldErrors({});
-    setCreditUsageError('');
-    setEnrollmentModalOpen(true);
-  }, []);
+  const openEnrollmentEditModal = useCallback(
+    (enrollment: AdminClassEnrollment, initialTab: EnrollmentDrawerTab = 'summary') => {
+      setEditingEnrollmentId(enrollment.id);
+      setEnrollmentDrawerTab(initialTab);
+      setEnrollmentForm({
+        selectedStudent: buildStudentOptionFromEnrollment(enrollment),
+        studentQuery: '',
+        selectedStudentUser: buildStudentUserOptionFromEnrollment(enrollment),
+        studentUserQuery: '',
+        selectedResponsible: buildResponsibleOptionFromEnrollment(enrollment),
+        responsibleQuery: '',
+        attendanceStatus: enrollment.attendanceStatus,
+        initialAttendanceStatus: enrollment.attendanceStatus,
+        notes: enrollment.notes || '',
+      });
+      setEnrollmentFormError('');
+      setEnrollmentFieldErrors({});
+      setCreditUsageError('');
+      setEnrollmentModalOpen(true);
+    },
+    []
+  );
 
   const closeEnrollmentModal = useCallback(() => {
     if (enrollmentSubmitting) return;
@@ -1645,6 +1578,94 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     [clubSlug, enrollmentStatusBusyId, loadEnrollments, selectedClass]
   );
 
+  const quickSetEnrollmentAttendance = useCallback(
+    async (enrollment: AdminClassEnrollment, nextAttendanceStatus: AdminClassAttendanceStatus) => {
+      if (!clubSlug || !selectedClass || quickAttendanceBusyId) return;
+      try {
+        setQuickAttendanceBusyId(enrollment.id);
+        await ClubAdminService.setClassEnrollmentAttendance(clubSlug, selectedClass.id, enrollment.id, {
+          attendanceStatus: nextAttendanceStatus,
+        });
+        await loadEnrollments(selectedClass.id);
+        showAdminToast(
+          nextAttendanceStatus === 'ATTENDED' ? 'Asistencia marcada como presente.' : 'Asistencia vuelta a pendiente.'
+        );
+      } catch (error) {
+        reportUiError({ area: 'AdminClassesPage', action: 'quickSetEnrollmentAttendance' }, error);
+        setFeedback({
+          tone: 'error',
+          message: translateEnrollmentError(error, 'No se pudo actualizar la asistencia.'),
+        });
+      } finally {
+        setQuickAttendanceBusyId(null);
+      }
+    },
+    [clubSlug, loadEnrollments, quickAttendanceBusyId, selectedClass]
+  );
+
+  const quickOpenCreditFlow = useCallback(
+    async (enrollment: AdminClassEnrollment) => {
+      if (!clubSlug || !selectedClass || quickCreditBusyEnrollmentId) return;
+      try {
+        setQuickCreditBusyEnrollmentId(enrollment.id);
+        const [usageRows, enrollmentAccount] = await Promise.all([
+          ClubAdminService.getEnrollmentCreditUsages(clubSlug, enrollment.id),
+          ClubAdminService.getClassEnrollmentAccount(clubSlug, enrollment.id),
+        ]);
+
+        const passes = classPassesByStudent[enrollment.studentClientId] || [];
+        const usablePasses = passes.filter((classPass) =>
+          resolveClassPassAvailability({
+            classPass,
+            enrollment,
+            selectedClass,
+            hasUsage: usageRows.some((usage) => usage.classPassId === classPass.id),
+            enrollmentAccount,
+          }).usable
+        );
+
+        if (usablePasses.length === 0) {
+          setFeedback({
+            tone: 'error',
+            message: 'No hay un pack compatible disponible para cubrir esta inscripción con crédito.',
+          });
+          return;
+        }
+
+        if (usablePasses.length > 1) {
+          showAdminToast('Elegí el pack desde Gestionar para evitar consumir el crédito equivocado.');
+          openEnrollmentEditModal(enrollment, 'credits');
+          return;
+        }
+
+        const classPass = usablePasses[0];
+        const availability = resolveClassPassAvailability({
+          classPass,
+          enrollment,
+          selectedClass,
+          hasUsage: usageRows.some((usage) => usage.classPassId === classPass.id),
+          enrollmentAccount,
+        });
+
+        setCreditUsageError('');
+        setCreditUsageConfirmState({
+          classPass,
+          enrollment,
+          reason: availability.reason,
+        });
+      } catch (error) {
+        reportUiError({ area: 'AdminClassesPage', action: 'quickOpenCreditFlow' }, error);
+        setFeedback({
+          tone: 'error',
+          message: translateClassPassError(error, 'No se pudo preparar el consumo de crédito.'),
+        });
+      } finally {
+        setQuickCreditBusyEnrollmentId(null);
+      }
+    },
+    [classPassesByStudent, clubSlug, openEnrollmentEditModal, quickCreditBusyEnrollmentId, selectedClass]
+  );
+
   const consumeClassPassCredit = useCallback(async () => {
     if (!clubSlug || !selectedClass || !creditUsageConfirmState || creditUsageBusyPassId) return;
 
@@ -1667,7 +1688,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       setFeedback(null);
     } catch (error) {
       reportUiError({ area: 'AdminClassesPage', action: 'consumeClassPassCredit' }, error);
-      const message = translateClassPassError(error, 'No se pudo consumir el crédito de la tarjetita.');
+      const message = translateClassPassError(error, 'No se pudo consumir el crédito del pack.');
       setCreditUsageError(message);
       setEnrollmentFormError(message);
     } finally {
@@ -1737,7 +1758,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         reportUiError({ area: 'AdminClassesPage', action: 'submitClassPassForm' }, error);
         setClassPassFieldErrors(getApiFieldErrors(error));
         setClassPassFormError(
-          translateCreateClassPassError(error, 'No se pudo asignar la tarjetita digital al alumno.')
+          translateCreateClassPassError(error, 'No se pudo asignar el pack de créditos al alumno.')
         );
       } finally {
         setClassPassSubmitting(false);
@@ -1809,18 +1830,12 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         label: 'Clase',
         render: (classSession) => (
           <div className="min-w-0">
-            <p className="truncate font-semibold text-p-text">{classSession.teacher?.displayName || 'Profesor sin referencia'}</p>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-p-text-muted">
-              <span className={`inline-flex rounded-full border px-2 py-0.5 font-semibold ${statusToneClasses(classSession.status)}`}>
-                {statusLabel(classSession.status)}
-              </span>
-              <span className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 font-semibold text-p-text-secondary">
-                Visibilidad: {visibilityLabel(classSession.visibility)}
-              </span>
-              <span className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 font-semibold text-p-text-secondary">
-                Formato: {classTypeLabel(classSession.classType)}
-              </span>
-            </div>
+            <p className="truncate font-semibold text-p-text">
+              {classSession.activityType?.name || 'Clase sin actividad'}
+            </p>
+            <p className="mt-1 text-[12px] text-p-text-secondary">
+              {classSession.teacher?.displayName || 'Profesor sin referencia'}
+            </p>
           </div>
         ),
       },
@@ -1836,37 +1851,34 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         ),
       },
       {
-        key: 'resources',
-        label: 'Profesor / recursos',
+        key: 'students',
+        label: 'Alumnos',
+        width: 'w-[150px]',
         render: (classSession) => (
           <div className="text-[12px] text-p-text-secondary">
-            <p>{classSession.court?.name || 'Sin cancha asignada'}</p>
-            <p className="mt-0.5 text-p-text-muted">{classSession.activityType?.name || 'Sin actividad específica'}</p>
-          </div>
-        ),
-      },
-      {
-        key: 'capacity',
-        label: 'Cupo',
-        width: 'w-[90px]',
-        render: (classSession) => (
-          <div className="text-[12px] text-p-text-secondary">
-            <p className="font-semibold text-p-text">{classSession.capacity}</p>
+            <p className="font-semibold text-p-text">Hasta {classSession.capacity}</p>
             <p className="mt-0.5 text-p-text-muted">{classTypeLabel(classSession.classType)}</p>
           </div>
         ),
       },
       {
-        key: 'price',
-        label: 'Precio',
-        width: 'w-[130px]',
-        render: (classSession) => <span className="text-[12px] text-p-text-secondary">{formatCurrency(classSession.pricePerStudent)}</span>,
-      },
-      {
-        key: 'updatedAt',
-        label: 'Actualizado',
-        width: 'w-[170px]',
-        render: (classSession) => <span className="text-[12px] text-p-text-muted">{formatDateTime(classSession.updatedAt)}</span>,
+        key: 'status',
+        label: 'Estado',
+        width: 'w-[240px]',
+        render: (classSession) => (
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusToneClasses(classSession.status)}`}>
+                {statusLabel(classSession.status)}
+              </span>
+              <AcademyStatusBadge label={visibilityLabel(classSession.visibility)} tone="neutral" />
+            </div>
+            <p className="mt-1 truncate text-[12px] text-p-text-muted">
+              {classSession.court?.name || 'Sin cancha asignada'}
+              {classSession.level ? ` · ${classSession.level}` : ''}
+            </p>
+          </div>
+        ),
       },
       {
         key: 'actions',
@@ -1879,7 +1891,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             <button
               type="button"
               onClick={() => setSelectedClassId(classSession.id)}
-              className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-p-border bg-p-surface px-2.5 text-[11px] font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
+              className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 shadow-sm transition hover:bg-ink-800"
             >
               <Users size={13} />
               Gestionar
@@ -1887,7 +1899,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             <button
               type="button"
               onClick={() => void openEditModal(classSession.id)}
-              className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-p-border bg-p-surface px-2.5 text-[11px] font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
+              className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-p-border bg-p-surface px-2.5 text-[11px] font-semibold text-p-text-muted transition hover:border-p-border-strong hover:bg-p-surface-2 hover:text-p-text"
             >
               <Pencil size={13} />
               Editar
@@ -1906,117 +1918,6 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       },
     ],
     [openEditModal, statusBusyId, updateStatus]
-  );
-
-  const enrollmentColumns = useMemo<AdminDataTableColumn<AdminClassEnrollment>[]>(
-    () => [
-      {
-        key: 'student',
-        label: 'Alumno',
-        render: (enrollment) => (
-          <div className="min-w-0">
-            <p className="truncate font-semibold text-p-text">{enrollment.snapshotName}</p>
-            <p className="mt-0.5 text-[12px] text-p-text-muted">{personSecondaryLine({ email: enrollment.snapshotEmail, phone: enrollment.snapshotPhone })}</p>
-          </div>
-        ),
-      },
-      {
-        key: 'responsible',
-        label: 'Responsable',
-        render: (enrollment) => (
-          <div className="text-[12px] text-p-text-secondary">
-            <p>{enrollment.billingResponsibleClient?.name || 'Sin responsable cargado'}</p>
-            <p className="mt-0.5 text-p-text-muted">
-              {enrollment.studentUser
-                ? `Usuario del alumno: ${
-                    [enrollment.studentUser.firstName, enrollment.studentUser.lastName]
-                      .filter(Boolean)
-                      .join(' ')
-                      .trim() || enrollment.studentUser.email
-                  }`
-                : 'Alumno sin usuario de app explícito'}
-            </p>
-          </div>
-        ),
-      },
-      {
-        key: 'statuses',
-        label: 'Estados',
-        render: (enrollment) => (
-          <div className="flex flex-wrap gap-1">
-            <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${enrollmentToneClasses(enrollment.enrollmentStatus)}`}>
-              {enrollmentStatusLabel(enrollment.enrollmentStatus)}
-            </span>
-            <span className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 text-[11px] font-semibold text-p-text-secondary">
-              {attendanceStatusLabel(enrollment.attendanceStatus)}
-            </span>
-            <span className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 text-[11px] font-semibold text-p-text-secondary">
-              {paymentStatusLabel(enrollment.paymentStatus)}
-            </span>
-          </div>
-        ),
-      },
-      {
-        key: 'price',
-        label: 'Precio',
-        width: 'w-[120px]',
-        render: (enrollment) => <span className="text-[12px] text-p-text-secondary">{formatCurrency(enrollment.priceAtEnrollment)}</span>,
-      },
-      {
-        key: 'credits',
-        label: 'Créditos',
-        width: 'w-[170px]',
-        render: (enrollment) => {
-          const summary = compatiblePassSummary(enrollment);
-          return (
-            <div className="text-[12px] text-p-text-secondary">
-              <p className={summary.muted ? 'text-p-text-muted' : 'font-medium text-p-text'}>
-                {summary.label}
-              </p>
-              <p className="mt-0.5 text-p-text-muted">Abrí la inscripción para usar la tarjetita.</p>
-            </div>
-          );
-        },
-      },
-      {
-        key: 'notes',
-        label: 'Notas',
-        render: (enrollment) => (
-          <span className="line-clamp-2 text-[12px] text-p-text-secondary">
-            {enrollment.notes || 'Sin notas'}
-          </span>
-        ),
-      },
-      {
-        key: 'actions',
-        label: '',
-        align: 'right',
-        isActions: true,
-        width: 'w-[200px]',
-        render: (enrollment) => (
-          <div className="flex items-center justify-end gap-2 opacity-100">
-            <button
-              type="button"
-              onClick={() => openEnrollmentEditModal(enrollment)}
-              className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-p-border bg-p-surface px-2.5 text-[11px] font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
-            >
-              <Pencil size={13} />
-              Editar
-            </button>
-            <button
-              type="button"
-              onClick={() => void cancelEnrollment(enrollment)}
-              disabled={enrollmentStatusBusyId === enrollment.id || enrollment.enrollmentStatus === 'CANCELLED'}
-              className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-p-error bg-p-error-bg px-2.5 text-[11px] font-semibold text-[var(--error-fg)] transition hover:bg-[var(--error-fg)] hover:text-ink-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <XCircle size={13} />
-              Cancelar
-            </button>
-          </div>
-        ),
-      },
-    ],
-    [cancelEnrollment, compatiblePassSummary, enrollmentStatusBusyId, openEnrollmentEditModal]
   );
 
   const canCreateClass = teachers.length > 0 && !optionsLoading;
@@ -2040,12 +1941,12 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     return editingEnrollmentAccount;
   }, [editingEnrollment, editingEnrollmentAccount]);
   const editingEnrollmentAccountBadgeLabel = useMemo(() => {
-    if (!editingEnrollment) return academyFinancialStateLabel(editingEnrollmentFinancial?.financialStatus || 'NO_ACCOUNT');
+    if (!editingEnrollment) return academyFinancialLabel(editingEnrollmentFinancial?.financialStatus || 'NO_ACCOUNT');
     if (editingEnrollment.paymentStatus === 'COVERED_BY_CREDIT') return 'Cubierto por crédito';
-    if (editingEnrollment.paymentStatus === 'REFUNDED') return 'Reintegrado';
+    if (editingEnrollment.paymentStatus === 'REFUNDED') return 'Devuelto';
     if (editingEnrollment.paymentStatus === 'PAID') return 'Pagado';
     if (editingEnrollment.enrollmentStatus === 'CANCELLED') return 'No cobrable';
-    return academyFinancialStateLabel(editingEnrollmentFinancial?.financialStatus || 'NO_ACCOUNT');
+    return academyFinancialLabel(editingEnrollmentFinancial?.financialStatus || 'NO_ACCOUNT');
   }, [editingEnrollment, editingEnrollmentFinancial]);
   const editingEnrollmentAccountBadgeTone = useMemo(() => {
     if (!editingEnrollment) return editingEnrollmentFinancial?.financialStatus || 'NO_ACCOUNT';
@@ -2078,6 +1979,11 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     editingEnrollmentAccountLoading,
     editingEnrollmentFinancial,
   ]);
+  const enrollmentDrawerShowsTabs = Boolean(editingEnrollmentId);
+  const showEnrollmentSummaryTab = !enrollmentDrawerShowsTabs || enrollmentDrawerTab === 'summary';
+  const showEnrollmentCreditsTab = !enrollmentDrawerShowsTabs || enrollmentDrawerTab === 'credits';
+  const showEnrollmentAccountTab = enrollmentDrawerShowsTabs && enrollmentDrawerTab === 'account';
+  const showEnrollmentTraceabilityTab = enrollmentDrawerShowsTabs && enrollmentDrawerTab === 'traceability';
   const classFormContent = (
     <form id="class-session-form" onSubmit={submitForm} className="space-y-4">
       {formError && <AdminInlineError>{formError}</AdminInlineError>}
@@ -2280,7 +2186,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           <div className={helperCardClass}>
             <p className="font-semibold text-p-text">Asignar créditos no registra un pago</p>
             <p className="mt-1">
-              Esta acción crea una tarjetita digital para el alumno. Si cargás un precio, después vas a poder abrir la cuenta del pack para cobrarlo desde AccountDrawer.
+              Esta acción crea un pack de créditos para el alumno. Si cargás un precio, después vas a poder abrir la cuenta del pack para cobrarlo desde AccountDrawer.
             </p>
           </div>
 
@@ -2403,8 +2309,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
 
   return (
     <div
-      className={`flex h-full min-h-0 flex-col gap-4 overflow-y-auto ${
-        embedded ? 'px-0 pb-6' : 'p-4 pb-4 lg:p-6 lg:pb-6'
+      className={`flex min-h-0 flex-col gap-4 ${
+        embedded ? 'px-0 pb-6' : 'h-full overflow-y-auto p-4 pb-4 lg:p-6 lg:pb-6'
       }`}
     >
       {feedback && (
@@ -2419,25 +2325,30 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           value={summary.activeCount}
           format="number"
           delta={{ value: summary.total, label: `de ${summary.total} cargadas` }}
+          className={academyMetricCardClass}
         />
         <MetricCard
           label="Públicas"
           value={summary.publicCount}
           format="number"
           valueColor="var(--accent-fg)"
+          className={academyMetricCardClass}
         />
         <MetricCard
           label="Canceladas"
           value={summary.cancelled}
           format="number"
           valueColor={summary.cancelled > 0 ? 'var(--error-fg)' : 'var(--positive-fg)'}
+          className={academyMetricCardClass}
         />
       </div>
 
       <AdminPanel
-        title="Base de clases"
-        description="Profesor, horario, visibilidad, formato, cupo y estado operativo."
+        title="Clases del club"
+        description="Escaneá rápido horario, profesor, cupo, estado y pendientes sin salir del módulo."
         bodyClassName="p-0"
+        className={academyPanelClass}
+        headerClassName={academyPanelHeaderClass}
         actions={
           <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-2 sm:flex-nowrap sm:justify-end">
             <AdminSegmentedControl
@@ -2489,7 +2400,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             description:
               teachers.length === 0 && !optionsLoading
                 ? 'La clase necesita un profesor explícito. Primero completá el padrón en Profesores.'
-                : 'Creá la primera clase para dejar lista la base operativa de Academia.',
+                : 'Creá la primera clase para ordenar el día a día de Academia y empezar a operar desde acá.',
             action: canCreateClass ? (
               <button
                 type="button"
@@ -2507,10 +2418,10 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       <AdminDrawer
         open={Boolean(selectedClass) && !modalOpen && !enrollmentModalOpen}
         onClose={() => setSelectedClassId(null)}
-        title={selectedClass ? selectedClass.teacher?.displayName || 'Clase sin profesor' : 'Clase'}
+        title={selectedClass ? selectedClass.activityType?.name || 'Clase' : 'Clase'}
         subtitle={
           selectedClass
-            ? 'Gestioná inscripciones, asistencia y contexto operativo desde este panel lateral.'
+            ? `${selectedClass.teacher?.displayName || 'Sin profesor'} · ${formatDateRange(selectedClass.startsAt, selectedClass.endsAt)}`
             : undefined
         }
         statusChip={selectedClass ? statusLabel(selectedClass.status) : undefined}
@@ -2555,10 +2466,16 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             enrollmentsError={enrollmentsError}
             enrollmentFilter={enrollmentFilter}
             onEnrollmentFilterChange={(value) => setEnrollmentFilter(value)}
-            enrollmentColumns={enrollmentColumns}
             filteredEnrollments={filteredEnrollments}
             enrollmentsLoading={enrollmentsLoading}
-            onEnrollmentRowClick={openEnrollmentEditModal}
+            onManageEnrollment={openEnrollmentEditModal}
+            onCancelEnrollment={(row) => void cancelEnrollment(row)}
+            enrollmentStatusBusyId={enrollmentStatusBusyId}
+            quickAttendanceBusyId={quickAttendanceBusyId}
+            quickCreditBusyEnrollmentId={quickCreditBusyEnrollmentId}
+            onQuickSetAttendance={(row, nextStatus) => void quickSetEnrollmentAttendance(row, nextStatus)}
+            onQuickUseCredit={(row) => void quickOpenCreditFlow(row)}
+            getCreditSummary={compatiblePassSummary}
             onAddEnrollment={openEnrollmentCreateModal}
           />
         ) : null}
@@ -2600,13 +2517,25 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       <AdminDrawer
         open={enrollmentModalOpen && !classPassDrawerOpen}
         onClose={closeEnrollmentModal}
-        title={editingEnrollmentId ? 'Editar inscripción' : 'Agregar alumno'}
+        title={editingEnrollmentId ? 'Gestionar inscripción' : 'Agregar alumno'}
         subtitle={
           editingEnrollmentId
-            ? 'Ajustá responsable, notas o referencia explícita de usuario sin mezclar asistencia ni pagos.'
+            ? 'Resolvé asistencia, créditos y cuenta sin perder el contexto de esta clase.'
             : 'Seleccioná explícitamente al alumno y, si corresponde, un responsable de pago opcional.'
         }
         size="lg"
+        tabs={
+          enrollmentDrawerShowsTabs
+            ? [
+                { id: 'summary', label: 'Resumen' },
+                { id: 'credits', label: 'Créditos' },
+                { id: 'account', label: 'Cuenta' },
+                { id: 'traceability', label: 'Trazabilidad' },
+              ]
+            : undefined
+        }
+        activeTabId={enrollmentDrawerShowsTabs ? enrollmentDrawerTab : undefined}
+        onTabChange={enrollmentDrawerShowsTabs ? (id) => setEnrollmentDrawerTab(id as EnrollmentDrawerTab) : undefined}
         footer={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <button
@@ -2630,6 +2559,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         <form id="class-enrollment-form" onSubmit={submitEnrollmentForm} className="space-y-4">
           {enrollmentFormError && <AdminInlineError>{enrollmentFormError}</AdminInlineError>}
 
+          {showEnrollmentSummaryTab ? (
           <AdminDrawerSection title="Identidad y responsable" className={drawerSectionCardClass}>
             <div className="space-y-4">
               <div className={helperCardClass}>
@@ -2736,7 +2666,9 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
               />
             </div>
           </AdminDrawerSection>
+          ) : null}
 
+          {showEnrollmentSummaryTab ? (
           <AdminDrawerSection title="Asistencia y notas" className={drawerSectionCardClass}>
             <div className="space-y-4">
               {editingEnrollmentId ? (
@@ -2772,8 +2704,10 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
               />
             </div>
           </AdminDrawerSection>
+          ) : null}
 
-          <AdminDrawerSection title="Tarjetita digital" className={drawerSectionCardClass}>
+          {showEnrollmentCreditsTab ? (
+          <AdminDrawerSection title="Créditos" className={drawerSectionCardClass}>
             {!editingEnrollmentId || !editingEnrollment || !editingEnrollmentForCredit ? (
               <div className={helperCardClass}>
                 <p className="font-semibold text-p-text">Créditos después de guardar</p>
@@ -2790,17 +2724,17 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                   <button
                     type="button"
                     onClick={openClassPassDrawer}
-                    className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text transition hover:border-p-border-strong hover:text-p-text"
+                    className="inline-flex h-8 shrink-0 self-start items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text transition hover:border-p-border-strong hover:text-p-text sm:self-auto"
                   >
                     <Plus size={14} />
-                    Asignar pack
+                    Agregar pack
                   </button>
                 </div>
 
                 <div className={helperCardClass}>
-                  <p className="font-semibold text-p-text">Consumir crédito no registra un pago</p>
+                  <p className="font-semibold text-p-text">Asignar y consumir siguen siendo cosas distintas</p>
                   <p className="mt-1">
-                    Esta acción solo usa un crédito del pack para cubrir la inscripción. No modifica asistencia ni genera cobros en cuenta. Si necesitás cobrar el pack, abrí su cuenta aparte.
+                    Consumir un crédito solo cubre la inscripción con el pack. No genera pagos ni cambia asistencia. Si necesitás cobrar el pack, abrí su cuenta aparte.
                   </p>
                 </div>
 
@@ -2814,20 +2748,18 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                   />
                 </div>
 
+                {!enrollmentDrawerShowsTabs ? (
                 <div className="rounded-xl border border-p-border bg-p-surface px-4 py-4">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-[13px] font-semibold text-p-text">Cuenta de la clase</p>
-                        <span
-                          className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${academyFinancialToneClasses(
-                            editingEnrollmentAccountBadgeTone
-                          )}`}
-                        >
-                          {editingEnrollmentAccountBadgeLabel}
-                        </span>
+                        <AcademyStatusBadge
+                          label={editingEnrollmentAccountBadgeLabel}
+                          tone={academyFinancialStateTone(editingEnrollmentAccountBadgeTone)}
+                        />
                         {editingEnrollmentFinancial?.summary?.remaining != null ? (
-                          <span className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 text-[11px] font-semibold text-p-text-secondary">
+                          <span className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2.5 py-1 text-[11px] font-semibold text-p-text-secondary">
                             Pendiente: {formatCurrency(editingEnrollmentFinancial.summary.remaining)}
                           </span>
                         ) : null}
@@ -2868,12 +2800,13 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                     </div>
                   </div>
                 </div>
+                ) : null}
 
                 {resolveCreditUsageReason(editingEnrollmentForCredit.attendanceStatus) === 'MANUAL_ADJUSTMENT' ? (
                   <div className="rounded-xl border border-p-border-strong bg-p-surface px-3 py-3 text-[12px] text-p-text-secondary">
                     <p className="font-semibold text-p-text">Consumo manual</p>
                     <p className="mt-1">
-                      La asistencia todavía no define un motivo automático. Si consumís ahora, la tarjetita se va a registrar como ajuste manual.
+                      La asistencia todavía no define un motivo automático. Si consumís ahora, el uso del crédito se va a registrar como ajuste manual.
                     </p>
                   </div>
                 ) : null}
@@ -2881,39 +2814,14 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                 {creditUsageError ? <AdminInlineError>{creditUsageError}</AdminInlineError> : null}
                 {classPassesError ? <AdminInlineError>{classPassesError}</AdminInlineError> : null}
 
-                {editingEnrollmentCreditUsages.length > 0 ? (
-                  <div className="space-y-2">
-                    <p className="text-[12px] font-semibold text-p-text">Trazabilidad registrada</p>
-                    <div className="space-y-2">
-                      {editingEnrollmentCreditUsages.map((usage) => (
-                        <div key={usage.id} className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="text-[13px] font-semibold text-p-text">
-                              {usage.classPass?.packageName || 'Pack sin referencia'}
-                            </p>
-                            <span className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 text-[11px] font-semibold text-p-text-secondary">
-                              {usage.creditsUsed} crédito{usage.creditsUsed === 1 ? '' : 's'}
-                            </span>
-                          </div>
-                          <p className="mt-1 text-[12px] text-p-text-secondary">
-                            {creditUsageReasonLabel(usage.reason)} · {formatDateTime(usage.usedAt)}
-                          </p>
-                          {usage.notes ? <p className="mt-1 text-[12px] text-p-text-muted">{usage.notes}</p> : null}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
                 {classPassesLoading && editingEnrollmentPasses.length === 0 ? (
                   <div className={helperCardClass}>Cargando packs activos del alumno...</div>
                 ) : editingEnrollmentPasses.length === 0 ? (
-                  <div className={helperCardClass}>
-                    <p className="font-semibold text-p-text">Sin packs activos</p>
-                    <p className="mt-1">
-                      Este alumno no tiene una tarjetita digital activa y compatible para consumir desde esta clase.
-                    </p>
-                  </div>
+                  <AcademyEmptyState
+                    title="Sin packs activos"
+                    description="Este alumno no tiene un pack activo y compatible para consumir desde esta clase."
+                    tone="info"
+                  />
                 ) : (
                   <div className="space-y-3">
                     {editingEnrollmentPasses.map((classPass) => {
@@ -2931,18 +2839,15 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
 
                       return (
                         <div key={classPass.id} className="rounded-xl border border-p-border bg-p-surface px-4 py-4">
-                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <p className="truncate text-[13px] font-semibold text-p-text">{classPass.packageName}</p>
-                                <span
-                                  className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${classPassToneClasses(
-                                    availability.effectiveStatus
-                                  )}`}
-                                >
-                                  {classPassStatusLabel(availability.effectiveStatus)}
-                                </span>
-                              </div>
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="truncate text-[13px] font-semibold text-p-text">{classPass.packageName}</p>
+                              <AcademyStatusBadge
+                                label={classPassStatusLabel(availability.effectiveStatus)}
+                                tone={classPassToneClasses(availability.effectiveStatus)}
+                              />
+                            </div>
                               <p className="mt-1 text-[12px] text-p-text-secondary">
                                 {classPass.remainingCredits}/{classPass.totalCredits} créditos disponibles
                               </p>
@@ -2952,15 +2857,12 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                                   : 'Precio pendiente de cargar'}
                               </p>
                               <div className="mt-2 flex flex-wrap items-center gap-2">
-                                <span
-                                  className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${academyFinancialToneClasses(
-                                    classPass.financial.state
-                                  )}`}
-                                >
-                                  {academyFinancialStateLabel(classPass.financial.state)}
-                                </span>
+                                <AcademyStatusBadge
+                                  label={academyFinancialLabel(classPass.financial.state)}
+                                  tone={academyFinancialStateTone(classPass.financial.state)}
+                                />
                                 {classPass.financial.remainingAmount != null ? (
-                                  <span className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 text-[11px] font-semibold text-p-text-secondary">
+                                  <span className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2.5 py-1 text-[11px] font-semibold text-p-text-secondary">
                                     Pendiente: {formatCurrency(classPass.financial.remainingAmount)}
                                   </span>
                                 ) : null}
@@ -2973,14 +2875,11 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                             </div>
 
                             <div className="flex flex-col items-start gap-2 md:items-end">
-                              <span className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 text-[11px] font-semibold text-p-text-secondary">
-                                Motivo: {creditUsageReasonLabel(availability.reason)}
-                              </span>
                               <button
                                 type="button"
                                 disabled={classPassAccountBusyId === classPass.id || Boolean(classPass.financial.blockedReason)}
                                 onClick={() => void openClassPassAccountDrawer(classPass)}
-                                className="inline-flex h-8 items-center justify-center rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text transition hover:border-p-border-strong hover:text-p-text disabled:cursor-not-allowed disabled:opacity-60"
+                                className="inline-flex h-8 items-center justify-center rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text transition hover:border-p-border-strong hover:bg-p-surface-2 hover:text-p-text disabled:cursor-not-allowed disabled:opacity-60"
                               >
                                 {classPassAccountBusyId === classPass.id
                                   ? 'Abriendo cuenta...'
@@ -3000,7 +2899,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                                     reason: availability.reason,
                                   })
                                 }
-                                className="inline-flex h-8 items-center justify-center rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:bg-ink-700/50"
+                                className="inline-flex h-8 items-center justify-center rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 shadow-sm transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:bg-ink-700/50"
                               >
                                 {creditUsageBusyPassId === classPass.id
                                   ? 'Consumiendo...'
@@ -3025,13 +2924,6 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                           ) : (
                             <p className="mt-3 text-[12px] text-p-text-muted">Sin restricciones específicas para esta clase.</p>
                           )}
-
-                          {!availability.usable && availability.disabledReason ? (
-                            <p className="mt-3 text-[12px] text-[var(--error-fg)]">{availability.disabledReason}</p>
-                          ) : null}
-                          {classPass.financial.blockedReason ? (
-                            <p className="mt-2 text-[12px] text-p-text-muted">{classPass.financial.blockedReason}</p>
-                          ) : null}
                         </div>
                       );
                     })}
@@ -3040,6 +2932,210 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
               </div>
             )}
           </AdminDrawerSection>
+          ) : null}
+
+          {showEnrollmentAccountTab ? (
+            <AdminDrawerSection title="Cuenta" className={drawerSectionCardClass}>
+              {!editingEnrollment ? (
+                <div className={helperCardClass}>
+                  <p className="font-semibold text-p-text">Guardá primero la inscripción</p>
+                  <p className="mt-1">
+                    Cuando la inscripción ya exista, vas a poder abrir o revisar la cuenta de la clase desde acá.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <SummaryBlock label="Estado de pago" value={paymentStatusLabel(editingEnrollment.paymentStatus)} />
+                    <SummaryBlock label="Estado financiero" value={editingEnrollmentAccountBadgeLabel} />
+                    <SummaryBlock
+                      label="Precio de la clase"
+                      value={
+                        editingEnrollment.priceAtEnrollment > 0
+                          ? formatCurrency(editingEnrollment.priceAtEnrollment)
+                          : 'Sin precio'
+                      }
+                    />
+                  </div>
+
+                  <div className="rounded-xl border border-p-border bg-p-surface px-4 py-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-[13px] font-semibold text-p-text">Cuenta de la clase</p>
+                          <AcademyStatusBadge
+                            label={editingEnrollmentAccountBadgeLabel}
+                            tone={academyFinancialStateTone(editingEnrollmentAccountBadgeTone)}
+                          />
+                          {editingEnrollmentFinancial?.summary?.remaining != null ? (
+                            <span className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2.5 py-1 text-[11px] font-semibold text-p-text-secondary">
+                              Pendiente: {formatCurrency(editingEnrollmentFinancial.summary.remaining)}
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 text-[12px] text-p-text-secondary">
+                          {editingEnrollment.priceAtEnrollment > 0
+                            ? `Precio de la inscripción: ${formatCurrency(editingEnrollment.priceAtEnrollment)}`
+                            : 'La inscripción no tiene precio cargado para abrir cuenta.'}
+                        </p>
+                        {editingEnrollmentAccountLoading ? (
+                          <p className="mt-2 text-[12px] text-p-text-muted">Cargando estado financiero...</p>
+                        ) : editingEnrollmentAccountError ? (
+                          <p className="mt-2 text-[12px] text-[var(--error-fg)]">{editingEnrollmentAccountError}</p>
+                        ) : editingEnrollmentFinancial?.blockedReason ? (
+                          <p className="mt-2 text-[12px] text-p-text-muted">{editingEnrollmentFinancial.blockedReason}</p>
+                        ) : editingEnrollment.paymentStatus === 'COVERED_BY_CREDIT' ? (
+                          <p className="mt-2 text-[12px] text-p-text-muted">
+                            Esta inscripción quedó cubierta por crédito. No se abre una cuenta de cobro en esta fase.
+                          </p>
+                        ) : (
+                          <p className="mt-2 text-[12px] text-p-text-muted">
+                            Cobrar la clase usa la cuenta financiera canónica. No modifica créditos ni asistencia.
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col items-start gap-2 md:items-end">
+                        <button
+                          type="button"
+                          disabled={editingEnrollmentAccountActionDisabled}
+                          onClick={() => void openClassEnrollmentAccountDrawer(editingEnrollment)}
+                          className="inline-flex h-8 items-center justify-center rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text transition hover:border-p-border-strong hover:text-p-text disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {classEnrollmentAccountBusyId === editingEnrollment.id
+                            ? 'Abriendo cuenta...'
+                            : editingEnrollmentAccountButtonLabel}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </AdminDrawerSection>
+          ) : null}
+
+          {showEnrollmentTraceabilityTab ? (
+            <AdminDrawerSection title="Trazabilidad" className={drawerSectionCardClass}>
+              {!editingEnrollment || !editingEnrollmentForCredit ? (
+                <div className={helperCardClass}>
+                  <p className="font-semibold text-p-text">Guardá primero la inscripción</p>
+                  <p className="mt-1">
+                    Cuando la inscripción ya exista, vas a poder revisar consumos, motivos y elegibilidad de los packs desde acá.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <SummaryBlock label="Consumos" value={String(editingEnrollmentCreditUsages.length)} />
+                    <SummaryBlock
+                      label="Último motivo"
+                      value={
+                        editingEnrollmentCreditUsages[0]
+                          ? creditUsageReasonLabel(editingEnrollmentCreditUsages[0].reason)
+                          : 'Sin consumos'
+                      }
+                    />
+                    <SummaryBlock
+                      label="Último uso"
+                      value={
+                        editingEnrollmentCreditUsages[0]
+                          ? formatDateTime(editingEnrollmentCreditUsages[0].usedAt)
+                          : 'Sin registros'
+                      }
+                    />
+                  </div>
+
+                  {editingEnrollmentCreditUsages.length > 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-[12px] font-semibold text-p-text">Consumos registrados</p>
+                      <div className="space-y-2">
+                        {editingEnrollmentCreditUsages.map((usage) => (
+                          <div key={usage.id} className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-[13px] font-semibold text-p-text">
+                                {usage.classPass?.packageName || 'Pack sin referencia'}
+                              </p>
+                              <span className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2.5 py-1 text-[11px] font-semibold text-p-text-secondary">
+                                {usage.creditsUsed} crédito{usage.creditsUsed === 1 ? '' : 's'}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-[12px] text-p-text-secondary">
+                              {creditUsageReasonLabel(usage.reason)} · {formatDateTime(usage.usedAt)}
+                            </p>
+                            {usage.notes ? <p className="mt-1 text-[12px] text-p-text-muted">{usage.notes}</p> : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <AcademyEmptyState
+                      title="Sin consumos registrados"
+                      description="Todavía no hay créditos aplicados a esta inscripción."
+                      tone="info"
+                    />
+                  )}
+
+                  <div className="space-y-3">
+                    <p className="text-[12px] font-semibold text-p-text">Detalle por pack</p>
+                    {editingEnrollmentPasses.length === 0 ? (
+                      <AcademyEmptyState
+                        title="Sin packs para revisar"
+                        description="Cuando el alumno tenga packs asignados, vas a poder ver su elegibilidad y restricciones acá."
+                        tone="info"
+                      />
+                    ) : (
+                      editingEnrollmentPasses.map((classPass) => {
+                        const hasUsage = editingEnrollmentCreditUsages.some((usage) => usage.classPassId === classPass.id);
+                        const availability = resolveClassPassAvailability({
+                          classPass,
+                          enrollment: editingEnrollmentForCredit,
+                          selectedClass,
+                          hasUsage,
+                          enrollmentAccount: editingEnrollmentFinancial,
+                        });
+                        const restrictionItems = buildClassPassRestrictionList(classPass);
+
+                        return (
+                          <div key={`trace-${classPass.id}`} className="rounded-xl border border-p-border bg-p-surface px-4 py-4">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-[13px] font-semibold text-p-text">{classPass.packageName}</p>
+                              <AcademyStatusBadge
+                                label={classPassStatusLabel(availability.effectiveStatus)}
+                                tone={classPassToneClasses(availability.effectiveStatus)}
+                              />
+                            </div>
+                            <p className="mt-2 text-[12px] text-p-text-secondary">
+                              Motivo del consumo: {creditUsageReasonLabel(availability.reason)}
+                            </p>
+                            {!availability.usable && availability.disabledReason ? (
+                              <p className="mt-1 text-[12px] text-[var(--error-fg)]">{availability.disabledReason}</p>
+                            ) : null}
+                            {classPass.financial.blockedReason ? (
+                              <p className="mt-1 text-[12px] text-p-text-muted">{classPass.financial.blockedReason}</p>
+                            ) : null}
+                            {restrictionItems.length > 0 ? (
+                              <div className="mt-3 flex flex-wrap gap-1.5">
+                                {restrictionItems.map((item) => (
+                                  <span
+                                    key={`trace-${classPass.id}-${item}`}
+                                    className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 text-[11px] font-medium text-p-text-secondary"
+                                  >
+                                    {item}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="mt-3 text-[12px] text-p-text-muted">Sin restricciones específicas para esta clase.</p>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </AdminDrawerSection>
+          ) : null}
         </form>
       </AdminDrawer>
 
@@ -3047,7 +3143,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         open={classPassDrawerOpen}
         onClose={closeClassPassDrawer}
         title="Asignar pack"
-        subtitle="Creá una tarjetita digital para este alumno sin registrar cobro ni tocar el estado de pago de la inscripción."
+        subtitle="Creá un pack de créditos para este alumno sin registrar cobro ni tocar el estado de pago de la inscripción."
         size="md"
         footer={
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -3111,7 +3207,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           creditUsageConfirmState ? (
             <div className="space-y-3">
               <p>
-                Vas a consumir <strong>1 crédito</strong> de la tarjetita digital para cubrir esta inscripción.
+                Vas a consumir <strong>1 crédito</strong> del pack para cubrir esta inscripción.
                 Esto <strong>no registra un pago</strong> ni cambia la asistencia.
               </p>
               {creditUsageConfirmState.reason === 'MANUAL_ADJUSTMENT' ? (
@@ -3306,9 +3402,35 @@ function CheckboxField({
 
 function SummaryBlock({ label, value }: { label: string; value: string }) {
   return (
+    <div className="rounded-2xl border border-p-border bg-p-surface p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-p-text-muted">{label}</p>
+      <p className="mt-2 text-[13px] leading-snug text-p-text">{value}</p>
+    </div>
+  );
+}
+
+function CompactInfoLine({
+  label,
+  value,
+  muted = false,
+}: {
+  label: string;
+  value: string;
+  muted?: boolean;
+}) {
+  return (
     <div className="space-y-1">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-p-text-muted">{label}</p>
-      <p className="text-[13px] text-p-text">{value}</p>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-p-text-muted">{label}</p>
+      <p className={`text-[12px] leading-relaxed ${muted ? 'text-p-text-muted' : 'text-p-text-secondary'}`}>{value}</p>
+    </div>
+  );
+}
+
+function LabeledBadge({ label, badge }: { label: string; badge: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-p-text-muted">{label}</p>
+      <div>{badge}</div>
     </div>
   );
 }
@@ -3321,10 +3443,16 @@ function ClassSessionDrawerContent({
   enrollmentsError,
   enrollmentFilter,
   onEnrollmentFilterChange,
-  enrollmentColumns,
   filteredEnrollments,
   enrollmentsLoading,
-  onEnrollmentRowClick,
+  onManageEnrollment,
+  onCancelEnrollment,
+  enrollmentStatusBusyId,
+  quickAttendanceBusyId,
+  quickCreditBusyEnrollmentId,
+  onQuickSetAttendance,
+  onQuickUseCredit,
+  getCreditSummary,
   onAddEnrollment,
 }: {
   selectedClass: AdminClassSession;
@@ -3334,25 +3462,25 @@ function ClassSessionDrawerContent({
   enrollmentsError: string;
   enrollmentFilter: EnrollmentFilter;
   onEnrollmentFilterChange: (value: EnrollmentFilter) => void;
-  enrollmentColumns: AdminDataTableColumn<AdminClassEnrollment>[];
   filteredEnrollments: AdminClassEnrollment[];
   enrollmentsLoading: boolean;
-  onEnrollmentRowClick: (row: AdminClassEnrollment) => void;
+  onManageEnrollment: (row: AdminClassEnrollment) => void;
+  onCancelEnrollment: (row: AdminClassEnrollment) => void;
+  enrollmentStatusBusyId: string | null;
+  quickAttendanceBusyId: string | null;
+  quickCreditBusyEnrollmentId: string | null;
+  onQuickSetAttendance: (row: AdminClassEnrollment, nextStatus: AdminClassAttendanceStatus) => void;
+  onQuickUseCredit: (row: AdminClassEnrollment) => void;
+  getCreditSummary: (row: AdminClassEnrollment) => { label: string; muted: boolean };
   onAddEnrollment: () => void;
 }) {
   return (
     <>
       <AdminDrawerSection title="Resumen" className={drawerSectionCardClass}>
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-p-text-muted">
-          <span className={`inline-flex rounded-full border px-2 py-0.5 font-semibold ${statusToneClasses(selectedClass.status)}`}>
-            {statusLabel(selectedClass.status)}
-          </span>
-          <span className="inline-flex rounded-full border border-p-border bg-p-surface px-2 py-0.5 font-semibold text-p-text-secondary">
-            Visibilidad: {visibilityLabel(selectedClass.visibility)}
-          </span>
-          <span className="inline-flex rounded-full border border-p-border bg-p-surface px-2 py-0.5 font-semibold text-p-text-secondary">
-            Formato: {classTypeLabel(selectedClass.classType)}
-          </span>
+          <span className={`inline-flex rounded-full border px-2 py-0.5 font-semibold ${statusToneClasses(selectedClass.status)}`}>{statusLabel(selectedClass.status)}</span>
+          <AcademyStatusBadge label={visibilityLabel(selectedClass.visibility)} tone="neutral" />
+          <AcademyStatusBadge label={classTypeLabel(selectedClass.classType)} tone="muted" />
         </div>
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -3384,9 +3512,9 @@ function ClassSessionDrawerContent({
       ) : null}
 
       <AdminDrawerSection title="Alumnos" className={drawerSectionCardClass}>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-[13px] text-p-text-secondary">
-            Inscripciones, responsable opcional y estados informativos de la clase.
+            Resolvé asistencia, cobro y créditos sin perder de vista al alumno.
           </p>
           <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-2 sm:flex-nowrap sm:justify-end">
             <AdminSegmentedControl
@@ -3404,16 +3532,32 @@ function ClassSessionDrawerContent({
           </AdminFilterToolbar>
         </div>
 
-        <AdminDataTable
-          columns={enrollmentColumns}
-          data={filteredEnrollments}
-          rowKey={(row) => row.id}
-          loading={enrollmentsLoading}
-          onRowClick={onEnrollmentRowClick}
-          empty={{
-            title: 'Todavía no hay alumnos en esta clase',
-            description: 'Agregá el primer alumno con búsqueda explícita, sin mezclar todavía asistencia ni pagos.',
-            action: (
+        {enrollmentsLoading ? (
+          <div className="rounded-2xl border border-p-border bg-p-surface px-4 py-12 text-center">
+            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-p-border border-t-p-accent" />
+          </div>
+        ) : filteredEnrollments.length ? (
+          <div className="space-y-3">
+            {filteredEnrollments.map((enrollment) => (
+              <ClassEnrollmentListItem
+                key={enrollment.id}
+                enrollment={enrollment}
+                creditSummary={getCreditSummary(enrollment)}
+                busy={enrollmentStatusBusyId === enrollment.id}
+                quickAttendanceBusy={quickAttendanceBusyId === enrollment.id}
+                quickCreditBusy={quickCreditBusyEnrollmentId === enrollment.id}
+                onQuickSetAttendance={(nextStatus) => onQuickSetAttendance(enrollment, nextStatus)}
+                onQuickUseCredit={() => onQuickUseCredit(enrollment)}
+                onManage={() => onManageEnrollment(enrollment)}
+                onCancel={() => onCancelEnrollment(enrollment)}
+              />
+            ))}
+          </div>
+        ) : (
+          <AcademyEmptyState
+            title="Todavía no hay alumnos en esta clase"
+            description="Agregá el primer alumno para empezar a marcar asistencia, revisar créditos y cobrar desde un solo lugar."
+            action={(
               <button
                 type="button"
                 onClick={onAddEnrollment}
@@ -3422,11 +3566,152 @@ function ClassSessionDrawerContent({
                 <UserPlus size={14} />
                 Agregar alumno
               </button>
-            ),
-          }}
-        />
+            )}
+          />
+        )}
       </AdminDrawerSection>
     </>
+  );
+}
+
+function ClassEnrollmentListItem({
+  enrollment,
+  creditSummary,
+  busy,
+  quickAttendanceBusy,
+  quickCreditBusy,
+  onQuickSetAttendance,
+  onQuickUseCredit,
+  onManage,
+  onCancel,
+}: {
+  enrollment: AdminClassEnrollment;
+  creditSummary: { label: string; muted: boolean };
+  busy: boolean;
+  quickAttendanceBusy: boolean;
+  quickCreditBusy: boolean;
+  onQuickSetAttendance: (nextStatus: AdminClassAttendanceStatus) => void;
+  onQuickUseCredit: () => void;
+  onManage: () => void;
+  onCancel: () => void;
+}) {
+  const linkedStudentUser =
+    enrollment.studentUser
+      ? [enrollment.studentUser.firstName, enrollment.studentUser.lastName].filter(Boolean).join(' ').trim() ||
+        enrollment.studentUser.email
+      : null;
+  const creditAlreadyApplied = enrollment.paymentStatus === 'COVERED_BY_CREDIT';
+  const creditActionDisabled = quickCreditBusy || creditSummary.muted || creditAlreadyApplied;
+  const creditActionLabel = quickCreditBusy
+    ? 'Preparando...'
+    : creditAlreadyApplied
+      ? 'Crédito aplicado'
+      : 'Usar crédito';
+
+  return (
+    <div className="rounded-2xl border border-p-border bg-p-surface p-4">
+      <div className="space-y-4">
+        <div className="min-w-0 space-y-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="truncate text-[14px] font-semibold text-p-text">{enrollment.snapshotName}</p>
+              {enrollment.billingResponsibleClient ? (
+                <AcademyStatusBadge label={`Responsable: ${enrollment.billingResponsibleClient.name}`} tone="neutral" />
+              ) : null}
+            </div>
+            <p className="mt-1 text-[12px] text-p-text-muted">
+              {personSecondaryLine({ email: enrollment.snapshotEmail, phone: enrollment.snapshotPhone })}
+            </p>
+            {linkedStudentUser ? (
+              <p className="mt-1 text-[12px] text-p-text-muted">Usuario: {linkedStudentUser}</p>
+            ) : null}
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <LabeledBadge
+              label="Inscripción"
+              badge={(
+                <AcademyStatusBadge
+                  label={academyEnrollmentLabel(enrollment.enrollmentStatus)}
+                  tone={academyEnrollmentTone(enrollment.enrollmentStatus)}
+                />
+              )}
+            />
+            <LabeledBadge
+              label="Asistencia"
+              badge={(
+                <AcademyStatusBadge
+                  label={attendanceStatusLabel(enrollment.attendanceStatus)}
+                  tone={academyAttendanceTone(enrollment.attendanceStatus)}
+                />
+              )}
+            />
+            <LabeledBadge
+              label="Estado de pago"
+              badge={(
+                <AcademyStatusBadge
+                  label={paymentStatusLabel(enrollment.paymentStatus)}
+                  tone={academyPaymentTone(enrollment.paymentStatus)}
+                />
+              )}
+            />
+          </div>
+
+          <div className={`grid gap-3 ${enrollment.paymentStatus === 'COVERED_BY_CREDIT' ? 'md:grid-cols-1' : 'md:grid-cols-2'}`}>
+            {enrollment.paymentStatus !== 'COVERED_BY_CREDIT' ? (
+              <CompactInfoLine label="Precio de la clase" value={formatCurrency(enrollment.priceAtEnrollment)} />
+            ) : null}
+            <CompactInfoLine label="Créditos" value={creditSummary.label} muted={creditSummary.muted} />
+          </div>
+
+          {enrollment.notes ? (
+            <p className="text-[12px] leading-relaxed text-p-text-secondary">{enrollment.notes}</p>
+          ) : null}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 border-t border-p-border pt-3">
+          {enrollment.enrollmentStatus !== 'CANCELLED' ? (
+            <button
+              type="button"
+              onClick={() => onQuickSetAttendance(enrollment.attendanceStatus === 'ATTENDED' ? 'PENDING' : 'ATTENDED')}
+              disabled={quickAttendanceBusy}
+              className="inline-flex h-8 items-center justify-center rounded-lg border border-p-border bg-p-surface px-2.5 text-[11px] font-semibold text-p-text transition hover:border-p-border-strong hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {quickAttendanceBusy
+                ? 'Guardando...'
+                : enrollment.attendanceStatus === 'ATTENDED'
+                  ? 'Marcar pendiente'
+                  : 'Marcar presente'}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onQuickUseCredit}
+            disabled={creditActionDisabled}
+            className="inline-flex h-8 items-center justify-center rounded-lg border border-p-border bg-p-surface px-2.5 text-[11px] font-semibold text-p-text transition hover:border-p-border-strong hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {creditActionLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onManage}
+            className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 transition hover:bg-ink-800"
+          >
+            <Pencil size={13} />
+            Gestionar
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy || enrollment.enrollmentStatus === 'CANCELLED'}
+            className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-p-error bg-p-error-bg px-2.5 text-[11px] font-semibold text-[var(--error-fg)] transition hover:bg-[var(--error-fg)] hover:text-ink-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <XCircle size={13} />
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

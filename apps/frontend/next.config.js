@@ -1,5 +1,39 @@
+const os = require('os');
+
+const getAllowedDevOrigins = () => {
+  const origins = new Set([
+    'localhost',
+    '127.0.0.1',
+  ]);
+
+  const networkInterfaces = os.networkInterfaces();
+  for (const entries of Object.values(networkInterfaces)) {
+    for (const entry of entries || []) {
+      if (entry?.family !== 'IPv4' || entry.internal || !entry.address) {
+        continue;
+      }
+      origins.add(entry.address);
+    }
+  }
+
+  return Array.from(origins);
+};
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  allowedDevOrigins: getAllowedDevOrigins(),
+  async rewrites() {
+    if (process.env.NODE_ENV === 'production') {
+      return [];
+    }
+
+    return [
+      {
+        source: '/api/:path*',
+        destination: 'http://127.0.0.1:3000/api/:path*',
+      },
+    ];
+  },
   async redirects() {
     return [
       { source: '/admin/agenda-playground2', destination: '/admin/agenda', permanent: false },

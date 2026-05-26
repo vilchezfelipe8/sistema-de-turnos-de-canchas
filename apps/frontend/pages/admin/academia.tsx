@@ -39,15 +39,16 @@ export default function AdminAcademyPage() {
   return (
     <AdminRouteShell title="Academia | Pique Admin" activeItem="Academia" fromPath="/admin/academia">
       {(user) => (
-        <div className="flex h-full min-h-0 flex-col gap-4 p-4 pb-0 lg:p-6 lg:pb-0">
+        <div className="flex h-full min-h-0 flex-col gap-3 p-4 pb-0 lg:p-6 lg:pb-0">
           <AdminSegmentedControl
             options={ACADEMY_TABS}
             value={activeTab}
             onChange={(value) => handleChangeTab(value as AcademyTab)}
             ariaLabel="Subnavegacion de Academia"
             className="w-fit"
+            density="compact"
           />
-          <section className="min-h-0 flex-1 overflow-hidden pb-6 lg:pb-8">
+          <section className="min-h-0 flex-1 pb-6 lg:pb-8">
             {activeTab === 'clases' && <AdminClassesPageContent user={user} embedded />}
             {activeTab === 'alumnos' && <AdminAcademyStudentsPageContent user={user} embedded />}
             {activeTab === 'profesores' && <AdminTeachersPageContent user={user} embedded />}
