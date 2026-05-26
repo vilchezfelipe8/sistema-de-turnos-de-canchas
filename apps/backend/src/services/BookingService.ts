@@ -329,6 +329,28 @@ export class BookingService {
         return conflict(message, ErrorCodes.BOOKING_OVERLAP, Array.isArray(overlaps) ? { overlaps } : undefined);
     }
 
+    private async findClassSessionOverlap(params: {
+        clubId: number;
+        courtId: number;
+        startDateTime: Date;
+        endDateTime: Date;
+    }) {
+        return prisma.classSession.findFirst({
+            where: {
+                clubId: params.clubId,
+                courtId: params.courtId,
+                status: { in: ['SCHEDULED', 'CONFIRMED'] },
+                startsAt: { lt: params.endDateTime },
+                endsAt: { gt: params.startDateTime }
+            },
+            include: {
+                court: { select: { name: true } },
+                activityType: { select: { name: true } },
+                teacher: { select: { displayName: true } }
+            }
+        });
+    }
+
     private courtNotFound(message = 'Cancha no encontrada') {
         return notFound(message, ErrorCodes.COURT_NOT_FOUND);
     }
@@ -848,6 +870,16 @@ export class BookingService {
         const duration = Number(input.durationMinutes || durationFromRange || booking.activity?.defaultDurationMinutes || 60);
         const safeDuration = Number.isFinite(duration) && duration > 0 ? Math.floor(duration) : 60;
         const endDateTime = new Date(input.startDateTime.getTime() + safeDuration * 60000);
+
+        const classOverlap = await this.findClassSessionOverlap({
+            clubId: input.clubId,
+            courtId: input.courtId,
+            startDateTime: input.startDateTime,
+            endDateTime
+        });
+        if (classOverlap) {
+            throw this.bookingSlotUnavailable('La cancha ya tiene una clase en ese horario.');
+        }
 
         try {
             const updated = await prisma.$transaction(async (tx) => {
@@ -3336,6 +3368,16 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         }
 
         const created = await prisma.$transaction(async (tx: any) => {
+            const classOverlap = await this.findClassSessionOverlap({
+                clubId: bookingClubId,
+                courtId: courtId,
+                startDateTime,
+                endDateTime
+            });
+            if (classOverlap) {
+                throw this.bookingSlotUnavailable('La cancha ya tiene una clase en ese horario.');
+            }
+
             const overlapping = await tx.booking.findMany({
                 where: {
                     courtId: courtId,
@@ -3690,6 +3732,16 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 status: { not: 'CANCELLED' }
             }
         });
+        const existingClasses = await prisma.classSession.findMany({
+            where: {
+                clubId: Number((court as any)?.club?.id || 0),
+                courtId: courtId,
+                status: { in: ['SCHEDULED', 'CONFIRMED'] },
+                startsAt: { lt: endUtc },
+                endsAt: { gt: startUtc }
+            },
+            select: { startsAt: true, endsAt: true }
+        });
         const allowedDurations = activitySchedule.durations;
         const effectiveDuration = durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
         if (!allowedDurations.includes(effectiveDuration)) {
@@ -3747,6 +3799,13 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         slotEndDate,
                         booking.startDateTime,
                         booking.endDateTime
+                    );
+                }) || existingClasses.some((classSession) => {
+                    return TimeHelper.isOverlappingDates(
+                        slotStartDate,
+                        slotEndDate,
+                        classSession.startsAt,
+                        classSession.endsAt
                     );
                 });
 
@@ -6929,6 +6988,15 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             },
             include: { court: true }
         });
+        const classSessions = await prisma.classSession.findMany({
+            where: {
+                startsAt: { lt: endUtc },
+                endsAt: { gt: startUtc },
+                status: { in: ['SCHEDULED', 'CONFIRMED'] },
+                ...(clubId ? { clubId } : {})
+            },
+            select: { courtId: true, startsAt: true, endsAt: true }
+        });
 
         if (activityCourts.length === 0) {
             return {
@@ -7068,6 +7136,9 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
                     // Si se solapan, la cancha está ocupada
                     return sStart < bEnd && sEnd > bStart;
+                }) || classSessions.some((classSession) => {
+                    if (classSession.courtId !== court.id) return false;
+                    return slotDateTime < classSession.endsAt && slotEndDateTime > classSession.startsAt;
                 });
 
                 let calculatedPrice = Number((court as any).price ?? 0);
@@ -7813,6 +7884,23 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             conflictingActivityName: params.conflict?.activity?.name || '',
             conflictingStatus: params.conflict?.status || ''
         });
+        const mapClassOverlap = (params: {
+            requestedStartDateTime: Date;
+            requestedEndDateTime: Date;
+            conflict: any;
+            candidateBookingId?: number;
+        }) => ({
+            bookingId: Number(params.candidateBookingId || 0) || undefined,
+            requestedStartDateTime: params.requestedStartDateTime,
+            requestedEndDateTime: params.requestedEndDateTime,
+            reason: 'CLASS_SESSION_OVERLAP',
+            conflictingClassSessionId: String(params.conflict?.id || ''),
+            conflictingStartDateTime: params.conflict?.startsAt,
+            conflictingEndDateTime: params.conflict?.endsAt,
+            conflictingCourtName: params.conflict?.court?.name || '',
+            conflictingActivityName: params.conflict?.activityType?.name || '',
+            conflictingTeacherName: params.conflict?.teacher?.displayName || ''
+        });
         const mapApplicableRescheduleItem = (params: {
             bookingId?: number;
             startDateTime: Date;
@@ -7918,6 +8006,36 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     };
                 }
                 throw this.bookingOverlap('El nuevo horario se superpone con otra reserva.', overlaps);
+            }
+
+            const classConflict = await this.findClassSessionOverlap({
+                clubId: input.clubId,
+                courtId: input.courtId,
+                startDateTime: new Date(input.startDateTime),
+                endDateTime: requestedEndDateTime
+            });
+            if (classConflict) {
+                const overlaps = [
+                    mapClassOverlap({
+                        requestedStartDateTime: new Date(input.startDateTime),
+                        requestedEndDateTime,
+                        conflict: classConflict,
+                        candidateBookingId: occurrenceBookingId
+                    })
+                ];
+                if (previewOnly) {
+                    return {
+                        preview: true,
+                        scope: input.scope,
+                        totalCandidates: 1,
+                        willUpdateCount: 0,
+                        skippedCount: 1,
+                        overlaps,
+                        failedCount: 0,
+                        failures: [] as Array<{ bookingId: number; reason: string }>
+                    };
+                }
+                throw this.bookingSlotUnavailable('La cancha ya tiene una clase en ese horario.');
             }
 
             if (previewOnly) {
@@ -8094,6 +8212,24 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         requestedStartDateTime: nextStart,
                         requestedEndDateTime: nextEnd,
                         conflict,
+                        candidateBookingId: Number(candidate.id)
+                    })
+                );
+                continue;
+            }
+
+            const classConflict = await this.findClassSessionOverlap({
+                clubId: input.clubId,
+                courtId: Number(targetCourt.id),
+                startDateTime: nextStart,
+                endDateTime: nextEnd
+            });
+            if (classConflict) {
+                overlaps.push(
+                    mapClassOverlap({
+                        requestedStartDateTime: nextStart,
+                        requestedEndDateTime: nextEnd,
+                        conflict: classConflict,
                         candidateBookingId: Number(candidate.id)
                     })
                 );

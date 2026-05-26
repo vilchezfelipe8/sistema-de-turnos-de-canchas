@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../prisma';
-import { ErrorCodes, badRequest, notFound } from '../../errors';
+import { ErrorCodes, badRequest, conflict, notFound } from '../../errors';
 import { AcademyAdminValidationService } from './AcademyAdminValidation';
 import {
   normalizeOptionalString,
@@ -111,7 +111,12 @@ export class ClassSessionAdminService {
     };
   }
 
-  private async validateInput(clubId: number, actorUserId: number, input: ClassSessionInput) {
+  private async validateInput(
+    clubId: number,
+    actorUserId: number,
+    input: ClassSessionInput,
+    classSessionId?: string
+  ) {
     const teacherId = String(input.teacherId || '').trim();
     if (!teacherId) {
       throw badRequest('Profesor inválido.', ErrorCodes.INVALID_INPUT);
@@ -154,8 +159,44 @@ export class ClassSessionAdminService {
         : Promise.resolve(null),
     ]);
 
-    // Punto deliberado: Agenda todavía no entra en esta fase. El chequeo de overlap
-    // de cancha/profesor vive acá más adelante, antes de integrarlo al schedule compuesto.
+    // Validamos solapamientos de cancha con turnos y clases activas.
+
+    const status = input.status ?? 'SCHEDULED';
+    const blockingStatuses = new Set(['SCHEDULED', 'CONFIRMED']);
+
+    if (blockingStatuses.has(status) && input.courtId) {
+      const courtId = Number(input.courtId);
+      const bookingOverlap = await prisma.booking.findFirst({
+        where: {
+          clubId,
+          courtId,
+          status: { not: 'CANCELLED' },
+          startDateTime: { lt: endsAt },
+          endDateTime: { gt: startsAt },
+        },
+        select: { id: true },
+      });
+
+      if (bookingOverlap) {
+        throw conflict('La cancha ya tiene un turno reservado en ese horario.', ErrorCodes.CLASS_SESSION_OVERLAP);
+      }
+
+      const classOverlap = await prisma.classSession.findFirst({
+        where: {
+          clubId,
+          courtId,
+          status: { in: ['SCHEDULED', 'CONFIRMED'] },
+          startsAt: { lt: endsAt },
+          endsAt: { gt: startsAt },
+          ...(classSessionId ? { id: { not: String(classSessionId) } } : {}),
+        },
+        select: { id: true },
+      });
+
+      if (classOverlap) {
+        throw conflict('La cancha ya tiene una clase en ese horario.', ErrorCodes.CLASS_SESSION_OVERLAP);
+      }
+    }
 
     return {
       teacherId,
@@ -168,7 +209,7 @@ export class ClassSessionAdminService {
       durationMinutes,
       capacity,
       pricePerStudent: parseMoneyOrThrow(input.pricePerStudent, 'Precio por alumno'),
-      status: input.status ?? 'SCHEDULED',
+      status,
       level: normalizeOptionalString(input.level),
       description: normalizeOptionalString(input.description),
       requiresApproval: Boolean(input.requiresApproval),
@@ -279,7 +320,7 @@ export class ClassSessionAdminService {
       requiresApproval: input.requiresApproval ?? existing.requiresApproval,
       requiresPaymentToEnroll: input.requiresPaymentToEnroll ?? existing.requiresPaymentToEnroll,
       metadata: input.metadata === undefined ? existing.metadataJson : input.metadata,
-    });
+    }, classSessionId);
 
     const { createdByUserId: _createdByUserId, ...updateData } = data;
     const updated = await prisma.classSession.update({
