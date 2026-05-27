@@ -22,10 +22,10 @@ const geocode = async (address: string): Promise<{ lat: number; lon: number } | 
 
 /* ── CSS ─────────────────────────────────────────────────────────── */
 const PAGE_CSS = `
-  .p-breadcrumbs-wrap { position:relative; z-index:45; padding-bottom:0; background:
+  .p-public-root.p-public-theme-light .p-breadcrumbs-wrap { position:relative; z-index:45; padding-bottom:0; background:
     radial-gradient(ellipse 82% 66% at 72% 18%, rgba(182,243,106,.24) 0%, rgba(182,243,106,.08) 44%, transparent 74%),
     linear-gradient(180deg, #fbfff4 0%, rgba(245,244,240,.86) 100%); }
-  .p-breadcrumbs-cloud { background:rgba(255,255,255,.72); }
+  .p-public-root.p-public-theme-light .p-breadcrumbs-cloud { background:rgba(255,255,255,.72); }
   .vn-explore-top { position:relative; border-bottom:1px solid var(--border-subtle); background:
     radial-gradient(ellipse 80% 64% at 72% 16%, rgba(182,243,106,.12) 0%, transparent 72%),
     linear-gradient(180deg, rgba(182,243,106,.05) 0%, transparent 100%);
