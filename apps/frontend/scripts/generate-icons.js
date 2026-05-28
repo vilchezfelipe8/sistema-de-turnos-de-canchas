@@ -8,8 +8,9 @@ const markInput = path.join(brandDir, 'pique-isotipo.svg');
 const markInput40 = path.join(brandDir, 'pique-isotipo-40.svg');
 const markInput28 = path.join(brandDir, 'pique-isotipo-28.svg');
 const logoInput = path.join(brandDir, 'pique-logo-horizontal.svg');
+const ogGradientInput = path.join(publicDir, 'image 42.png');
 
-if (!fs.existsSync(markInput) || !fs.existsSync(logoInput)) {
+if (!fs.existsSync(markInput) || !fs.existsSync(logoInput) || !fs.existsSync(ogGradientInput)) {
   console.error('No se encontraron los SVG fuente en public/brand.');
   process.exit(1);
 }
@@ -53,6 +54,18 @@ async function generate() {
     ], path.join(publicDir, 'favicon.ico'));
 
     const logoBuffer = await sharp(logoInput).resize({ width: 520 }).png().toBuffer();
+    const centeredCardLogoBuffer = await sharp(logoBuffer).trim().png().toBuffer();
+    const ogBackgroundBuffer = await sharp(ogGradientInput)
+      .resize(1200, 630, { fit: 'cover', position: 'centre' })
+      .png()
+      .toBuffer();
+    const ogOverlay = Buffer.from(`
+      <svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="1200" height="630" fill="#F5F4F0" fill-opacity="0.12"/>
+        <rect x="244" y="184" width="712" height="262" rx="46" fill="#F5F4F0" fill-opacity="0.62"/>
+        <rect x="244" y="184" width="712" height="262" rx="46" stroke="#FFFFFF" stroke-opacity="0.42" stroke-width="2"/>
+      </svg>
+    `);
     await sharp({
       create: {
         width: 1200,
@@ -62,12 +75,29 @@ async function generate() {
       },
     })
       .composite([
-        {
-          input: Buffer.from('<svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg"><circle cx="980" cy="130" r="190" fill="#B6F36A" fill-opacity="0.42"/><circle cx="170" cy="520" r="160" fill="#0E1116" fill-opacity="0.055"/></svg>'),
-          top: 0,
-          left: 0,
-        },
-        { input: logoBuffer, top: 245, left: 340 },
+        { input: ogBackgroundBuffer, top: 0, left: 0 },
+        { input: ogOverlay, top: 0, left: 0 },
+        { input: centeredCardLogoBuffer, top: 246, left: 401 },
+      ])
+      .png()
+      .toFile(path.join(publicDir, 'og-1200x630-card.png'));
+
+    await sharp({
+      create: {
+        width: 1200,
+        height: 630,
+        channels: 4,
+        background: { r: 245, g: 244, b: 240, alpha: 1 },
+      },
+    })
+      .composite([
+        { input: ogBackgroundBuffer, top: 0, left: 0 },
+        { input: Buffer.from(`
+          <svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="1200" height="630" fill="#F5F4F0" fill-opacity="0.08"/>
+          </svg>
+        `), top: 0, left: 0 },
+        { input: centeredCardLogoBuffer, top: 246, left: 401 },
       ])
       .png()
       .toFile(path.join(publicDir, 'og-1200x630.png'));
