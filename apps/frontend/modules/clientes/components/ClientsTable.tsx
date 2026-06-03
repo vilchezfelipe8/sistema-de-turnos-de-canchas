@@ -9,7 +9,7 @@ import type { AdminClient } from '../hooks/useClients';
 const formatMoney = (amount: number) =>
   `$${Number(amount || 0).toLocaleString('es-AR')}`;
 
-const formatRelativeDate = (iso: string | null): string => {
+const formatRelativeDate = (iso: string | null, timeZone?: string | null): string => {
   if (!iso) return '—';
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '—';
@@ -20,7 +20,12 @@ const formatRelativeDate = (iso: string | null): string => {
   if (diffDays === 1) return 'Ayer';
   if (diffDays < 7) return `Hace ${diffDays} días`;
   if (diffDays < 30) return `Hace ${Math.floor(diffDays / 7)} sem.`;
-  return date.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+  return date.toLocaleDateString('es-AR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+    ...(timeZone ? { timeZone } : {})
+  });
 };
 
 // ---------------------------------------------------------------------------
@@ -78,7 +83,7 @@ export default function ClientsTable({
       key: 'lastBookingAt',
       label: 'Última reserva',
       render: (c) => (
-        <span className="text-p-text-muted">{formatRelativeDate(c.lastBookingAt)}</span>
+        <span className="text-p-text-muted">{formatRelativeDate(c.lastBookingAt, c.clubTimeZone)}</span>
       ),
     },
     {

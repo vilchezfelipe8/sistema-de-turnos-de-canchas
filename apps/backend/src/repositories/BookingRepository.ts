@@ -9,6 +9,12 @@ import { TimeHelper } from '../utils/TimeHelper';
 import { generateDisplayCode } from '../utils/displayCode';
 
 export class BookingRepository {
+    private formatDateOnlyUtc(value: unknown): string | null {
+        if (!value) return null;
+        const date = value instanceof Date ? value : new Date(String(value));
+        if (Number.isNaN(date.getTime())) return null;
+        return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+    }
 
     async save(booking: Booking): Promise<Booking> {
         if (!booking.clientId) {
@@ -205,8 +211,8 @@ export class BookingRepository {
             s?.clubOperationalStatus === 'TEMPORARY_CLOSED' || s?.clubOperationalStatus === 'PERMANENTLY_CLOSED'
                 ? s.clubOperationalStatus
                 : 'OPEN',
-            s?.temporaryClosureStartDate ? new Date(s.temporaryClosureStartDate).toISOString().slice(0, 10) : null,
-            s?.temporaryClosureEndDate ? new Date(s.temporaryClosureEndDate).toISOString().slice(0, 10) : null
+            this.formatDateOnlyUtc(s?.temporaryClosureStartDate),
+            this.formatDateOnlyUtc(s?.temporaryClosureEndDate)
         );
     const court = new Court(dbItem.court.id, dbItem.court.name, dbItem.court.isIndoor, dbItem.court.surface, club, dbItem.court.isUnderMaintenance, null);
         const activity = new ActivityType(

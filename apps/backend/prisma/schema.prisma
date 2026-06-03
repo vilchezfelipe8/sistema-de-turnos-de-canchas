@@ -198,6 +198,57 @@ enum OutboxStatus {
   FAILED
 }
 
+enum NotificationRecipientRole {
+  CUSTOMER
+  CLUB_STAFF
+}
+
+enum NotificationEventType {
+  BOOKING_CREATED
+  BOOKING_CANCELLED
+  BOOKING_PENDING_WARNING
+}
+
+enum WhatsappSenderMode {
+  PIQUE_DEFAULT
+  CLUB_OWN
+}
+
+enum WhatsappProvider {
+  META_CLOUD_API
+  WHATSAPP_WEB_LEGACY
+}
+
+enum WhatsappSenderStatus {
+  ACTIVE
+  DISABLED
+  PENDING_SETUP
+  ERROR
+}
+
+enum WhatsappTemplateStatus {
+  ACTIVE
+  DISABLED
+  PENDING_APPROVAL
+  REJECTED
+}
+
+enum WhatsappTemplateCategory {
+  UTILITY
+  MARKETING
+  AUTHENTICATION
+}
+
+enum WhatsappDeliveryStatus {
+  QUEUED
+  ACCEPTED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  SKIPPED
+}
+
 enum RefundStatus {
   REQUESTED
   APPROVED
@@ -455,6 +506,8 @@ model Club {
   auditLogs     AuditLog[]
   events        Event[]
   outboxMessages OutboxMessage[]
+  whatsappSenders WhatsappSender[]
+  whatsappDeliveries WhatsappDelivery[]
   cashRegisters CashRegister[]
   cashShifts    CashShift[]
   ledgerEntries LedgerEntry[]
@@ -1518,10 +1571,105 @@ model OutboxMessage {
   lastError     String?
   createdAt     DateTime     @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime     @updatedAt @db.Timestamptz(3)
+  whatsappDelivery WhatsappDelivery?
 
   @@index([clubId, createdAt])
   @@index([type, status])
   @@index([status, availableAt, createdAt])
+}
+
+model WhatsappSender {
+  id             String               @id @default(cuid())
+  clubId         Int?
+  club           Club?                @relation(fields: [clubId], references: [id], onDelete: SetNull)
+  code           String               @unique
+  mode           WhatsappSenderMode
+  provider       WhatsappProvider
+  displayName    String
+  wabaId         String?
+  phoneNumberId  String?
+  businessPhone  String?
+  tokenSecretRef String?
+  status         WhatsappSenderStatus @default(PENDING_SETUP)
+  createdAt      DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime             @updatedAt @db.Timestamptz(3)
+
+  templateMappings WhatsappTemplateMapping[]
+  deliveries       WhatsappDelivery[]
+  webhookEvents    WhatsappWebhookEvent[]
+
+  @@index([clubId, status])
+  @@index([mode, status])
+}
+
+model WhatsappTemplateMapping {
+  id            String                   @id @default(cuid())
+  senderId      String
+  sender        WhatsappSender           @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  eventType     NotificationEventType
+  recipientRole NotificationRecipientRole
+  templateName  String
+  languageCode  String
+  category      WhatsappTemplateCategory @default(UTILITY)
+  status        WhatsappTemplateStatus   @default(PENDING_APPROVAL)
+  version       Int                      @default(1)
+  createdAt     DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime                 @updatedAt @db.Timestamptz(3)
+
+  deliveries WhatsappDelivery[]
+
+  @@unique([senderId, eventType, recipientRole, languageCode, version])
+  @@index([senderId, status])
+}
+
+model WhatsappDelivery {
+  id                     String                   @id @default(cuid())
+  clubId                 Int
+  club                   Club                     @relation(fields: [clubId], references: [id], onDelete: Restrict)
+  outboxMessageId        String                   @unique
+  outboxMessage          OutboxMessage            @relation(fields: [outboxMessageId], references: [id], onDelete: Cascade)
+  senderId               String?
+  sender                 WhatsappSender?          @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  templateMappingId      String?
+  templateMapping        WhatsappTemplateMapping? @relation(fields: [templateMappingId], references: [id], onDelete: SetNull)
+  recipientRole          NotificationRecipientRole
+  recipientPhone         String
+  eventType              NotificationEventType
+  provider               WhatsappProvider
+  providerMessageId      String?                  @unique
+  providerConversationId String?
+  status                 WhatsappDeliveryStatus   @default(QUEUED)
+  errorCode              String?
+  errorMessage           String?
+  rawRequest             Json?
+  rawResponse            Json?
+  createdAt              DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime                 @updatedAt @db.Timestamptz(3)
+
+  webhookEvents WhatsappWebhookEvent[]
+
+  @@index([clubId, status, createdAt])
+  @@index([eventType, recipientRole, createdAt])
+  @@index([provider, providerMessageId])
+}
+
+model WhatsappWebhookEvent {
+  id              String                  @id @default(cuid())
+  senderId        String?
+  sender          WhatsappSender?         @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  deliveryId      String?
+  delivery        WhatsappDelivery?       @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
+  providerMessageId String?
+  providerEventId String?                 @unique
+  eventType       String
+  status          WhatsappDeliveryStatus?
+  rawPayload      Json
+  processedAt     DateTime?               @db.Timestamptz(3)
+  createdAt       DateTime                @default(now()) @db.Timestamptz(3)
+
+  @@index([providerMessageId])
+  @@index([providerEventId])
+  @@index([createdAt])
 }
 
 model AccountSummaryProjection {

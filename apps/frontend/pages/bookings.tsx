@@ -456,12 +456,24 @@ export default function MyBookingsPage() {
     catch { el.scrollIntoView(); }
   }, [selectedBooking]);
 
-  const formatTime = (date: Date) =>
-    date.toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit', hour12: false });
+  const formatTime = (date: Date, timeZone?: string | null) =>
+    date.toLocaleTimeString('es-AR', { ...(timeZone ? { timeZone } : {}), hour: '2-digit', minute: '2-digit', hour12: false });
 
-  const formatWeekday = (date: Date) =>
-    date.toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' })
+  const formatWeekday = (date: Date, timeZone?: string | null) =>
+    date.toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: '2-digit', ...(timeZone ? { timeZone } : {}) })
       .replace(/^\w/, c => c.toUpperCase());
+
+  const getDateBoxParts = (date: Date, timeZone?: string | null) => {
+    const formatter = new Intl.DateTimeFormat('es-AR', {
+      day: '2-digit',
+      month: 'short',
+      ...(timeZone ? { timeZone } : {}),
+    });
+    const parts = formatter.formatToParts(date);
+    const day = parts.find((part) => part.type === 'day')?.value ?? '--';
+    const month = (parts.find((part) => part.type === 'month')?.value ?? '---').replace('.', '');
+    return { day, month };
+  };
 
   const formatMoney = (value: number) => `$${Number(value || 0).toLocaleString('es-AR')}`;
 
@@ -794,7 +806,7 @@ export default function MyBookingsPage() {
                           Invitación pendiente para {invitation.club.name}
                         </div>
                         <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                          {invitation.court.name} · {formatWeekday(new Date(invitation.startDateTime))} · {formatTime(new Date(invitation.startDateTime))}
+                          {invitation.court.name} · {formatWeekday(new Date(invitation.startDateTime), invitation.club.timeZone)} · {formatTime(new Date(invitation.startDateTime), invitation.club.timeZone)}
                         </div>
                       </div>
                       <span className="bk-card-chip" style={{ background: 'var(--positive-bg)', color: 'var(--accent-fg)' }}>
@@ -913,6 +925,8 @@ export default function MyBookingsPage() {
               ) : (
                 visibleBookings.map(booking => {
                   const date = new Date(booking.startDateTime);
+                  const bookingTimeZone = booking.club?.timeZone || undefined;
+                  const dateBox = getDateBoxParts(date, bookingTimeZone);
                   const isSelected = selectedBooking?.id === booking.id;
                   const boxClass = activeTab === 'ACTIVE' ? 'bk-date-box-active' : activeTab === 'CANCELLED' ? 'bk-date-box-cancelled' : 'bk-date-box-past';
                   const dayColor = activeTab === 'ACTIVE' ? 'var(--brand)' : activeTab === 'CANCELLED' ? 'var(--error-fg)' : 'var(--text-muted)';
@@ -925,8 +939,8 @@ export default function MyBookingsPage() {
                       onClick={() => setSelectedBooking(booking)}
                     >
                       <div className={`bk-date-box ${boxClass}`}>
-                        <span className="bk-date-day" style={{ color: dayColor }}>{date.getDate()}</span>
-                        <span className="bk-date-month">{date.toLocaleString('es-AR', { month: 'short' }).replace('.', '')}</span>
+                        <span className="bk-date-day" style={{ color: dayColor }}>{dateBox.day}</span>
+                        <span className="bk-date-month">{dateBox.month}</span>
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div className="bk-card-club">{booking.club?.name || 'Club'}</div>
@@ -934,7 +948,7 @@ export default function MyBookingsPage() {
                           {booking.activity?.name && <span className="bk-card-chip">{booking.activity.name}</span>}
                           {booking.myRole === 'PARTICIPANT' && <span className="bk-card-chip">{roleLabel(booking)}</span>}
                           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <Clock size={10} /> {formatTime(date)}
+                            <Clock size={10} /> {formatTime(date, bookingTimeZone)}
                           </span>
                           {booking.court?.name && <span style={{ color: 'var(--text-muted)' }}>{booking.court.name}</span>}
                           {booking.paymentSummary.status !== 'NOT_REQUIRED' && paymentStatusLabel(booking) && (
@@ -979,14 +993,14 @@ export default function MyBookingsPage() {
                   <div className="bk-detail-icon"><Calendar size={16} /></div>
                   <div>
                     <div className="bk-detail-row-label">Fecha</div>
-                    <div className="bk-detail-row-val">{formatWeekday(new Date(selectedBooking.startDateTime))}</div>
+                    <div className="bk-detail-row-val">{formatWeekday(new Date(selectedBooking.startDateTime), selectedBooking.club?.timeZone)}</div>
                   </div>
                 </div>
                 <div className="bk-detail-row">
                   <div className="bk-detail-icon"><Clock size={16} /></div>
                   <div>
                     <div className="bk-detail-row-label">Horario</div>
-                    <div className="bk-detail-row-val">{formatTime(new Date(selectedBooking.startDateTime))} · {getDuration(selectedBooking)} min</div>
+                    <div className="bk-detail-row-val">{formatTime(new Date(selectedBooking.startDateTime), selectedBooking.club?.timeZone)} · {getDuration(selectedBooking)} min</div>
                   </div>
                 </div>
                 <div className="bk-detail-row">

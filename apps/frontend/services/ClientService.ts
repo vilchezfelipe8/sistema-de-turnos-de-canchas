@@ -58,6 +58,7 @@ export class ClientService {
       isProfessor: Boolean(client.isProfessor),
       totalBookings: Number(client.totalBookings || 0),
       totalDebt: Number(client.totalDebt || 0),
+      clubTimeZone: client.clubTimeZone ? String(client.clubTimeZone) : null,
       lastBookingAt: client.lastBookingAt ? String(client.lastBookingAt) : null,
       nextBookingAt: client.nextBookingAt ? String(client.nextBookingAt) : null,
       history: Array.isArray(client.history) ? client.history : [],

@@ -160,6 +160,11 @@ Nota:
 
 ### 7.4 Decision de WhatsApp
 
+Nota:
+
+- esta seccion refleja una recomendacion operativa conservadora previa a la migracion oficial;
+- la decision de arquitectura vigente para evolucion del producto esta documentada en `docs/whatsapp-cloud-api-migration.md`.
+
 | Opcion | Decision |
 |---|---|
 | WhatsApp apagado | recomendada para dia 1 del piloto |

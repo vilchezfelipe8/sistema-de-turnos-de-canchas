@@ -26,7 +26,18 @@ Variables principales para operar Pique.
 | `WHATSAPP_PROVIDER` | no | `wpp_http` | `wpp_http` | estrategia WhatsApp |
 | `WPP_SERVICE_URL` | no | `http://localhost:3002` | `https://...` | servicio WhatsApp |
 | `ENABLE_WHATSAPP_WORKER` | no | `false` | `false` | worker WhatsApp |
+| `ENABLE_WHATSAPP_SEND_V2` | no | `false` | `false` | procesamiento V2 interno |
+| `ENABLE_WHATSAPP_CUSTOMER_EVENTS_V2` | no | `false` | `false` | migra solo eventos reales `CUSTOMER` a `WHATSAPP_SEND_V2` |
+| `ENABLE_WHATSAPP_STAFF_EVENTS_V2` | no | `false` | `false` | migra solo eventos reales `CLUB_STAFF` existentes a `WHATSAPP_SEND_V2` |
+| `ENABLE_WHATSAPP_V2_DRY_RUN` | no | `false` | `false` | valida pipeline V2 sin llamar a Meta |
+| `ENABLE_WHATSAPP_CLOUD_API` | no | `false` | `false` | gate del provider Cloud API |
+| `ENABLE_WHATSAPP_WEBHOOK_PROCESSOR` | no | `false` | `false` | procesamiento de webhooks Cloud API |
+| `WHATSAPP_META_GRAPH_API_BASE_URL` | no | `https://graph.facebook.com` | `https://graph.facebook.com` | base URL Graph API |
+| `WHATSAPP_META_GRAPH_API_VERSION` | no | `v19.0` | `v19.0` | versiÃ³n Graph API |
+| `WHATSAPP_META_REQUEST_TIMEOUT_MS` | no | `10000` | `10000` | timeout request Cloud API |
+| `WHATSAPP_META_ACCESS_TOKEN` | no | vacÃ­o | `EAAG...` | token referenciado por `tokenSecretRef` |
 | `DISABLE_WHATSAPP` | no | vacío | `true` | apagar WhatsApp |
+| `WHATSAPP_META_WEBHOOK_VERIFY_TOKEN` | no | vacio | `replace_with_secret` | verificacion GET webhook Meta |
 | `MERCADO_PAGO_ENABLED` | no | `false` | `true` | checkout online |
 | `MERCADO_PAGO_TEST_TOKEN` | no | `false` | `false` | test vs real |
 | `MERCADO_PAGO_CLIENT_ID` | si MP | vacío | `APP_USR...` | OAuth MP |
@@ -49,3 +60,35 @@ Variables principales para operar Pique.
 - Si usás `SameSite=None`, `AUTH_COOKIE_SECURE=true` es obligatorio.
 - No poner secretos reales en `.env.example`.
 - Para el primer piloto, preferir mismo dominio (`https://pique.ar` + `/api`) y cookie host-only.
+- Las variables actuales de WhatsApp reflejan la implementación legacy (`wpp-service` / `local_browser`).
+- La migración objetivo a `WhatsApp Cloud API`, junto con futuras variables y feature flags, está definida en `docs/whatsapp-cloud-api-migration.md`.
+## WhatsApp V2 Rollout
+
+- `ENABLE_WHATSAPP_V2_DRY_RUN=false`
+- `WHATSAPP_META_RECIPIENT_ALLOWLIST=`
+- `ENABLE_WHATSAPP_V2_DRY_RUN=true` evita llamar a Meta.
+- `WHATSAPP_META_RECIPIENT_ALLOWLIST` limita envios reales a numeros explicitamente permitidos.
+
+Flags y vars de readiness recomendadas:
+
+- `ENABLE_WHATSAPP_CUSTOMER_EVENTS_V2=false`
+- `ENABLE_WHATSAPP_STAFF_EVENTS_V2=false`
+- `ENABLE_WHATSAPP_SEND_V2=false`
+- `ENABLE_WHATSAPP_CLOUD_API=false`
+- `ENABLE_WHATSAPP_WEBHOOK_PROCESSOR=false`
+- `ENABLE_WHATSAPP_V2_DRY_RUN=false`
+- `WHATSAPP_META_RECIPIENT_ALLOWLIST=`
+- `WHATSAPP_META_GRAPH_API_BASE_URL=https://graph.facebook.com`
+- `WHATSAPP_META_GRAPH_API_VERSION=v19.0`
+- `WHATSAPP_META_REQUEST_TIMEOUT_MS=10000`
+- `WHATSAPP_META_ACCESS_TOKEN=<env backend>`
+- `WHATSAPP_META_WEBHOOK_VERIFY_TOKEN=<env backend>`
+
+Precedencia final:
+
+1. `ENABLE_WHATSAPP_V2_DRY_RUN=true` gana y no llama a Meta.
+2. `WHATSAPP_META_RECIPIENT_ALLOWLIST` bloquea destinatarios no permitidos.
+3. `ENABLE_WHATSAPP_SEND_V2=false` impide dispatch V2.
+4. `ENABLE_WHATSAPP_CLOUD_API=false` impide provider real.
+5. `ENABLE_WHATSAPP_CUSTOMER_EVENTS_V2` y `ENABLE_WHATSAPP_STAFF_EVENTS_V2` solo deciden que produce dominio.
+6. `ENABLE_WHATSAPP_WEBHOOK_PROCESSOR` es independiente del dispatch.

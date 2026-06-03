@@ -28,6 +28,13 @@ type UpsertScheduleExceptionInput = {
 export class ActivityTypeAdminService {
   private static readonly DEFAULT_TIME_ZONE = 'America/Argentina/Buenos_Aires';
 
+  private formatDateOnlyUtc(value: unknown): string | null {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(String(value));
+    if (Number.isNaN(date.getTime())) return null;
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+  }
+
   private getDateKeyInTimeZone(timeZone: string, date = new Date()): string {
     try {
       const formatter = new Intl.DateTimeFormat('en-CA', {
@@ -94,7 +101,7 @@ export class ActivityTypeAdminService {
     return {
       id: row.id,
       activityTypeId: row.activityTypeId,
-      localDate: row.localDate instanceof Date ? row.localDate.toISOString().slice(0, 10) : String(row.localDate),
+      localDate: this.formatDateOnlyUtc(row.localDate) ?? String(row.localDate),
       isClosed: Boolean(row.isClosed),
       scheduleMode: row.scheduleMode ?? null,
       scheduleOpenTime: row.scheduleOpenTime ?? null,

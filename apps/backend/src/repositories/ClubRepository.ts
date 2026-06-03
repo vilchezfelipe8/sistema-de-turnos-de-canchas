@@ -70,7 +70,7 @@ export class ClubRepository {
         if (!value) return null;
         const date = value instanceof Date ? value : new Date(String(value));
         if (Number.isNaN(date.getTime())) return null;
-        return date.toISOString().slice(0, 10);
+        return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
     }
 
     private normalizeSportName(value: unknown): string {
