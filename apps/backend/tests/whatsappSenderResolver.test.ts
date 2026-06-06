@@ -31,7 +31,49 @@ function withMockedSenderRepo(
   });
 }
 
-test('resuelve PIQUE_DEFAULT activo en MVP', async () => {
+test('resuelve sender CLUB_OWN activo para el club antes de PIQUE_DEFAULT', async () => {
+  const resolver = new WhatsappSenderResolver();
+
+  await withMockedSenderRepo([
+    {
+      id: 'sender-club',
+      code: 'CLUB_10',
+      mode: 'CLUB_OWN',
+      provider: 'META_CLOUD_API',
+      phoneNumberId: 'club-phone',
+      wabaId: 'club-waba',
+      tokenSecretRef: 'secret://club',
+      status: 'ACTIVE',
+      clubId: 10
+    },
+    {
+      id: 'sender-1',
+      code: PIQUE_DEFAULT_SENDER_CODE,
+      mode: 'PIQUE_DEFAULT',
+      provider: 'META_CLOUD_API',
+      phoneNumberId: 'phone-number-id',
+      wabaId: 'waba-id',
+      tokenSecretRef: 'secret://pique-default',
+      status: 'ACTIVE',
+      clubId: null
+    },
+  ], async () => {
+    const result = await resolver.resolve({
+      clubId: 10,
+      recipientRole: 'CUSTOMER',
+      eventType: 'BOOKING_CREATED'
+    });
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.sender.code, 'CLUB_10');
+      assert.equal(result.sender.mode, 'CLUB_OWN');
+      assert.equal(result.sender.tokenSecretRef, 'secret://club');
+    }
+  });
+});
+
+test('resuelve PIQUE_DEFAULT si no hay CLUB_OWN activo para el club', async () => {
   const resolver = new WhatsappSenderResolver();
 
   await withMockedSenderRepo([
@@ -47,14 +89,14 @@ test('resuelve PIQUE_DEFAULT activo en MVP', async () => {
       clubId: null
     },
     {
-      id: 'sender-club',
-      code: 'CLUB_X',
+      id: 'sender-club-disabled',
+      code: 'CLUB_10',
       mode: 'CLUB_OWN',
       provider: 'META_CLOUD_API',
       phoneNumberId: 'club-phone',
       wabaId: 'club-waba',
       tokenSecretRef: 'secret://club',
-      status: 'ACTIVE',
+      status: 'DISABLED',
       clubId: 10
     }
   ], async () => {
@@ -121,7 +163,7 @@ test('falla si PIQUE_DEFAULT está disabled', async () => {
   });
 });
 
-test('no usa CLUB_OWN en MVP aunque exista para el club', async () => {
+test('falla si existe CLUB_OWN pero no hay sender activo utilizable para el club ni PIQUE_DEFAULT', async () => {
   const resolver = new WhatsappSenderResolver();
 
   await withMockedSenderRepo([
@@ -133,7 +175,7 @@ test('no usa CLUB_OWN en MVP aunque exista para el club', async () => {
       phoneNumberId: 'club-phone',
       wabaId: 'club-waba',
       tokenSecretRef: 'secret://club',
-      status: 'ACTIVE',
+      status: 'DISABLED',
       clubId: 10
     }
   ], async () => {

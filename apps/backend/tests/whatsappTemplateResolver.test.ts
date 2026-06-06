@@ -208,19 +208,30 @@ test('soporta BOOKING_PENDING_WARNING para customer', async () => {
   });
 });
 
-test('staff pending warning queda opcional y falla limpio si no existe', async () => {
+test('soporta BOOKING_PENDING_WARNING para staff', async () => {
   const resolver = new WhatsappTemplateResolver();
 
-  await withMockedTemplateRepo([], async () => {
+  await withMockedTemplateRepo([
+    {
+      id: 'tpl-2',
+      senderId: 'sender-1',
+      eventType: 'BOOKING_PENDING_WARNING',
+      recipientRole: 'CLUB_STAFF',
+      languageCode: 'es_AR',
+      templateName: 'staff_booking_pending_warning_v1',
+      category: 'UTILITY',
+      status: 'ACTIVE'
+    }
+  ], async () => {
     const result = await resolver.resolve({
       senderId: 'sender-1',
       eventType: 'BOOKING_PENDING_WARNING',
       recipientRole: 'CLUB_STAFF'
     });
 
-    assert.equal(result.ok, false);
-    if (!result.ok) {
-      assert.equal(result.errorCode, 'WHATSAPP_TEMPLATE_NOT_CONFIGURED');
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.template.templateName, 'staff_booking_pending_warning_v1');
     }
   });
 });

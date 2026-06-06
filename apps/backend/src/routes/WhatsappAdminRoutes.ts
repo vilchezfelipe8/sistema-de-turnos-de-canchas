@@ -18,6 +18,12 @@ router.get(
   requireGlobalRole('ADMIN'),
   controller.getDeliveryDetail
 );
+router.post(
+  '/deliveries/:id/resend',
+  authMiddleware,
+  requireGlobalRole('ADMIN'),
+  controller.resendDelivery
+);
 router.get(
   '/webhook-events',
   authMiddleware,

@@ -31,7 +31,7 @@ export const PLAYGROUND_SIDEBAR_ITEMS: PlaygroundSidebarItem[] = [
   { label: 'Caja', icon: CreditCard, href: '/admin/caja', minAccess: 'operator' },
   { label: 'Reservas', icon: Receipt, href: '/admin/reservas', disabled: true, minAccess: 'admin' },
   { label: 'Tienda', icon: ShoppingBag, href: '/admin/tienda', minAccess: 'admin' },
-  { label: 'Mensajes', icon: MessageSquare, href: '/admin/mensajes', disabled: true, minAccess: 'admin' },
+  { label: 'Mensajes', icon: MessageSquare, href: '/admin/mensajes', minAccess: 'admin' },
   { label: 'Facturacion', icon: ScrollText, href: '/admin/facturacion', disabled: true, minAccess: 'admin' },
   { label: 'Informes', icon: BarChart3, href: '/admin/informes', minAccess: 'operator' },
   { label: 'Ajustes', icon: Settings, href: '/admin/ajustes', minAccess: 'admin' },

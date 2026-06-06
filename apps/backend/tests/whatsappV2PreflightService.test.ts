@@ -45,7 +45,8 @@ function buildTemplates() {
     { senderId: 'sender-1', eventType: 'BOOKING_CANCELLED', recipientRole: 'CUSTOMER', languageCode: 'es_AR', status: 'ACTIVE', templateName: 'customer_booking_cancelled_v1' },
     { senderId: 'sender-1', eventType: 'BOOKING_PENDING_WARNING', recipientRole: 'CUSTOMER', languageCode: 'es_AR', status: 'ACTIVE', templateName: 'customer_booking_pending_warning_v1' },
     { senderId: 'sender-1', eventType: 'BOOKING_CREATED', recipientRole: 'CLUB_STAFF', languageCode: 'es_AR', status: 'ACTIVE', templateName: 'staff_booking_created_v1' },
-    { senderId: 'sender-1', eventType: 'BOOKING_CANCELLED', recipientRole: 'CLUB_STAFF', languageCode: 'es_AR', status: 'ACTIVE', templateName: 'staff_booking_cancelled_v1' }
+    { senderId: 'sender-1', eventType: 'BOOKING_CANCELLED', recipientRole: 'CLUB_STAFF', languageCode: 'es_AR', status: 'ACTIVE', templateName: 'staff_booking_cancelled_v1' },
+    { senderId: 'sender-1', eventType: 'BOOKING_PENDING_WARNING', recipientRole: 'CLUB_STAFF', languageCode: 'es_AR', status: 'ACTIVE', templateName: 'staff_booking_pending_warning_v1' }
   ];
 }
 
@@ -192,7 +193,7 @@ test('preflight falla si falta template customer requerido', async () => {
 
 test('preflight falla si falta template staff requerido', async () => {
   await withEnv('WHATSAPP_META_ACCESS_TOKEN', 'secret-token', async () => {
-    const templates = buildTemplates().filter((template) => template.templateName !== 'staff_booking_cancelled_v1');
+    const templates = buildTemplates().filter((template) => template.templateName !== 'staff_booking_pending_warning_v1');
     const service = new WhatsappV2PreflightService({
       db: createDb({
         sender: buildActiveSender(),
@@ -213,7 +214,7 @@ test('preflight falla si falta template staff requerido', async () => {
 
     const result = await service.run();
     assert.equal(result.ok, false);
-    assert.equal(result.checks.some((check) => check.key === 'template.staff_booking_cancelled_v1' && check.ok === false), true);
+    assert.equal(result.checks.some((check) => check.key === 'template.staff_booking_pending_warning_v1' && check.ok === false), true);
   });
 });
 

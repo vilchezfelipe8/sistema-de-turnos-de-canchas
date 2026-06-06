@@ -175,6 +175,81 @@ test('detalle de delivery incluye outbox minimo y webhooks asociados sanitizados
   assert.equal(result?.outboxMessage.id, 'outbox-1');
 });
 
+test('resendDelivery reencola un WHATSAPP_SEND_V2 con nueva dedupeKey', async () => {
+  let receivedPayload: any = null;
+  const service = new WhatsappOperationsService({
+    writeDb: {
+      whatsappDelivery: {
+        findFirst: async () => ({
+          id: 'delivery-1',
+          clubId: 7,
+          outboxMessage: {
+            id: 'outbox-1',
+            type: 'WHATSAPP_SEND_V2',
+            dedupeKey: 'wa-v2:booking-created:1:customer:5493511234567',
+            payload: {
+              eventType: 'BOOKING_CREATED',
+              recipientRole: 'CUSTOMER',
+              clubId: 7,
+              recipientPhone: '5493511234567',
+              referenceType: 'BOOKING',
+              referenceId: '1',
+              dedupeKey: 'wa-v2:booking-created:1:customer:5493511234567',
+              templateParams: {
+                client_name: 'Fran'
+              },
+              metadata: {
+                source: 'BOOKING_CREATED'
+              }
+            }
+          }
+        })
+      }
+    } as any,
+    whatsappNotificationOutboxService: {
+      enqueueSendV2: async (input: any) => {
+        receivedPayload = input;
+        return {
+          created: true,
+          outboxMessage: { id: 'outbox-resend', clubId: 7, type: 'WHATSAPP_SEND_V2', dedupeKey: input.dedupeKey, payload: input },
+          whatsappDelivery: { id: 'delivery-resend', outboxMessageId: 'outbox-resend', status: 'QUEUED', provider: 'META_CLOUD_API' }
+        };
+      }
+    }
+  });
+
+  const result = await service.resendDelivery({ id: 'delivery-1' });
+  assert.ok(result);
+  assert.equal(result?.sourceDeliveryId, 'delivery-1');
+  assert.equal(result?.outboxMessageId, 'outbox-resend');
+  assert.equal(result?.whatsappDeliveryId, 'delivery-resend');
+  assert.ok(String(receivedPayload?.dedupeKey || '').includes(':manual-resend:'));
+  assert.equal(receivedPayload?.metadata?.manualResendOfDeliveryId, 'delivery-1');
+  assert.equal(receivedPayload?.metadata?.manualResendOfOutboxMessageId, 'outbox-1');
+});
+
+test('resendDelivery devuelve null si el delivery no es reenviable', async () => {
+  const service = new WhatsappOperationsService({
+    writeDb: {
+      whatsappDelivery: {
+        findFirst: async () => ({
+          id: 'delivery-legacy',
+          clubId: 7,
+          outboxMessage: {
+            id: 'outbox-legacy',
+            type: 'WHATSAPP_SEND',
+            dedupeKey: 'legacy:1',
+            payload: { phone: '5493511234567', message: 'hola' }
+          }
+        })
+      }
+    } as any
+  });
+
+  const result = await service.resendDelivery({ id: 'delivery-legacy' });
+  assert.equal(result, null);
+});
+
 test('lista webhook events y marca huerfanos sin romper', async () => {
   const service = new WhatsappOperationsService({
     db: {
@@ -287,4 +362,3 @@ test('preflight expone flags y checks sin secretos', async () => {
   assert.equal(typeof result.flags.ENABLE_WHATSAPP_SEND_V2, 'boolean');
   assert.equal('token' in result, false);
 });
-

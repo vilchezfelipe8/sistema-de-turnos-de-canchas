@@ -15,6 +15,7 @@ import { getDepositRequiredAmount } from '../domain/bookingDomain';
 import { normalizeIdentityPhone } from '../utils/phone';
 import { featureFlags } from '../config/featureFlags';
 import { BookingCustomerWhatsappNotificationService } from './BookingCustomerWhatsappNotificationService';
+import { BookingStaffWhatsappNotificationService } from './BookingStaffWhatsappNotificationService';
 
 const EPSILON = 0.009;
 
@@ -56,6 +57,8 @@ export class PendingBookingAutoCancelService {
   private readonly auditLogService = new AuditLogService();
   private readonly bookingCustomerWhatsappNotificationService =
     new BookingCustomerWhatsappNotificationService();
+  private readonly bookingStaffWhatsappNotificationService =
+    new BookingStaffWhatsappNotificationService();
   private readonly bookingService = new BookingService(
     new BookingRepository(),
     new CourtRepository(),
@@ -164,6 +167,7 @@ Si no se confirma antes de las *${limitTime}*, puede cancelarse automáticamente
     }
 
     const clientPhone = normalizeIdentityPhone(booking.user?.phoneNumber || booking.client?.phone || null);
+    const clubPhone = normalizeIdentityPhone(booking.court.club.phone || null);
     const clientName = booking.user?.firstName || booking.client?.name || 'Jugador';
     const clubTimeZone = booking.court.club.settings?.timeZone ?? 'America/Argentina/Buenos_Aires';
     const dedupeSuffix = `booking-auto-cancel-warning:${booking.id}`;
@@ -228,6 +232,22 @@ Si no se confirma antes de las *${limitTime}*, puede cancelarse automáticamente
           }
         }, tx);
       }
+    }
+
+    if (featureFlags.ENABLE_WHATSAPP_STAFF_EVENTS_V2 && clubPhone) {
+      await this.bookingStaffWhatsappNotificationService.enqueuePendingWarning({
+        bookingId: booking.id,
+        clubId: booking.clubId,
+        clubName: booking.court.club.name,
+        clubPhone,
+        courtName: booking.court.name,
+        clientName,
+        clientPhone,
+        startDateTime: booking.startDateTime,
+        timeZone: clubTimeZone,
+        cancelMinutesBefore: Number(settings.cancelMinutesBefore || 0),
+        insufficientAmount
+      }, tx);
     }
 
     if (booking.userId) {

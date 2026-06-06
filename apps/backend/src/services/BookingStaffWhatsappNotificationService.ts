@@ -43,6 +43,20 @@ type BookingCancelledInput = {
   reason?: 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED';
 };
 
+type BookingPendingWarningInput = {
+  bookingId: number;
+  clubId: number;
+  clubName: string;
+  clubPhone?: string | null;
+  courtName: string;
+  clientName: string;
+  clientPhone?: string | null;
+  startDateTime: Date;
+  timeZone: string;
+  cancelMinutesBefore: number;
+  insufficientAmount?: number | null;
+};
+
 type EnqueueResult = {
   queued: boolean;
   mode: 'LEGACY' | 'V2' | 'SKIPPED';
@@ -67,6 +81,17 @@ const STAFF_CANCELLED_TEMPLATE_ORDER = [
   'time',
   'court_name',
   'cancel_reason_label'
+] as const;
+
+const STAFF_PENDING_WARNING_TEMPLATE_ORDER = [
+  'club_name',
+  'client_name',
+  'client_phone',
+  'date',
+  'time',
+  'court_name',
+  'cancel_minutes_before',
+  'insufficient_amount'
 ] as const;
 
 export class BookingStaffWhatsappNotificationService {
@@ -230,6 +255,65 @@ export class BookingStaffWhatsappNotificationService {
         error
       });
       return { queued: false, mode: this.flags.ENABLE_WHATSAPP_STAFF_EVENTS_V2 ? 'V2' : 'LEGACY', error };
+    }
+  }
+
+  async enqueuePendingWarning(
+    input: BookingPendingWarningInput,
+    tx?: DbClient
+  ): Promise<EnqueueResult> {
+    const staffPhone = toDialablePhoneNumber(input.clubPhone);
+    if (!staffPhone) {
+      return { queued: false, mode: 'SKIPPED' };
+    }
+
+    if (!this.flags.ENABLE_WHATSAPP_STAFF_EVENTS_V2) {
+      return { queued: false, mode: 'SKIPPED' };
+    }
+
+    const { date, time } = this.formatBookingDateTime(input.startDateTime, input.timeZone);
+    const cleanClientPhone = toDialablePhoneNumber(input.clientPhone);
+
+    try {
+      await this.whatsappNotificationOutboxService.enqueueSendV2(
+        {
+          eventType: 'BOOKING_PENDING_WARNING',
+          recipientRole: 'CLUB_STAFF',
+          clubId: input.clubId,
+          recipientPhone: staffPhone,
+          referenceType: 'BOOKING',
+          referenceId: String(input.bookingId),
+          dedupeKey: `booking:${input.bookingId}:staff:booking_pending_warning:v2`,
+          templateParams: {
+            club_name: input.clubName,
+            client_name: input.clientName,
+            client_phone: cleanClientPhone ? `wa.me/${cleanClientPhone}` : 'No registrado',
+            date,
+            time,
+            court_name: input.courtName,
+            cancel_minutes_before: String(Number(input.cancelMinutesBefore || 0)),
+            insufficient_amount:
+              Number(input.insufficientAmount || 0) > 0.009
+                ? Number(input.insufficientAmount || 0).toFixed(2)
+                : null
+          },
+          templateParameterOrder: [...STAFF_PENDING_WARNING_TEMPLATE_ORDER],
+          metadata: {
+            source: 'BOOKING_PENDING_WARNING',
+            bookingId: input.bookingId
+          }
+        },
+        tx
+      );
+
+      return { queued: true, mode: 'V2' };
+    } catch (error) {
+      console.error('[BOOKING_WHATSAPP_STAFF] enqueuePendingWarning failed', {
+        bookingId: input.bookingId,
+        clubId: input.clubId,
+        error
+      });
+      return { queued: false, mode: 'V2', error };
     }
   }
 

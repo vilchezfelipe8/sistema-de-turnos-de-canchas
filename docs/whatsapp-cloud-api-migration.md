@@ -109,7 +109,7 @@ Regla MVP:
 
 - `BOOKING_CREATED / CLUB_STAFF`: incluido
 - `BOOKING_CANCELLED / CLUB_STAFF`: incluido
-- `BOOKING_PENDING_WARNING / CLUB_STAFF`: futuro, no activar en este rollout
+- `BOOKING_PENDING_WARNING / CLUB_STAFF`: incluido bajo `ENABLE_WHATSAPP_STAFF_EVENTS_V2`
 
 ### 6.3 Fuera de alcance funcional
 
@@ -229,7 +229,7 @@ Propuesta de templates utility iniciales:
 | `customer_booking_pending_warning_v1` | `CUSTOMER` | warning pre autocancelacion |
 | `staff_booking_created_v1` | `CLUB_STAFF` | nueva reserva |
 | `staff_booking_cancelled_v1` | `CLUB_STAFF` | reserva cancelada |
-| `staff_booking_pending_warning_v1` | `CLUB_STAFF` | futuro; no activar en MVP |
+| `staff_booking_pending_warning_v1` | `CLUB_STAFF` | warning operativo previo a autocancelación |
 
 Regla:
 
@@ -303,9 +303,8 @@ Regla:
 
 Regla:
 
-- documentado para futuro
-- no requerido para rollout MVP
-- no debe activarse mientras no exista flujo real `BOOKING_PENDING_WARNING / CLUB_STAFF`
+- mismo contrato de variables que el payload V2 real de staff pending warning
+- puede quedar apagado por flag si negocio no quiere usarlo en un rollout puntual
 
 ## 11. Regla de versionado de templates
 
@@ -729,7 +728,7 @@ Si la salida a Cloud API falla:
 La documentacion se considera suficientemente cerrada cuando:
 
 - el MVP conserva mensajes a cliente y al club ya existentes
-- `BOOKING_PENDING_WARNING / CLUB_STAFF` queda explicitamente fuera del MVP real
+- `BOOKING_PENDING_WARNING / CLUB_STAFF` puede encenderse por flag sin depender de legacy
 - el contrato de outbox ya no depende de `phone + message`
 - hay un modelo de sender y message log definidos
 - hay templates iniciales identificados
@@ -816,9 +815,9 @@ Motivo: {{cancel_reason_label}}
 
 Estado:
 
-- futuro
-- no forma parte del rollout MVP
-- no activar hasta que exista flujo real `BOOKING_PENDING_WARNING / CLUB_STAFF`
+- implementado en V2
+- controlado por `ENABLE_WHATSAPP_STAFF_EVENTS_V2`
+- sin canal legacy paralelo
 
 ```text
 Reserva pendiente por revisar en {{club_name}}.
@@ -977,7 +976,7 @@ sequenceDiagram
 | `BOOKING_CANCELLED` | `CUSTOMER` | `customer_booking_cancelled_v1` | `client_name`, `club_name`, `date`, `time`, `court_name`, `club_whatsapp_url`, `cancel_reason_label` |
 | `BOOKING_CANCELLED` | `CLUB_STAFF` | `staff_booking_cancelled_v1` | `club_name`, `client_name`, `client_phone`, `date`, `time`, `court_name`, `cancel_reason_label` |
 | `BOOKING_PENDING_WARNING` | `CUSTOMER` | `customer_booking_pending_warning_v1` | `client_name`, `club_name`, `date`, `time`, `court_name`, `cancel_minutes_before`, `insufficient_amount` |
-| `BOOKING_PENDING_WARNING` | `CLUB_STAFF` | `staff_booking_pending_warning_v1` | futuro; no activar en MVP |
+| `BOOKING_PENDING_WARNING` | `CLUB_STAFF` | `staff_booking_pending_warning_v1` | `ENABLE_WHATSAPP_STAFF_EVENTS_V2`; sin legacy paralelo |
 
 ## 35. Checklist operativo de onboarding de sender central
 
@@ -1797,15 +1796,15 @@ Alcance:
 
 Decisiones cerradas:
 
-- MVP resuelve siempre `PIQUE_DEFAULT`
-- `CLUB_OWN` queda preparado para futuro pero no participa del resolver MVP
+- si existe sender `CLUB_OWN` activo para el club, se prioriza
+- si no existe, se usa `PIQUE_DEFAULT`
 - templates de `CUSTOMER` y `CLUB_STAFF` quedan separados
 - `BOOKING_OWNER` no existe como rol persistente
 - `BOOKING_OWNER` solo puede vivir en helpers semanticos y se normaliza a `CUSTOMER`
 
 Bootstrap/configuracion:
 
-- en este PR no se agrega seed real ni onboarding
+- existe bootstrap operativo por script para `PIQUE_DEFAULT` y templates MVP
 - `PIQUE_DEFAULT` debe existir en DB antes del cutover real
 - el resolver falla de forma controlada si `PIQUE_DEFAULT` no existe, esta deshabilitado o esta invalido
 - `tokenSecretRef` sigue siendo referencia a secreto; no se guardan access tokens planos
@@ -2060,15 +2059,10 @@ Alcance:
 
 - se agrego `ENABLE_WHATSAPP_STAFF_EVENTS_V2`
 - se creo `BookingStaffWhatsappNotificationService`
-- se migraron solo eventos reales `CLUB_STAFF` que ya existian en legacy:
+- se migraron eventos `CLUB_STAFF` de booking:
   - `BOOKING_CREATED / CLUB_STAFF`
   - `BOOKING_CANCELLED / CLUB_STAFF`
-
-Fuera de alcance explicitamente:
-
-- no se agrego `BOOKING_PENDING_WARNING / CLUB_STAFF`
-- no se toco `PendingBookingAutoCancelService` para staff
-- no se creo `staff_booking_pending_warning_v1` como flujo real
+  - `BOOKING_PENDING_WARNING / CLUB_STAFF`
 
 Comportamiento:
 
@@ -2330,16 +2324,16 @@ PR12 cierra la migracion como modulo listo para rollout controlado. No agrega fe
 | `BOOKING_PENDING_WARNING / CUSTOMER` V2 | Implementado | `ENABLE_WHATSAPP_CUSTOMER_EVENTS_V2` | warning real migrado |
 | `BOOKING_CREATED / CLUB_STAFF` V2 | Implementado | `ENABLE_WHATSAPP_STAFF_EVENTS_V2` | usa `club.phone` actual |
 | `BOOKING_CANCELLED / CLUB_STAFF` V2 | Implementado | `ENABLE_WHATSAPP_STAFF_EVENTS_V2` | usa `club.phone` actual |
-| `BOOKING_PENDING_WARNING / CLUB_STAFF` | Futuro | N/A | no existe flujo real legacy; no activar |
+| `BOOKING_PENDING_WARNING / CLUB_STAFF` V2 | Implementado | `ENABLE_WHATSAPP_STAFF_EVENTS_V2` | suma prevención staff sin legacy paralelo |
 | Dispatch V2 | Implementado | `ENABLE_WHATSAPP_SEND_V2` + `ENABLE_WHATSAPP_CLOUD_API` | requiere sender + template + envs |
 | Webhooks | Implementado | `ENABLE_WHATSAPP_WEBHOOK_PROCESSOR` | `ACCEPTED` sigue siendo estado interno, no webhook |
 | Dry-run | Implementado | `ENABLE_WHATSAPP_V2_DRY_RUN` | no llama a Meta |
 | Allowlist | Implementado | `WHATSAPP_META_RECIPIENT_ALLOWLIST` | protege piloto real |
 | Preflight | Implementado | endpoint admin | correr antes de rollout |
 | Backoffice operativo | Implementado | auth admin | read-only |
-| Resend manual | Futuro | N/A | fuera de alcance |
+| Resend manual | Implementado | auth admin | reencola `WHATSAPP_SEND_V2` con nueva `dedupeKey` |
 | Inbox | Fuera de alcance | N/A | no implementar en esta etapa |
-| Sender propio por club | Futuro | N/A | `CLUB_OWN` no entra en MVP |
+| Sender propio por club | Implementado | configuracion DB | resolver prioriza `CLUB_OWN` y cae a `PIQUE_DEFAULT` |
 
 ### 77.2 Guia operativa de `PIQUE_DEFAULT`
 
@@ -2404,7 +2398,7 @@ insert into "WhatsappSender" (
 | `customer_booking_pending_warning_v1` | `BOOKING_PENDING_WARNING` | `CUSTOMER` | `es_AR` | `UTILITY` | `ACTIVE` | `client_name`, `club_name`, `date`, `time`, `court_name`, `cancel_minutes_before`, `insufficient_amount` | `client_name`, `club_name`, `date`, `time`, `court_name`, `cancel_minutes_before`, `insufficient_amount` |
 | `staff_booking_created_v1` | `BOOKING_CREATED` | `CLUB_STAFF` | `es_AR` | `UTILITY` | `ACTIVE` | `club_name`, `client_name`, `client_phone`, `date`, `time`, `court_name`, `amount` | `club_name`, `client_name`, `client_phone`, `date`, `time`, `court_name`, `amount` |
 | `staff_booking_cancelled_v1` | `BOOKING_CANCELLED` | `CLUB_STAFF` | `es_AR` | `UTILITY` | `ACTIVE` | `club_name`, `client_name`, `client_phone`, `date`, `time`, `court_name`, `cancel_reason_label` | `club_name`, `client_name`, `client_phone`, `date`, `time`, `court_name`, `cancel_reason_label` |
-| `staff_booking_pending_warning_v1` | `BOOKING_PENDING_WARNING` | `CLUB_STAFF` | `es_AR` | `UTILITY` | futuro; no activar | N/A | N/A |
+| `staff_booking_pending_warning_v1` | `BOOKING_PENDING_WARNING` | `CLUB_STAFF` | `es_AR` | `UTILITY` | `ACTIVE` | `club_name`, `client_name`, `client_phone`, `date`, `time`, `court_name`, `cancel_minutes_before`, `insufficient_amount` | `club_name`, `client_name`, `client_phone`, `date`, `time`, `court_name`, `cancel_minutes_before`, `insufficient_amount` |
 
 ### 77.4 Matriz definitiva de flags
 
@@ -2495,7 +2489,7 @@ Paso 3:
 Paso 4:
 
 - piloto `CUSTOMER`
-- `CLUB_STAFF` sigue legacy
+- `CLUB_STAFF` puede seguir apagado por flag o probarse en dry-run separado
 
 Paso 5:
 
@@ -2538,7 +2532,8 @@ Reglas:
 - created staff legacy
 - created staff dry-run
 - cancelled staff dry-run
-- confirmar que no existe staff pending warning real
+- pending warning staff dry-run
+- pending warning staff allowlist o real controlado
 - webhook verify
 - webhook delivered/read mock
 - backoffice delivery list
@@ -2550,8 +2545,7 @@ Reglas:
 
 ### 77.9 Fuera de alcance confirmado
 
-- no resend manual
-- no inbox
+- no inbox conversacional
 - no CRM
 - no bot
 - no campanas
@@ -2559,10 +2553,41 @@ Reglas:
 - no WhatsApp Flows
 - no AI assistant
 - no pagos por WhatsApp
-- no sender propio por club en MVP
 - no onboarding WABA por club
 - no `ClubNotificationRecipient`
-- no `BOOKING_PENDING_WARNING / CLUB_STAFF` real
+
+### 77.10 Estado de validación local con Meta (`2026-06-06`)
+
+Validado en entorno local:
+
+- `PIQUE_DEFAULT` bootstrapeado correctamente con `phoneNumberId`, `wabaId` y `tokenSecretRef`.
+- preflight admin `OK`.
+- el pipeline `BOOKING_CREATED / CUSTOMER` genera `WHATSAPP_SEND_V2` real desde Pique.
+- Meta recibió requests reales del provider Cloud API.
+- el sandbox de Meta aceptó el número emisor de prueba y el destinatario verificado.
+
+Bloqueos observados durante la prueba:
+
+- primero hubo rechazo por `Recipient phone number not in allowed list` hasta alinear recipient list de Meta + `WHATSAPP_META_RECIPIENT_ALLOWLIST` + teléfono real usado por la reserva.
+- una vez resuelta la allowlist, Meta devolvió `template name does not exist in es_AR`, consistente con templates todavía `In review` o no disponibles todavía en la WABA/translation efectiva.
+
+Conclusión operativa:
+
+- a la fecha de esta validación, el cuello de botella ya no está en Pique sino en la aprobación/disponibilidad de templates en Meta.
+- no tiene sentido seguir rotando tokens o cambiando flags mientras el template base siga `In review`.
+- alcanza con que `customer_booking_created_v1` pase a `Approved` para ejecutar la siguiente validación real.
+
+Siguiente paso recomendado cuando haya aprobación:
+
+1. reenviar un delivery `BOOKING_CREATED / CUSTOMER`;
+2. confirmar transición a `ACCEPTED`;
+3. recién después configurar webhook público y prender `ENABLE_WHATSAPP_WEBHOOK_PROCESSOR=true` para validar `SENT / DELIVERED / READ`.
+
+Decisión sobre webhooks en esta etapa:
+
+- los webhooks quedan preparados pero diferidos.
+- no bloquean la validación actual del pipeline `Pique -> Meta`.
+- se retoman apenas exista al menos un template aprobado y reusable para envío real.
 - no eliminacion de legacy en esta etapa
 
 ### 77.10 Fuente de verdad final

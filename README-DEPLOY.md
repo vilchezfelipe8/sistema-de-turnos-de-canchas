@@ -86,6 +86,14 @@ Checklist operativo de readiness:
 - templates MVP en `ACTIVE`
 - preflight admin OK antes de prender rollout
 
+Bootstrap recomendado:
+
+```bash
+cd apps/backend
+npm run prisma:migrate:deploy
+npm run whatsapp:bootstrap-cloud-api
+```
+
 Orden recomendado de rollout:
 
 1. deploy con flags apagadas

@@ -17,6 +17,8 @@ Monorepo del sistema SaaS multi-club para gestión operativa de canchas, reserva
    - `cd apps/backend`
    - `npm install`
    - `npm run prisma:generate`
+   - `npm run prisma:migrate:deploy`
+   - si vas a preparar WhatsApp Cloud API: `npm run whatsapp:bootstrap-cloud-api`
    - `npm run dev`
 3. Frontend:
    - `cd apps/frontend`

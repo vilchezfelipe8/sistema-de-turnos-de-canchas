@@ -130,6 +130,39 @@ export class WhatsappOperationsController {
     }
   };
 
+  resendDelivery = async (req: Request, res: Response) => {
+    try {
+      const paramsParsed = deliveryDetailParamsSchema.safeParse(req.params);
+      if (!paramsParsed.success) {
+        return res.status(400).json({ error: paramsParsed.error.format() });
+      }
+
+      const queryParsed = deliveryDetailQuerySchema.safeParse(req.query);
+      if (!queryParsed.success) {
+        return res.status(400).json({ error: queryParsed.error.format() });
+      }
+
+      const result = await this.operationsService.resendDelivery({
+        id: paramsParsed.data.id,
+        clubId: queryParsed.data.clubId
+      });
+
+      if (!result) {
+        return res
+          .status(404)
+          .json({ error: 'Delivery de WhatsApp no encontrado o no reenviable.' });
+      }
+
+      return res.status(202).json(result);
+    } catch (error) {
+      return sendAppError(
+        res,
+        error,
+        'No se pudo reenviar el delivery de WhatsApp.'
+      );
+    }
+  };
+
   listWebhookEvents = async (req: Request, res: Response) => {
     try {
       const parsed = webhookListQuerySchema.safeParse(req.query);
@@ -179,4 +212,3 @@ export class WhatsappOperationsController {
     }
   };
 }
-

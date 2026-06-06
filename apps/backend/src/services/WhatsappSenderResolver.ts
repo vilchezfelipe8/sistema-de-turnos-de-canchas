@@ -16,6 +16,32 @@ export class WhatsappSenderResolver {
       };
     }
 
+    const clubOwnedSender = await prisma.whatsappSender.findFirst({
+      where: {
+        clubId: input.clubId,
+        mode: 'CLUB_OWN',
+        provider: 'META_CLOUD_API',
+        status: 'ACTIVE'
+      },
+      select: {
+        id: true,
+        code: true,
+        mode: true,
+        provider: true,
+        phoneNumberId: true,
+        wabaId: true,
+        tokenSecretRef: true,
+        status: true
+      }
+    });
+
+    if (clubOwnedSender) {
+      return {
+        ok: true,
+        sender: clubOwnedSender
+      };
+    }
+
     const activeSender = await prisma.whatsappSender.findFirst({
       where: {
         code: PIQUE_DEFAULT_SENDER_CODE,

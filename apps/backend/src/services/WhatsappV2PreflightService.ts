@@ -53,6 +53,11 @@ const REQUIRED_TEMPLATE_KEYS = [
     key: 'staff_booking_cancelled_v1',
     eventType: 'BOOKING_CANCELLED',
     recipientRole: 'CLUB_STAFF'
+  },
+  {
+    key: 'staff_booking_pending_warning_v1',
+    eventType: 'BOOKING_PENDING_WARNING',
+    recipientRole: 'CLUB_STAFF'
   }
 ] as const;
 

@@ -1,13 +1,15 @@
 import { Prisma, PrismaClient } from '@prisma/client';
-import { prismaRead } from '../prisma';
+import { prisma, prismaRead } from '../prisma';
 import { featureFlags } from '../config/featureFlags';
 import { WhatsappV2PreflightService } from './WhatsappV2PreflightService';
+import { WhatsappNotificationOutboxService } from './WhatsappNotificationOutboxService';
 import {
   maskPhone,
   sanitizeWhatsappPayload,
   sanitizeWhatsappRawRequest,
   sanitizeWhatsappRawResponse
 } from '../utils/whatsappAdminSanitizer';
+import { type WhatsappSendV2Payload } from '../types/notifications';
 
 type DbClient = Prisma.TransactionClient | PrismaClient;
 
@@ -49,7 +51,12 @@ export type WhatsappSummaryFilters = {
 
 type WhatsappOperationsDeps = {
   db?: DbClient;
+  writeDb?: DbClient;
   preflightService?: WhatsappV2PreflightService;
+  whatsappNotificationOutboxService?: Pick<
+    WhatsappNotificationOutboxService,
+    'enqueueSendV2'
+  >;
 };
 
 const normalizeLimit = (limit?: number) => {
@@ -147,13 +154,22 @@ const toCountMap = (
 
 export class WhatsappOperationsService {
   private readonly db: DbClient;
+  private readonly writeDb: DbClient;
   private readonly preflightService: WhatsappV2PreflightService;
+  private readonly whatsappNotificationOutboxService: Pick<
+    WhatsappNotificationOutboxService,
+    'enqueueSendV2'
+  >;
 
   constructor(deps: WhatsappOperationsDeps = {}) {
     this.db = deps.db ?? prismaRead;
+    this.writeDb = deps.writeDb ?? prisma;
     this.preflightService =
       deps.preflightService ??
       new WhatsappV2PreflightService({ db: this.db });
+    this.whatsappNotificationOutboxService =
+      deps.whatsappNotificationOutboxService ??
+      new WhatsappNotificationOutboxService();
   }
 
   async listDeliveries(filters: WhatsappDeliveryListFilters) {
@@ -322,6 +338,67 @@ export class WhatsappOperationsService {
         orphan: !event.deliveryId,
         rawPayloadSummary: sanitizeWhatsappPayload(event.rawPayload)
       }))
+    };
+  }
+
+  async resendDelivery(input: { id: string; clubId?: number }) {
+    const row = await this.writeDb.whatsappDelivery.findFirst({
+      where: {
+        id: input.id,
+        ...(input.clubId ? { clubId: input.clubId } : {})
+      },
+      select: {
+        id: true,
+        clubId: true,
+        outboxMessage: {
+          select: {
+            id: true,
+            type: true,
+            payload: true,
+            dedupeKey: true
+          }
+        }
+      }
+    });
+
+    if (!row?.outboxMessage || row.outboxMessage.type !== 'WHATSAPP_SEND_V2') {
+      return null;
+    }
+
+    const payload = row.outboxMessage.payload as Partial<WhatsappSendV2Payload> | null;
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+
+    const dedupeBase = String(payload.dedupeKey || row.outboxMessage.dedupeKey || '').trim();
+    const resendDedupeKey =
+      `${dedupeBase || `wa-v2:manual-resend:${row.id}`}:manual-resend:${Date.now()}`;
+
+    const result = await this.whatsappNotificationOutboxService.enqueueSendV2({
+      eventType: payload.eventType as WhatsappSendV2Payload['eventType'],
+      recipientRole: payload.recipientRole as WhatsappSendV2Payload['recipientRole'],
+      clubId: Number(payload.clubId || row.clubId),
+      recipientPhone: String(payload.recipientPhone || ''),
+      referenceType: payload.referenceType as WhatsappSendV2Payload['referenceType'],
+      referenceId: String(payload.referenceId || ''),
+      dedupeKey: resendDedupeKey,
+      templateParams: (payload.templateParams as WhatsappSendV2Payload['templateParams']) || {},
+      templateParameterOrder: Array.isArray(payload.templateParameterOrder)
+        ? [...payload.templateParameterOrder]
+        : undefined,
+      metadata: {
+        ...((payload.metadata as Record<string, unknown> | undefined) || {}),
+        manualResendOfDeliveryId: row.id,
+        manualResendOfOutboxMessageId: row.outboxMessage.id
+      }
+    }, this.writeDb);
+
+    return {
+      ok: true,
+      sourceDeliveryId: row.id,
+      outboxMessageId: result.outboxMessage.id,
+      whatsappDeliveryId: result.whatsappDelivery.id,
+      created: result.created
     };
   }
 

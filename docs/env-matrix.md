@@ -35,7 +35,13 @@ Variables principales para operar Pique.
 | `WHATSAPP_META_GRAPH_API_BASE_URL` | no | `https://graph.facebook.com` | `https://graph.facebook.com` | base URL Graph API |
 | `WHATSAPP_META_GRAPH_API_VERSION` | no | `v19.0` | `v19.0` | versiÃ³n Graph API |
 | `WHATSAPP_META_REQUEST_TIMEOUT_MS` | no | `10000` | `10000` | timeout request Cloud API |
+| `WHATSAPP_META_RECIPIENT_ALLOWLIST` | no | vacío | `5493511234567,5491123456789` | limita envíos reales a números permitidos |
 | `WHATSAPP_META_ACCESS_TOKEN` | no | vacÃ­o | `EAAG...` | token referenciado por `tokenSecretRef` |
+| `WHATSAPP_META_WABA_ID` | no | vacío | `1234567890` | bootstrap de `PIQUE_DEFAULT` |
+| `WHATSAPP_META_PHONE_NUMBER_ID` | no | vacío | `9876543210` | bootstrap de `PIQUE_DEFAULT` |
+| `WHATSAPP_META_BUSINESS_PHONE` | no | vacío | `5493515551111` | bootstrap de `PIQUE_DEFAULT` |
+| `WHATSAPP_META_TOKEN_SECRET_REF` | no | `WHATSAPP_META_ACCESS_TOKEN` | `WHATSAPP_META_ACCESS_TOKEN` | referencia a env con token real |
+| `WHATSAPP_SENDER_DISPLAY_NAME` | no | `Pique` | `Pique` | nombre visible del sender bootstrap |
 | `DISABLE_WHATSAPP` | no | vacío | `true` | apagar WhatsApp |
 | `WHATSAPP_META_WEBHOOK_VERIFY_TOKEN` | no | vacio | `replace_with_secret` | verificacion GET webhook Meta |
 | `MERCADO_PAGO_ENABLED` | no | `false` | `true` | checkout online |
@@ -62,6 +68,7 @@ Variables principales para operar Pique.
 - Para el primer piloto, preferir mismo dominio (`https://pique.ar` + `/api`) y cookie host-only.
 - Las variables actuales de WhatsApp reflejan la implementación legacy (`wpp-service` / `local_browser`).
 - La migración objetivo a `WhatsApp Cloud API`, junto con futuras variables y feature flags, está definida en `docs/whatsapp-cloud-api-migration.md`.
+- Para bootstrapear `PIQUE_DEFAULT` y templates MVP desde entorno, usar `npm run whatsapp:bootstrap-cloud-api` dentro de `apps/backend`.
 ## WhatsApp V2 Rollout
 
 - `ENABLE_WHATSAPP_V2_DRY_RUN=false`

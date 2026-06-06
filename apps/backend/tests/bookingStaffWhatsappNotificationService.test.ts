@@ -113,6 +113,51 @@ test('staff booking cancelled usa V2 sin doble envio legacy', async () => {
   assert.equal(v2Calls[0].templateParams.cancel_reason_label, 'falta de confirmacion');
 });
 
+test('staff pending warning usa V2 cuando flag staff esta activo', async () => {
+  const { service, legacyCalls, v2Calls } = createService({ staffEventsV2: true });
+
+  const result = await service.enqueuePendingWarning({
+    ...buildBaseInput(),
+    cancelMinutesBefore: 45,
+    insufficientAmount: 3200
+  });
+
+  assert.equal(result.queued, true);
+  assert.equal(result.mode, 'V2');
+  assert.equal(legacyCalls.length, 0);
+  assert.equal(v2Calls.length, 1);
+  assert.equal(v2Calls[0].eventType, 'BOOKING_PENDING_WARNING');
+  assert.equal(v2Calls[0].recipientRole, 'CLUB_STAFF');
+  assert.equal(v2Calls[0].dedupeKey, 'booking:201:staff:booking_pending_warning:v2');
+  assert.equal(v2Calls[0].templateParams.cancel_minutes_before, '45');
+  assert.equal(v2Calls[0].templateParams.insufficient_amount, '3200.00');
+  assert.deepEqual(v2Calls[0].templateParameterOrder, [
+    'club_name',
+    'client_name',
+    'client_phone',
+    'date',
+    'time',
+    'court_name',
+    'cancel_minutes_before',
+    'insufficient_amount'
+  ]);
+});
+
+test('staff pending warning se omite si el flag staff esta apagado', async () => {
+  const { service, legacyCalls, v2Calls } = createService({ staffEventsV2: false });
+
+  const result = await service.enqueuePendingWarning({
+    ...buildBaseInput(),
+    cancelMinutesBefore: 45,
+    insufficientAmount: 3200
+  });
+
+  assert.equal(result.queued, false);
+  assert.equal(result.mode, 'SKIPPED');
+  assert.equal(legacyCalls.length, 0);
+  assert.equal(v2Calls.length, 0);
+});
+
 test('si enqueue V2 staff falla no rompe operacion y no cae a legacy automatico', async () => {
   const { service, legacyCalls, v2Calls } = createService({
     staffEventsV2: true,
