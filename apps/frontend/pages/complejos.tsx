@@ -72,7 +72,7 @@ const PAGE_CSS = `
   .vn-active-pill-button:hover { background:var(--surface-2); }
   .vn-chip-wrap { position:relative; }
   .vn-dropdown { position:absolute; top:calc(100% + 8px); left:0; min-width:260px; background:var(--surface-1); border:1px solid var(--border); border-radius:12px; overflow:hidden; box-shadow:var(--shadow-lg); z-index:120; }
-  .vn-dropdown-head { padding:10px 16px; border-bottom:1px solid var(--border); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.14em; color:var(--text-muted); }
+  .vn-dropdown-head { padding:10px 16px; border-bottom:1px solid var(--border); font-size:10px; font-weight:700; letter-spacing:.04em; color:var(--text-muted); }
   .vn-dropdown-list { max-height:220px; overflow-y:auto; margin:0; padding:0; list-style:none; }
   .vn-dropdown-item { width:100%; display:flex; align-items:center; gap:10px; padding:11px 16px; background:transparent; border:0; border-bottom:1px solid var(--border-subtle); cursor:pointer; font-family:inherit; font-size:13px; color:var(--text-secondary); font-weight:500; text-align:left; transition:background .15s, color .15s; }
   .vn-dropdown-item:last-child { border-bottom:none; }
@@ -90,8 +90,8 @@ const PAGE_CSS = `
   .vn-map-loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     flex-direction:column; gap:12px; color:var(--text-muted); font-size:13px; font-weight:600; }
   /* Body / grid */
-  .vn-body { max-width:1360px; margin:0 auto; padding:28px 40px 80px; }
-  .vn-results-head { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:28px; gap:12px; flex-wrap:wrap; }
+  .vn-body { width:100%; max-width:1360px; margin:0 auto; padding:28px 40px 80px; }
+  .vn-results-head { width:100%; display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:28px; gap:12px; flex-wrap:wrap; }
   .vn-results-copy { min-width:240px; }
   .vn-results-section-title { font-size:22px; font-weight:800; color:var(--text-primary); letter-spacing:-.025em; margin:0 0 4px; }
   .vn-results-section-sub { font-size:13px; color:var(--text-muted); margin:0; }
@@ -99,7 +99,7 @@ const PAGE_CSS = `
   .vn-results-title b { color:var(--text-primary); }
   .vn-results-count { display:inline-flex; align-items:center; gap:6px; padding:8px 12px; border-radius:999px; background:var(--surface-1); border:1px solid var(--border); font-size:12px; font-weight:700; color:var(--text-muted); white-space:nowrap; }
   .vn-results-count b { color:var(--text-primary); }
-  .vn-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:20px; }
+  .vn-grid { width:100%; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; align-items:stretch; }
   /* Club card */
   .vn-card { background:var(--surface-1); border:1px solid var(--border); border-radius:20px; overflow:hidden;
     transition:border-color .2s,transform .2s,box-shadow .2s; text-decoration:none; color:inherit; position:relative; z-index:0;
@@ -123,9 +123,9 @@ const PAGE_CSS = `
   .vn-card-footer { margin-top:auto; padding-top:14px; border-top:1px solid var(--border-subtle);
     display:flex; align-items:center; justify-content:flex-end; }
   .vn-card-cta { display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:999px;
-    background:var(--brand); color:var(--brand-on); font-size:11px; font-weight:800; letter-spacing:.06em;
-    text-transform:uppercase; white-space:nowrap; flex-shrink:0; transition:background .15s; }
-  .vn-card:hover .vn-card-cta { background:var(--accent-fg); }
+    background:var(--brand); color:var(--brand-on); font-size:11px; font-weight:800; letter-spacing:.01em;
+    white-space:nowrap; flex-shrink:0; transition:background .15s; }
+  .vn-card:hover .vn-card-cta { background:var(--brand); }
   /* Empty / skeleton */
   .vn-empty { grid-column:1/-1; padding:80px 0; text-align:center; display:flex; flex-direction:column; align-items:center; gap:14px; }
   .vn-empty-ico { color:var(--accent-border-subtle); }
@@ -137,6 +137,9 @@ const PAGE_CSS = `
   .vn-skel-body { padding:18px 20px 20px; display:flex; flex-direction:column; gap:10px; }
   .vn-skel-line { height:12px; border-radius:6px; background:var(--surface-2); }
   /* Responsive */
+  @media(max-width:1100px){
+    .vn-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  }
   @media(max-width:720px){
     .vn-explore-inner,.vn-map-inner,.vn-body { padding-left:20px; padding-right:20px; }
     .vn-explore-inner { padding-top:18px; padding-bottom:20px; }
@@ -514,7 +517,7 @@ export default function ComplejosPage() {
       marker.bindPopup(`<div style="font-family:Geist,system-ui,sans-serif;min-width:160px">
         <div style="font-weight:800;font-size:13px;margin-bottom:4px">${club.name}</div>
         <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${formatAddr(club)}</div>
-        <a href="/club/${club.slug}" style="display:inline-block;padding:5px 12px;border-radius:8px;background:var(--brand);color:var(--brand-on);font-size:11px;font-weight:800;text-decoration:none">Ver cancha →</a>
+        <a href="/club/${club.slug}" style="display:inline-block;padding:5px 12px;border-radius:8px;background:var(--brand);color:var(--brand-on);font-size:11px;font-weight:800;text-decoration:none">Ver complejo →</a>
       </div>`, { maxWidth: 220 });
     });
   }, [mapReady, clubs, isLight]);
@@ -830,7 +833,7 @@ export default function ComplejosPage() {
                     )}
                     {club.description && <div className="vn-card-desc">{club.description}</div>}
                     <div className="vn-card-footer">
-                      <span className="vn-card-cta">Ver cancha →</span>
+                      <span className="vn-card-cta">Ver complejo →</span>
                     </div>
                   </div>
                 </Link>

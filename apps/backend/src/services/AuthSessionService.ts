@@ -249,4 +249,35 @@ export class AuthSessionService {
       data: { lastSeenAt: new Date() }
     });
   }
+
+  async listUserSessions(userId: number, currentSessionId?: string | null) {
+    const sessions = await prisma.authSession.findMany({
+      where: {
+        userId,
+        status: {
+          in: [AuthSessionStatus.ACTIVE, AuthSessionStatus.ROTATED]
+        }
+      },
+      orderBy: [
+        { lastSeenAt: 'desc' },
+        { createdAt: 'desc' }
+      ],
+      select: {
+        id: true,
+        status: true,
+        ip: true,
+        userAgent: true,
+        deviceLabel: true,
+        createdAt: true,
+        lastSeenAt: true,
+        expiresAt: true,
+        absoluteExpiresAt: true
+      }
+    });
+
+    return sessions.map((session) => ({
+      ...session,
+      isCurrent: currentSessionId ? session.id === currentSessionId : false
+    }));
+  }
 }

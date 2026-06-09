@@ -467,7 +467,7 @@ export class PersonService {
     userId: number,
     options?: {
       actorUserId?: number | null;
-      source?: 'ADMIN_SELECTED_USER' | 'SELF_BOOKING' | 'PAYMENT_CLAIM' | 'MANUAL_ADMIN';
+      source?: 'ADMIN_SELECTED_USER' | 'SELF_BOOKING' | 'PAYMENT_CLAIM' | 'MANUAL_ADMIN' | 'SELF_CLAIM';
       tx?: Prisma.TransactionClient;
     }
   ) {
@@ -598,7 +598,7 @@ export class PersonService {
           clubId: Number(clubId),
           userId: safeUserId,
           clientId: String(updated.id),
-          reason: 'MANUAL_ADMIN_LINK',
+          reason: options?.source === 'SELF_CLAIM' ? 'SELF_CLAIM_LINK' : 'MANUAL_ADMIN_LINK',
           source: String(options?.source || 'ADMIN_SELECTED_USER'),
           actorUserId: Number(options?.actorUserId || 0) || null,
           payload: {

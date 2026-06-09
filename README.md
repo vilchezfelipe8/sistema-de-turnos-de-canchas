@@ -37,6 +37,7 @@ Documentación operativa relacionada:
 - checklist de release: `docs/release-checklist.md`
 - piloto controlado: `docs/pilot-readiness.md`
 - migracion a Cloud API: `docs/whatsapp-cloud-api-migration.md`
+- vision del modulo de autenticacion, OAuth, linking y perfil: `docs/auth-oauth-linking-profile-module.md`
 
 ## Autenticación oficial (MVP)
 

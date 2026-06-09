@@ -228,6 +228,11 @@ export default function Home() {
     };
   }, [router.events]);
 
+  const toggleContactDrawer = () => {
+    setContactMenu(null);
+    setShowContact((prev) => !prev);
+  };
+
   useEffect(() => {
     const closingSection = closingSectionRef.current;
     const ownerSection = ownerSectionRef.current;
@@ -373,6 +378,11 @@ export default function Home() {
     } catch (err) {
       reportUiError({ area: 'HomePage', action: 'copyContactData' }, err);
     }
+  };
+
+  const handleNavbarInteract = () => {
+    setShowContact(false);
+    setContactMenu(null);
   };
 
   const sportOptions = useMemo(() => ([
@@ -731,7 +741,7 @@ export default function Home() {
     .p-home-quick-chip:hover { background:var(--border-subtle); color:var(--ink-50); }
     .p-home-hero-side { display:flex; flex-direction:column; gap:12px; min-width:260px; }
     .p-home-live-card { padding:20px 22px; background:var(--border-subtle); border:1px solid var(--border-subtle); border-radius:20px; backdrop-filter:blur(20px); }
-    .p-home-live-head { display:flex; align-items:center; gap:8px; font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--text-muted); margin-bottom:10px; }
+    .p-home-live-head { display:flex; align-items:center; gap:8px; font-size:10px; font-weight:700; letter-spacing:.04em; color:var(--text-muted); margin-bottom:10px; }
     .p-home-live-dot { width:7px; height:7px; border-radius:50%; background:var(--brand); animation:p-home-pulse 1.2s ease-in-out infinite; }
     .p-home-live-stat { font-size:26px; font-weight:700; letter-spacing:-.03em; color:var(--ink-50); }
     .p-home-live-label { font-size:12px; color:var(--text-secondary); margin-top:8px; line-height:1.5; font-weight:400; }
@@ -748,7 +758,7 @@ export default function Home() {
     .p-home-sport-card:hover .p-home-sport-bg { transform:scale(1.05); }
     .p-home-sport-bg::after { content:''; position:absolute; inset:0; background:linear-gradient(0deg,var(--overlay-strong),transparent 60%); }
     .p-home-sport-content { position:relative; z-index:2; }
-    .p-home-sport-count { font-size:10px; color:var(--text-muted); letter-spacing:.1em; text-transform:uppercase; font-weight:600; margin-bottom:6px; }
+    .p-home-sport-count { font-size:10px; color:var(--text-muted); letter-spacing:.03em; font-weight:600; margin-bottom:6px; }
     .p-home-sport-name { font-size:22px; font-weight:800; letter-spacing:-.02em; color:var(--ink-50); }
     /* Clubs */
     .p-home-clubs { padding:80px 40px; background:var(--surface-1); border-top:1px solid var(--border-subtle); }
@@ -760,11 +770,11 @@ export default function Home() {
     .p-home-club-body { padding:18px 20px; flex:1; display:flex; flex-direction:column; gap:4px; }
     .p-home-club-name { font-size:17px; font-weight:800; color:var(--text-primary); margin:0; }
     .p-home-club-addr { font-size:13px; color:var(--text-muted); margin:0; }
-    .p-home-club-cta { margin-top:auto; padding-top:14px; display:block; text-align:center; background:var(--brand); color:var(--brand-on); border-radius:10px; padding:10px; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; transition:background .15s; }
+    .p-home-club-cta { margin-top:auto; padding-top:14px; display:block; text-align:center; background:var(--brand); color:var(--brand-on); border-radius:10px; padding:10px; font-size:12px; font-weight:800; letter-spacing:.01em; transition:background .15s; }
     .p-home-club-cta:hover { background:var(--brand-hover); }
     /* Section wrapper */
     .p-home-sec-w { max-width:1360px; margin:0 auto; padding:100px 40px; }
-    .p-home-eyebrow { display:inline-flex; align-items:center; gap:10px; font-size:11px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; color:var(--text-muted); margin-bottom:20px; }
+    .p-home-eyebrow { display:inline-flex; align-items:center; gap:10px; font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--text-muted); margin-bottom:20px; }
     .p-home-eyebrow::before { content:''; display:inline-block; width:24px; height:1px; background:var(--text-muted); }
     .p-home-sec-h { font-size:clamp(36px,4.5vw,60px); font-weight:700; letter-spacing:-.035em; line-height:1.02; margin:0 0 20px; color:var(--text-primary); }
     .p-home-sec-h b { font-weight:900; }
@@ -797,7 +807,7 @@ export default function Home() {
     .p-home-owner .p-home-sec-h { max-width:620px; }
     .p-home-owner .p-home-sec-sub { max-width:520px; margin-bottom:30px; color:var(--text-secondary); }
     .p-home-owner-side { padding:34px; border:1px solid var(--border-strong); border-radius:20px; background:var(--overlay); backdrop-filter:blur(8px); }
-    .p-home-owner-side-h { font-size:10px; color:var(--text-muted); font-weight:700; letter-spacing:.14em; text-transform:uppercase; margin-bottom:20px; }
+    .p-home-owner-side-h { font-size:10px; color:var(--text-muted); font-weight:700; letter-spacing:.04em; margin-bottom:20px; }
     .p-home-owner-perk { display:flex; gap:14px; align-items:center; padding:13px 0; border-top:1px solid var(--border-subtle); font-size:13px; color:var(--text-secondary); font-weight:400; }
     .p-home-owner-perk:first-child { border-top:0; padding-top:0; }
     .p-home-owner-perk b { color:var(--text-primary); font-size:16px; letter-spacing:-.02em; min-width:90px; font-weight:800; }
@@ -848,7 +858,7 @@ export default function Home() {
     .p-home-foot-cols { display:grid; grid-template-columns:1.6fr repeat(3,1fr); gap:48px; padding-bottom:36px; border-bottom:1px solid var(--border-subtle); }
     .p-home-foot-brand { display:flex; flex-direction:column; gap:12px; max-width:320px; }
     .p-home-foot-brand p { font-size:13px; line-height:1.6; color:var(--text-muted); margin:0; }
-    .p-home-foot-col h6 { font-size:11px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--text-muted); margin:0 0 14px; }
+    .p-home-foot-col h6 { font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--text-muted); margin:0 0 14px; }
     .p-home-foot-col ul { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:10px; }
     .p-home-foot-col li a,.p-home-foot-col li button { font-size:13px; color:var(--text-muted); font-weight:500; transition:color .15s; background:none; border:none; padding:0; cursor:pointer; font-family:inherit; text-align:left; }
     .p-home-foot-col li a:hover,.p-home-foot-col li button:hover { color:var(--accent-fg); }
@@ -1071,7 +1081,7 @@ export default function Home() {
         setShowCityDropdown(false);
         setShowSportDropdown(false);
         }}>
-      <NavBar onContactClick={() => setShowContact(true)} />
+      <NavBar onContactClick={toggleContactDrawer} onNavbarInteract={handleNavbarInteract} showContactLink showHomeShortcuts />
 
       {/* Hero */}
       <section className="p-home-hero">
@@ -1086,7 +1096,7 @@ export default function Home() {
           <div className="p-home-hero-copy">
             <span className="p-home-hero-eyebrow">
               <span className="p-home-hero-eyebrow-dot" />
-              <span>Reservas deportivas en Argentina</span>
+              <span>Reservas y gestión para complejos en Argentina</span>
             </span>
             <h1 className="p-home-hero-h1">
               Reservá<br />
@@ -1100,7 +1110,7 @@ export default function Home() {
               </span>
               <br />al toque.
             </h1>
-            <p className="p-home-hero-sub">Sin llamadas, sin WhatsApp, sin esperas. Elegí deporte, zona y horario, confirmá online y jugá.</p>
+            <p className="p-home-hero-sub">Buscá cancha, elegí horario y reservá en minutos. Y si tenés un complejo, empezá a gestionar tus turnos con Pique.</p>
 
             {/* Search bar */}
             <div ref={searchBarRef} className="p-home-search" onClick={e => e.stopPropagation()}>
@@ -1111,7 +1121,7 @@ export default function Home() {
                 <ChevronDown className={`p-home-search-caret${showSportDropdown ? ' p-home-search-caret-open' : ''}`} />
                 {showSportDropdown && (
                   <div className="p-home-dropdown" onClick={e => e.stopPropagation()}>
-                    <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.14em', color: 'var(--text-muted)' }}>Elegí deporte</div>
+                    <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', fontSize: 10, fontWeight: 700, letterSpacing: '.04em', color: 'var(--text-muted)' }}>Elegí deporte</div>
                     {sportOptions.map(sport => (
                       <button key={sport.value} onClick={() => { setSearchSport(sport.value); setShowSportDropdown(false); }}
                         style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '12px 16px', background: searchSport === sport.value ? 'var(--accent-bg-soft)' : 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', color: searchSport === sport.value ? 'var(--brand)' : 'var(--text-secondary)', fontSize: 14, fontWeight: 600 }}>
@@ -1137,7 +1147,7 @@ export default function Home() {
                 />
                 {showCityDropdown && (
                   <div className="p-home-dropdown" style={{ minWidth: 280 }} onClick={e => e.stopPropagation()}>
-                    <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.14em', color: 'var(--text-muted)' }}>Lugares disponibles</div>
+                    <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', fontSize: 10, fontWeight: 700, letterSpacing: '.04em', color: 'var(--text-muted)' }}>Lugares disponibles</div>
                     <ul style={{ maxHeight: 220, overflowY: 'auto', margin: 0, padding: 0, listStyle: 'none' }}>
                       {loadingLocations ? (
                         <li style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Cargando...</li>
@@ -1197,14 +1207,14 @@ export default function Home() {
 
           <div className="p-home-hero-side">
             <div className="p-home-live-card">
-              <div className="p-home-live-head"><span className="p-home-live-dot" />Disponibilidad</div>
-              <div className="p-home-live-stat">Al instante</div>
-              <div className="p-home-live-label">Ves qué canchas hay libres ahora mismo. Sin WhatsApp, sin esperar respuesta.</div>
+              <div className="p-home-live-head"><span className="p-home-live-dot" />Reservas</div>
+              <div className="p-home-live-stat">En minutos</div>
+              <div className="p-home-live-label">Buscás, elegís y confirmás sin vueltas.</div>
             </div>
             <div className="p-home-live-card">
-              <div className="p-home-live-head">Confirmación</div>
-              <div className="p-home-live-stat" style={{ fontSize: 20 }}>30 segundos</div>
-              <div className="p-home-live-label">Reservás, confirmás y listo. Tu turno queda guardado al instante.</div>
+              <div className="p-home-live-head">Para complejos</div>
+              <div className="p-home-live-stat" style={{ fontSize: 20 }}>Más orden</div>
+              <div className="p-home-live-label">Publicá horarios, ordená cobros y recibí reservas desde un solo panel.</div>
             </div>
           </div>
         </div>
@@ -1225,9 +1235,9 @@ export default function Home() {
       )}
 
       {/* ── SPORTS GRID ── */}
-      <section className="p-home-sports">
+      <section id="deportes" className="p-home-sports" style={{ scrollMarginTop: 88 }}>
         <div className="p-home-sports-head">
-          <h3 className="p-home-sports-h3 p-home-sr">Jugá lo que quieras, <i>donde quieras</i>.</h3>
+          <h3 className="p-home-sports-h3 p-home-sr">Encontrá tu deporte y <i>reservá sin vueltas.</i></h3>
         </div>
         <div className="p-home-sports-grid">
           {[
@@ -1295,20 +1305,20 @@ export default function Home() {
         </div>
       </section>
       {/* ── VALUES (POR QUE PIQUE) ── */}
-      <section className="p-home-values-band">
+      <section id="por-que-pique" className="p-home-values-band" style={{ scrollMarginTop: 88 }}>
         <div className="p-home-sec-w">
           <div className="p-home-values-grid">
             <div className="p-home-values-h p-home-sr-left">
               <span className="p-home-eyebrow">Por qué Pique</span>
-              <h2 className="p-home-sec-h">La forma más<br /><b>fluida</b> de <i>jugar</i>.</h2>
-              <p className="p-home-sec-sub">Nada de llamadas, esperar respuestas o señas por WhatsApp. Encontrás la cancha, confirmás y listo.</p>
+              <h2 className="p-home-sec-h">La forma más<br /><b>fluida</b> de <i>jugar.</i></h2>
+              <p className="p-home-sec-sub">Elegís cancha, horario y confirmás en el momento.</p>
             </div>
             <div className="p-home-values-list">
               {[
-                { num: '01', title: 'Confirmación al instante', desc: 'Si la cancha está libre, es tuya en segundos. Sin "te confirmo más tarde", sin esperar que alguien te conteste.' },
-                { num: '02', title: 'Clubes verificados', desc: 'Cada complejo pasa por un control antes de entrar. Fotos reales, precios actualizados, horarios al día.' },
-                { num: '03', title: 'Cancelás sin drama', desc: '¿Lluvia? ¿Se cae un jugador? Modificás o cancelás desde la app, con anticipación y sin llamar a nadie.' },
-                { num: '04', title: 'Pagá como arreglás', desc: 'Online con tarjeta o en efectivo al llegar. Cada club tiene sus opciones y las ves claras antes de confirmar.' },
+                { num: '01', title: 'Confirmación al instante', desc: 'Si la cancha está libre, la reservás en segundos.' },
+                { num: '02', title: 'Clubes verificados', desc: 'Fotos, precios y horarios más claros antes de reservar.' },
+                { num: '03', title: 'Cambios más simples', desc: 'Si surge algo, gestionás tu reserva desde la app.' },
+                { num: '04', title: 'Pago claro', desc: 'Ves cómo se paga cada turno antes de confirmar.' },
               ].map((v, vi) => (
                 <div key={v.num} className={`p-home-value p-home-sr p-home-sr-d${vi + 1}`}>
                   <div className="p-home-value-num">{v.num}</div>
@@ -1321,26 +1331,26 @@ export default function Home() {
       </section>
 
       {/* ── OWNER (PARA COMPLEJOS) ── */}
-      <section ref={ownerSectionRef} className="p-home-owner">
+      <section id="para-complejos" ref={ownerSectionRef} className="p-home-owner" style={{ scrollMarginTop: 88 }}>
         <div className="p-home-owner-media" aria-hidden="true">
           <div className="p-home-owner-media-img" />
         </div>
         <div className="p-home-owner-inner">
           <div className="p-home-sr-left">
             <span className="p-home-eyebrow">Para complejos</span>
-            <h2 className="p-home-sec-h">Convertí horas libres en<br /><i>reservas confirmadas</i>.</h2>
-            <p className="p-home-sec-sub">Digitalizá tu operación en un panel claro: agenda, cobros y comunicación con jugadores, todo en un mismo lugar.</p>
+            <h2 className="p-home-sec-h">Llená tu agenda con<br /><i>reservas online.</i></h2>
+            <p className="p-home-sec-sub">Sumate a Pique y centralizá agenda, cobros y comunicación con jugadores en un solo lugar.</p>
             <div className="p-home-owner-ctas">
-              <button className="p-home-btn p-home-btn-primary" onClick={() => setShowContact(true)}>Registrá tu complejo →</button>
+              <button className="p-home-btn p-home-btn-primary" onClick={toggleContactDrawer}>Quiero sumar mi complejo →</button>
             </div>
           </div>
           <div className="p-home-owner-side p-home-sr-right">
             <div className="p-home-owner-side-h">Qué resolvemos</div>
             <div>
               {[
-                { b: 'Agenda', t: 'Horarios y canchas en tiempo real, sin cruces ni planillas.' },
-                { b: 'Cobros', t: 'Pagos más ordenados y trazables, en un flujo simple.' },
-                { b: 'Clientes', t: 'Confirmaciones automáticas y acompañamiento desde el inicio.' },
+                { b: 'Agenda', t: 'Horarios y canchas actualizados, sin cruces ni planillas.' },
+                { b: 'Cobros', t: 'Pagos más claros y mejor seguimiento de cada reserva.' },
+                { b: 'Clientes', t: 'Confirmaciones automáticas y menos idas y vueltas por WhatsApp.' },
               ].map(p => (
                 <div key={p.b} className="p-home-owner-perk"><b>{p.b}</b>{p.t}</div>
               ))}
@@ -1350,22 +1360,22 @@ export default function Home() {
       </section>
 
       {/* ── FAQ ── */}
-      <section className="p-home-faq-band" onClick={() => setOpenFaqIndex(null)}>
+      <section id="faq" className="p-home-faq-band" onClick={() => setOpenFaqIndex(null)} style={{ scrollMarginTop: 88 }}>
         <div className="p-home-sec-w">
           <div className="p-home-faq-grid">
             <div className="p-home-sr-up">
               <span className="p-home-eyebrow">FAQ</span>
-              <h2 className="p-home-sec-h">Preguntas<br /><i>frecuentes</i>.</h2>
-              <p className="p-home-sec-sub">Todo lo que necesitás saber antes de reservar.</p>
-              <button className="p-home-btn p-home-btn-ghost" onClick={() => setShowContact(true)} style={{ marginTop: 4 }}>Escribinos →</button>
+              <h2 className="p-home-sec-h">Preguntas<br /><i>frecuentes.</i></h2>
+              <p className="p-home-sec-sub">Lo básico antes de reservar o sumar tu complejo.</p>
+              <button className="p-home-btn p-home-btn-ghost" onClick={toggleContactDrawer} style={{ marginTop: 4 }}>Escribinos →</button>
             </div>
             <div className="p-home-faq-list">
               {[
-                { q: '¿Tengo que pagar para usar Pique?', a: 'No. Usar la app es gratis. Solo pagás el valor de la cancha que reservás, igual que si llamaras al complejo directamente — sin recargos ocultos.' },
-                { q: '¿Puedo cancelar una reserva si no puedo ir?', a: 'Sí. Cada complejo define su política de cancelación, pero la mayoría permite cancelar sin costo hasta horas antes del turno. Lo ves claramente antes de pagar.' },
-                { q: '¿Qué pasa si llueve el día de mi partido?', a: 'Si el complejo suspende por lluvia, se gestiona el reintegro o podés cambiar de fecha según la política del club. Si es cancha cubierta, siempre se juega.' },
-                { q: '¿Con cuánta anticipación puedo reservar?', a: 'Podés reservar con hasta 30 días de anticipación. Recomendamos asegurar el lugar temprano, especialmente en horarios pico (18:00 a 22:00).' },
-                { q: '¿Puedo gestionar más de una cancha?', a: 'Sí. La plataforma es totalmente flexible. Configurás múltiples canchas, horarios diferenciados por día y precios por deporte desde el panel de administración.' },
+                { q: '¿Tengo que pagar para usar Pique?', a: 'No. Usar Pique es gratis para jugadores. Solo pagás el valor de la reserva definido por el complejo.' },
+                { q: '¿Puedo cancelar una reserva si no puedo ir?', a: 'Sí. Cada complejo define su política y la ves antes de confirmar.' },
+                { q: '¿Qué pasa si llueve el día de mi partido?', a: 'Si el club suspende por lluvia, se gestiona según la política del complejo.' },
+                { q: '¿Con cuánta anticipación puedo reservar?', a: 'Podés reservar con anticipación según la disponibilidad que publique cada club.' },
+                { q: '¿Puedo gestionar más de una cancha o sede?', a: 'Sí. Pique permite manejar múltiples canchas, horarios y precios desde un mismo panel.' },
               ].map((item, idx) => (
                 <div
                   key={idx}
@@ -1392,13 +1402,15 @@ export default function Home() {
         </div>
         <div className="p-home-closing-inner">
           <div className="p-home-big-closing p-home-sr-up">
-            Ponete los botines.<br /><i>Nosotros nos encargamos del resto.</i>
+            ¿Tenés un club?<br /><i>Sumate a Pique.</i>
           </div>
           <div className="p-home-closing-ctas p-home-sr p-home-sr-d2">
-            <button className="p-home-btn p-home-btn-primary" onClick={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setTimeout(() => document.getElementById('cityInput')?.focus(), 600); }}>
-              Buscar cancha →
+            <button className="p-home-btn p-home-btn-primary" onClick={toggleContactDrawer}>
+              Quiero sumar mi club →
             </button>
-            <button className="p-home-btn p-home-btn-ghost" onClick={() => setShowContact(true)}>Contactar</button>
+            <button className="p-home-btn p-home-btn-ghost" onClick={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setTimeout(() => document.getElementById('cityInput')?.focus(), 600); }}>
+              Buscar cancha
+            </button>
           </div>
         </div>
       </section>
@@ -1409,7 +1421,7 @@ export default function Home() {
           <div className="p-home-foot-cols">
             <div className="p-home-foot-brand">
               <PiqueLogo variant={isLight ? 'horizontal' : 'horizontalDark'} style={{ width: 96, height: 'auto', display: 'block' }} />
-              <p>La plataforma para reservar canchas en Argentina. Hecha por jugadores, para jugadores.</p>
+              <p>Reservas deportivas y gestión de complejos, en un solo lugar.</p>
               <div style={{ display: 'flex', gap: 8 }}>
                 {[
                   { href: 'https://wa.me/5493513436163', label: 'WhatsApp', icon: <Phone size={15} /> },
@@ -1435,8 +1447,8 @@ export default function Home() {
             <div className="p-home-foot-col">
               <h6>Complejos</h6>
               <ul>
-                <li><button onClick={() => setShowContact(true)}>Sumá tu complejo</button></li>
-                <li><button onClick={() => setShowContact(true)}>Contactar ventas</button></li>
+                <li><button onClick={toggleContactDrawer}>Sumá tu complejo</button></li>
+                <li><button onClick={toggleContactDrawer}>Contactar ventas</button></li>
               </ul>
             </div>
             <div className="p-home-foot-col">
@@ -1444,6 +1456,8 @@ export default function Home() {
               <ul>
                 <li><a href="mailto:soporte.pique@gmail.com">soporte.pique@gmail.com</a></li>
                 <li><a href="https://wa.me/5493513436163" target="_blank" rel="noopener">WhatsApp</a></li>
+                <li><Link href="/legal/privacy">Privacidad</Link></li>
+                <li><Link href="/legal/terms">Términos</Link></li>
               </ul>
             </div>
           </div>
@@ -1480,9 +1494,24 @@ export default function Home() {
               style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 14px', background: isLight ? 'var(--surface-2)' : 'var(--border-subtle)', border: `1px solid ${isLight ? 'var(--border)' : 'var(--border-subtle)'}`, borderRadius: 12, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', transition: 'border-color .15s', width: '100%' }}
               onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--accent-border)')}
               onMouseLeave={e => (e.currentTarget.style.borderColor = isLight ? 'var(--border)' : 'var(--border-subtle)')}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--accent-bg-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--brand)', flexShrink: 0 }}>{c.icon}</div>
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 10,
+                  background: 'var(--positive-bg)',
+                  border: '1px solid var(--accent-border-subtle)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--accent-fg)',
+                  flexShrink: 0
+                }}
+              >
+                {c.icon}
+              </div>
               <div>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.12em', color: isLight ? 'var(--text-muted)' : 'var(--text-muted)' }}>{c.label}</div>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.04em', color: isLight ? 'var(--text-muted)' : 'var(--text-muted)' }}>{c.label}</div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: isLight ? 'var(--text-primary)' : 'var(--text-primary)' }}>{c.value}</div>
               </div>
             </button>

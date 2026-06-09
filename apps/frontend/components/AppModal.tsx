@@ -233,7 +233,7 @@ export default function AppModal({
                 background: 'var(--surface-2)',
                 border: '1px solid var(--border)',
                 color: 'var(--text-secondary)', fontSize: 12, fontWeight: 700,
-                letterSpacing: '.06em', textTransform: 'uppercase',
+                letterSpacing: '.01em',
                 cursor: 'pointer', fontFamily: FONT, transition: 'background .15s, color .15s',
               }}
             >
@@ -256,7 +256,7 @@ export default function AppModal({
               display: 'inline-flex', alignItems: 'center', gap: 6,
               padding: '9px 20px', borderRadius: 10, border: 'none',
               background: confirmBg, color: confirmColor,
-              fontSize: 12, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase',
+              fontSize: 12, fontWeight: 800, letterSpacing: '.01em',
               cursor: disabled ? 'not-allowed' : 'pointer',
               opacity: disabled ? 0.5 : 1,
               fontFamily: FONT, transition: 'background .15s, opacity .15s',

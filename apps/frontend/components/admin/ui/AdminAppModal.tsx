@@ -238,19 +238,27 @@ export default function AdminAppModal({
               disabled
                 ? 'cursor-not-allowed bg-p-surface-3 text-p-text-muted'
                 : isWarning
-                  ? 'bg-p-error text-ink-50 hover:opacity-90'
+                  ? 'bg-[#ea6b67] text-ink-50 hover:bg-[#e35b57]'
                   : 'bg-ink-900 text-ink-50 hover:bg-ink-800'
             }`}
           >
             {holdToConfirm && (
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 origin-left bg-p-surface/30"
-                style={{
-                  transform: `scaleX(${holding ? holdProgress : 0})`,
-                  transition: holding ? 'none' : 'transform 0.2s ease'
-                }}
-              />
+              <>
+                <span
+                  aria-hidden="true"
+                  className={`pointer-events-none absolute inset-y-0 left-0 ${
+                    isWarning ? 'bg-[#cf4742]' : 'bg-ink-700'
+                  }`}
+                  style={{
+                    width: `${(holding ? holdProgress : 0) * 100}%`,
+                    transition: holding ? 'none' : 'width 0.18s ease'
+                  }}
+                />
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0))]"
+                />
+              </>
             )}
             <span className="relative z-10">{holdToConfirm ? `Mantener (${confirmText})` : confirmText}</span>
           </button>

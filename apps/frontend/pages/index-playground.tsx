@@ -1711,6 +1711,10 @@ export default function Home() {
           <div className="flex flex-col items-center justify-center gap-3">
             <PiqueLogo variant="horizontalDark" className="h-9 w-auto opacity-80" />
             <p className="font-medium">&copy; {new Date().getFullYear()} Todos los derechos reservados.</p>
+            <div className="flex flex-wrap items-center justify-center gap-4 text-ink-50/70">
+              <Link href="/legal/privacy" className="hover:text-ink-50 transition-colors">Privacidad</Link>
+              <Link href="/legal/terms" className="hover:text-ink-50 transition-colors">Términos</Link>
+            </div>
           </div>
         </footer>
 

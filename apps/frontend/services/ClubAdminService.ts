@@ -623,6 +623,58 @@ export type ClientDuplicateIncident = {
   candidateClients?: ClientDuplicateIncidentCandidate[];
 };
 
+export type ClientIdentityIncidentStatus = 'SUGGESTED_LINK' | 'REVIEW_REQUIRED' | 'LINKED' | 'NO_MATCH';
+export type ClientIdentityIncidentReasonCode =
+  | 'ALREADY_LINKED'
+  | 'SINGLE_USER_CANDIDATE'
+  | 'MULTIPLE_USER_CANDIDATES'
+  | 'USER_ALREADY_LINKED_ELSEWHERE'
+  | 'DUPLICATE_CLIENTS_FOUND'
+  | 'DUPLICATE_CLIENT_AND_USER_CONFLICT'
+  | 'NO_STRONG_MATCH';
+
+export type ClientIdentityIncidentSignal = 'EMAIL' | 'PHONE' | 'DNI' | string;
+
+export type ClientIdentityIncidentUserCandidate = {
+  userId: number;
+  displayName: string;
+  email: string | null;
+  phoneNumber: string | null;
+  matchedBy: ClientIdentityIncidentSignal[];
+  linkedClientId: string | null;
+  linkedClientName: string | null;
+};
+
+export type ClientIdentityIncidentDuplicateClient = {
+  clientId: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  dni: string | null;
+  userId: number | null;
+  matchedBy: ClientIdentityIncidentSignal[];
+};
+
+export type ClientIdentityIncident = {
+  clientId: string;
+  clubId: number;
+  clientName: string;
+  email: string | null;
+  phone: string | null;
+  dni: string | null;
+  status: ClientIdentityIncidentStatus | string;
+  reasonCode: ClientIdentityIncidentReasonCode | string;
+  summary: string;
+  recommendedUserId: number | null;
+  signals: ClientIdentityIncidentSignal[];
+  userCandidates: ClientIdentityIncidentUserCandidate[];
+  duplicateClients: ClientIdentityIncidentDuplicateClient[];
+  incidentId?: string | null;
+  isManualReview?: boolean;
+  manualReviewNote?: string | null;
+  manualReviewCreatedAt?: string | null;
+};
+
 export type ClubMembershipRole = 'OWNER' | 'ADMIN' | 'STAFF';
 
 export type ClubMember = {
@@ -1904,6 +1956,26 @@ export class ClubAdminService {
     }
     const data = await response.json();
     return data.incident;
+  }
+
+  static async listClientIdentityIncidents(
+    slug: string,
+    filters?: { status?: ClientIdentityIncidentStatus | string; limit?: number }
+  ): Promise<ClientIdentityIncident[]> {
+    const query = new URLSearchParams();
+    if (filters?.status) query.set('status', String(filters.status));
+    if (filters?.limit) query.set('limit', String(filters.limit));
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    const response = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/client-identity-incidents${suffix}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Error al obtener incidentes de identidad');
+    }
+    const data = await response.json();
+    return Array.isArray(data?.incidents) ? data.incidents : [];
   }
 
 

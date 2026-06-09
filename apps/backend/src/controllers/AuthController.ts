@@ -11,6 +11,10 @@ import { AuthEmailService } from '../services/AuthEmailService';
 import { authConfig } from '../utils/authConfig';
 import { AuthSessionService } from '../services/AuthSessionService';
 import { AuthTokenService } from '../services/AuthTokenService';
+import { GoogleOAuthService } from '../services/GoogleOAuthService';
+import { AppleOAuthService } from '../services/AppleOAuthService';
+import { FacebookOAuthService } from '../services/FacebookOAuthService';
+import { UserClubProfileService } from '../services/UserClubProfileService';
 import {
     generateMagicLinkToken,
     getMagicLinkExpiresAt,
@@ -25,6 +29,7 @@ const MAGIC_LINK_NEUTRAL_MESSAGE = 'Si el email es válido, te enviamos un enlac
 const DEFAULT_MAGIC_LINK_USER_FIRST_NAME = 'Nuevo';
 const DEFAULT_MAGIC_LINK_USER_LAST_NAME = 'Usuario';
 const DEFAULT_MAGIC_LINK_USER_PHONE = '+0000000000';
+const GOOGLE_OAUTH_STATE_COOKIE_NAME = 'tc_google_oauth_state';
 
 const membershipPriority: Record<string, number> = {
     OWNER: 0,
@@ -99,12 +104,23 @@ const getFrontendBaseUrl = (req: Request): string => {
     return getApiBaseUrl(req);
 };
 
+const normalizeOAuthReturnTo = (value: string | null | undefined, fallback = '/') => {
+    const raw = String(value || '').trim();
+    if (!raw.startsWith('/')) return fallback;
+    if (raw.startsWith('//')) return fallback;
+    return raw;
+};
+
 type VerifyFailureReason = 'invalid_or_expired' | 'internal_error';
 
 export class AuthController {
     private authEmailService: AuthEmailService | null = null;
     private authSessionService = new AuthSessionService();
     private authTokenService = new AuthTokenService();
+    private googleOAuthService = new GoogleOAuthService();
+    private appleOAuthService = new AppleOAuthService();
+    private facebookOAuthService = new FacebookOAuthService();
+    private userClubProfileService = new UserClubProfileService();
 
     private getAuthEmailService() {
         if (!this.authEmailService) {
@@ -148,6 +164,90 @@ export class AuthController {
             domain: authConfig.cookieDomain,
             path: '/'
         });
+    }
+
+    private setGoogleOAuthStateCookie(res: Response, state: string) {
+        res.cookie(GOOGLE_OAUTH_STATE_COOKIE_NAME, state, {
+            ...this.getCookieBaseOptions(),
+            maxAge: this.googleOAuthService.getStateTtlMs()
+        });
+    }
+
+    private clearGoogleOAuthStateCookie(res: Response) {
+        res.clearCookie(GOOGLE_OAUTH_STATE_COOKIE_NAME, this.getCookieBaseOptions());
+    }
+
+    private getGoogleOAuthStateFromRequest(req: Request) {
+        const fromCookieParser = String((req as any).cookies?.[GOOGLE_OAUTH_STATE_COOKIE_NAME] || '').trim();
+        if (fromCookieParser) return fromCookieParser;
+        const source = String(req.headers.cookie || '');
+        if (!source) return null;
+        for (const part of source.split(';')) {
+            const [rawKey, ...rest] = part.split('=');
+            const key = String(rawKey || '').trim();
+            if (key !== GOOGLE_OAUTH_STATE_COOKIE_NAME) continue;
+            const value = String(rest.join('=') || '').trim();
+            if (!value) return null;
+            try {
+                return decodeURIComponent(value);
+            } catch {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private getOAuthLoginRedirectUrl(req: Request, params?: {
+        error?: string;
+        provider?: string;
+        returnTo?: string | null;
+    }) {
+        const base = getFrontendBaseUrl(req);
+        const url = new URL('/login', base);
+        const provider = String(params?.provider || 'google').trim();
+        const error = String(params?.error || '').trim();
+        const returnTo = this.googleOAuthService.normalizeReturnTo(params?.returnTo);
+
+        if (provider) {
+            url.searchParams.set('oauth_provider', provider);
+        }
+        if (error) {
+            url.searchParams.set('oauth_error', error);
+        }
+        if (returnTo && returnTo !== '/') {
+            url.searchParams.set('from', returnTo);
+        }
+
+        return url.toString();
+    }
+
+    private getOAuthErrorRedirectUrl(req: Request, params?: {
+        error?: string;
+        provider?: string;
+        returnTo?: string | null;
+        intent?: 'login' | 'connect' | null;
+    }) {
+        if (params?.intent === 'connect') {
+            const base = getFrontendBaseUrl(req);
+            const returnTo = normalizeOAuthReturnTo(params?.returnTo, '/perfil');
+            const url = new URL(returnTo, `${base.replace(/\/+$/, '')}/`);
+            const provider = String(params?.provider || '').trim();
+            const error = String(params?.error || '').trim();
+            if (provider) {
+                url.searchParams.set('oauth_provider', provider);
+            }
+            if (error) {
+                url.searchParams.set('oauth_error', error);
+            }
+            return url.toString();
+        }
+        return this.getOAuthLoginRedirectUrl(req, params);
+    }
+
+    private getOAuthSuccessRedirectUrl(req: Request, returnTo?: string | null) {
+        const base = getFrontendBaseUrl(req);
+        const safeReturnTo = this.googleOAuthService.normalizeReturnTo(returnTo);
+        return new URL(safeReturnTo, `${base.replace(/\/+$/, '')}/`).toString();
     }
 
     private getRequestMeta(req: Request) {
@@ -556,6 +656,309 @@ export class AuthController {
         }
     };
 
+    startGoogleOAuth = async (req: Request, res: Response) => {
+        try {
+            const intent = req.query.intent === 'connect' ? 'connect' : 'login';
+            if (!this.googleOAuthService.isConfigured()) {
+                return res.redirect(302, this.getOAuthErrorRedirectUrl(req, {
+                    error: 'google_not_configured',
+                    provider: 'google',
+                    returnTo: typeof req.query.returnTo === 'string' ? req.query.returnTo : null,
+                    intent
+                }));
+            }
+
+            const returnTo = typeof req.query.returnTo === 'string' ? req.query.returnTo : null;
+            const state = this.googleOAuthService.createStateToken(returnTo, intent);
+            const authorizationUrl = await this.googleOAuthService.buildAuthorizationUrl(state);
+            this.setGoogleOAuthStateCookie(res, state);
+            return res.redirect(302, authorizationUrl);
+        } catch (error) {
+            logger.error({ err: error, action: 'startGoogleOAuth' }, 'Error iniciando Google OAuth');
+            this.clearGoogleOAuthStateCookie(res);
+            return res.redirect(302, this.getOAuthErrorRedirectUrl(req, {
+                error: 'google_start_failed',
+                provider: 'google',
+                returnTo: typeof req.query.returnTo === 'string' ? req.query.returnTo : null,
+                intent: req.query.intent === 'connect' ? 'connect' : 'login'
+            }));
+        }
+    };
+
+    startAppleOAuth = async (req: Request, res: Response) => {
+        try {
+            const intent = req.query.intent === 'connect' ? 'connect' : 'login';
+            if (!this.appleOAuthService.isConfigured()) {
+                return res.redirect(302, this.getOAuthErrorRedirectUrl(req, {
+                    error: 'apple_not_configured',
+                    provider: 'apple',
+                    returnTo: typeof req.query.returnTo === 'string' ? req.query.returnTo : null,
+                    intent
+                }));
+            }
+
+            const returnTo = typeof req.query.returnTo === 'string' ? req.query.returnTo : null;
+            const state = await this.appleOAuthService.createState(returnTo, intent);
+            const authorizationUrl = await this.appleOAuthService.buildAuthorizationUrl(state);
+            return res.redirect(302, authorizationUrl);
+        } catch (error) {
+            logger.error({ err: error, action: 'startAppleOAuth' }, 'Error iniciando Apple OAuth');
+            return res.redirect(302, this.getOAuthErrorRedirectUrl(req, {
+                error: 'apple_start_failed',
+                provider: 'apple',
+                returnTo: typeof req.query.returnTo === 'string' ? req.query.returnTo : null,
+                intent: req.query.intent === 'connect' ? 'connect' : 'login'
+            }));
+        }
+    };
+
+    startFacebookOAuth = async (req: Request, res: Response) => {
+        try {
+            const intent = req.query.intent === 'connect' ? 'connect' : 'login';
+            if (!this.facebookOAuthService.isConfigured()) {
+                return res.redirect(302, this.getOAuthErrorRedirectUrl(req, {
+                    error: 'facebook_not_configured',
+                    provider: 'facebook',
+                    returnTo: typeof req.query.returnTo === 'string' ? req.query.returnTo : null,
+                    intent
+                }));
+            }
+
+            const returnTo = typeof req.query.returnTo === 'string' ? req.query.returnTo : null;
+            const state = await this.facebookOAuthService.createState(returnTo, intent);
+            const authorizationUrl = await this.facebookOAuthService.buildAuthorizationUrl(state);
+            return res.redirect(302, authorizationUrl);
+        } catch (error) {
+            logger.error({ err: error, action: 'startFacebookOAuth' }, 'Error iniciando Facebook OAuth');
+            return res.redirect(302, this.getOAuthErrorRedirectUrl(req, {
+                error: 'facebook_start_failed',
+                provider: 'facebook',
+                returnTo: typeof req.query.returnTo === 'string' ? req.query.returnTo : null,
+                intent: req.query.intent === 'connect' ? 'connect' : 'login'
+            }));
+        }
+    };
+
+    googleOAuthCallback = async (req: Request, res: Response) => {
+        const provider = 'google';
+        const oauthError = String(req.query.error || '').trim();
+        const code = String(req.query.code || '').trim();
+        const receivedState = String(req.query.state || '').trim();
+        const expectedState = this.getGoogleOAuthStateFromRequest(req);
+        let stateMeta: { returnTo: string; intent: 'login' | 'connect' } | null = null;
+
+        if (receivedState && expectedState) {
+            try {
+                stateMeta = this.googleOAuthService.verifyStateToken(receivedState, expectedState);
+            } catch {
+                stateMeta = null;
+            }
+        }
+
+        if (oauthError) {
+            this.clearGoogleOAuthStateCookie(res);
+            return res.redirect(302, this.getOAuthErrorRedirectUrl(req, {
+                error: oauthError === 'access_denied' ? 'google_access_denied' : 'google_callback_failed',
+                provider,
+                returnTo: stateMeta?.returnTo || null,
+                intent: stateMeta?.intent || null
+            }));
+        }
+
+        if (!code || !receivedState || !expectedState) {
+            this.clearGoogleOAuthStateCookie(res);
+            return res.redirect(302, this.getOAuthErrorRedirectUrl(req, {
+                error: 'google_state_invalid',
+                provider,
+                returnTo: stateMeta?.returnTo || null,
+                intent: stateMeta?.intent || null
+            }));
+        }
+
+        try {
+            const result = await this.googleOAuthService.authenticateCallback({
+                code,
+                receivedState,
+                expectedState,
+                currentUserId: Number((req as any).user?.userId || 0) || null
+            });
+            this.clearGoogleOAuthStateCookie(res);
+            if (result.intent === 'login') {
+                await this.issueAuthPayload(result.userId, res, req);
+            }
+            return res.redirect(302, this.getOAuthSuccessRedirectUrl(req, result.returnTo));
+        } catch (error: any) {
+            logger.error({ err: error, action: 'googleOAuthCallback' }, 'Error completando Google OAuth');
+            this.clearGoogleOAuthStateCookie(res);
+
+            const errorCode = String(error?.message || '').trim();
+            const mappedError =
+                errorCode === 'GOOGLE_OAUTH_EMAIL_UNAVAILABLE'
+                    ? 'google_email_unavailable'
+                    : errorCode === 'GOOGLE_OAUTH_EMAIL_UNVERIFIED'
+                    ? 'google_email_unverified'
+                    : errorCode === 'GOOGLE_OAUTH_ALREADY_LINKED'
+                    ? 'google_already_linked'
+                    : errorCode === 'OAUTH_CONNECT_AUTH_REQUIRED'
+                    ? 'oauth_connect_auth_required'
+                    : errorCode === 'GOOGLE_OAUTH_STATE_INVALID'
+                    ? 'google_state_invalid'
+                    : errorCode === 'GOOGLE_OAUTH_CONFIG_INVALID'
+                    ? 'google_not_configured'
+                    : 'google_callback_failed';
+
+            return res.redirect(302, this.getOAuthErrorRedirectUrl(req, {
+                error: mappedError,
+                provider,
+                returnTo: stateMeta?.returnTo || null,
+                intent: stateMeta?.intent || null
+            }));
+        }
+    };
+
+    appleOAuthCallback = async (req: Request, res: Response) => {
+        const provider = 'apple';
+        const body = (req.body && typeof req.body === 'object') ? req.body : {};
+        const oauthError = String((body as any).error || req.query.error || '').trim();
+        const code = String((body as any).code || req.query.code || '').trim();
+        const receivedState = String((body as any).state || req.query.state || '').trim();
+        const rawUser = (body as any).user ?? req.query.user;
+        let stateMeta: { returnTo: string; intent: 'login' | 'connect' } | null = null;
+
+        if (receivedState) {
+            try {
+                stateMeta = await this.appleOAuthService.inspectState(receivedState);
+            } catch {
+                stateMeta = null;
+            }
+        }
+
+        if (oauthError) {
+            return res.redirect(302, this.getOAuthErrorRedirectUrl(req, {
+                error: oauthError === 'access_denied' ? 'apple_access_denied' : 'apple_callback_failed',
+                provider,
+                returnTo: stateMeta?.returnTo || null,
+                intent: stateMeta?.intent || null
+            }));
+        }
+
+        if (!code || !receivedState) {
+            return res.redirect(302, this.getOAuthErrorRedirectUrl(req, {
+                error: 'apple_state_invalid',
+                provider,
+                returnTo: stateMeta?.returnTo || null,
+                intent: stateMeta?.intent || null
+            }));
+        }
+
+        try {
+            const result = await this.appleOAuthService.authenticateCallback({
+                code,
+                state: receivedState,
+                user: rawUser,
+                currentUserId: Number((req as any).user?.userId || 0) || null
+            });
+            if (result.intent === 'login') {
+                await this.issueAuthPayload(result.userId, res, req);
+            }
+            return res.redirect(302, this.getOAuthSuccessRedirectUrl(req, result.returnTo));
+        } catch (error: any) {
+            logger.error({ err: error, action: 'appleOAuthCallback' }, 'Error completando Apple OAuth');
+
+            const errorCode = String(error?.message || '').trim();
+            const mappedError =
+                errorCode === 'APPLE_OAUTH_EMAIL_UNAVAILABLE'
+                    ? 'apple_email_unavailable'
+                    : errorCode === 'APPLE_OAUTH_EMAIL_UNVERIFIED'
+                    ? 'apple_email_unverified'
+                    : errorCode === 'APPLE_OAUTH_ALREADY_LINKED'
+                    ? 'apple_already_linked'
+                    : errorCode === 'OAUTH_CONNECT_AUTH_REQUIRED'
+                    ? 'oauth_connect_auth_required'
+                    : errorCode === 'OAUTH_STATE_INVALID'
+                    ? 'apple_state_invalid'
+                    : errorCode === 'APPLE_OAUTH_CONFIG_INVALID'
+                    ? 'apple_not_configured'
+                    : 'apple_callback_failed';
+
+            return res.redirect(302, this.getOAuthErrorRedirectUrl(req, {
+                error: mappedError,
+                provider,
+                returnTo: stateMeta?.returnTo || null,
+                intent: stateMeta?.intent || null
+            }));
+        }
+    };
+
+    facebookOAuthCallback = async (req: Request, res: Response) => {
+        const provider = 'facebook';
+        const oauthError = String(req.query.error || '').trim();
+        const code = String(req.query.code || '').trim();
+        const receivedState = String(req.query.state || '').trim();
+        let stateMeta: { returnTo: string; intent: 'login' | 'connect' } | null = null;
+
+        if (receivedState) {
+            try {
+                stateMeta = await this.facebookOAuthService.inspectState(receivedState);
+            } catch {
+                stateMeta = null;
+            }
+        }
+
+        if (oauthError) {
+            return res.redirect(302, this.getOAuthErrorRedirectUrl(req, {
+                error: oauthError === 'access_denied' ? 'facebook_access_denied' : 'facebook_callback_failed',
+                provider,
+                returnTo: stateMeta?.returnTo || null,
+                intent: stateMeta?.intent || null
+            }));
+        }
+
+        if (!code || !receivedState) {
+            return res.redirect(302, this.getOAuthErrorRedirectUrl(req, {
+                error: 'facebook_state_invalid',
+                provider,
+                returnTo: stateMeta?.returnTo || null,
+                intent: stateMeta?.intent || null
+            }));
+        }
+
+        try {
+            const result = await this.facebookOAuthService.authenticateCallback({
+                code,
+                state: receivedState,
+                currentUserId: Number((req as any).user?.userId || 0) || null
+            });
+            if (result.intent === 'login') {
+                await this.issueAuthPayload(result.userId, res, req);
+            }
+            return res.redirect(302, this.getOAuthSuccessRedirectUrl(req, result.returnTo));
+        } catch (error: any) {
+            logger.error({ err: error, action: 'facebookOAuthCallback' }, 'Error completando Facebook OAuth');
+
+            const errorCode = String(error?.message || '').trim();
+            const mappedError =
+                errorCode === 'FACEBOOK_OAUTH_EMAIL_UNAVAILABLE'
+                    ? 'facebook_email_unavailable'
+                    : errorCode === 'FACEBOOK_OAUTH_ALREADY_LINKED'
+                    ? 'facebook_already_linked'
+                    : errorCode === 'OAUTH_CONNECT_AUTH_REQUIRED'
+                    ? 'oauth_connect_auth_required'
+                    : errorCode === 'OAUTH_STATE_INVALID'
+                    ? 'facebook_state_invalid'
+                    : errorCode === 'FACEBOOK_OAUTH_CONFIG_INVALID'
+                    ? 'facebook_not_configured'
+                    : 'facebook_callback_failed';
+
+            return res.redirect(302, this.getOAuthErrorRedirectUrl(req, {
+                error: mappedError,
+                provider,
+                returnTo: stateMeta?.returnTo || null,
+                intent: stateMeta?.intent || null
+            }));
+        }
+    };
+
     getMe = async (req: Request, res: Response) => {
         const payload = (req as any).user;
         if (!payload?.userId) {
@@ -698,6 +1101,129 @@ export class AuthController {
         } catch (error: any) {
             logger.error({ err: error, action: 'updateMe' }, 'Error actualizando perfil');
             return sendAppError(res, error, 'No se pudo actualizar el perfil.');
+        }
+    };
+
+    accountSecurityOverview = async (req: Request, res: Response) => {
+        const payload = (req as any).user;
+        if (!payload?.userId) {
+            return sendAuthError(res, 401, 'AUTH_MISSING', 'No autorizado');
+        }
+
+        try {
+            const userId = Number(payload.userId);
+            const currentSessionId = String(payload?.sid || '').trim() || null;
+
+            const [oauthIdentities, sessions, clubProfiles] = await Promise.all([
+                prisma.userOAuthIdentity.findMany({
+                    where: { userId },
+                    orderBy: [{ linkedAt: 'asc' }],
+                    select: {
+                        id: true,
+                        provider: true,
+                        providerEmail: true,
+                        providerEmailVerified: true,
+                        profilePhotoUrl: true,
+                        linkedAt: true,
+                        lastLoginAt: true
+                    }
+                }),
+                this.authSessionService.listUserSessions(userId, currentSessionId),
+                this.userClubProfileService.listUserClubProfiles(userId)
+            ]);
+
+            return res.json({
+                oauthIdentities,
+                sessions,
+                currentSessionId,
+                clubProfiles
+            });
+        } catch (error: any) {
+            logger.error({ err: error, action: 'accountSecurityOverview' }, 'Error consultando seguridad de cuenta');
+            return res.status(500).json({ error: 'No se pudo consultar la seguridad de la cuenta.' });
+        }
+    };
+
+    disconnectGoogleOAuth = async (req: Request, res: Response) => {
+        const payload = (req as any).user;
+        if (!payload?.userId) {
+            return sendAuthError(res, 401, 'AUTH_MISSING', 'No autorizado');
+        }
+
+        try {
+            const userId = Number(payload.userId);
+            await prisma.userOAuthIdentity.deleteMany({
+                where: {
+                    userId,
+                    provider: 'GOOGLE'
+                }
+            });
+            return res.status(204).send();
+        } catch (error: any) {
+            logger.error({ err: error, action: 'disconnectGoogleOAuth' }, 'Error desconectando Google OAuth');
+            return res.status(500).json({ error: 'No se pudo desconectar Google en este momento.' });
+        }
+    };
+
+    disconnectAppleOAuth = async (req: Request, res: Response) => {
+        const payload = (req as any).user;
+        if (!payload?.userId) {
+            return sendAuthError(res, 401, 'AUTH_MISSING', 'No autorizado');
+        }
+
+        try {
+            const userId = Number(payload.userId);
+            await prisma.userOAuthIdentity.deleteMany({
+                where: {
+                    userId,
+                    provider: 'APPLE'
+                }
+            });
+            return res.status(204).send();
+        } catch (error: any) {
+            logger.error({ err: error, action: 'disconnectAppleOAuth' }, 'Error desconectando Apple OAuth');
+            return res.status(500).json({ error: 'No se pudo desconectar Apple en este momento.' });
+        }
+    };
+
+    disconnectFacebookOAuth = async (req: Request, res: Response) => {
+        const payload = (req as any).user;
+        if (!payload?.userId) {
+            return sendAuthError(res, 401, 'AUTH_MISSING', 'No autorizado');
+        }
+
+        try {
+            const userId = Number(payload.userId);
+            await prisma.userOAuthIdentity.deleteMany({
+                where: {
+                    userId,
+                    provider: 'FACEBOOK'
+                }
+            });
+            return res.status(204).send();
+        } catch (error: any) {
+            logger.error({ err: error, action: 'disconnectFacebookOAuth' }, 'Error desconectando Facebook OAuth');
+            return res.status(500).json({ error: 'No se pudo desconectar Facebook en este momento.' });
+        }
+    };
+
+    claimClubProfile = async (req: Request, res: Response) => {
+        const payload = (req as any).user;
+        if (!payload?.userId) {
+            return sendAuthError(res, 401, 'AUTH_MISSING', 'No autorizado');
+        }
+
+        const clubId = Number(req.params.clubId || 0);
+        if (!Number.isInteger(clubId) || clubId <= 0) {
+            return res.status(400).json({ error: 'Club inválido.' });
+        }
+
+        try {
+            const profile = await this.userClubProfileService.claimClubProfile(Number(payload.userId), clubId);
+            return res.json({ profile });
+        } catch (error: any) {
+            logger.error({ err: error, action: 'claimClubProfile', clubId }, 'Error reclamando perfil de club');
+            return sendAppError(res, error, 'No se pudo reclamar el perfil del club.');
         }
     };
 

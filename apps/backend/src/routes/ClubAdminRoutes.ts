@@ -789,6 +789,34 @@ router.post('/:slug/admin/clients/:clientId/unlink-user',
     clubController.unlinkClubClientUser
 );
 
+router.get('/:slug/admin/clients/:clientId/identity-overview',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    clubController.getClubClientIdentityOverview
+);
+
+router.get('/:slug/admin/clients/:clientId/identity-audit',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    clubController.getClubClientIdentityAuditTimeline
+);
+
+router.post('/:slug/admin/clients/:clientId/identity-incident',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    clubController.createClubClientIdentityIncident
+);
+
+router.get('/:slug/admin/client-identity-incidents',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    clubController.listClubClientIdentityQueue
+);
+
 router.post('/:slug/admin/clients/:clientId/merge',
     authMiddleware,
     verifyClubAccess,

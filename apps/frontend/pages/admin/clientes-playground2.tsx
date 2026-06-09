@@ -25,7 +25,7 @@ import NotFound from '../../components/NotFound';
 import RouteTransitionScreen from '../../components/RouteTransitionScreen';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
 import { getPendingLogoutRedirect } from '../../services/AuthService';
-import { ClientService } from '../../services/ClientService';
+import { ClientService, type ClientIdentityAuditEntry } from '../../services/ClientService';
 import { ClubAdminService, type PersonSearchResult } from '../../services/ClubAdminService';
 import { formatDateTime24 } from '../../utils/dateTime';
 import { getApiErrorMeta, getApiFieldErrors, normalizeApiError } from '../../utils/apiError';
@@ -54,6 +54,51 @@ type ClientSearchRow = {
   email?: string;
   dni?: string;
   isProfessor?: boolean;
+};
+
+type ClientIdentityOverview = {
+  clientId: string;
+  clubId: number;
+  status: 'LINKED' | 'SUGGESTED_LINK' | 'REVIEW_REQUIRED' | 'NO_MATCH' | string;
+  reasonCode:
+    | 'ALREADY_LINKED'
+    | 'SINGLE_USER_CANDIDATE'
+    | 'MULTIPLE_USER_CANDIDATES'
+    | 'USER_ALREADY_LINKED_ELSEWHERE'
+    | 'DUPLICATE_CLIENTS_FOUND'
+    | 'DUPLICATE_CLIENT_AND_USER_CONFLICT'
+    | 'NO_STRONG_MATCH'
+    | string;
+  summary: string;
+  linkedUser: {
+    id: number;
+    displayName: string;
+    email: string | null;
+  } | null;
+  recommendedUserId: number | null;
+  signals: Array<'EMAIL' | 'PHONE' | 'DNI' | string>;
+  userCandidates: Array<{
+    userId: number;
+    displayName: string;
+    email: string | null;
+    phoneNumber: string | null;
+    matchedBy: Array<'EMAIL' | 'PHONE' | 'DNI' | string>;
+    linkedClientId: string | null;
+    linkedClientName: string | null;
+  }>;
+  duplicateClients: Array<{
+    clientId: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+    dni: string | null;
+    userId: number | null;
+    matchedBy: Array<'EMAIL' | 'PHONE' | 'DNI' | string>;
+  }>;
+  incidentId?: string | null;
+  isManualReview?: boolean;
+  manualReviewNote?: string | null;
+  manualReviewCreatedAt?: string | null;
 };
 
 
@@ -199,6 +244,16 @@ const buildConsumptionQuickUnits = (quantity: number) => {
   return [1, 2, normalized];
 };
 
+const formatIdentitySignals = (signals: Array<string>) => {
+  const labels = signals.map((signal) => {
+    if (signal === 'EMAIL') return 'email';
+    if (signal === 'PHONE') return 'teléfono';
+    if (signal === 'DNI') return 'DNI';
+    return signal.toLowerCase();
+  }).filter(Boolean);
+  return labels.length > 0 ? labels.join(', ') : 'sin señales fuertes';
+};
+
 export default function AdminClientesPlayground2Page() {
   const router = useRouter();
   const { authChecked, user } = useValidateAuth({ requireAdmin: true });
@@ -244,6 +299,17 @@ export default function AdminClientesPlayground2Page() {
   const [linkError, setLinkError] = useState('');
   const [unlinkConfirmOpen, setUnlinkConfirmOpen] = useState(false);
   const [unlinkBusy, setUnlinkBusy] = useState(false);
+  const [identityOverview, setIdentityOverview] = useState<ClientIdentityOverview | null>(null);
+  const [identityOverviewLoading, setIdentityOverviewLoading] = useState(false);
+  const [identityOverviewError, setIdentityOverviewError] = useState('');
+  const [identityQuickLinkBusy, setIdentityQuickLinkBusy] = useState(false);
+  const [identityIncidentModalOpen, setIdentityIncidentModalOpen] = useState(false);
+  const [identityIncidentBusy, setIdentityIncidentBusy] = useState(false);
+  const [identityIncidentNote, setIdentityIncidentNote] = useState('');
+  const [identityIncidentError, setIdentityIncidentError] = useState('');
+  const [identityAuditEntries, setIdentityAuditEntries] = useState<ClientIdentityAuditEntry[]>([]);
+  const [identityAuditLoading, setIdentityAuditLoading] = useState(false);
+  const [identityAuditError, setIdentityAuditError] = useState('');
   const [mergeModalOpen, setMergeModalOpen] = useState(false);
   const [mergeBusy, setMergeBusy] = useState(false);
   const [mergeSearchTerm, setMergeSearchTerm] = useState('');
@@ -307,6 +373,12 @@ export default function AdminClientesPlayground2Page() {
 
   const openMergeModal = useCallback(() => {
     resetMergeModal();
+    setMergeModalOpen(true);
+  }, [resetMergeModal]);
+
+  const openMergeModalWithTarget = useCallback((target: ClientSearchRow) => {
+    resetMergeModal();
+    setMergeSelectedTarget(target);
     setMergeModalOpen(true);
   }, [resetMergeModal]);
 
@@ -412,6 +484,66 @@ export default function AdminClientesPlayground2Page() {
       setMergeSearchLoading(false);
     };
   }, [mergeModalOpen, mergeSearchTerm, resolveClubSlug, selectedClientId]);
+
+  useEffect(() => {
+    const currentSelectedClient = clients.find((client) => String(client.id) === String(selectedClientId)) || null;
+    if (sidebarView !== 'client_profile' || !currentSelectedClient?.id) {
+      setIdentityOverview(null);
+      setIdentityOverviewError('');
+      setIdentityOverviewLoading(false);
+      return;
+    }
+    const slug = resolveClubSlug();
+    if (!slug) return;
+    let cancelled = false;
+    setIdentityOverviewLoading(true);
+    setIdentityOverviewError('');
+    ClientService.getIdentityOverviewByClubSlug(slug, String(currentSelectedClient.id))
+      .then((overview) => {
+        if (!cancelled) setIdentityOverview(overview as ClientIdentityOverview);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setIdentityOverviewError(extractErrorMessage(error, 'No se pudo cargar el estado de identidad.'));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIdentityOverviewLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clients, resolveClubSlug, selectedClientId, sidebarView]);
+
+  useEffect(() => {
+    const currentSelectedClient = clients.find((client) => String(client.id) === String(selectedClientId)) || null;
+    if (sidebarView !== 'client_profile' || !currentSelectedClient?.id) {
+      setIdentityAuditEntries([]);
+      setIdentityAuditError('');
+      setIdentityAuditLoading(false);
+      return;
+    }
+    const slug = resolveClubSlug();
+    if (!slug) return;
+    let cancelled = false;
+    setIdentityAuditLoading(true);
+    setIdentityAuditError('');
+    ClientService.getIdentityAuditByClubSlug(slug, String(currentSelectedClient.id), 10)
+      .then((entries) => {
+        if (!cancelled) setIdentityAuditEntries(entries);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setIdentityAuditError(extractErrorMessage(error, 'No se pudo cargar la auditoría de identidad.'));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIdentityAuditLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clients, resolveClubSlug, selectedClientId, sidebarView]);
 
   useEffect(() => {
     const run = async () => {
@@ -723,6 +855,63 @@ export default function AdminClientesPlayground2Page() {
       setErrorMessage(resolveClientIdentityError(error, 'No se pudo desvincular el cliente del usuario.'));
     } finally {
       setUnlinkBusy(false);
+    }
+  };
+
+  const linkClientToSpecificUser = async (userId: number) => {
+    const slug = resolveClubSlug();
+    const safeUserId = Number(userId || 0);
+    if (!slug || !selectedClient?.id || !Number.isInteger(safeUserId) || safeUserId <= 0) {
+      setIdentityOverviewError('No encontramos un usuario válido para vincular.');
+      return;
+    }
+    try {
+      setIdentityQuickLinkBusy(true);
+      setIdentityOverviewError('');
+      await ClientService.linkUserByClubSlug(slug, String(selectedClient.id), safeUserId);
+      setSuccessMessage('Cliente vinculado al usuario seleccionado.');
+      await loadClients();
+    } catch (error: any) {
+      setIdentityOverviewError(resolveClientIdentityError(error, 'No se pudo vincular el usuario seleccionado.'));
+    } finally {
+      setIdentityQuickLinkBusy(false);
+    }
+  };
+
+  const applySuggestedIdentityLink = async () => {
+    const recommendedUserId = Number(identityOverview?.recommendedUserId || 0);
+    if (!Number.isInteger(recommendedUserId) || recommendedUserId <= 0) {
+      setIdentityOverviewError('No encontramos un usuario sugerido para vincular.');
+      return;
+    }
+    await linkClientToSpecificUser(recommendedUserId);
+  };
+
+  const createIdentityIncident = async () => {
+    const slug = resolveClubSlug();
+    if (!slug || !selectedClient?.id) {
+      setIdentityIncidentError('No encontramos el cliente para marcar el caso.');
+      return;
+    }
+    try {
+      setIdentityIncidentBusy(true);
+      setIdentityIncidentError('');
+      await ClientService.createIdentityIncidentByClubSlug(slug, String(selectedClient.id), {
+        note: identityIncidentNote.trim() || undefined,
+      });
+      setIdentityIncidentModalOpen(false);
+      setIdentityIncidentNote('');
+      setSuccessMessage('Caso marcado para revisión en Incidentes > Identidad.');
+      const [auditEntries, overview] = await Promise.all([
+        ClientService.getIdentityAuditByClubSlug(slug, String(selectedClient.id), 10),
+        ClientService.getIdentityOverviewByClubSlug(slug, String(selectedClient.id)),
+      ]);
+      setIdentityAuditEntries(auditEntries);
+      setIdentityOverview(overview as ClientIdentityOverview);
+    } catch (error: any) {
+      setIdentityIncidentError(resolveClientIdentityError(error, 'No se pudo marcar el caso para revisión.'));
+    } finally {
+      setIdentityIncidentBusy(false);
     }
   };
 
@@ -1244,6 +1433,165 @@ export default function AdminClientesPlayground2Page() {
                                     </div>
                                   </>
                                 )}
+
+                                <div className="mt-4 rounded-xl border border-p-border bg-p-surface-2 p-3">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
+                                      Estado de identidad
+                                    </p>
+                                    {identityOverview?.signals?.length ? (
+                                      <span className="rounded-full border border-p-border bg-p-surface px-2 py-0.5 text-[10px] font-semibold text-p-text-secondary">
+                                        Señales: {formatIdentitySignals(identityOverview.signals)}
+                                      </span>
+                                    ) : null}
+                                  </div>
+
+                                  {identityOverviewLoading ? (
+                                    <p className="mt-2 text-[12px] text-p-text-muted">Cargando diagnóstico de identidad...</p>
+                                  ) : identityOverviewError ? (
+                                    <AdminFeedbackBanner tone="error" compact className="mt-3">
+                                      {identityOverviewError}
+                                    </AdminFeedbackBanner>
+                                  ) : identityOverview ? (
+                                    <div className="mt-3 space-y-3">
+                                      <div className="rounded-xl border border-p-border bg-p-surface px-3 py-2.5">
+                                        <p className="text-[13px] font-semibold text-p-text">{identityOverview.summary}</p>
+                                        <p className="mt-1 text-[12px] text-p-text-muted">
+                                          Estado: {identityOverview.status === 'SUGGESTED_LINK'
+                                            ? 'Sugerencia de vínculo'
+                                            : identityOverview.status === 'REVIEW_REQUIRED'
+                                            ? 'Revisión requerida'
+                                            : identityOverview.status === 'LINKED'
+                                            ? 'Vinculado'
+                                            : 'Sin match'}
+                                        </p>
+                                      </div>
+
+                                      {identityOverview.userCandidates.length > 0 ? (
+                                        <div className="space-y-2">
+                                          <p className="text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
+                                            Usuarios compatibles ({identityOverview.userCandidates.length})
+                                          </p>
+                                          {identityOverview.userCandidates.map((candidate) => (
+                                            <div
+                                              key={candidate.userId}
+                                              className="rounded-xl border border-p-border bg-p-surface px-3 py-2.5"
+                                            >
+                                              <p className="text-[13px] font-semibold text-p-text">{candidate.displayName}</p>
+                                              <p className="mt-0.5 text-[12px] text-p-text-muted">
+                                                {candidate.email || candidate.phoneNumber || `ID usuario #${candidate.userId}`}
+                                              </p>
+                                              <p className="mt-1 text-[11px] text-p-text-muted">
+                                                Match por {formatIdentitySignals(candidate.matchedBy)}
+                                              </p>
+                                              {candidate.linkedClientId ? (
+                                                <p className="mt-1 text-[11px] text-p-error">
+                                                  Ya vinculado a {candidate.linkedClientName || `cliente ${candidate.linkedClientId}`}.
+                                                </p>
+                                              ) : (
+                                                <div className="mt-2 flex flex-wrap gap-2">
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      void linkClientToSpecificUser(candidate.userId);
+                                                    }}
+                                                    disabled={identityQuickLinkBusy}
+                                                    className="inline-flex h-7 items-center gap-1 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 hover:bg-ink-900 disabled:cursor-not-allowed disabled:opacity-60"
+                                                  >
+                                                    <Link2 size={11} />
+                                                    {identityQuickLinkBusy ? 'Vinculando...' : 'Vincular este usuario'}
+                                                  </button>
+                                                </div>
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : null}
+
+                                      {identityOverview.duplicateClients.length > 0 ? (
+                                        <div className="space-y-2">
+                                          <p className="text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
+                                            Clientes duplicados ({identityOverview.duplicateClients.length})
+                                          </p>
+                                          {identityOverview.duplicateClients.map((duplicate) => (
+                                            <div
+                                              key={duplicate.clientId}
+                                              className="rounded-xl border border-p-border bg-p-surface px-3 py-2.5"
+                                            >
+                                              <p className="text-[13px] font-semibold text-p-text">{duplicate.name}</p>
+                                              <p className="mt-0.5 text-[12px] text-p-text-muted">
+                                                {duplicate.email || duplicate.phone || duplicate.dni || `ID ${duplicate.clientId}`}
+                                              </p>
+                                              <p className="mt-1 text-[11px] text-p-text-muted">
+                                                Match por {formatIdentitySignals(duplicate.matchedBy)}
+                                              </p>
+                                              <div className="mt-2 flex flex-wrap gap-2">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    openMergeModalWithTarget({
+                                                      id: duplicate.clientId,
+                                                      name: duplicate.name,
+                                                      phone: duplicate.phone || undefined,
+                                                      email: duplicate.email || undefined,
+                                                      dni: duplicate.dni || undefined,
+                                                    });
+                                                  }}
+                                                  className="inline-flex h-7 items-center gap-1 rounded-lg border border-p-border bg-p-surface-2 px-2.5 text-[11px] font-semibold text-p-text-secondary hover:bg-p-surface"
+                                                >
+                                                  <RotateCcw size={11} />
+                                                  Fusionar con este cliente
+                                                </button>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : null}
+
+                                      <div className="flex flex-wrap gap-2">
+                                        {identityOverview.status === 'SUGGESTED_LINK' && identityOverview.recommendedUserId ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              void applySuggestedIdentityLink();
+                                            }}
+                                            disabled={identityQuickLinkBusy}
+                                            className="inline-flex h-8 items-center gap-1 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 hover:bg-ink-900"
+                                          >
+                                            <Link2 size={12} />
+                                            {identityQuickLinkBusy ? 'Vinculando...' : 'Vincular usuario sugerido'}
+                                          </button>
+                                        ) : null}
+
+                                        {identityOverview.status === 'REVIEW_REQUIRED' || identityOverview.userCandidates.length > 0 ? (
+                                          <button
+                                            type="button"
+                                            onClick={openLinkModal}
+                                            className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                                          >
+                                            <UserPlus size={12} />
+                                            Buscar usuario manualmente
+                                          </button>
+                                        ) : null}
+
+                                        {identityOverview.duplicateClients.length > 0 ? (
+                                          <button
+                                            type="button"
+                                            onClick={openMergeModal}
+                                            className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                                          >
+                                            <RotateCcw size={12} />
+                                            Fusionar cliente
+                                          </button>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <p className="mt-2 text-[12px] text-p-text-muted">
+                                      Todavía no hay diagnóstico de identidad para este cliente.
+                                    </p>
+                                  )}
+                                </div>
                               </div>
                             </div>
 
@@ -1374,7 +1722,7 @@ export default function AdminClientesPlayground2Page() {
 
                 {activeView === 'incidents' && (
                   <div className="h-full overflow-auto">
-                    <AdminDuplicateIncidents />
+                    <AdminDuplicateIncidents preferredIdentityClientId={selectedClientId || null} />
                   </div>
                 )}
               </div>
@@ -1677,19 +2025,252 @@ export default function AdminClientesPlayground2Page() {
               </AdminDrawerSection>
 
               <AdminDrawerSection title="Vinculación con usuario" className={drawerSectionCardClass}>
-                <div className="rounded-xl border border-p-border bg-p-surface p-3 text-[13px]">
-                  {selectedClient.linkedUser ? (
-                    <>
-                      <p className="font-semibold text-p-text">
-                        {selectedClient.linkedUser.name || `Usuario ${selectedClient.linkedUser.id}`}
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-p-border bg-p-surface p-3 text-[13px]">
+                    {selectedClient.linkedUser ? (
+                      <>
+                        <p className="font-semibold text-p-text">
+                          {selectedClient.linkedUser.name || `Usuario ${selectedClient.linkedUser.id}`}
+                        </p>
+                        <p className="mt-1 text-p-text-muted">
+                          {selectedClient.linkedUser.email || `ID usuario #${selectedClient.linkedUser.id}`}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-p-text-muted">No hay usuario vinculado manualmente.</p>
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border border-p-border bg-p-surface-2 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
+                        Estado de identidad
                       </p>
-                      <p className="mt-1 text-p-text-muted">
-                        {selectedClient.linkedUser.email || `ID usuario #${selectedClient.linkedUser.id}`}
+                      {identityOverview?.signals?.length ? (
+                        <span className="rounded-full border border-p-border bg-p-surface px-2 py-0.5 text-[10px] font-semibold text-p-text-secondary">
+                          Señales: {formatIdentitySignals(identityOverview.signals)}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {identityOverviewLoading ? (
+                      <p className="mt-2 text-[12px] text-p-text-muted">Cargando diagnóstico de identidad...</p>
+                    ) : identityOverviewError ? (
+                      <AdminFeedbackBanner tone="error" compact className="mt-3">
+                        {identityOverviewError}
+                      </AdminFeedbackBanner>
+                    ) : identityOverview ? (
+                      <div className="mt-3 space-y-3">
+                        <div className="rounded-xl border border-p-border bg-p-surface px-3 py-2.5">
+                          <p className="text-[13px] font-semibold text-p-text">{identityOverview.summary}</p>
+                          <p className="mt-1 text-[12px] text-p-text-muted">
+                            Estado: {identityOverview.status === 'SUGGESTED_LINK'
+                              ? 'Sugerencia de vínculo'
+                              : identityOverview.status === 'REVIEW_REQUIRED'
+                              ? 'Revisión requerida'
+                              : identityOverview.status === 'LINKED'
+                              ? 'Vinculado'
+                              : 'Sin match'}
+                          </p>
+                          {identityOverview.incidentId ? (
+                            <p className="mt-1 text-[12px] text-p-text-secondary">
+                              Ya existe un caso abierto en Incidentes &gt; Identidad
+                              {identityOverview.manualReviewNote ? ` · ${identityOverview.manualReviewNote}` : ''}.
+                            </p>
+                          ) : null}
+                        </div>
+
+                        {identityOverview.userCandidates.length > 0 ? (
+                          <div className="space-y-2">
+                            <p className="text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
+                              Usuarios compatibles ({identityOverview.userCandidates.length})
+                            </p>
+                            {identityOverview.userCandidates.map((candidate) => (
+                              <div
+                                key={candidate.userId}
+                                className="rounded-xl border border-p-border bg-p-surface px-3 py-2.5"
+                              >
+                                <p className="text-[13px] font-semibold text-p-text">{candidate.displayName}</p>
+                                <p className="mt-0.5 text-[12px] text-p-text-muted">
+                                  {candidate.email || candidate.phoneNumber || `ID usuario #${candidate.userId}`}
+                                </p>
+                                <p className="mt-1 text-[11px] text-p-text-muted">
+                                  Match por {formatIdentitySignals(candidate.matchedBy)}
+                                </p>
+                                {candidate.linkedClientId ? (
+                                  <p className="mt-1 text-[11px] text-p-error">
+                                    Ya vinculado a {candidate.linkedClientName || `cliente ${candidate.linkedClientId}`}.
+                                  </p>
+                                ) : (
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        void linkClientToSpecificUser(candidate.userId);
+                                      }}
+                                      disabled={identityQuickLinkBusy}
+                                      className="inline-flex h-7 items-center gap-1 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 hover:bg-ink-900 disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      <Link2 size={11} />
+                                      {identityQuickLinkBusy ? 'Vinculando...' : 'Vincular este usuario'}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {identityOverview.duplicateClients.length > 0 ? (
+                          <div className="space-y-2">
+                            <p className="text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
+                              Clientes duplicados ({identityOverview.duplicateClients.length})
+                            </p>
+                            {identityOverview.duplicateClients.map((duplicate) => (
+                              <div
+                                key={duplicate.clientId}
+                                className="rounded-xl border border-p-border bg-p-surface px-3 py-2.5"
+                              >
+                                <p className="text-[13px] font-semibold text-p-text">{duplicate.name}</p>
+                                <p className="mt-0.5 text-[12px] text-p-text-muted">
+                                  {duplicate.email || duplicate.phone || duplicate.dni || `ID ${duplicate.clientId}`}
+                                </p>
+                                <p className="mt-1 text-[11px] text-p-text-muted">
+                                  Match por {formatIdentitySignals(duplicate.matchedBy)}
+                                </p>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      openMergeModalWithTarget({
+                                        id: duplicate.clientId,
+                                        name: duplicate.name,
+                                        phone: duplicate.phone || undefined,
+                                        email: duplicate.email || undefined,
+                                        dni: duplicate.dni || undefined,
+                                      });
+                                    }}
+                                    className="inline-flex h-7 items-center gap-1 rounded-lg border border-p-border bg-p-surface-2 px-2.5 text-[11px] font-semibold text-p-text-secondary hover:bg-p-surface"
+                                  >
+                                    <RotateCcw size={11} />
+                                    Fusionar con este cliente
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        <div className="flex flex-wrap gap-2">
+                          {identityOverview.incidentId ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveView('incidents');
+                                setSidebarView('none');
+                              }}
+                              className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                            >
+                              <Search size={12} />
+                              Ver caso abierto
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIdentityIncidentError('');
+                              setIdentityIncidentNote('');
+                              setIdentityIncidentModalOpen(true);
+                            }}
+                            className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                          >
+                            <Save size={12} />
+                            {identityOverview.incidentId ? 'Actualizar revisión' : 'Marcar para revisión'}
+                          </button>
+                          {identityOverview.status === 'SUGGESTED_LINK' && identityOverview.recommendedUserId ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void applySuggestedIdentityLink();
+                              }}
+                              disabled={identityQuickLinkBusy}
+                              className="inline-flex h-8 items-center gap-1 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 hover:bg-ink-900"
+                            >
+                              <Link2 size={12} />
+                              {identityQuickLinkBusy ? 'Vinculando...' : 'Vincular usuario sugerido'}
+                            </button>
+                          ) : null}
+
+                          {identityOverview.status === 'REVIEW_REQUIRED' || identityOverview.userCandidates.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={openLinkModal}
+                              className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                            >
+                              <UserPlus size={12} />
+                              Buscar usuario manualmente
+                            </button>
+                          ) : null}
+
+                          {identityOverview.duplicateClients.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={openMergeModal}
+                              className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                            >
+                              <RotateCcw size={12} />
+                              Fusionar cliente
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-[12px] text-p-text-muted">
+                        Todavía no hay diagnóstico de identidad para este cliente.
                       </p>
-                    </>
-                  ) : (
-                    <p className="text-p-text-muted">No hay usuario vinculado manualmente.</p>
-                  )}
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border border-p-border bg-p-surface-2 p-3">
+                    <p className="text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
+                      Auditoría de identidad
+                    </p>
+                    {identityAuditLoading ? (
+                      <p className="mt-2 text-[12px] text-p-text-muted">Cargando historial...</p>
+                    ) : identityAuditError ? (
+                      <AdminFeedbackBanner tone="error" compact className="mt-3">
+                        {identityAuditError}
+                      </AdminFeedbackBanner>
+                    ) : identityAuditEntries.length > 0 ? (
+                      <div className="mt-3 space-y-2">
+                        {identityAuditEntries.map((entry) => (
+                          <div
+                            key={entry.id}
+                            className="rounded-xl border border-p-border bg-p-surface px-3 py-2.5"
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 text-[10px] font-semibold text-p-text-secondary">
+                                {entry.kindLabel}
+                              </span>
+                              {entry.sourceLabel ? (
+                                <span className="rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 text-[10px] font-semibold text-p-text-muted">
+                                  {entry.sourceLabel}
+                                </span>
+                              ) : null}
+                            </div>
+                            <p className="text-[13px] font-semibold text-p-text">{entry.summary}</p>
+                            <p className="mt-1 text-[11px] text-p-text-muted">
+                              {entry.actorUser?.displayName || 'Sistema'} · {formatDateTime24(entry.createdAt)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-[12px] text-p-text-muted">
+                        Todavía no hay acciones auditadas para este cliente.
+                      </p>
+                    )}
+                  </div>
                 </div>
               </AdminDrawerSection>
             </>
@@ -1891,6 +2472,39 @@ export default function AdminClientesPlayground2Page() {
           }
           void loadClients();
         }}
+      />
+      <AdminAppModal
+        show={identityIncidentModalOpen}
+        onClose={() => {
+          if (identityIncidentBusy) return;
+          setIdentityIncidentModalOpen(false);
+          setIdentityIncidentError('');
+        }}
+        title="Marcar caso para revisión"
+        confirmText={identityIncidentBusy ? 'Guardando...' : 'Enviar a Incidentes'}
+        confirmDisabled={identityIncidentBusy}
+        onConfirm={() => {
+          void createIdentityIncident();
+        }}
+        message={
+          <div className="space-y-4">
+            {identityIncidentError ? <AdminFeedbackBanner tone="error" compact>{identityIncidentError}</AdminFeedbackBanner> : null}
+            <div className="rounded-xl border border-p-border bg-p-surface-2 p-3 text-[13px] text-p-text-secondary">
+              <p><span className="font-semibold text-p-text">Cliente:</span> {selectedClient ? getClientName(selectedClient) : '-'}</p>
+              <p className="mt-1"><span className="font-semibold text-p-text">Resumen:</span> {identityOverview?.summary || 'Sin diagnóstico actual'}</p>
+            </div>
+            <label className="block">
+              <span className="mb-1 block text-[12px] font-medium text-p-text-secondary">Nota interna (opcional)</span>
+              <textarea
+                value={identityIncidentNote}
+                onChange={(event) => setIdentityIncidentNote(event.target.value)}
+                rows={3}
+                className="w-full rounded-xl border border-p-border bg-p-surface px-3 py-2 text-[13px] text-p-text outline-none focus:border-p-accent"
+                placeholder="Qué te llamó la atención o por qué querés dejarlo en bandeja"
+              />
+            </label>
+          </div>
+        }
       />
     </>
   );

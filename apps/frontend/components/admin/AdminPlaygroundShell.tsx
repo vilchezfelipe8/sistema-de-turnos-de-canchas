@@ -10,6 +10,8 @@ import {
   ShieldCheck,
   MapPin,
   Calendar,
+  Moon,
+  Sun,
   Users,
   X,
 } from 'lucide-react';
@@ -95,7 +97,7 @@ export default function AdminPlaygroundShell({
   user,
 }: AdminPlaygroundShellProps) {
   const router = useRouter();
-  const { isLight } = useUserTheme();
+  const { isLight, toggleTheme } = useUserTheme();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [clubMenuOpen, setClubMenuOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -256,6 +258,16 @@ export default function AdminPlaygroundShell({
           </div>
 
           <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="grid h-9 w-9 place-items-center rounded-lg border border-p-border bg-p-surface text-p-text-secondary transition hover:border-p-border-strong hover:bg-p-surface-2 hover:text-p-text"
+              title={isLight ? 'Activar modo oscuro' : 'Activar modo claro'}
+              aria-label={isLight ? 'Activar modo oscuro' : 'Activar modo claro'}
+            >
+              {isLight ? <Moon size={15} /> : <Sun size={15} />}
+            </button>
+
             <button
               type="button"
               onClick={() => setHelpOpen(true)}

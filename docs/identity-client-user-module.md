@@ -3533,6 +3533,226 @@ Detectar automáticamente reservas o personas donde `booking.userId` y `client.u
 
 ---
 
+## 42.M. Decisiones finales propuestas
+
+Estas decisiones estan redactadas como postura recomendada para cerrar negocio y destrabar implementacion.
+
+### 1. `forceCreateNew`
+
+**Decision propuesta**
+
+`forceCreateNew` debe existir, pero solo para `ADMIN` y `OWNER`, con warning fuerte y auditoria obligatoria.
+
+**Regla recomendada**
+
+- no debe ser el camino por defecto;
+- debe requerir confirmacion explicita;
+- debe guardar actor, motivo y contexto;
+- debe usarse solo cuando el operador decide conscientemente crear igual a pesar del conflicto.
+
+**Razon**
+
+Eliminarlo por completo volveria demasiado rigido al sistema.
+
+Dejarlo abierto a todos reintroduce duplicados evitables en operacion diaria.
+
+---
+
+### 2. Politica de `phone` solo
+
+**Decision propuesta**
+
+`phone` solo no debe alcanzar para auto-linkear, auto-mergear ni decidir identidad canonicamente.
+
+**Regla recomendada**
+
+- `phone` solo sirve para sugerir candidatos;
+- puede disparar advertencia o conflicto;
+- no debe consolidar identidad por si mismo salvo que ademas exista otra senal fuerte.
+
+**Razon**
+
+El telefono es util, pero no es un identificador estable ni univoco.
+
+Hay casos reales de telefono compartido, reciclado o mal cargado.
+
+---
+
+### 3. Politica para `phone/email` compartido
+
+**Decision propuesta**
+
+Telefono y email compartido deben permitirse como excepcion valida de negocio, no tratarse como imposibilidad absoluta.
+
+**Regla recomendada**
+
+- el sistema puede advertir;
+- puede sugerir revisar antes de crear;
+- pero no debe bloquear categoricamente todos los casos;
+- el conflicto debe poder resolverse manualmente y quedar auditado.
+
+**Razon**
+
+En clubes reales hay familias, parejas, responsables de menores y cuentas compartidas.
+
+Modelarlo como error absoluto volveria el sistema artificialmente rigido.
+
+---
+
+### 4. Politica para `DNI` repetido
+
+**Decision propuesta**
+
+`DNI` repetido debe bloquear por defecto.
+
+**Regla recomendada**
+
+- si se detecta `DNI` repetido, el flujo frena;
+- solo `OWNER` o `ADMIN` avanzado puede overridear;
+- el override debe exigir motivo y auditoria;
+- el sistema deberia tratar este caso como senal de riesgo alto.
+
+**Razon**
+
+El DNI es la senal manual mas fuerte de identidad.
+
+Si tampoco se endurece eso, el sistema pierde su mejor dato fuerte.
+
+---
+
+### 5. Permisos por rol para operaciones sensibles
+
+**Decision propuesta**
+
+Las operaciones sensibles no deben quedar abiertas a `STAFF`.
+
+**Regla recomendada**
+
+- `STAFF`: crear cliente, editar datos basicos, operar reservas y caja;
+- `ADMIN`: resolver incidentes, vincular usuario, usar `forceCreateNew`, editar datos identitarios sensibles;
+- `OWNER`: overrides excepcionales, merges delicados, desvinculaciones y operaciones de mayor riesgo.
+
+**Razon**
+
+La operacion diaria necesita velocidad, pero la identidad necesita gobernanza.
+
+---
+
+### 6. UX de conflicto de identidad
+
+**Decision propuesta**
+
+Los conflictos de identidad deben resolverse con UX guiada, no con errores tecnicos crudos.
+
+**Regla recomendada**
+
+La UI deberia ofrecer, segun el caso:
+
+- usar cliente existente;
+- crear igual;
+- vincular usuario;
+- fusionar clientes;
+- revisar despues.
+
+Y deberia mostrar contexto suficiente:
+
+- si ya tiene usuario;
+- cantidad de reservas;
+- deuda;
+- actividad;
+- estado de confianza si existe.
+
+**Razon**
+
+El objetivo no es esconder el conflicto, sino volverlo entendible y operable.
+
+---
+
+### 7. Incidentes en edicion de cliente
+
+**Decision propuesta**
+
+Los conflictos de identidad nacidos en edicion deben abrir incidente cuando haya candidatos fuertes reales.
+
+**Regla recomendada**
+
+- no abrir incidente por cualquier validacion menor;
+- si el conflicto es identitario y hay candidatos concretos, si abrirlo;
+- debe dejar trazabilidad y bandeja de revision.
+
+**Razon**
+
+Editar cliente es hoy una fuente real de inconsistencia y no deberia quedar fuera del radar operativo.
+
+---
+
+### 8. Incidentes en link manual
+
+**Decision propuesta**
+
+Los conflictos identitarios del link manual pueden abrir incidente, pero no los rechazos puramente de permisos.
+
+**Regla recomendada**
+
+- si falla por conflicto identitario real, abrir incidente;
+- si falla porque el actor no tiene permisos o porque el flujo no corresponde, no.
+
+**Razon**
+
+Conviene separar gobernanza de identidad de control de acceso.
+
+---
+
+### 9. Claim flow del jugador
+
+**Decision propuesta**
+
+El reclamo de historial por parte del jugador debe ser manual guiado, no automatico.
+
+**Regla recomendada**
+
+- el sistema puede sugerir que ciertas reservas parecen suyas;
+- el jugador confirma;
+- si hay ambiguedad, no se consolida automaticamente;
+- el proceso debe quedar auditado.
+
+**Razon**
+
+Esto ayuda a consolidar experiencia digital sin adjudicar historial incorrectamente.
+
+---
+
+### 10. Pago de invitados
+
+**Decision propuesta**
+
+En esta etapa, el pago online debe quedar solo para el titular.
+
+**Regla recomendada**
+
+- titular autenticado: si;
+- participante invitado: no por ahora;
+- revisar mas adelante cuando ownership e identidad esten mucho mas consolidados.
+
+**Razon**
+
+Abrir pagos de invitados antes de ordenar identidad complica mucho el modelo y agrega riesgo innecesario.
+
+---
+
+### Resumen ejecutivo de cierre
+
+La postura recomendada es:
+
+- `phone` ayuda, pero no decide;
+- `DNI` casi decide solo;
+- `forceCreateNew` existe, pero muy restringido;
+- las acciones sensibles no quedan en manos de `STAFF`;
+- los conflictos se resuelven con UX guiada;
+- el jugador paga sus propias reservas antes de abrir escenarios mas complejos.
+
+---
+
 ## 43. Checklist actualizado de documentación e implementación
 
 Para considerar el módulo bien documentado y preparado:

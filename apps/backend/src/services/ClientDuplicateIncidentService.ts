@@ -88,6 +88,98 @@ export class ClientDuplicateIncidentService {
     });
   }
 
+  async createManualIdentityReview(input: {
+    clubId: number;
+    clientId: string;
+    clientName: string;
+    email?: string | null;
+    phone?: string | null;
+    dni?: string | null;
+    status?: string | null;
+    reasonCode?: string | null;
+    summary?: string | null;
+    signals?: string[] | null;
+    recommendedUserId?: number | null;
+    userCandidates?: any[] | null;
+    duplicateClients?: any[] | null;
+    note?: string | null;
+    actorUserId?: number | null;
+  }) {
+    const duplicateClientIds = Array.isArray(input.duplicateClients)
+      ? input.duplicateClients
+          .map((row: any) => String(row?.clientId || row?.id || '').trim())
+          .filter(Boolean)
+      : [];
+
+    const candidateClientIds = normalizeIds([input.clientId, ...duplicateClientIds]);
+    const signals = Array.isArray(input.signals) ? input.signals.map((item) => String(item || '').trim().toUpperCase()).filter(Boolean) : [];
+    const status = String(input.status || 'REVIEW_REQUIRED').trim().toUpperCase();
+    const reasonCode = String(input.reasonCode || 'NO_STRONG_MATCH').trim().toUpperCase();
+
+    const reasonType = reasonCode === 'DUPLICATE_CLIENTS_FOUND' || reasonCode === 'DUPLICATE_CLIENT_AND_USER_CONFLICT'
+      ? 'MULTI_SIGNAL_CONFLICT'
+      : reasonCode === 'USER_ALREADY_LINKED_ELSEWHERE' || reasonCode === 'MULTIPLE_USER_CANDIDATES'
+      ? 'LINKING_CONFLICT'
+      : signals.includes('PHONE')
+      ? 'PHONE'
+      : signals.includes('EMAIL')
+      ? 'EMAIL'
+      : signals.includes('DNI')
+      ? 'DNI'
+      : 'UNKNOWN';
+
+    const incident = await this.createOrReuseIncident({
+      clubId: Number(input.clubId),
+      userId: Number(input.recommendedUserId || 0) > 0 ? Number(input.recommendedUserId) : null,
+      sourceType: 'ADMIN',
+      reasonType,
+      primaryClientId: String(input.clientId),
+      candidateClientIds,
+      payload: {
+        kind: 'IDENTITY_REVIEW',
+        clientId: String(input.clientId),
+        clientName: String(input.clientName || '').trim() || 'Cliente sin nombre',
+        email: input.email || null,
+        phone: input.phone || null,
+        dni: input.dni || null,
+        status,
+        reasonCode,
+        summary: input.summary ? String(input.summary) : null,
+        signals,
+        recommendedUserId: Number(input.recommendedUserId || 0) > 0 ? Number(input.recommendedUserId) : null,
+        userCandidates: Array.isArray(input.userCandidates) ? input.userCandidates : [],
+        duplicateClients: Array.isArray(input.duplicateClients) ? input.duplicateClients : [],
+        note: input.note ? String(input.note) : null,
+        source: 'CLIENT_PROFILE_IDENTITY_REVIEW',
+      }
+    });
+
+    if (Number(input.actorUserId || 0) > 0) {
+      try {
+        await prisma.auditLog.create({
+          data: {
+            clubId: Number(input.clubId),
+            userId: Number(input.actorUserId),
+            entity: 'CLIENT',
+            entityId: String(input.clientId),
+            action: 'IDENTITY_REVIEW_MARKED',
+            payload: {
+              incidentId: String((incident as any)?.id || ''),
+              status,
+              reasonCode,
+              note: input.note ? String(input.note) : null,
+              source: 'CLIENT_PROFILE'
+            }
+          }
+        });
+      } catch {
+        // noop
+      }
+    }
+
+    return incident;
+  }
+
   async listByClub(input: {
     clubId: number;
     status?: IncidentStatus | null;

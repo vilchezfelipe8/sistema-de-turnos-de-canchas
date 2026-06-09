@@ -303,6 +303,12 @@ enum AuthSessionStatus {
   EXPIRED
 }
 
+enum UserOAuthProvider {
+  GOOGLE
+  APPLE
+  FACEBOOK
+}
+
 enum ClientRelationshipType {
   PARENT
   GUARDIAN
@@ -413,6 +419,7 @@ model User {
   duplicateIncidents ClientDuplicateIncident[] @relation("DuplicateIncidentUser")
   duplicateIncidentsResolved ClientDuplicateIncident[] @relation("DuplicateIncidentResolvedBy")
   sessions      AuthSession[]
+  oauthIdentities UserOAuthIdentity[]
   teacherProfiles Teacher[]
   academyClassSessionsCreated ClassSession[] @relation("ClassSessionCreatedByUser")
   academyStudentEnrollments ClassEnrollment[] @relation("ClassEnrollmentStudentUser")
@@ -461,6 +468,24 @@ model AuthSession {
   @@index([userId, status])
   @@index([familyId])
   @@index([expiresAt])
+}
+
+model UserOAuthIdentity {
+  id                    String            @id @default(cuid())
+  userId                Int
+  user                  User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider              UserOAuthProvider
+  providerUserId        String
+  providerEmail         String?
+  providerEmailVerified Boolean           @default(false)
+  profilePhotoUrl       String?
+  linkedAt              DateTime          @default(now()) @db.Timestamptz(3)
+  lastLoginAt           DateTime          @default(now()) @db.Timestamptz(3)
+  createdAt             DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime          @updatedAt @db.Timestamptz(3)
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
 }
 
 model Club {

@@ -23,6 +23,21 @@ Variables principales para operar Pique.
 | `AUTH_TRUST_PROXY` | no | `false` | `true` | proxy TLS |
 | `RESEND_API_KEY` | no | vacío | `re_...` | email |
 | `EMAIL_FROM` | no | vacío | `login@auth.pique.ar` | remitente emails |
+| `GOOGLE_OAUTH_CLIENT_ID` | no | vacío | `123...apps.googleusercontent.com` | login Google |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | no | vacío | `GOCSPX-...` | login Google |
+| `GOOGLE_OAUTH_REDIRECT_URI` | no | derivado de `APP_BASE_URL` | `https://pique.ar/api/auth/oauth/google/callback` | callback Google OAuth |
+| `GOOGLE_OAUTH_SCOPES` | no | `openid email profile` | `openid email profile` | scopes Google OAuth |
+| `APPLE_OAUTH_CLIENT_ID` | no | vacío | `com.pique.web` | client id Sign in with Apple |
+| `APPLE_OAUTH_TEAM_ID` | no | vacío | `ABCD123456` | Apple Developer Team ID |
+| `APPLE_OAUTH_KEY_ID` | no | vacío | `XYZ9876543` | key id de Sign in with Apple |
+| `APPLE_OAUTH_PRIVATE_KEY` | no | vacío | `-----BEGIN PRIVATE KEY-----...` | private key `.p8` en una línea con `\n` |
+| `APPLE_OAUTH_REDIRECT_URI` | no | derivado de `APP_BASE_URL` | `https://pique.ar/api/auth/oauth/apple/callback` | callback Apple OAuth |
+| `APPLE_OAUTH_SCOPES` | no | `name email` | `name email` | scopes Apple OAuth |
+| `FACEBOOK_OAUTH_CLIENT_ID` | no | vacío | `123456789012345` | App ID de Facebook Login |
+| `FACEBOOK_OAUTH_CLIENT_SECRET` | no | vacío | `abc123...` | App Secret de Facebook Login |
+| `FACEBOOK_OAUTH_REDIRECT_URI` | no | derivado de `APP_BASE_URL` | `https://pique.ar/api/auth/oauth/facebook/callback` | callback Facebook OAuth |
+| `FACEBOOK_OAUTH_SCOPES` | no | `email public_profile` | `email public_profile` | permisos Facebook OAuth |
+| `FACEBOOK_OAUTH_GRAPH_VERSION` | no | `v19.0` | `v19.0` | versión Graph API usada para login |
 | `WHATSAPP_PROVIDER` | no | `wpp_http` | `wpp_http` | estrategia WhatsApp |
 | `WPP_SERVICE_URL` | no | `http://localhost:3002` | `https://...` | servicio WhatsApp |
 | `ENABLE_WHATSAPP_WORKER` | no | `false` | `false` | worker WhatsApp |
