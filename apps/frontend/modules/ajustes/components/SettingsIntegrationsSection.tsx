@@ -10,6 +10,8 @@ import { showAdminToast } from '../../../utils/adminToast';
 import { extractErrorMessage } from '../../../utils/uiError';
 import { getActiveClubSlug, hasAdminAccess } from '../../../utils/session';
 
+// ─── helpers ──────────────────────────────────────────────────────────────────
+
 const integrationStatusLabel = (status: AdminClubPaymentIntegration['status']) => {
   if (status === 'CONNECTED') return 'Conectado';
   if (status === 'EXPIRED') return 'Expirado';
@@ -21,10 +23,7 @@ const formatDateTime = (value: string | null) => {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleString('es-AR', {
-    dateStyle: 'short',
-    timeStyle: 'short'
-  });
+  return date.toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
 };
 
 const fullName = (integration: AdminClubPaymentIntegration) => {
@@ -34,11 +33,14 @@ const fullName = (integration: AdminClubPaymentIntegration) => {
   return name || integration.connectedBy?.email || '—';
 };
 
+// ─── component ────────────────────────────────────────────────────────────────
+
 export default function SettingsIntegrationsSection() {
   const router = useRouter();
   const { user } = useAuth();
   const clubSlug = useMemo(() => getActiveClubSlug(user as any), [user]);
   const canManage = hasAdminAccess(user as any);
+
   const [integrations, setIntegrations] = useState<AdminClubPaymentIntegration[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -60,10 +62,9 @@ export default function SettingsIntegrationsSection() {
     }
   };
 
-  useEffect(() => {
-    void loadIntegrations();
-  }, [clubSlug]);
+  useEffect(() => { void loadIntegrations(); }, [clubSlug]);
 
+  // MercadoPago OAuth callback handling
   useEffect(() => {
     const provider = String(router.query.provider || '').trim().toLowerCase();
     const status = String(router.query.integrationStatus || '').trim().toLowerCase();
@@ -77,10 +78,7 @@ export default function SettingsIntegrationsSection() {
       setError('No se pudo completar la conexión con Mercado Pago.');
     }
 
-    const nextQuery = { ...router.query } as Record<string, unknown>;
-    delete nextQuery.provider;
-    delete nextQuery.integrationStatus;
-    delete nextQuery.club;
+    const { provider: _p, integrationStatus: _s, club: _c, ...nextQuery } = router.query as Record<string, unknown>;
     void router.replace({ pathname: router.pathname, query: nextQuery as any }, undefined, { shallow: true });
     void loadIntegrations(true);
   }, [router]);
@@ -111,13 +109,11 @@ export default function SettingsIntegrationsSection() {
   return (
     <div className="space-y-4">
       <AdminPanel
-        title="Integraciones"
+        title="Integraciones de pago"
         description="Conectá la cuenta de Mercado Pago del club para habilitar el pago online de reservas."
       >
         {error ? (
-          <AdminFeedbackBanner tone="error" className="mb-3">
-            {error}
-          </AdminFeedbackBanner>
+          <AdminFeedbackBanner tone="error" className="mb-3">{error}</AdminFeedbackBanner>
         ) : null}
 
         <div className="rounded-2xl border border-p-border bg-p-surface-2 p-4">
@@ -135,7 +131,6 @@ export default function SettingsIntegrationsSection() {
                   El dinero de las reservas online entra directo a la cuenta conectada del club.
                 </p>
               </div>
-
               <dl className="grid gap-2 text-[12px] text-p-text-secondary md:grid-cols-2">
                 <div>
                   <dt className="font-semibold text-p-text">Conectado por</dt>
@@ -155,7 +150,6 @@ export default function SettingsIntegrationsSection() {
                 </div>
               </dl>
             </div>
-
             <div className="flex flex-wrap gap-2">
               <a
                 href={clubSlug ? ClubAdminService.getMercadoPagoConnectUrl(clubSlug) : '#'}

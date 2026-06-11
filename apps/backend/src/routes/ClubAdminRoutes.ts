@@ -30,6 +30,9 @@ import { ClassEnrollmentAdminController } from '../controllers/ClassEnrollmentAd
 import { ClassPassAdminController } from '../controllers/ClassPassAdminController';
 import { ClassCreditUsageAdminController } from '../controllers/ClassCreditUsageAdminController';
 import { AcademyStudentAdminController } from '../controllers/AcademyStudentAdminController';
+import { FiscalConfigController } from '../controllers/FiscalConfigController';
+import { FiscalBandejaController } from '../controllers/FiscalBandejaController';
+import { FiscalHealthController } from '../controllers/FiscalHealthController';
 
 const router = Router();
 
@@ -71,6 +74,9 @@ const classEnrollmentAdminController = new ClassEnrollmentAdminController();
 const classPassAdminController = new ClassPassAdminController();
 const classCreditUsageAdminController = new ClassCreditUsageAdminController();
 const academyStudentAdminController = new AcademyStudentAdminController();
+const fiscalConfigController = new FiscalConfigController();
+const fiscalBandejaController = new FiscalBandejaController();
+const fiscalHealthController = new FiscalHealthController();
 
 // Todas las rutas requieren autenticación y verificación de acceso al club.
 // El rol tenant se define por endpoint (ADMIN/OWNER para configuración sensible,
@@ -901,11 +907,111 @@ router.delete('/:slug/admin/members/:membershipId',
     membershipAdminController.remove
 );
 
-router.get('/:slug/admin/stats/dashboard', 
-    authMiddleware,       
-    verifyClubAccess,     
-    requireTenantRole(['ADMIN', 'STAFF']), 
+router.get('/:slug/admin/stats/dashboard',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
     bookingController.getDashboardStats
+);
+
+// --- Configuración fiscal ---
+router.get('/:slug/admin/fiscal-config',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    fiscalConfigController.getConfig
+);
+
+router.put('/:slug/admin/fiscal-config',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    fiscalConfigController.upsertConfig
+);
+
+router.post('/:slug/admin/fiscal-config/certificate',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    fiscalConfigController.uploadCertificate
+);
+
+router.post('/:slug/admin/fiscal-config/puntos-de-venta',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    fiscalConfigController.createPuntoDeVenta
+);
+
+router.put('/:slug/admin/fiscal-config/puntos-de-venta/:pdvId/toggle',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    fiscalConfigController.togglePuntoDeVenta
+);
+
+router.post('/:slug/admin/fiscal-config/invalidate-auth',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    fiscalHealthController.invalidateAuth
+);
+
+// --- Bandeja fiscal (comprobantes + incidencias) ---
+router.get('/:slug/admin/fiscal-bandeja/facturas',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    fiscalBandejaController.listFacturas
+);
+
+router.get('/:slug/admin/fiscal-bandeja/facturas/:facturaId',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    fiscalBandejaController.getFactura
+);
+
+router.post('/:slug/admin/fiscal-bandeja/facturas/:facturaId/retry',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    fiscalBandejaController.retryFactura
+);
+
+router.get('/:slug/admin/fiscal-bandeja/incidents',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    fiscalBandejaController.listIncidents
+);
+
+router.put('/:slug/admin/fiscal-bandeja/incidents/:incidentId/resolve',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    fiscalBandejaController.resolveIncident
+);
+
+router.post('/:slug/admin/accounts/:accountId/emit-factura',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    fiscalBandejaController.manualEmitForAccount
+);
+
+router.post('/:slug/admin/fiscal-bandeja/facturas/:facturaId/credit-note',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    fiscalBandejaController.createCreditNote
+);
+
+router.get('/:slug/admin/fiscal-bandeja/health',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    fiscalHealthController.getHealth
 );
 
 export default router;

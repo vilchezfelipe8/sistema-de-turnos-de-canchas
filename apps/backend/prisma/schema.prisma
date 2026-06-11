@@ -128,6 +128,75 @@ enum OnlinePaymentAttemptStatus {
   ERROR
 }
 
+
+enum FiscalCondition {
+  RESPONSABLE_INSCRIPTO
+  MONOTRIBUTO
+  EXENTO
+  CONSUMIDOR_FINAL
+  OTRO
+}
+
+enum FiscalProvider {
+  ARCA
+  NONE
+  OTRO
+}
+
+enum FiscalMode {
+  OBLIGATORIA
+  OPCIONAL
+  DESHABILITADA
+}
+
+enum FiscalVoucherKind {
+  INVOICE
+  CREDIT_NOTE
+}
+
+enum FiscalVoucherStatus {
+  PENDING
+  QUEUED
+  PROCESSING
+  APPROVED
+  APPROVED_WITH_OBSERVATIONS
+  REJECTED
+  TECHNICAL_ERROR
+  CANCELLED
+}
+
+enum FiscalOriginType {
+  BOOKING
+  ACCOUNT
+  ACCOUNT_ITEM
+  MANUAL
+  REFUND
+}
+
+enum FiscalItemType {
+  PRODUCT
+  SERVICE
+}
+
+enum FiscalIncidentStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  IGNORED
+}
+
+enum FiscalVoucherClass {
+  A
+  B
+  C
+}
+
+enum FiscalVoucherVariant {
+  STANDARD
+  PAGO_EN_CBU_INFORMADA
+  OPERACION_SUJETA_A_RETENCION
+}
+
 enum PaymentChannel {
   AUTO
   CASH_DRAWER
@@ -370,6 +439,7 @@ model User {
   academyBeneficiaryClassPasses ClassPass[] @relation("ClassPassBeneficiaryUser")
   academyClassPassesCreated ClassPass[] @relation("ClassPassCreatedByUser")
   academyClassCreditUsagesCreated ClassCreditUsage[] @relation("ClassCreditUsageCreatedByUser")
+  fiscalIncidentsAssigned FiscalIncident[]
 }
 
 model MagicLoginToken {
@@ -469,6 +539,10 @@ model Club {
   paymentIntegrations ClubPaymentIntegration[]
   paymentProviderOAuthStates PaymentProviderOAuthState[]
   onlinePaymentAttempts OnlinePaymentAttempt[]
+  configuracionFiscal ConfiguracionFiscal?
+  puntosDeVentaFiscales PuntoDeVentaFiscal[]
+  facturasFiscales Factura[]
+  fiscalIncidents FiscalIncident[]
   bookingHistoryEntries BookingHistoryEntry[]
   teachers      Teacher[]
   clientRelationships ClientRelationship[]
@@ -1008,6 +1082,7 @@ model Booking {
   participants   BookingParticipant[]
   historyEntries BookingHistoryEntry[]
   onlinePaymentAttempts OnlinePaymentAttempt[]
+  facturasFiscales Factura[]
   reviews        ClubReview[]
 
   @@index([courtId, startDateTime], map: "booking_court_day")
@@ -1146,6 +1221,7 @@ model Account {
   items         AccountItem[]
   payments      Payment[]
   onlinePaymentAttempts OnlinePaymentAttempt[]
+  facturasFiscales Factura[]
   paymentAllocations PaymentAllocation[]
   refunds       Refund[]
   ledgerEntries LedgerEntry[]
@@ -1384,6 +1460,239 @@ model OnlinePaymentAttempt {
   @@index([accountId, status])
   @@index([provider, status])
   @@index([providerPaymentId])
+}
+
+
+model ConfiguracionFiscal {
+  id                      String          @id @default(cuid())
+  clubId                  Int             @unique
+  club                    Club            @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  facturacionHabilitada   Boolean         @default(false)
+  proveedorFiscal         FiscalProvider  @default(NONE)
+  modoFacturacion         FiscalMode      @default(DESHABILITADA)
+  paisFiscal              String          @default("AR")
+
+  razonSocial             String?
+  cuit                    String?
+  condicionIva            FiscalCondition?
+  ingresosBrutos          String?
+  inicioActividadesAt     DateTime?       @db.Timestamptz(3)
+
+  usaHomologacion         Boolean         @default(true)
+  activo                  Boolean         @default(true)
+
+  certificadoPem          String?
+  clavePrivadaPem         String?
+  clavePrivadaPassphrase  String?
+  certificadoSerial       String?
+  certificadoSubject      String?
+  vencimientoCertificado  DateTime?       @db.Timestamptz(3)
+
+  onboardingStatus        String?
+  ultimoHealthcheckAt     DateTime?       @db.Timestamptz(3)
+  ultimoHealthcheckOk     Boolean?
+  observaciones           String?
+
+  defaultPuntoDeVentaFiscalId String?
+  defaultPuntoDeVentaFiscal PuntoDeVentaFiscal? @relation("FiscalDefaultPdv", fields: [defaultPuntoDeVentaFiscalId], references: [id], onDelete: SetNull)
+
+  createdAt               DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime        @updatedAt @db.Timestamptz(3)
+
+  puntosDeVentaFiscales   PuntoDeVentaFiscal[]
+  facturas                Factura[]
+  authTickets             FiscalAuthTicket[]
+  incidents               FiscalIncident[]
+
+  @@index([activo])
+  @@index([proveedorFiscal, modoFacturacion])
+  @@index([paisFiscal])
+  @@index([cuit])
+}
+
+model PuntoDeVentaFiscal {
+  id                     String          @id @default(cuid())
+  clubId                 Int
+  club                   Club            @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  configuracionFiscalId  String
+  configuracionFiscal    ConfiguracionFiscal @relation(fields: [configuracionFiscalId], references: [id], onDelete: Cascade)
+
+  nombre                 String?
+  puntoDeVenta           Int
+  activo                 Boolean         @default(true)
+
+  createdAt              DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime        @updatedAt @db.Timestamptz(3)
+
+  cashRegisters          CashRegister[]
+  facturas               Factura[]
+  defaultForConfigs      ConfiguracionFiscal[] @relation("FiscalDefaultPdv")
+
+  @@index([clubId])
+  @@index([configuracionFiscalId])
+  @@index([activo])
+  @@index([clubId, puntoDeVenta])
+}
+
+model Factura {
+  id                      String              @id @default(cuid())
+  clubId                  Int
+  club                    Club                @relation(fields: [clubId], references: [id], onDelete: Restrict)
+
+  configuracionFiscalId   String
+  configuracionFiscal     ConfiguracionFiscal @relation(fields: [configuracionFiscalId], references: [id], onDelete: Restrict)
+
+  puntoDeVentaFiscalId    String?
+  puntoDeVentaFiscal      PuntoDeVentaFiscal? @relation(fields: [puntoDeVentaFiscalId], references: [id], onDelete: SetNull)
+
+  kind                    FiscalVoucherKind
+  status                  FiscalVoucherStatus @default(PENDING)
+  originType              FiscalOriginType
+  originId                String
+  idempotencyKey          String
+
+  bookingId               Int?
+  booking                 Booking?            @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  accountId               String?
+  account                 Account?            @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  voucherClass            FiscalVoucherClass?
+  voucherVariant          FiscalVoucherVariant @default(STANDARD)
+  comprobanteTipo         Int?
+  comprobanteDescripcion  String?
+  puntoDeVenta            Int?
+  numeroComprobante       Int?
+
+  concepto                Int?
+  fechaEmision            DateTime            @db.Timestamptz(3)
+  fechaServicioDesde      DateTime?           @db.Timestamptz(3)
+  fechaServicioHasta      DateTime?           @db.Timestamptz(3)
+  fechaVencimientoPago    DateTime?           @db.Timestamptz(3)
+
+  receptorDocTipo         Int?
+  receptorDocNumero       String?
+  receptorNombre          String?
+  receptorDomicilio       String?
+  receptorCondicionIva    FiscalCondition?
+  receptorCondicionIvaArcaId Int?
+
+  monedaCodigo            String              @default("PES")
+  monedaCotizacion        Decimal             @default(1) @db.Decimal(12, 6)
+
+  importeNeto             Decimal             @default(0) @db.Decimal(12, 2)
+  importeIva              Decimal             @default(0) @db.Decimal(12, 2)
+  importeExento           Decimal             @default(0) @db.Decimal(12, 2)
+  importeTributos         Decimal             @default(0) @db.Decimal(12, 2)
+  importeTotal            Decimal             @default(0) @db.Decimal(12, 2)
+
+  cae                     String?
+  caeVencimiento          DateTime?           @db.Timestamptz(3)
+  resultadoArca           String?
+
+  qrPayloadBase64         String?
+  qrUrl                   String?
+  pdfUrl                  String?
+  internalReceiptUrl      String?
+
+  requestPayload          Json?
+  responsePayload         Json?
+  normalizedResult        Json?
+  fiscalCalculationSnapshot Json?
+  observacionesArca       Json?
+  erroresArca             Json?
+  mensajeError            String?
+  suggestedAction         String?
+  intentoActual           Int                 @default(0)
+  ultimoIntentoAt         DateTime?           @db.Timestamptz(3)
+
+  comprobanteAsociadoId   String?
+  comprobanteAsociado     Factura?            @relation("FacturaAsociada", fields: [comprobanteAsociadoId], references: [id], onDelete: SetNull)
+  notasCreditoAsociadas   Factura[]           @relation("FacturaAsociada")
+
+  createdAt               DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime            @updatedAt @db.Timestamptz(3)
+
+  items                   FiscalVoucherItem[]
+  incidents               FiscalIncident[]
+
+  @@unique([clubId, idempotencyKey])
+  @@index([clubId, status, createdAt])
+  @@index([clubId, originType, originId])
+  @@index([clubId, puntoDeVenta, comprobanteTipo, numeroComprobante])
+  @@index([bookingId])
+  @@index([accountId])
+}
+
+model FiscalVoucherItem {
+  id                      String          @id @default(cuid())
+  facturaId               String
+  factura                 Factura         @relation(fields: [facturaId], references: [id], onDelete: Cascade)
+
+  originType              FiscalOriginType?
+  originId                String?
+  itemType                FiscalItemType
+  code                    String?
+  description             String
+  quantity                Decimal         @db.Decimal(12, 3)
+  unitPrice               Decimal         @db.Decimal(12, 2)
+  discountAmount          Decimal         @default(0) @db.Decimal(12, 2)
+  taxableBase             Decimal         @default(0) @db.Decimal(12, 2)
+  vatRate                 Decimal         @default(0) @db.Decimal(5, 2)
+  vatAmount               Decimal         @default(0) @db.Decimal(12, 2)
+  totalAmount             Decimal         @default(0) @db.Decimal(12, 2)
+
+  snapshot                Json?
+
+  createdAt               DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime        @updatedAt @db.Timestamptz(3)
+
+  @@index([facturaId])
+}
+
+model FiscalAuthTicket {
+  id                      String          @id @default(cuid())
+  clubId                  Int
+  configuracionFiscalId   String?
+  service                 String
+  token                   String
+  sign                    String
+  generationTime          DateTime        @db.Timestamptz(3)
+  expirationTime          DateTime        @db.Timestamptz(3)
+  createdAt               DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime        @updatedAt @db.Timestamptz(3)
+
+  configuracionFiscal     ConfiguracionFiscal? @relation(fields: [configuracionFiscalId], references: [id], onDelete: SetNull)
+
+  @@unique([clubId, service])
+  @@index([expirationTime])
+}
+
+model FiscalIncident {
+  id                      String               @id @default(cuid())
+  clubId                  Int
+  club                    Club                 @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  configuracionFiscalId   String?
+  facturaId               String?
+  status                  FiscalIncidentStatus @default(OPEN)
+  type                    String
+  title                   String
+  detail                  String?
+  priority                String?
+  assignedToUserId        Int?
+  resolvedAt              DateTime?            @db.Timestamptz(3)
+
+  configuracionFiscal     ConfiguracionFiscal? @relation(fields: [configuracionFiscalId], references: [id], onDelete: SetNull)
+  factura                 Factura?             @relation(fields: [facturaId], references: [id], onDelete: SetNull)
+  assignedToUser          User?                @relation(fields: [assignedToUserId], references: [id], onDelete: SetNull)
+
+  createdAt               DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime             @updatedAt @db.Timestamptz(3)
+
+  @@index([clubId, status, createdAt])
+  @@index([facturaId])
 }
 
 model LedgerTransaction {
@@ -1765,11 +2074,15 @@ model CashRegister {
 
   name   String
 
+  fiscalPointOfSaleId String?
+  fiscalPointOfSale   PuntoDeVentaFiscal? @relation(fields: [fiscalPointOfSaleId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now()) @db.Timestamptz(3)
 
   shifts CashShift[]
 
   @@index([clubId])
+  @@index([fiscalPointOfSaleId])
   @@unique([clubId, name])
 }
 

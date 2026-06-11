@@ -11,6 +11,7 @@ import { AccountService } from './AccountService';
 import { generateDisplayCode } from '../utils/displayCode';
 import { BookingHistoryService } from './BookingHistoryService';
 import { getDerivedPaymentStatus } from '../domain/bookingDomain';
+import { FiscalTriggerService } from './FiscalTriggerService';
 
 const EPSILON = 0.009;
 
@@ -55,6 +56,7 @@ export class PaymentService {
   private readonly bookingDomainService = new BookingDomainService();
   private readonly accountService = new AccountService();
   private readonly bookingHistoryService = new BookingHistoryService();
+  private readonly fiscalTriggerService = new FiscalTriggerService();
 
   private roundMoney(value: number) {
     return Number((Number(value || 0)).toFixed(2));
@@ -617,6 +619,14 @@ export class PaymentService {
       }
 
       metricsService.recordPayment(source, input.method);
+
+      // Fiscal trigger — non-blocking: payment must never fail due to fiscal issues
+      await this.fiscalTriggerService.triggerForPayment(tx, {
+        clubId: account.clubId,
+        paymentId: payment.id,
+        accountId: account.id,
+        paymentAmount: input.amount
+      });
 
       const createdPayment = await tx.payment.findUnique({
         where: { id: payment.id },

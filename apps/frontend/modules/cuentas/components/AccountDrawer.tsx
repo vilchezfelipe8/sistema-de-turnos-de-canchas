@@ -13,11 +13,14 @@
 // ──────────────────────────────────────────────────────────────────────────────
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, X, AlertTriangle, Plus, Minus, CreditCard, Trash2, User } from 'lucide-react';
+import { ArrowLeft, Check, X, AlertTriangle, Plus, Minus, CreditCard, Trash2, User, ScrollText, Eye } from 'lucide-react';
 import AdminDrawer, { AdminDrawerSection } from '../../../components/admin/ui/AdminDrawer';
 import PaymentRegistrationDrawer from '../../../components/admin/payments/PaymentRegistrationDrawer';
 import { getAccountById, addAccountItem, registerPayment, closeAccount, voidPosAccount } from '../../../services/AccountService';
 import type { PaymentMethod, PaymentChannel } from '../../../services/AccountService';
+import { getAccountFacturas, emitAccountFactura, retryFactura, type EmitFacturaInput } from '../../../services/FiscalBandejaService';
+import { useAuth } from '../../../contexts/AuthContext';
+import { getActiveClubSlug } from '../../../utils/session';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
 import { showAdminToast } from '../../../utils/adminToast';
 import {
@@ -44,6 +47,8 @@ import {
 
 type AccountDrawerView =
   | 'overview'
+  | 'invoice_form'
+  | 'invoice_detail'
   | 'add_item'
   | 'payment_form'
   | 'payment_preconfirm'
@@ -125,6 +130,90 @@ const sectionCardClass = 'rounded-2xl border border-p-border bg-p-surface-2 p-4'
 const sectionListClass = 'divide-y divide-p-border overflow-hidden rounded-xl border border-p-border bg-p-surface';
 const SUCCESS_ANIMATION_VARIANT: 'soft' | 'bold' = 'bold';
 
+const FACTURA_STATUS_LABELS: Record<string, string> = {
+  PENDING: 'Pendiente',
+  PROCESSING: 'Procesando',
+  APPROVED: 'Aprobado',
+  APPROVED_WITH_OBSERVATIONS: 'Aprobado c/obs.',
+  REJECTED: 'Rechazado',
+  TECHNICAL_ERROR: 'Error técnico',
+  CANCELLED: 'Cancelado',
+};
+
+const FACTURA_STATUS_COLORS: Record<string, string> = {
+  PENDING: 'bg-p-warning-bg text-p-warning',
+  PROCESSING: 'bg-p-accent/10 text-p-accent',
+  APPROVED: 'bg-p-positive-bg text-p-positive',
+  APPROVED_WITH_OBSERVATIONS: 'bg-emerald-50 text-emerald-700',
+  REJECTED: 'bg-p-error-bg text-[var(--error-fg)]',
+  TECHNICAL_ERROR: 'bg-p-error-bg text-[var(--error-fg)]',
+  CANCELLED: 'bg-p-surface-3 text-p-text-muted',
+};
+
+const ACTIVE_FACTURA_STATUSES = new Set(['PENDING', 'PROCESSING', 'APPROVED', 'APPROVED_WITH_OBSERVATIONS']);
+
+type FacturaStatus = keyof typeof FACTURA_STATUS_LABELS;
+
+type ReceptorCondicion = 'CONSUMIDOR_FINAL' | 'RESPONSABLE_INSCRIPTO' | 'MONOTRIBUTO' | 'EXENTO';
+
+type InvoiceDraft = {
+  condicionFiscal: ReceptorCondicion;
+  receptorNombre: string;
+  cuit: string;
+  dni: string;
+  // §55.7 — fechas para concepto servicios/mixto
+  fechaServicioDesde: string;
+  fechaServicioHasta: string;
+  fechaVencimientoPago: string;
+};
+
+const CONDICION_LABELS: Record<ReceptorCondicion, string> = {
+  CONSUMIDOR_FINAL: 'Consumidor Final',
+  RESPONSABLE_INSCRIPTO: 'Responsable Inscripto',
+  MONOTRIBUTO: 'Monotributo',
+  EXENTO: 'Exento',
+};
+
+const todayDateString = () => new Date().toISOString().slice(0, 10);
+
+const createDefaultInvoiceDraft = (detail: AccountDetail | null): InvoiceDraft => {
+  const today = todayDateString();
+  return {
+    condicionFiscal: 'CONSUMIDOR_FINAL',
+    receptorNombre: detail?.client?.name ?? '',
+    cuit: '',
+    dni: '',
+    fechaServicioDesde: today,
+    fechaServicioHasta: today,
+    fechaVencimientoPago: today,
+  };
+};
+
+type InvoiceRow = {
+  id: string;
+  attemptId?: string | null;
+  status: string;
+  documentType: string;
+  totalAmount: number;
+  netAmount?: number | null;
+  taxAmount?: number | null;
+  exemptAmount?: number | null;
+  issuerLegalName?: string | null;
+  issuerTaxId?: string | null;
+  cae?: string | null;
+  providerInvoiceId?: string | null;
+  issuedAt?: string | null;
+  createdAt?: string | null;
+  receiverName?: string | null;
+  receiverTaxId?: string | null;
+  receiverDocType?: string | null;
+  receiverDocNumber?: string | null;
+  pdfUrl?: string | null;
+  qrUrl?: string | null;
+  mensajeError?: string | null;
+  suggestedAction?: string | null;
+};
+
 // ─── AccountDrawer ────────────────────────────────────────────────────────────
 
 export default function AccountDrawer({
@@ -136,6 +225,8 @@ export default function AccountDrawer({
   onSuccess,
   onRefundRequest,
 }: AccountDrawerProps) {
+  const { user } = useAuth();
+  const slug = getActiveClubSlug(user as any);
   // ── Detail state ────────────────────────────────────────────────────────────
   const [detail, setDetail] = useState<AccountDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -149,6 +240,10 @@ export default function AccountDrawer({
   const [actionError, setActionError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [voidConfirmOpen, setVoidConfirmOpen] = useState(false);
+  const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
+  const [invoicesLoading, setInvoicesLoading] = useState(false);
+  const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraft>(() => createDefaultInvoiceDraft(null));
+  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceRow | null>(null);
 
   // ── Add item form ───────────────────────────────────────────────────────────
   const [itemForm, setItemForm] = useState(createDefaultItemForm);
@@ -254,6 +349,8 @@ export default function AccountDrawer({
       setPayResult(null);
       setItemForm(createDefaultItemForm());
       setVoidConfirmOpen(false);
+      setSelectedInvoice(null);
+      setInvoiceDraft(createDefaultInvoiceDraft(null));
       initialViewAppliedKeyRef.current = '';
       return;
     }
@@ -265,6 +362,8 @@ export default function AccountDrawer({
     setPayResult(null);
     setItemForm(createDefaultItemForm());
     setVoidConfirmOpen(false);
+    setSelectedInvoice(null);
+    setInvoiceDraft(createDefaultInvoiceDraft(null));
     setView('overview');
     initialViewAppliedKeyRef.current = '';
     getAccountById(accountId)
@@ -285,13 +384,56 @@ export default function AccountDrawer({
     };
   }, [open, accountId, normalizeDrawerDetail]);
 
+  const loadInvoices = useCallback(async () => {
+    if (!accountId || !slug) return [] as InvoiceRow[];
+    try {
+      setInvoicesLoading(true);
+      const items = await getAccountFacturas(slug, accountId);
+      const rows = items.map((f): InvoiceRow => ({
+        id: f.id,
+        attemptId: null,
+        status: f.status,
+        documentType: f.comprobanteDescripcion ?? `Factura ${f.voucherClass ?? ''}`,
+        totalAmount: Number(f.importeTotal),
+        netAmount: null,
+        taxAmount: null,
+        exemptAmount: null,
+        issuerLegalName: null,
+        issuerTaxId: null,
+        cae: f.cae ?? null,
+        providerInvoiceId:
+          f.puntoDeVenta != null && f.numeroComprobante != null
+            ? `${String(f.puntoDeVenta).padStart(4, '0')}-${String(f.numeroComprobante).padStart(8, '0')}`
+            : null,
+        issuedAt: f.fechaEmision,
+        createdAt: f.createdAt,
+        receiverName: f.receptorNombre ?? null,
+        receiverTaxId: null,
+        receiverDocType: null,
+        receiverDocNumber: f.receptorDocNumero ?? null,
+        pdfUrl: f.pdfUrl ?? null,
+        qrUrl: f.qrUrl ?? null,
+        mensajeError: f.mensajeError ?? null,
+        suggestedAction: f.suggestedAction ?? null,
+      }));
+      setInvoices(rows);
+      return rows;
+    } catch (err) {
+      reportUiError({ area: 'AccountDrawer', action: 'loadInvoices' }, err);
+      return [] as InvoiceRow[];
+    } finally {
+      setInvoicesLoading(false);
+    }
+  }, [accountId, slug]);
+
   useEffect(() => {
     if (!open || !accountId || !detail) return;
     const key = `${accountId}:${initialView}`;
     if (initialViewAppliedKeyRef.current === key) return;
     initialViewAppliedKeyRef.current = key;
     applyInitialViewForDetail(detail);
-  }, [open, accountId, detail, initialView, applyInitialViewForDetail]);
+    loadInvoices();
+  }, [open, accountId, detail, initialView, applyInitialViewForDetail, loadInvoices]);
 
   // ── Reload helper ─────────────────────────────────────────────────────────
   const reloadDetail = useCallback(async () => {
@@ -303,6 +445,7 @@ export default function AccountDrawer({
       reportUiError({ area: 'AccountDrawer', action: 'reloadDetail' }, err);
     }
   }, [accountId, normalizeDrawerDetail]);
+
 
   // ── Reset when going back ─────────────────────────────────────────────────
   const goToOverview = useCallback(async () => {
@@ -407,6 +550,40 @@ export default function AccountDrawer({
       label,
     };
   }, [accountId, context?.subtitle, context?.title, detail?.id]);
+
+  const openInvoiceForm = useCallback(() => {
+    if (!detail) return;
+    setActionError('');
+    setSelectedInvoice(null);
+    setInvoiceDraft(createDefaultInvoiceDraft(detail));
+    setView('invoice_form');
+  }, [detail]);
+
+  const openInvoiceDetail = useCallback((invoice: InvoiceRow) => {
+    setActionError('');
+    setSelectedInvoice(invoice);
+    setView('invoice_detail');
+  }, []);
+
+  const handleRetryInvoice = useCallback(async () => {
+    if (!accountId || !selectedInvoice || !slug) return;
+    try {
+      setSubmitting(true);
+      setActionError('');
+      await retryFactura(slug, selectedInvoice.id);
+      showAdminToast('Reintento enviado.');
+      const updated = await loadInvoices();
+      await reloadDetail();
+      const next = updated.find((r) => r.id === selectedInvoice.id) ?? updated[0] ?? null;
+      setSelectedInvoice(next);
+      setView(next ? 'invoice_detail' : 'overview');
+    } catch (err) {
+      reportUiError({ area: 'AccountDrawer', action: 'retryInvoice' }, err);
+      setActionError(extractErrorMessage(err, 'No se pudo reintentar la emisión.'));
+    } finally {
+      setSubmitting(false);
+    }
+  }, [accountId, selectedInvoice, slug, loadInvoices, reloadDetail]);
 
   // ── Apply quick preset ────────────────────────────────────────────────────
   const applyPreset = useCallback(
@@ -693,6 +870,61 @@ export default function AccountDrawer({
     }
   }, [accountId, detail, reloadDetail, getSuccessMeta, onClose, onSuccess]);
 
+  const CF_THRESHOLD = 10_000_000; // RG 5824/2026
+
+  const handleEmitInvoice = useCallback(async () => {
+    if (!accountId || !slug) return;
+
+    // Client-side validation: non-CF requires CUIT
+    if (invoiceDraft.condicionFiscal !== 'CONSUMIDOR_FINAL' && !invoiceDraft.cuit.trim()) {
+      setActionError(`La condición ${CONDICION_LABELS[invoiceDraft.condicionFiscal]} requiere un CUIT.`);
+      return;
+    }
+
+    // RG 5824/2026 — CF con importe >= $10M requiere identificación
+    const accountTotal = Number(detail?.total || 0);
+    if (
+      invoiceDraft.condicionFiscal === 'CONSUMIDOR_FINAL' &&
+      accountTotal >= CF_THRESHOLD &&
+      !invoiceDraft.dni.trim() && !invoiceDraft.cuit.trim()
+    ) {
+      setActionError(`El importe supera $10.000.000. Se requiere DNI o CUIT del receptor (RG 5824/2026).`);
+      return;
+    }
+
+    const input: EmitFacturaInput = {
+      receptorCondicionFiscal: invoiceDraft.condicionFiscal,
+      receptorNombre: invoiceDraft.receptorNombre.trim() || undefined,
+      receptorCuit: invoiceDraft.condicionFiscal !== 'CONSUMIDOR_FINAL' ? invoiceDraft.cuit : undefined,
+      receptorDni: invoiceDraft.condicionFiscal === 'CONSUMIDOR_FINAL' && invoiceDraft.dni ? invoiceDraft.dni : undefined,
+      fechaServicioDesde: invoiceDraft.fechaServicioDesde || undefined,
+      fechaServicioHasta: invoiceDraft.fechaServicioHasta || undefined,
+      fechaVencimientoPago: invoiceDraft.fechaVencimientoPago || undefined,
+    };
+
+    try {
+      setSubmitting(true);
+      setActionError('');
+      await emitAccountFactura(slug, accountId, input);
+      showAdminToast('Solicitud de factura enviada.');
+      await loadInvoices();
+      await reloadDetail();
+      setView('overview');
+    } catch (err) {
+      reportUiError({ area: 'AccountDrawer', action: 'emitInvoice' }, err);
+      setActionError(extractErrorMessage(err, 'No se pudo emitir la factura.'));
+    } finally {
+      setSubmitting(false);
+    }
+  }, [accountId, slug, invoiceDraft, loadInvoices, reloadDetail]);
+
+  const closeInvoicePanel = useCallback(() => {
+    if (submitting) return;
+    setActionError('');
+    setSelectedInvoice(null);
+    setView('overview');
+  }, [submitting]);
+
   // ── P2-B: Void POS account handler ─────────────────────────────────────────
   const handleVoidPosAccount = useCallback(async () => {
     if (!accountId) return;
@@ -807,6 +1039,17 @@ export default function AccountDrawer({
               Devolución
             </button>
           )}
+          {Number(detail.total || 0) > 0 && detail.payments.length > 0 && !invoices.some((i) => ACTIVE_FACTURA_STATUSES.has(i.status)) && (
+            <button
+              type="button"
+              onClick={openInvoiceForm}
+              disabled={submitting}
+              className="flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-40"
+            >
+              <ScrollText size={14} />
+              Emitir factura
+            </button>
+          )}
           {isOpen && !hasPendingDebt && (
             <button
               type="button"
@@ -826,6 +1069,90 @@ export default function AccountDrawer({
             >
               <Trash2 size={14} />
               Anular venta
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    if (view === 'invoice_form') {
+      return (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={closeInvoicePanel}
+            disabled={submitting}
+            className="flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-40"
+          >
+            <ArrowLeft size={14} />
+            Cancelar
+          </button>
+          <div className="flex-1" />
+          <button
+            type="submit"
+            form="invoice-form"
+            disabled={
+              submitting ||
+              (invoiceDraft.condicionFiscal !== 'CONSUMIDOR_FINAL' && invoiceDraft.cuit.length !== 11) ||
+              (invoiceDraft.condicionFiscal === 'CONSUMIDOR_FINAL' &&
+                Number(detail?.total || 0) >= CF_THRESHOLD &&
+                !invoiceDraft.dni.trim() && !invoiceDraft.cuit.trim())
+            }
+            className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-40"
+          >
+            {submitting ? 'Emitiendo...' : 'Emitir factura'}
+          </button>
+        </div>
+      );
+    }
+
+    if (view === 'invoice_detail') {
+      const canRetry = selectedInvoice != null &&
+        (selectedInvoice.status === 'PENDING' || selectedInvoice.status === 'TECHNICAL_ERROR');
+      const canEmitOther = !invoices.some((i) => ACTIVE_FACTURA_STATUSES.has(i.status));
+      const hasReceipt = selectedInvoice?.pdfUrl != null &&
+        (selectedInvoice.status === 'APPROVED' || selectedInvoice.status === 'APPROVED_WITH_OBSERVATIONS');
+      return (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={closeInvoicePanel}
+            disabled={submitting}
+            className="flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-40"
+          >
+            <ArrowLeft size={14} />
+            Volver
+          </button>
+          <div className="flex-1" />
+          {hasReceipt && (
+            <a
+              href={selectedInvoice!.pdfUrl!}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:bg-p-surface-2"
+            >
+              <Eye size={14} />
+              Ver comprobante
+            </a>
+          )}
+          {canRetry && (
+            <button
+              type="button"
+              onClick={() => void handleRetryInvoice()}
+              disabled={submitting}
+              className="flex h-10 items-center gap-1.5 rounded-xl bg-p-error px-4 text-[13px] font-semibold text-white transition hover:opacity-90 disabled:opacity-40"
+            >
+              {submitting ? 'Reintentando...' : 'Reintentar'}
+            </button>
+          )}
+          {canEmitOther && (
+            <button
+              type="button"
+              onClick={openInvoiceForm}
+              disabled={submitting}
+              className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-40"
+            >
+              Emitir otra
             </button>
           )}
         </div>
@@ -1013,6 +1340,8 @@ export default function AccountDrawer({
             </div>
           )}
 
+
+        
           {/* Summary cards */}
           <AdminDrawerSection className={sectionCardClass}>
             <div className="flex gap-2">
@@ -1048,6 +1377,60 @@ export default function AccountDrawer({
               </div>
             </AdminDrawerSection>
           )}
+
+          <AdminDrawerSection title="Facturas" className={sectionCardClass}>
+            {invoicesLoading ? (
+              <div className="flex items-center gap-2 px-4 py-4 text-[13px] text-p-text-muted">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-p-border border-p-accent-t" />
+                Cargando facturas...
+              </div>
+            ) : invoices.length === 0 ? (
+              <div className="px-4 py-4 text-[13px] text-p-text-muted">
+                Todavía no hay facturas emitidas para esta cuenta.
+              </div>
+            ) : (
+              <div className={sectionListClass}>
+                {invoices.map((invoice) => {
+                  const invStatusLabel = FACTURA_STATUS_LABELS[invoice.status] ?? invoice.status;
+                  const invStatusColor = FACTURA_STATUS_COLORS[invoice.status] ?? 'bg-p-surface-3 text-p-text-muted';
+                  return (
+                  <div key={invoice.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-[13px] font-medium text-p-text">
+                          {invoice.documentType || 'Factura'}
+                        </p>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${invStatusColor}`}>
+                          {invStatusLabel}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-p-text-muted">
+                        {formatRelativeDate(invoice.issuedAt || invoice.createdAt || '')}
+                        {invoice.providerInvoiceId ? ` · N° ${invoice.providerInvoiceId}` : ''}
+                      </p>
+                      {invoice.cae && (
+                        <p className="mt-1 text-[11px] text-p-text-muted">CAE: {String(invoice.cae)}</p>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="text-[13px] font-semibold text-p-positive">
+                        {formatMoney(Number(invoice.totalAmount || 0))}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => openInvoiceDetail(invoice)}
+                        className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3 text-[12px] font-medium text-p-text-muted transition hover:bg-p-surface-2"
+                      >
+                        <Eye size={13} />
+                        Ver
+                      </button>
+                    </div>
+                  </div>
+                  );
+                })}
+              </div>
+            )}
+          </AdminDrawerSection>
 
           {/* Conceptos */}
           {detail.items.length > 0 && (
@@ -1269,6 +1652,212 @@ export default function AccountDrawer({
             </div>
           </AdminDrawerSection>
         </form>
+      );
+    }
+
+    if (view === 'invoice_form') {
+      const needsCuit = invoiceDraft.condicionFiscal !== 'CONSUMIDOR_FINAL';
+      return (
+        <form
+          id="invoice-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleEmitInvoice();
+          }}
+        >
+          <AdminDrawerSection title="Datos del receptor" className={sectionCardClass}>
+            <div className="space-y-3">
+              {actionError && (
+                <div className="flex items-start gap-2 rounded-xl border border-p-error bg-p-error-bg px-4 py-3">
+                  <AlertTriangle size={14} className="mt-0.5 shrink-0 text-[var(--error-fg)]" />
+                  <p className="text-[13px] text-[var(--error-fg)]">{actionError}</p>
+                </div>
+              )}
+
+              {/* Condición fiscal */}
+              <label className="space-y-1.5">
+                <span className="block text-[12px] font-medium text-p-text-muted">Condición fiscal</span>
+                <select
+                  value={invoiceDraft.condicionFiscal}
+                  onChange={(e) => setInvoiceDraft((prev) => ({
+                    ...prev,
+                    condicionFiscal: e.target.value as ReceptorCondicion,
+                    cuit: '',
+                    dni: '',
+                  }))}
+                  className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text focus:border-p-accent focus:outline-none"
+                >
+                  {(Object.keys(CONDICION_LABELS) as ReceptorCondicion[]).map((key) => (
+                    <option key={key} value={key}>{CONDICION_LABELS[key]}</option>
+                  ))}
+                </select>
+              </label>
+
+              {/* Nombre / razón social */}
+              <label className="space-y-1.5">
+                <span className="block text-[12px] font-medium text-p-text-muted">Nombre / razón social</span>
+                <input
+                  type="text"
+                  value={invoiceDraft.receptorNombre}
+                  onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, receptorNombre: e.target.value }))}
+                  placeholder="Consumidor Final"
+                  className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text placeholder:text-p-text-muted focus:border-p-accent focus:outline-none"
+                />
+              </label>
+
+              {/* CUIT — requerido para RI / Monotributo / Exento */}
+              {needsCuit && (
+                <label className="space-y-1.5">
+                  <span className="block text-[12px] font-medium text-p-text-muted">
+                    CUIT <span className="text-[var(--error-fg)]">*</span>
+                  </span>
+                  <input
+                    type="text"
+                    value={invoiceDraft.cuit}
+                    onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, cuit: e.target.value.replace(/\D/g, '') }))}
+                    placeholder="20123456789"
+                    maxLength={11}
+                    inputMode="numeric"
+                    className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text placeholder:text-p-text-muted focus:border-p-accent focus:outline-none"
+                  />
+                  {invoiceDraft.cuit && invoiceDraft.cuit.length !== 11 && (
+                    <p className="text-[11px] text-[var(--error-fg)]">El CUIT debe tener 11 dígitos.</p>
+                  )}
+                </label>
+              )}
+
+              {/* DNI — opcional para Consumidor Final (requerido si importe >= $10M) */}
+              {!needsCuit && (
+                <label className="space-y-1.5">
+                  <span className="block text-[12px] font-medium text-p-text-muted">
+                    DNI{' '}
+                    {Number(detail.total || 0) >= CF_THRESHOLD ? (
+                      <span className="text-[var(--error-fg)]">* requerido (&gt;$10M)</span>
+                    ) : (
+                      <span className="font-normal">(opcional)</span>
+                    )}
+                  </span>
+                  <input
+                    type="text"
+                    value={invoiceDraft.dni}
+                    onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, dni: e.target.value.replace(/\D/g, '') }))}
+                    placeholder="Sin documento"
+                    maxLength={8}
+                    inputMode="numeric"
+                    className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text placeholder:text-p-text-muted focus:border-p-accent focus:outline-none"
+                  />
+                </label>
+              )}
+
+              {/* Fechas de servicio — §55.7 AFIP */}
+              <div className="space-y-2 rounded-xl border border-p-border bg-p-surface-2 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-p-text-muted">
+                  Período de servicio
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="space-y-1">
+                    <span className="block text-[12px] font-medium text-p-text-muted">Desde</span>
+                    <input
+                      type="date"
+                      value={invoiceDraft.fechaServicioDesde}
+                      onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, fechaServicioDesde: e.target.value }))}
+                      className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text focus:border-p-accent focus:outline-none"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="block text-[12px] font-medium text-p-text-muted">Hasta</span>
+                    <input
+                      type="date"
+                      value={invoiceDraft.fechaServicioHasta}
+                      onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, fechaServicioHasta: e.target.value }))}
+                      className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text focus:border-p-accent focus:outline-none"
+                    />
+                  </label>
+                </div>
+                <label className="space-y-1">
+                  <span className="block text-[12px] font-medium text-p-text-muted">Vencimiento de pago</span>
+                  <input
+                    type="date"
+                    value={invoiceDraft.fechaVencimientoPago}
+                    onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, fechaVencimientoPago: e.target.value }))}
+                    className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text focus:border-p-accent focus:outline-none"
+                  />
+                </label>
+              </div>
+
+              {/* Resumen del importe */}
+              <div className={sectionListClass}>
+                <DataRow
+                  label="Importe a facturar"
+                  value={formatMoney(Number(detail.total || 0))}
+                  valueClassName="font-bold"
+                />
+              </div>
+
+              <p className="text-[11px] text-p-text-muted">
+                El tipo de comprobante (A / B / C) se determina según la condición fiscal del club emisor y la del receptor.
+              </p>
+            </div>
+          </AdminDrawerSection>
+        </form>
+      );
+    }
+
+    if (view === 'invoice_detail') {
+      const invoice = selectedInvoice;
+      const statusLabel = invoice ? (FACTURA_STATUS_LABELS[invoice.status] ?? invoice.status) : '';
+      const statusColor = invoice ? (FACTURA_STATUS_COLORS[invoice.status] ?? 'bg-p-surface-3 text-p-text-muted') : '';
+      return (
+        <AdminDrawerSection className={sectionCardClass}>
+          {invoice ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-semibold text-p-text">{invoice.documentType || 'Factura'}</p>
+                  <span className={`mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${statusColor}`}>
+                    {statusLabel}
+                  </span>
+                </div>
+                <span className="shrink-0 text-[16px] font-bold text-p-positive">{formatMoney(invoice.totalAmount)}</span>
+              </div>
+              <div className={sectionListClass}>
+                <DataRow label="CAE" value={invoice.cae || '-'} />
+                <DataRow label="Nro. comprobante" value={invoice.providerInvoiceId || '-'} />
+                <DataRow label="Emitida" value={formatRelativeDate(invoice.issuedAt || invoice.createdAt || '')} />
+                <DataRow label="Receptor" value={invoice.receiverName || '-'} />
+                <DataRow
+                  label="Documento"
+                  value={invoice.receiverDocNumber ? `DNI ${invoice.receiverDocNumber}` : '-'}
+                />
+                {invoice.pdfUrl && (
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <span className="text-[13px] text-p-text-muted">Comprobante</span>
+                    <a
+                      href={invoice.pdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-[13px] font-medium text-p-accent underline-offset-2 hover:underline"
+                    >
+                      <Eye size={13} />
+                      Abrir
+                    </a>
+                  </div>
+                )}
+              </div>
+              {invoice.mensajeError && (
+                <div className="rounded-xl border border-p-error/30 bg-p-error-bg px-4 py-3">
+                  <p className="text-[12px] font-semibold text-[var(--error-fg)]">Error AFIP</p>
+                  <p className="mt-0.5 text-[12px] text-[var(--error-fg)]">{invoice.mensajeError}</p>
+                  {invoice.suggestedAction && (
+                    <p className="mt-1 text-[11px] text-p-text-muted">{invoice.suggestedAction}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-[13px] text-p-text-muted">No se encontró el detalle de la factura.</p>
+          )}
+        </AdminDrawerSection>
       );
     }
 

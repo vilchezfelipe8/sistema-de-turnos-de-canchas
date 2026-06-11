@@ -4,6 +4,7 @@ import {
   SettingsAuditSection,
   SettingsClubIdentitySection,
   SettingsExceptionsSection,
+  SettingsFiscalSection,
   SettingsIntegrationsWorkspaceSection,
   SettingsMembersSection,
   SettingsPricingSection,
@@ -20,7 +21,8 @@ export type SettingsWorkspaceTab =
   | 'usuarios'
   | 'notificaciones'
   | 'excepciones'
-  | 'auditoria';
+  | 'auditoria'
+  | 'facturacion';
 
 const comingSoonLabelByTab: Record<Extract<SettingsWorkspaceTab, 'notificaciones' | 'actividades'>, string> = {
   actividades: 'Actividades',
@@ -48,6 +50,7 @@ export default function AdminSettingsWorkspace({ tab }: AdminSettingsWorkspacePr
   if (tab === 'usuarios') return <SettingsMembersSection />;
   if (tab === 'excepciones') return <SettingsExceptionsSection />;
   if (tab === 'auditoria') return <SettingsAuditSection />;
+  if (tab === 'facturacion') return <SettingsFiscalSection />;
 
   return (
     <AdminComingSoonPanel

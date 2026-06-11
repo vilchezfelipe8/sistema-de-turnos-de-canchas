@@ -657,6 +657,24 @@ export type AdminClubPaymentIntegration = {
   updatedAt: string;
 };
 
+export type AdminClubBillingIntegration = {
+  id: string | null;
+  environment: 'TEST' | 'PRODUCTION';
+  status: 'CONNECTED' | 'DISCONNECTED';
+  issuerTaxId: string | null;
+  issuerTaxCondition: string | null;
+  issuerLegalName: string | null;
+  pointOfSaleNumber: number | null;
+  createdBy: {
+    id: number;
+    email: string;
+    firstName?: string | null;
+    lastName?: string | null;
+  } | null;
+  createdAt: string | null;
+  updatedAt: string;
+};
+
 export type PersonSearchResult = {
   personKey: string;
   kind: 'linked' | 'clubClient' | 'systemUser' | 'newClientSuggestion';
@@ -2157,6 +2175,39 @@ export class ClubAdminService {
     }
     const payload = await res.json();
     return Array.isArray(payload?.items) ? payload.items : [];
+  }
+
+  static async listBillingIntegrations(slug: string): Promise<AdminClubBillingIntegration[]> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/integrations/billing`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) {
+      await throwApiErrorFromResponse(res, 'No se pudo cargar la configuración de facturación.');
+    }
+    const payload = await res.json();
+    return Array.isArray(payload?.items) ? payload.items : [];
+  }
+
+  static async upsertBillingIntegration(slug: string, input: {
+    environment: 'TEST' | 'PRODUCTION';
+    issuerTaxId: string;
+    issuerTaxCondition: string;
+    issuerLegalName: string;
+    pointOfSaleNumber: number;
+    certificatePem: string;
+    privateKeyPem: string;
+  }) {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/integrations/billing`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input)
+    });
+    if (!res.ok) {
+      await throwApiErrorFromResponse(res, 'No se pudo guardar la configuración de facturación.');
+    }
+    const payload = await res.json();
+    return payload?.integration ?? payload;
   }
 
   static getMercadoPagoConnectUrl(slug: string) {

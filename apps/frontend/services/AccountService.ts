@@ -239,3 +239,4 @@ export const createCashMovement = async (body: { type: 'PAYMENT_IN' | 'REFUND' |
   }
   return res.json();
 };
+

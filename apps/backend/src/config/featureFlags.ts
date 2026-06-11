@@ -20,4 +20,10 @@ export const featureFlags = {
     if (v === 'false' || v === '0') return false;
     return true;
   },
+
+  get ENABLE_ARCA_WORKER(): boolean {
+    const v = process.env.ENABLE_ARCA_WORKER;
+    if (v === 'true' || v === '1') return true;
+    return false;
+  },
 };
