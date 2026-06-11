@@ -215,6 +215,68 @@ export const requestMagicLink = async (email: string) => {
   return data;
 };
 
+const buildOAuthStartUrl = (
+  provider: 'google' | 'apple' | 'facebook',
+  returnTo?: string | null,
+  intent: 'login' | 'connect' = 'login'
+) => {
+  if (typeof window === 'undefined') return null;
+  const safeReturnTo =
+    typeof returnTo === 'string' && returnTo.startsWith('/') && !returnTo.startsWith('//')
+      ? returnTo
+      : '/';
+  const url = new URL(`${apiBase()}/auth/oauth/${provider}/start`, window.location.origin);
+  if (safeReturnTo && safeReturnTo !== '/') {
+    url.searchParams.set('returnTo', safeReturnTo);
+  }
+  if (intent === 'connect') {
+    url.searchParams.set('intent', 'connect');
+  }
+  return url;
+};
+
+export const beginGoogleOAuthLogin = (returnTo?: string | null) => {
+  if (typeof window === 'undefined') return;
+  const url = buildOAuthStartUrl('google', returnTo, 'login');
+  if (!url) return;
+  window.location.assign(url.toString());
+};
+
+export const beginAppleOAuthLogin = (returnTo?: string | null) => {
+  if (typeof window === 'undefined') return;
+  const url = buildOAuthStartUrl('apple', returnTo, 'login');
+  if (!url) return;
+  window.location.assign(url.toString());
+};
+
+export const beginFacebookOAuthLogin = (returnTo?: string | null) => {
+  if (typeof window === 'undefined') return;
+  const url = buildOAuthStartUrl('facebook', returnTo, 'login');
+  if (!url) return;
+  window.location.assign(url.toString());
+};
+
+export const beginGoogleOAuthConnect = (returnTo: string = '/perfil') => {
+  if (typeof window === 'undefined') return;
+  const url = buildOAuthStartUrl('google', returnTo, 'connect');
+  if (!url) return;
+  window.location.assign(url.toString());
+};
+
+export const beginAppleOAuthConnect = (returnTo: string = '/perfil') => {
+  if (typeof window === 'undefined') return;
+  const url = buildOAuthStartUrl('apple', returnTo, 'connect');
+  if (!url) return;
+  window.location.assign(url.toString());
+};
+
+export const beginFacebookOAuthConnect = (returnTo: string = '/perfil') => {
+  if (typeof window === 'undefined') return;
+  const url = buildOAuthStartUrl('facebook', returnTo, 'connect');
+  if (!url) return;
+  window.location.assign(url.toString());
+};
+
 export const verifyMagicLink = async (token: string) => {
   const response = await fetch(`${apiBase()}/auth/email/verify?format=json&token=${encodeURIComponent(token)}`, {
     method: 'GET',
@@ -252,6 +314,142 @@ export const verifyMagicLink = async (token: string) => {
   }
 
   throw new Error('No se pudo iniciar sesión con el enlace.');
+};
+
+export type OAuthIdentitySummary = {
+  id: string;
+  provider: 'GOOGLE' | 'APPLE' | 'FACEBOOK' | string;
+  providerEmail: string | null;
+  providerEmailVerified: boolean;
+  profilePhotoUrl?: string | null;
+  linkedAt: string;
+  lastLoginAt: string;
+};
+
+export type SessionSecuritySummary = {
+  id: string;
+  status: 'ACTIVE' | 'ROTATED' | 'REVOKED' | 'EXPIRED' | string;
+  ip: string | null;
+  userAgent: string | null;
+  deviceLabel: string | null;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+  absoluteExpiresAt: string;
+  isCurrent: boolean;
+};
+
+export type AccountSecurityOverview = {
+  oauthIdentities: OAuthIdentitySummary[];
+  sessions: SessionSecuritySummary[];
+  currentSessionId: string | null;
+  clubProfiles: ClubProfileSummary[];
+};
+
+export type ClubProfileSummary = {
+  clubId: number;
+  clubName: string;
+  clubSlug: string;
+  membershipRole: string | null;
+  status: 'LINKED' | 'CLAIMABLE' | 'CONFLICTED' | 'AVAILABLE' | string;
+  linkedClientId: string | null;
+  candidateClientIds: string[];
+  reason: string;
+  reasonCode:
+    | 'ALREADY_LINKED'
+    | 'UNIQUE_STRONG_MATCH'
+    | 'MULTIPLE_STRONG_MATCHES'
+    | 'MATCH_LINKED_TO_ANOTHER_USER'
+    | 'MIXED_STRONG_MATCH_CONFLICT'
+    | 'NO_STRONG_MATCH'
+    | string;
+  matchedBy: Array<'EMAIL' | 'PHONE' | 'DNI' | string>;
+  conflictDetails: {
+    candidateCount: number;
+    freeCandidateCount: number;
+    linkedToAnotherUserCount: number;
+  } | null;
+  canClaim: boolean;
+};
+
+export const getAccountSecurityOverview = async (): Promise<AccountSecurityOverview> => {
+  const headers: Record<string, string> = {};
+  const activeClubId = getActiveClubId();
+  if (activeClubId) headers['x-active-club-id'] = String(activeClubId);
+
+  const response = await fetch(`${apiBase()}/auth/account/security`, {
+    method: 'GET',
+    headers,
+    credentials: 'include'
+  });
+
+  if (!response.ok) {
+    await throwApiErrorFromResponse(response, 'No se pudo cargar la seguridad de la cuenta.');
+  }
+
+  return response.json();
+};
+
+export const disconnectGoogleOAuth = async () => {
+  return disconnectOAuthProvider('google', 'No se pudo desconectar Google.');
+};
+
+export const disconnectAppleOAuth = async () => {
+  return disconnectOAuthProvider('apple', 'No se pudo desconectar Apple.');
+};
+
+export const disconnectFacebookOAuth = async () => {
+  return disconnectOAuthProvider('facebook', 'No se pudo desconectar Facebook.');
+};
+
+const disconnectOAuthProvider = async (provider: 'google' | 'apple' | 'facebook', fallbackMessage: string) => {
+  const headers = await buildCsrfHeaders();
+  const activeClubId = getActiveClubId();
+  if (activeClubId) headers['x-active-club-id'] = String(activeClubId);
+
+  const response = await fetch(`${apiBase()}/auth/oauth/${provider}/disconnect`, {
+    method: 'POST',
+    headers,
+    credentials: 'include'
+  });
+
+  if (!response.ok) {
+    await throwApiErrorFromResponse(response, fallbackMessage);
+  }
+};
+
+export const logoutAllSessions = async () => {
+  const headers = await buildCsrfHeaders();
+  const activeClubId = getActiveClubId();
+  if (activeClubId) headers['x-active-club-id'] = String(activeClubId);
+
+  const response = await fetch(`${apiBase()}/auth/session/logout-all`, {
+    method: 'POST',
+    headers,
+    credentials: 'include'
+  });
+
+  if (!response.ok) {
+    await throwApiErrorFromResponse(response, 'No se pudieron cerrar todas las sesiones.');
+  }
+};
+
+export const claimClubProfile = async (clubId: number): Promise<{ profile: ClubProfileSummary }> => {
+  const headers = await buildCsrfHeaders();
+  const activeClubId = getActiveClubId();
+  if (activeClubId) headers['x-active-club-id'] = String(activeClubId);
+
+  const response = await fetch(`${apiBase()}/auth/account/club-profiles/${encodeURIComponent(String(clubId))}/claim`, {
+    method: 'POST',
+    headers,
+    credentials: 'include'
+  });
+
+  if (!response.ok) {
+    await throwApiErrorFromResponse(response, 'No se pudo vincular tu perfil en este club.');
+  }
+
+  return response.json();
 };
 
 export const register = async (

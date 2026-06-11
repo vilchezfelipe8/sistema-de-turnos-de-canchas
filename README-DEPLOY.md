@@ -10,6 +10,11 @@ Guía mínima para desplegar Pique con foco en autenticación por cookies y oper
 
 Si usás `wpp-service`, instalar dependencias de Chromium en host/contenedor según tu estrategia.
 
+Nota:
+
+- `apps/wpp-service` es el transporte legacy basado en WhatsApp Web.
+- La dirección objetivo de producto/arquitectura está documentada en `docs/whatsapp-cloud-api-migration.md`.
+
 ## 2) Variables de entorno críticas
 
 Partir de `env.example` y definir valores reales.
@@ -47,6 +52,57 @@ Si vas a habilitar checkout online con Mercado Pago por club:
 - `INTEGRATION_SECRETS_KEY` (secreto fuerte para cifrar tokens OAuth en base)
 
 No expongas tokens de clubes en logs, frontend ni variables compartidas.
+
+Si vas a preparar `WhatsApp Cloud API` para PRs siguientes:
+
+- `ENABLE_WHATSAPP_SEND_V2=false`
+- `ENABLE_WHATSAPP_CUSTOMER_EVENTS_V2=false`
+- `ENABLE_WHATSAPP_STAFF_EVENTS_V2=false`
+- `ENABLE_WHATSAPP_V2_DRY_RUN=false`
+- `ENABLE_WHATSAPP_CLOUD_API=false`
+- `ENABLE_WHATSAPP_WEBHOOK_PROCESSOR=false`
+- `WHATSAPP_META_GRAPH_API_BASE_URL=https://graph.facebook.com`
+- `WHATSAPP_META_GRAPH_API_VERSION=v19.0`
+- `WHATSAPP_META_REQUEST_TIMEOUT_MS=10000`
+- `WHATSAPP_META_ACCESS_TOKEN` en entorno backend
+- `WHATSAPP_META_RECIPIENT_ALLOWLIST=` para pruebas controladas
+- `WHATSAPP_META_WEBHOOK_VERIFY_TOKEN` en entorno backend
+
+Regla:
+
+- no guardar token en DB
+- `tokenSecretRef` debe apuntar a nombre de variable de entorno
+- el verify token del webhook debe vivir solo en entorno, nunca hardcodeado
+
+Checklist operativo de readiness:
+
+- `WhatsappSender.code=PIQUE_DEFAULT`
+- `mode=PIQUE_DEFAULT`
+- `provider=META_CLOUD_API`
+- `status=ACTIVE`
+- `clubId=null`
+- `phoneNumberId` y `wabaId` cargados desde Meta
+- `tokenSecretRef=WHATSAPP_META_ACCESS_TOKEN`
+- templates MVP en `ACTIVE`
+- preflight admin OK antes de prender rollout
+
+Bootstrap recomendado:
+
+```bash
+cd apps/backend
+npm run prisma:migrate:deploy
+npm run whatsapp:bootstrap-cloud-api
+```
+
+Orden recomendado de rollout:
+
+1. deploy con flags apagadas
+2. preflight
+3. dry-run
+4. allowlist interna
+5. piloto customer
+6. piloto staff
+7. rollback por flags si hace falta
 
 ## 3) Migraciones y base limpia
 
@@ -129,6 +185,26 @@ docker-compose build
 docker-compose up -d
 docker-compose logs -f backend
 docker-compose logs -f frontend
+```
+
+### Redeploy en VPS / Hostinger
+
+Si ya estás parado en la raíz del proyecto dentro de la VPS y querés redeployar solo el backend API:
+
+```bash
+docker compose build backend && docker compose up -d backend
+```
+
+Si este release también necesita refrescar worker y scheduler para que queden en la misma versión:
+
+```bash
+docker compose build backend backend-worker backend-scheduler && docker compose up -d backend backend-worker backend-scheduler
+```
+
+Para seguir logs después del redeploy:
+
+```bash
+docker compose logs -f backend
 ```
 
 Para una DB nueva o local de prueba, el helper seguro es:

@@ -12,10 +12,29 @@ import { reportUiError } from '../utils/uiError';
 
 // Extra scoped styles for layout internals that can't easily use Tailwind
 const LAYOUT_CSS = `
-  .pique-layout { min-height:100vh; background:var(--bg); color:var(--text-primary); font-family:var(--font-sans); -webkit-font-smoothing:antialiased; overflow-x:hidden; padding-top:64px; }
+  .pique-layout { min-height:100dvh; box-sizing:border-box; display:flex; flex-direction:column; background:var(--bg); color:var(--text-primary); font-family:var(--font-sans); -webkit-font-smoothing:antialiased; overflow-x:hidden; padding-top:64px; }
   .pique-layout *,.pique-layout *::before,.pique-layout *::after { box-sizing:border-box; }
   .pique-layout a { color:inherit; text-decoration:none; }
   .pique-layout ::selection { background:var(--brand); color:var(--brand-on); }
+  .pique-layout .p-footer { margin-top:auto; }
+  .p-legal-footer { border-top:1px solid var(--border); background:var(--surface-1); }
+  .p-legal-footer-inner { max-width:1360px; margin:0 auto; padding:22px 24px 24px; display:flex; align-items:flex-start; justify-content:space-between; gap:22px; flex-wrap:wrap; }
+  .p-legal-footer-brand { display:flex; flex-direction:column; gap:8px; min-width:220px; }
+  .p-legal-footer-copy { margin:0; color:var(--text-muted); font-size:12px; line-height:1.6; font-weight:600; max-width:340px; }
+  .p-legal-footer-groups { display:flex; align-items:flex-start; justify-content:flex-end; gap:28px; flex-wrap:wrap; }
+  .p-legal-footer-group { display:flex; flex-direction:column; gap:10px; min-width:120px; }
+  .p-legal-footer-title { margin:0; color:var(--text-muted); font-size:10px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+  .p-legal-footer-links { display:flex; flex-direction:column; gap:8px; }
+  .p-legal-footer-link { color:var(--text-primary); font-size:13px; font-weight:700; line-height:1.4; transition:color .15s; }
+  .p-legal-footer-link:hover { color:var(--accent-fg); }
+  .p-legal-footer-meta { width:100%; padding-top:14px; border-top:1px solid var(--border-subtle); color:var(--text-muted); font-size:11px; font-weight:700; letter-spacing:.02em; }
+  @media (max-width: 720px) {
+    .p-legal-footer-inner { padding:18px 20px 20px; gap:18px; }
+    .p-legal-footer-brand { min-width:0; width:100%; }
+    .p-legal-footer-groups { width:100%; justify-content:flex-start; gap:20px; }
+    .p-legal-footer-group { min-width:110px; }
+    .p-legal-footer-meta { padding-top:12px; }
+  }
   /* User menu link/button hover */
   .pique-menu-item { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:var(--r-md); color:var(--text-secondary); font-size:13px; font-weight:600; background:none; border:none; width:100%; cursor:pointer; font-family:var(--font-sans); text-align:left; transition:background .15s,color .15s; }
   .pique-menu-item:hover { background:var(--surface-2); color:var(--text-primary); }
@@ -94,6 +113,11 @@ export default function DarkPageLayout({ title, children, extraCss = '', breadcr
     }
   };
 
+  const handleNavbarInteract = () => {
+    setShowContact(false);
+    setContactMenu(null);
+  };
+
   return (
     <>
       <Head>
@@ -102,7 +126,7 @@ export default function DarkPageLayout({ title, children, extraCss = '', breadcr
       <style dangerouslySetInnerHTML={{ __html: LAYOUT_CSS + (extraCss ? '\n' + extraCss : '') }} />
 
       <div className={`pique-layout pique-root p-public-root${isLight ? ' p-public-theme-light' : ''}`}>
-        <NavBar onContactClick={() => setShowContact(true)} />
+        <NavBar onContactClick={() => setShowContact(true)} onNavbarInteract={handleNavbarInteract} showContactLink={false} />
 
         {/* Breadcrumbs */}
         {breadcrumbs.length > 0 && (
@@ -131,21 +155,52 @@ export default function DarkPageLayout({ title, children, extraCss = '', breadcr
         {children}
 
         {/* ── FOOTER ── */}
-        <footer className="p-footer">
-          <div className="p-footer-inner">
-            <span className="p-footer-brand" style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}><PiqueLogo variant={isLight ? 'horizontal' : 'horizontalDark'} style={{ width: 82, height: 'auto', display: 'block' }} /><span>© {currentYear}</span></span>
-            <nav className="p-footer-links" aria-label="Enlaces del sitio">
-              <Link href="/" className="p-footer-link">Inicio</Link>
-              <Link href="/complejos" className="p-footer-link">Complejos</Link>
-              {user ? (
-                <>
-                  <Link href="/bookings" className="p-footer-link">Mis reservas</Link>
-                  <Link href="/perfil" className="p-footer-link">Mi perfil</Link>
-                </>
-              ) : (
-                <Link href="/login" className="p-footer-link">Ingresar</Link>
-              )}
-            </nav>
+        <footer className="p-legal-footer">
+          <div className="p-legal-footer-inner">
+            <div className="p-legal-footer-brand">
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                <PiqueLogo variant={isLight ? 'horizontal' : 'horizontalDark'} style={{ width: 82, height: 'auto', display: 'block' }} />
+              </span>
+              <p className="p-legal-footer-copy">
+                Reservas, identidad y gestión deportiva en un solo lugar.
+              </p>
+            </div>
+
+            <div className="p-legal-footer-groups">
+              <div className="p-legal-footer-group">
+                <p className="p-legal-footer-title">Explorar</p>
+                <nav className="p-legal-footer-links" aria-label="Explorar Pique">
+                  <Link href="/" className="p-legal-footer-link">Inicio</Link>
+                  <Link href="/complejos" className="p-legal-footer-link">Complejos</Link>
+                </nav>
+              </div>
+
+              <div className="p-legal-footer-group">
+                <p className="p-legal-footer-title">Legal</p>
+                <nav className="p-legal-footer-links" aria-label="Legal">
+                  <Link href="/legal/privacy" className="p-legal-footer-link">Privacidad</Link>
+                  <Link href="/legal/terms" className="p-legal-footer-link">Términos</Link>
+                </nav>
+              </div>
+
+              <div className="p-legal-footer-group">
+                <p className="p-legal-footer-title">Cuenta</p>
+                <nav className="p-legal-footer-links" aria-label="Cuenta">
+                  {user ? (
+                    <>
+                      <Link href="/bookings" className="p-legal-footer-link">Mis reservas</Link>
+                      <Link href="/perfil" className="p-legal-footer-link">Mi perfil</Link>
+                    </>
+                  ) : (
+                    <Link href="/login" className="p-legal-footer-link">Ingresar</Link>
+                  )}
+                </nav>
+              </div>
+            </div>
+
+            <div className="p-legal-footer-meta">
+              © {currentYear} Pique
+            </div>
           </div>
         </footer>
 
@@ -197,11 +252,24 @@ export default function DarkPageLayout({ title, children, extraCss = '', breadcr
                 onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--accent-fg)'; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border)'; }}
               >
-                <div style={{ width: 40, height: 40, borderRadius: 'var(--r-md)', background: 'var(--positive-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-fg)', flexShrink: 0 }}>
+                <div
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 'var(--r-md)',
+                    background: 'var(--positive-bg)',
+                    border: '1px solid var(--accent-border-subtle)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--accent-fg)',
+                    flexShrink: 0
+                  }}
+                >
                   {c.icon}
                 </div>
                 <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.12em', color: 'var(--text-muted)' }}>{c.label}</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-muted)' }}>{c.label}</div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{c.value}</div>
                 </div>
               </button>

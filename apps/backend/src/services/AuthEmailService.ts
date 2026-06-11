@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { Resend } from 'resend';
+import { logger } from '../utils/logger';
 
 const getRequiredEnv = (key: 'RESEND_API_KEY' | 'EMAIL_FROM') => {
   const value = String(process.env[key] || '').trim();
@@ -21,8 +22,58 @@ const escapeHtml = (value: string) =>
 const PIQUE_LOGO_INLINE_CONTENT_ID = 'pique-logo-horizontal';
 const PIQUE_LOGO_EMAIL_PATH = resolve(
   __dirname,
-  '../../../frontend/public/brand/pique-logo-horizontal-email.png'
+  '../../assets/brand/pique-logo-horizontal-email.png'
 );
+const DEFAULT_PUBLIC_SITE_URL = 'https://pique.ar';
+
+type InlineAttachment = {
+  filename: string;
+  content: Buffer;
+  contentType: string;
+  inlineContentId: string;
+};
+
+let cachedLogoAttachment: InlineAttachment | null | undefined;
+
+const getPublicSiteUrl = () =>
+  String(process.env.FRONTEND_URL || process.env.APP_BASE_URL || DEFAULT_PUBLIC_SITE_URL)
+    .trim()
+    .replace(/\/+$/, '') || DEFAULT_PUBLIC_SITE_URL;
+
+const getInlineLogoAttachment = (): InlineAttachment | null => {
+  if (cachedLogoAttachment !== undefined) {
+    return cachedLogoAttachment;
+  }
+
+  try {
+    cachedLogoAttachment = {
+      filename: 'pique-logo-horizontal-email.png',
+      content: readFileSync(PIQUE_LOGO_EMAIL_PATH),
+      contentType: 'image/png',
+      inlineContentId: PIQUE_LOGO_INLINE_CONTENT_ID
+    };
+  } catch (error) {
+    cachedLogoAttachment = null;
+    logger.warn(
+      {
+        err: error,
+        path: PIQUE_LOGO_EMAIL_PATH,
+        action: 'sendMagicLink'
+      },
+      'Auth email logo asset unavailable; sending email without inline logo.'
+    );
+  }
+
+  return cachedLogoAttachment;
+};
+
+export const authEmailServiceInternals = {
+  getPublicSiteUrl,
+  getInlineLogoAttachment,
+  resetLogoAttachmentCache: () => {
+    cachedLogoAttachment = undefined;
+  }
+};
 
 export class AuthEmailService {
   private readonly resend: Resend;
@@ -38,7 +89,35 @@ export class AuthEmailService {
     const subject = 'Tu enlace de acceso a Pique';
     const safeUrl = escapeHtml(url);
     const supportCopy = 'Pique — Reservas, agenda y gestión para clubes deportivos.';
-    const logoContent = readFileSync(PIQUE_LOGO_EMAIL_PATH);
+    const publicSiteUrl = escapeHtml(getPublicSiteUrl());
+    const logoAttachment = getInlineLogoAttachment();
+    const brandHeader = logoAttachment
+      ? `
+                <a
+                  href="${publicSiteUrl}"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style="display:inline-block; text-decoration:none;"
+                >
+                  <img
+                    src="cid:${PIQUE_LOGO_INLINE_CONTENT_ID}"
+                    alt="Pique"
+                    width="196"
+                    height="64"
+                    style="display:block; margin:0 auto; width:196px; max-width:100%; height:auto; border:0;"
+                  />
+                </a>
+              `
+      : `
+                <a
+                  href="${publicSiteUrl}"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style="display:inline-block; text-decoration:none; font-size:32px; line-height:1; font-weight:800; letter-spacing:-0.03em; color:#111827;"
+                >
+                  Pique
+                </a>
+              `;
     const html = `
 <!doctype html>
 <html lang="es">
@@ -54,20 +133,7 @@ export class AuthEmailService {
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:560px;">
             <tr>
               <td style="padding:0 0 16px 0; text-align:center;">
-                <a
-                  href="https://pique.ar"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style="display:inline-block; text-decoration:none;"
-                >
-                  <img
-                    src="cid:${PIQUE_LOGO_INLINE_CONTENT_ID}"
-                    alt="Pique"
-                    width="196"
-                    height="64"
-                    style="display:block; margin:0 auto; width:196px; max-width:100%; height:auto; border:0;"
-                  />
-                </a>
+${brandHeader}
               </td>
             </tr>
             <tr>
@@ -125,14 +191,7 @@ export class AuthEmailService {
       subject,
       html,
       text,
-      attachments: [
-        {
-          filename: 'pique-logo-horizontal-email.png',
-          content: logoContent,
-          contentType: 'image/png',
-          inlineContentId: PIQUE_LOGO_INLINE_CONTENT_ID
-        }
-      ]
+      attachments: logoAttachment ? [logoAttachment] : undefined
     });
   }
 }

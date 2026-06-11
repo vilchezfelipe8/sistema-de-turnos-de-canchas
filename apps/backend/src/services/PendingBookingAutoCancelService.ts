@@ -13,6 +13,9 @@ import { AuditLogService } from './AuditLogService';
 import { TimeHelper } from '../utils/TimeHelper';
 import { getDepositRequiredAmount } from '../domain/bookingDomain';
 import { normalizeIdentityPhone } from '../utils/phone';
+import { featureFlags } from '../config/featureFlags';
+import { BookingCustomerWhatsappNotificationService } from './BookingCustomerWhatsappNotificationService';
+import { BookingStaffWhatsappNotificationService } from './BookingStaffWhatsappNotificationService';
 
 const EPSILON = 0.009;
 
@@ -52,6 +55,10 @@ export class PendingBookingAutoCancelService {
   private readonly outboxService = new OutboxService();
   private readonly accountService = new AccountService();
   private readonly auditLogService = new AuditLogService();
+  private readonly bookingCustomerWhatsappNotificationService =
+    new BookingCustomerWhatsappNotificationService();
+  private readonly bookingStaffWhatsappNotificationService =
+    new BookingStaffWhatsappNotificationService();
   private readonly bookingService = new BookingService(
     new BookingRepository(),
     new CourtRepository(),
@@ -160,6 +167,7 @@ Si no se confirma antes de las *${limitTime}*, puede cancelarse automáticamente
     }
 
     const clientPhone = normalizeIdentityPhone(booking.user?.phoneNumber || booking.client?.phone || null);
+    const clubPhone = normalizeIdentityPhone(booking.court.club.phone || null);
     const clientName = booking.user?.firstName || booking.client?.name || 'Jugador';
     const clubTimeZone = booking.court.club.settings?.timeZone ?? 'America/Argentina/Buenos_Aires';
     const dedupeSuffix = `booking-auto-cancel-warning:${booking.id}`;
@@ -186,28 +194,59 @@ Si no se confirma antes de las *${limitTime}*, puede cancelarse automáticamente
         insufficientAmount = Math.max(0, Number((depositRequiredAmount - paidAmount).toFixed(2)));
       }
     }
-    const message = this.buildWarningMessage({
-      bookingId: booking.id,
-      clubName: booking.court.club.name,
-      courtName: booking.court.name,
-      clientName,
-      startDateTime: booking.startDateTime,
-      timeZone: clubTimeZone,
-      cancelMinutesBefore: Number(settings.cancelMinutesBefore || 0),
-      insufficientAmount
-    });
-
     if (clientPhone) {
-      await this.outboxService.enqueue({
+      if (featureFlags.ENABLE_WHATSAPP_CUSTOMER_EVENTS_V2) {
+        await this.bookingCustomerWhatsappNotificationService.enqueuePendingWarning({
+          bookingId: booking.id,
+          clubId: booking.clubId,
+          clubName: booking.court.club.name,
+          courtName: booking.court.name,
+          clientName,
+          clientPhone,
+          startDateTime: booking.startDateTime,
+          timeZone: clubTimeZone,
+          cancelMinutesBefore: Number(settings.cancelMinutesBefore || 0),
+          insufficientAmount
+        }, tx);
+      } else {
+        const message = this.buildWarningMessage({
+          bookingId: booking.id,
+          clubName: booking.court.club.name,
+          courtName: booking.court.name,
+          clientName,
+          startDateTime: booking.startDateTime,
+          timeZone: clubTimeZone,
+          cancelMinutesBefore: Number(settings.cancelMinutesBefore || 0),
+          insufficientAmount
+        });
+
+        await this.outboxService.enqueue({
+          clubId: booking.clubId,
+          type: OUTBOX_TYPES.WHATSAPP_SEND,
+          aggregateType: 'BOOKING',
+          aggregateId: String(booking.id),
+          dedupeKey: `${dedupeSuffix}:client:${clientPhone}`,
+          payload: {
+            phone: clientPhone,
+            message
+          }
+        }, tx);
+      }
+    }
+
+    if (featureFlags.ENABLE_WHATSAPP_STAFF_EVENTS_V2 && clubPhone) {
+      await this.bookingStaffWhatsappNotificationService.enqueuePendingWarning({
+        bookingId: booking.id,
         clubId: booking.clubId,
-        type: OUTBOX_TYPES.WHATSAPP_SEND,
-        aggregateType: 'BOOKING',
-        aggregateId: String(booking.id),
-        dedupeKey: `${dedupeSuffix}:client:${clientPhone}`,
-        payload: {
-          phone: clientPhone,
-          message
-        }
+        clubName: booking.court.club.name,
+        clubPhone,
+        courtName: booking.court.name,
+        clientName,
+        clientPhone,
+        startDateTime: booking.startDateTime,
+        timeZone: clubTimeZone,
+        cancelMinutesBefore: Number(settings.cancelMinutesBefore || 0),
+        insufficientAmount
       }, tx);
     }
 

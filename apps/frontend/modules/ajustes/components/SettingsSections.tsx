@@ -8,7 +8,17 @@ export function SettingsClubIdentitySection() {
     <AdminTabClub
       forcedTab="identity"
       title="Club"
-      subtitle="Datos base, identidad visual y contacto del establecimiento."
+      subtitle="Perfil público, identidad visual, contacto y estado general del establecimiento."
+    />
+  );
+}
+
+export function SettingsReservationsSection() {
+  return (
+    <AdminTabClub
+      forcedTab="reservations"
+      title="Reservas"
+      subtitle="Confirmación, seña, auto-cancelación y límites operativos del flujo de reservas."
     />
   );
 }
@@ -16,9 +26,9 @@ export function SettingsClubIdentitySection() {
 export function SettingsSchedulesSection() {
   return (
     <AdminTabClub
-      forcedTab="operation"
+      forcedTab="schedules"
       title="Horarios"
-      subtitle="Reglas de operación y límites de reserva del club."
+      subtitle="Disponibilidad base del club, agenda por actividad y generación de turnos."
     />
   );
 }
@@ -26,9 +36,9 @@ export function SettingsSchedulesSection() {
 export function SettingsPricingSection() {
   return (
     <AdminTabClub
-      forcedTab="discounts"
+      forcedTab="pricing"
       title="Precios"
-      subtitle="Descuentos, reglas comerciales y políticas de cobro."
+      subtitle="Recargos, descuentos y reglas comerciales que impactan en el cobro."
     />
   );
 }
@@ -36,9 +46,9 @@ export function SettingsPricingSection() {
 export function SettingsExceptionsSection() {
   return (
     <AdminTabClub
-      forcedTab="agenda"
+      forcedTab="exceptions"
       title="Excepciones"
-      subtitle="Excepciones de agenda por fecha y configuración puntual."
+      subtitle="Cierres puntuales y cambios excepcionales de agenda por fecha o actividad."
     />
   );
 }
@@ -49,6 +59,16 @@ export function SettingsAuditSection() {
       forcedTab="audit"
       title="Auditoría"
       subtitle="Registro de cambios y trazabilidad de configuración."
+    />
+  );
+}
+
+export function SettingsReviewsSection() {
+  return (
+    <AdminTabClub
+      forcedTab="reviews"
+      title="Reseñas"
+      subtitle="Moderación de reseñas públicas y gestión de contenido visible del club."
     />
   );
 }

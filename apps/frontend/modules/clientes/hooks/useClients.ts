@@ -23,6 +23,7 @@ export type AdminClient = {
   isProfessor: boolean;
   totalBookings: number;
   totalDebt: number;
+  clubTimeZone?: string | null;
   lastBookingAt: string | null;
   nextBookingAt: string | null;
   /** Account history entries (open + closed accounts for this client). */

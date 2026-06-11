@@ -27,6 +27,7 @@
     "rebuild:read-models": "ts-node src/scripts/rebuildReadModels.ts",
     "db:ensure-partitions": "ts-node src/scripts/ensureFuturePartitions.ts",
     "smoke:release": "ts-node src/scripts/smokeRelease.ts",
+    "whatsapp:bootstrap-cloud-api": "ts-node src/scripts/bootstrapWhatsappCloudApi.ts",
     "bootstrap:las-tejas": "node dist/scripts/bootstrap-las-tejas.js",
     "phones:backfill": "ts-node src/scripts/backfillPhoneCanonical.ts",
     "clubs:media:backfill": "ts-node src/scripts/backfillClubMediaDefaults.ts",

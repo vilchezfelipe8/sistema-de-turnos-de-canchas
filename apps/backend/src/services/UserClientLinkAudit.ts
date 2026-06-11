@@ -1,7 +1,8 @@
 export type UserClientLinkReason =
   | 'ALREADY_LINKED'
   | 'CREATED_CLIENT'
-  | 'MANUAL_ADMIN_LINK';
+  | 'MANUAL_ADMIN_LINK'
+  | 'SELF_CLAIM_LINK';
 
 export async function recordUserClientLinkAuditTx(
   tx: any,

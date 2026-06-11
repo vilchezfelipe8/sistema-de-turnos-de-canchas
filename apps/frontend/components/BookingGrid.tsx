@@ -137,7 +137,7 @@ const CustomSelect = ({ value, options, onChange, placeholder, centerLabel = fal
                 {opt.label}
               </span>
               {opt.disabled && (
-                <span style={{ fontSize: 9, fontWeight: 800, color: 'var(--error-fg)', border: '1px solid var(--error-fg)', borderRadius: 6, padding: '2px 6px', textTransform: 'uppercase', letterSpacing: '.08em' }}>Sin stock</span>
+                <span style={{ fontSize: 9, fontWeight: 800, color: 'var(--error-fg)', border: '1px solid var(--error-fg)', borderRadius: 6, padding: '2px 6px', letterSpacing: '.03em' }}>Sin stock</span>
               )}
               {!opt.disabled && value === opt.value && <Check size={13} style={{ color: 'var(--accent-fg)' }} />}
             </div>
@@ -336,19 +336,19 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
           ['Precio', `$${params.price.toLocaleString()}`],
         ].map(([label, val]) => (
           <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '.08em' }}>{label}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, letterSpacing: '.03em' }}>{label}</span>
             <span style={{ fontSize: 14, fontWeight: 800, color: T.textPrimary }}>{val}</span>
           </div>
         ))}
         {Number(params.discountAmount || 0) > 0.009 && (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '.08em' }}>Descuento</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, letterSpacing: '.03em' }}>Descuento</span>
             <span style={{ fontSize: 14, fontWeight: 800, color: 'var(--brand)' }}>-${Number(params.discountAmount || 0).toLocaleString()}</span>
           </div>
         )}
         {params.nightSurcharge?.applied && (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '.08em' }}>Recargo nocturno</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, letterSpacing: '.03em' }}>Recargo nocturno</span>
             <span style={{ fontSize: 14, fontWeight: 800, color: T.textPrimary }}>+${Number(params.nightSurcharge.amount || 0).toLocaleString()}{params.nightSurcharge.fromHour ? ` (desde ${params.nightSurcharge.fromHour})` : ''}</span>
           </div>
         )}
@@ -880,7 +880,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   }, [selectedDate, selectedActivityFilter, selectedDuration, activeScheduleViewMode]);
 
   const canConfirm = Boolean(selectedSlot && selectedCourt);
-  const labelStyle: React.CSSProperties = { fontSize: 10, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: T.textMuted, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, fontFamily: "'Geist',system-ui,sans-serif" };
+  const labelStyle: React.CSSProperties = { fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: T.textMuted, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, fontFamily: "'Geist',system-ui,sans-serif" };
   const sectionStyle: React.CSSProperties = { marginBottom: 28 };
 
   return (
@@ -954,7 +954,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
         <div style={{ marginBottom: 16 }}>
           <style>{`
             .v-view-toggle-group{display:inline-flex;padding:4px;border-radius:12px;border:1px solid var(--border);background:var(--surface-2);gap:4px;}
-            .v-view-toggle{border:1px solid transparent;border-radius:9px;padding:8px 12px;display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;font-family:'Geist',system-ui,sans-serif;background:transparent;color:var(--text-secondary);outline:none;transition:background-color .16s ease,border-color .16s ease,color .16s ease,box-shadow .16s ease;}
+            .v-view-toggle{border:1px solid transparent;border-radius:9px;padding:8px 12px;display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:11px;font-weight:800;letter-spacing:.01em;font-family:'Geist',system-ui,sans-serif;background:transparent;color:var(--text-secondary);outline:none;transition:background-color .16s ease,border-color .16s ease,color .16s ease,box-shadow .16s ease;}
             .v-view-toggle:hover{background:var(--surface-1);border-color:var(--border);color:var(--text-primary);}
             .v-view-toggle:focus{outline:none;}
             .v-view-toggle:focus-visible{box-shadow:var(--shadow-focus);border-color:var(--accent-border);}
@@ -1366,7 +1366,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           width: '100%', padding: '14px 20px', borderRadius: 16,
-          fontSize: 13, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase',
+          fontSize: 13, fontWeight: 800, letterSpacing: '.01em',
           fontFamily: "'Geist',system-ui,sans-serif", cursor: !canConfirm ? 'not-allowed' : 'pointer',
           border: 'none', transition: 'all .2s',
                   background: !canConfirm ? 'var(--surface-3)' : 'var(--brand)',
@@ -1417,7 +1417,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
                 <LogIn size={22} />
               </div>
               <h3 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.textPrimary, letterSpacing: '-.03em' }}>Bienvenido</h3>
-              <p style={{ margin: '6px 0 0', fontSize: 11, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase', color: T.textDisabled }}>Ingresa a tu cuenta</p>
+              <p style={{ margin: '6px 0 0', fontSize: 11, fontWeight: 600, letterSpacing: '.03em', color: T.textDisabled }}>Ingresa a tu cuenta</p>
             </div>
 
             <div style={{ padding: '22px 28px 28px', display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1436,7 +1436,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
               )}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: T.textMuted }}>Correo electronico</label>
+                <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: T.textMuted }}>Correo electronico</label>
                 <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                   <span style={{ position: 'absolute', left: 13, color: T.textDisabled, display: 'flex', pointerEvents: 'none' }}><Mail size={14} /></span>
                   <input
@@ -1451,7 +1451,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: T.textMuted }}>Contrasena</label>
+                <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: T.textMuted }}>Contrasena</label>
                 <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                   <span style={{ position: 'absolute', left: 13, color: T.textDisabled, display: 'flex', pointerEvents: 'none' }}><Lock size={14} /></span>
                   <input
@@ -1487,7 +1487,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
                 type="button"
                 onClick={() => { void handleLoginFromModal(); }}
                 disabled={loginModalLoading || !String(loginModalEmail).trim() || !String(loginModalPassword).trim()}
-                style={{ marginTop: 4, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '13px 20px', borderRadius: 12, border: 'none', background: 'var(--brand)', color: 'var(--brand-on)', fontSize: 13, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', cursor: (loginModalLoading || !String(loginModalEmail).trim() || !String(loginModalPassword).trim()) ? 'not-allowed' : 'pointer', opacity: (loginModalLoading || !String(loginModalEmail).trim() || !String(loginModalPassword).trim()) ? 0.5 : 1 }}
+                style={{ marginTop: 4, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '13px 20px', borderRadius: 12, border: 'none', background: 'var(--brand)', color: 'var(--brand-on)', fontSize: 13, fontWeight: 800, letterSpacing: '.01em', cursor: (loginModalLoading || !String(loginModalEmail).trim() || !String(loginModalPassword).trim()) ? 'not-allowed' : 'pointer', opacity: (loginModalLoading || !String(loginModalEmail).trim() || !String(loginModalPassword).trim()) ? 0.5 : 1 }}
               >
                 {loginModalLoading ? (
                   <>
@@ -1504,7 +1504,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{ flex: 1, height: 1, background: T.divider }} />
-                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: T.textDisabled }}>o</span>
+                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: T.textDisabled }}>o</span>
                 <div style={{ flex: 1, height: 1, background: T.divider }} />
               </div>
 
@@ -1512,7 +1512,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
                 type="button"
                 onClick={() => { void handleRequestLoginMagicLink(); }}
                 disabled={loginModalMagicLoading || loginModalLoading || !String(loginModalEmail).trim()}
-                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '13px 20px', borderRadius: 12, background: T.bgSubtle2, border: `1px solid ${T.border}`, color: T.textMuted, fontSize: 13, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', cursor: loginModalMagicLoading || loginModalLoading ? 'not-allowed' : 'pointer', opacity: loginModalMagicLoading || loginModalLoading ? 0.6 : 1 }}
+                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '13px 20px', borderRadius: 12, background: T.bgSubtle2, border: `1px solid ${T.border}`, color: T.textMuted, fontSize: 13, fontWeight: 800, letterSpacing: '.01em', cursor: loginModalMagicLoading || loginModalLoading ? 'not-allowed' : 'pointer', opacity: loginModalMagicLoading || loginModalLoading ? 0.6 : 1 }}
               >
                 {loginModalMagicLoading ? (
                   <>
@@ -1531,7 +1531,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
                 <button
                   type="button"
                   onClick={() => { const from = encodeURIComponent(router.asPath || '/'); void router.push(`/login?mode=register&from=${from}`); }}
-                  style={{ background: 'none', border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, letterSpacing: '.1em', textTransform: 'uppercase', color: T.textDisabled, cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'transparent', textUnderlineOffset: '3px', transition: 'color .15s, text-decoration-color .15s' }}
+                  style={{ background: 'none', border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', color: T.textDisabled, cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'transparent', textUnderlineOffset: '3px', transition: 'color .15s, text-decoration-color .15s' }}
                   onMouseEnter={e => { e.currentTarget.style.color = 'var(--brand)'; e.currentTarget.style.textDecorationColor = 'var(--brand)'; }}
                   onMouseLeave={e => { e.currentTarget.style.color = T.textDisabled; e.currentTarget.style.textDecorationColor = 'transparent'; }}
                 >

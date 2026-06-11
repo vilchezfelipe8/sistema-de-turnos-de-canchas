@@ -8,14 +8,21 @@ import AdminAppModal from './ui/AdminAppModal';
 import { AdminFeedbackBanner } from './ui/AdminFeedback';
 import { extractErrorMessage } from '../../utils/uiError';
 import { showAdminToast } from '../../utils/adminToast';
-import { Globe, Instagram, Facebook, Phone, Mail, Image as ImageIcon, AlertTriangle, Check, X, Search, CalendarDays, Trash2 } from 'lucide-react';
+import { Globe, Instagram, Facebook, Phone, Mail, Image as ImageIcon, AlertTriangle, Check, X, Search, CalendarDays, Trash2, ChevronRight } from 'lucide-react';
 import { AdminDateInput, AdminDrawer, AdminDrawerSection, AdminSegmentedControl } from './ui';
 import { normalizeSessionUser } from '../../utils/session';
 import { ADMIN_Z_INDEX } from '../../utils/adminZIndex';
 import { useRouter } from 'next/router';
 import { lockBodyScroll } from '../../utils/bodyScrollLock';
 
-type AdminTabClubSection = 'identity' | 'operation' | 'agenda' | 'discounts' | 'audit';
+type AdminTabClubSection =
+  | 'identity'
+  | 'reservations'
+  | 'schedules'
+  | 'pricing'
+  | 'exceptions'
+  | 'audit'
+  | 'reviews';
 
 type AdminTabClubProps = {
   forcedTab?: AdminTabClubSection;
@@ -523,6 +530,7 @@ export default function AdminTabClub({
     activityScheduleForm: JSON.parse(JSON.stringify(snapshot.activityScheduleForm))
   });
 
+  const openingDayLabels = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
   const normalizeDays = (days: number[]) => [...days].sort((a, b) => a - b);
   const normalizeValue = (value: unknown) => {
     if (value == null) return '';
@@ -531,6 +539,132 @@ export default function AdminTabClub({
     // String(obj) always returns "[object Object]" regardless of content.
     if (typeof value === 'object') return JSON.stringify(value);
     return String(value);
+  };
+  const getOptionLabel = <T extends string>(options: Array<{ value: T; label: string }>, value: unknown, fallback = 'Sin definir') => {
+    const option = options.find((item) => item.value === value);
+    return option?.label || fallback;
+  };
+  const formatSummaryDate = (value: unknown) => {
+    const raw = String(value || '').trim();
+    if (!raw) return 'Sin definir';
+    const parsed = parseLocalDate(raw);
+    if (!parsed) return raw;
+    return parsed.toLocaleDateString('es-AR', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    });
+  };
+  const formatSummaryDays = (value: unknown) => {
+    const rawDays = Array.isArray(value)
+      ? value.map((item) => Number(item))
+      : String(value || '')
+          .split(',')
+          .map((part) => Number(part.trim()))
+          .filter((item) => Number.isFinite(item));
+    const normalized = normalizeDays(rawDays.filter((item) => Number.isFinite(item) && item >= 0 && item <= 6));
+    return normalized.length > 0 ? normalized.map((day) => openingDayLabels[day] || String(day)).join(', ') : 'Todos los días';
+  };
+  const formatSummaryCurrency = (value: unknown) => {
+    const amount = Number(value);
+    if (!Number.isFinite(amount) || amount <= 0) return 'Sin recargo';
+    return `$${amount.toLocaleString('es-AR')}`;
+  };
+  const formatSummaryMinutes = (value: unknown, emptyLabel = 'Sin definir') => {
+    const amount = Number(value);
+    if (!Number.isFinite(amount) || amount <= 0) return emptyLabel;
+    return `${Math.floor(amount)} min`;
+  };
+  const formatSummaryDaysAhead = (value: unknown) => {
+    const amount = Number(value);
+    if (!Number.isFinite(amount) || amount < 0) return 'Sin definir';
+    return `${Math.floor(amount)} día${Math.floor(amount) === 1 ? '' : 's'}`;
+  };
+  const formatSummaryText = (value: unknown, emptyLabel = 'Sin definir') => {
+    const raw = String(value || '').trim();
+    return raw || emptyLabel;
+  };
+  const formatFixedBookingSettingsSummary = (value: unknown) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return 'Sin configuración';
+    const entries = Object.entries(value as Record<string, unknown>).filter(([, config]) => config && typeof config === 'object');
+    if (entries.length === 0) return 'Sin configuración';
+    return `${entries.length} actividad${entries.length === 1 ? '' : 'es'} configurada${entries.length === 1 ? '' : 's'}`;
+  };
+  const formatConfigFieldValue = (field: string, value: unknown): string => {
+    switch (field) {
+      case 'slug':
+      case 'name':
+      case 'addressLine':
+      case 'city':
+      case 'province':
+      case 'country':
+      case 'contactInfo':
+      case 'phone':
+      case 'instagramUrl':
+      case 'facebookUrl':
+      case 'websiteUrl':
+        return formatSummaryText(value);
+      case 'description':
+        return formatSummaryText(value, 'Sin descripción');
+      case 'logoUrl':
+        return formatSummaryText(value, 'Sin logo');
+      case 'clubImageUrl':
+        return formatSummaryText(value, 'Sin imagen');
+      case 'lightsEnabled':
+        return value ? 'Activo' : 'Desactivado';
+      case 'lightsExtraAmount':
+        return formatSummaryCurrency(value);
+      case 'lightsFromHour':
+        return String(value || '').trim() ? `Desde las ${String(value).trim()}` : 'Sin definir';
+      case 'professorDurationOverrideEnabled':
+        return value ? 'Permitido' : 'No permitido';
+      case 'professorDurationOverrideMinutes':
+        return formatSummaryMinutes(value);
+      case 'bookingConfirmationMode':
+        return getOptionLabel(BOOKING_CONFIRMATION_MODES, value);
+      case 'bookingDepositPercent': {
+        const amount = Number(value);
+        if (!Number.isFinite(amount) || amount <= 0) return 'Sin seña';
+        return `${amount}%`;
+      }
+      case 'allowManualConfirmationOverride':
+        return value ? 'Permitido' : 'No permitido';
+      case 'autoCancelPendingBookingsEnabled':
+        return value ? 'Activa' : 'Desactivada';
+      case 'autoCancelPendingBookingsMinutesBefore':
+        return formatSummaryMinutes(value);
+      case 'autoCancelPendingBookingsOnlyIfUnpaid':
+        return value ? 'Solo reservas sin pago' : 'También reservas con pago';
+      case 'autoCancelPendingWarningEnabled':
+        return value ? 'Activo' : 'Desactivado';
+      case 'autoCancelPendingWarningMinutesBefore':
+        return formatSummaryMinutes(value);
+      case 'enforceCashShiftCloseWithOpenAccounts':
+        return value ? 'Bloquea el cierre' : 'No bloquea el cierre';
+      case 'bookingSimpleAdvanceDaysUser':
+      case 'bookingSimpleAdvanceDaysAdmin':
+        return formatSummaryDaysAhead(value);
+      case 'allowAdminSkipSimpleAdvanceLimit':
+        return value ? 'Permitido' : 'No permitido';
+      case 'clubOperationalStatus':
+        return getOptionLabel(CLUB_OPERATIONAL_STATUS_OPTIONS, value);
+      case 'temporaryClosureStartDate':
+      case 'temporaryClosureEndDate':
+        return formatSummaryDate(value);
+      case 'openingDays':
+        return formatSummaryDays(value);
+      case 'fixedBookingSettingsByActivity':
+        return formatFixedBookingSettingsSummary(value);
+      default:
+        return formatSummaryText(value, 'Sin definir');
+    }
+  };
+  const formatClosureDatesSummary = (dates: string[]) => {
+    const normalized = [...dates]
+      .filter(Boolean)
+      .sort()
+      .map((date) => formatSummaryDate(date));
+    return normalized.length > 0 ? normalized.join(', ') : 'Sin cierres puntuales';
   };
 
   const mapAuditLogToHistoryEntry = (log: AuditLogEntry): ConfigHistoryEntry => {
@@ -805,31 +939,57 @@ export default function AdminTabClub({
       'temporaryClosureEndDate'
     ]);
     const labels: Record<string, string> = {
-      bookingConfirmationMode: 'Modo de confirmacion',
-      bookingDepositPercent: 'Porcentaje de seña',
-      autoCancelPendingBookingsEnabled: 'Auto-cancelacion pendientes',
-      autoCancelPendingBookingsMinutesBefore: 'Minutos auto-cancelacion',
-      bookingSimpleAdvanceDaysUser: 'Anticipacion usuarios',
-      bookingSimpleAdvanceDaysAdmin: 'Anticipacion admins',
-      enforceCashShiftCloseWithOpenAccounts: 'Bloqueo cierre de caja',
-      allowAdminSkipSimpleAdvanceLimit: 'Bypass de anticipacion admin',
+      slug: 'Slug del club',
+      name: 'Nombre del club',
+      addressLine: 'Dirección',
+      city: 'Ciudad',
+      province: 'Provincia',
+      country: 'País',
+      contactInfo: 'Información de contacto',
+      phone: 'Teléfono',
+      logoUrl: 'Logo',
+      clubImageUrl: 'Imagen principal del club',
+      instagramUrl: 'Instagram',
+      facebookUrl: 'Facebook',
+      websiteUrl: 'Sitio web',
+      description: 'Descripción pública',
+      lightsEnabled: 'Recargo nocturno',
+      lightsExtraAmount: 'Monto extra por iluminación',
+      lightsFromHour: 'Hora de inicio del recargo nocturno',
+      professorDurationOverrideEnabled: 'Ajuste operativo para profesor',
+      professorDurationOverrideMinutes: 'Duración especial para profesor',
+      bookingConfirmationMode: 'Modo de confirmación de reservas',
+      bookingDepositPercent: 'Seña mínima requerida',
+      allowManualConfirmationOverride: 'Confirmación manual sin seña',
+      autoCancelPendingBookingsEnabled: 'Auto-cancelación de reservas pendientes',
+      autoCancelPendingBookingsMinutesBefore: 'Momento de auto-cancelación',
+      autoCancelPendingBookingsOnlyIfUnpaid: 'Condición para auto-cancelación',
+      autoCancelPendingWarningEnabled: 'Aviso previo a la auto-cancelación',
+      autoCancelPendingWarningMinutesBefore: 'Momento del aviso previo',
+      bookingSimpleAdvanceDaysUser: 'Anticipación máxima para usuarios',
+      bookingSimpleAdvanceDaysAdmin: 'Anticipación máxima para admins',
+      enforceCashShiftCloseWithOpenAccounts: 'Cierre de caja con cuentas abiertas',
+      allowAdminSkipSimpleAdvanceLimit: 'Excepción admin al límite de anticipación',
       clubOperationalStatus: 'Estado operativo del club',
       temporaryClosureStartDate: 'Inicio de cierre temporal',
       temporaryClosureEndDate: 'Fin de cierre temporal',
-      openingDaysSet: 'Dias de apertura',
-      closureDatesSet: 'Fechas de cierre',
+      fixedBookingSettingsByActivity: 'Turnos fijos por actividad',
+      openingDaysSet: 'Días de apertura',
+      closureDatesSet: 'Fechas de cierre puntual',
       activityScheduleForm: 'Horarios por actividad'
     };
 
     const keys = Array.from(new Set([...Object.keys(base.clubForm || {}), ...Object.keys(clubForm || {})]));
     for (const key of keys) {
-      const before = normalizeValue((base.clubForm as any)?.[key]);
-      const after = normalizeValue((clubForm as any)?.[key]);
+      const beforeRaw = (base.clubForm as any)?.[key];
+      const afterRaw = (clubForm as any)?.[key];
+      const before = normalizeValue(beforeRaw);
+      const after = normalizeValue(afterRaw);
       if (before !== after) {
         changes.push({
           label: labels[key] || key,
-          before,
-          after,
+          before: formatConfigFieldValue(key, beforeRaw),
+          after: formatConfigFieldValue(key, afterRaw),
           critical: criticalFields.has(key)
         });
       }
@@ -840,8 +1000,8 @@ export default function AdminTabClub({
     if (JSON.stringify(beforeDays) !== JSON.stringify(afterDays)) {
       changes.push({
         label: labels.openingDaysSet,
-        before: beforeDays.join(', ') || 'Todos',
-        after: afterDays.join(', ') || 'Todos',
+        before: formatSummaryDays(beforeDays),
+        after: formatSummaryDays(afterDays),
         critical: false
       });
     }
@@ -851,8 +1011,8 @@ export default function AdminTabClub({
     if (JSON.stringify(beforeClosureDates) !== JSON.stringify(afterClosureDates)) {
       changes.push({
         label: labels.closureDatesSet,
-        before: beforeClosureDates.join(', ') || 'Sin cierres',
-        after: afterClosureDates.join(', ') || 'Sin cierres',
+        before: formatClosureDatesSummary(beforeClosureDates),
+        after: formatClosureDatesSummary(afterClosureDates),
         critical: true
       });
     }
@@ -862,8 +1022,8 @@ export default function AdminTabClub({
     if (beforeSchedule !== afterSchedule) {
       changes.push({
         label: labels.activityScheduleForm,
-        before: 'Configuración previa',
-        after: 'Configuración editada',
+        before: 'Sin cambios de agenda',
+        after: 'Se editaron horarios, duraciones o franjas',
         critical: true
       });
     }
@@ -871,8 +1031,8 @@ export default function AdminTabClub({
     if (pendingScheduleExceptionMutations.length > 0) {
       changes.push({
         label: 'Excepciones de agenda',
-        before: 'Sin cambios pendientes',
-        after: `${pendingScheduleExceptionMutations.length} cambio(s) pendiente(s)`,
+        before: 'Sin excepciones pendientes',
+        after: `${pendingScheduleExceptionMutations.length} excepción${pendingScheduleExceptionMutations.length === 1 ? '' : 'es'} pendiente${pendingScheduleExceptionMutations.length === 1 ? '' : 's'} de aplicar`,
         critical: true
       });
     }
@@ -1197,13 +1357,14 @@ export default function AdminTabClub({
       }
       const criticalChanges = configChanges.filter((change) => change.critical);
       const topChanges = configChanges.slice(0, 12);
+      const hiddenChangesCount = Math.max(0, configChanges.length - topChanges.length);
       setModalState({
         show: true,
         title: 'Revisar y confirmar cambios',
         message: (
           <div className="space-y-3">
             <p className="text-sm font-bold">
-              Vas a aplicar <span className="font-black">{configChanges.length}</span> cambios de configuración.
+              Vas a aplicar <span className="font-black">{configChanges.length}</span> cambio{configChanges.length === 1 ? '' : 's'} de configuración.
             </p>
             {criticalChanges.length > 0 ? (
               <p className="text-xs font-black text-p-error uppercase tracking-widest">
@@ -1220,6 +1381,11 @@ export default function AdminTabClub({
                 ))}
               </ul>
             </div>
+            {hiddenChangesCount > 0 ? (
+              <p className="text-[12px] text-p-text-muted">
+                Y además hay {hiddenChangesCount} cambio{hiddenChangesCount === 1 ? '' : 's'} más en esta guardada.
+              </p>
+            ) : null}
             <p className="text-[12px] text-p-text-muted">
               Confirmá solo si verificaste el impacto operativo de estos cambios.
             </p>
@@ -2062,7 +2228,7 @@ export default function AdminTabClub({
             <h1 className="text-[15px] font-semibold text-p-text">{title}</h1>
             {subtitle && <p className="text-[12px] text-p-text-muted mt-0.5">{subtitle}</p>}
           </div>
-          {effectiveTab === 'operation' && (
+          {effectiveTab === 'reservations' && (
             <button
               type="button"
               onClick={restoreBookingPolicyDefaults}
@@ -2077,10 +2243,12 @@ export default function AdminTabClub({
           <AdminSegmentedControl
             options={[
               { value: 'identity', label: 'Identidad' },
-              { value: 'operation', label: 'Operación' },
-              { value: 'agenda', label: 'Agenda' },
-              { value: 'discounts', label: 'Descuentos' },
+              { value: 'reservations', label: 'Reservas' },
+              { value: 'schedules', label: 'Horarios' },
+              { value: 'pricing', label: 'Precios' },
+              { value: 'exceptions', label: 'Excepciones' },
               { value: 'audit', label: 'Auditoría' },
+              { value: 'reviews', label: 'Reseñas' },
             ]}
             value={activeTab}
             onChange={(v) => setActiveTab(v as typeof activeTab)}
@@ -2194,6 +2362,52 @@ export default function AdminTabClub({
                       </div>
                     </div>
                   </div>
+                </div>
+
+                {/* Estado operativo */}
+                <div className={cardCls}>
+                  <p className={cardTitleCls}>Estado operativo</p>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    {CLUB_OPERATIONAL_STATUS_OPTIONS.map((option) => {
+                      const active = clubForm.clubOperationalStatus === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setClubForm((prev) => ({
+                            ...prev,
+                            clubOperationalStatus: option.value,
+                            ...(option.value !== 'TEMPORARY_CLOSED' ? { temporaryClosureStartDate: '', temporaryClosureEndDate: '' } : {})
+                          }))}
+                          className={`rounded-xl border px-4 py-3 text-left transition ${active ? 'border-p-accent bg-p-positive-bg' : 'border-p-border bg-p-surface hover:bg-p-surface-2'}`}
+                        >
+                          <p className={`text-[12px] font-semibold ${active ? 'text-p-accent' : 'text-p-text'}`}>{option.label}</p>
+                          <p className="mt-1 text-[11px] text-p-text-muted leading-relaxed">{option.helper}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {clubForm.clubOperationalStatus === 'TEMPORARY_CLOSED' && (
+                    <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div>
+                        <label className={labelCls}>Inicio del cierre temporal</label>
+                        <AdminDateInput
+                          value={clubForm.temporaryClosureStartDate}
+                          onChange={(v) => setClubForm((prev) => ({ ...prev, temporaryClosureStartDate: v }))}
+                          min={getTodayDateKey()}
+                        />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Fin del cierre temporal</label>
+                        <AdminDateInput
+                          value={clubForm.temporaryClosureEndDate}
+                          onChange={(v) => setClubForm((prev) => ({ ...prev, temporaryClosureEndDate: v }))}
+                          min={clubForm.temporaryClosureStartDate || getTodayDateKey()}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Redes sociales */}
@@ -2331,8 +2545,8 @@ export default function AdminTabClub({
               </div>
             )}
 
-            {/* ----- TAB: OPERACIÓN ----- */}
-            {effectiveTab === 'operation' && (
+            {/* ----- TAB: RESERVAS ----- */}
+            {effectiveTab === 'reservations' && (
               <div className="space-y-4">
 
                 {/* Confirmación de reservas */}
@@ -2489,83 +2703,11 @@ export default function AdminTabClub({
                   </div>
                 </div>
 
-                {/* Iluminación */}
-                <div className={cardCls}>
-                  <p className={cardTitleCls}>Iluminación</p>
-                  <div className="space-y-4">
-                    <label className="flex cursor-pointer items-center gap-2.5">
-                      <div
-                        className={checkboxCls(clubForm.lightsEnabled)}
-                        onClick={() => setClubForm({ ...clubForm, lightsEnabled: !clubForm.lightsEnabled })}
-                      >
-                        {clubForm.lightsEnabled && <Check size={12} strokeWidth={3} className="text-ink-50" />}
-                      </div>
-                      <span className="text-[12px] text-p-text">Activar recargo nocturno</span>
-                    </label>
-                    {clubForm.lightsEnabled && (
-                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 pl-7">
-                        <div>
-                          <label className={labelCls}>Monto extra ($)</label>
-                          <input
-                            type="number"
-                            min={0}
-                            step={100}
-                            value={clubForm.lightsExtraAmount}
-                            onChange={(e) => setClubForm({ ...clubForm, lightsExtraAmount: e.target.value })}
-                            className={inputCls}
-                            placeholder="5000"
-                          />
-                        </div>
-                        <div>
-                          <label className={labelCls}>Desde la hora</label>
-                          <select
-                            value={clubForm.lightsFromHour || ''}
-                            onChange={(e) => setClubForm({ ...clubForm, lightsFromHour: e.target.value })}
-                            className={inputCls}
-                          >
-                            <option value="">Seleccionar...</option>
-                            {LIGHTS_FROM_HOUR_OPTIONS.map((h) => <option key={h} value={h}>{h}</option>)}
-                          </select>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Profesor */}
-                <div className={cardCls}>
-                  <p className={cardTitleCls}>Profesor (operativo)</p>
-                  <p className="mb-4 text-[12px] text-p-text-muted">Los descuentos económicos se configuran en la pestaña Descuentos. Esta sección solo define el ajuste operativo.</p>
-                  <div className="space-y-4">
-                    <label className="flex cursor-pointer items-center gap-2.5">
-                      <div
-                        className={checkboxCls(clubForm.professorDurationOverrideEnabled)}
-                        onClick={() => setClubForm({ ...clubForm, professorDurationOverrideEnabled: !clubForm.professorDurationOverrideEnabled })}
-                      >
-                        {clubForm.professorDurationOverrideEnabled && <Check size={12} strokeWidth={3} className="text-ink-50" />}
-                      </div>
-                      <span className="text-[12px] text-p-text">Permitir ajuste de duración para profesor</span>
-                    </label>
-                    {clubForm.professorDurationOverrideEnabled && (
-                      <div className="pl-7">
-                        <label className={labelCls}>Duración especial (min)</label>
-                        <input
-                          type="number"
-                          min={1}
-                          value={clubForm.professorDurationOverrideMinutes}
-                          onChange={(e) => setClubForm({ ...clubForm, professorDurationOverrideMinutes: e.target.value })}
-                          className={`${inputCls} w-48`}
-                          placeholder="60"
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
               </div>
             )}
 
-            {/* ----- TAB: AGENDA ----- */}
-            {effectiveTab === 'agenda' && (
+            {/* ----- TAB: HORARIOS ----- */}
+            {effectiveTab === 'schedules' && (
               <div className="space-y-4">
                 {/* Días de apertura */}
                 <div className={cardCls}>
@@ -2589,94 +2731,6 @@ export default function AdminTabClub({
                   </div>
                 </div>
 
-                {/* Estado operativo */}
-                <div className={cardCls}>
-                  <p className={cardTitleCls}>Estado operativo</p>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                    {CLUB_OPERATIONAL_STATUS_OPTIONS.map((option) => {
-                      const active = clubForm.clubOperationalStatus === option.value;
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          onClick={() => setClubForm((prev) => ({
-                            ...prev,
-                            clubOperationalStatus: option.value,
-                            ...(option.value !== 'TEMPORARY_CLOSED' ? { temporaryClosureStartDate: '', temporaryClosureEndDate: '' } : {})
-                          }))}
-                          className={`rounded-xl border px-4 py-3 text-left transition ${active ? 'border-p-accent bg-p-positive-bg' : 'border-p-border bg-p-surface hover:bg-p-surface-2'}`}
-                        >
-                          <p className={`text-[12px] font-semibold ${active ? 'text-p-accent' : 'text-p-text'}`}>{option.label}</p>
-                          <p className="mt-1 text-[11px] text-p-text-muted leading-relaxed">{option.helper}</p>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {clubForm.clubOperationalStatus === 'TEMPORARY_CLOSED' && (
-                    <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                      <div>
-                        <label className={labelCls}>Inicio del cierre temporal</label>
-                        <AdminDateInput
-                          value={clubForm.temporaryClosureStartDate}
-                          onChange={(v) => setClubForm((prev) => ({ ...prev, temporaryClosureStartDate: v }))}
-                          min={getTodayDateKey()}
-                        />
-                      </div>
-                      <div>
-                        <label className={labelCls}>Fin del cierre temporal</label>
-                        <AdminDateInput
-                          value={clubForm.temporaryClosureEndDate}
-                          onChange={(v) => setClubForm((prev) => ({ ...prev, temporaryClosureEndDate: v }))}
-                          min={clubForm.temporaryClosureStartDate || getTodayDateKey()}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Fechas de cierre */}
-                <div className={cardCls}>
-                  <p className={cardTitleCls}>Fechas de cierre puntual</p>
-                  <p className="mb-3 text-[12px] text-p-text-muted">Bloqueá días específicos (feriados, mantenimiento). Formato: YYYY-MM-DD.</p>
-                  {clubForm.clubOperationalStatus === 'PERMANENTLY_CLOSED' && (
-                    <p className="mb-3 text-[12px] text-p-error">En cierre permanente no se permiten fechas de cierre puntual.</p>
-                  )}
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                    <div className="w-full md:w-64">
-                      <AdminDateInput
-                        value={closureDateInput}
-                        onChange={setClosureDateInput}
-                        min={getTodayDateKey()}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={addClosureDate}
-                      disabled={clubForm.clubOperationalStatus === 'PERMANENTLY_CLOSED' || !closureDateInput}
-                      className="h-9 rounded-xl bg-ink-900 px-4 text-[12px] font-semibold text-ink-50 hover:bg-ink-900 transition disabled:opacity-40"
-                    >
-                      Agregar cierre
-                    </button>
-                  </div>
-                  {closureDatesSet.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {closureDatesSet.map((date) => (
-                        <span key={date} className="inline-flex items-center gap-1.5 rounded-lg border border-p-border bg-p-surface-2 px-2.5 py-1.5 text-[12px] text-p-text">
-                          {date}
-                          <button
-                            type="button"
-                            onClick={() => removeClosureDate(date)}
-                            className="text-p-text-muted hover:text-p-error transition"
-                          >
-                            <X size={12} />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
                 {/* Horarios por actividad */}
                 <div className={cardCls}>
                   <p className={cardTitleCls}>Horarios por actividad</p>
@@ -2691,23 +2745,9 @@ export default function AdminTabClub({
                           <div key={activity.id} className="rounded-xl border border-p-border p-4">
                             <div className="mb-3 flex items-center justify-between">
                               <p className="text-[13px] font-semibold text-p-text">{activity.name}</p>
-                              <div className="flex items-center gap-2">
-                                {pendingScheduleExceptionMutations.some((item) => item.activityId === activity.id) && (
-                                  <span className="rounded-full bg-p-positive-bg px-2 py-0.5 text-[10px] font-semibold text-p-accent">Cambios pendientes</span>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => openExceptionModalForActivity(activity)}
-                                  className="h-8 rounded-xl border border-p-border bg-p-surface px-3 text-[11px] text-p-text-muted hover:bg-p-surface-2 transition"
-                                >
-                                  Excepciones
-                                  {Number(activityExceptionSummary[activity.id]?.count || 0) > 0 && (
-                                    <span className="ml-1.5 rounded-full bg-p-positive-bg px-1.5 py-0.5 text-[10px] text-p-accent">
-                                      {activityExceptionSummary[activity.id].count}
-                                    </span>
-                                  )}
-                                </button>
-                              </div>
+                              {pendingScheduleExceptionMutations.some((item) => item.activityId === activity.id) && (
+                                <span className="rounded-full bg-p-positive-bg px-2 py-0.5 text-[10px] font-semibold text-p-accent">Cambios pendientes</span>
+                              )}
                             </div>
                             <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                               <div>
@@ -2878,12 +2918,172 @@ export default function AdminTabClub({
                     </div>
                   </div>
                 )}
+
+                {/* Profesor */}
+                <div className={cardCls}>
+                  <p className={cardTitleCls}>Profesor (operativo)</p>
+                  <p className="mb-4 text-[12px] text-p-text-muted">Ajusta la duración operativa de reservas o clases con profesor cuando el club usa una lógica distinta a la estándar.</p>
+                  <div className="space-y-4">
+                    <label className="flex cursor-pointer items-center gap-2.5">
+                      <div
+                        className={checkboxCls(clubForm.professorDurationOverrideEnabled)}
+                        onClick={() => setClubForm({ ...clubForm, professorDurationOverrideEnabled: !clubForm.professorDurationOverrideEnabled })}
+                      >
+                        {clubForm.professorDurationOverrideEnabled && <Check size={12} strokeWidth={3} className="text-ink-50" />}
+                      </div>
+                      <span className="text-[12px] text-p-text">Permitir ajuste de duración para profesor</span>
+                    </label>
+                    {clubForm.professorDurationOverrideEnabled && (
+                      <div className="pl-7">
+                        <label className={labelCls}>Duración especial (min)</label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={clubForm.professorDurationOverrideMinutes}
+                          onChange={(e) => setClubForm({ ...clubForm, professorDurationOverrideMinutes: e.target.value })}
+                          className={`${inputCls} w-48`}
+                          placeholder="60"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 
-            {/* ----- TAB: DESCUENTOS ----- */}
-            {effectiveTab === 'discounts' && (
+            {/* ----- TAB: EXCEPCIONES ----- */}
+            {effectiveTab === 'exceptions' && (
               <div className="space-y-4">
+                <div className={cardCls}>
+                  <p className={cardTitleCls}>Fechas de cierre puntual</p>
+                  <p className="mb-3 text-[12px] text-p-text-muted">Bloqueá días específicos por feriado, mantenimiento o una excepción general del club.</p>
+                  {clubForm.clubOperationalStatus === 'PERMANENTLY_CLOSED' && (
+                    <p className="mb-3 text-[12px] text-p-error">En cierre permanente no se permiten fechas de cierre puntual.</p>
+                  )}
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                    <div className="w-full md:w-64">
+                      <AdminDateInput
+                        value={closureDateInput}
+                        onChange={setClosureDateInput}
+                        min={getTodayDateKey()}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addClosureDate}
+                      disabled={clubForm.clubOperationalStatus === 'PERMANENTLY_CLOSED' || !closureDateInput}
+                      className="h-9 rounded-xl bg-ink-900 px-4 text-[12px] font-semibold text-ink-50 hover:bg-ink-900 transition disabled:opacity-40"
+                    >
+                      Agregar cierre
+                    </button>
+                  </div>
+                  {closureDatesSet.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {closureDatesSet.map((date) => (
+                        <span key={date} className="inline-flex items-center gap-1.5 rounded-lg border border-p-border bg-p-surface-2 px-2.5 py-1.5 text-[12px] text-p-text">
+                          {date}
+                          <button
+                            type="button"
+                            onClick={() => removeClosureDate(date)}
+                            className="text-p-text-muted hover:text-p-error transition"
+                          >
+                            <X size={12} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className={cardCls}>
+                  <p className={cardTitleCls}>Excepciones por actividad</p>
+                  <p className="mb-4 text-[12px] text-p-text-muted">Abrí cada actividad para cargar cierres, rangos especiales o turnos excepcionales por fecha.</p>
+                  {activityTypes.length === 0 ? (
+                    <p className="text-[12px] text-p-text-muted">No hay actividades configuradas.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {activityTypes.map((activity) => {
+                        const pendingCount = pendingScheduleExceptionMutations.filter((item) => item.activityId === activity.id).length;
+                        const savedCount = Number(activityExceptionSummary[activity.id]?.count || 0);
+                        return (
+                          <div key={activity.id} className="flex flex-col gap-3 rounded-xl border border-p-border p-4 md:flex-row md:items-center md:justify-between">
+                            <div>
+                              <p className="text-[13px] font-semibold text-p-text">{activity.name}</p>
+                              <p className="mt-1 text-[11px] text-p-text-muted">
+                                {savedCount > 0 ? `${savedCount} excepción${savedCount === 1 ? '' : 'es'} cargada${savedCount === 1 ? '' : 's'}` : 'Sin excepciones cargadas'}
+                                {pendingCount > 0 ? ` · ${pendingCount} pendiente${pendingCount === 1 ? '' : 's'} de guardar` : ''}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => openExceptionModalForActivity(activity)}
+                              className="inline-flex h-8 items-center gap-2 rounded-xl border border-p-border bg-p-surface px-3 text-[11px] font-semibold text-p-text transition hover:border-p-border-strong hover:bg-p-surface-2"
+                            >
+                              <span className="grid h-4 w-4 place-items-center rounded-full bg-p-surface-2 text-p-accent">
+                                <CalendarDays size={11} />
+                              </span>
+                              <span>Gestionar excepciones</span>
+                              {savedCount > 0 && (
+                                <span className="rounded-full bg-p-positive-bg px-1.5 py-0.5 text-[10px] font-semibold text-p-accent">
+                                  {savedCount}
+                                </span>
+                              )}
+                              <ChevronRight size={12} className="text-p-text-muted" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ----- TAB: PRECIOS ----- */}
+            {effectiveTab === 'pricing' && (
+              <div className="space-y-4">
+                <div className={cardCls}>
+                  <p className={cardTitleCls}>Iluminación</p>
+                  <div className="space-y-4">
+                    <label className="flex cursor-pointer items-center gap-2.5">
+                      <div
+                        className={checkboxCls(clubForm.lightsEnabled)}
+                        onClick={() => setClubForm({ ...clubForm, lightsEnabled: !clubForm.lightsEnabled })}
+                      >
+                        {clubForm.lightsEnabled && <Check size={12} strokeWidth={3} className="text-ink-50" />}
+                      </div>
+                      <span className="text-[12px] text-p-text">Activar recargo nocturno</span>
+                    </label>
+                    {clubForm.lightsEnabled && (
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 pl-7">
+                        <div>
+                          <label className={labelCls}>Monto extra ($)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={100}
+                            value={clubForm.lightsExtraAmount}
+                            onChange={(e) => setClubForm({ ...clubForm, lightsExtraAmount: e.target.value })}
+                            className={inputCls}
+                            placeholder="5000"
+                          />
+                        </div>
+                        <div>
+                          <label className={labelCls}>Desde la hora</label>
+                          <select
+                            value={clubForm.lightsFromHour || ''}
+                            onChange={(e) => setClubForm({ ...clubForm, lightsFromHour: e.target.value })}
+                            className={inputCls}
+                          >
+                            <option value="">Seleccionar...</option>
+                            {LIGHTS_FROM_HOUR_OPTIONS.map((h) => <option key={h} value={h}>{h}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 <div className={cardCls}>
                   <p className={cardTitleCls}>Política de cierre de caja</p>
                   <p className="mb-3 text-[12px] text-p-text-muted">
@@ -3085,8 +3285,12 @@ export default function AdminTabClub({
                     </div>
                   )}
                 </div>
+              </div>
+            )}
 
-                {/* Moderación de reseñas */}
+            {/* ----- TAB: RESEÑAS ----- */}
+            {effectiveTab === 'reviews' && (
+              <div className="space-y-4">
                 <div className={cardCls}>
                   <div className="mb-4 flex items-center justify-between">
                     <p className={cardTitleCls} style={{ marginBottom: 0 }}>Moderación de reseñas</p>

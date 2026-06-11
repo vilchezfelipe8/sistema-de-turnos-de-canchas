@@ -27,7 +27,7 @@ export default function PageShell({ title, subtitle, children }: PageShellProps)
       </div>
 
       <div className="relative z-10">
-        <Navbar />
+        <Navbar showContactLink={false} />
         <div className="container mx-auto max-w-6xl p-4 lg:p-8 pt-28 lg:pt-32">
           <div className="mx-auto w-full max-w-4xl bg-surface-70 rounded-3xl p-8 border border-border shadow-soft">
             {title && (
@@ -45,4 +45,3 @@ export default function PageShell({ title, subtitle, children }: PageShellProps)
     </div>
   );
 }
-

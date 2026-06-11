@@ -173,3 +173,27 @@ test('dismissIncident marca DISMISSED sin mergear clientes', async () => {
     assert.deepEqual(clients.map((item) => item.userId), beforeUsers);
   });
 });
+
+test('createManualIdentityReview crea un incidente administrativo reutilizable para identidad', async () => {
+  const service = new ClientDuplicateIncidentService();
+
+  await withMockedPrisma(async ({ incidents, auditLogs }) => {
+    const incident = await service.createManualIdentityReview({
+      clubId: 10,
+      clientId: 'c-1',
+      clientName: 'Cliente 1',
+      email: 'c1@example.com',
+      status: 'REVIEW_REQUIRED',
+      reasonCode: 'MULTIPLE_USER_CANDIDATES',
+      summary: 'Caso raro para revisar',
+      signals: ['EMAIL'],
+      note: 'Lo detectó recepción',
+      actorUserId: 999
+    });
+
+    assert.equal(String((incident as any).sourceType), 'ADMIN');
+    assert.equal(String((incident as any).payload?.kind), 'IDENTITY_REVIEW');
+    assert.equal(incidents.length, 1);
+    assert.equal(auditLogs.some((row) => String(row.action) === 'IDENTITY_REVIEW_MARKED'), true);
+  });
+});

@@ -6,13 +6,22 @@ import { WhatsappDeliveryService } from './WhatsappDeliveryService';
 import { NotificationService } from './NotificationService';
 import { metricsService } from './MetricsService';
 import { ArcaWorkerHandler, ArcaRetryError } from './ArcaWorkerHandler';
+import { WhatsappSendV2Dispatcher } from './WhatsappSendV2Dispatcher';
 
 type ClaimedOutboxRow = OutboxMessage;
+type DispatchOutcome = {
+  deliveryStatus?: 'SKIPPED';
+  deliveryErrorCode?: string | null;
+  deliveryErrorMessage?: string | null;
+  outboxLastError?: string | null;
+  retryableFailure?: boolean;
+};
 
 export class OutboxWorker {
   private readonly whatsappDelivery = new WhatsappDeliveryService();
   private readonly notificationService = new NotificationService();
   private readonly arcaHandler = new ArcaWorkerHandler();
+  private readonly whatsappSendV2Dispatcher = new WhatsappSendV2Dispatcher();
   private readonly workerId =
     process.env.OUTBOX_WORKER_ID ||
     `${process.pid}-${Math.random().toString(36).slice(2, 10)}`;
@@ -22,13 +31,24 @@ export class OutboxWorker {
 
     for (const message of claimed) {
       try {
-        await this.dispatch(message);
+        const outcome = await this.dispatch(message);
+        if (outcome?.deliveryStatus) {
+          await prisma.whatsappDelivery.updateMany({
+            where: { outboxMessageId: message.id },
+            data: {
+              status: outcome.deliveryStatus,
+              errorCode: outcome.deliveryErrorCode,
+              errorMessage: outcome.deliveryErrorMessage,
+              updatedAt: new Date()
+            }
+          });
+        }
         await prisma.outboxMessage.update({
           where: { id: message.id },
           data: {
             status: 'SENT',
             processedAt: new Date(),
-            lastError: null,
+            lastError: outcome?.outboxLastError ?? null,
             updatedAt: new Date()
           }
         });
@@ -85,7 +105,7 @@ export class OutboxWorker {
     return rows;
   }
 
-  private async dispatch(message: ClaimedOutboxRow) {
+  private async dispatch(message: ClaimedOutboxRow): Promise<DispatchOutcome | void> {
     if (message.type === OUTBOX_TYPES.WHATSAPP_SEND) {
       if (!featureFlags.ENABLE_WHATSAPP_WORKER) {
         return;
@@ -117,6 +137,43 @@ export class OutboxWorker {
         payload.message
       );
       return;
+    }
+
+    if (message.type === OUTBOX_TYPES.WHATSAPP_SEND_V2) {
+      if (!featureFlags.ENABLE_WHATSAPP_SEND_V2) {
+        return {
+          deliveryStatus: 'SKIPPED',
+          deliveryErrorCode: 'FEATURE_DISABLED',
+          deliveryErrorMessage: 'WHATSAPP_SEND_V2 deshabilitado por feature flag',
+          outboxLastError: null
+        };
+      }
+
+      if (!featureFlags.ENABLE_WHATSAPP_CLOUD_API) {
+        return {
+          deliveryStatus: 'SKIPPED',
+          deliveryErrorCode: 'WHATSAPP_CLOUD_API_DISABLED',
+          deliveryErrorMessage: 'WHATSAPP_SEND_V2 no despacha porque ENABLE_WHATSAPP_CLOUD_API est\u00e1 apagada',
+          outboxLastError: null
+        };
+      }
+
+      const result = await this.whatsappSendV2Dispatcher.dispatch(message);
+      if (!result.ok) {
+        if (result.retryable) {
+          const error = new Error(result.outboxLastError);
+          (error as any).retryable = true;
+          throw error;
+        }
+
+        return {
+          outboxLastError: result.outboxLastError
+        };
+      }
+
+      return {
+        outboxLastError: null
+      };
     }
 
     if (

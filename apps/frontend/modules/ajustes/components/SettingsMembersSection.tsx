@@ -194,7 +194,7 @@ export default function SettingsMembersSection() {
               type="button"
               onClick={handleInvite}
               disabled={inviteSubmitting || !clubSlug}
-              className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-p-accent px-4 text-[12px] font-semibold text-p-accent-contrast transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-ink-900 px-4 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
             >
               <UserPlus size={14} />
               {inviteSubmitting ? 'Otorgando...' : 'Dar acceso'}

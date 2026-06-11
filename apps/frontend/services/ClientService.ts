@@ -5,7 +5,61 @@ import { getActiveClubSlug, normalizeSessionUser } from '../utils/session';
 
 const apiBase = () => `${getApiUrl()}/api`;
 
+export type ClientIdentityAuditEntry = {
+  id: string;
+  action: string;
+  kind: string;
+  kindLabel: string;
+  sourceLabel: string | null;
+  summary: string;
+  createdAt: string;
+  actorUser: {
+    id: number;
+    displayName: string;
+    email: string | null;
+  } | null;
+  payload: Record<string, any> | null;
+};
+
 export class ClientService {
+  static async getIdentityOverviewByClubSlug(slug: string, clientId: string) {
+    const res = await fetchWithAuth(
+      `${apiBase()}/clubs/${slug}/admin/clients/${encodeURIComponent(clientId)}/identity-overview`,
+      { method: 'GET' }
+    );
+    if (!res.ok) {
+      await throwApiErrorFromResponse(res, 'No se pudo cargar el estado de identidad del cliente');
+    }
+    return res.json();
+  }
+
+  static async getIdentityAuditByClubSlug(slug: string, clientId: string, take = 12): Promise<ClientIdentityAuditEntry[]> {
+    const res = await fetchWithAuth(
+      `${apiBase()}/clubs/${slug}/admin/clients/${encodeURIComponent(clientId)}/identity-audit?take=${encodeURIComponent(String(take))}`,
+      { method: 'GET' }
+    );
+    if (!res.ok) {
+      await throwApiErrorFromResponse(res, 'No se pudo cargar la auditoría de identidad');
+    }
+    const payload = await res.json();
+    return Array.isArray(payload?.entries) ? payload.entries : [];
+  }
+
+  static async createIdentityIncidentByClubSlug(slug: string, clientId: string, body?: { note?: string }) {
+    const res = await fetchWithAuth(
+      `${apiBase()}/clubs/${slug}/admin/clients/${encodeURIComponent(clientId)}/identity-incident`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: body?.note || '' })
+      }
+    );
+    if (!res.ok) {
+      await throwApiErrorFromResponse(res, 'No se pudo marcar el caso para revisión');
+    }
+    return res.json();
+  }
+
   static async searchByClubSlug(slug: string, query: string) {
     const res = await fetchWithAuth(
       `${apiBase()}/clubs/${slug}/admin/clients-list?q=${encodeURIComponent(query)}`,
@@ -58,6 +112,7 @@ export class ClientService {
       isProfessor: Boolean(client.isProfessor),
       totalBookings: Number(client.totalBookings || 0),
       totalDebt: Number(client.totalDebt || 0),
+      clubTimeZone: client.clubTimeZone ? String(client.clubTimeZone) : null,
       lastBookingAt: client.lastBookingAt ? String(client.lastBookingAt) : null,
       nextBookingAt: client.nextBookingAt ? String(client.nextBookingAt) : null,
       history: Array.isArray(client.history) ? client.history : [],

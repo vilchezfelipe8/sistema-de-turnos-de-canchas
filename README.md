@@ -6,7 +6,7 @@ Monorepo del sistema SaaS multi-club para gestión operativa de canchas, reserva
 
 - `apps/backend`: API Express + Prisma.
 - `apps/frontend`: aplicación Next.js.
-- `apps/wpp-service`: servicio de WhatsApp (Puppeteer/Chromium).
+- `apps/wpp-service`: servicio legacy de WhatsApp (Puppeteer/Chromium).
 - `docs/`: decisiones técnicas y documentos operativos.
 
 ## Setup local rápido
@@ -17,6 +17,8 @@ Monorepo del sistema SaaS multi-club para gestión operativa de canchas, reserva
    - `cd apps/backend`
    - `npm install`
    - `npm run prisma:generate`
+   - `npm run prisma:migrate:deploy`
+   - si vas a preparar WhatsApp Cloud API: `npm run whatsapp:bootstrap-cloud-api`
    - `npm run dev`
 3. Frontend:
    - `cd apps/frontend`
@@ -34,6 +36,8 @@ Documentación operativa relacionada:
 - matriz de variables: `docs/env-matrix.md`
 - checklist de release: `docs/release-checklist.md`
 - piloto controlado: `docs/pilot-readiness.md`
+- migracion a Cloud API: `docs/whatsapp-cloud-api-migration.md`
+- vision del modulo de autenticacion, OAuth, linking y perfil: `docs/auth-oauth-linking-profile-module.md`
 
 ## Autenticación oficial (MVP)
 

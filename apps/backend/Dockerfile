@@ -11,6 +11,7 @@ WORKDIR /usr/src/app
 COPY --from=build /usr/src/app/package.json ./
 COPY --from=build /usr/src/app/node_modules ./node_modules
 COPY --from=build /usr/src/app/dist ./dist
+COPY --from=build /usr/src/app/assets ./assets
 COPY prisma ./prisma
 ENV NODE_ENV=production
 EXPOSE 3001

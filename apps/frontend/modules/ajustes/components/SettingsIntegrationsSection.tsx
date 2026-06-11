@@ -153,7 +153,7 @@ export default function SettingsIntegrationsSection() {
             <div className="flex flex-wrap gap-2">
               <a
                 href={clubSlug ? ClubAdminService.getMercadoPagoConnectUrl(clubSlug) : '#'}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-p-accent px-4 text-[12px] font-semibold text-p-accent-contrast transition hover:brightness-95"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-ink-900 px-4 text-[12px] font-semibold !text-ink-50 transition hover:bg-ink-800"
                 aria-disabled={!clubSlug}
               >
                 <PlugZap size={14} />

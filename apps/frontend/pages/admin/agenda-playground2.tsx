@@ -96,6 +96,7 @@ import {
   resolvePlaygroundClientEmail,
   resolvePlaygroundClientPhone,
 } from '../../components/admin/agenda/utils/bookingParticipantDisplay';
+import { ClubService } from '../../services/ClubService';
 import {
   buildDefaultParticipantsForBooking,
   buildStableParticipantRef,
@@ -1191,6 +1192,7 @@ export default function AdminAgendaPlaygroundPage() {
   );
   const [recurringCourtsMenuOpen, setRecurringCourtsMenuOpen] = useState(false);
   const [selectedClubIdState, setSelectedClubIdState] = useState<number>(0);
+  const [activeClubTimeZone, setActiveClubTimeZone] = useState<string>('');
   const [bookingHoverPreview, setBookingHoverPreview] = useState<{
     booking: Booking;
     x: number;
@@ -1567,6 +1569,26 @@ export default function AdminAgendaPlaygroundPage() {
       setSelectedClubIdState(clubOptions[0].id);
     }
   }, [clubOptions, normalizedUser?.activeClubId]);
+
+  useEffect(() => {
+    if (!Number.isInteger(selectedClubIdState) || selectedClubIdState <= 0) {
+      setActiveClubTimeZone('');
+      return;
+    }
+    let cancelled = false;
+    void ClubService.getClubById(selectedClubIdState)
+      .then((club) => {
+        if (!cancelled) {
+          setActiveClubTimeZone(String(club?.timeZone || '').trim());
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setActiveClubTimeZone('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedClubIdState]);
 
   const resetConsumptionsDraft = useCallback(() => {
     setBookingConsumptionItems([]);
@@ -4103,9 +4125,9 @@ export default function AdminAgendaPlaygroundPage() {
             : Array.isArray(recurringRescheduleResult?.applicableItems)
               ? recurringRescheduleResult.applicableItems
               : [];
-          const overlapItems = overlapItemsRaw.map((item: any) => mapSeriesImpactItem(item, selectedCourt?.name || 'Cancha'));
+          const overlapItems = overlapItemsRaw.map((item: any) => mapSeriesImpactItem(item, selectedCourt?.name || 'Cancha', activeClubTimeZone));
           const appliedItems = updatedItemsRaw
-            .map((item: any) => mapSeriesAppliedItem(item, selectedCourt?.name || 'Cancha'))
+            .map((item: any) => mapSeriesAppliedItem(item, selectedCourt?.name || 'Cancha', activeClubTimeZone))
             .sort((a, b) => (Number(a.sortStartMs || 0) - Number(b.sortStartMs || 0)));
           const updatedCount = Number(
             recurringRescheduleResult?.updatedCount ?? recurringRescheduleResult?.willUpdateCount ?? 0
@@ -4188,25 +4210,25 @@ export default function AdminAgendaPlaygroundPage() {
             previewOverlapDetails.push({
               courtName: String(item?.courtName || item?.conflictingCourtName || fallbackCourtName || 'Cancha'),
               requestedDateLabel: hasRequestedStart
-                ? (requestedStart as Date).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                ? formatSeriesDateLabel(requestedStart, activeClubTimeZone)
                 : 'Fecha no disponible',
               requestedTimeLabel: `${
                 hasRequestedStart
-                  ? (requestedStart as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+                  ? formatSeriesTimeLabel(requestedStart, activeClubTimeZone)
                   : slotToTime(selectedStartSlot)
               } - ${
                 hasRequestedEnd
-                  ? (requestedEnd as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+                  ? formatSeriesTimeLabel(requestedEnd, activeClubTimeZone)
                   : inferredRequestedEnd
-                    ? inferredRequestedEnd.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+                    ? formatSeriesTimeLabel(inferredRequestedEnd, activeClubTimeZone)
                     : slotToTime(selectedEndSlot)
               }`,
               conflictingDateLabel: hasConflictingStart
-                ? (conflictingStart as Date).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                ? formatSeriesDateLabel(conflictingStart, activeClubTimeZone)
                 : undefined,
               conflictingTimeLabel:
                 hasConflictingStart && hasConflictingEnd
-                  ? `${(conflictingStart as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })} - ${(conflictingEnd as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })}`
+                  ? `${formatSeriesTimeLabel(conflictingStart as Date, activeClubTimeZone)} - ${formatSeriesTimeLabel(conflictingEnd as Date, activeClubTimeZone)}`
                   : undefined,
               activityName: String(item?.conflictingActivityName || item?.activityName || '').trim() || undefined,
               clientName: String(item?.conflictingClientName || item?.clientName || '').trim() || undefined,
@@ -4335,10 +4357,10 @@ export default function AdminAgendaPlaygroundPage() {
           const hasConflictingEnd = conflictingEnd && !Number.isNaN(conflictingEnd.getTime());
 
           const requestedDateLabel = hasRequestedStart
-            ? (requestedStart as Date).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+            ? formatSeriesDateLabel(requestedStart, activeClubTimeZone)
             : 'Fecha no disponible';
           const requestedStartLabel = hasRequestedStart
-            ? (requestedStart as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+            ? formatSeriesTimeLabel(requestedStart, activeClubTimeZone)
             : Number.isFinite(Number(item?.startTimeMinutes))
               ? minutesToHourLabel(Number(item.startTimeMinutes))
               : slotToTime(selectedStartSlot);
@@ -4347,23 +4369,23 @@ export default function AdminAgendaPlaygroundPage() {
               ? new Date((requestedStart as Date).getTime() + Math.max(15, selectionMinutes) * 60000)
               : null;
           const requestedEndLabel = hasRequestedEnd
-            ? (requestedEnd as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+            ? formatSeriesTimeLabel(requestedEnd, activeClubTimeZone)
             : inferredRequestedEnd
-              ? inferredRequestedEnd.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+              ? formatSeriesTimeLabel(inferredRequestedEnd, activeClubTimeZone)
             : Number.isFinite(Number(item?.endTimeMinutes))
               ? minutesToHourLabel(Number(item.endTimeMinutes))
               : slotToTime(selectedEndSlot);
 
           const conflictingDateLabel = hasConflictingStart
-            ? (conflictingStart as Date).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+            ? formatSeriesDateLabel(conflictingStart, activeClubTimeZone)
             : undefined;
           const conflictingStartLabel = hasConflictingStart
-            ? (conflictingStart as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+            ? formatSeriesTimeLabel(conflictingStart, activeClubTimeZone)
             : Number.isFinite(Number(item?.startTimeMinutes))
               ? minutesToHourLabel(Number(item.startTimeMinutes))
               : undefined;
           const conflictingEndLabel = hasConflictingEnd
-            ? (conflictingEnd as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+            ? formatSeriesTimeLabel(conflictingEnd, activeClubTimeZone)
             : Number.isFinite(Number(item?.endTimeMinutes))
               ? minutesToHourLabel(Number(item.endTimeMinutes))
               : undefined;
@@ -4403,15 +4425,15 @@ export default function AdminAgendaPlaygroundPage() {
                     bookingId: Number.isFinite(Number(item?.bookingId)) ? Number(item.bookingId) : undefined,
                     courtName: String(item?.courtName || court.name || 'Cancha'),
                     requestedDateLabel: hasCreatedStart
-                      ? (createdStart as Date).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                      ? formatSeriesDateLabel(createdStart as Date, activeClubTimeZone)
                       : 'Fecha no disponible',
                     requestedTimeLabel: `${
                       hasCreatedStart
-                        ? (createdStart as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+                        ? formatSeriesTimeLabel(createdStart as Date, activeClubTimeZone)
                         : slotToTime(selectedStartSlot)
                     } - ${
                       hasCreatedEnd
-                        ? (createdEnd as Date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+                        ? formatSeriesTimeLabel(createdEnd as Date, activeClubTimeZone)
                         : slotToTime(selectedEndSlot)
                     }`,
                     activityName: String(item?.activityName || '').trim() || undefined,
@@ -4445,11 +4467,7 @@ export default function AdminAgendaPlaygroundPage() {
                   const firstOccurrence = getNextDateForDay(baseDate, dayOfWeek, slotTime);
                   overlapDetails.push({
                     courtName: court.name,
-                    requestedDateLabel: firstOccurrence.toLocaleDateString('es-AR', {
-                      day: '2-digit',
-                      month: '2-digit',
-                      year: 'numeric',
-                    }),
+                    requestedDateLabel: formatSeriesDateLabel(firstOccurrence, activeClubTimeZone),
                     requestedTimeLabel: `${slotToTime(selectedStartSlot)} - ${slotToTime(selectedEndSlot)}`,
                   });
                 }
@@ -5135,10 +5153,10 @@ export default function AdminAgendaPlaygroundPage() {
         totalCandidates: Number((result as any)?.totalCandidates || applicableItemsRaw.length || overlapItemsRaw.length || 0),
         applicableCount: Number((result as any)?.willUpdateCount ?? applicableItemsRaw.length ?? 0),
         applicableItems: applicableItemsRaw
-          .map((item: any) => mapSeriesAppliedItem(item, selectedCourt?.name || 'Cancha'))
+          .map((item: any) => mapSeriesAppliedItem(item, selectedCourt?.name || 'Cancha', activeClubTimeZone))
           .sort((a, b) => Number(a.sortStartMs || 0) - Number(b.sortStartMs || 0)),
         skippedCount: Number((result as any)?.skippedCount || overlapItemsRaw.length),
-        overlapItems: overlapItemsRaw.map((item: any) => mapSeriesImpactItem(item, selectedCourt?.name || 'Cancha')),
+        overlapItems: overlapItemsRaw.map((item: any) => mapSeriesImpactItem(item, selectedCourt?.name || 'Cancha', activeClubTimeZone)),
         failureMessages,
       });
     } catch (error: any) {
@@ -5183,7 +5201,7 @@ export default function AdminAgendaPlaygroundPage() {
         totalCandidates: Number((result as any)?.totalCandidates || applicableItemsRaw.length || skippedRaw.length || 0),
         applicableCount: Number((result as any)?.cancelledCount ?? applicableItemsRaw.length ?? 0),
         applicableItems: applicableItemsRaw
-          .map((item: any) => mapSeriesAppliedItem(item, selectedCourt?.name || 'Cancha'))
+          .map((item: any) => mapSeriesAppliedItem(item, selectedCourt?.name || 'Cancha', activeClubTimeZone))
           .sort((a, b) => Number(a.sortStartMs || 0) - Number(b.sortStartMs || 0)),
         skippedCount: Number((result as any)?.skippedCount || skippedRaw.length),
         overlapItems: skippedRaw.map((item: any) =>
@@ -5193,7 +5211,8 @@ export default function AdminAgendaPlaygroundPage() {
               conflictingCourtName: selectedCourt?.name || 'Cancha',
               conflictingActivityName: String(item?.reason || '').trim() || 'Ocurrencia omitida',
             },
-            selectedCourt?.name || 'Cancha'
+            selectedCourt?.name || 'Cancha',
+            activeClubTimeZone
           )
         ),
         failureMessages: skippedRaw

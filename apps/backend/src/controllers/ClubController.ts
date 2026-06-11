@@ -9,6 +9,8 @@ import { normalizeIdentityPhone } from '../utils/phone';
 import { AuditLogService } from '../services/AuditLogService';
 import { ClientIdentityAdminService } from '../services/ClientIdentityAdminService';
 import { ClientDuplicateIncidentService } from '../services/ClientDuplicateIncidentService';
+import { ClientIdentityOverviewService } from '../services/ClientIdentityOverviewService';
+import { ClientIdentityAuditService } from '../services/ClientIdentityAuditService';
 
 const fixedBookingActivityConfigSchema = z.object({
     fixedBookingDaysAhead: z.union([z.number(), z.string()]).transform((v) => Number(v)).pipe(z.number().int().positive()),
@@ -153,6 +155,8 @@ export class ClubController {
     private readonly auditLogService = new AuditLogService();
     private readonly clientIdentityAdminService = new ClientIdentityAdminService();
     private readonly duplicateIncidentService = new ClientDuplicateIncidentService();
+    private readonly clientIdentityOverviewService = new ClientIdentityOverviewService();
+    private readonly clientIdentityAuditService = new ClientIdentityAuditService();
     constructor(private clubService: ClubService) {}
 
     createClub = async (req: Request, res: Response) => {
@@ -892,6 +896,119 @@ export class ClubController {
             return res.json(client);
         } catch (error: any) {
             return sendAppError(res, error, 'No se pudo desvincular el cliente del usuario');
+        }
+    };
+
+    getClubClientIdentityOverview = async (req: Request, res: Response) => {
+        try {
+            const club = (req as any).club;
+            if (!club?.id) return res.status(404).json({ error: 'Club no encontrado' });
+
+            const paramsSchema = z.object({ clientId: z.string().trim().min(1) });
+            const paramsParsed = paramsSchema.safeParse(req.params);
+            if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá los campos marcados.'));
+
+            const overview = await this.clientIdentityOverviewService.getOverview(Number(club.id), paramsParsed.data.clientId);
+            return res.json(overview);
+        } catch (error: any) {
+            return sendAppError(res, error, 'No se pudo obtener el estado de identidad del cliente');
+        }
+    };
+
+    listClubClientIdentityQueue = async (req: Request, res: Response) => {
+        try {
+            const club = (req as any).club;
+            if (!club?.id) return res.status(404).json({ error: 'Club no encontrado' });
+
+            const querySchema = z.object({
+                status: z.string().trim().optional(),
+                limit: z.coerce.number().int().positive().max(200).optional()
+            });
+            const parsed = querySchema.safeParse(req.query);
+            if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los filtros de identidad.'));
+
+            const statuses = String(parsed.data.status || '')
+                .split(',')
+                .map((value) => value.trim().toUpperCase())
+                .filter(Boolean) as Array<'REVIEW_REQUIRED' | 'SUGGESTED_LINK' | 'LINKED' | 'NO_MATCH'>;
+
+            const incidents = await this.clientIdentityOverviewService.listQueue(Number(club.id), {
+                statuses: statuses.length > 0 ? statuses : undefined,
+                limit: parsed.data.limit
+            });
+            return res.json({ incidents });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No se pudo obtener la bandeja de identidad');
+        }
+    };
+
+    getClubClientIdentityAuditTimeline = async (req: Request, res: Response) => {
+        try {
+            const club = (req as any).club;
+            if (!club?.id) return res.status(404).json({ error: 'Club no encontrado' });
+
+            const paramsSchema = z.object({ clientId: z.string().trim().min(1) });
+            const querySchema = z.object({
+                take: z.coerce.number().int().positive().max(50).optional()
+            });
+            const paramsParsed = paramsSchema.safeParse(req.params);
+            const queryParsed = querySchema.safeParse(req.query);
+            if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá el cliente seleccionado.'));
+            if (!queryParsed.success) return sendAppError(res, zodValidationAppError(queryParsed.error, 'Revisá el rango de auditoría.'));
+
+            const entries = await this.clientIdentityAuditService.listTimeline(
+                Number(club.id),
+                paramsParsed.data.clientId,
+                queryParsed.data.take
+            );
+            return res.json({ entries });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No se pudo obtener la auditoría de identidad');
+        }
+    };
+
+    createClubClientIdentityIncident = async (req: Request, res: Response) => {
+        try {
+            const club = (req as any).club;
+            const actorUserId = Number((req as any)?.user?.userId || 0);
+            if (!club?.id) return res.status(404).json({ error: 'Club no encontrado' });
+
+            const paramsSchema = z.object({ clientId: z.string().trim().min(1) });
+            const bodySchema = z.object({
+                note: z.string().trim().max(300).optional()
+            });
+            const paramsParsed = paramsSchema.safeParse(req.params);
+            const bodyParsed = bodySchema.safeParse(req.body || {});
+            if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá el cliente seleccionado.'));
+            if (!bodyParsed.success) return sendAppError(res, zodValidationAppError(bodyParsed.error, 'Revisá la nota interna.'));
+
+            const client = await this.clubService.getClients(Number(club.id), undefined);
+            const currentClient = Array.isArray(client)
+                ? client.find((row: any) => String(row?.id || '') === String(paramsParsed.data.clientId))
+                : null;
+
+            const overview = await this.clientIdentityOverviewService.getOverview(Number(club.id), paramsParsed.data.clientId);
+            const incident = await this.duplicateIncidentService.createManualIdentityReview({
+                clubId: Number(club.id),
+                clientId: paramsParsed.data.clientId,
+                clientName: String(currentClient?.name || ''),
+                email: currentClient?.email || null,
+                phone: currentClient?.phone || null,
+                dni: currentClient?.dni || null,
+                status: overview.status,
+                reasonCode: overview.reasonCode,
+                summary: overview.summary,
+                signals: overview.signals,
+                recommendedUserId: overview.recommendedUserId,
+                userCandidates: overview.userCandidates,
+                duplicateClients: overview.duplicateClients,
+                note: bodyParsed.data.note || null,
+                actorUserId
+            });
+
+            return res.status(201).json({ incident });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No se pudo marcar el caso para revisión');
         }
     };
 

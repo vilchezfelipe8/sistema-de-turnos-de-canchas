@@ -8,6 +8,8 @@ import {
   SettingsIntegrationsWorkspaceSection,
   SettingsMembersSection,
   SettingsPricingSection,
+  SettingsReservationsSection,
+  SettingsReviewsSection,
   SettingsSchedulesSection,
 } from './SettingsSections';
 
@@ -15,6 +17,7 @@ export type SettingsWorkspaceTab =
   | 'club'
   | 'canchas'
   | 'actividades'
+  | 'reservas'
   | 'horarios'
   | 'precios'
   | 'integraciones'
@@ -22,7 +25,8 @@ export type SettingsWorkspaceTab =
   | 'notificaciones'
   | 'excepciones'
   | 'auditoria'
-  | 'facturacion';
+  | 'facturacion'
+  | 'resenas';
 
 const comingSoonLabelByTab: Record<Extract<SettingsWorkspaceTab, 'notificaciones' | 'actividades'>, string> = {
   actividades: 'Actividades',
@@ -44,6 +48,7 @@ export default function AdminSettingsWorkspace({ tab }: AdminSettingsWorkspacePr
       />
     );
   }
+  if (tab === 'reservas') return <SettingsReservationsSection />;
   if (tab === 'horarios') return <SettingsSchedulesSection />;
   if (tab === 'precios') return <SettingsPricingSection />;
   if (tab === 'integraciones') return <SettingsIntegrationsWorkspaceSection />;
@@ -51,6 +56,7 @@ export default function AdminSettingsWorkspace({ tab }: AdminSettingsWorkspacePr
   if (tab === 'excepciones') return <SettingsExceptionsSection />;
   if (tab === 'auditoria') return <SettingsAuditSection />;
   if (tab === 'facturacion') return <SettingsFiscalSection />;
+  if (tab === 'resenas') return <SettingsReviewsSection />;
 
   return (
     <AdminComingSoonPanel

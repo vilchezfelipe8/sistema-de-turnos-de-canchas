@@ -42,7 +42,7 @@ const PAGE_CSS = `
     transition: top .28s ease-out, left .28s ease-out, width .28s ease-out, transform .28s ease-out, opacity .22s ease-out, background-color .26s ease, border-color .26s ease;
     will-change:top, transform, opacity; }
   .vn-toolbar.v-stuck { }
-  .vn-toolbar.v-floating { position:fixed; top:var(--vn-toolbar-top, 76px); left:var(--vn-toolbar-left, 40px); width:var(--vn-toolbar-width, calc(100vw - 80px)); z-index:70; opacity:1; transform:translate3d(0,0,0) scale(1); }
+  .vn-toolbar.v-floating { position:fixed; top:var(--vn-toolbar-top, 76px); left:var(--vn-toolbar-left, 40px); width:var(--vn-toolbar-width, calc(100vw - 80px)); z-index:9500; opacity:1; transform:translate3d(0,0,0) scale(1); }
   .vn-toolbar.v-floating.v-stuck { transform:translate3d(0,0,0) scale(1); opacity:1; }
   .vn-toolbar.v-floating.v-leaving { opacity:.97; transform:translate3d(0,0,0) scale(1); }
   .vn-toolbar-search { position:relative; z-index:25; display:flex; gap:0; background:var(--border-subtle); border:1px solid var(--border-subtle); border-radius:999px; padding:4px; backdrop-filter:blur(20px); align-items:center; flex-wrap:wrap; }
@@ -60,15 +60,19 @@ const PAGE_CSS = `
   .vn-search-clear { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:0 12px; display:flex; align-items:center; }
   .vn-toolbar-clear { padding:9px 14px; background:var(--surface-1); color:var(--text-secondary); border:1px solid var(--border); border-radius:999px; font-size:12px; font-weight:700; display:inline-flex; align-items:center; gap:6px; transition:background .15s, border-color .15s, color .15s; cursor:pointer; font-family:inherit; white-space:nowrap; flex-shrink:0; }
   .vn-toolbar-clear:hover { background:var(--surface-2); }
+  .vn-toolbar-mobile-search-toggle { display:none; }
   .vn-toolbar-row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:space-between; }
   .vn-results-inline { display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
   .vn-results-inline-text { font-size:13px; font-weight:700; color:var(--text-muted); letter-spacing:.03em; }
   .vn-results-inline-text b { color:var(--text-primary); }
   .vn-active-filters { display:flex; gap:8px; flex-wrap:wrap; }
+  .vn-active-filters::-webkit-scrollbar { display:none; }
   .vn-active-pill { display:inline-flex; align-items:center; gap:6px; padding:7px 12px; border-radius:999px; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); font-size:11px; font-weight:700; color:var(--accent-fg); }
+  .vn-active-pill-button { background:var(--surface-1); border-color:var(--border); color:var(--text-secondary); cursor:pointer; font-family:inherit; }
+  .vn-active-pill-button:hover { background:var(--surface-2); }
   .vn-chip-wrap { position:relative; }
   .vn-dropdown { position:absolute; top:calc(100% + 8px); left:0; min-width:260px; background:var(--surface-1); border:1px solid var(--border); border-radius:12px; overflow:hidden; box-shadow:var(--shadow-lg); z-index:120; }
-  .vn-dropdown-head { padding:10px 16px; border-bottom:1px solid var(--border); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.14em; color:var(--text-muted); }
+  .vn-dropdown-head { padding:10px 16px; border-bottom:1px solid var(--border); font-size:10px; font-weight:700; letter-spacing:.04em; color:var(--text-muted); }
   .vn-dropdown-list { max-height:220px; overflow-y:auto; margin:0; padding:0; list-style:none; }
   .vn-dropdown-item { width:100%; display:flex; align-items:center; gap:10px; padding:11px 16px; background:transparent; border:0; border-bottom:1px solid var(--border-subtle); cursor:pointer; font-family:inherit; font-size:13px; color:var(--text-secondary); font-weight:500; text-align:left; transition:background .15s, color .15s; }
   .vn-dropdown-item:last-child { border-bottom:none; }
@@ -86,14 +90,16 @@ const PAGE_CSS = `
   .vn-map-loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     flex-direction:column; gap:12px; color:var(--text-muted); font-size:13px; font-weight:600; }
   /* Body / grid */
-  .vn-body { max-width:1360px; margin:0 auto; padding:28px 40px 80px; }
-  .vn-results-head { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:28px; gap:12px; flex-wrap:wrap; }
+  .vn-body { width:100%; max-width:1360px; margin:0 auto; padding:28px 40px 80px; }
+  .vn-results-head { width:100%; display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:28px; gap:12px; flex-wrap:wrap; }
   .vn-results-copy { min-width:240px; }
   .vn-results-section-title { font-size:22px; font-weight:800; color:var(--text-primary); letter-spacing:-.025em; margin:0 0 4px; }
   .vn-results-section-sub { font-size:13px; color:var(--text-muted); margin:0; }
   .vn-results-title { font-size:13px; font-weight:700; color:var(--text-muted); letter-spacing:.04em; }
   .vn-results-title b { color:var(--text-primary); }
-  .vn-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:20px; }
+  .vn-results-count { display:inline-flex; align-items:center; gap:6px; padding:8px 12px; border-radius:999px; background:var(--surface-1); border:1px solid var(--border); font-size:12px; font-weight:700; color:var(--text-muted); white-space:nowrap; }
+  .vn-results-count b { color:var(--text-primary); }
+  .vn-grid { width:100%; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; align-items:stretch; }
   /* Club card */
   .vn-card { background:var(--surface-1); border:1px solid var(--border); border-radius:20px; overflow:hidden;
     transition:border-color .2s,transform .2s,box-shadow .2s; text-decoration:none; color:inherit; position:relative; z-index:0;
@@ -117,9 +123,9 @@ const PAGE_CSS = `
   .vn-card-footer { margin-top:auto; padding-top:14px; border-top:1px solid var(--border-subtle);
     display:flex; align-items:center; justify-content:flex-end; }
   .vn-card-cta { display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:999px;
-    background:var(--brand); color:var(--brand-on); font-size:11px; font-weight:800; letter-spacing:.06em;
-    text-transform:uppercase; white-space:nowrap; flex-shrink:0; transition:background .15s; }
-  .vn-card:hover .vn-card-cta { background:var(--accent-fg); }
+    background:var(--brand); color:var(--brand-on); font-size:11px; font-weight:800; letter-spacing:.01em;
+    white-space:nowrap; flex-shrink:0; transition:background .15s; }
+  .vn-card:hover .vn-card-cta { background:var(--brand); }
   /* Empty / skeleton */
   .vn-empty { grid-column:1/-1; padding:80px 0; text-align:center; display:flex; flex-direction:column; align-items:center; gap:14px; }
   .vn-empty-ico { color:var(--accent-border-subtle); }
@@ -131,34 +137,39 @@ const PAGE_CSS = `
   .vn-skel-body { padding:18px 20px 20px; display:flex; flex-direction:column; gap:10px; }
   .vn-skel-line { height:12px; border-radius:6px; background:var(--surface-2); }
   /* Responsive */
+  @media(max-width:1100px){
+    .vn-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  }
   @media(max-width:720px){
     .vn-explore-inner,.vn-map-inner,.vn-body { padding-left:20px; padding-right:20px; }
     .vn-explore-inner { padding-top:18px; padding-bottom:20px; }
     .vn-grid { grid-template-columns:1fr; }
     .vn-h1 { font-size:30px; }
-    .vn-toolbar { padding:14px; border-radius:20px; }
+    .vn-toolbar { gap:10px; padding:12px; border-radius:18px; }
     /* Mantener mismo padding/borde cuando está stuck para evitar reflow */
-    .vn-toolbar.v-stuck { padding:14px; border-radius:20px; }
+    .vn-toolbar.v-stuck { padding:12px; border-radius:18px; }
     .vn-toolbar.v-floating { top:var(--vn-toolbar-top, 72px); left:var(--vn-toolbar-left, 20px); width:var(--vn-toolbar-width, calc(100vw - 40px)); }
-    .vn-toolbar-search { border-radius:24px; padding:8px; gap:8px; }
+    .vn-toolbar-search { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; align-items:center; border-radius:24px; padding:8px; gap:8px; }
     .vn-toolbar-divider { display:none; }
-    .vn-toolbar-zone { order:1; flex:1 1 0; min-width:0; }
-    .vn-toolbar-sport { order:2; flex:1 1 0; min-width:0; }
-    .vn-toolbar-input-wrap { order:3; flex:1 0 100%; min-width:0; }
+    .vn-toolbar-zone { order:1; min-width:0; }
+    .vn-toolbar-sport { order:2; min-width:0; }
+    .vn-toolbar-mobile-search-toggle { order:3; min-width:0; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:8px 10px; border:none; border-radius:999px; background:var(--surface-1); color:var(--text-secondary); font-family:inherit; font-size:12px; font-weight:700; cursor:pointer; }
+    .vn-toolbar-mobile-search-toggle.vn-active { background:var(--positive-bg); color:var(--accent-fg); }
+    .vn-toolbar-input-wrap { display:none; order:4; min-width:0; grid-column:1 / -1; }
+    .vn-toolbar-input-wrap.vn-mobile-open { display:flex; }
     .vn-search-input { width:100%; min-width:0; padding:12px 0; }
-    .vn-toolbar-clear { order:4; width:auto; justify-content:center; padding:9px 14px; }
-    .vn-dropdown { width:100%; min-width:0; max-width:100%; }
-    .vn-toolbar-row { align-items:stretch; }
-    .vn-results-inline { justify-content:flex-start; }
+    .vn-toolbar-clear { display:none; }
+    .vn-chip-wrap { position:static; min-width:0; }
+    .vn-dropdown { left:0; right:0; width:auto; min-width:0; max-width:none; }
+    .vn-toolbar-row { align-items:stretch; justify-content:flex-start; }
+    .vn-results-inline { display:none; }
+    .vn-active-filters { flex-wrap:nowrap; overflow-x:auto; padding-bottom:2px; }
+    .vn-active-pill { flex:0 0 auto; }
     .vn-map-inner { padding-top:48px; padding-bottom:48px; }
-    /* Evitar solapamientos en móvil: dar proporciones 60/40 para zona/deporte */
-    .vn-toolbar-zone { order:1; flex:0 0 60%; max-width:60%; min-width:0; }
-    .vn-toolbar-sport { order:2; flex:0 0 40%; max-width:40%; min-width:0; }
     .vn-toolbar-zone .vn-toolbar-seg,
-    .vn-toolbar-sport .vn-toolbar-seg { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+    .vn-toolbar-sport .vn-toolbar-seg { width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
     .vn-toolbar-zone .vn-toolbar-seg span,
     .vn-toolbar-sport .vn-toolbar-seg span { display:inline-block; max-width:calc(100% - 28px); overflow:hidden; text-overflow:ellipsis; vertical-align:middle; }
-    .vn-chip-wrap { min-width:0; }
     /* Ajustes de padding para alinear selects y texto de búsqueda */
     .vn-toolbar-search { padding:8px 12px; }
     .vn-toolbar-seg { padding:8px 12px; }
@@ -168,6 +179,8 @@ const PAGE_CSS = `
     /* Asegurar tamaños consistentes de iconos */
     .vn-search-ico svg { width:14px; height:14px; display:block; }
     .vn-toolbar-seg svg { width:14px; height:14px; display:block; flex-shrink:0; }
+    .vn-results-head { align-items:flex-start; gap:10px; }
+    .vn-results-count { padding:7px 11px; font-size:11px; }
   }
   .p-public-root.p-public-theme-light .vn-explore-top { border-bottom-color:rgba(106,176,48,.18); background:
     radial-gradient(ellipse 82% 66% at 72% 18%, rgba(182,243,106,.24) 0%, rgba(182,243,106,.08) 44%, transparent 74%),
@@ -277,6 +290,7 @@ export default function ComplejosPage() {
   const [toolbarStuck, setToolbarStuck] = useState(false);
   const [toolbarFloating, setToolbarFloating] = useState(false);
   const [toolbarLeaving, setToolbarLeaving] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [navHidden, setNavHidden] = useState(false);
   const [toolbarFrame, setToolbarFrame] = useState<{ left: number; width: number; height: number }>({
     left: 40,
@@ -394,6 +408,11 @@ export default function ComplejosPage() {
     return () => window.removeEventListener('scroll', updateNavState);
   }, []);
 
+  useEffect(() => {
+    if (!mobileSearchOpen) return;
+    searchRef.current?.focus();
+  }, [mobileSearchOpen]);
+
   // Load clubs + ratings
   useEffect(() => {
     ClubService.getAllClubs()
@@ -498,7 +517,7 @@ export default function ComplejosPage() {
       marker.bindPopup(`<div style="font-family:Geist,system-ui,sans-serif;min-width:160px">
         <div style="font-weight:800;font-size:13px;margin-bottom:4px">${club.name}</div>
         <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${formatAddr(club)}</div>
-        <a href="/club/${club.slug}" style="display:inline-block;padding:5px 12px;border-radius:8px;background:var(--brand);color:var(--brand-on);font-size:11px;font-weight:800;text-decoration:none">Ver cancha →</a>
+        <a href="/club/${club.slug}" style="display:inline-block;padding:5px 12px;border-radius:8px;background:var(--brand);color:var(--brand-on);font-size:11px;font-weight:800;text-decoration:none">Ver complejo →</a>
       </div>`, { maxWidth: 220 });
     });
   }, [mapReady, clubs, isLight]);
@@ -558,6 +577,7 @@ export default function ComplejosPage() {
     setSearch('');
     setZone('');
     setSport('');
+    setMobileSearchOpen(false);
     setShowZoneDropdown(false);
     setShowSportDropdown(false);
   };
@@ -702,9 +722,23 @@ export default function ComplejosPage() {
                 )}
               </div>
 
+              <button
+                type="button"
+                className={`vn-toolbar-mobile-search-toggle${mobileSearchOpen || !!search ? ' vn-active' : ''}`}
+                onClick={() => setMobileSearchOpen((prev) => !prev)}
+                aria-expanded={mobileSearchOpen || !!search}
+                aria-controls="complejos-mobile-search"
+              >
+                <Search size={14} />
+                Buscar
+              </button>
+
               <div className="vn-toolbar-divider" />
 
-              <div className="vn-toolbar-input-wrap">
+              <div
+                id="complejos-mobile-search"
+                className={`vn-toolbar-input-wrap${mobileSearchOpen || !!search ? ' vn-mobile-open' : ''}`}
+              >
                 <span className="vn-search-ico"><Search size={16} /></span>
                 <input ref={searchRef} className="vn-search-input" type="text" value={search}
                   onChange={e => setSearch(e.target.value)} placeholder="Buscá por nombre, zona o descripción…" autoComplete="off" />
@@ -723,24 +757,19 @@ export default function ComplejosPage() {
               )}
             </div>
 
+            {hasFilters && activeFilterParts.length > 0 && (
             <div className="vn-toolbar-row">
-              {hasFilters && activeFilterParts.length > 0 ? (
-                <div className="vn-active-filters" aria-label="Filtros activos">
-                  {activeFilterParts.map((part) => (
-                    <span key={part} className="vn-active-pill">{part}</span>
-                  ))}
-                </div>
-              ) : <div />}
-
-              <div className="vn-results-inline">
-                <span className="vn-results-inline-text">
-                  {loading
-                    ? 'Cargando complejos…'
-                    : <><b>{filtered.length}</b> {filtered.length === 1 ? 'complejo' : 'complejos'} {hasFilters ? 'encontrados' : 'disponibles'}</>
-                  }
-                </span>
+              <div className="vn-active-filters" aria-label="Filtros activos">
+                {activeFilterParts.map((part) => (
+                  <span key={part} className="vn-active-pill">{part}</span>
+                ))}
+                <button type="button" className="vn-active-pill vn-active-pill-button" onClick={clearFilters}>
+                  <X size={12} />
+                  Limpiar
+                </button>
               </div>
             </div>
+            )}
           </div>
             );
           })()}
@@ -754,6 +783,12 @@ export default function ComplejosPage() {
           <div className="vn-results-copy">
             <h2 className="vn-results-section-title">{resultsTitle}</h2>
             <p className="vn-results-section-sub">{resultsSub}</p>
+          </div>
+          <div className="vn-results-count">
+            {loading
+              ? 'Cargando complejos…'
+              : <><b>{filtered.length}</b> {filtered.length === 1 ? 'complejo' : 'complejos'} {hasFilters ? 'encontrados' : 'disponibles'}</>
+            }
           </div>
         </div>
 
@@ -798,7 +833,7 @@ export default function ComplejosPage() {
                     )}
                     {club.description && <div className="vn-card-desc">{club.description}</div>}
                     <div className="vn-card-footer">
-                      <span className="vn-card-cta">Ver cancha →</span>
+                      <span className="vn-card-cta">Ver complejo →</span>
                     </div>
                   </div>
                 </Link>

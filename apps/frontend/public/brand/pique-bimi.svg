@@ -1,0 +1,14 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  version="1.2"
+  baseProfile="tiny-ps"
+  width="96"
+  height="96"
+  viewBox="0 0 96 96"
+  role="img"
+  aria-label="Pique"
+>
+  <title>Pique</title>
+  <rect x="9" y="9" width="78" height="78" rx="21" fill="#0E1116" />
+  <circle cx="63" cy="63" r="13.5" fill="#B6F36A" />
+</svg>

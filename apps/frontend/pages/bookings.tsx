@@ -28,10 +28,18 @@ import UserLoadingState from '../components/UserLoadingState';
 import { Calendar, Clock, MapPin, Ticket, ArrowRight, Search, XCircle, CheckCircle2, Star, MessageSquare, X, Users, UserPlus, Mail, LogOut, Trash2, ChevronDown } from 'lucide-react';
 import { getApiFieldErrors, normalizeApiError } from '../utils/apiError';
 
+const APP_NOTICE_EVENT = 'app:notice';
+
 const PAGE_CSS = `
-  .bk-layout { display:grid; grid-template-columns:1.4fr 1fr; gap:24px; align-items:start; }
+  .bk-page { padding-top:16px!important; padding-bottom:28px!important; }
+  .bk-page.bk-page-empty { padding-bottom:8px!important; }
+  .bk-page-head { margin-bottom:28px; display:flex; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:12px; padding-bottom:22px; border-bottom:1px solid var(--border-subtle); }
+  .bk-tabs-wrap { margin-bottom:18px; }
+  .bk-layout { display:grid; grid-template-columns:1.4fr 1fr; gap:20px; align-items:start; }
+  .bk-layout.bk-layout-empty { align-items:stretch; }
   .bk-list-panel { background:var(--surface-1); border:1px solid var(--border); border-radius:24px; overflow:hidden; }
-  .bk-list-body { padding:0 16px 16px; max-height:68vh; overflow-y:auto; display:flex; flex-direction:column; gap:8px; }
+  .bk-list-panel-head { padding:16px 18px 10px; border-bottom:1px solid var(--border-subtle); }
+  .bk-list-body { padding:14px; max-height:calc(100vh - 260px); overflow-y:auto; display:flex; flex-direction:column; gap:8px; }
   .bk-list-body::-webkit-scrollbar { width:4px; }
   .bk-list-body::-webkit-scrollbar-track { background:transparent; }
   .bk-list-body::-webkit-scrollbar-thumb { background:var(--surface-2); border-radius:4px; }
@@ -43,30 +51,33 @@ const PAGE_CSS = `
   .bk-date-box-past { background:var(--surface-2); border:1px solid var(--border); }
   .bk-date-box-cancelled { background:var(--error-bg); border:1px solid var(--error-bg); }
   .bk-date-day { font-size:20px; font-weight:800; line-height:1; color:var(--text-primary); }
-  .bk-date-month { font-size:9px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted); }
+  .bk-date-month { font-size:9px; font-weight:700; letter-spacing:.03em; color:var(--text-muted); }
   .bk-card-club { font-size:15px; font-weight:800; color:var(--text-primary); line-height:1.2; margin-bottom:4px; }
   .bk-card-meta { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--text-muted); font-weight:600; flex-wrap:wrap; }
   .bk-card-chip { padding:2px 8px; background:var(--surface-2); border-radius:6px; font-size:10px; color:var(--text-muted); font-weight:600; }
   /* Detail panel */
-  .bk-detail { background:var(--surface-1); border:1px solid var(--border); border-radius:24px; padding:28px; position:sticky; top:84px; }
-  .bk-ticket-label { display:inline-flex; align-items:center; gap:6px; padding:5px 14px; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); border-radius:999px; font-size:10px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; color:var(--accent-fg); margin-bottom:20px; }
+  .bk-detail { background:var(--surface-1); border:1px solid var(--border); border-radius:24px; padding:24px; position:sticky; top:80px; max-height:calc(100vh - 96px); overflow-y:auto; }
+  .bk-detail::-webkit-scrollbar { width:4px; }
+  .bk-detail::-webkit-scrollbar-track { background:transparent; }
+  .bk-detail::-webkit-scrollbar-thumb { background:var(--surface-2); border-radius:4px; }
+  .bk-ticket-label { display:inline-flex; align-items:center; gap:6px; padding:5px 14px; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); border-radius:999px; font-size:10px; font-weight:800; letter-spacing:.03em; color:var(--accent-fg); margin-bottom:16px; }
   .bk-detail-court { font-size:22px; font-weight:800; color:var(--text-primary); letter-spacing:-.02em; line-height:1.1; margin-bottom:6px; }
-  .bk-detail-activity { font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-muted); margin-bottom:24px; }
-  .bk-detail-row { display:flex; align-items:center; gap:14px; padding:14px 0; border-bottom:1px solid var(--border-subtle); }
+  .bk-detail-activity { font-size:11px; font-weight:700; letter-spacing:.03em; color:var(--text-muted); margin-bottom:18px; }
+  .bk-detail-row { display:flex; align-items:center; gap:14px; padding:12px 0; border-bottom:1px solid var(--border-subtle); }
   .bk-detail-row:last-of-type { border-bottom:none; }
   .bk-detail-icon { width:36px; height:36px; border-radius:10px; background:var(--surface-2); display:flex; align-items:center; justify-content:center; color:var(--text-muted); flex-shrink:0; }
-  .bk-detail-row-label { font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-muted); margin-bottom:3px; }
+  .bk-detail-row-label { font-size:10px; font-weight:700; letter-spacing:.03em; color:var(--text-muted); margin-bottom:3px; }
   .bk-detail-row-val { font-size:14px; font-weight:700; color:var(--text-secondary); line-height:1.4; }
-  .bk-detail-total { display:flex; align-items:center; justify-content:space-between; padding:20px 0 16px; border-top:1px solid var(--border); margin-top:8px; }
-  .bk-detail-total-label { font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-muted); }
+  .bk-detail-total { display:flex; align-items:center; justify-content:space-between; padding:18px 0 14px; border-top:1px solid var(--border); margin-top:8px; }
+  .bk-detail-total-label { font-size:11px; font-weight:700; letter-spacing:.03em; color:var(--text-muted); }
   .bk-detail-total-val { font-size:26px; font-weight:800; color:var(--text-primary); letter-spacing:-.03em; }
-  .bk-collapsible { margin-top:18px; border-top:1px solid var(--border); padding-top:18px; }
+  .bk-collapsible { margin-top:16px; border-top:1px solid var(--border); padding-top:16px; }
   .bk-collapsible-head { width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; background:none; border:none; padding:0; cursor:pointer; font-family:var(--font-sans); text-align:left; }
-  .bk-collapsible-title { font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted); }
+  .bk-collapsible-title { font-size:11px; font-weight:800; letter-spacing:.03em; color:var(--text-muted); }
   .bk-collapsible-chevron { color:var(--text-muted); flex-shrink:0; transition:transform .18s ease, color .18s ease; }
   .bk-collapsible-open .bk-collapsible-chevron { transform:rotate(180deg); color:var(--accent-fg); }
   .bk-collapsible-body { margin-top:12px; display:grid; gap:12px; }
-  .bk-action-btn { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; padding:12px 16px; border-radius:14px; font-size:12px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; cursor:pointer; font-family:var(--font-sans); border:none; transition:background .15s,transform .15s; text-decoration:none; }
+  .bk-action-btn { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; padding:12px 16px; border-radius:14px; font-size:12px; font-weight:800; letter-spacing:.01em; cursor:pointer; font-family:var(--font-sans); border:none; transition:background .15s,transform .15s; text-decoration:none; }
   .bk-action-btn:hover { transform:translateY(-1px); }
   .bk-action-cancel { background:var(--error-bg); border:1px solid var(--error-bg)!important; color:var(--error-fg); }
   .bk-action-cancel:hover { background:var(--error-bg); }
@@ -75,9 +86,10 @@ const PAGE_CSS = `
   .bk-action-rebook { background:var(--brand); color:var(--brand-on); }
   .bk-action-rebook:hover { background:var(--brand-hover); }
   /* Empty state */
-  .bk-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:64px 32px; text-align:center; gap:16px; }
+  .bk-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:280px; padding:44px 28px; text-align:center; gap:14px; }
+  .bk-layout.bk-layout-empty .bk-empty { min-height:160px; padding:20px 18px; }
   .bk-empty-icon { color:var(--border-strong); }
-  .bk-empty-title { font-size:13px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-muted); }
+  .bk-empty-title { font-size:13px; font-weight:700; letter-spacing:.03em; color:var(--text-muted); }
   /* Review modal */
   .bk-review-overlay { position:fixed; inset:0; background:var(--overlay); z-index:200; display:flex; align-items:center; justify-content:center; padding:20px; }
   .bk-review-panel { background:var(--surface-1); border:1px solid var(--border); border-radius:24px; width:100%; max-width:480px; padding:32px; box-shadow:var(--shadow-lg); }
@@ -90,15 +102,20 @@ const PAGE_CSS = `
   .bk-review-textarea:focus { border-color:var(--accent-border); }
   /* Review modal actions */
   .bk-review-action-row { display:flex; gap:10px; margin-top:24px; }
-  .bk-review-secondary { flex:1; height:46px; border-radius:12px; background:none; border:1px solid var(--border); color:var(--text-muted); font-family:var(--font-sans); font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; cursor:pointer; transition:background .15s,border-color .15s; }
+  .bk-review-secondary { flex:1; height:46px; border-radius:12px; background:none; border:1px solid var(--border); color:var(--text-muted); font-family:var(--font-sans); font-size:12px; font-weight:700; letter-spacing:.01em; cursor:pointer; transition:background .15s,border-color .15s; }
   .bk-review-secondary:hover { background:var(--surface-2); border-color:var(--border-strong); }
-  .bk-review-primary { flex:1; height:46px; border-radius:12px; background:var(--brand); border:none; color:var(--brand-on); font-family:var(--font-sans); font-size:12px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; cursor:pointer; transition:background .15s; }
+  .bk-review-primary { flex:1; height:46px; border-radius:12px; background:var(--brand); border:none; color:var(--brand-on); font-family:var(--font-sans); font-size:12px; font-weight:800; letter-spacing:.01em; cursor:pointer; transition:background .15s; }
   .bk-review-primary:hover:not(:disabled) { background:var(--brand-hover); }
   .bk-review-primary:disabled { opacity:.5; cursor:not-allowed; }
   @media(max-width:900px){
-    .bk-layout { grid-template-columns:1fr; }
-    .bk-detail { position:static; }
-    .bk-list-body { max-height:50vh; }
+    .bk-page { padding-top:12px!important; padding-bottom:20px!important; }
+    .bk-page-head { margin-bottom:22px; padding-bottom:18px; }
+    .bk-tabs-wrap { margin-bottom:16px; }
+    .bk-layout { grid-template-columns:1fr; gap:16px; }
+    .bk-detail { position:static; max-height:none; overflow:visible; padding:20px; }
+    .bk-list-body { max-height:none; }
+    .bk-list-panel-head { padding:14px 16px 10px; }
+    .bk-card { padding:14px 16px; }
   }
   .p-public-root.p-public-theme-light .bk-list-panel,
   .p-public-root.p-public-theme-light .bk-detail { background:var(--surface-1); border-color:var(--border); box-shadow:0 12px 28px var(--border); }
@@ -138,9 +155,10 @@ const PAGE_CSS = `
   .p-public-root.p-public-theme-light .bk-action-review:hover { background:var(--accent-bg-muted); }
   .p-public-root.p-public-theme-light .bk-star-on { background:var(--positive-bg)!important; border-color:var(--accent-border)!important; color:var(--accent-fg)!important; }
   .p-public-root.p-public-theme-light .bk-list-body::-webkit-scrollbar-thumb { background:var(--border); }
-  .bk-detail-empty { background:var(--surface-2); border:1px dashed var(--border); border-radius:24px; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:320px; padding:40px; text-align:center; gap:12px; }
+  .bk-detail-empty { background:var(--surface-2); border:1px dashed var(--border); border-radius:24px; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:280px; padding:32px; text-align:center; gap:12px; }
+  .bk-layout.bk-layout-empty .bk-detail-empty { min-height:100%; padding:20px 18px; }
   .bk-detail-empty-icon { color:var(--border-strong); }
-  .bk-detail-empty-label { font-size:12px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-muted); line-height:1.5; }
+  .bk-detail-empty-label { font-size:12px; font-weight:700; letter-spacing:.03em; color:var(--text-muted); line-height:1.5; }
   .p-public-root.p-public-theme-light .bk-detail-empty { background:var(--surface-2); border-color:var(--border); }
   .p-public-root.p-public-theme-light .bk-detail-empty-icon { color:var(--border-strong); }
   .p-public-root.p-public-theme-light .bk-detail-empty-label { color:var(--text-muted); }
@@ -157,6 +175,9 @@ export default function MyBookingsPage() {
   const [activeTab, setActiveTab] = useState<'ACTIVE' | 'PAST' | 'CANCELLED'>('ACTIVE');
   const [selectedBooking, setSelectedBooking] = useState<PlayerBookingDto | null>(null);
   const selectedDetailRef = useRef<HTMLDivElement | null>(null);
+  const skipDetailAutoScrollRef = useRef(false);
+  const listBodyRef = useRef<HTMLDivElement | null>(null);
+  const pendingTabScrollRestoreRef = useRef<{ windowY: number; listScrollTop: number } | null>(null);
   const bookingRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -173,8 +194,6 @@ export default function MyBookingsPage() {
     closeOnEscape?: boolean;
   }>({ show: false });
   const [cancellingBooking, setCancellingBooking] = useState(false);
-  const [cancelSuccessMessage, setCancelSuccessMessage] = useState('');
-  const cancelSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pendingInvitations, setPendingInvitations] = useState<PlayerBookingInvitationDto[]>([]);
   const [invitationActionId, setInvitationActionId] = useState<string | null>(null);
   const [participants, setParticipants] = useState<PlayerBookingParticipantDto[]>([]);
@@ -208,9 +227,10 @@ export default function MyBookingsPage() {
 
   const showError = (message: string) => setModalState({ show: true, title: 'Error', message, isWarning: true, cancelText: '', confirmText: 'Aceptar' });
   const flashSuccess = (message: string) => {
-    if (cancelSuccessTimerRef.current) clearTimeout(cancelSuccessTimerRef.current);
-    setCancelSuccessMessage(message);
-    cancelSuccessTimerRef.current = setTimeout(() => setCancelSuccessMessage(''), 4000);
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent(APP_NOTICE_EVENT, {
+      detail: { message, tone: 'success' },
+    }));
   };
 
   const toPublicBookingErrorMessage = (error: unknown, fallback: string) => {
@@ -291,20 +311,21 @@ export default function MyBookingsPage() {
     setParticipants(items);
   }, [selectedBooking]);
 
-  useEffect(() => () => { if (cancelSuccessTimerRef.current) clearTimeout(cancelSuccessTimerRef.current); }, []);
-
   const loadData = useCallback(async () => {
-    if (!user) return;
+    if (!user) return [] as PlayerBookingDto[];
     try {
       const [data, invitations] = await Promise.all([
         getMyBookings(user.id),
         getMyBookingInvitations().catch(() => [] as PlayerBookingInvitationDto[])
       ]);
-      setBookings(data.sort((a, b) => new Date(b.startDateTime).getTime() - new Date(a.startDateTime).getTime()));
+      const sortedBookings = data.sort((a, b) => new Date(b.startDateTime).getTime() - new Date(a.startDateTime).getTime());
+      setBookings(sortedBookings);
       setPendingInvitations(invitations);
       setError('');
+      return sortedBookings;
     } catch (err: unknown) {
       setError(toPublicBookingErrorMessage(err, 'No pudimos cargar tus reservas. Recargá la página.'));
+      return [] as PlayerBookingDto[];
     } finally {
       setLoading(false);
     }
@@ -450,18 +471,50 @@ export default function MyBookingsPage() {
 
   useEffect(() => {
     if (!selectedBooking) return;
+    if (skipDetailAutoScrollRef.current) {
+      skipDetailAutoScrollRef.current = false;
+      return;
+    }
     const el = selectedDetailRef.current;
     if (!el) return;
     try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus({ preventScroll: true }); }
     catch { el.scrollIntoView(); }
   }, [selectedBooking]);
 
-  const formatTime = (date: Date) =>
-    date.toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit', hour12: false });
+  useEffect(() => {
+    const pending = pendingTabScrollRestoreRef.current;
+    if (!pending || typeof window === 'undefined') return;
+    pendingTabScrollRestoreRef.current = null;
 
-  const formatWeekday = (date: Date) =>
-    date.toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' })
+    const restoreScroll = () => {
+      window.scrollTo({ top: pending.windowY, behavior: 'auto' });
+      if (!listBodyRef.current) return;
+      const maxScrollTop = Math.max(listBodyRef.current.scrollHeight - listBodyRef.current.clientHeight, 0);
+      listBodyRef.current.scrollTop = Math.min(pending.listScrollTop, maxScrollTop);
+    };
+
+    const frame = window.requestAnimationFrame(() => restoreScroll());
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeTab, selectedBooking, visibleBookings.length]);
+
+  const formatTime = (date: Date, timeZone?: string | null) =>
+    date.toLocaleTimeString('es-AR', { ...(timeZone ? { timeZone } : {}), hour: '2-digit', minute: '2-digit', hour12: false });
+
+  const formatWeekday = (date: Date, timeZone?: string | null) =>
+    date.toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: '2-digit', ...(timeZone ? { timeZone } : {}) })
       .replace(/^\w/, c => c.toUpperCase());
+
+  const getDateBoxParts = (date: Date, timeZone?: string | null) => {
+    const formatter = new Intl.DateTimeFormat('es-AR', {
+      day: '2-digit',
+      month: 'short',
+      ...(timeZone ? { timeZone } : {}),
+    });
+    const parts = formatter.formatToParts(date);
+    const day = parts.find((part) => part.type === 'day')?.value ?? '--';
+    const month = (parts.find((part) => part.type === 'month')?.value ?? '---').replace('.', '');
+    return { day, month };
+  };
 
   const formatMoney = (value: number) => `$${Number(value || 0).toLocaleString('es-AR')}`;
 
@@ -545,8 +598,10 @@ export default function MyBookingsPage() {
         try {
           await cancelBooking(id);
           closeModal();
-          setSelectedBooking(null);
-          await loadData();
+          const refreshedBookings = await loadData();
+          const cancelledBooking = refreshedBookings.find((booking) => String(booking.id) === id) || null;
+          setActiveTab('CANCELLED');
+          setSelectedBooking(cancelledBooking);
           flashSuccess('Reserva cancelada.');
         } catch (e: any) {
           setModalState(prev => ({
@@ -744,6 +799,19 @@ export default function MyBookingsPage() {
     }
   };
 
+  const handleTabChange = (tab: 'ACTIVE' | 'PAST' | 'CANCELLED') => {
+    if (tab === activeTab) return;
+    pendingTabScrollRestoreRef.current = {
+      windowY: typeof window !== 'undefined' ? window.scrollY : 0,
+      listScrollTop: listBodyRef.current?.scrollTop ?? 0,
+    };
+    skipDetailAutoScrollRef.current = true;
+    setActiveTab(tab);
+    setSelectedBooking(null);
+  };
+
+  const isDualEmptyState = !loading && !error && visibleBookings.length === 0 && !selectedBooking;
+
   return (
     <DarkPageLayout
       title="Mis Reservas | Pique"
@@ -753,25 +821,25 @@ export default function MyBookingsPage() {
         { label: 'Mis reservas' },
       ]}
     >
-      <div className="p-public-page" style={{ paddingTop: 24 }}>
+      <div className={`p-public-page bk-page${isDualEmptyState ? ' bk-page-empty' : ''}`}>
 
         {/* ── PAGE HEADER ── */}
-        <div style={{ marginBottom: 36, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16, paddingBottom: 28, borderBottom: '1px solid var(--border-subtle)' }}>
+        <div className="bk-page-head">
           <div>
-            <span className="p-public-page-eyebrow">Mi cuenta</span>
+            <span className="p-public-page-eyebrow">Reservas</span>
             <h1 className="p-public-page-h">Mis <i>reservas</i></h1>
             <p className="p-public-page-sub">Próximos partidos e historial</p>
           </div>
           <Link
             href="/complejos"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: 'var(--brand)', color: 'var(--brand-on)', borderRadius: 999, fontSize: 12, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', textDecoration: 'none' }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: 'var(--brand)', color: 'var(--brand-on)', borderRadius: 999, fontSize: 12, fontWeight: 800, letterSpacing: '.01em', textDecoration: 'none' }}
           >
             + Nueva reserva
           </Link>
         </div>
 
         {/* ── TABS ── */}
-        <div style={{ marginBottom: 24 }}>
+        <div className="bk-tabs-wrap">
           {pendingInvitations.length > 0 && (
             <div style={{ marginBottom: 18, display: 'grid', gap: 10 }}>
               {pendingInvitations.map((invitation) => {
@@ -794,7 +862,7 @@ export default function MyBookingsPage() {
                           Invitación pendiente para {invitation.club.name}
                         </div>
                         <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                          {invitation.court.name} · {formatWeekday(new Date(invitation.startDateTime))} · {formatTime(new Date(invitation.startDateTime))}
+                          {invitation.court.name} · {formatWeekday(new Date(invitation.startDateTime), invitation.club.timeZone)} · {formatTime(new Date(invitation.startDateTime), invitation.club.timeZone)}
                         </div>
                       </div>
                       <span className="bk-card-chip" style={{ background: 'var(--positive-bg)', color: 'var(--accent-fg)' }}>
@@ -834,7 +902,7 @@ export default function MyBookingsPage() {
                 key={tab}
                 ref={el => { tabRefs.current[tab] = el; }}
                 className={`p-public-tab${activeTab === tab ? ' p-public-active' : ''}`}
-                onClick={() => { setActiveTab(tab); setSelectedBooking(null); }}
+                onClick={() => handleTabChange(tab)}
               >
                 {TAB_LABELS[tab]}
               </button>
@@ -843,22 +911,16 @@ export default function MyBookingsPage() {
         </div>
 
         {/* ── MAIN LAYOUT ── */}
-        <div className="bk-layout">
+        <div className={`bk-layout${isDualEmptyState ? ' bk-layout-empty' : ''}`}>
 
           {/* LIST PANEL */}
           <div className="bk-list-panel">
-            <div style={{ padding: '20px 20px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+            <div className="bk-list-panel-head">
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-muted)' }}>
                 {visibleBookings.length} {activeTab === 'ACTIVE' ? 'próximas' : activeTab === 'PAST' ? 'pasadas' : 'canceladas'}
               </div>
             </div>
-            <div className="bk-list-body" style={{ padding: '16px' }}>
-              {cancelSuccessMessage && (
-                <div style={{ padding: '12px 16px', background: 'var(--positive-bg)', border: '1px solid var(--accent-border-subtle)', borderRadius: 12, fontSize: 13, color: 'var(--accent-fg)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <CheckCircle2 size={15} style={{ flexShrink: 0 }} />
-                  {cancelSuccessMessage}
-                </div>
-              )}
+            <div className="bk-list-body" ref={listBodyRef}>
               {paymentBanner && (
                 <div
                   style={{
@@ -905,7 +967,7 @@ export default function MyBookingsPage() {
                     {activeTab === 'CANCELLED' ? 'Sin cancelaciones' : activeTab === 'PAST' ? 'Sin historial' : 'No hay reservas activas'}
                   </div>
                   {activeTab === 'ACTIVE' && (
-                    <Link href="/complejos" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: 'var(--brand)', color: 'var(--brand-on)', borderRadius: 999, fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em', textDecoration: 'none', marginTop: 4 }}>
+                    <Link href="/complejos" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: 'var(--brand)', color: 'var(--brand-on)', borderRadius: 999, fontSize: 12, fontWeight: 800, letterSpacing: '.01em', textDecoration: 'none', marginTop: 4 }}>
                       Reservar ahora
                     </Link>
                   )}
@@ -913,6 +975,8 @@ export default function MyBookingsPage() {
               ) : (
                 visibleBookings.map(booking => {
                   const date = new Date(booking.startDateTime);
+                  const bookingTimeZone = booking.club?.timeZone || undefined;
+                  const dateBox = getDateBoxParts(date, bookingTimeZone);
                   const isSelected = selectedBooking?.id === booking.id;
                   const boxClass = activeTab === 'ACTIVE' ? 'bk-date-box-active' : activeTab === 'CANCELLED' ? 'bk-date-box-cancelled' : 'bk-date-box-past';
                   const dayColor = activeTab === 'ACTIVE' ? 'var(--brand)' : activeTab === 'CANCELLED' ? 'var(--error-fg)' : 'var(--text-muted)';
@@ -925,8 +989,8 @@ export default function MyBookingsPage() {
                       onClick={() => setSelectedBooking(booking)}
                     >
                       <div className={`bk-date-box ${boxClass}`}>
-                        <span className="bk-date-day" style={{ color: dayColor }}>{date.getDate()}</span>
-                        <span className="bk-date-month">{date.toLocaleString('es-AR', { month: 'short' }).replace('.', '')}</span>
+                        <span className="bk-date-day" style={{ color: dayColor }}>{dateBox.day}</span>
+                        <span className="bk-date-month">{dateBox.month}</span>
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div className="bk-card-club">{booking.club?.name || 'Club'}</div>
@@ -934,7 +998,7 @@ export default function MyBookingsPage() {
                           {booking.activity?.name && <span className="bk-card-chip">{booking.activity.name}</span>}
                           {booking.myRole === 'PARTICIPANT' && <span className="bk-card-chip">{roleLabel(booking)}</span>}
                           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <Clock size={10} /> {formatTime(date)}
+                            <Clock size={10} /> {formatTime(date, bookingTimeZone)}
                           </span>
                           {booking.court?.name && <span style={{ color: 'var(--text-muted)' }}>{booking.court.name}</span>}
                           {booking.paymentSummary.status !== 'NOT_REQUIRED' && paymentStatusLabel(booking) && (
@@ -979,14 +1043,14 @@ export default function MyBookingsPage() {
                   <div className="bk-detail-icon"><Calendar size={16} /></div>
                   <div>
                     <div className="bk-detail-row-label">Fecha</div>
-                    <div className="bk-detail-row-val">{formatWeekday(new Date(selectedBooking.startDateTime))}</div>
+                    <div className="bk-detail-row-val">{formatWeekday(new Date(selectedBooking.startDateTime), selectedBooking.club?.timeZone)}</div>
                   </div>
                 </div>
                 <div className="bk-detail-row">
                   <div className="bk-detail-icon"><Clock size={16} /></div>
                   <div>
                     <div className="bk-detail-row-label">Horario</div>
-                    <div className="bk-detail-row-val">{formatTime(new Date(selectedBooking.startDateTime))} · {getDuration(selectedBooking)} min</div>
+                    <div className="bk-detail-row-val">{formatTime(new Date(selectedBooking.startDateTime), selectedBooking.club?.timeZone)} · {getDuration(selectedBooking)} min</div>
                   </div>
                 </div>
                 <div className="bk-detail-row">
@@ -1020,7 +1084,7 @@ export default function MyBookingsPage() {
                   aria-expanded={participantsExpanded}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.03em', color: 'var(--text-muted)' }}>
                       Participantes
                     </div>
                     {selectedBooking.capabilities.canInvitePlayers && (
@@ -1089,7 +1153,7 @@ export default function MyBookingsPage() {
 
                     {selectedBooking.capabilities.canInvitePlayers && (
                       <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
-                        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.03em', color: 'var(--text-muted)' }}>
                           Invitar jugador
                         </div>
                         {inviteBannerError && (
@@ -1157,7 +1221,7 @@ export default function MyBookingsPage() {
                 {paymentExpanded && (
                   <div className="bk-collapsible-body">
                     <div style={{ display: 'grid', gap: 10 }}>
-                      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.03em', color: 'var(--text-muted)' }}>
                         Resumen de pago
                       </div>
 
@@ -1190,7 +1254,7 @@ export default function MyBookingsPage() {
                                   border: '1px solid var(--border-subtle)'
                                 }}
                               >
-                                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>
+                                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '.03em', color: 'var(--text-muted)', marginBottom: 6 }}>
                                   {item.label}
                                 </div>
                                 <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)' }}>{item.value}</div>
@@ -1362,7 +1426,7 @@ export default function MyBookingsPage() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                 <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 10 }}>Calificación</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-muted)', marginBottom: 10 }}>Calificación</div>
                   <div className="bk-review-stars">
                     {[1, 2, 3, 4, 5].map(v => (
                       <button key={v} type="button" className={`bk-review-star${reviewRating >= v ? ' bk-star-on' : ''}`} onClick={() => setReviewRating(v)} disabled={reviewSaving} aria-label={`${v} ${v === 1 ? 'estrella' : 'estrellas'}`}>
@@ -1372,7 +1436,7 @@ export default function MyBookingsPage() {
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 10 }}>Comentario (opcional)</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-muted)', marginBottom: 10 }}>Comentario (opcional)</div>
                   <textarea
                     className="bk-review-textarea"
                     rows={4}

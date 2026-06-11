@@ -28,6 +28,7 @@ import ClubReviewRoutes from './routes/ClubReviewRoutes';
 import MeRoutes from './routes/MeRoutes';
 import IntegrationRoutes from './routes/IntegrationRoutes';
 import WebhookRoutes from './routes/WebhookRoutes';
+import WhatsappAdminRoutes from './routes/WhatsappAdminRoutes';
 
 import { errorHandler } from './middleware/ErrorHandler';
 import { authMiddleware } from './middleware/AuthMiddleware';
@@ -155,6 +156,7 @@ export const createApp = () => {
   app.use('/api/me', MeRoutes);
   app.use('/api', IntegrationRoutes);
   app.use('/api', WebhookRoutes);
+  app.use('/api/admin/whatsapp', WhatsappAdminRoutes);
 
   app.get('/', (_req: Request, res: Response) => {
     res.json({ message: 'API Pique' });

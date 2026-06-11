@@ -94,6 +94,7 @@ export type PlayerBookingDto = {
     id: string;
     name: string;
     slug: string;
+    timeZone: string;
   };
   court: {
     name: string;
@@ -149,6 +150,7 @@ export type PlayerBookingInvitationDto = {
   club: {
     name: string;
     slug: string;
+    timeZone: string;
   };
   court: {
     name: string;

@@ -8,26 +8,34 @@ type SettingsTab = SettingsWorkspaceTab;
 const SETTINGS_TABS: Array<{ value: SettingsTab; label: string; comingSoon?: boolean }> = [
   { value: 'club', label: 'Club' },
   { value: 'canchas', label: 'Canchas' },
+  { value: 'reservas', label: 'Reservas' },
   { value: 'horarios', label: 'Horarios' },
   { value: 'precios', label: 'Precios' },
   { value: 'facturacion', label: 'Facturación' },
   { value: 'integraciones', label: 'Integraciones' },
+  { value: 'usuarios', label: 'Usuarios' },
   { value: 'excepciones', label: 'Excepciones' },
   { value: 'auditoria', label: 'Auditoría' },
+  { value: 'resenas', label: 'Reseñas' },
   { value: 'actividades', label: 'Actividades', comingSoon: true },
-  { value: 'usuarios', label: 'Usuarios' },
   { value: 'notificaciones', label: 'Notificaciones', comingSoon: true },
+];
+
+const orderedSettingsTabs = [
+  ...SETTINGS_TABS.filter((tab) => !tab.comingSoon),
+  ...SETTINGS_TABS.filter((tab) => tab.comingSoon),
 ];
 
 const parseSettingsTab = (value: unknown): SettingsTab => {
   const raw = String(value || '').toLowerCase();
   if (raw === 'identity') return 'club';
-  if (raw === 'operation') return 'horarios';
-  if (raw === 'agenda') return 'excepciones';
+  if (raw === 'operation') return 'reservas';
+  if (raw === 'agenda') return 'horarios';
   if (raw === 'discounts') return 'precios';
   if (raw === 'audit') return 'auditoria';
   if (raw === 'canchas') return 'canchas';
   if (raw === 'actividades') return 'actividades';
+  if (raw === 'reservas') return 'reservas';
   if (raw === 'horarios') return 'horarios';
   if (raw === 'precios') return 'precios';
   if (raw === 'integraciones') return 'integraciones';
@@ -36,6 +44,7 @@ const parseSettingsTab = (value: unknown): SettingsTab => {
   if (raw === 'excepciones') return 'excepciones';
   if (raw === 'auditoria') return 'auditoria';
   if (raw === 'facturacion') return 'facturacion';
+  if (raw === 'resenas' || raw === 'reseñas' || raw === 'reviews' || raw === 'review') return 'resenas';
   return 'club';
 };
 
@@ -59,7 +68,7 @@ export default function AdminSettingsV2Page() {
     <AdminRouteShell title="Ajustes | Pique Admin" activeItem="Ajustes" fromPath="/admin/ajustes">
       <div className="flex h-full min-h-0 flex-col gap-4 p-4 pb-0 lg:p-6 lg:pb-0">
         <AdminSegmentedControl
-          options={SETTINGS_TABS.map((tab) => ({ value: tab.value, label: tab.label }))}
+          options={orderedSettingsTabs.map((tab) => ({ value: tab.value, label: tab.label }))}
           value={activeTab}
           onChange={(value) => handleChangeTab(value as SettingsTab)}
           ariaLabel="Subnavegacion de ajustes"

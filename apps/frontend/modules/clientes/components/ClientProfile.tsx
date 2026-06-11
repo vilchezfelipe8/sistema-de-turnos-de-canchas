@@ -10,7 +10,7 @@ import MovementsTimeline, { type MovementsTimelineItem } from '../../../componen
 const formatMoney = (amount: number) =>
   `$${Number(amount || 0).toLocaleString('es-AR')}`;
 
-const formatDate = (iso: string | null): string => {
+const formatDate = (iso: string | null, timeZone?: string | null): string => {
   if (!iso) return '—';
   // YYYY-MM-DD (local date string from backend)
   if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
@@ -19,10 +19,15 @@ const formatDate = (iso: string | null): string => {
   }
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return date.toLocaleDateString('es-AR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    ...(timeZone ? { timeZone } : {})
+  });
 };
 
-const formatDateTime = (iso: string | null): string => {
+const formatDateTime = (iso: string | null, timeZone?: string | null): string => {
   if (!iso) return '—';
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '—';
@@ -33,6 +38,7 @@ const formatDateTime = (iso: string | null): string => {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
+    ...(timeZone ? { timeZone } : {}),
   });
 };
 
@@ -272,8 +278,8 @@ export default function ClientProfile({
             {/* Resumen de actividad */}
             <div className="rounded-xl border border-p-border bg-p-surface px-5 py-1">
               <DataRow label="Total reservas" value={String(client.totalBookings || 0)} />
-              <DataRow label="Última reserva" value={formatDateTime(client.lastBookingAt)} />
-              <DataRow label="Próxima reserva" value={formatDateTime(client.nextBookingAt)} />
+              <DataRow label="Última reserva" value={formatDateTime(client.lastBookingAt, client.clubTimeZone)} />
+              <DataRow label="Próxima reserva" value={formatDateTime(client.nextBookingAt, client.clubTimeZone)} />
               <DataRow
                 label="Saldo pendiente"
                 value={hasDebt ? formatMoney(totalDebt) : 'Al día'}

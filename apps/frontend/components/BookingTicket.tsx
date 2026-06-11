@@ -33,7 +33,7 @@ export const BookingTicket: React.FC<TicketProps> = ({ booking, currentItems }) 
   return (
     <div className="bg-p-surface-2 p-4 rounded-xl border border-p-border font-mono text-sm shadow-inner">
       <div className="text-center mb-4 border-b border-p-border pb-2">
-        <h3 className="text-ink-50 font-bold text-lg">RESUMEN DE CUENTA</h3>
+        <h3 className="text-ink-50 font-bold text-lg">Resumen de cuenta</h3>
         <p className="text-p-text-muted text-xs">Reserva {formatBookingCode(booking.id, booking?.displayCode)}</p>
       </div>
 
@@ -70,7 +70,7 @@ export const BookingTicket: React.FC<TicketProps> = ({ booking, currentItems }) 
 
       <div className="border-t border-p-border-strong my-2 pt-2 space-y-1">
         <div className="flex justify-between text-ink-50 font-bold text-lg">
-          <span>TOTAL</span>
+          <span>Total</span>
           <span>${grandTotal}</span>
         </div>
 
@@ -82,7 +82,7 @@ export const BookingTicket: React.FC<TicketProps> = ({ booking, currentItems }) 
 
       {/* SALDO FINAL */}
       <div className={`mt-4 p-3 rounded-lg text-center border-2 ${remainingDebt > 0 ? 'border-p-error bg-p-error-bg' : 'border-p-positive bg-p-positive-bg'}`}>
-        <span className="block text-xs uppercase tracking-widest text-p-text-muted mb-1">Saldo a Pagar</span>
+        <span className="block text-xs tracking-wide text-p-text-muted mb-1">Saldo a pagar</span>
         <span className={`text-2xl font-black ${remainingDebt > 0 ? 'text-p-error' : 'text-p-positive'}`}>
           ${remainingDebt}
         </span>

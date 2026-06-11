@@ -26,6 +26,20 @@ La guía detallada sigue en:
 7. correr smoke interno;
 8. recién después invitar al club.
 
+## Redeploy en VPS
+
+Para un servidor propio tipo Hostinger VPS, desde la raíz del repo:
+
+```bash
+docker compose build backend && docker compose up -d backend
+```
+
+Si querés mover toda la parte backend junta en el mismo release:
+
+```bash
+docker compose build backend backend-worker backend-scheduler && docker compose up -d backend backend-worker backend-scheduler
+```
+
 ## Dominio recomendado para el primer piloto
 
 Default recomendado:
