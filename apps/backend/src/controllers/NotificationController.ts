@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { sendAppError } from '../errors';
 import { z } from 'zod';
 import { prisma } from '../prisma';
 
@@ -27,7 +28,7 @@ export class NotificationController {
 
       return res.json(rows);
     } catch (error: any) {
-      return res.status(500).json({ error: error.message || 'Error al listar notificaciones' });
+      return sendAppError(res, error, 'Error al listar notificaciones');
     }
   };
 
@@ -51,7 +52,7 @@ export class NotificationController {
 
       return res.json(updated);
     } catch (error: any) {
-      return res.status(500).json({ error: error.message || 'Error al marcar notificación' });
+      return sendAppError(res, error, 'Error al marcar notificación');
     }
   };
 
@@ -75,7 +76,7 @@ export class NotificationController {
 
       return res.json({ success: true, updated: result.count });
     } catch (error: any) {
-      return res.status(500).json({ error: error.message || 'Error al marcar notificaciones' });
+      return sendAppError(res, error, 'Error al marcar notificaciones');
     }
   };
 }

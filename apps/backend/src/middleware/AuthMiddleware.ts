@@ -45,7 +45,7 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
     const { token, source } = resolveAuthToken(req);
 
     if (!token) {
-        return sendAuthError(res, 401, 'AUTH_MISSING', 'Acceso denegado. Falta el token.');
+        return sendAuthError(res, 401, 'AUTH_MISSING', 'Acceso denegado. Falta autenticación.');
     }
 
     try {
@@ -56,7 +56,7 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
         next();
     } catch (err: any) {
         const code = String(err?.name || '') === 'TokenExpiredError' ? 'AUTH_EXPIRED' : 'AUTH_INVALID';
-        return sendAuthError(res, 401, code, 'Token inv�lido o expirado.');
+        return sendAuthError(res, 401, code, 'Token inválido o expirado.');
     }
 };
 

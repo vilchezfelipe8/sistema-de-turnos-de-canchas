@@ -1,15 +1,15 @@
-import { ClubReviewStatus, Prisma } from '@prisma/client';
+import { BookingStatus, ClubReviewStatus, Prisma } from '@prisma/client';
 import { prisma, prismaRead } from '../prisma';
+import { ErrorCodes, badRequest, conflict, forbidden, notFound } from '../errors';
 
 type CreateOrUpdateMyReviewInput = {
   clubId: number;
-  bookingId: number;
+  bookingId?: number;
   userId: number;
   rating: number;
   comment?: string | null;
 };
 
-const REVIEW_WINDOW_DAYS = 30;
 const MAX_COMMENT_LENGTH = 220;
 
 export class ClubReviewService {
@@ -18,58 +18,80 @@ export class ClubReviewService {
     const trimmed = String(value).trim();
     if (!trimmed) return null;
     if (trimmed.length > MAX_COMMENT_LENGTH) {
-      throw new Error(`El comentario no puede superar ${MAX_COMMENT_LENGTH} caracteres`);
+      throw badRequest(`El comentario no puede superar ${MAX_COMMENT_LENGTH} caracteres`, ErrorCodes.INVALID_INPUT);
     }
     return trimmed;
   }
 
   private validateRating(value: number): number {
     if (!Number.isInteger(value) || value < 1 || value > 5) {
-      throw new Error('La calificación debe ser un entero entre 1 y 5');
+      throw badRequest('La calificación debe ser un entero entre 1 y 5', ErrorCodes.INVALID_INPUT);
     }
     return value;
   }
 
   private async assertBookingReviewEligibilityTx(
     tx: Prisma.TransactionClient,
-    input: { clubId: number; bookingId: number; userId: number }
+    input: { clubId: number; userId: number; bookingId?: number }
   ) {
-    const booking = await tx.booking.findFirst({
-      where: { id: input.bookingId, clubId: input.clubId },
-      select: {
-        id: true,
-        status: true,
-        endDateTime: true,
-        userId: true,
-        client: {
-          select: { userId: true }
-        }
+    const now = new Date();
+
+    const bookingSelect = {
+      id: true,
+      status: true,
+      endDateTime: true,
+      userId: true,
+      client: {
+        select: { userId: true }
       }
-    });
+    } satisfies Prisma.BookingSelect;
+
+    const booking = input.bookingId
+      ? await tx.booking.findFirst({
+        where: { id: input.bookingId, clubId: input.clubId },
+        select: bookingSelect
+      })
+      : await tx.booking.findFirst({
+        where: {
+          clubId: input.clubId,
+          endDateTime: { lte: now },
+          status: BookingStatus.COMPLETED,
+          OR: [
+            { userId: input.userId },
+            { client: { userId: input.userId } }
+          ]
+        },
+        orderBy: [
+          { endDateTime: 'desc' },
+          { id: 'desc' }
+        ],
+        select: bookingSelect
+      });
 
     if (!booking) {
-      throw new Error('Reserva no encontrada para el club indicado');
+      throw conflict('Necesitás una reserva finalizada en este club para dejar una reseña', ErrorCodes.BOOKING_INVALID_STATUS);
     }
 
-    const ownerUserId = booking.userId ?? booking.client?.userId ?? null;
-    if (!ownerUserId || Number(ownerUserId) !== Number(input.userId)) {
-      throw new Error('No puedes reseñar una reserva de otro usuario');
+    if (input.bookingId) {
+      const ownerUserId = booking.userId ?? booking.client?.userId ?? null;
+      if (!ownerUserId || Number(ownerUserId) !== Number(input.userId)) {
+        throw forbidden('No podés reseñar una reserva de otro usuario');
+      }
     }
 
-    if (String(booking.status) !== 'COMPLETED') {
-      throw new Error('Solo se pueden reseñar reservas completadas');
+    const bookingStatus = String(booking.status || '').toUpperCase();
+    if (booking.endDateTime.getTime() > now.getTime()) {
+      throw conflict('No se puede reseñar una reserva que aún no finalizó', ErrorCodes.BOOKING_INVALID_STATUS);
     }
 
-    const now = Date.now();
-    const endAt = booking.endDateTime.getTime();
-    if (endAt > now) {
-      throw new Error('No se puede reseñar una reserva que aún no finalizó');
+    if (bookingStatus !== BookingStatus.COMPLETED) {
+      if (bookingStatus === BookingStatus.CANCELLED) {
+        throw conflict('No se puede reseñar una reserva cancelada', ErrorCodes.BOOKING_INVALID_STATUS);
+      }
+      throw conflict('Solo se pueden reseñar reservas completadas', ErrorCodes.BOOKING_INVALID_STATUS);
     }
 
-    const maxAgeMs = REVIEW_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-    if ((now - endAt) > maxAgeMs) {
-      throw new Error(`La reseña venció: solo se permiten reseñas hasta ${REVIEW_WINDOW_DAYS} días después del turno`);
-    }
+    return booking;
   }
 
   async createOrUpdateMyReview(input: CreateOrUpdateMyReviewInput) {
@@ -77,28 +99,43 @@ export class ClubReviewService {
     const comment = this.normalizeComment(input.comment);
 
     return prisma.$transaction(async (tx) => {
-      await this.assertBookingReviewEligibilityTx(tx, {
+      const reviewKey = {
         clubId: input.clubId,
-        bookingId: input.bookingId,
         userId: input.userId
+      };
+
+      const existingReview = await tx.clubReview.findUnique({
+        where: { clubId_userId: reviewKey },
+        select: { bookingId: true }
       });
+
+      let reviewBookingId = existingReview?.bookingId ?? null;
+      if (!existingReview || input.bookingId) {
+        const eligibleBooking = await this.assertBookingReviewEligibilityTx(tx, {
+          clubId: input.clubId,
+          userId: input.userId,
+          bookingId: input.bookingId
+        });
+        reviewBookingId = eligibleBooking.id;
+      }
+
+      if (!reviewBookingId) {
+        throw conflict('Necesitás una reserva finalizada en este club para dejar una reseña', ErrorCodes.BOOKING_INVALID_STATUS);
+      }
 
       const review = await tx.clubReview.upsert({
         where: {
-          clubId_userId: {
-            clubId: input.clubId,
-            userId: input.userId
-          }
+          clubId_userId: reviewKey
         },
         update: {
-          bookingId: input.bookingId,
+          bookingId: reviewBookingId,
           rating,
           comment,
           status: ClubReviewStatus.PUBLISHED
         },
         create: {
           clubId: input.clubId,
-          bookingId: input.bookingId,
+          bookingId: reviewBookingId,
           userId: input.userId,
           rating,
           comment,
@@ -110,7 +147,7 @@ export class ClubReviewService {
     });
   }
 
-  async getMyReviewForBooking(input: { clubId: number; bookingId: number; userId: number }) {
+  async getMyReviewForClub(input: { clubId: number; userId: number }) {
     const review = await prismaRead.clubReview.findFirst({
       where: {
         clubId: input.clubId,
@@ -127,6 +164,13 @@ export class ClubReviewService {
       }
     });
     return review;
+  }
+
+  async getMyReviewForBooking(input: { clubId: number; bookingId?: number; userId: number }) {
+    return this.getMyReviewForClub({
+      clubId: input.clubId,
+      userId: input.userId
+    });
   }
 
   async listPublishedByClub(clubId: number, take: number = 20, cursor?: string) {
@@ -225,7 +269,7 @@ export class ClubReviewService {
     });
 
     if (!review) {
-      throw new Error('Reseña no encontrada para el club indicado');
+      throw notFound('Reseña no encontrada para el club indicado', ErrorCodes.NOT_FOUND);
     }
 
     return prisma.clubReview.update({

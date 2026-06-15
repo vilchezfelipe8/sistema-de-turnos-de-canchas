@@ -5,7 +5,7 @@ export default function Custom404() {
   return (
     <>
       <Head>
-        <title>Pagina no encontrada | TuCancha</title>
+        <title>Pagina no encontrada | Pique</title>
       </Head>
       <NotFound title="Pagina no encontrada" message="La ruta que ingresaste no existe." />
     </>

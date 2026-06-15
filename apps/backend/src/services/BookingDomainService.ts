@@ -8,6 +8,7 @@ import {
   roundMoney
 } from '../domain/bookingDomain';
 import { AccountService } from './AccountService';
+import { ErrorCodes, conflict, notFound } from '../errors';
 
 const EPSILON = 0.009;
 
@@ -60,7 +61,7 @@ export class BookingDomainService {
     });
 
     if (!account) {
-      throw new Error('La reserva no tiene cuenta asociada');
+      throw notFound('La reserva no tiene cuenta asociada', ErrorCodes.ACCOUNT_NOT_FOUND);
     }
 
     return account;
@@ -73,7 +74,7 @@ export class BookingDomainService {
     });
 
     if (!booking) {
-      throw new Error('Reserva no encontrada');
+      throw notFound('Reserva no encontrada', ErrorCodes.BOOKING_NOT_FOUND);
     }
 
     const account = await tx.account.findFirst({
@@ -186,14 +187,14 @@ export class BookingDomainService {
       select: { id: true, clubId: true, status: true }
     });
 
-    if (!booking) throw new Error('Reserva no encontrada');
+    if (!booking) throw notFound('Reserva no encontrada', ErrorCodes.BOOKING_NOT_FOUND);
     if (!isBookingTransitionAllowed(booking.status as BookingStatus, 'CONFIRMED')) {
-      throw new Error('Solo se puede confirmar una reserva pendiente');
+      throw conflict('Solo se puede confirmar una reserva pendiente', ErrorCodes.BOOKING_INVALID_STATUS);
     }
 
     const settings = await this.getClubConfirmationSettingsTx(tx, booking.clubId);
     if (settings.bookingConfirmationMode === 'DEPOSIT_REQUIRED' && !settings.allowManualConfirmationOverride) {
-      throw new Error('La configuración del club no permite confirmación manual en modo seña');
+      throw conflict('La configuración del club no permite confirmación manual en modo seña', ErrorCodes.BOOKING_PENDING_MANUAL_PAYMENT_FORBIDDEN);
     }
 
     await tx.booking.update({

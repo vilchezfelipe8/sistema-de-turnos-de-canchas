@@ -5,7 +5,7 @@ import NotFound from '../../components/NotFound';
 import RouteTransitionScreen from '../../components/RouteTransitionScreen';
 import { getPendingLogoutRedirect } from '../../services/AuthService';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
-import { hasAdminAccess } from '../../utils/session';
+import { hasOperatorAccess } from '../../utils/session';
 
 export default function AdminIndex() {
   const router = useRouter();
@@ -18,21 +18,20 @@ export default function AdminIndex() {
       void router.replace(`/login?from=${encodeURIComponent(router.asPath || '/admin')}`);
       return;
     }
-    if (!hasAdminAccess(user)) return;
+    if (!hasOperatorAccess(user)) return;
     void router.replace('/admin/agenda');
   }, [authChecked, user, router]);
 
   return (
     <>
       <Head>
-        <title>Admin | TuCancha</title>
+        <title>Admin | Pique</title>
       </Head>
       {!authChecked || !user
         ? <RouteTransitionScreen message={authChecked ? 'Redirigiendo...' : 'Validando acceso...'} />
-        : !hasAdminAccess(user)
+        : !hasOperatorAccess(user)
           ? <NotFound message="No tenes permiso para acceder al panel de administracion." />
           : null}
     </>
   );
 }
-

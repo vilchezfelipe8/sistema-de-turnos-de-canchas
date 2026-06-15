@@ -6,6 +6,7 @@ import { PaymentService } from '../services/PaymentService';
 import { mapAccountDto, mapAccountItemDto, mapLedgerEntryDto, mapPaymentDto } from '../dto/financialDto';
 import { sanitizeString } from '../utils/sanitize';
 import { prismaRead } from '../prisma';
+import { sendAppError, badRequest, ErrorCodes, validationError, zodValidationAppError } from '../errors';
 
 export class AccountController {
   private readonly accountService = new AccountService();
@@ -14,7 +15,7 @@ export class AccountController {
 
   private resolveClubId(req: Request) {
     const clubId = Number((req as Request & { clubId?: number }).clubId);
-    if (!Number.isFinite(clubId) || clubId <= 0) throw new Error('Club inválido');
+    if (!Number.isFinite(clubId) || clubId <= 0) throw badRequest('Club inválido.', ErrorCodes.INVALID_INPUT);
     return clubId;
   }
 
@@ -30,7 +31,7 @@ export class AccountController {
         bookingId: z.preprocess((v) => (v == null || v === '' ? undefined : Number(v)), z.number().int().positive().optional())
       });
       const parsed = querySchema.safeParse(req.query);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const result = await this.accountService.listAccounts(clubId, parsed.data.status, parsed.data.bookingId);
@@ -73,19 +74,18 @@ export class AccountController {
         };
       }));
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Error al listar cuentas';
-      return res.status(500).json({ error: message });
+      return sendAppError(res, error, 'No se pudieron cargar las cuentas.');
     }
   };
 
   create = async (req: Request, res: Response) => {
     try {
       const bodySchema = z.object({
-        sourceType: z.enum(['BOOKING', 'BAR', 'TABLE', 'MANUAL']),
+        sourceType: z.enum(['BOOKING', 'BAR', 'TABLE', 'MANUAL', 'CLASS_PASS', 'CLASS_ENROLLMENT']),
         sourceId: z.string().trim().min(1)
       });
       const parsed = bodySchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const account = await this.accountService.openAccount({
@@ -96,8 +96,7 @@ export class AccountController {
 
       return res.status(201).json(mapAccountDto(account));
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'No se pudo abrir la cuenta';
-      return res.status(400).json({ error: message });
+      return sendAppError(res, error, 'No se pudo abrir la cuenta.');
     }
   };
 
@@ -105,7 +104,7 @@ export class AccountController {
     try {
       const paramsSchema = z.object({ id: z.string().min(1) });
       const parsed = paramsSchema.safeParse(req.params);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const result = await this.accountService.getAccount(clubId, parsed.data.id);
@@ -118,8 +117,7 @@ export class AccountController {
         remaining: result.remaining
       });
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Cuenta no encontrada';
-      return res.status(404).json({ error: message });
+      return sendAppError(res, error, 'Cuenta no encontrada.');
     }
   };
 
@@ -138,8 +136,8 @@ export class AccountController {
 
       const paramsParsed = paramsSchema.safeParse(req.params);
       const bodyParsed = bodySchema.safeParse(req.body);
-      if (!paramsParsed.success) return res.status(400).json({ error: paramsParsed.error.format() });
-      if (!bodyParsed.success) return res.status(400).json({ error: bodyParsed.error.format() });
+      if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá los campos marcados.'));
+      if (!bodyParsed.success) return sendAppError(res, zodValidationAppError(bodyParsed.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const safeDescription = sanitizeString(bodyParsed.data.description);
@@ -151,8 +149,7 @@ export class AccountController {
       });
       return res.status(201).json(mapAccountItemDto(item));
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'No se pudo agregar el consumo';
-      return res.status(400).json({ error: message });
+      return sendAppError(res, error, 'No se pudo agregar el consumo.');
     }
   };
 
@@ -160,24 +157,29 @@ export class AccountController {
     try {
       const paramsSchema = z.object({ id: z.string().min(1) });
       const parsed = paramsSchema.safeParse(req.params);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const account = await this.accountService.closeAccount(clubId, parsed.data.id);
       return res.json(mapAccountDto(account));
     } catch (error: unknown) {
-      const knownError = error as Error & { code?: string; remaining?: number };
-      const message = knownError?.message || 'No se pudo cerrar la cuenta';
+      return sendAppError(res, error, 'No se pudo cerrar la cuenta.');
+    }
+  };
 
-      if (knownError?.code === 'ACCOUNT_HAS_PENDING_BALANCE') {
-        return res.status(409).json({
-          error: message,
-          code: knownError.code,
-          remaining: Number(knownError.remaining || 0)
-        });
-      }
+  // P2-B: Anular venta de mostrador — restaura stock, cierra cuenta.
+  voidPos = async (req: Request, res: Response) => {
+    try {
+      const paramsSchema = z.object({ id: z.string().min(1) });
+      const parsed = paramsSchema.safeParse(req.params);
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
-      return res.status(400).json({ error: message });
+      const clubId = this.resolveClubId(req);
+      const actorUserId = this.resolveActorUserId(req);
+      const account = await this.accountService.voidPosAccount(clubId, parsed.data.id, actorUserId ?? null);
+      return res.json(mapAccountDto(account));
+    } catch (error: unknown) {
+      return sendAppError(res, error, 'No se pudo anular la cuenta.');
     }
   };
 
@@ -185,14 +187,13 @@ export class AccountController {
     try {
       const paramsSchema = z.object({ id: z.string().min(1) });
       const parsed = paramsSchema.safeParse(req.params);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const result = await this.accountService.getAccountSummary(clubId, parsed.data.id);
       return res.json(result);
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'No se pudo obtener el resumen de la cuenta';
-      return res.status(400).json({ error: message });
+      return sendAppError(res, error, 'No se pudo obtener el resumen de la cuenta.');
     }
   };
 
@@ -200,14 +201,13 @@ export class AccountController {
     try {
       const paramsSchema = z.object({ id: z.string().min(1) });
       const parsed = paramsSchema.safeParse(req.params);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const result = await this.accountService.getBalance(clubId, parsed.data.id);
       return res.json(result);
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'No se pudo obtener el balance';
-      return res.status(400).json({ error: message });
+      return sendAppError(res, error, 'No se pudo obtener el balance.');
     }
   };
 
@@ -215,14 +215,13 @@ export class AccountController {
     try {
       const paramsSchema = z.object({ id: z.string().min(1) });
       const parsed = paramsSchema.safeParse(req.params);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const result = await this.accountService.getLedger(clubId, parsed.data.id);
       return res.json(result.map(mapLedgerEntryDto));
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'No se pudo obtener el libro contable';
-      return res.status(400).json({ error: message });
+      return sendAppError(res, error, 'No se pudo obtener el libro contable.');
     }
   };
 
@@ -237,6 +236,10 @@ export class AccountController {
         externalReference: z.string().trim().max(120).optional(),
         source: z.enum(['POS', 'ONLINE', 'BACKOFFICE']).optional(),
         cashShiftId: z.string().trim().min(1).optional(),
+        payerParticipantRef: z.string().trim().min(1).max(191).optional(),
+        payerParticipantName: z.string().trim().min(1).max(120).optional(),
+        coveredParticipantRef: z.string().trim().min(1).max(191).optional(),
+        coveredParticipantName: z.string().trim().min(1).max(120).optional(),
         allocations: z.array(z.object({
           accountItemId: z.string().trim().min(1),
           amount: z.preprocess((v) => Number(v), z.number().positive())
@@ -245,10 +248,10 @@ export class AccountController {
 
       const paramsParsed = paramsSchema.safeParse(req.params);
       const bodyParsed = bodySchema.safeParse(req.body);
-      if (!paramsParsed.success) return res.status(400).json({ error: paramsParsed.error.format() });
-      if (!bodyParsed.success) return res.status(400).json({ error: bodyParsed.error.format() });
+      if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá los campos marcados.'));
+      if (!bodyParsed.success) return sendAppError(res, zodValidationAppError(bodyParsed.error, 'Revisá los campos marcados.'));
       if (bodyParsed.data.method === 'TRANSFER' && !bodyParsed.data.channel) {
-        return res.status(400).json({ error: 'El canal es obligatorio para pagos por transferencia' });
+        throw validationError('Revisá los campos marcados.', { channel: 'El canal es obligatorio para pagos por transferencia.' });
       }
 
       const actorUserId = this.resolveActorUserId(req);
@@ -256,7 +259,7 @@ export class AccountController {
       const headerValue = req.headers['idempotency-key'];
       const idempotencyKey = Array.isArray(headerValue) ? headerValue[0] : headerValue;
       if (typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
-        return res.status(400).json({ error: 'Falta la clave de idempotencia para registrar el pago' });
+        throw validationError('Revisá los campos marcados.', { general: 'Falta la clave de idempotencia para registrar el pago.' });
       }
       const payment = await this.paymentService.create({
         clubId,
@@ -268,6 +271,10 @@ export class AccountController {
         externalReference: bodyParsed.data.externalReference,
         source: bodyParsed.data.source,
         cashShiftId: bodyParsed.data.cashShiftId,
+        payerParticipantRef: bodyParsed.data.payerParticipantRef,
+        payerParticipantName: bodyParsed.data.payerParticipantName,
+        coveredParticipantRef: bodyParsed.data.coveredParticipantRef,
+        coveredParticipantName: bodyParsed.data.coveredParticipantName,
         createdByUserId: actorUserId,
         idempotencyKey: idempotencyKey.trim(),
         allocations: bodyParsed.data.allocations
@@ -275,12 +282,7 @@ export class AccountController {
 
       return res.status(201).json(mapPaymentDto(payment));
     } catch (error: unknown) {
-      const knownError = error as Error & { code?: string };
-      const message = knownError?.message || 'No se pudo registrar el pago';
-      if (knownError?.code === 'BOOKING_PENDING_MANUAL_PAYMENT_FORBIDDEN') {
-        return res.status(409).json({ error: message, code: knownError.code });
-      }
-      return res.status(400).json({ error: message });
+      return sendAppError(res, error, 'No se pudo registrar el pago.');
     }
   };
 }

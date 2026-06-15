@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { ErrorCodes, badRequest, conflict } from '../errors';
 
 const DEFAULT_MAX_INLINE_BYTES = Number(process.env.MAX_INLINE_MEDIA_BYTES || 350_000);
 const DEFAULT_S3_PREFIX = process.env.S3_PREFIX?.trim() || 'clubs-assets';
@@ -27,7 +28,7 @@ const extensionByContentType: Record<string, string> = {
 const parseDataUrl = (value: string) => {
   const match = value.match(/^data:([^;]+);base64,(.+)$/);
   if (!match) {
-    throw new Error('Formato de data URL inválido');
+    throw badRequest('Formato de data URL inválido', ErrorCodes.INVALID_INPUT);
   }
 
   const [, contentType, rawBase64] = match;
@@ -46,7 +47,7 @@ const getS3Client = () => {
   const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY?.trim();
 
   if (!region || !accessKeyId || !secretAccessKey) {
-    throw new Error('Faltan credenciales/configuración S3 para almacenar assets');
+    throw conflict('Faltan credenciales/configuración S3 para almacenar assets', ErrorCodes.CLUB_CONFIG_INVALID);
   }
 
   s3Client = new S3Client({
@@ -74,12 +75,12 @@ export class MediaStorageService {
 
     const storageMode = String(process.env.MEDIA_STORAGE_MODE || 'inline').toLowerCase();
     if (storageMode === 'external-url') {
-      throw new Error(`${fieldName} debe almacenarse en object storage y enviarse como URL externa`);
+      throw badRequest(`${fieldName} debe almacenarse en object storage y enviarse como URL externa`, ErrorCodes.INVALID_INPUT);
     }
 
     const estimatedBytes = estimateDataUrlBytes(trimmed);
     if (estimatedBytes > DEFAULT_MAX_INLINE_BYTES && storageMode !== 's3') {
-      throw new Error(`${fieldName} excede el tamaño máximo inline permitido`);
+      throw badRequest(`${fieldName} excede el tamaño máximo inline permitido`, ErrorCodes.INVALID_INPUT);
     }
 
     if (storageMode === 's3') {
@@ -92,13 +93,13 @@ export class MediaStorageService {
   private async uploadDataUrl(value: string, fieldName: string) {
     const bucket = process.env.S3_BUCKET?.trim();
     if (!bucket) {
-      throw new Error('Falta S3_BUCKET para almacenar assets');
+      throw conflict('Falta S3_BUCKET para almacenar assets', ErrorCodes.CLUB_CONFIG_INVALID);
     }
 
     const { contentType, buffer } = parseDataUrl(value);
     const extension = extensionByContentType[contentType];
     if (!extension) {
-      throw new Error(`Tipo de archivo no soportado para ${fieldName}: ${contentType}`);
+      throw badRequest(`Tipo de archivo no soportado para ${fieldName}: ${contentType}`, ErrorCodes.INVALID_INPUT);
     }
 
     const objectKey = [
@@ -132,7 +133,7 @@ export class MediaStorageService {
 
     const region = process.env.S3_REGION?.trim();
     if (!region) {
-      throw new Error('Falta S3_REGION para construir la URL pública del asset');
+      throw conflict('Falta S3_REGION para construir la URL pública del asset', ErrorCodes.CLUB_CONFIG_INVALID);
     }
 
     return `https://${bucket}.s3.${region}.amazonaws.com/${objectKey}`;

@@ -1,13 +1,14 @@
 import { prisma } from '../prisma';
+import { ErrorCodes, badRequest, notFound } from '../errors';
 import { TimeHelper } from '../utils/TimeHelper';
 
 export class PricingService {
   async calculateCourtPrice(courtId: number, startDateTime: Date): Promise<number> {
     if (!Number.isInteger(courtId) || courtId <= 0) {
-      throw new Error('courtId inválido');
+      throw badRequest('courtId inválido', ErrorCodes.INVALID_INPUT);
     }
     if (!(startDateTime instanceof Date) || Number.isNaN(startDateTime.getTime())) {
-      throw new Error('startDateTime inválido');
+      throw badRequest('startDateTime inválido', ErrorCodes.INVALID_INPUT);
     }
 
     const court = await prisma.court.findUnique({
@@ -16,7 +17,7 @@ export class PricingService {
     });
 
     if (!court) {
-      throw new Error('Cancha no encontrada');
+      throw notFound('Cancha no encontrada', ErrorCodes.COURT_NOT_FOUND);
     }
 
     const timeZone = court.club?.settings?.timeZone ?? 'America/Argentina/Buenos_Aires';

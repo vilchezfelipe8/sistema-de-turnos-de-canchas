@@ -48,6 +48,7 @@ export interface Club {
   bookingSimpleAdvanceDaysUser?: number;
   bookingSimpleAdvanceDaysAdmin?: number;
   allowAdminSkipSimpleAdvanceLimit?: boolean;
+  publicSports?: string[];
   openingDays?: number[] | null;
   closureDates?: string[] | null;
   clubOperationalStatus?: ClubOperationalStatus;
@@ -56,13 +57,6 @@ export interface Club {
   createdAt?: string;
   updatedAt?: string;
 }
-
-export type FavoriteLinkingStatus =
-  | 'already_linked'
-  | 'linked_existing_client'
-  | 'created_client'
-  | 'duplicate_detected_no_link'
-  | 'insufficient_data_no_link';
 
 export type ClubFavorite = {
   id: string;
@@ -250,10 +244,6 @@ export class ClubService {
       clubId: number;
       userId: number;
       createdAt: string;
-    };
-    linking: {
-      status: FavoriteLinkingStatus;
-      clientId: string | null;
     };
   }> {
     const response = await fetchWithAuth(`${apiBase()}/clubs/${clubId}/favorite`, {

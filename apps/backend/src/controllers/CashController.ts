@@ -4,6 +4,7 @@ import { CashService } from '../services/CashService';
 import { CashShiftService } from '../services/CashShiftService';
 import { ClientDuplicateIncidentService } from '../services/ClientDuplicateIncidentService';
 import { sanitizeString } from '../utils/sanitize';
+import { sendAppError, AppError, ErrorCodes, validationError, zodValidationAppError } from '../errors';
 
 const optionalPositiveIntSchema = z.preprocess((v) => {
   if (v == null || v === '') return undefined;
@@ -20,11 +21,21 @@ const optionalPositiveNumberSchema = z.preprocess((v) => {
 const saleItemSchema = z.object({
   itemKey: z.string().trim().min(1).max(120).optional(),
   productId: optionalPositiveIntSchema,
+  serviceId: optionalPositiveIntSchema,
   quantity: z.preprocess((v) => Number(v), z.number().int().positive()),
   customName: z.string().trim().min(2).max(200).optional(),
   unitPrice: optionalPositiveNumberSchema
 }).superRefine((value, ctx) => {
-  if (value.productId) return;
+  const kindCount = [value.productId, value.serviceId, value.customName ? 1 : 0].filter(Boolean).length;
+  if (kindCount > 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['productId'],
+      message: 'Cada ítem debe ser producto, servicio o manual, pero no combinar varios tipos'
+    });
+    return;
+  }
+  if (value.productId || value.serviceId) return;
   if (!value.customName) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -79,6 +90,7 @@ const sanitizeSaleItems = (items?: Array<z.infer<typeof saleItemSchema>>) =>
     ? items.map((item) => ({
         itemKey: item.itemKey ? sanitizeString(item.itemKey, 120) : undefined,
         productId: item.productId,
+        serviceId: item.serviceId,
         quantity: Number(item.quantity),
         customName: item.customName ? sanitizeString(item.customName, 200) : undefined,
         unitPrice: item.unitPrice == null ? undefined : Number(item.unitPrice)
@@ -111,15 +123,15 @@ export class CashController {
 
   constructor(private readonly cashService: CashService) {}
 
-  private async registerDuplicateIncident(req: Request, error: any, endpoint: 'createProductSale' | 'quoteProductSale') {
+  private async registerDuplicateIncident(req: Request, error: unknown, endpoint: 'createProductSale' | 'quoteProductSale') {
     try {
-      const details = (error && typeof error === 'object') ? (error.details || {}) : {};
-      const clubId = Number((req as any).clubId || details?.clubId || 0);
+      const meta = (error instanceof AppError) ? (error.meta || {}) : ((error && typeof error === 'object') ? ((error as any).details || (error as any).meta || {}) : {});
+      const clubId = Number((req as any).clubId || meta?.clubId || 0);
       if (!Number.isInteger(clubId) || clubId <= 0) return;
 
       const candidateClientIds: string[] = Array.from(
         new Set(
-          (Array.isArray(details?.candidateClientIds) ? details.candidateClientIds : [])
+          (Array.isArray(meta?.candidateClientIds) ? meta.candidateClientIds : [])
             .map((value: unknown) => String(value || '').trim())
             .filter(Boolean)
         )
@@ -133,12 +145,12 @@ export class CashController {
         clubId,
         userId,
         sourceType: 'CASH',
-        reasonType: String(details?.reasonType || 'MULTI_SIGNAL_CONFLICT'),
-        primaryClientId: details?.primaryClientId ? String(details.primaryClientId) : null,
+        reasonType: String(meta?.reasonType || 'MULTI_SIGNAL_CONFLICT'),
+        primaryClientId: meta?.primaryClientId ? String(meta.primaryClientId) : null,
         candidateClientIds,
         payload: {
           endpoint,
-          signals: details?.signals || null,
+          signals: meta?.signals || null,
           actorUserId: Number.isInteger(actorUserId) && actorUserId > 0 ? actorUserId : null
         }
       });
@@ -157,7 +169,13 @@ export class CashController {
       let summary;
       if (rawStartDate || rawEndDate) {
         if (!rawStartDate || !rawEndDate) {
-          return res.status(400).json({ error: 'Debe enviar startDate y endDate juntos' });
+          return sendAppError(
+            res,
+            validationError('Revisá los campos marcados.', {
+              startDate: 'Completá la fecha desde.',
+              endDate: 'Completá la fecha hasta.'
+            })
+          );
         }
         summary = await this.cashService.getSummaryByDateRange(clubId, rawStartDate, rawEndDate);
       } else if (rawDate) {
@@ -167,8 +185,8 @@ export class CashController {
       }
 
       return res.json(summary);
-    } catch (error: any) {
-      return res.status(500).json({ error: error?.message || 'Error al obtener caja' });
+    } catch (error: unknown) {
+      return sendAppError(res, error, 'No se pudo cargar la caja.');
     }
   };
 
@@ -181,14 +199,14 @@ export class CashController {
         method: z.enum(['CASH', 'TRANSFER', 'CARD'])
       });
       const parsed = schema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = Number((req as any).clubId);
       const actorUserId = Number((req as any)?.user?.userId || 0) || undefined;
       const shiftService = new CashShiftService();
       const currentShift = await shiftService.current(clubId);
       if (!currentShift) {
-        return res.status(400).json({ error: 'No hay turno de caja abierto' });
+        throw validationError('Revisá los campos marcados.', { general: 'No hay turno de caja abierto.' });
       }
 
       const movement = await this.cashService.addMovement({
@@ -200,8 +218,8 @@ export class CashController {
       }, actorUserId);
 
       return res.status(201).json(movement);
-    } catch (error: any) {
-      return res.status(400).json({ error: error.message || 'Error al crear movimiento' });
+    } catch (error: unknown) {
+      return sendAppError(res, error, 'No se pudo registrar el movimiento.');
     }
   };
 
@@ -210,8 +228,8 @@ export class CashController {
       const clubId = Number((req as any).clubId);
       const products = await this.cashService.getProducts(clubId);
       return res.json(products);
-    } catch (error: any) {
-      return res.status(400).json({ error: error.message || 'No se pudieron obtener los productos' });
+    } catch (error: unknown) {
+      return sendAppError(res, error, 'No se pudieron obtener los productos.');
     }
   };
 
@@ -241,17 +259,10 @@ export class CashController {
           const n = Number(v);
           return Number.isNaN(n) || n < 1 ? undefined : n;
         }, z.number().int().positive().optional())
-      }).superRefine((value, ctx) => {
-        if (value.clientId || value.clientDraft) return;
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['clientId'],
-          message: 'Debes seleccionar un cliente o cargar un alta rápida válida.'
-        });
       });
 
       const parsed = schema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = Number((req as any).clubId);
       const actorUserId = Number((req as any)?.user?.userId || 0) || undefined;
@@ -279,12 +290,52 @@ export class CashController {
       } as any, actorUserId);
 
       return res.status(201).json(sale);
-    } catch (error: any) {
-      if (error?.code === 'CLIENT_POSSIBLE_DUPLICATE' || error?.message === 'CLIENT_POSSIBLE_DUPLICATE') {
+    } catch (error: unknown) {
+      if (error instanceof AppError && error.code === ErrorCodes.CLIENT_POSSIBLE_DUPLICATE) {
         await this.registerDuplicateIncident(req, error, 'createProductSale');
-        return res.status(409).json({ error: 'CLIENT_POSSIBLE_DUPLICATE' });
+        return sendAppError(res, error);
       }
-      return res.status(400).json({ error: error.message || 'No se pudo registrar la venta' });
+      return sendAppError(res, error, 'No se pudo registrar la venta.');
+    }
+  };
+
+  // P2-C: Ítems POS unificados (productos + servicios)
+  getPosItems = async (req: Request, res: Response) => {
+    try {
+      const clubId = Number((req as any).clubId);
+      const items = await this.cashService.getPosItems(clubId);
+      return res.json(items);
+    } catch (error: unknown) {
+      return sendAppError(res, error, 'No se pudieron obtener los ítems POS.');
+    }
+  };
+
+  // Fase 1.6B: Crear cuenta de venta mostrador sin cobrar.
+  // El pago se registra después desde AccountDrawer.
+  createProductSaleAccount = async (req: Request, res: Response) => {
+    try {
+      const schema = z.object({
+        items: z.array(saleItemSchema).min(1, 'Se requiere al menos un ítem'),
+        clientId: z.string().trim().optional(),
+        idempotencyKey: z.string().trim().optional()
+      });
+
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
+
+      const clubId = Number((req as any).clubId);
+      const actorUserId = (req as any).userId ? Number((req as any).userId) : undefined;
+
+      const result = await this.cashService.createProductSaleAccount({
+        clubId,
+        items: sanitizeSaleItems(parsed.data.items) ?? [],
+        clientId: parsed.data.clientId ? sanitizeString(parsed.data.clientId, 64) : undefined,
+        idempotencyKey: parsed.data.idempotencyKey ? sanitizeString(parsed.data.idempotencyKey, 128) : undefined
+      }, actorUserId);
+
+      return res.status(201).json(result);
+    } catch (error: unknown) {
+      return sendAppError(res, error, 'No se pudo crear la cuenta de venta.');
     }
   };
 
@@ -304,17 +355,10 @@ export class CashController {
           const n = Number(v);
           return Number.isNaN(n) || n < 1 ? undefined : n;
         }, z.number().int().positive().optional())
-      }).superRefine((value, ctx) => {
-        if (value.clientId || value.clientDraft) return;
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['clientId'],
-          message: 'Debes seleccionar un cliente o cargar un alta rápida válida.'
-        });
       });
 
       const parsed = schema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = Number((req as any).clubId);
       if (parsed.data.clientDraft) {
@@ -322,7 +366,7 @@ export class CashController {
           Boolean(String(parsed.data.clientDraft.phone || '').trim()) ||
           Boolean(String(parsed.data.clientDraft.phoneNumberLocal || '').trim());
         if (!hasAnyPhoneInput) {
-          return res.status(400).json({ error: 'CLIENT_DRAFT_INVALID' });
+          throw validationError('Revisá los campos marcados.', { 'clientDraft.phone': 'Cargá un teléfono válido.' });
         }
       }
       const quote = await this.cashService.quoteProductSale({
@@ -344,12 +388,26 @@ export class CashController {
       } as any);
 
       return res.json(quote);
-    } catch (error: any) {
-      if (error?.code === 'CLIENT_POSSIBLE_DUPLICATE' || error?.message === 'CLIENT_POSSIBLE_DUPLICATE') {
+    } catch (error: unknown) {
+      if (error instanceof AppError && error.code === ErrorCodes.CLIENT_POSSIBLE_DUPLICATE) {
         await this.registerDuplicateIncident(req, error, 'quoteProductSale');
-        return res.status(409).json({ error: 'CLIENT_POSSIBLE_DUPLICATE' });
+        return sendAppError(res, error);
       }
-      return res.status(400).json({ error: error.message || 'No se pudo cotizar la venta' });
+      return sendAppError(res, error, 'No se pudo cotizar la venta.');
+    }
+  };
+
+  // P2-D: Reporte POS
+  getPosReport = async (req: Request, res: Response) => {
+    try {
+      const clubId = Number((req as any).clubId);
+      const startDate = req.query.startDate ? String(req.query.startDate) : undefined;
+      const endDate = req.query.endDate ? String(req.query.endDate) : undefined;
+      const shiftId = req.query.shiftId ? String(req.query.shiftId) : undefined;
+      const report = await this.cashService.getPosReport(clubId, startDate, endDate, shiftId);
+      return res.json(report);
+    } catch (error: unknown) {
+      return sendAppError(res, error, 'No se pudo obtener el reporte POS.');
     }
   };
 }

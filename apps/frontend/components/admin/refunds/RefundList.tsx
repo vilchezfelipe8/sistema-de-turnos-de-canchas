@@ -25,11 +25,11 @@ export default function RefundList({
   onSelectRefund
 }: RefundListProps) {
   if (loading) {
-    return <div className="rounded-xl border border-[#347048]/10 bg-white/80 px-3 py-4 text-xs font-bold text-[#347048]/60">Cargando devoluciones...</div>;
+    return <div className="rounded-xl border border-lima-900/10 bg-p-surface/80 px-3 py-4 text-xs font-bold text-ink-900/60">Cargando devoluciones...</div>;
   }
 
   if (!refunds.length) {
-    return <div className="rounded-xl border border-[#347048]/10 bg-white/80 px-3 py-4 text-xs font-bold text-[#347048]/50">{emptyText}</div>;
+    return <div className="rounded-xl border border-lima-900/10 bg-p-surface/80 px-3 py-4 text-xs font-bold text-ink-900/50">{emptyText}</div>;
   }
 
   return (
@@ -51,23 +51,23 @@ export default function RefundList({
                 onSelectRefund?.(refund);
               }
             }}
-            className={`rounded-xl border bg-white px-3 py-3 shadow-sm transition-colors ${
-              isSelected ? 'border-[#347048] ring-2 ring-[#347048]/15' : 'border-[#347048]/15'
-            } ${clickable ? 'cursor-pointer hover:border-[#347048]/35' : ''}`}
+            className={`rounded-xl border bg-p-surface px-3 py-3 shadow-sm transition-colors ${
+              isSelected ? 'border-lima-900 ring-2 ring-lima-900/15' : 'border-lima-900/15'
+            } ${clickable ? 'cursor-pointer hover:border-lima-900/35' : ''}`}
           >
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-xs font-black uppercase tracking-wide text-[#347048] truncate">
+                <p className="text-xs font-black uppercase tracking-wide text-ink-900 truncate">
                   {formatRefundCode(refund.id, (refund as any)?.displayCode)} · ${Number(refund.amount || 0).toLocaleString()} · {formatRefundStatus(refund.status)}
                 </p>
-                <p className="text-[10px] font-bold text-[#347048]/60 truncate">
+                <p className="text-[10px] font-bold text-ink-900/60 truncate">
                   {formatRefundExecutionMethod(refund.executionMethod, (refund as any)?.paymentChannel) || 'Sin método'} · pago {formatPaymentCode(refund.paymentId)}
                 </p>
-                <p className="text-[10px] font-semibold text-[#347048]/55 truncate">
+                <p className="text-[10px] font-semibold text-ink-900/55 truncate">
                   Cuenta: {refund.accountId ? formatAccountCode(refund.accountId) : 'sin cuenta'}
                 </p>
                 {refund.failedReason ? (
-                  <p className="text-[10px] font-bold text-red-600 truncate">Fallo: {refund.failedReason}</p>
+                  <p className="text-[10px] font-bold text-p-error truncate">Fallo: {refund.failedReason}</p>
                 ) : null}
               </div>
               {renderActions ? (

@@ -1,36 +1,9 @@
-import { useEffect } from 'react';
-import { useRouter } from 'next/router';
-import AdminLayout from '../../components/AdminLayout';
-import NotFound from '../../components/NotFound';
-import RouteTransitionScreen from '../../components/RouteTransitionScreen';
-import { getPendingLogoutRedirect } from '../../services/AuthService';
-import { useValidateAuth } from '../../hooks/useValidateAuth';
-import AdminTabCourts from '../../components/admin/AdminTabCourts';
-import Head from 'next/head';
-import { hasAdminAccess } from '../../utils/session';
+import type { GetServerSideProps } from 'next';
 
-export default function AdminCanchasPage() {
-  const router = useRouter();
-  const { authChecked, user } = useValidateAuth({ requireAdmin: true });
+export const getServerSideProps: GetServerSideProps = async () => ({
+  redirect: { destination: "/admin/ajustes?tab=canchas", permanent: true },
+});
 
-  useEffect(() => {
-    if (!authChecked || user) return;
-    if (getPendingLogoutRedirect()) return;
-    void router.replace(`/login?from=${encodeURIComponent(router.asPath || '/admin/canchas')}`);
-  }, [authChecked, user, router]);
-
-  if (!authChecked || !user) return <RouteTransitionScreen message={authChecked ? 'Redirigiendo...' : 'Validando acceso...'} />;
-  if (!hasAdminAccess(user)) return <NotFound message="No tenés permiso para acceder al panel de administración." />;
-
-  return (
-    <div className="min-h-screen text-text relative overflow-hidden" style={{ backgroundColor: 'var(--bg)' }}>
-      <AdminLayout>
-        <Head>
-          <title>Canchas | TuCancha Admin</title>
-        </Head>
-        <AdminTabCourts />
-      </AdminLayout>
-    </div>
-  );
+export default function Page() {
+  return null;
 }
-

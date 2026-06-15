@@ -320,7 +320,7 @@ export default function PaymentCalculator({
 
   const modal = (
     <div
-      className={`fixed inset-0 bg-[#347048]/60 flex items-center justify-center ${zIndexClass} p-4 animate-in fade-in duration-200`}
+      className={`fixed inset-0 bg-lima-700/60 flex items-center justify-center ${zIndexClass} p-4 animate-in fade-in duration-200`}
       onMouseDown={(event) => {
         backdropRef.current = event.target === event.currentTarget;
       }}
@@ -331,22 +331,22 @@ export default function PaymentCalculator({
       }}
     >
       <div
-        className="bg-[#EBE1D8] border-4 border-white rounded-[2rem] shadow-2xl shadow-[#347048]/30 w-full max-w-2xl lg:max-w-3xl max-h-[88vh] overflow-hidden relative flex flex-col text-[#347048]"
+        className="bg-ink-50 border-4 border-white rounded-[2rem] shadow-2xl shadow-lima-900/30 w-full max-w-2xl lg:max-w-3xl max-h-[88vh] overflow-hidden relative flex flex-col text-ink-900"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="overflow-y-auto flex-1 min-h-0 custom-scrollbar">
-          <div className="sticky top-0 z-20 bg-[#EBE1D8] border-b border-[#347048]/10 px-6 sm:px-7 py-4">
+          <div className="sticky top-0 z-20 bg-ink-50 border-b border-lima-900/10 px-6 sm:px-7 py-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-2xl font-black mb-1 uppercase tracking-tight italic text-[#347048]">Registrar pago</h3>
-                <p className="text-[#347048]/60 text-[10px] font-black uppercase tracking-[0.2em]">
-                  Saldo pendiente: <span className="text-[#347048] font-black text-sm">${finalPending.toLocaleString()}</span>
+                <h3 className="text-2xl font-black mb-1 uppercase tracking-tight italic text-ink-900">Registrar pago</h3>
+                <p className="text-ink-900/60 text-[10px] font-black uppercase tracking-[0.2em]">
+                  Saldo pendiente: <span className="text-ink-900 font-black text-sm">${finalPending.toLocaleString()}</span>
                 </p>
               </div>
               <button
                 onClick={onClose}
                 disabled={submitting}
-                className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100 shrink-0"
+                className="bg-p-error-bg p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-p-error hover:text-ink-50 hover:bg-p-error border border-p-error shrink-0"
                 title="Cerrar ventana"
               >
                 <X size={20} strokeWidth={3} />
@@ -356,14 +356,14 @@ export default function PaymentCalculator({
 
         <div className="px-6 sm:px-7 py-6 sm:py-7">
 
-        <div className="bg-white border-2 border-[#B9CF32]/20 rounded-[1.25rem] p-4 mb-5 shadow-sm">
-          <div className="flex justify-between items-center mb-3 border-b border-[#347048]/10 pb-2">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#347048]/70">Qué vas a cobrar</p>
+        <div className="bg-p-surface border-2 border-lima-300/20 rounded-[1.25rem] p-4 mb-5 shadow-sm">
+          <div className="flex justify-between items-center mb-3 border-b border-lima-900/10 pb-2">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-ink-900/70">Qué vas a cobrar</p>
             <div className="flex gap-2">
-              <button type="button" onClick={handleSelectAll} disabled={submitting} className="text-[9px] font-black uppercase tracking-widest text-[#347048] bg-[#B9CF32]/30 border border-[#B9CF32]/40 px-2.5 py-1 rounded-md disabled:opacity-50 disabled:cursor-not-allowed">
+              <button type="button" onClick={handleSelectAll} disabled={submitting} className="text-[9px] font-black uppercase tracking-widest text-ink-900 bg-lima-300/30 border border-lima-300/40 px-2.5 py-1 rounded-md disabled:opacity-50 disabled:cursor-not-allowed">
                 Todo
               </button>
-              <button type="button" onClick={handleClearSelection} disabled={submitting} className="text-[9px] font-black uppercase tracking-widest text-red-500 bg-red-50 border border-red-100 px-2.5 py-1 rounded-md disabled:opacity-50 disabled:cursor-not-allowed">
+              <button type="button" onClick={handleClearSelection} disabled={submitting} className="text-[9px] font-black uppercase tracking-widest text-p-error bg-p-error-bg border border-p-error px-2.5 py-1 rounded-md disabled:opacity-50 disabled:cursor-not-allowed">
                 Nada
               </button>
             </div>
@@ -371,22 +371,22 @@ export default function PaymentCalculator({
 
           <div className="space-y-3 max-h-44 overflow-y-auto custom-scrollbar">
             {safeCourtPending > 0 && (
-              <div className="p-3 bg-[#347048]/5 rounded-xl border border-[#347048]/10">
-                <div className="text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2">Alquiler de cancha</div>
+              <div className="p-3 bg-lima-700/5 rounded-xl border border-lima-900/10">
+                <div className="text-[10px] font-black text-ink-900/60 uppercase tracking-widest mb-2">Alquiler de cancha</div>
                 {hasCourtBreakdown ? (
-                  <div className="mb-3 rounded-lg border border-[#347048]/10 bg-white/70 px-2 py-2 text-[10px] font-black uppercase tracking-widest">
-                    <div className="flex items-center justify-between text-[#347048]/70">
+                  <div className="mb-3 rounded-lg border border-lima-900/10 bg-p-surface/70 px-2 py-2 text-[10px] font-black uppercase tracking-widest">
+                    <div className="flex items-center justify-between text-ink-900/70">
                       <span>Cancha base</span>
                       <span>${breakdownBase.toLocaleString()}</span>
                     </div>
-                    <div className={`mt-1 flex items-center justify-between ${breakdownLights > 0.009 ? 'text-amber-700' : 'text-[#347048]/55'}`}>
+                    <div className={`mt-1 flex items-center justify-between ${breakdownLights > 0.009 ? 'text-p-warning' : 'text-p-text-muted'}`}>
                       <span>Recargo luces</span>
                       <span>
                         {breakdownLights > 0.009 ? `+$${breakdownLights.toLocaleString()}` : '$0'}
                         {breakdownFromHour ? ` (desde ${breakdownFromHour})` : ''}
                       </span>
                     </div>
-                    <div className="mt-1 flex items-center justify-between text-[#347048]">
+                    <div className="mt-1 flex items-center justify-between text-ink-900">
                       <span>Total cancha</span>
                       <span>${breakdownTotal.toLocaleString()}</span>
                     </div>
@@ -399,10 +399,10 @@ export default function PaymentCalculator({
                     disabled={!canSelectQuarter || submitting}
                     className={`flex justify-center items-center p-2 rounded-lg border transition-all ${
                     !canSelectQuarter
-                      ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+                      ? 'bg-p-surface-2 border-p-border text-p-text-muted cursor-not-allowed'
                       : isApprox(courtPortion, quarterBase)
-                        ? 'bg-[#B9CF32]/25 border-[#B9CF32] text-[#347048] cursor-pointer'
-                        : 'bg-white border-[#347048]/15 text-[#347048]/60 hover:border-[#B9CF32]/50 cursor-pointer'
+                        ? 'bg-lima-300/25 border-lima-300 text-ink-900 cursor-pointer'
+                        : 'bg-p-surface border-lima-900/15 text-ink-900/60 hover:border-lima-300/50 cursor-pointer'
                   }`}>
                     <span className="text-xs font-bold">1/4 (${quarterBase.toLocaleString()})</span>
                   </button>
@@ -412,10 +412,10 @@ export default function PaymentCalculator({
                     disabled={!canSelectHalf || submitting}
                     className={`flex justify-center items-center p-2 rounded-lg border transition-all ${
                     !canSelectHalf
-                      ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+                      ? 'bg-p-surface-2 border-p-border text-p-text-muted cursor-not-allowed'
                       : isApprox(courtPortion, halfBase)
-                        ? 'bg-[#B9CF32]/25 border-[#B9CF32] text-[#347048] cursor-pointer'
-                        : 'bg-white border-[#347048]/15 text-[#347048]/60 hover:border-[#B9CF32]/50 cursor-pointer'
+                        ? 'bg-lima-300/25 border-lima-300 text-ink-900 cursor-pointer'
+                        : 'bg-p-surface border-lima-900/15 text-ink-900/60 hover:border-lima-300/50 cursor-pointer'
                   }`}>
                     <span className="text-xs font-bold">1/2 (${halfBase.toLocaleString()})</span>
                   </button>
@@ -425,8 +425,8 @@ export default function PaymentCalculator({
                     disabled={submitting}
                     className={`flex justify-center items-center p-2 rounded-lg border transition-all ${
                       isApprox(courtPortion, safeCourtPending)
-                        ? 'bg-[#B9CF32]/25 border-[#B9CF32] text-[#347048]'
-                        : 'bg-white border-[#347048]/15 text-[#347048]/60 hover:border-[#B9CF32]/50'
+                        ? 'bg-lima-300/25 border-lima-300 text-ink-900'
+                        : 'bg-p-surface border-lima-900/15 text-ink-900/60 hover:border-lima-300/50'
                     }`}
                   >
                     <span className="text-xs font-bold">Saldo (${safeCourtPending.toLocaleString()})</span>
@@ -437,15 +437,15 @@ export default function PaymentCalculator({
                     disabled={submitting}
                     className={`flex justify-center items-center p-2 rounded-lg border transition-all ${
                       isApprox(courtPortion, 0)
-                        ? 'bg-[#B9CF32]/25 border-[#B9CF32] text-[#347048]'
-                        : 'bg-white border-[#347048]/15 text-[#347048]/60 hover:border-[#B9CF32]/50'
+                        ? 'bg-lima-300/25 border-lima-300 text-ink-900'
+                        : 'bg-p-surface border-lima-900/15 text-ink-900/60 hover:border-lima-300/50'
                     }`}
                   >
                     <span className="text-xs font-bold">Nada</span>
                   </button>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Monto libre</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-ink-900/60">Monto libre</span>
                   <input
                     type="number"
                     min={0}
@@ -460,17 +460,17 @@ export default function PaymentCalculator({
                         : 0;
                       setCourtPortion(clamped);
                     }}
-                    className="w-28 bg-white border border-[#347048]/20 rounded-md px-2 py-1 text-xs font-black text-right"
+                    className="w-28 bg-p-surface border border-lima-900/20 rounded-md px-2 py-1 text-xs font-black text-right"
                     placeholder="0"
                   />
-                  <span className="text-[10px] font-black text-[#347048]/60">de ${safeCourtPending.toLocaleString()}</span>
+                  <span className="text-[10px] font-black text-ink-900/60">de ${safeCourtPending.toLocaleString()}</span>
                 </div>
               </div>
             )}
 
             {cartItems.length > 0 && (
-              <div className="p-3 bg-[#347048]/5 rounded-xl border border-[#347048]/10">
-                <div className="text-[10px] font-black text-[#347048]/60 uppercase tracking-widest mb-2">Consumos extras</div>
+              <div className="p-3 bg-lima-700/5 rounded-xl border border-lima-900/10">
+                <div className="text-[10px] font-black text-ink-900/60 uppercase tracking-widest mb-2">Consumos extras</div>
                 <div className="space-y-2">
                   {cartItems.map((item) => {
                     const itemKey = item.tempId || item.id || `${item.productName}-${item.quantity}`;
@@ -478,11 +478,11 @@ export default function PaymentCalculator({
                     const isSelected = allocatedAmount > 0.009;
                     const itemTotal = Number(item.price || 0) * Number(item.quantity || 0);
                     return (
-                      <label key={itemKey} className={`flex justify-between items-center p-2 rounded-lg border cursor-pointer transition-all ${isSelected ? 'bg-[#926699]/10 border-[#926699]/30 text-[#926699]' : 'bg-white border-[#347048]/15 text-[#347048]/60 hover:border-[#926699]/30'}`}>
+                      <label key={itemKey} className={`flex justify-between items-center p-2 rounded-lg border cursor-pointer transition-all ${isSelected ? 'bg-p-accent/10 border-p-accent text-p-accent' : 'bg-p-surface border-lima-900/15 text-ink-900/60 hover:border-p-accent'}`}>
                         <div className="flex items-center gap-3">
                           <input
                             type="checkbox"
-                            className="w-4 h-4 rounded text-[#926699] focus:ring-[#926699] border-gray-300"
+                            className="w-4 h-4 rounded text-p-accent focus:ring-lima-300 border-p-border"
                             checked={isSelected}
                             disabled={submitting}
                             onChange={(event) => {
@@ -515,7 +515,7 @@ export default function PaymentCalculator({
                                 [String(itemKey)]: clamped
                               }));
                             }}
-                            className="w-24 bg-white border border-[#926699]/30 rounded-md px-2 py-1 text-xs font-black text-right"
+                            className="w-24 bg-p-surface border border-p-accent rounded-md px-2 py-1 text-xs font-black text-right"
                             placeholder="0"
                           />
                           <span className="text-[11px] font-black min-w-[72px] text-right">${itemTotal.toLocaleString()}</span>
@@ -530,9 +530,9 @@ export default function PaymentCalculator({
         </div>
 
         <div className="mb-5">
-          <label className="text-[10px] font-black uppercase tracking-widest text-[#926699] ml-2 block mb-2">¿Cuánto ingresa ahora?</label>
+          <label className="text-[10px] font-black uppercase tracking-widest text-p-accent ml-2 block mb-2">¿Cuánto ingresa ahora?</label>
           <div className="relative">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-2xl font-black text-[#347048]/40">$</span>
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-2xl font-black text-p-text-muted">$</span>
             <input
               type="number"
               value={paymentAmount}
@@ -541,13 +541,13 @@ export default function PaymentCalculator({
               onWheel={(event) => {
                 event.currentTarget.blur();
               }}
-              className="w-full bg-white border-2 border-[#347048]/10 focus:border-[#B9CF32] rounded-2xl py-3.5 pl-10 pr-4 text-3xl font-black text-[#347048] outline-none transition-all shadow-sm italic"
+              className="w-full bg-p-surface border-2 border-lima-900/10 focus:border-lima-300 rounded-2xl py-3.5 pl-10 pr-4 text-3xl font-black text-ink-900 outline-none transition-all shadow-sm italic"
               placeholder="0"
               autoFocus
             />
           </div>
           <div className="flex justify-between mt-2 text-[10px] font-black uppercase tracking-widest">
-            <span className="text-[#347048]/50">Seleccionado: ${selectedTotal.toLocaleString()}</span>
+            <span className="text-ink-900/50">Seleccionado: ${selectedTotal.toLocaleString()}</span>
             <button
               type="button"
               onClick={() => {
@@ -555,52 +555,52 @@ export default function PaymentCalculator({
                 handleSelectAll();
               }}
               disabled={submitting}
-              className="text-[#347048]/40 hover:text-[#926699] transition-colors"
+              className="text-ink-900/40 hover:text-p-accent transition-colors"
             >
               Completar total
             </button>
           </div>
           {validationError && (
-            <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-600">
+            <p className="mt-3 rounded-xl border border-p-error bg-p-error-bg px-3 py-2 text-xs font-bold text-p-error">
               {validationError}
             </p>
           )}
         </div>
 
-        <div className="mb-5 bg-white border-2 border-[#347048]/10 rounded-[1.25rem] p-4">
+        <div className="mb-5 bg-p-surface border-2 border-lima-900/10 rounded-[1.25rem] p-4">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/60">Cierre estimado</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-ink-900/60">Cierre estimado</p>
           </div>
           <div className="grid grid-cols-12 gap-2 items-center mb-2 text-[10px] font-black uppercase tracking-widest">
             <span className="col-span-5 text-transparent select-none">.</span>
-            <span className="col-span-3 text-right text-emerald-600">Pagado</span>
-            <span className="col-span-4 text-right text-[#926699]">Deuda</span>
+            <span className="col-span-3 text-right text-p-positive">Pagado</span>
+            <span className="col-span-4 text-right text-p-accent">Deuda</span>
           </div>
           <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
             {conceptBreakdown.map((row) => (
-              <div key={row.key} className={`grid grid-cols-12 gap-2 items-center text-[11px] ${row.isSelected ? 'text-[#347048]' : 'text-[#347048]/60'}`}>
+              <div key={row.key} className={`grid grid-cols-12 gap-2 items-center text-[11px] ${row.isSelected ? 'text-ink-900' : 'text-ink-900/60'}`}>
                 <span className="col-span-5 font-black truncate">{row.label}</span>
-                <span className="col-span-3 text-right font-black text-emerald-600">${row.paidNow.toLocaleString()}</span>
-                <span className="col-span-4 text-right font-black text-[#926699]">${row.debtAfter.toLocaleString()}</span>
+                <span className="col-span-3 text-right font-black text-p-positive">${row.paidNow.toLocaleString()}</span>
+                <span className="col-span-4 text-right font-black text-p-accent">${row.debtAfter.toLocaleString()}</span>
               </div>
             ))}
             {unassignedAmount > 0.01 && (
-              <div className="grid grid-cols-12 gap-2 items-center text-[11px] text-amber-700">
+              <div className="grid grid-cols-12 gap-2 items-center text-[11px] text-p-warning">
                 <span className="col-span-5 font-black truncate">Pago sin asignar</span>
                 <span className="col-span-7 text-right font-black">${unassignedAmount.toLocaleString()}</span>
               </div>
             )}
           </div>
-          <div className="mt-3 pt-3 border-t border-[#347048]/10 grid grid-cols-12 gap-2 text-[11px] font-black">
-            <span className="col-span-5 text-[#347048]/70 uppercase tracking-widest">Totales</span>
-            <span className="col-span-3 text-right text-emerald-600">${summaryPaidNow.toLocaleString()}</span>
-            <span className="col-span-4 text-right text-[#926699]">${summaryDebtAfter.toLocaleString()}</span>
+          <div className="mt-3 pt-3 border-t border-lima-900/10 grid grid-cols-12 gap-2 text-[11px] font-black">
+            <span className="col-span-5 text-ink-900/70 uppercase tracking-widest">Totales</span>
+            <span className="col-span-3 text-right text-p-positive">${summaryPaidNow.toLocaleString()}</span>
+            <span className="col-span-4 text-right text-p-accent">${summaryDebtAfter.toLocaleString()}</span>
           </div>
         </div>
 
         <div className="mb-2 space-y-4">
-          <div className="bg-white border-2 border-[#347048]/10 rounded-[1.25rem] p-4">
-            <label className="text-[10px] font-black uppercase tracking-widest text-[#347048]/60 block mb-2">
+          <div className="bg-p-surface border-2 border-lima-900/10 rounded-[1.25rem] p-4">
+            <label className="text-[10px] font-black uppercase tracking-widest text-ink-900/60 block mb-2">
               Medio de pago
             </label>
             <select
@@ -610,7 +610,7 @@ export default function PaymentCalculator({
                 setSelectedPaymentOption(event.target.value as PaymentMethodOption);
                 setValidationError('');
               }}
-              className="w-full rounded-xl border-2 border-[#347048]/15 bg-[#EBE1D8] px-3 py-3 text-sm font-black text-[#347048] outline-none focus:border-[#B9CF32]"
+              className="w-full rounded-xl border-2 border-lima-900/15 bg-ink-50 px-3 py-3 text-sm font-black text-ink-900 outline-none focus:border-lima-300"
             >
               <option value="">Seleccionar medio de pago</option>
               <option value="CASH">Efectivo</option>
@@ -620,22 +620,22 @@ export default function PaymentCalculator({
             </select>
           </div>
 
-          <div className="bg-[#347048]/5 border border-[#347048]/15 rounded-[1.25rem] p-4">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#347048]/70 mb-2">
+          <div className="bg-lima-700/5 border border-lima-900/15 rounded-[1.25rem] p-4">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-ink-900/70 mb-2">
               Confirmación previa
             </p>
             <div className="space-y-1.5 text-[12px]">
               <div className="flex items-center justify-between">
-                <span className="font-black text-[#347048]/70">Monto a registrar</span>
-                <span className="font-black text-[#347048]">${amountEntered.toLocaleString()}</span>
+                <span className="font-black text-ink-900/70">Monto a registrar</span>
+                <span className="font-black text-ink-900">${amountEntered.toLocaleString()}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="font-black text-[#347048]/70">Medio elegido</span>
-                <span className="font-black text-[#347048]">{selectedMethodLabel}</span>
+                <span className="font-black text-ink-900/70">Medio elegido</span>
+                <span className="font-black text-ink-900">{selectedMethodLabel}</span>
               </div>
               <div className="pt-1">
-                <span className="block text-[10px] font-black uppercase tracking-widest text-[#347048]/60 mb-1">Conceptos</span>
-                <p className="text-[12px] font-bold text-[#347048]">{selectedConceptsSummary}</p>
+                <span className="block text-[10px] font-black uppercase tracking-widest text-ink-900/60 mb-1">Conceptos</span>
+                <p className="text-[12px] font-bold text-ink-900">{selectedConceptsSummary}</p>
               </div>
             </div>
           </div>
@@ -644,7 +644,7 @@ export default function PaymentCalculator({
             type="button"
             onClick={handleOpenConfirmModal}
             disabled={!canConfirmPayment}
-            className="w-full h-10 rounded-2xl bg-[#347048] text-[#EBE1D8] font-black uppercase tracking-widest text-xs transition-all hover:bg-[#2d5f3d] disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full py-4 rounded-2xl bg-lima-700 text-ink-50 font-black uppercase tracking-widest text-xs transition-all hover:bg-lima-800 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Confirmar pago
           </button>
@@ -656,42 +656,42 @@ export default function PaymentCalculator({
           type="button"
           onClick={onClose}
           disabled={submitting}
-          className="w-full mt-3 mb-3 px-6 sm:px-7 text-[#347048]/40 hover:text-[#347048] text-[10px] font-black uppercase tracking-widest hover:underline transition-all"
+          className="w-full mt-3 mb-6 px-6 sm:px-7 text-ink-900/40 hover:text-ink-900 text-[10px] font-black uppercase tracking-widest hover:underline transition-all"
         >
           Cancelar operación
         </button>
       </div>
 
       {showConfirmModal && (
-        <div className="fixed inset-0 z-[2147483500] bg-[#347048]/60 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-md max-h-[94vh] bg-[#EBE1D8] border-2 border-white rounded-[2rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-4 border-b border-[#347048]/10 flex justify-between items-center bg-[#EBE1D8]">
-              <h4 className="text-xl font-black uppercase italic tracking-tighter text-[#347048]">
+        <div className="fixed inset-0 z-[2147483500] bg-lima-700/60 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-md max-h-[92vh] bg-ink-50 border-4 border-white rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-lima-900/10 flex justify-between items-center bg-ink-50">
+              <h4 className="text-2xl font-black uppercase italic tracking-tighter text-ink-900">
                 Confirmar pago
               </h4>
               <button
                 type="button"
                 onClick={() => setShowConfirmModal(false)}
                 disabled={submitting}
-                className="bg-red-50 p-2 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100 disabled:opacity-50"
+                className="bg-p-error-bg p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-p-error hover:text-ink-50 hover:bg-p-error border border-p-error disabled:opacity-50"
                 title="Cerrar ventana"
               >
-                <X size={18} strokeWidth={3} />
+                <X size={20} strokeWidth={3} />
               </button>
             </div>
-            <div className="p-4 sm:p-5 bg-white/40 flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto text-[#347048]">
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#347048]/70">¿Registramos este pago?</p>
+            <div className="p-6 sm:p-8 bg-p-surface/40 flex-1 min-h-0 flex flex-col gap-5 overflow-y-auto text-ink-900">
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-ink-900/70">¿Registramos este pago?</p>
               <div className="space-y-2 text-sm font-bold">
                 <div className="flex items-center justify-between">
-                  <span className="text-[#347048]/70">Monto</span>
+                  <span className="text-ink-900/70">Monto</span>
                   <span>${amountEntered.toLocaleString()}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-[#347048]/70">Medio</span>
+                  <span className="text-ink-900/70">Medio</span>
                   <span>{selectedMethodLabel}</span>
                 </div>
                 <div>
-                  <span className="block text-[10px] uppercase tracking-widest font-black text-[#347048]/60 mb-1">Conceptos</span>
+                  <span className="block text-[10px] uppercase tracking-widest font-black text-ink-900/60 mb-1">Conceptos</span>
                   <p className="text-[12px] font-bold">{selectedConceptsSummary}</p>
                 </div>
               </div>
@@ -700,7 +700,7 @@ export default function PaymentCalculator({
                   type="button"
                   disabled={submitting}
                   onClick={() => setShowConfirmModal(false)}
-                  className="h-10 rounded-xl border-2 border-[#347048]/20 text-[#347048]/80 hover:text-[#347048] hover:bg-white font-black uppercase text-[10px] tracking-widest transition-all"
+                  className="h-11 rounded-xl border-2 border-lima-900/20 text-ink-900/80 hover:text-ink-900 hover:bg-p-surface font-black uppercase text-[10px] tracking-widest transition-all"
                 >
                   Volver
                 </button>
@@ -708,7 +708,7 @@ export default function PaymentCalculator({
                   type="button"
                   disabled={submitting}
                   onClick={handleSubmitPayment}
-                  className="h-10 rounded-xl bg-[#347048] text-[#EBE1D8] hover:bg-[#B9CF32] hover:text-[#347048] font-black uppercase text-[10px] tracking-widest transition-all disabled:opacity-60"
+                  className="h-11 rounded-xl bg-lima-700 text-ink-50 hover:bg-lima-300 hover:text-ink-900 font-black uppercase text-[10px] tracking-widest transition-all disabled:opacity-60"
                 >
                   {submitting ? 'Registrando...' : 'Confirmar'}
                 </button>
@@ -719,11 +719,11 @@ export default function PaymentCalculator({
       )}
 
       {showSuccessModal && lastRegisteredPayment && (
-        <div className="fixed inset-0 z-[2147483500] bg-[#347048]/60 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-md max-h-[94vh] bg-[#EBE1D8] border-2 border-white rounded-[2rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-4 border-b border-[#347048]/10 flex justify-between items-center bg-[#EBE1D8]">
-              <h4 className="text-xl font-black uppercase italic tracking-tighter text-[#347048] flex items-center gap-2.5">
-                <CheckCircle2 size={22} strokeWidth={2.8} className="text-[#B9CF32]" />
+        <div className="fixed inset-0 z-[2147483500] bg-lima-700/60 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-md max-h-[92vh] bg-ink-50 border-4 border-white rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-lima-900/10 flex justify-between items-center bg-ink-50">
+              <h4 className="text-2xl font-black uppercase italic tracking-tighter text-ink-900 flex items-center gap-3">
+                <CheckCircle2 size={26} strokeWidth={2.8} className="text-lima-300" />
                 Pago registrado
               </h4>
               <button
@@ -732,24 +732,24 @@ export default function PaymentCalculator({
                   setShowSuccessModal(false);
                   onClose();
                 }}
-                className="bg-red-50 p-2 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
+                className="bg-p-error-bg p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-p-error hover:text-ink-50 hover:bg-p-error border border-p-error"
                 title="Cerrar ventana"
               >
-                <X size={18} strokeWidth={3} />
+                <X size={20} strokeWidth={3} />
               </button>
             </div>
-            <div className="p-4 sm:p-5 bg-white/40 flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto text-[#347048]">
+            <div className="p-6 sm:p-8 bg-p-surface/40 flex-1 min-h-0 flex flex-col gap-5 overflow-y-auto text-ink-900">
               <div className="space-y-2 text-sm font-bold">
                 <div className="flex items-center justify-between">
-                  <span className="text-[#347048]/70">Monto</span>
+                  <span className="text-ink-900/70">Monto</span>
                   <span>${Number(lastRegisteredPayment.amount || 0).toLocaleString()}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-[#347048]/70">Medio</span>
+                  <span className="text-ink-900/70">Medio</span>
                   <span>{lastRegisteredPayment.methodLabel}</span>
                 </div>
                 <div>
-                  <span className="block text-[10px] uppercase tracking-widest font-black text-[#347048]/60 mb-1">Conceptos registrados</span>
+                  <span className="block text-[10px] uppercase tracking-widest font-black text-ink-900/60 mb-1">Conceptos registrados</span>
                   <p className="text-[12px] font-bold">{lastRegisteredPayment.concepts.join(', ') || 'Sin detalle'}</p>
                 </div>
               </div>
@@ -760,7 +760,7 @@ export default function PaymentCalculator({
                     setShowSuccessModal(false);
                     onClose();
                   }}
-                  className="h-10 rounded-xl bg-[#347048] text-[#EBE1D8] hover:bg-[#B9CF32] hover:text-[#347048] font-black uppercase text-[10px] tracking-widest transition-all"
+                  className="h-11 rounded-xl bg-lima-700 text-ink-50 hover:bg-lima-300 hover:text-ink-900 font-black uppercase text-[10px] tracking-widest transition-all"
                 >
                   Cerrar
                 </button>

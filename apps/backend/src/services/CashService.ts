@@ -11,10 +11,12 @@ import { ProjectionService } from './ProjectionService';
 import { generateDisplayCode } from '../utils/displayCode';
 import { DiscountService } from './DiscountService';
 import { getPhoneIdentityVariants, normalizeIdentityPhone } from '../utils/phone';
+import { AppError, badRequest, notFound, conflict, unprocessable, ErrorCodes } from '../errors';
 
 type ProductSaleItemInput = {
     itemKey?: string;
     productId?: number | null;
+    serviceId?: number | null;
     quantity: number;
     customName?: string;
     unitPrice?: number;
@@ -39,6 +41,7 @@ type ClientDraftInput = {
 type NormalizedProductSaleItem = {
     itemKey: string;
     productId: number | null;
+    serviceId: number | null;
     quantity: number;
     customName?: string;
     unitPrice?: number;
@@ -78,12 +81,12 @@ export class CashService {
     async getSummaryByDate(clubId: number | undefined, dateStr: string, userId?: number, preferredClubId?: number) {
         const resolvedClubId = await this.resolveClubId(clubId, userId, preferredClubId);
         if (!resolvedClubId) {
-            throw new Error('Club inválido para resumen de caja');
+            throw badRequest('Club inválido para resumen de caja.', ErrorCodes.INVALID_INPUT);
         }
         const club = await prisma.club.findUnique({ where: { id: resolvedClubId }, include: { settings: true } });
         const timeZone = String(club?.settings?.timeZone || '').trim();
         if (!timeZone) {
-            throw new Error('Configuración de club inválida: timeZone es obligatorio para caja');
+            throw badRequest('Configuración de club inválida: timeZone es obligatorio para caja.', ErrorCodes.CLUB_CONFIG_INVALID);
         }
 
         const [y, m, d] = String(dateStr).split('-').map((part) => Number(part));
@@ -262,15 +265,15 @@ export class CashService {
         const end = new Date(endYear, endMonth - 1, endDay);
 
         if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-            throw new Error('Rango de fechas inválido');
+            throw badRequest('Rango de fechas inválido.', ErrorCodes.INVALID_INPUT);
         }
         if (start.getTime() > end.getTime()) {
-            throw new Error('La fecha inicial debe ser menor o igual a la fecha final');
+            throw badRequest('La fecha inicial debe ser menor o igual a la fecha final.', ErrorCodes.INVALID_INPUT);
         }
 
         const totalDays = Math.floor((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
         if (totalDays > 62) {
-            throw new Error('El rango máximo permitido es de 62 días');
+            throw badRequest('El rango máximo permitido es de 62 días.', ErrorCodes.INVALID_INPUT);
         }
 
         let totalCash = 0;
@@ -421,16 +424,232 @@ export class CashService {
 
     async getProducts(clubId: number) {
         return prisma.product.findMany({
-            where: { clubId },
+            where: { clubId, isActive: true },
             select: {
                 id: true,
                 name: true,
                 price: true,
                 stock: true,
-                category: true
+                category: true,
+                isActive: true
             },
             orderBy: { name: 'asc' }
         });
+    }
+
+    // P2-C: retorna productos + servicios unificados para el selector POS
+    async getPosItems(clubId: number) {
+        const [products, services] = await Promise.all([
+            prisma.product.findMany({
+                where: { clubId, isActive: true },
+                select: { id: true, name: true, price: true, stock: true, category: true },
+                orderBy: { name: 'asc' }
+            }),
+            prisma.clubServiceCatalog.findMany({
+                where: { clubId, isActive: true },
+                select: { id: true, name: true, price: true, code: true },
+                orderBy: { name: 'asc' }
+            })
+        ]);
+
+        return [
+            ...products.map((p) => ({
+                type: 'product' as const,
+                id: p.id,
+                name: p.name,
+                price: Number(p.price),
+                stock: p.stock,
+                category: p.category
+            })),
+            ...services.map((s) => ({
+                type: 'service' as const,
+                id: s.id,
+                name: s.name,
+                price: Number(s.price),
+                stock: null,
+                category: s.code
+            }))
+        ];
+    }
+
+    // P2-D/E-3: Reporte POS operativo — cuentas BAR, productos, servicios y cobros.
+    async getPosReport(clubId: number, startDate?: string, endDate?: string, shiftId?: string) {
+        let start = new Date(new Date().setHours(0, 0, 0, 0));
+        let end = new Date();
+
+        if (shiftId) {
+            const shift = await prisma.cashShift.findFirst({
+                where: { id: shiftId, clubId },
+                select: { id: true, openedAt: true, closedAt: true }
+            });
+            if (!shift) throw notFound('Turno de caja no encontrado.', ErrorCodes.CASH_SHIFT_NOT_FOUND);
+            start = new Date(shift.openedAt);
+            end = shift.closedAt ? new Date(shift.closedAt) : new Date();
+        } else if (startDate && endDate) {
+            const club = await prisma.club.findUnique({
+                where: { id: clubId },
+                include: { settings: true }
+            });
+            const timeZone = String(club?.settings?.timeZone || '').trim() || TimeHelper.getDefaultTimeZone();
+            const parsedStart = new Date(startDate);
+            const parsedEnd = new Date(endDate);
+            if (!Number.isFinite(parsedStart.getTime()) || !Number.isFinite(parsedEnd.getTime())) {
+                throw badRequest('Rango de fechas inválido.', ErrorCodes.INVALID_INPUT);
+            }
+            start = TimeHelper.getUtcRangeForLocalDate(parsedStart, timeZone).startUtc;
+            end = TimeHelper.getUtcRangeForLocalDate(parsedEnd, timeZone).endUtc;
+        }
+
+        const accounts = await prisma.account.findMany({
+            where: {
+                clubId,
+                sourceType: 'BAR',
+                createdAt: { gte: start, lte: end }
+            },
+            select: {
+                id: true,
+                displayCode: true,
+                sourceId: true,
+                status: true,
+                totalAmount: true,
+                paidAmount: true,
+                createdAt: true,
+                closedAt: true,
+                client: { select: { name: true } },
+                items: {
+                    select: {
+                        id: true,
+                        type: true,
+                        description: true,
+                        quantity: true,
+                        total: true,
+                        productId: true,
+                        product: { select: { name: true } }
+                    }
+                }
+            }
+        });
+
+        const accountIds = accounts.map((account) => account.id);
+        const payments = accountIds.length === 0
+            ? []
+            : await prisma.payment.findMany({
+                where: {
+                    accountId: { in: accountIds },
+                    ...(shiftId
+                        ? { cashShiftId: shiftId }
+                        : { createdAt: { gte: start, lte: end } })
+                },
+                select: {
+                    id: true,
+                    accountId: true,
+                    amount: true,
+                    method: true,
+                    createdAt: true
+                }
+            } as any);
+
+        const paidByAccount = new Map<string, number>();
+        const methodMap = new Map<string, { method: string; count: number; total: number }>();
+
+        for (const payment of payments as any[]) {
+            const accountId = String(payment.accountId || '');
+            const paid = Number(payment.amount || 0);
+            paidByAccount.set(accountId, Number(((paidByAccount.get(accountId) || 0) + paid).toFixed(2)));
+
+            const method = String(payment.method || 'OTHER');
+            const entry = methodMap.get(method) || { method, count: 0, total: 0 };
+            entry.count += 1;
+            entry.total = Number((entry.total + paid).toFixed(2));
+            methodMap.set(method, entry);
+        }
+
+        const byProductMap = new Map<string, { productId: number | null; name: string; quantity: number; total: number }>();
+        const byServiceMap = new Map<string, { name: string; quantity: number; total: number }>();
+
+        let salesTotal = 0;
+        let paidTotal = 0;
+        let pendingTotal = 0;
+        let voidedTotal = 0;
+        let productTotal = 0;
+        let serviceTotal = 0;
+
+        const accountsPayload = accounts
+            .map((account) => {
+                const isVoided = String(account.sourceId || '').startsWith('VOID-');
+                const total = Number(account.totalAmount || 0);
+                const paid = isVoided ? 0 : Number(paidByAccount.get(account.id) || 0);
+                const pending = isVoided ? 0 : Number(Math.max(0, total - paid).toFixed(2));
+
+                if (isVoided) {
+                    voidedTotal = Number((voidedTotal + total).toFixed(2));
+                } else {
+                    salesTotal = Number((salesTotal + total).toFixed(2));
+                    paidTotal = Number((paidTotal + paid).toFixed(2));
+                    pendingTotal = Number((pendingTotal + pending).toFixed(2));
+                }
+
+                for (const item of account.items || []) {
+                    if (isVoided) continue;
+                    const itemTotal = Number(item.total || 0);
+                    const quantity = Number(item.quantity || 0);
+                    if (item.type === 'SERVICE') {
+                        const name = String(item.description || 'Servicio');
+                        const entry = byServiceMap.get(name) || { name, quantity: 0, total: 0 };
+                        entry.quantity += quantity;
+                        entry.total = Number((entry.total + itemTotal).toFixed(2));
+                        byServiceMap.set(name, entry);
+                        serviceTotal = Number((serviceTotal + itemTotal).toFixed(2));
+                        continue;
+                    }
+
+                    const name = item.product?.name || item.description || 'Producto';
+                    const key = item.productId ? `product:${item.productId}` : `manual:${name}`;
+                    const entry = byProductMap.get(key) || {
+                        productId: item.productId ?? null,
+                        name,
+                        quantity: 0,
+                        total: 0
+                    };
+                    entry.quantity += quantity;
+                    entry.total = Number((entry.total + itemTotal).toFixed(2));
+                    byProductMap.set(key, entry);
+                    productTotal = Number((productTotal + itemTotal).toFixed(2));
+                }
+
+                return {
+                    id: account.id,
+                    label: account.displayCode || account.id,
+                    clientName: account.client?.name || 'Consumidor final',
+                    status: isVoided ? 'VOIDED' : account.status,
+                    total,
+                    paid,
+                    pending,
+                    createdAt: account.createdAt,
+                    closedAt: account.closedAt ?? null
+                };
+            })
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+        return {
+            scope: {
+                shiftId: shiftId || null,
+                startDate: start.toISOString(),
+                endDate: end.toISOString()
+            },
+            totals: {
+                salesTotal,
+                paidTotal,
+                pendingTotal,
+                voidedTotal,
+                productTotal,
+                serviceTotal
+            },
+            byProduct: Array.from(byProductMap.values()).sort((a, b) => b.total - a.total),
+            byService: Array.from(byServiceMap.values()).sort((a, b) => b.total - a.total),
+            paymentsByMethod: Array.from(methodMap.values()).sort((a, b) => b.total - a.total),
+            accounts: accountsPayload
+        };
     }
 
     private async resolveClientIdForSaleTx(tx: Prisma.TransactionClient, input: {
@@ -447,7 +666,7 @@ export class CashService {
                 where: { id: safeClientId, clubId: input.clubId },
                 select: { id: true }
             });
-            if (!existingClient) throw new Error('Cliente no encontrado para el club');
+            if (!existingClient) throw notFound('Cliente no encontrado para el club.', ErrorCodes.CLIENT_NOT_FOUND);
             resolvedClientId = existingClient.id;
             return resolvedClientId;
         }
@@ -472,7 +691,7 @@ export class CashService {
         const normalizedEmail = String(draft.email || '').trim().toLowerCase();
 
         if (normalizedName.length < 2 || !normalizedPhone) {
-            throw new Error('CLIENT_DRAFT_INVALID');
+            throw badRequest('El draft de cliente es inválido.', ErrorCodes.INVALID_INPUT);
         }
 
         const candidateIds = new Set<string>();
@@ -500,23 +719,24 @@ export class CashService {
         }
 
         if (candidateIds.size > 1) {
-            const conflictError: any = new Error('CLIENT_POSSIBLE_DUPLICATE');
-            conflictError.code = 'CLIENT_POSSIBLE_DUPLICATE';
             const reasonSignals = new Set<string>();
             if (normalizedDni.length >= 6) reasonSignals.add('DNI');
             if (normalizedPhone) reasonSignals.add('PHONE');
             if (normalizedEmail.length > 3) reasonSignals.add('EMAIL');
-            conflictError.details = {
-                clubId: input.clubId,
-                candidateClientIds: Array.from(candidateIds),
-                reasonType: reasonSignals.size === 1 ? Array.from(reasonSignals)[0] : 'MULTI_SIGNAL_CONFLICT',
-                signals: {
-                    dni: normalizedDni || null,
-                    phone: normalizedPhone || null,
-                    email: normalizedEmail || null
+            throw conflict(
+                'Se detectaron posibles duplicados de cliente.',
+                ErrorCodes.CLIENT_POSSIBLE_DUPLICATE,
+                {
+                    clubId: input.clubId,
+                    candidateClientIds: Array.from(candidateIds),
+                    reasonType: reasonSignals.size === 1 ? Array.from(reasonSignals)[0] : 'MULTI_SIGNAL_CONFLICT',
+                    signals: {
+                        dni: normalizedDni || null,
+                        phone: normalizedPhone || null,
+                        email: normalizedEmail || null
+                    }
                 }
-            };
-            throw conflictError;
+            );
         }
         if (candidateIds.size === 1) {
             return Array.from(candidateIds)[0];
@@ -547,29 +767,40 @@ export class CashService {
             ? input.items
             : (input.productId && input.quantity ? [{ productId: input.productId, quantity: input.quantity }] : []);
 
-        if (rawItems.length === 0) throw new Error('Seleccioná al menos un producto');
+        if (rawItems.length === 0) throw badRequest('Seleccioná al menos un producto.', ErrorCodes.INVALID_INPUT);
 
         const normalizedItems: NormalizedProductSaleItem[] = rawItems.map((item, index) => {
             const quantity = Math.floor(Number(item.quantity));
             const productId = Number(item.productId || 0);
+            const serviceId = Number(item.serviceId || 0);
             const providedItemKey = String(item.itemKey || '').trim();
             const customName = String(item.customName || '').trim();
 
             if (!Number.isFinite(quantity) || quantity <= 0) {
-                throw new Error('Cantidad inválida');
+                throw badRequest('Cantidad inválida.', ErrorCodes.INVALID_INPUT);
             }
 
             if (Number.isInteger(productId) && productId > 0) {
                 return {
                     itemKey: providedItemKey || `product:${productId}:${index}`,
                     productId,
+                    serviceId: null,
+                    quantity
+                };
+            }
+
+            if (Number.isInteger(serviceId) && serviceId > 0) {
+                return {
+                    itemKey: providedItemKey || `service:${serviceId}:${index}`,
+                    productId: null,
+                    serviceId,
                     quantity
                 };
             }
 
             const unitPrice = this.roundMoney(Number(item.unitPrice || 0));
             if (customName.length < 2 || unitPrice <= 0) {
-                throw new Error('Item de venta inválido');
+                throw badRequest('Ítem de venta inválido.', ErrorCodes.INVALID_INPUT);
             }
 
             const slugBase = customName
@@ -581,6 +812,7 @@ export class CashService {
             return {
                 itemKey: providedItemKey || `custom:${index}:${slugBase}`,
                 productId: null,
+                serviceId: null,
                 quantity,
                 customName,
                 unitPrice
@@ -590,7 +822,7 @@ export class CashService {
         const seenKeys = new Set<string>();
         for (const item of normalizedItems) {
             if (seenKeys.has(item.itemKey)) {
-                throw new Error('Hay items duplicados en la venta');
+                throw badRequest('Hay ítems duplicados en la venta.', ErrorCodes.INVALID_INPUT);
             }
             seenKeys.add(item.itemKey);
         }
@@ -607,9 +839,7 @@ export class CashService {
         clientDraft?: ClientDraftInput;
         userId?: number;
     }) {
-        if (!String(input.clientId || '').trim() && !input.clientDraft) {
-            throw new Error('Debes seleccionar un cliente o cargar un alta rápida válida.');
-        }
+            // Fase 1.6: cliente es opcional en venta mostrador. Sin cliente = Consumidor final.
         const normalizedItems = this.normalizeProductSaleItems(input);
 
         const quote = await prisma.$transaction(async (tx) => {
@@ -628,10 +858,11 @@ export class CashService {
                 if (entry.productId) {
                     const product = await tx.product.findFirst({
                         where: { id: Number(entry.productId), clubId: input.clubId },
-                        select: { id: true, name: true, price: true, category: true, stock: true }
+                        select: { id: true, name: true, price: true, category: true, stock: true, isActive: true }
                     });
-                    if (!product) throw new Error('Producto no encontrado');
-                    if (Number(product.stock) < qty) throw new Error('Stock insuficiente');
+                    if (!product) throw notFound('Producto no encontrado.', ErrorCodes.PRODUCT_NOT_FOUND);
+                    if (!product.isActive) throw conflict('Producto inactivo.', ErrorCodes.PRODUCT_INACTIVE);
+                    if (Number(product.stock) < qty) throw conflict('Stock insuficiente.', ErrorCodes.STOCK_INSUFFICIENT);
 
                     const listUnitPrice = Number(Number(product.price || 0).toFixed(2));
                     const listItemTotal = Number((listUnitPrice * qty).toFixed(2));
@@ -656,8 +887,62 @@ export class CashService {
 
                     items.push({
                         itemKey: entry.itemKey,
+                        itemType: 'PRODUCT' as const,
                         productId: product.id,
+                        serviceId: null,
+                        serviceCode: null,
                         productName: product.name,
+                        quantity: qty,
+                        listUnitPrice,
+                        finalUnitPrice,
+                        listTotal: listItemTotal,
+                        finalTotal: finalItemTotal,
+                        discountAmount: itemDiscount,
+                        hasDiscount: itemDiscount > 0.009,
+                        isCustom: false,
+                        appliedPolicies: (discountDraft.snapshots || []).map((s: any) => ({
+                            policyId: s.policyId,
+                            discountAmount: Number(s.discountAmount || 0)
+                        }))
+                    });
+                    continue;
+                }
+
+                if (entry.serviceId) {
+                    const service = await tx.clubServiceCatalog.findFirst({
+                        where: { id: Number(entry.serviceId), clubId: input.clubId },
+                        select: { id: true, code: true, name: true, price: true, isActive: true }
+                    });
+                    if (!service) throw notFound('Servicio no encontrado.', ErrorCodes.SERVICE_NOT_FOUND);
+                    if (!service.isActive) throw conflict('Servicio no disponible para la venta.', ErrorCodes.SERVICE_INACTIVE);
+
+                    const listUnitPrice = Number(Number(service.price || 0).toFixed(2));
+                    const listItemTotal = Number((listUnitPrice * qty).toFixed(2));
+
+                    const discountDraft = await this.discountService.computeDraftDiscountTx(tx, {
+                        clubId: input.clubId,
+                        clientId: resolvedClientId,
+                        itemType: 'SERVICE',
+                        quantity: qty,
+                        unitPrice: listUnitPrice,
+                        serviceCode: service.code
+                    });
+
+                    const finalUnitPrice = Number(Number(discountDraft.unitPrice || listUnitPrice).toFixed(2));
+                    const finalItemTotal = Number(Number(discountDraft.total || listItemTotal).toFixed(2));
+                    const itemDiscount = Number(Math.max(0, listItemTotal - finalItemTotal).toFixed(2));
+
+                    listTotal += listItemTotal;
+                    finalTotal += finalItemTotal;
+                    discountTotal += itemDiscount;
+
+                    items.push({
+                        itemKey: entry.itemKey,
+                        itemType: 'SERVICE' as const,
+                        productId: null,
+                        serviceId: service.id,
+                        serviceCode: service.code,
+                        productName: service.name,
                         quantity: qty,
                         listUnitPrice,
                         finalUnitPrice,
@@ -683,7 +968,10 @@ export class CashService {
 
                 items.push({
                     itemKey: entry.itemKey,
+                    itemType: 'PRODUCT' as const,
                     productId: null,
+                    serviceId: null,
+                    serviceCode: null,
                     productName: customName,
                     quantity: qty,
                     listUnitPrice,
@@ -710,6 +998,171 @@ export class CashService {
         return quote;
     }
 
+    // ─── Fase 1.6B: Crear cuenta de venta mostrador SIN cobrar ────────────────
+    // Crea Account BAR + AccountItems + descuenta stock, pero NO Payment ni CashMovement.
+    // Requiere turno de caja abierto (guardia MVP).
+    // El pago se registra después desde AccountDrawer.
+    async createProductSaleAccount(input: {
+        clubId: number;
+        items: ProductSaleItemInput[];
+        clientId?: string;
+        idempotencyKey?: string;
+    }, actorUserId?: number): Promise<{ accountId: string; total: number; description: string }> {
+        const normalizedItems = this.normalizeProductSaleItems({ items: input.items });
+
+        // Validar turno de caja abierto antes de crear nada.
+        // No creamos CashMovement aquí, pero la venta de mostrador pertenece a la operación de caja.
+        const openShift = await prisma.cashShift.findFirst({
+            where: { status: 'OPEN', cashRegister: { clubId: input.clubId } },
+            orderBy: { openedAt: 'desc' }
+        });
+        if (!openShift) {
+            throw unprocessable('Abrí una caja antes de registrar ventas de mostrador.', ErrorCodes.NO_ACTIVE_CASH_SHIFT);
+        }
+
+        const quote = await this.quoteProductSale({
+            clubId: input.clubId,
+            items: normalizedItems,
+            clientId: input.clientId
+        });
+
+        const total = Number(quote.finalTotal || 0);
+
+        // Idempotencia: si ya existe una cuenta con esta key, devolver la misma.
+        if (input.idempotencyKey) {
+            const existing = await prisma.account.findFirst({
+                where: { clubId: input.clubId, sourceType: 'BAR', idempotencyKey: input.idempotencyKey }
+            });
+            if (existing) {
+                const consumerLabel = String(input.clientId || '').trim() ? 'cliente' : 'Consumidor final';
+                return { accountId: existing.id, total, description: `Venta mostrador (${consumerLabel})` };
+            }
+        }
+
+        const result = await prisma.$transaction(async (tx) => {
+            // Validar cliente si se proporcionó
+            const resolvedClientId = await this.resolveClientIdForSaleTx(tx, {
+                clubId: input.clubId,
+                clientId: input.clientId
+            });
+
+            const sourceId = `pos-account-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+            const account = await tx.account.create({
+                data: {
+                    displayCode: generateDisplayCode('CTA'),
+                    clubId: input.clubId,
+                    sourceType: 'BAR',
+                    sourceId,
+                    status: 'OPEN',
+                    totalAmount: new Prisma.Decimal(0),
+                    paidAmount: new Prisma.Decimal(0),
+                    idempotencyKey: input.idempotencyKey ?? null,
+                    // Persistir cliente para visibilidad y reportes (P2-A)
+                    clientId: resolvedClientId ?? null
+                } as any
+            });
+
+            const consumerLabel: string = resolvedClientId ? 'cliente' : 'Consumidor final';
+            const baseDescription = `Venta mostrador (${consumerLabel})`;
+
+            for (const qi of quote.items) {
+                const productId = Number(qi.productId || 0);
+                const serviceId = Number((qi as any).serviceId || 0);
+                const isService = String((qi as any).itemType || '').toUpperCase() === 'SERVICE';
+                const product = productId > 0
+                    ? await tx.product.findFirst({
+                        where: { id: productId, clubId: input.clubId },
+                        select: { id: true, stock: true, category: true, isActive: true }
+                    })
+                    : null;
+                const service = serviceId > 0
+                    ? await tx.clubServiceCatalog.findFirst({
+                        where: { id: serviceId, clubId: input.clubId },
+                        select: { id: true, code: true, isActive: true }
+                    })
+                    : null;
+                if (productId > 0 && !product) throw notFound('Producto no encontrado.', ErrorCodes.PRODUCT_NOT_FOUND);
+                if (product && !product.isActive) throw conflict('Producto inactivo.', ErrorCodes.PRODUCT_INACTIVE);
+                if (product && Number(product.stock) < Number(qi.quantity)) throw conflict('Stock insuficiente.', ErrorCodes.STOCK_INSUFFICIENT);
+                if (serviceId > 0 && !service) throw notFound('Servicio no encontrado.', ErrorCodes.SERVICE_NOT_FOUND);
+                if (service && !service.isActive) throw conflict('Servicio no disponible para la venta.', ErrorCodes.SERVICE_INACTIVE);
+
+                const itemDescription = isService ? String(qi.productName || 'Servicio') : `${baseDescription}: ${qi.productName}`;
+                const itemType = isService ? 'SERVICE' : 'PRODUCT';
+
+                const item = await tx.accountItem.create({
+                    data: {
+                        accountId: account.id,
+                        type: itemType,
+                        productId: product ? product.id : null,
+                        description: itemDescription,
+                        quantity: qi.quantity,
+                        unitPrice: new Prisma.Decimal(qi.finalUnitPrice),
+                        total: new Prisma.Decimal(qi.finalTotal)
+                    }
+                });
+
+                if (resolvedClientId && (product || service)) {
+                    const discountDraft = await this.discountService.computeDraftDiscountTx(tx, {
+                        clubId: input.clubId,
+                        clientId: resolvedClientId,
+                        itemType: isService ? 'SERVICE' : 'PRODUCT',
+                        quantity: qi.quantity,
+                        unitPrice: qi.listUnitPrice,
+                        productId: product?.id,
+                        productCategory: product?.category,
+                        serviceCode: service?.code
+                    });
+                    if (discountDraft.snapshots?.length) {
+                        await this.discountService.persistAppliedDiscountsTx(tx, {
+                            clubId: input.clubId,
+                            accountItemId: item.id,
+                            appliedByUserId: actorUserId ?? null,
+                            snapshots: discountDraft.snapshots
+                        });
+                    }
+                }
+
+                if (product) {
+                    const stockUpdate = await tx.product.updateMany({
+                        where: {
+                            id: product.id,
+                            clubId: input.clubId,
+                            stock: { gte: Number(qi.quantity) }
+                        },
+                        data: { stock: { decrement: Number(qi.quantity) } }
+                    });
+                    if (stockUpdate.count !== 1) throw conflict('Stock insuficiente.', ErrorCodes.STOCK_INSUFFICIENT);
+                }
+
+                await this.accountingService.createAccountItemTransaction(tx, {
+                    clubId: input.clubId,
+                    type: 'ACCOUNT_ITEM',
+                    referenceType: 'ACCOUNT_ITEM',
+                    referenceId: item.id,
+                    accountId: account.id,
+                    accountItemId: item.id,
+                    amount: Number(qi.finalTotal || 0),
+                    revenueAccount: this.accountingService.mapRevenueAccount(isService ? 'SERVICE' : 'PRODUCT'),
+                    description: itemDescription,
+                    createdByUserId: actorUserId ?? null
+                });
+            }
+
+            await tx.account.update({
+                where: { id: account.id },
+                data: { totalAmount: { increment: new Prisma.Decimal(total) } }
+            });
+
+            await this.projectionService.refreshAccountSummary(account.id, tx);
+
+            return { accountId: account.id, total, description: baseDescription };
+        });
+
+        return result;
+    }
+
     async createProductSale(input: {
         clubId: number;
         productId?: number;
@@ -728,9 +1181,7 @@ export class CashService {
         userId?: number;
         idempotencyKey?: string;
     }, actorUserId?: number) {
-        if (!String(input.clientId || '').trim() && !input.clientDraft) {
-            throw new Error('Debes seleccionar un cliente o cargar un alta rápida válida.');
-        }
+        // Fase 1.6: cliente es opcional en venta mostrador. Sin cliente = Consumidor final.
         const normalizedItems = this.normalizeProductSaleItems(input);
 
         const quote = await this.quoteProductSale({
@@ -766,12 +1217,12 @@ export class CashService {
             .filter((payment) => Number.isFinite(payment.amount) && payment.amount > 0);
 
         if (paymentPlan.length === 0) {
-            throw new Error('Debe existir al menos un pago válido');
+            throw badRequest('Debe existir al menos un pago válido.', ErrorCodes.INVALID_INPUT);
         }
 
         const paymentTotal = paymentPlan.reduce((sum, payment) => sum + payment.amount, 0);
         if (Math.abs(paymentTotal - total) > 0.01) {
-            throw new Error('La suma de pagos debe coincidir con el total de la venta');
+            throw badRequest('La suma de pagos debe coincidir con el total de la venta.', ErrorCodes.INVALID_INPUT);
         }
 
         const quoteItemTotalByKey = new Map<string, number>(
@@ -804,7 +1255,7 @@ export class CashService {
                     .map((allocation) => {
                         const resolvedItemKey = resolveAllocationItemKey(allocation);
                         if (!resolvedItemKey) {
-                            throw new Error('Una asignación hace referencia a un item inexistente o ambiguo en la venta.');
+                            throw badRequest('Una asignación hace referencia a un ítem inexistente o ambiguo en la venta.', ErrorCodes.INVALID_INPUT);
                         }
                         return {
                             itemKey: resolvedItemKey,
@@ -818,14 +1269,14 @@ export class CashService {
         if (hasExplicitAllocations) {
             const everyPaymentHasAllocations = resolvedPaymentPlan.every((payment) => Array.isArray(payment.allocations) && payment.allocations.length > 0);
             if (!everyPaymentHasAllocations) {
-                throw new Error('Si configurás pagos por item, todos los pagos deben indicar sus items.');
+                throw badRequest('Si configurás pagos por ítem, todos los pagos deben indicar sus ítems.', ErrorCodes.INVALID_INPUT);
             }
 
             const allocatedByItemKey = new Map<string, number>();
             for (const payment of resolvedPaymentPlan) {
                 const allocationTotal = (payment.allocations || []).reduce((sum, allocation) => sum + Number(allocation.amount || 0), 0);
                 if (Math.abs(allocationTotal - Number(payment.amount || 0)) > 0.01) {
-                    throw new Error('Las asignaciones del pago no coinciden con el monto cargado.');
+                    throw badRequest('Las asignaciones del pago no coinciden con el monto cargado.', ErrorCodes.INVALID_INPUT);
                 }
 
                 for (const allocation of payment.allocations || []) {
@@ -833,7 +1284,7 @@ export class CashService {
                     const nextAllocated = Number(((allocatedByItemKey.get(itemKey) || 0) + Number(allocation.amount || 0)).toFixed(2));
                     const itemTotal = Number(quoteItemTotalByKey.get(itemKey) || 0);
                     if (nextAllocated - itemTotal > 0.01) {
-                        throw new Error('Un item quedó sobreasignado en los pagos configurados.');
+                        throw conflict('Un ítem quedó sobreasignado en los pagos configurados.', ErrorCodes.PAYMENT_OVERPAY);
                     }
                     allocatedByItemKey.set(itemKey, nextAllocated);
                 }
@@ -856,16 +1307,17 @@ export class CashService {
                     where: { accountId: existingAccount.id }
                 });
 
-                const clientBits = [
-                    input.clientDraft?.name,
-                    input.clientDraft?.phone,
-                    input.clientDraft?.dni
-                ]
-                    .filter((value) => typeof value === 'string' && value.trim().length > 0)
-                    .map((value) => String(value).trim());
-                const description = clientBits.length > 0
-                    ? `Venta productos (${clientBits.join(' | ')})`
-                    : `Venta productos`;
+                const idempotencyConsumerLabel: string = (() => {
+                    if (input.clientDraft?.name) {
+                        const bits = [input.clientDraft.name, input.clientDraft.phone, input.clientDraft.dni]
+                            .filter((v) => typeof v === 'string' && String(v).trim().length > 0)
+                            .map((v) => String(v).trim());
+                        return bits.join(' | ');
+                    }
+                    if (String(input.clientId || '').trim()) return 'cliente';
+                    return 'Consumidor final';
+                })();
+                const description = `Venta mostrador (${idempotencyConsumerLabel})`;
 
                 return {
                     accountId: existingAccount.id,
@@ -893,39 +1345,56 @@ export class CashService {
                     status: 'OPEN',
                     totalAmount: new Prisma.Decimal(0),
                     paidAmount: new Prisma.Decimal(0),
-                    idempotencyKey: input.idempotencyKey ?? null
+                    idempotencyKey: input.idempotencyKey ?? null,
+                    clientId: resolvedClientId ?? null
                 }
             });
 
-            const clientBits = [
-                input.clientDraft?.name,
-                input.clientDraft?.phone,
-                input.clientDraft?.dni
-            ]
-                .filter((value) => typeof value === 'string' && value.trim().length > 0)
-                .map((value) => String(value).trim());
-            const baseDescription = clientBits.length > 0
-                ? `Venta productos (${clientBits.join(' | ')})`
-                : `Venta productos`;
+            // Fase 1.6: "Consumidor final" cuando no hay cliente explícito.
+            const consumerLabel: string = (() => {
+                if (input.clientDraft?.name) {
+                    const bits = [input.clientDraft.name, input.clientDraft.phone, input.clientDraft.dni]
+                        .filter((v) => typeof v === 'string' && String(v).trim().length > 0)
+                        .map((v) => String(v).trim());
+                    return bits.join(' | ');
+                }
+                if (String(input.clientId || '').trim()) return 'cliente';
+                return 'Consumidor final';
+            })();
+            const baseDescription = `Venta mostrador (${consumerLabel})`;
 
             const createdItems: Array<{ id: string }> = [];
             for (const qi of quote.items) {
                 const productId = Number(qi.productId || 0);
+                const serviceId = Number((qi as any).serviceId || 0);
+                const isService = String((qi as any).itemType || '').toUpperCase() === 'SERVICE';
                 const product = productId > 0
                     ? await tx.product.findFirst({
                         where: { id: productId, clubId: input.clubId },
-                        select: { id: true, stock: true, category: true }
+                        select: { id: true, stock: true, category: true, isActive: true }
                     })
                     : null;
-                if (productId > 0 && !product) throw new Error('Producto no encontrado');
-                if (product && Number(product.stock) < Number(qi.quantity)) throw new Error('Stock insuficiente');
+                const service = serviceId > 0
+                    ? await tx.clubServiceCatalog.findFirst({
+                        where: { id: serviceId, clubId: input.clubId },
+                        select: { id: true, code: true, isActive: true }
+                    })
+                    : null;
+                if (productId > 0 && !product) throw notFound('Producto no encontrado.', ErrorCodes.PRODUCT_NOT_FOUND);
+                if (product && !product.isActive) throw conflict('Producto inactivo.', ErrorCodes.PRODUCT_INACTIVE);
+                if (product && Number(product.stock) < Number(qi.quantity)) throw conflict('Stock insuficiente.', ErrorCodes.STOCK_INSUFFICIENT);
+                if (serviceId > 0 && !service) throw notFound('Servicio no encontrado.', ErrorCodes.SERVICE_NOT_FOUND);
+                if (service && !service.isActive) throw conflict('Servicio no disponible para la venta.', ErrorCodes.SERVICE_INACTIVE);
+
+                const itemDescription = isService ? String(qi.productName || 'Servicio') : `${baseDescription}: ${qi.productName}`;
+                const itemType = isService ? 'SERVICE' : 'PRODUCT';
 
                 const item = await tx.accountItem.create({
                     data: {
                         accountId: account.id,
-                        type: 'PRODUCT',
+                        type: itemType,
                         productId: product ? product.id : null,
-                        description: `${baseDescription}: ${qi.productName}`,
+                        description: itemDescription,
                         quantity: qi.quantity,
                         unitPrice: new Prisma.Decimal(qi.finalUnitPrice),
                         total: new Prisma.Decimal(qi.finalTotal)
@@ -933,15 +1402,16 @@ export class CashService {
                 });
                 createdItems.push({ id: item.id });
 
-                if (resolvedClientId && product) {
+                if (resolvedClientId && (product || service)) {
                     const discountDraft = await this.discountService.computeDraftDiscountTx(tx, {
                         clubId: input.clubId,
                         clientId: resolvedClientId,
-                        itemType: 'PRODUCT',
+                        itemType: isService ? 'SERVICE' : 'PRODUCT',
                         quantity: qi.quantity,
                         unitPrice: qi.listUnitPrice,
-                        productId: product.id,
-                        productCategory: product.category
+                        productId: product?.id,
+                        productCategory: product?.category,
+                        serviceCode: service?.code
                     });
                     if (discountDraft.snapshots?.length) {
                         await this.discountService.persistAppliedDiscountsTx(tx, {
@@ -954,10 +1424,15 @@ export class CashService {
                 }
 
                 if (product) {
-                    await tx.product.update({
-                        where: { id: product.id },
-                        data: { stock: Number(product.stock) - Number(qi.quantity) }
+                    const stockUpdate = await tx.product.updateMany({
+                        where: {
+                            id: product.id,
+                            clubId: input.clubId,
+                            stock: { gte: Number(qi.quantity) }
+                        },
+                        data: { stock: { decrement: Number(qi.quantity) } }
                     });
+                    if (stockUpdate.count !== 1) throw conflict('Stock insuficiente.', ErrorCodes.STOCK_INSUFFICIENT);
                 }
 
                 await this.accountingService.createAccountItemTransaction(tx, {
@@ -968,8 +1443,8 @@ export class CashService {
                     accountId: account.id,
                     accountItemId: item.id,
                     amount: Number(qi.finalTotal || 0),
-                    revenueAccount: 'BAR_REVENUE',
-                    description: `${baseDescription}: ${qi.productName}`,
+                    revenueAccount: this.accountingService.mapRevenueAccount(isService ? 'SERVICE' : 'PRODUCT'),
+                    description: itemDescription,
                     createdByUserId: actorUserId ?? null
                 });
             }
@@ -982,79 +1457,80 @@ export class CashService {
             });
 
             await this.projectionService.refreshAccountSummary(account.id, tx);
-            return { accountId: account.id, total, description: baseDescription, accountItemIds: createdItems.map((i) => i.id) };
-        });
+            const itemTotals = Array.isArray(quote.items)
+                ? quote.items.map((i: any) => Number(i.finalTotal || 0))
+                : [];
+            const itemsGrandTotal = itemTotals.reduce((sum, value) => sum + Number(value || 0), 0);
+            const accountItemIds = createdItems.map((i) => i.id);
+            const accountItemIdByItemKey = new Map<string, string>(
+                accountItemIds.map((accountItemId, index) => [
+                    String(quote.items?.[index]?.itemKey || ''),
+                    String(accountItemId)
+                ])
+            );
+            const buildRoundedProportionalAllocations = (paymentAmount: number) => {
+                if (!Array.isArray(accountItemIds) || accountItemIds.length === 0 || itemsGrandTotal <= 0.009) {
+                    return undefined;
+                }
 
-        const payments = [];
-        const itemTotals = Array.isArray(quote.items)
-            ? quote.items.map((i: any) => Number(i.finalTotal || 0))
-            : [];
-        const itemsGrandTotal = itemTotals.reduce((sum, value) => sum + Number(value || 0), 0);
-        const accountItemIdByItemKey = new Map<string, string>(
-            sale.accountItemIds.map((accountItemId, index) => [
-                String(quote.items?.[index]?.itemKey || ''),
-                String(accountItemId)
-            ])
-        );
-        const buildRoundedProportionalAllocations = (paymentAmount: number) => {
-            if (!Array.isArray(sale.accountItemIds) || sale.accountItemIds.length === 0 || itemsGrandTotal <= 0.009) {
-                return undefined;
+                const roundedPaymentAmount = Number(Number(paymentAmount || 0).toFixed(2));
+                let remainingAmount = roundedPaymentAmount;
+
+                return accountItemIds
+                    .map((accountItemId, index) => {
+                        const isLastItem = index === accountItemIds.length - 1;
+                        const amount = isLastItem
+                            ? remainingAmount
+                            : Number((((roundedPaymentAmount * Number(itemTotals[index] || 0)) / itemsGrandTotal) || 0).toFixed(2));
+                        const safeAmount = Math.max(0, Number(amount.toFixed(2)));
+                        remainingAmount = Number((remainingAmount - safeAmount).toFixed(2));
+
+                        return {
+                            accountItemId: String(accountItemId),
+                            amount: safeAmount
+                        };
+                    })
+                    .filter((allocation) => allocation.amount > 0.009);
+            };
+
+            const payments = [];
+            for (const payment of resolvedPaymentPlan) {
+                const explicitAllocations =
+                    Array.isArray(payment.allocations) && payment.allocations.length > 0
+                        ? payment.allocations.map((allocation) => ({
+                            accountItemId: String(accountItemIdByItemKey.get(String(allocation.itemKey || '')) || ''),
+                            amount: Number(Number(allocation.amount || 0).toFixed(2))
+                        })).filter((allocation) => allocation.accountItemId && allocation.amount > 0.009)
+                        : undefined;
+
+                const created = await this.paymentService.createInTransaction(tx, {
+                    clubId: input.clubId,
+                    accountId: account.id,
+                    amount: payment.amount,
+                    method: payment.method as PaymentMethod,
+                    channel: payment.method === 'TRANSFER' ? payment.channel : undefined,
+                    source: 'POS',
+                    createdByUserId: actorUserId ?? input.userId,
+                    allocations:
+                        explicitAllocations && explicitAllocations.length > 0
+                            ? explicitAllocations
+                            : Array.isArray(accountItemIds) &&
+                              accountItemIds.length > 0 &&
+                              itemsGrandTotal > 0.009
+                            ? buildRoundedProportionalAllocations(payment.amount)
+                            : undefined
+                });
+                payments.push(created);
             }
 
-            const roundedPaymentAmount = Number(Number(paymentAmount || 0).toFixed(2));
-            let remainingAmount = roundedPaymentAmount;
+            return {
+                accountId: account.id,
+                total,
+                description: baseDescription,
+                payments
+            };
+        });
 
-            return sale.accountItemIds
-                .map((accountItemId, index) => {
-                    const isLastItem = index === sale.accountItemIds.length - 1;
-                    const amount = isLastItem
-                        ? remainingAmount
-                        : Number((((roundedPaymentAmount * Number(itemTotals[index] || 0)) / itemsGrandTotal) || 0).toFixed(2));
-                    const safeAmount = Math.max(0, Number(amount.toFixed(2)));
-                    remainingAmount = Number((remainingAmount - safeAmount).toFixed(2));
-
-                    return {
-                        accountItemId: String(accountItemId),
-                        amount: safeAmount
-                    };
-                })
-                .filter((allocation) => allocation.amount > 0.009);
-        };
-
-        for (const payment of resolvedPaymentPlan) {
-            const explicitAllocations =
-                Array.isArray(payment.allocations) && payment.allocations.length > 0
-                    ? payment.allocations.map((allocation) => ({
-                        accountItemId: String(accountItemIdByItemKey.get(String(allocation.itemKey || '')) || ''),
-                        amount: Number(Number(allocation.amount || 0).toFixed(2))
-                    })).filter((allocation) => allocation.accountItemId && allocation.amount > 0.009)
-                    : undefined;
-
-            const created = await this.paymentService.create({
-                clubId: input.clubId,
-                accountId: sale.accountId,
-                amount: payment.amount,
-                method: payment.method as PaymentMethod,
-                channel: payment.method === 'TRANSFER' ? payment.channel : undefined,
-                source: 'POS',
-                createdByUserId: actorUserId ?? input.userId,
-                allocations:
-                    explicitAllocations && explicitAllocations.length > 0
-                        ? explicitAllocations
-                        : Array.isArray(sale.accountItemIds) &&
-                          sale.accountItemIds.length > 0 &&
-                          itemsGrandTotal > 0.009
-                        ? buildRoundedProportionalAllocations(payment.amount)
-                        : undefined
-            });
-            payments.push(created);
-        }
-
-        return {
-            accountId: sale.accountId,
-            total: sale.total,
-            description: sale.description,
-            payments
-        };
+        return sale;
     }
 }

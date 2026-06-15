@@ -8,7 +8,7 @@
 2. **Puede reservar** como cualquier usuario: el front envía `courtId` (cancha del Club B), y el backend crea la reserva en ese club.
 3. **En el backend**:
    - `POST /api/bookings` no filtra por club del usuario: solo exige `courtId` válido y disponibilidad. Cualquier usuario (o invitado) puede reservar en cualquier cancha.
-   - Las rutas **admin** (agenda, confirmar, turnos fijos, etc.) usan `setAdminClubFromUser`: el admin solo ve y gestiona **su** club. Así que el admin del Club A en su panel solo ve Club A; no ve las reservas del Club B.
+   - Las rutas **admin** (agenda, confirmar, turnos fijos, etc.) usan `setAdminClubFromUser`: el admin solo ve y gestióna **su** club. Así que el admin del Club A en su panel solo ve Club A; no ve las reservas del Club B.
 4. **En “Mis Turnos”** (`/bookings`): el usuario ve **todas** sus reservas (por `userId`), en todos los clubes. Si el admin de A reservó en B, esa reserva aparece en su historial.
 5. **En el panel del Club B**: esa reserva aparece en la agenda del día; el admin de B la ve y puede confirmar/cancelar como cualquier otra.
 
@@ -21,7 +21,7 @@ Conclusión: **ya funciona bien**. Un admin puede reservar en otro club como usu
 - **Permitir** que un admin de un club reserve en otro club como cualquier persona.
 - **No restringir** en backend ni front por “ser admin” a la hora de crear una reserva en otra cancha/club.
 - **Mantener** que:
-  - El panel admin solo muestre y gestione el club del usuario (`setAdminClubFromUser`).
+  - El panel admin solo muestre y gestióne el club del usuario (`setAdminClubFromUser`).
   - “Mis Turnos” siga mostrando todas las reservas del usuario en todos los clubes.
 
 Opcional (solo presentación en el otro club):
@@ -36,8 +36,8 @@ Opcional (solo presentación en el otro club):
 |--------|-----------------|
 | Admin de A entra a `/club/b` | Ve la página pública del Club B y la grilla de turnos. |
 | Admin de A reserva en Club B | Se crea la reserva en una cancha del B. Backend no bloquea. |
-| Admin de A en su panel (`/admin/agenda`) | Solo ve y gestiona reservas de **su** club (A). |
+| Admin de A en su panel (`/admin/agenda`) | Solo ve y gestióna reservas de **su** club (A). |
 | Admin de B en su panel | Ve la reserva que hizo el admin de A en B, como cualquier otra. |
 | Admin de A en “Mis Turnos” | Ve esa reserva en B junto con las de A y cualquier otro club. |
 
-No hace falta bloquear ni redirigir; el diseño actual es coherente con “admin = gestiona solo su club; como usuario puede reservar donde quiera”.
+No hace falta bloquear ni redirigir; el diseño actual es coherente con “admin = gestióna solo su club; como usuario puede reservar donde quiera”.

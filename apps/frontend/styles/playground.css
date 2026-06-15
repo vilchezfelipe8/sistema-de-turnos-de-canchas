@@ -1,0 +1,275 @@
+/* Pique compatibility utilities.
+   Tokens live in pique.css; this file only keeps legacy class names working
+   without redefining the design system or reinjecting Tailwind layers. */
+
+/* Hide number-input spinners consistently across browsers. */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+@property --neon-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.text-glow {
+  text-shadow: 0 0 24px var(--accent-bg-muted);
+}
+
+.box-glow {
+  box-shadow: 0 0 34px var(--accent-bg-muted);
+}
+
+.p-brand-ambient {
+  background:
+    radial-gradient(circle at 18% 18%, var(--accent-bg-muted), transparent 34%),
+    radial-gradient(circle at 82% 12%, var(--accent-bg-soft), transparent 32%),
+    linear-gradient(145deg, var(--ink-900) 0%, var(--brand-on) 48%, var(--ink-800) 100%);
+}
+
+.club-times-scrollbar::-webkit-scrollbar,
+.p-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.club-times-scrollbar::-webkit-scrollbar-track,
+.p-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.club-times-scrollbar::-webkit-scrollbar-thumb,
+.p-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--accent-border-strong);
+  border-radius: var(--r-pill);
+}
+
+.nav-pill-button {
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-2);
+  color: var(--ink-50);
+  border-radius: var(--r-pill);
+  padding: 0.55rem 0.9rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+}
+
+.nav-pill-button:hover {
+  background: var(--surface-3);
+  border-color: var(--accent-border-strong);
+  transform: translateY(-1px);
+}
+
+/* Legacy class names kept as compatibility wrappers, now rendered with Pique tokens. */
+.p-legacy-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  padding: 0.55rem 0.9rem;
+  font-weight: 800;
+  box-shadow: var(--shadow-card);
+}
+
+.p-legacy-pill-on-dark {
+  border-color: var(--border-subtle);
+  background: var(--surface-2);
+  color: var(--ink-50);
+  box-shadow: none;
+}
+
+.p-legacy-pill-soft {
+  border-color: var(--accent-border);
+  background: var(--positive-bg);
+  color: var(--positive-fg);
+}
+
+.p-legacy-pill-accent {
+  border-color: var(--accent-border-subtle);
+  background: var(--brand);
+  color: var(--brand-on);
+}
+
+.btn-aurora {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.btn-aurora::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(120deg, transparent, var(--accent-bg-strong), transparent);
+  opacity: 0;
+  transform: translateX(-100%);
+  transition: opacity 0.2s ease, transform 0.55s ease;
+}
+
+.btn-aurora:hover::before {
+  opacity: 1;
+  transform: translateX(100%);
+}
+
+.btn-aurora > span,
+.btn-aurora > svg {
+  position: relative;
+  z-index: 1;
+}
+
+.border-neon {
+  position: relative;
+  isolation: isolate;
+}
+
+.border-neon::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  z-index: -2;
+  border-radius: inherit;
+  background: conic-gradient(from var(--neon-angle), var(--accent-bg-faint), var(--brand), var(--brand-hover), var(--accent-bg-faint));
+  opacity: 0.55;
+  animation: neon-spin 7s linear infinite;
+}
+
+.border-neon::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: inherit;
+}
+
+.border-neon-subtle::before { opacity: 0.28; }
+.border-neon-fast::before { animation-duration: 4.2s; }
+.border-neon-slow::before { animation-duration: 10s; }
+.border-neon-strong::before { opacity: 0.85; }
+.border-neon-search::before { filter: drop-shadow(0 0 18px var(--accent-bg-muted)); }
+
+.card-gradient-edge {
+  position: relative;
+  isolation: isolate;
+}
+
+.card-gradient-edge::after {
+  content: '';
+  position: absolute;
+  inset: auto 18px 0 18px;
+  height: 2px;
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg, transparent, var(--brand), transparent);
+  opacity: 0.55;
+  transition: opacity 0.18s ease;
+}
+
+.card-gradient-edge:hover::after { opacity: 0.95; }
+
+.float-slow { animation: float-soft 8s ease-in-out infinite; }
+.float-medium { animation: float-soft 6.4s ease-in-out infinite; }
+.float-delay { animation-delay: -2.2s; }
+.icon-pop { filter: drop-shadow(0 0 10px var(--accent-bg-muted)); }
+.hover-lift { transition: transform 0.18s ease, box-shadow 0.18s ease; }
+.hover-lift:hover { transform: translateY(-2px); }
+.mouse-flyer { transform-style: preserve-3d; }
+.interactive-tilt { transition: transform 0.24s ease, box-shadow 0.24s ease; }
+.interactive-tilt:hover { transform: translateY(-3px) rotateX(0.6deg); }
+
+.pill-marquee-lane {
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, black 12%, black 88%, transparent);
+}
+
+.pill-marquee-track {
+  display: flex;
+  width: max-content;
+  gap: 0.65rem;
+  animation: pill-marquee 28s linear infinite;
+}
+
+.pill-marquee-track.reverse {
+  animation-direction: reverse;
+}
+
+.pill-marquee-chip {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-2);
+  color: var(--ink-50);
+  padding: 0.5rem 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.payment-carousel-track {
+  display: flex;
+  width: max-content;
+  gap: 0.85rem;
+  animation: payment-carousel 30s linear infinite;
+}
+
+.payment-card {
+  display: inline-flex;
+  min-width: 155px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-xl);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-2);
+  color: var(--ink-50);
+  padding: 1rem;
+  font-weight: 800;
+}
+
+@keyframes neon-spin {
+  to { --neon-angle: 360deg; }
+}
+
+@keyframes float-soft {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes pill-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+@keyframes payment-carousel {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .float-slow,
+  .float-medium,
+  .pill-marquee-track,
+  .payment-carousel-track,
+  .border-neon::before {
+    animation: none !important;
+  }
+
+  .hover-lift:hover,
+  .interactive-tilt:hover,
+  .nav-pill-button:hover {
+    transform: none;
+  }
+}

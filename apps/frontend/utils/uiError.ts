@@ -27,9 +27,18 @@ export const reportUiError = (context: UiErrorContext, error: unknown) => {
   const message = extractErrorMessage(error, context.fallbackMessage);
 
   if (process.env.NODE_ENV !== 'production') {
-    console.error(`[${context.area}] ${context.action}: ${message}`, error);
+    const details =
+      error instanceof Error
+        ? {
+            name: error.name,
+            message: error.message,
+            stack: error.stack,
+          }
+        : error && typeof error === 'object'
+          ? { ...error }
+          : error;
+    console.error(`[${context.area}] ${context.action}: ${message}`, details);
   }
 
   return message;
 };
-

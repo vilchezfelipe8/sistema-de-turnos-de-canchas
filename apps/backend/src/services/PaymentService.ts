@@ -1,5 +1,6 @@
 import { CashMovementMethod, PaymentChannel, PaymentMethod, PaymentSource, Prisma } from '@prisma/client';
 import { prisma, prismaRead } from '../prisma';
+import { badRequest, notFound, conflict, ErrorCodes } from '../errors';
 import { AccountingService } from './AccountingService';
 import { EventService } from './EventService';
 import { OUTBOX_TYPES, OutboxService } from './OutboxService';
@@ -8,6 +9,8 @@ import { metricsService } from './MetricsService';
 import { BookingDomainService } from './BookingDomainService';
 import { AccountService } from './AccountService';
 import { generateDisplayCode } from '../utils/displayCode';
+import { BookingHistoryService } from './BookingHistoryService';
+import { getDerivedPaymentStatus } from '../domain/bookingDomain';
 
 const EPSILON = 0.009;
 
@@ -32,6 +35,10 @@ type CreatePaymentInput = {
   externalReference?: string;
   source?: PaymentSource;
   cashShiftId?: string;
+  payerParticipantRef?: string;
+  payerParticipantName?: string;
+  coveredParticipantRef?: string;
+  coveredParticipantName?: string;
   createdByUserId?: number;
   idempotencyKey?: string;
   allocations?: Array<{
@@ -47,6 +54,7 @@ export class PaymentService {
   private readonly projectionService = new ProjectionService();
   private readonly bookingDomainService = new BookingDomainService();
   private readonly accountService = new AccountService();
+  private readonly bookingHistoryService = new BookingHistoryService();
 
   private roundMoney(value: number) {
     return Number((Number(value || 0)).toFixed(2));
@@ -64,16 +72,76 @@ export class PaymentService {
     if (method === 'TRANSFER') {
       if (channel === 'VIRTUAL_WALLET') return 'VIRTUAL_WALLET';
       if (channel === 'BANK_ACCOUNT') return 'BANK_ACCOUNT';
-      throw new Error('El canal es obligatorio para pagos por transferencia');
+      throw badRequest('El canal es obligatorio para pagos por transferencia.', ErrorCodes.PAYMENT_METHOD_INVALID);
     }
     if (channel && channel !== 'AUTO') return channel;
     return 'OTHER';
   }
 
-  private buildDomainError(message: string, code: string) {
-    const error = new Error(message) as Error & { code?: string };
-    error.code = code;
-    return error;
+  private resolveBookingOwnerRef(booking: { clientId?: string | null; userId?: number | null }) {
+    const clientId = String(booking.clientId || '').trim();
+    if (clientId) return `booking-client:${clientId}`;
+    const userId = Number(booking.userId || 0);
+    if (Number.isFinite(userId) && userId > 0) return `booking-user:${userId}`;
+    return 'guest:booking-responsible';
+  }
+
+  private resolveBookingOwnerName(booking: {
+    client?: { name?: string | null } | null;
+    user?: { firstName?: string | null; lastName?: string | null } | null;
+  }) {
+    const clientName = this.normalizeText(booking.client?.name, 120);
+    if (clientName) return clientName;
+
+    const fullName = `${String(booking.user?.firstName || '').trim()} ${String(booking.user?.lastName || '').trim()}`.trim();
+    const userName = this.normalizeText(fullName, 120);
+    if (userName) return userName;
+
+    return null;
+  }
+
+  private async syncClassEnrollmentFinancialStateTx(
+    tx: Prisma.TransactionClient,
+    params: {
+      clubId: number;
+      enrollmentId: string;
+      total: number;
+      netPaid: number;
+    }
+  ) {
+    const enrollment = await tx.classEnrollment.findFirst({
+      where: {
+        id: params.enrollmentId,
+        clubId: params.clubId,
+      },
+      select: {
+        id: true,
+        paymentStatus: true,
+      }
+    });
+
+    if (!enrollment) {
+      throw notFound(
+        'La inscripción asociada a la cuenta no existe.',
+        ErrorCodes.CLASS_ENROLLMENT_NOT_FOUND
+      );
+    }
+
+    if (String(enrollment.paymentStatus) === 'COVERED_BY_CREDIT') {
+      throw conflict(
+        'La inscripción ya está cubierta por crédito y no admite sincronización de cobro.',
+        ErrorCodes.CLASS_ENROLLMENT_INVALID_STATUS
+      );
+    }
+
+    const nextPaymentStatus = getDerivedPaymentStatus(params.total, params.netPaid);
+    await tx.classEnrollment.update({
+      where: { id: params.enrollmentId },
+      data: {
+        paymentStatus: nextPaymentStatus,
+        paidAmount: new Prisma.Decimal(this.roundMoney(params.netPaid)),
+      }
+    });
   }
 
   private async getAllocatedByItemTx(
@@ -121,12 +189,12 @@ export class PaymentService {
 
       const resolved = Array.from(merged.entries()).map(([accountItemId, amount]) => ({ accountItemId, amount }));
       if (resolved.length === 0) {
-        throw new Error('Asignaciones de pago inválidas');
+        throw badRequest('Asignaciones de pago inválidas.', ErrorCodes.INVALID_INPUT);
       }
 
       const totalRequested = this.roundMoney(resolved.reduce((sum, allocation) => sum + allocation.amount, 0));
       if (Math.abs(totalRequested - paymentAmount) > EPSILON) {
-        throw new Error('La suma de asignaciones debe coincidir con el monto del pago');
+        throw badRequest('La suma de asignaciones debe coincidir con el monto del pago.', ErrorCodes.INVALID_INPUT);
       }
 
       const requestedIds = resolved.map((allocation) => allocation.accountItemId);
@@ -142,7 +210,7 @@ export class PaymentService {
       });
 
       if (items.length !== requestedIds.length) {
-        throw new Error('Hay asignaciones a items que no pertenecen a la cuenta');
+        throw badRequest('Hay asignaciones a ítems que no pertenecen a la cuenta.', ErrorCodes.INVALID_INPUT);
       }
 
       const allocatedByItem = await this.getAllocatedByItemTx(tx, params.accountId, requestedIds);
@@ -153,7 +221,7 @@ export class PaymentService {
         const itemTotal = itemTotals.get(allocation.accountItemId) || 0;
         const remaining = this.roundMoney(Math.max(0, itemTotal - currentAllocated));
         if (allocation.amount > remaining + EPSILON) {
-          throw new Error('Una asignación supera el saldo pendiente del item');
+          throw conflict('Una asignación supera el saldo pendiente del ítem.', ErrorCodes.PAYMENT_OVERPAY);
         }
       }
 
@@ -167,7 +235,7 @@ export class PaymentService {
     });
 
     if (items.length === 0) {
-      throw new Error('No se puede registrar pago: la cuenta no tiene items para asignar');
+      throw conflict('No se puede registrar pago: la cuenta no tiene ítems para asignar.', ErrorCodes.INVALID_INPUT);
     }
 
     const itemIds = items.map((item) => item.id);
@@ -190,12 +258,12 @@ export class PaymentService {
     }
 
     if (remainingToAssign > EPSILON) {
-      throw new Error('No se puede registrar el pago: el monto excede el saldo pendiente de los items de la cuenta');
+      throw conflict('El monto excede el saldo pendiente de los ítems de la cuenta.', ErrorCodes.PAYMENT_OVERPAY);
     }
 
     const generatedTotal = this.roundMoney(generated.reduce((sum, entry) => sum + entry.amount, 0));
     if (Math.abs(generatedTotal - paymentAmount) > EPSILON) {
-      throw new Error('No se pudo asignar correctamente el pago a los items');
+      throw conflict('No se pudo asignar correctamente el pago a los ítems.', ErrorCodes.INVALID_INPUT);
     }
 
     return generated;
@@ -231,14 +299,32 @@ export class PaymentService {
 
   async create(input: CreatePaymentInput) {
     if (!Number.isFinite(input.amount) || input.amount <= 0) {
-      throw new Error('El monto debe ser mayor a 0');
+      throw badRequest('El monto debe ser mayor a 0.', ErrorCodes.PAYMENT_INVALID_AMOUNT);
     }
 
-    return prisma.$transaction(async (tx) => {
+    return prisma.$transaction((tx) => this.createTx(tx, input));
+  }
+
+  async createInTransaction(tx: Prisma.TransactionClient, input: CreatePaymentInput) {
+    if (!Number.isFinite(input.amount) || input.amount <= 0) {
+      throw badRequest('El monto debe ser mayor a 0.', ErrorCodes.PAYMENT_INVALID_AMOUNT);
+    }
+    return this.createTx(tx, input);
+  }
+
+  private async createTx(tx: Prisma.TransactionClient, input: CreatePaymentInput) {
       const source = input.source ?? 'POS';
       const channel = this.resolvePaymentChannel(input.method, input.channel);
       const collectorAccountLabel = this.normalizeText(input.collectorAccountLabel, 120);
       const externalReference = this.normalizeText(input.externalReference, 120);
+      const payerParticipantRefRaw = this.normalizeText(input.payerParticipantRef, 191);
+      const payerParticipantNameRaw = this.normalizeText(input.payerParticipantName, 120);
+      const coveredParticipantRefRaw = this.normalizeText(input.coveredParticipantRef, 191);
+      const coveredParticipantNameRaw = this.normalizeText(input.coveredParticipantName, 120);
+      let payerParticipantRef = payerParticipantRefRaw;
+      let payerParticipantName = payerParticipantNameRaw;
+      let coveredParticipantRef = coveredParticipantRefRaw;
+      let coveredParticipantName = coveredParticipantNameRaw;
       const scopedIdempotencyKey = input.idempotencyKey
         ? `payment:${input.accountId}:${input.idempotencyKey.trim()}`
         : undefined;
@@ -271,7 +357,7 @@ export class PaymentService {
           `;
 
       if (lockedAccounts.length === 0) {
-        throw new Error('Cuenta no encontrada');
+        throw notFound('Cuenta no encontrada.', ErrorCodes.ACCOUNT_NOT_FOUND);
       }
 
       const account = await tx.account.findUnique({
@@ -280,19 +366,25 @@ export class PaymentService {
         },
         include: { payments: true, items: true }
       });
-      if (!account) throw new Error('Cuenta no encontrada');
-      if (input.clubId && account.clubId !== input.clubId) {
-        throw new Error('Cuenta no encontrada');
+      if (!account || (input.clubId && account.clubId !== input.clubId)) {
+        throw notFound('Cuenta no encontrada.', ErrorCodes.ACCOUNT_NOT_FOUND);
       }
-      if (account.status !== 'OPEN') throw new Error('Solo se pueden registrar pagos en cuentas abiertas');
+      if (account.status !== 'OPEN') throw conflict('Solo se pueden registrar pagos en cuentas abiertas.', ErrorCodes.ACCOUNT_CLOSED);
 
       if (account.sourceType === 'BOOKING') {
         const booking = await tx.booking.findUnique({
           where: { id: Number(account.sourceId) },
-          select: { id: true, status: true }
+          select: {
+            id: true,
+            status: true,
+            clientId: true,
+            userId: true,
+            client: { select: { name: true } },
+            user: { select: { firstName: true, lastName: true } }
+          }
         });
-        if (!booking) throw new Error('La reserva asociada a la cuenta no existe');
-        if (booking.status === 'CANCELLED') throw new Error('No se pueden registrar pagos sobre una reserva cancelada');
+        if (!booking) throw notFound('La reserva asociada a la cuenta no existe.', ErrorCodes.BOOKING_NOT_FOUND);
+        if (booking.status === 'CANCELLED') throw conflict('No se pueden registrar pagos sobre una reserva cancelada.', ErrorCodes.BOOKING_INVALID_STATUS);
         if (booking.status === 'PENDING') {
           const clubSettings = await tx.clubSettings.findUnique({
             where: { clubId: account.clubId },
@@ -300,12 +392,27 @@ export class PaymentService {
           });
           const confirmationMode = String(clubSettings?.bookingConfirmationMode || 'MANUAL');
           if (confirmationMode === 'MANUAL') {
-            throw this.buildDomainError(
+            throw conflict(
               'No se puede registrar un pago sobre una reserva pendiente en modo MANUAL. Primero debe confirmarse.',
-              'BOOKING_PENDING_MANUAL_PAYMENT_FORBIDDEN'
+              ErrorCodes.BOOKING_PENDING_MANUAL_PAYMENT_FORBIDDEN
             );
           }
         }
+
+        const bookingOwnerRef = this.resolveBookingOwnerRef({
+          clientId: booking.clientId,
+          userId: booking.userId
+        });
+        const bookingOwnerName = this.resolveBookingOwnerName({
+          client: booking.client,
+          user: booking.user
+        });
+
+        // Regla transversal: si no viene participante explícito, imputar al titular.
+        if (!payerParticipantRef) payerParticipantRef = bookingOwnerRef;
+        if (!coveredParticipantRef) coveredParticipantRef = bookingOwnerRef;
+        if (!payerParticipantName) payerParticipantName = bookingOwnerName;
+        if (!coveredParticipantName) coveredParticipantName = bookingOwnerName;
       }
 
       const accountTotal = Number(account.totalAmount || 0);
@@ -313,7 +420,7 @@ export class PaymentService {
       const remaining = Math.max(0, accountTotal - paidTotal);
 
       if (input.amount > remaining + EPSILON) {
-        throw new Error('El pago supera el saldo pendiente de la cuenta');
+        throw conflict('El pago supera el saldo pendiente de la cuenta.', ErrorCodes.PAYMENT_OVERPAY);
       }
 
       let resolvedCashShiftId: string | null = null;
@@ -327,7 +434,7 @@ export class PaymentService {
             }
           });
           if (!providedShift) {
-            throw new Error('El turno de caja indicado no está abierto o no pertenece al club');
+            throw notFound('El turno de caja indicado no está abierto o no pertenece al club.', ErrorCodes.CASH_SHIFT_NOT_FOUND);
           }
           resolvedCashShiftId = providedShift.id;
         } else {
@@ -338,13 +445,13 @@ export class PaymentService {
             },
             orderBy: { openedAt: 'desc' }
           });
-          if (!openShift) throw new Error('No hay turno de caja abierto para pagos POS');
+          if (!openShift) throw conflict('No hay turno de caja abierto para pagos POS.', ErrorCodes.NO_ACTIVE_CASH_SHIFT);
           resolvedCashShiftId = openShift.id;
         }
       }
 
       if (source === 'ONLINE' && input.cashShiftId) {
-        throw new Error('Los pagos ONLINE no pueden asociarse a un turno de caja');
+        throw badRequest('Los pagos ONLINE no pueden asociarse a un turno de caja.', ErrorCodes.INVALID_INPUT);
       }
 
       const payment = await tx.payment.create({
@@ -355,6 +462,10 @@ export class PaymentService {
           channel,
           collectorAccountLabel,
           externalReference,
+          payerParticipantRef,
+          payerParticipantName,
+          coveredParticipantRef,
+          coveredParticipantName,
           source,
           accountId: input.accountId,
           cashShiftId: source === 'POS' ? resolvedCashShiftId : null,
@@ -393,7 +504,16 @@ export class PaymentService {
         createdByUserId: input.createdByUserId ?? null
       });
 
-      await this.accountService.reconcilePaidAmountTx(tx, account.id, { updateStatus: true });
+      const accountBalance = await this.accountService.reconcilePaidAmountTx(tx, account.id, { updateStatus: true });
+
+      if (account.sourceType === 'CLASS_ENROLLMENT') {
+        await this.syncClassEnrollmentFinancialStateTx(tx, {
+          clubId: account.clubId,
+          enrollmentId: String(account.sourceId),
+          total: accountBalance.total,
+          netPaid: accountBalance.netPaid,
+        });
+      }
 
       if (source === 'POS' && resolvedCashShiftId) {
         const movementMethod: CashMovementMethod =
@@ -421,12 +541,49 @@ export class PaymentService {
       await this.eventService.paymentReceived(account.clubId, {
         paymentId: payment.id,
         accountId: account.id,
+        bookingId: account.sourceType === 'BOOKING' ? Number(account.sourceId) : null,
         userId: input.createdByUserId ?? null,
         amount: input.amount,
         method: input.method,
         channel,
-        source
+        source,
+        payerParticipantRef,
+        payerParticipantName,
+        coveredParticipantRef,
+        coveredParticipantName
       }, tx);
+
+      if (account.sourceType === 'BOOKING') {
+        await this.bookingHistoryService.appendBookingHistoryEntryTx(tx, {
+          bookingId: Number(account.sourceId),
+          clubId: account.clubId,
+          action: 'PAYMENT_RECEIVED',
+          category: 'PAYMENT',
+          source: source === 'ONLINE' ? 'PAYMENT_ONLINE' : 'PAYMENT_POS',
+          summary: 'Pago recibido',
+          actorUserId: input.createdByUserId ?? null,
+          paymentId: payment.id,
+          accountId: account.id,
+          detail: {
+            amount: input.amount,
+            method: input.method,
+            channel,
+            source,
+            payerParticipantRef,
+            payerParticipantName,
+            coveredParticipantRef,
+            coveredParticipantName,
+          },
+          nextState: {
+            amount: input.amount,
+            method: input.method,
+            channel,
+            source,
+          },
+          idempotencyKey: `payment-history:${payment.id}`,
+          occurredAt: payment.createdAt,
+        });
+      }
 
       let notificationUserId: number | null = null;
       if (account.sourceType === 'BOOKING') {
@@ -467,6 +624,5 @@ export class PaymentService {
       });
 
       return createdPayment || payment;
-    });
   }
 }

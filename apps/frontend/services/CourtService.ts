@@ -12,7 +12,7 @@ export const getCourts = async () => {
 export const createCourt = async (name: string, sport: string) => {
     void name;
     void sport;
-    throw new Error('La creacion de canchas esta deshabilitada en esta version.');
+    throw new Error('La creación de canchas está deshabilitada en esta versión.');
 };
 
 export const suspendCourt = async (courtId: number) => {

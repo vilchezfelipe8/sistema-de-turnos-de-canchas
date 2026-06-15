@@ -1,6 +1,22 @@
 import { prisma } from '../prisma';
+import { TimeHelper } from '../utils/TimeHelper';
 
 export class ClientDebtService {
+  private formatBookingLocalDateTime(date: Date, timeZone?: string | null) {
+    const resolvedTimeZone = String(timeZone || '').trim() || 'America/Argentina/Buenos_Aires';
+    const local = TimeHelper.utcToLocal(date, resolvedTimeZone);
+    const year = local.getFullYear();
+    const month = String(local.getMonth() + 1).padStart(2, '0');
+    const day = String(local.getDate()).padStart(2, '0');
+    const hours = String(local.getHours()).padStart(2, '0');
+    const minutes = String(local.getMinutes()).padStart(2, '0');
+
+    return {
+      date: `${year}-${month}-${day}`,
+      time: `${hours}:${minutes}`
+    };
+  }
+
   async listByClub(
     clubId: number,
     options?: {
@@ -8,10 +24,23 @@ export class ClientDebtService {
     }
   ) {
     const scope = options?.scope === 'debt_open' ? 'debt_open' : 'all';
+    const club = await prisma.club.findUnique({
+      where: { id: clubId },
+      select: { settings: { select: { timeZone: true } } }
+    });
+    const clubTimeZone = String(club?.settings?.timeZone || '').trim() || 'America/Argentina/Buenos_Aires';
     const clients = await prisma.client.findMany({
       where: { clubId },
       orderBy: { createdAt: 'desc' },
       include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        },
         _count: {
           select: {
             bookings: true
@@ -80,6 +109,15 @@ export class ClientDebtService {
             clientId: true,
             startDateTime: true,
             status: true,
+            club: {
+              select: {
+                settings: {
+                  select: {
+                    timeZone: true
+                  }
+                }
+              }
+            },
             court: {
               select: {
                 name: true
@@ -101,6 +139,15 @@ export class ClientDebtService {
             status: true,
             listPrice: true,
             price: true,
+            club: {
+              select: {
+                settings: {
+                  select: {
+                    timeZone: true
+                  }
+                }
+              }
+            },
             court: {
               select: {
                 name: true
@@ -171,9 +218,10 @@ export class ClientDebtService {
       const remaining = Math.max(0, Number((total - paid).toFixed(2)));
       const paymentStatus = remaining <= 0.009 ? 'PAID' : paid > 0 ? 'PARTIAL' : 'DEBT';
 
-      const dt = new Date(booking.startDateTime);
-      const hh = String(dt.getHours()).padStart(2, '0');
-      const mm = String(dt.getMinutes()).padStart(2, '0');
+      const localDateTime = this.formatBookingLocalDateTime(
+        booking.startDateTime,
+        booking.club?.settings?.timeZone
+      );
 
       const existing = accountsByClient.get(clientId) || [];
       existing.push({
@@ -181,8 +229,8 @@ export class ClientDebtService {
         sourceType: 'BOOKING',
         sourceId: account.sourceId,
         accountStatus: account.status,
-        date: dt.toISOString().slice(0, 10),
-        time: `${hh}:${mm}`,
+        date: localDateTime.date,
+        time: localDateTime.time,
         createdAt: account.createdAt,
         bookingId: booking.id,
         bookingStatus: booking.status,
@@ -228,16 +276,17 @@ export class ClientDebtService {
       });
       bookingsByClient.set(clientId, existing);
 
-      const dt = new Date(booking.startDateTime);
-      const hh = String(dt.getHours()).padStart(2, '0');
-      const mm = String(dt.getMinutes()).padStart(2, '0');
+      const localDateTime = this.formatBookingLocalDateTime(
+        booking.startDateTime,
+        booking.club?.settings?.timeZone
+      );
       const detailRows = detailedBookingsByClient.get(clientId) || [];
       detailRows.push({
         id: booking.id,
         bookingId: booking.id,
         startDateTime: booking.startDateTime.toISOString(),
-        date: dt.toISOString().slice(0, 10),
-        time: `${hh}:${mm}`,
+        date: localDateTime.date,
+        time: localDateTime.time,
         status: String(booking.status || ''),
         courtName: booking.court?.name ?? null,
         listPrice: Number(booking.listPrice || 0),
@@ -286,12 +335,21 @@ export class ClientDebtService {
         id: client.id,
         firstName: client.name,
         lastName: '',
+        userId: client.userId || null,
+        linkedUser: client.user
+          ? {
+              id: client.user.id,
+              name: `${String(client.user.firstName || '').trim()} ${String(client.user.lastName || '').trim()}`.trim() || String(client.user.email || '').trim() || `Usuario ${client.user.id}`,
+              email: client.user.email || null
+            }
+          : null,
         dni: client.dni || null,
         email: client.email,
         phoneNumber: client.phone,
         isProfessor: Boolean((client as any).isProfessor),
         totalBookings: client._count.bookings,
         totalDebt,
+        clubTimeZone,
         hasOpenAccount,
         lastBookingAt: timeline.lastBookingAt,
         nextBookingAt: timeline.nextBookingAt

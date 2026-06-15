@@ -1,0 +1,985 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=1280" />
+<title>Pique · Design System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink-900:#0E1116; --ink-800:#1B1F26; --ink-700:#2A2F38; --ink-600:#41464F;
+  --ink-500:#6F6A60; --ink-400:#9A9388; --ink-300:#BEBCB2; --ink-200:#DBD9D1;
+  --ink-100:#ECEBE5; --ink-50:#F5F4F0; --paper:#F5F4F0; --white:#FFFFFF;
+  --lima-900:#1F3A0E; --lima-700:#3F6E1A; --lima-500:#5C8E1A; --lima-400:#8AC23B;
+  --lima-300:#B6F36A; --lima-200:#D6F8A6; --lima-100:#E7FBC5; --lima-50:#F0FBDD;
+  --signal-info:#2747FF; --signal-warn:#E08A1F; --signal-error:#D63B3B;
+  --r-sm:6px; --r-md:10px; --r-lg:14px; --r-xl:20px; --r-2xl:28px; --r-pill:999px;
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --s-6:32px; --s-7:48px; --s-8:64px;
+  --shadow-1:0 1px 2px rgba(14,17,22,.05);
+  --shadow-2:0 6px 16px -8px rgba(14,17,22,.12);
+  --shadow-3:0 24px 48px -24px rgba(14,17,22,.22);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--paper);color:var(--ink-900);font-family:'Geist',sans-serif;-webkit-font-smoothing:antialiased;font-size:15px;line-height:1.5}
+.mono{font-family:'Geist Mono',monospace;letter-spacing:.02em}
+.label{font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-400)}
+a{color:inherit}
+
+/* layout */
+.topbar{position:sticky;top:0;z-index:50;display:flex;justify-content:space-between;align-items:center;padding:18px 56px;border-bottom:1px solid var(--ink-200);background:rgba(246,244,238,.85);backdrop-filter:blur(10px)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;letter-spacing:-.01em}
+.tb-nav{display:flex;gap:24px;font-size:13px;color:var(--ink-500)}
+.tb-nav a{text-decoration:none}
+.tb-nav a:hover{color:var(--ink-900)}
+.page{max-width:1280px;margin:0 auto;padding:56px}
+section{border-bottom:1px solid var(--ink-200);padding:80px 0}
+section:last-of-type{border-bottom:none}
+h1,h2,h3,h4{margin:0;letter-spacing:-.025em}
+.section-head{display:grid;grid-template-columns:220px 1fr;gap:48px;margin-bottom:40px;align-items:start}
+.section-head h2{font-size:44px;font-weight:600;line-height:1.05;letter-spacing:-.035em}
+.section-head p{margin:14px 0 0;font-size:16px;color:var(--ink-600);max-width:640px;line-height:1.55}
+.section-head .label{padding-top:8px}
+hr{border:0;border-top:1px solid var(--ink-200);margin:0}
+
+/* hero */
+.hero{padding:120px 0 64px}
+.hero h1{font-size:104px;line-height:.95;font-weight:600;letter-spacing:-.045em}
+.hero h1 em{font-style:normal;color:var(--ink-500)}
+.hero p{font-size:19px;color:var(--ink-600);max-width:640px;margin:24px 0 0;line-height:1.5}
+.hero-meta{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-top:1px solid var(--ink-200);margin-top:64px;padding-top:24px}
+.hero-meta div{padding-right:24px}
+.hero-meta strong{font-weight:500;font-size:15px;color:var(--ink-900);display:block;margin-top:6px}
+
+/* color system */
+.color-grid{display:grid;grid-template-columns:repeat(10,1fr);gap:0;border:1px solid var(--ink-200);border-radius:16px;overflow:hidden;margin-bottom:32px}
+.swatch{padding:18px 14px;min-height:140px;display:flex;flex-direction:column;justify-content:space-between;border-right:1px solid rgba(0,0,0,.06)}
+.swatch:last-child{border-right:none}
+.swatch .step{font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.08em;opacity:.7}
+.swatch .hex{font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.04em;font-weight:500}
+.color-row-title{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:10px}
+.color-row-title h4{font-size:18px;font-weight:600}
+.color-row-title span{font-size:13px;color:var(--ink-500)}
+
+/* typography */
+.type-table{display:grid;grid-template-columns:200px 90px 90px 90px 1fr;gap:0;border:1px solid var(--ink-200);border-radius:16px;overflow:hidden;background:#fff}
+.type-table > div{padding:18px 22px;border-bottom:1px solid var(--ink-200);border-right:1px solid var(--ink-200);font-size:13px;color:var(--ink-600);display:flex;align-items:center}
+.type-table .row-h{background:var(--ink-50);color:var(--ink-500)}
+.type-table > div:nth-child(5n){border-right:none}
+.type-table .specimen{color:var(--ink-900);font-weight:500}
+.type-table > div:nth-last-child(-n+5){border-bottom:none}
+
+/* spacing/radius */
+.sp-row{display:flex;gap:24px;align-items:flex-end;flex-wrap:wrap}
+.sp-cell{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.sp-cell .bar{background:var(--lima-300);border-radius:2px;height:24px}
+.sp-cell .meta{font-size:12px;color:var(--ink-500)}
+.sp-cell .meta b{color:var(--ink-900);font-family:'Geist Mono',monospace;font-weight:500}
+
+.r-row{display:flex;gap:18px;flex-wrap:wrap}
+.r-cell{width:104px;display:flex;flex-direction:column;align-items:center;gap:8px}
+.r-cell .box{width:80px;height:80px;background:var(--ink-900);position:relative}
+.r-cell .meta{font-size:12px;color:var(--ink-500);text-align:center}
+.r-cell .meta b{display:block;font-family:'Geist Mono',monospace;color:var(--ink-900);font-weight:500;font-size:13px}
+
+/* components */
+.comp-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:24px}
+.comp{background:#fff;border:1px solid var(--ink-200);border-radius:18px;overflow:hidden}
+.comp .head{padding:14px 20px;border-bottom:1px solid var(--ink-200);display:flex;justify-content:space-between;align-items:center}
+.comp .head h4{font-size:15px;font-weight:600}
+.comp .head .label{font-size:10px}
+.comp .body{padding:32px;background:var(--ink-50);min-height:160px;display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+.comp .body.col{flex-direction:column;align-items:flex-start}
+.comp .body.center{justify-content:center}
+
+/* button styles (system) */
+.btn{display:inline-flex;align-items:center;gap:8px;font-family:inherit;font-weight:500;font-size:14px;border-radius:var(--r-pill);padding:10px 18px;cursor:pointer;border:1px solid transparent;transition:all .15s;letter-spacing:-.005em}
+.btn-primary{background:var(--ink-900);color:var(--lima-300)}
+.btn-primary:hover{background:var(--ink-800)}
+.btn-accent{background:var(--lima-300);color:var(--lima-900)}
+.btn-accent:hover{background:var(--lima-200)}
+.btn-secondary{background:#fff;color:var(--ink-900);border-color:var(--ink-200)}
+.btn-secondary:hover{border-color:var(--ink-400)}
+.btn-ghost{background:transparent;color:var(--ink-700)}
+.btn-ghost:hover{background:var(--ink-100)}
+.btn-danger{background:var(--signal-error);color:#fff}
+.btn-sm{padding:6px 12px;font-size:13px}
+.btn-lg{padding:14px 22px;font-size:15px}
+
+/* badge */
+.badge{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:var(--r-pill);font-size:12px;font-weight:500;line-height:1}
+.badge .dot{width:6px;height:6px;border-radius:50%}
+.badge-positive{background:var(--lima-50);color:var(--lima-900)}
+.badge-positive .dot{background:var(--lima-500)}
+.badge-neutral{background:var(--ink-100);color:var(--ink-700)}
+.badge-neutral .dot{background:var(--ink-500)}
+.badge-warn{background:#FFF1D9;color:#7A4708}
+.badge-warn .dot{background:var(--signal-warn)}
+.badge-error{background:#FBE2E2;color:#7A1B1B}
+.badge-error .dot{background:var(--signal-error)}
+.badge-solid{background:var(--ink-900);color:var(--lima-300)}
+.badge-solid .dot{background:var(--lima-300)}
+
+/* input */
+.input{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--ink-200);border-radius:var(--r-md);padding:10px 14px;font-size:14px;width:280px}
+.input:focus-within{border-color:var(--ink-900);box-shadow:0 0 0 3px rgba(14,17,22,.08)}
+.input input{border:none;outline:none;flex:1;font-family:inherit;font-size:14px;background:transparent;color:var(--ink-900)}
+.input .label-i{font-size:12px;color:var(--ink-400);font-family:'Geist Mono',monospace;letter-spacing:.06em;text-transform:uppercase}
+.input-group{display:flex;flex-direction:column;gap:6px}
+.input-group .lab{font-size:12px;color:var(--ink-500);font-weight:500}
+
+/* card */
+.card{background:#fff;border:1px solid var(--ink-200);border-radius:var(--r-xl);padding:24px;box-shadow:var(--shadow-1)}
+.card h5{margin:0 0 6px;font-size:15px;font-weight:600}
+.card p{margin:0;color:var(--ink-500);font-size:13px;line-height:1.5}
+
+/* avatar */
+.avatar{width:36px;height:36px;border-radius:50%;background:var(--lima-300);color:var(--lima-900);display:inline-flex;align-items:center;justify-content:center;font-weight:600;font-size:13px}
+
+/* status pill grid */
+.pills{display:flex;flex-wrap:wrap;gap:8px}
+
+/* tabs */
+.tabs{display:inline-flex;background:var(--ink-100);border-radius:var(--r-pill);padding:4px;gap:4px}
+.tabs button{font-family:inherit;font-size:13px;font-weight:500;padding:7px 14px;border-radius:var(--r-pill);border:none;background:transparent;color:var(--ink-600);cursor:pointer}
+.tabs button.active{background:#fff;color:var(--ink-900);box-shadow:var(--shadow-1)}
+
+/* nav side */
+.sidenav{width:200px;background:var(--ink-50);border:1px solid var(--ink-200);border-radius:var(--r-lg);padding:14px;display:flex;flex-direction:column;gap:4px}
+.sidenav .item{padding:8px 10px;border-radius:var(--r-md);font-size:13px;color:var(--ink-600);display:flex;align-items:center;gap:10px;cursor:pointer}
+.sidenav .item.active{background:#fff;color:var(--ink-900);font-weight:500;box-shadow:var(--shadow-1)}
+.sidenav .item .ico{width:14px;height:14px;border-radius:3px;background:var(--ink-300)}
+.sidenav .item.active .ico{background:var(--lima-300)}
+
+/* table */
+.tbl{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--ink-200);border-radius:var(--r-lg);overflow:hidden}
+.tbl th,.tbl td{text-align:left;padding:12px 16px;font-size:13px;border-bottom:1px solid var(--ink-100)}
+.tbl th{background:var(--ink-50);color:var(--ink-500);font-weight:500;font-size:12px;letter-spacing:.04em}
+.tbl tr:last-child td{border-bottom:none}
+
+/* metric */
+.metric{background:#fff;border:1px solid var(--ink-200);border-radius:var(--r-lg);padding:18px 20px;display:flex;flex-direction:column;gap:6px}
+.metric .lab{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-400);font-family:'Geist Mono',monospace}
+.metric .val{font-size:28px;font-weight:600;letter-spacing:-.025em}
+.metric .delta{font-size:12px;color:var(--lima-500);font-weight:500}
+
+/* calendar mini */
+.cal{background:#fff;border:1px solid var(--ink-200);border-radius:var(--r-lg);padding:16px;display:grid;grid-template-columns:64px repeat(3,1fr);gap:0}
+.cal .h{font-size:12px;color:var(--ink-500);font-weight:500;padding:6px 8px;border-bottom:1px solid var(--ink-100)}
+.cal .t{font-size:11px;color:var(--ink-400);padding:8px;font-family:'Geist Mono',monospace;border-right:1px solid var(--ink-100)}
+.cal .slot{height:48px;border-bottom:1px solid var(--ink-100);border-right:1px solid var(--ink-100);position:relative}
+.cal .slot:last-child{border-right:none}
+.cal .ev{position:absolute;inset:4px;border-radius:6px;padding:6px 8px;font-size:11px;display:flex;align-items:center;gap:6px}
+.cal .ev.lime{background:var(--lima-50);color:var(--lima-900);border-left:3px solid var(--lima-500)}
+.cal .ev.solid{background:var(--ink-900);color:#fff}
+.cal .ev .dot{width:6px;height:6px;border-radius:50%;background:var(--lima-500)}
+
+/* roadmap */
+.road{display:grid;grid-template-columns:120px 1fr;gap:0;border:1px solid var(--ink-200);border-radius:18px;overflow:hidden;background:#fff}
+.road .phase{padding:24px;border-bottom:1px solid var(--ink-200);background:var(--ink-900);color:#fff;display:flex;flex-direction:column;justify-content:flex-start;gap:10px}
+.road .phase:last-child{border-bottom:none}
+.road .phase .num{font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.14em;color:var(--lima-300)}
+.road .phase .title{font-size:18px;font-weight:600;letter-spacing:-.015em;line-height:1.2}
+.road .phase .when{font-size:12px;color:#9aa0aa}
+.road .body{padding:24px 28px;border-bottom:1px solid var(--ink-200)}
+.road .body:last-child{border-bottom:none}
+.road .body h5{margin:0 0 8px;font-size:15px;font-weight:600}
+.road .body p{margin:0 0 14px;font-size:13px;color:var(--ink-600);line-height:1.55}
+.road .deliverables{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.road .deliverables span{display:inline-flex;align-items:center;gap:6px;background:var(--ink-50);border:1px solid var(--ink-200);padding:5px 10px;border-radius:var(--r-pill);font-size:12px;color:var(--ink-700);font-weight:500}
+.road .deliverables span::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--lima-500)}
+
+/* principles */
+.principles{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--ink-200);border-radius:18px;overflow:hidden;background:#fff}
+.principles > div{padding:24px;border-right:1px solid var(--ink-200)}
+.principles > div:last-child{border-right:none}
+.principles h5{margin:0 0 8px;font-size:16px;font-weight:600}
+.principles p{margin:0;font-size:13px;color:var(--ink-600);line-height:1.55}
+.principles .num{font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.14em;color:var(--lima-500);margin-bottom:18px;display:block}
+
+/* logo lockups grid */
+.locks{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:1px solid var(--ink-200);border-radius:18px;overflow:hidden;background:#fff}
+.lock-cell{padding:48px 32px;border-right:1px solid var(--ink-200);display:flex;flex-direction:column;align-items:center;gap:18px;justify-content:space-between;min-height:220px}
+.lock-cell:last-child{border-right:none}
+.lock-cell.dark{background:var(--ink-900)}
+.lock-cell.lime{background:var(--lima-300)}
+.lock-cell .cap{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-400)}
+.lock-cell.dark .cap{color:#7c8088}
+.lock-cell.lime .cap{color:var(--lima-900)}
+
+.wm{display:flex;align-items:center;gap:14px}
+.wm .word{font-size:36px;font-weight:600;letter-spacing:-.035em}
+
+svg{display:block}
+
+/* footer */
+.foot{padding:48px 56px;text-align:center;color:var(--ink-400);font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;border-top:1px solid var(--ink-200)}
+
+.col-2{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.col-3{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.col-4{display:grid;grid-template-columns:repeat(4,1fr);gap:24px}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="14" fill="#0E1116"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+    <span>pique</span>
+    <span class="label" style="margin-left:14px">Design system v1</span>
+  </div>
+  <div class="tb-nav">
+    <a href="#brand">Marca</a>
+    <a href="#color">Color</a>
+    <a href="#themes">Modos</a>
+    <a href="#type">Tipografía</a>
+    <a href="#layout">Layout</a>
+    <a href="#components">Componentes</a>
+    <a href="#patterns">Patrones</a>
+    <a href="#plan">Plan</a>
+  </div>
+  <div class="label">07 may 2026 · v1.0</div>
+</div>
+
+<!-- HERO -->
+<div class="page hero">
+  <div class="label" style="margin-bottom:24px">Pique · Camino B · Sistema completo</div>
+  <h1>Un sistema<br/>para los <em>dos mundos</em><br/>de Pique.</h1>
+  <p>Tokens, tipografía, color, componentes y patrones para construir tanto la experiencia pública como el panel administrativo. Una sola base, dos densidades.</p>
+  <div class="hero-meta">
+    <div><div class="label">Marca</div><strong>Pique · Camino B</strong></div>
+    <div><div class="label">Acento</div><strong>Lima #B6F36A</strong></div>
+    <div><div class="label">Tipografía</div><strong>Geist + Geist Mono</strong></div>
+    <div><div class="label">Componentes</div><strong>22 base · 8 patrones</strong></div>
+  </div>
+</div>
+
+<!-- BRAND -->
+<section id="brand" class="page">
+  <div class="section-head">
+    <div class="label">01 · Marca</div>
+    <div>
+      <h2>Logo, isotipo y lockups.</h2>
+      <p>Cuadrado redondeado de 14px de radio + dot único, descentrado, en lima. El isotipo es la condensación gráfica del sistema de estados que vive dentro del producto.</p>
+    </div>
+  </div>
+
+  <div class="locks">
+    <div class="lock-cell">
+      <div class="wm">
+        <svg width="80" height="80" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="14" fill="#0E1116"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+        <span class="word">pique</span>
+      </div>
+      <div class="cap">Lockup horizontal · Primario</div>
+    </div>
+    <div class="lock-cell dark">
+      <div class="wm">
+        <svg width="80" height="80" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="14" stroke="#fff" stroke-width="3" fill="none"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+        <span class="word" style="color:#fff">pique</span>
+      </div>
+      <div class="cap">Sobre ink · Reverso</div>
+    </div>
+    <div class="lock-cell lime">
+      <div class="wm">
+        <svg width="80" height="80" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="14" fill="#0E1116"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+        <span class="word" style="color:#0E1116">pique</span>
+      </div>
+      <div class="cap">Sobre lima · Marketing</div>
+    </div>
+  </div>
+
+  <div class="locks" style="margin-top:24px">
+    <div class="lock-cell" style="min-height:180px">
+      <div style="display:flex;flex-direction:column;align-items:flex-start;gap:6px">
+        <div class="wm" style="gap:10px"><svg width="44" height="44" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="14" fill="#0E1116"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg><span class="word" style="font-size:26px">pique</span></div>
+        <div style="font-size:12px;color:var(--ink-500);margin-left:54px">Reservas y gestión para clubes.</div>
+      </div>
+      <div class="cap">Con tagline</div>
+    </div>
+    <div class="lock-cell" style="min-height:180px">
+      <div style="display:flex;align-items:center;gap:24px">
+        <svg width="56" height="56" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="14" fill="#0E1116"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+        <svg width="40" height="40" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="11" fill="#0E1116"/><circle cx="42" cy="42" r="11" fill="#B6F36A"/></svg>
+        <svg width="28" height="28" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="9" fill="#0E1116"/><circle cx="42" cy="42" r="13" fill="#B6F36A"/></svg>
+        <svg width="20" height="20" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="7" fill="#0E1116"/><circle cx="42" cy="42" r="16" fill="#B6F36A"/></svg>
+        <svg width="14" height="14" viewBox="0 0 64 64"><rect x="0" y="0" width="64" height="64" rx="14" fill="#0E1116"/><circle cx="44" cy="44" r="20" fill="#B6F36A"/></svg>
+      </div>
+      <div class="cap">Escala · App icon a favicon</div>
+    </div>
+    <div class="lock-cell" style="min-height:180px;background:var(--ink-50)">
+      <div style="display:flex;align-items:center;gap:18px">
+        <div style="background:#fff;border:1px solid var(--ink-200);border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:12px;box-shadow:var(--shadow-1)">
+          <svg width="32" height="32" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="12" fill="#0E1116"/><circle cx="42" cy="42" r="11" fill="#B6F36A"/></svg>
+          <div><div style="font-weight:600;font-size:14px">Pique</div><div style="font-size:12px;color:var(--ink-500)">Reservas y gestión</div></div>
+        </div>
+      </div>
+      <div class="cap">Marca en producto</div>
+    </div>
+  </div>
+</section>
+
+<!-- COLOR -->
+<section id="color" class="page">
+  <div class="section-head">
+    <div class="label">02 · Color</div>
+    <div>
+      <h2>Tokens cromáticos.</h2>
+      <p>Tres escalas: Ink (neutro cálido), Lima (acento de marca + estados positivos) y Signal (estados funcionales). Cada token tiene un rol asignado — no se mezclan libremente.</p>
+    </div>
+  </div>
+
+  <!-- INK SCALE -->
+  <div class="color-row-title"><h4>Ink · Neutro cálido</h4><span>Texto, superficies, bordes</span></div>
+  <div class="color-grid">
+    <div class="swatch" style="background:#0E1116;color:#fff"><div class="step">900</div><div><div>Carbón</div><div class="hex">#0E1116</div></div></div>
+    <div class="swatch" style="background:#1B1F26;color:#fff"><div class="step">800</div><div><div>Grafito</div><div class="hex">#1B1F26</div></div></div>
+    <div class="swatch" style="background:#2A2F38;color:#fff"><div class="step">700</div><div><div>Pizarra</div><div class="hex">#2A2F38</div></div></div>
+    <div class="swatch" style="background:#41464F;color:#fff"><div class="step">600</div><div><div>Plomo</div><div class="hex">#41464F</div></div></div>
+    <div class="swatch" style="background:#6F6A60;color:#fff"><div class="step">500</div><div><div>Roca</div><div class="hex">#6F6A60</div></div></div>
+    <div class="swatch" style="background:#9A9388;color:#fff"><div class="step">400</div><div><div>Arena</div><div class="hex">#9A9388</div></div></div>
+    <div class="swatch" style="background:#BEBCB2"><div class="step">300</div><div><div>Piedra</div><div class="hex">#BEBCB2</div></div></div>
+    <div class="swatch" style="background:#DBD9D1"><div class="step">200</div><div><div>Cal</div><div class="hex">#DBD9D1</div></div></div>
+    <div class="swatch" style="background:#ECEBE5"><div class="step">100</div><div><div>Lino</div><div class="hex">#ECEBE5</div></div></div>
+    <div class="swatch" style="background:#F5F4F0"><div class="step">50</div><div><div>Off-white</div><div class="hex">#F5F4F0</div></div></div>
+  </div>
+
+  <!-- LIMA SCALE -->
+  <div class="color-row-title"><h4>Lima · Acento de marca</h4><span>Marca, estado positivo, CTA</span></div>
+  <div class="color-grid">
+    <div class="swatch" style="background:#1F3A0E;color:#B6F36A"><div class="step">900</div><div><div>Lima oscuro</div><div class="hex">#1F3A0E</div></div></div>
+    <div class="swatch" style="background:#3F6E1A;color:#fff"><div class="step">700</div><div><div>Bosque</div><div class="hex">#3F6E1A</div></div></div>
+    <div class="swatch" style="background:#5C8E1A;color:#fff"><div class="step">500</div><div><div>Lima profundo</div><div class="hex">#5C8E1A</div></div></div>
+    <div class="swatch" style="background:#8AC23B;color:#1F3A0E"><div class="step">400</div><div><div>Lima medio</div><div class="hex">#8AC23B</div></div></div>
+    <div class="swatch" style="background:#B6F36A;color:#1F3A0E"><div class="step">300</div><div><div>Lima · Brand</div><div class="hex">#B6F36A</div></div></div>
+    <div class="swatch" style="background:#D6F8A6;color:#1F3A0E"><div class="step">200</div><div><div>Lima claro</div><div class="hex">#D6F8A6</div></div></div>
+    <div class="swatch" style="background:#E7FBC5;color:#1F3A0E"><div class="step">100</div><div><div>Lima tint</div><div class="hex">#E7FBC5</div></div></div>
+    <div class="swatch" style="background:#F0FBDD;color:#1F3A0E"><div class="step">50</div><div><div>Lima brisa</div><div class="hex">#F0FBDD</div></div></div>
+    <div class="swatch" style="background:#fff;color:var(--ink-500);border-left:1px solid var(--ink-200)"><div class="step">USO</div><div style="font-size:11px;line-height:1.4">Brand: 300<br/>Estado positivo: 50/500<br/>CTA hover: 200</div></div>
+    <div class="swatch" style="background:#fff;color:var(--ink-500)"><div class="step">CONTRASTE</div><div style="font-size:11px;line-height:1.4">300 sobre 900: AAA<br/>500 sobre 50: AAA<br/>Nunca 300 sobre blanco</div></div>
+  </div>
+
+  <!-- SIGNAL -->
+  <div class="color-row-title"><h4>Signal · Estados funcionales</h4><span>Sólo en producto, nunca en marketing</span></div>
+  <div class="color-grid" style="grid-template-columns:repeat(6,1fr)">
+    <div class="swatch" style="background:#2747FF;color:#fff"><div class="step">INFO</div><div><div>Info</div><div class="hex">#2747FF</div></div></div>
+    <div class="swatch" style="background:#E1E6FF;color:#1B2A6B"><div class="step">INFO 50</div><div><div>Info tint</div><div class="hex">#E1E6FF</div></div></div>
+    <div class="swatch" style="background:#E08A1F;color:#fff"><div class="step">WARN</div><div><div>Atención</div><div class="hex">#E08A1F</div></div></div>
+    <div class="swatch" style="background:#FFF1D9;color:#7A4708"><div class="step">WARN 50</div><div><div>Atención tint</div><div class="hex">#FFF1D9</div></div></div>
+    <div class="swatch" style="background:#D63B3B;color:#fff"><div class="step">ERROR</div><div><div>Error</div><div class="hex">#D63B3B</div></div></div>
+    <div class="swatch" style="background:#FBE2E2;color:#7A1B1B"><div class="step">ERROR 50</div><div><div>Error tint</div><div class="hex">#FBE2E2</div></div></div>
+  </div>
+</section>
+
+<!-- THEMES -->
+<section id="themes" class="page">
+  <div class="section-head">
+    <div class="label">03 · Modos</div>
+    <div>
+      <h2>Claro y oscuro.</h2>
+      <p>Una sola lista de tokens semánticos; dos paletas que la resuelven. El modo se activa con <span class="mono" style="font-size:13px;color:var(--ink-900)">data-theme="light|dark"</span> en el <span class="mono" style="font-size:13px;color:var(--ink-900)">&lt;html&gt;</span>. Las pantallas siempre piden tokens semánticos — nunca hex — para que cambiar de tema sea cero trabajo.</p>
+    </div>
+  </div>
+
+  <!-- Side-by-side previews -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--ink-200);border-radius:18px;overflow:hidden;margin-bottom:48px">
+    <!-- LIGHT -->
+    <div style="background:linear-gradient(180deg,#FAFAF7 0%,#F5F4F0 100%);color:#0E1116;padding:32px;border-right:1px solid var(--ink-200)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+        <div class="label" style="color:#6F6A60">Light · Default</div>
+        <span class="badge badge-positive"><span class="dot"></span>Activa</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">
+        <svg width="28" height="28" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="14" fill="#0E1116"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+        <span style="font-weight:600;font-size:18px;letter-spacing:-.02em">pique</span>
+      </div>
+      <div style="font-size:32px;font-weight:600;letter-spacing:-.03em;line-height:1.05;margin-bottom:14px">Reservá al toque.</div>
+      <div style="font-size:14px;color:#41464F;margin-bottom:20px">Sin llamadas, sin WhatsApp, sin esperas.</div>
+      <div style="display:flex;gap:8px;margin-bottom:24px">
+        <button class="btn btn-primary">Reservar</button>
+        <button class="btn btn-secondary">Ver más</button>
+      </div>
+      <div style="background:#fff;border:1px solid #DAD5C8;border-radius:14px;padding:18px;box-shadow:0 1px 2px rgba(14,17,22,.05)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b style="font-size:14px">Las Tejas Pádel</b><span class="badge badge-positive"><span class="dot"></span>Disponible</span></div>
+        <div style="font-size:13px;color:#6F6A60">Sarmiento 60 — hoy desde 18:00</div>
+      </div>
+    </div>
+    <!-- DARK -->
+    <div style="background:linear-gradient(180deg,#0E1218 0%,#0A0C10 100%);color:#F1EEE4;padding:32px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+        <div class="label" style="color:#7C8088">Dark · Operativo / nocturno</div>
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:500;background:rgba(182,243,106,.14);color:#B6F36A"><span style="width:6px;height:6px;border-radius:50%;background:#B6F36A"></span>Activa</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">
+        <svg width="28" height="28" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="14" stroke="#F1EEE4" stroke-width="3" fill="none"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+        <span style="font-weight:600;font-size:18px;letter-spacing:-.02em">pasdnto</span>
+      </div>
+      <div style="font-size:32px;font-weight:600;letter-spacing:-.03em;line-height:1.05;margin-bottom:14px">Reservá al toque.</div>
+      <div style="font-size:14px;color:#A8AAB0;margin-bottom:20px">Sin llamadas, sin WhatsApp, sin esperas.</div>
+      <div style="display:flex;gap:8px;margin-bottom:24px">
+        <button style="display:inline-flex;align-items:center;gap:8px;font-family:inherit;font-weight:500;font-size:14px;border-radius:999px;padding:10px 18px;cursor:pointer;border:1px solid transparent;background:#B6F36A;color:#1F3A0E">Reservar</button>
+        <button style="display:inline-flex;align-items:center;gap:8px;font-family:inherit;font-weight:500;font-size:14px;border-radius:999px;padding:10px 18px;cursor:pointer;background:transparent;color:#F1EEE4;border:1px solid #2A2F38">Ver más</button>
+      </div>
+      <div style="background:#161A21;border:1px solid #242932;border-radius:14px;padding:18px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b style="font-size:14px">Las Tejas Pádel</b><span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:500;background:rgba(182,243,106,.14);color:#B6F36A"><span style="width:6px;height:6px;border-radius:50%;background:#B6F36A"></span>Disponible</span></div>
+        <div style="font-size:13px;color:#A8AAB0">Sarmiento 60 — hoy desde 18:00</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Token mapping table -->
+  <h4 style="margin-bottom:18px;font-size:16px;font-weight:600">Tokens semánticos · Light ↔ Dark</h4>
+  <div style="border:1px solid var(--ink-200);border-radius:16px;overflow:hidden;background:#fff;margin-bottom:32px">
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="background:var(--ink-50);color:var(--ink-500)">
+          <th style="text-align:left;padding:14px 18px;font-weight:500;letter-spacing:.04em;width:24%">Token</th>
+          <th style="text-align:left;padding:14px 18px;font-weight:500">Rol</th>
+          <th style="text-align:left;padding:14px 18px;font-weight:500;width:22%">Light</th>
+          <th style="text-align:left;padding:14px 18px;font-weight:500;width:22%">Dark</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-top:1px solid var(--ink-100)"><td class="mono" style="padding:12px 18px;font-weight:500">--bg</td><td style="padding:12px 18px;color:var(--ink-600)">Fondo de página</td><td style="padding:12px 18px"><span style="display:inline-flex;align-items:center;gap:8px"><span style="width:14px;height:14px;border-radius:4px;background:#F5F4F0;border:1px solid var(--ink-200)"></span><span class="mono">#F5F4F0</span></span></td><td style="padding:12px 18px"><span style="display:inline-flex;align-items:center;gap:8px"><span style="width:14px;height:14px;border-radius:4px;background:#0B0E12"></span><span class="mono">#0B0E12</span></span></td></tr>
+        <tr style="border-top:1px solid var(--ink-100)"><td class="mono" style="padding:12px 18px;font-weight:500">--surface-1</td><td style="padding:12px 18px;color:var(--ink-600)">Cards, paneles</td><td style="padding:12px 18px"><span style="display:inline-flex;align-items:center;gap:8px"><span style="width:14px;height:14px;border-radius:4px;background:#FFFFFF;border:1px solid var(--ink-200)"></span><span class="mono">#FFFFFF</span></span></td><td style="padding:12px 18px"><span style="display:inline-flex;align-items:center;gap:8px"><span style="width:14px;height:14px;border-radius:4px;background:#161A21"></span><span class="mono">#161A21</span></span></td></tr>
+        <tr style="border-top:1px solid var(--ink-100)"><td class="mono" style="padding:12px 18px;font-weight:500">--surface-2</td><td style="padding:12px 18px;color:var(--ink-600)">Hover, tabla zebra</td><td style="padding:12px 18px"><span style="display:inline-flex;align-items:center;gap:8px"><span style="width:14px;height:14px;border-radius:4px;background:#ECEBE5;border:1px solid var(--ink-200)"></span><span class="mono">#ECEBE5</span></span></td><td style="padding:12px 18px"><span style="display:inline-flex;align-items:center;gap:8px"><span style="width:14px;height:14px;border-radius:4px;background:#1E2330"></span><span class="mono">#1E2330</span></span></td></tr>
+        <tr style="border-top:1px solid var(--ink-100)"><td class="mono" style="padding:12px 18px;font-weight:500">--surface-inverse</td><td style="padding:12px 18px;color:var(--ink-600)">Banners de contraste</td><td style="padding:12px 18px"><span style="display:inline-flex;align-items:center;gap:8px"><span style="width:14px;height:14px;border-radius:4px;background:#0E1116"></span><span class="mono">#0E1116</span></span></td><td style="padding:12px 18px"><span style="display:inline-flex;align-items:center;gap:8px"><span style="width:14px;height:14px;border-radius:4px;background:#F6F4EE;border:1px solid var(--ink-200)"></span><span class="mono">#F6F4EE</span></span></td></tr>
+        <tr style="border-top:1px solid var(--ink-100)"><td class="mono" style="padding:12px 18px;font-weight:500">--text-primary</td><td style="padding:12px 18px;color:var(--ink-600)">Texto principal</td><td style="padding:12px 18px"><span class="mono">#0E1116</span></td><td style="padding:12px 18px"><span class="mono">#F1EEE4</span></td></tr>
+        <tr style="border-top:1px solid var(--ink-100)"><td class="mono" style="padding:12px 18px;font-weight:500">--text-secondary</td><td style="padding:12px 18px;color:var(--ink-600)">Subtítulos, body</td><td style="padding:12px 18px"><span class="mono">#41464F</span></td><td style="padding:12px 18px"><span class="mono">#A8AAB0</span></td></tr>
+        <tr style="border-top:1px solid var(--ink-100)"><td class="mono" style="padding:12px 18px;font-weight:500">--text-muted</td><td style="padding:12px 18px;color:var(--ink-600)">Captions, labels</td><td style="padding:12px 18px"><span class="mono">#6F6A60</span></td><td style="padding:12px 18px"><span class="mono">#7C8088</span></td></tr>
+        <tr style="border-top:1px solid var(--ink-100)"><td class="mono" style="padding:12px 18px;font-weight:500">--border</td><td style="padding:12px 18px;color:var(--ink-600)">Divisores y bordes</td><td style="padding:12px 18px"><span class="mono">#DBD9D1</span></td><td style="padding:12px 18px"><span class="mono">#242932</span></td></tr>
+        <tr style="border-top:1px solid var(--ink-100)"><td class="mono" style="padding:12px 18px;font-weight:500">--brand</td><td style="padding:12px 18px;color:var(--ink-600)">Lima de marca</td><td style="padding:12px 18px"><span style="display:inline-flex;align-items:center;gap:8px"><span style="width:14px;height:14px;border-radius:4px;background:#B6F36A"></span><span class="mono">#B6F36A</span></span></td><td style="padding:12px 18px"><span style="display:inline-flex;align-items:center;gap:8px"><span style="width:14px;height:14px;border-radius:4px;background:#B6F36A"></span><span class="mono">#B6F36A</span></span></td></tr>
+        <tr style="border-top:1px solid var(--ink-100)"><td class="mono" style="padding:12px 18px;font-weight:500">--brand-on</td><td style="padding:12px 18px;color:var(--ink-600)">Texto sobre brand</td><td style="padding:12px 18px"><span class="mono">#1F3A0E</span></td><td style="padding:12px 18px"><span class="mono">#1F3A0E</span></td></tr>
+        <tr style="border-top:1px solid var(--ink-100)"><td class="mono" style="padding:12px 18px;font-weight:500">--accent-fg</td><td style="padding:12px 18px;color:var(--ink-600)">Texto/links de acento</td><td style="padding:12px 18px"><span class="mono">#5C8E1A</span></td><td style="padding:12px 18px"><span class="mono">#B6F36A</span></td></tr>
+        <tr style="border-top:1px solid var(--ink-100)"><td class="mono" style="padding:12px 18px;font-weight:500">--positive-bg</td><td style="padding:12px 18px;color:var(--ink-600)">Tint estado positivo</td><td style="padding:12px 18px"><span style="display:inline-flex;align-items:center;gap:8px"><span style="width:14px;height:14px;border-radius:4px;background:#F0FBDD"></span><span class="mono">#F0FBDD</span></span></td><td style="padding:12px 18px"><span class="mono">rgba(182,243,106,.14)</span></td></tr>
+        <tr style="border-top:1px solid var(--ink-100)"><td class="mono" style="padding:12px 18px;font-weight:500">--shadow-card</td><td style="padding:12px 18px;color:var(--ink-600)">Sombra de card</td><td style="padding:12px 18px"><span class="mono">0 6px 16px -8px rgba(14,17,22,.12)</span></td><td style="padding:12px 18px"><span class="mono">0 0 0 1px #242932</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Surface hierarchy -->
+  <div class="col-2" style="margin-bottom:32px">
+    <div class="card">
+      <h5>Jerarquía de superficie · Light</h5>
+      <p style="margin-bottom:14px">Empuja contraste hacia adelante con sombra suave + neutro cálido. Elementos elevados se aclaran.</p>
+      <div style="display:flex;gap:0;border-radius:10px;overflow:hidden;border:1px solid var(--ink-200)">
+        <div style="flex:1;background:#F5F4F0;padding:18px 14px;font-size:11px;color:var(--ink-500);font-family:'Geist Mono',monospace">--bg</div>
+        <div style="flex:1;background:#ECEBE5;padding:18px 14px;font-size:11px;color:var(--ink-500);font-family:'Geist Mono',monospace">surface-2</div>
+        <div style="flex:1;background:#FFFFFF;padding:18px 14px;font-size:11px;color:var(--ink-500);font-family:'Geist Mono',monospace">surface-1</div>
+        <div style="flex:1;background:#0E1116;padding:18px 14px;font-size:11px;color:#7C8088;font-family:'Geist Mono',monospace">inverse</div>
+      </div>
+    </div>
+    <div class="card" style="background:#161A21;color:#F1EEE4;border-color:#242932">
+      <h5 style="color:#F1EEE4">Jerarquía de superficie · Dark</h5>
+      <p style="margin-bottom:14px;color:#A8AAB0">Sombras desaparecen — la jerarquía se construye con luminancia. Elementos elevados se aclaran (no oscurecen).</p>
+      <div style="display:flex;gap:0;border-radius:10px;overflow:hidden;border:1px solid #242932">
+        <div style="flex:1;background:#0B0E12;padding:18px 14px;font-size:11px;color:#7C8088;font-family:'Geist Mono',monospace">--bg</div>
+        <div style="flex:1;background:#161A21;padding:18px 14px;font-size:11px;color:#7C8088;font-family:'Geist Mono',monospace">surface-1</div>
+        <div style="flex:1;background:#1E2330;padding:18px 14px;font-size:11px;color:#7C8088;font-family:'Geist Mono',monospace">surface-2</div>
+        <div style="flex:1;background:#F6F4EE;padding:18px 14px;font-size:11px;color:var(--ink-500);font-family:'Geist Mono',monospace">inverse</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reglas -->
+  <h4 style="margin:32px 0 18px;font-size:16px;font-weight:600">Reglas de uso</h4>
+  <div class="col-3">
+    <div class="card">
+      <h5>Lima no cambia</h5>
+      <p>El acento de marca es <span class="mono" style="font-size:12px">#B6F36A</span> en ambos modos. Lo único que se ajusta es <span class="mono" style="font-size:12px">--accent-fg</span> para texto/links: en light usa Lima 500 (legible sobre claro), en dark usa Lima 300.</p>
+    </div>
+    <div class="card">
+      <h5>Sombras → bordes en dark</h5>
+      <p>En dark las sombras se vuelven invisibles y crean ruido. Reemplazá <span class="mono" style="font-size:12px">box-shadow</span> por un borde de 1px en <span class="mono" style="font-size:12px">--border</span> y resolvé jerarquía con luminancia de superficie.</p>
+    </div>
+    <div class="card">
+      <h5>Imágenes con tratamiento</h5>
+      <p>Fotografía de canchas en dark mode pide overlay <span class="mono" style="font-size:12px">rgba(11,14,18,.4)</span> para que no "flote" sobre el fondo. Logos de partners siempre en su versión adaptable (SVG con currentColor).</p>
+    </div>
+    <div class="card">
+      <h5>Cuándo usar cada modo</h5>
+      <p><b>Light</b> es default en marketing y onboarding. <b>Dark</b> es default en el panel admin (uso prolongado, cajas operando hasta tarde) — pero ambos productos exponen el switch.</p>
+    </div>
+    <div class="card">
+      <h5>Persistencia</h5>
+      <p>Guardá la preferencia en <span class="mono" style="font-size:12px">localStorage("theme")</span>. Si no hay valor, leé <span class="mono" style="font-size:12px">prefers-color-scheme</span>. El switch en el header es global; el resto del producto sólo lee tokens.</p>
+    </div>
+    <div class="card">
+      <h5>Contraste mínimo</h5>
+      <p>WCAG AA en cualquier combinación. <span class="mono" style="font-size:12px">--text-primary</span> sobre <span class="mono" style="font-size:12px">--bg</span>: 18.4:1 en light, 14.6:1 en dark. Lima 300 sobre carbón 900 en dark: 13.2:1 (AAA).</p>
+    </div>
+  </div>
+
+  <!-- Gradients -->
+  <h4 style="margin:48px 0 18px;font-size:16px;font-weight:600">Gradientes recomendados</h4>
+  <p style="font-size:14px;color:var(--ink-600);max-width:680px;margin:0 0 20px;line-height:1.55">El neutro nuevo (off-white #F5F4F0 en lugar del cream #F6F4EE) baja la saturación amarilla y deja respirar gradientes sin competir. Cuatro recetas seguras:</p>
+  <div class="col-4">
+    <div style="border:1px solid var(--ink-200);border-radius:14px;overflow:hidden;background:#fff">
+      <div style="height:140px;background:linear-gradient(180deg,#FAFAF7 0%,#F5F4F0 60%,#ECEBE5 100%)"></div>
+      <div style="padding:14px 16px"><b style="font-size:13px;display:block">Atmosférico claro</b><span class="mono" style="font-size:11px;color:var(--ink-500)">#FAFAF7 → #ECEBE5</span><p style="margin:8px 0 0;font-size:12px;color:var(--ink-600);line-height:1.45">Para fondo de hero público. Casi imperceptible, da profundidad sin color.</p></div>
+    </div>
+    <div style="border:1px solid var(--ink-200);border-radius:14px;overflow:hidden;background:#fff">
+      <div style="height:140px;background:radial-gradient(ellipse at 70% 30%,#E7FBC5 0%,#F5F4F0 65%)"></div>
+      <div style="padding:14px 16px"><b style="font-size:13px;display:block">Lima glow</b><span class="mono" style="font-size:11px;color:var(--ink-500)">radial · lima-100 → bg</span><p style="margin:8px 0 0;font-size:12px;color:var(--ink-600);line-height:1.45">Sección de feature destacado. Insinúa marca sin pintar todo de verde.</p></div>
+    </div>
+    <div style="border:1px solid var(--ink-200);border-radius:14px;overflow:hidden;background:#fff">
+      <div style="height:140px;background:linear-gradient(135deg,#0E1116 0%,#1B1F26 60%,#2A2F38 100%)"></div>
+      <div style="padding:14px 16px"><b style="font-size:13px;display:block">Carbón profundo</b><span class="mono" style="font-size:11px;color:var(--ink-500)">ink-900 → ink-700</span><p style="margin:8px 0 0;font-size:12px;color:var(--ink-600);line-height:1.45">Banner inverso, cards premium, dark hero. Sin tinte azul ni verde.</p></div>
+    </div>
+    <div style="border:1px solid var(--ink-200);border-radius:14px;overflow:hidden;background:#fff">
+      <div style="height:140px;background:linear-gradient(135deg,#B6F36A 0%,#8AC23B 100%)"></div>
+      <div style="padding:14px 16px"><b style="font-size:13px;display:block">Lima saturado</b><span class="mono" style="font-size:11px;color:var(--ink-500)">lima-300 → lima-400</span><p style="margin:8px 0 0;font-size:12px;color:var(--ink-600);line-height:1.45">Solo CTA grandes o splash de marca. Nunca fondo de pantalla entera.</p></div>
+    </div>
+  </div>
+  <div style="background:var(--ink-50);border:1px solid var(--ink-200);border-radius:14px;padding:20px 24px;margin-top:20px;font-size:13px;color:var(--ink-600);line-height:1.55"><b style="color:var(--ink-900)">Regla:</b> un solo gradiente por pantalla. Si el fondo ya tiene atmósfera, las cards encima van planas (surface-1). Mezclar dos gradientes compite por la atención y mata la jerarquía.</div>
+
+  <!-- CSS sample -->
+  <h4 style="margin:48px 0 18px;font-size:16px;font-weight:600">Implementación</h4>
+  <div style="background:#0E1116;color:#F1EEE4;border-radius:18px;padding:28px 32px;font-family:'Geist Mono',monospace;font-size:13px;line-height:1.6;overflow:auto">
+<pre style="margin:0;font-family:inherit"><span style="color:#7C8088">/* tokens.css — fuente única */</span>
+<span style="color:#B6F36A">:root</span>, <span style="color:#B6F36A">[data-theme="light"]</span> {
+  --bg:            #F6F4EE;
+  --surface-1:     #FFFFFF;
+  --text-primary:  #0E1116;
+  --border:        #DAD5C8;
+  --brand:         #B6F36A;
+  --accent-fg:     #5C8E1A;
+  --shadow-card:   0 6px 16px -8px rgba(14,17,22,.12);
+}
+<span style="color:#B6F36A">[data-theme="dark"]</span> {
+  --bg:            #0B0E12;
+  --surface-1:     #161A21;
+  --text-primary:  #F1EEE4;
+  --border:        #242932;
+  --brand:         #B6F36A;
+  --accent-fg:     #B6F36A;
+  --shadow-card:   0 0 0 1px #242932;
+}
+<span style="color:#7C8088">/* uso · pantallas piden tokens, nunca hex */</span>
+<span style="color:#B6F36A">.card</span> { background: <span style="color:#D6F8A6">var(--surface-1)</span>; box-shadow: <span style="color:#D6F8A6">var(--shadow-card)</span>; }</pre>
+  </div>
+</section>
+
+<!-- TYPOGRAPHY -->
+<section id="type" class="page">
+  <div class="section-head">
+    <div class="label">04 · Tipografía</div>
+    <div>
+      <h2>Escala tipográfica.</h2>
+      <p>Geist como única familia para texto. Geist Mono para datos, montos, IDs y métricas. Tracking ajustado en display, line-height generoso en body.</p>
+    </div>
+  </div>
+
+  <div class="type-table">
+    <div class="row-h">Token</div><div class="row-h">Size</div><div class="row-h">LH</div><div class="row-h">Weight</div><div class="row-h">Especimen</div>
+
+    <div>display-xl</div><div class="mono">96 / 6rem</div><div class="mono">.95</div><div class="mono">600</div>
+    <div class="specimen" style="font-size:48px;font-weight:600;letter-spacing:-.04em;line-height:1">Reservá al toque</div>
+
+    <div>display-lg</div><div class="mono">72 / 4.5rem</div><div class="mono">1</div><div class="mono">600</div>
+    <div class="specimen" style="font-size:36px;font-weight:600;letter-spacing:-.035em">Reservá al toque</div>
+
+    <div>display-md</div><div class="mono">48 / 3rem</div><div class="mono">1.05</div><div class="mono">600</div>
+    <div class="specimen" style="font-size:28px;font-weight:600;letter-spacing:-.03em">Reservá al toque</div>
+
+    <div>heading-1</div><div class="mono">32 / 2rem</div><div class="mono">1.1</div><div class="mono">600</div>
+    <div class="specimen" style="font-size:22px;font-weight:600;letter-spacing:-.025em">Calendario semanal</div>
+
+    <div>heading-2</div><div class="mono">24 / 1.5rem</div><div class="mono">1.2</div><div class="mono">600</div>
+    <div class="specimen" style="font-size:18px;font-weight:600;letter-spacing:-.02em">Reservas pendientes</div>
+
+    <div>heading-3</div><div class="mono">18 / 1.125rem</div><div class="mono">1.3</div><div class="mono">600</div>
+    <div class="specimen" style="font-size:15px;font-weight:600">Ingresos del día</div>
+
+    <div>body-lg</div><div class="mono">17 / 1.0625rem</div><div class="mono">1.5</div><div class="mono">400</div>
+    <div class="specimen" style="font-size:15px">Sin llamadas, sin WhatsApp, sin esperas.</div>
+
+    <div>body-md</div><div class="mono">15 / .9375rem</div><div class="mono">1.5</div><div class="mono">400</div>
+    <div class="specimen" style="font-size:14px">Elegí deporte, día y horario.</div>
+
+    <div>body-sm</div><div class="mono">13 / .8125rem</div><div class="mono">1.5</div><div class="mono">400</div>
+    <div class="specimen" style="font-size:13px">Texto secundario para descripciones.</div>
+
+    <div>caption</div><div class="mono">12 / .75rem</div><div class="mono">1.4</div><div class="mono">500</div>
+    <div class="specimen" style="font-size:12px;color:var(--ink-500)">Caja abierta · 18:30</div>
+
+    <div>label</div><div class="mono">11 / .6875rem</div><div class="mono">1.3</div><div class="mono">500 · upper · 0.14em</div>
+    <div class="specimen mono" style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-400)">Disponibilidad</div>
+
+    <div>data-md</div><div class="mono">15 / .9375rem</div><div class="mono">1.4</div><div class="mono">500 · mono</div>
+    <div class="specimen mono" style="font-size:14px;font-weight:500">$29.800 · 18:30 · #PT-04219</div>
+  </div>
+</section>
+
+<!-- LAYOUT: SPACING + RADIUS -->
+<section id="layout" class="page">
+  <div class="section-head">
+    <div class="label">05 · Layout</div>
+    <div>
+      <h2>Spacing, radius y sombras.</h2>
+      <p>Escala base 4px. Radius alineado al gesto del isotipo (14px = mismo radio que el cuadrado redondeado de la marca). Tres niveles de sombra y nada más.</p>
+    </div>
+  </div>
+
+  <h4 style="margin-bottom:18px;font-size:16px;font-weight:600">Spacing — escala 4px</h4>
+  <div class="sp-row" style="margin-bottom:48px">
+    <div class="sp-cell"><div class="bar" style="width:4px"></div><div class="meta"><b>s-1</b> 4px</div></div>
+    <div class="sp-cell"><div class="bar" style="width:8px"></div><div class="meta"><b>s-2</b> 8px</div></div>
+    <div class="sp-cell"><div class="bar" style="width:12px"></div><div class="meta"><b>s-3</b> 12px</div></div>
+    <div class="sp-cell"><div class="bar" style="width:16px"></div><div class="meta"><b>s-4</b> 16px</div></div>
+    <div class="sp-cell"><div class="bar" style="width:24px"></div><div class="meta"><b>s-5</b> 24px</div></div>
+    <div class="sp-cell"><div class="bar" style="width:32px"></div><div class="meta"><b>s-6</b> 32px</div></div>
+    <div class="sp-cell"><div class="bar" style="width:48px"></div><div class="meta"><b>s-7</b> 48px</div></div>
+    <div class="sp-cell"><div class="bar" style="width:64px"></div><div class="meta"><b>s-8</b> 64px</div></div>
+    <div class="sp-cell"><div class="bar" style="width:96px"></div><div class="meta"><b>s-9</b> 96px</div></div>
+  </div>
+
+  <h4 style="margin-bottom:18px;font-size:16px;font-weight:600">Radius</h4>
+  <div class="r-row" style="margin-bottom:48px">
+    <div class="r-cell"><div class="box" style="border-radius:6px"></div><div class="meta"><b>r-sm</b> 6px · inputs sm</div></div>
+    <div class="r-cell"><div class="box" style="border-radius:10px"></div><div class="meta"><b>r-md</b> 10px · inputs, botones sq</div></div>
+    <div class="r-cell"><div class="box" style="border-radius:14px"></div><div class="meta"><b>r-lg</b> 14px · cards</div></div>
+    <div class="r-cell"><div class="box" style="border-radius:20px"></div><div class="meta"><b>r-xl</b> 20px · contenedores</div></div>
+    <div class="r-cell"><div class="box" style="border-radius:28px"></div><div class="meta"><b>r-2xl</b> 28px · modales, hero</div></div>
+    <div class="r-cell"><div class="box" style="border-radius:999px"></div><div class="meta"><b>r-pill</b> · pills, botones, tabs</div></div>
+  </div>
+
+  <h4 style="margin-bottom:18px;font-size:16px;font-weight:600">Sombras</h4>
+  <div class="col-3" style="margin-bottom:24px">
+    <div style="background:var(--ink-50);padding:32px;border-radius:14px"><div style="background:#fff;border-radius:14px;padding:24px;box-shadow:var(--shadow-1)"><b style="font-size:14px;display:block">shadow-1 · Subtle</b><span class="mono" style="font-size:11px;color:var(--ink-500)">0 1px 2px rgba(14,17,22,.05)</span></div></div>
+    <div style="background:var(--ink-50);padding:32px;border-radius:14px"><div style="background:#fff;border-radius:14px;padding:24px;box-shadow:var(--shadow-2)"><b style="font-size:14px;display:block">shadow-2 · Card</b><span class="mono" style="font-size:11px;color:var(--ink-500)">0 6px 16px -8px rgba(14,17,22,.12)</span></div></div>
+    <div style="background:var(--ink-50);padding:32px;border-radius:14px"><div style="background:#fff;border-radius:14px;padding:24px;box-shadow:var(--shadow-3)"><b style="font-size:14px;display:block">shadow-3 · Elevated</b><span class="mono" style="font-size:11px;color:var(--ink-500)">0 24px 48px -24px rgba(14,17,22,.22)</span></div></div>
+  </div>
+
+  <h4 style="margin:32px 0 18px;font-size:16px;font-weight:600">Grid</h4>
+  <div class="col-2">
+    <div class="card">
+      <h5>Marketing · 12 columnas</h5>
+      <p>Container 1280px · Gutter 32px · Margin 56px. Hero rompe a 1440px con max-width controlado. Mobile: 4 columnas, gutter 16px.</p>
+    </div>
+    <div class="card">
+      <h5>Admin · 12 columnas</h5>
+      <p>Container fluido (min 1024) · Sidebar fija 220px · Gutter 16px · Margin 24px. Tablas a ancho completo, calendario en grilla auto.</p>
+    </div>
+  </div>
+</section>
+
+<!-- COMPONENTS -->
+<section id="components" class="page">
+  <div class="section-head">
+    <div class="label">06 · Componentes</div>
+    <div>
+      <h2>Librería base.</h2>
+      <p>22 componentes que cubren marketing y admin. Las mismas piezas — lo que cambia es la composición.</p>
+    </div>
+  </div>
+
+  <div class="comp-grid">
+    <!-- BUTTONS -->
+    <div class="comp">
+      <div class="head"><h4>Buttons</h4><span class="label">5 variantes</span></div>
+      <div class="body">
+        <button class="btn btn-primary">Reservar ahora</button>
+        <button class="btn btn-accent">Confirmar</button>
+        <button class="btn btn-secondary">Cancelar</button>
+        <button class="btn btn-ghost">Ver más</button>
+        <button class="btn btn-danger">Eliminar</button>
+        <button class="btn btn-primary btn-lg">Crear reserva</button>
+        <button class="btn btn-secondary btn-sm">Editar</button>
+      </div>
+    </div>
+
+    <!-- BADGES -->
+    <div class="comp">
+      <div class="head"><h4>Badges & Status</h4><span class="label">5 estados</span></div>
+      <div class="body">
+        <span class="badge badge-positive"><span class="dot"></span>Confirmada</span>
+        <span class="badge badge-neutral"><span class="dot"></span>Pendiente</span>
+        <span class="badge badge-warn"><span class="dot"></span>Sin pago</span>
+        <span class="badge badge-error"><span class="dot"></span>Cancelada</span>
+        <span class="badge badge-solid"><span class="dot"></span>Disponible</span>
+        <span class="badge badge-positive"><span class="dot"></span>Pagada</span>
+      </div>
+    </div>
+
+    <!-- INPUTS -->
+    <div class="comp">
+      <div class="head"><h4>Inputs</h4><span class="label">Form base</span></div>
+      <div class="body col">
+        <div class="input-group">
+          <span class="lab">Nombre del cliente</span>
+          <div class="input"><input placeholder="Francisco López"/></div>
+        </div>
+        <div class="input-group">
+          <span class="lab">Deporte</span>
+          <div class="input"><span class="label-i">Padel</span><input placeholder="Cambiar deporte" style="text-align:right"/></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TABS -->
+    <div class="comp">
+      <div class="head"><h4>Tabs / Segmented</h4><span class="label">Navegación local</span></div>
+      <div class="body col">
+        <div class="tabs">
+          <button class="active">Resumen</button>
+          <button>Movimientos</button>
+          <button>Cierre</button>
+        </div>
+        <div class="tabs">
+          <button class="active">Hoy</button>
+          <button>Semana</button>
+          <button>Mes</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- AVATAR -->
+    <div class="comp">
+      <div class="head"><h4>Avatar & Identity</h4><span class="label">36/44/28</span></div>
+      <div class="body">
+        <div class="avatar">FL</div>
+        <div class="avatar" style="width:44px;height:44px;font-size:15px">AL</div>
+        <div class="avatar" style="width:28px;height:28px;font-size:11px;background:var(--ink-900);color:var(--lima-300)">PT</div>
+        <div style="display:flex">
+          <div class="avatar" style="border:2px solid var(--paper)">FL</div>
+          <div class="avatar" style="margin-left:-10px;background:var(--ink-900);color:var(--lima-300);border:2px solid var(--paper)">MR</div>
+          <div class="avatar" style="margin-left:-10px;background:var(--ink-100);color:var(--ink-700);border:2px solid var(--paper)">+3</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SIDENAV -->
+    <div class="comp">
+      <div class="head"><h4>Side navigation</h4><span class="label">Admin</span></div>
+      <div class="body" style="padding:20px">
+        <div class="sidenav">
+          <div class="item active"><span class="ico"></span>Calendario</div>
+          <div class="item"><span class="ico"></span>Clientes</div>
+          <div class="item"><span class="ico"></span>Caja</div>
+          <div class="item"><span class="ico"></span>Reservas</div>
+          <div class="item"><span class="ico"></span>Facturación</div>
+          <div class="item"><span class="ico"></span>Informes</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CARD -->
+    <div class="comp">
+      <div class="head"><h4>Cards</h4><span class="label">Contenedor base</span></div>
+      <div class="body col">
+        <div class="card" style="width:100%">
+          <h5>Las Tejas Pádel</h5>
+          <p>Sarmiento 60, Río Tercero — disponible hoy desde las 18:00.</p>
+        </div>
+        <div class="card" style="width:100%;background:var(--ink-900);color:#fff;border-color:transparent">
+          <h5 style="color:var(--lima-300)">Caja abierta</h5>
+          <p style="color:#bcc1cc">Saldo total $29.800 · 8 movimientos hoy.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- METRIC -->
+    <div class="comp">
+      <div class="head"><h4>Metric</h4><span class="label">KPIs admin</span></div>
+      <div class="body">
+        <div class="metric" style="flex:1"><div class="lab">Saldo total</div><div class="val">$29.800</div><div class="delta">↑ 12% vs. ayer</div></div>
+        <div class="metric" style="flex:1;background:var(--ink-900);color:#fff;border-color:transparent"><div class="lab" style="color:var(--lima-300)">Reservas hoy</div><div class="val">14</div><div class="delta" style="color:var(--lima-300)">3 pendientes</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PATTERNS -->
+<section id="patterns" class="page">
+  <div class="section-head">
+    <div class="label">07 · Patrones</div>
+    <div>
+      <h2>Composiciones recurrentes.</h2>
+      <p>Patrones de uso para los flujos críticos del producto: calendario, tabla, hero y dashboard.</p>
+    </div>
+  </div>
+
+  <div class="col-2">
+    <!-- Calendar mini -->
+    <div class="comp">
+      <div class="head"><h4>Calendario · Agenda visual</h4><span class="label">Admin core</span></div>
+      <div class="body" style="background:var(--paper)">
+        <div class="cal" style="width:100%">
+          <div class="h">Hora</div><div class="h">Cancha 1</div><div class="h">Cancha 2</div><div class="h">Tenis 1</div>
+          <div class="t">18:00</div>
+          <div class="slot"><div class="ev lime"><span class="dot"></span>F. López · 18:45</div></div>
+          <div class="slot"><div class="ev solid"><span class="dot" style="background:var(--lima-300)"></span>Pagada · 18:30</div></div>
+          <div class="slot"></div>
+          <div class="t">19:00</div>
+          <div class="slot"></div>
+          <div class="slot"></div>
+          <div class="slot"><div class="ev lime"><span class="dot"></span>M. Ruiz · 19:30</div></div>
+          <div class="t">20:00</div>
+          <div class="slot"><div class="ev lime"><span class="dot"></span>F. · 20:30</div></div>
+          <div class="slot"><div class="ev lime"><span class="dot"></span>20:15</div></div>
+          <div class="slot"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="comp">
+      <div class="head"><h4>Tabla · Movimientos</h4><span class="label">Caja</span></div>
+      <div class="body" style="padding:20px;background:var(--paper)">
+        <table class="tbl">
+          <thead><tr><th>Hora</th><th>Cliente</th><th>Concepto</th><th>Estado</th><th style="text-align:right">Monto</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">18:30</td><td>Admin Las Tejas</td><td>Reserva Cancha 2</td><td><span class="badge badge-positive"><span class="dot"></span>Pagada</span></td><td class="mono" style="text-align:right">$8.400</td></tr>
+            <tr><td class="mono">19:00</td><td>F. López Mora</td><td>Reserva Cancha 1</td><td><span class="badge badge-warn"><span class="dot"></span>Sin pago</span></td><td class="mono" style="text-align:right">$8.400</td></tr>
+            <tr><td class="mono">20:15</td><td>M. Ruiz</td><td>Tenis 1 — 90min</td><td><span class="badge badge-positive"><span class="dot"></span>Pagada</span></td><td class="mono" style="text-align:right">$13.000</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Public hero -->
+    <div class="comp">
+      <div class="head"><h4>Hero público · Reservar</h4><span class="label">Marketing</span></div>
+      <div class="body" style="padding:36px;background:#fff;flex-direction:column;align-items:flex-start;gap:18px">
+        <span class="badge badge-positive"><span class="dot"></span>Reservas deportivas en Argentina</span>
+        <div style="font-size:46px;font-weight:600;letter-spacing:-.04em;line-height:.95">Reservá <em style="color:var(--lima-500);font-style:normal">al toque.</em></div>
+        <div style="color:var(--ink-500);font-size:14px;max-width:380px">Sin llamadas, sin WhatsApp. Elegí deporte, zona y horario.</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div class="input" style="width:auto"><span class="label-i">Padel</span></div>
+          <button class="btn btn-primary">Buscar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dashboard summary -->
+    <div class="comp">
+      <div class="head"><h4>Dashboard · Resumen</h4><span class="label">Admin home</span></div>
+      <div class="body" style="padding:20px;background:var(--paper);flex-direction:column;align-items:stretch;gap:12px">
+        <div class="col-4" style="gap:8px">
+          <div class="metric" style="padding:14px"><div class="lab">Saldo</div><div class="val" style="font-size:20px">$29.800</div></div>
+          <div class="metric" style="padding:14px"><div class="lab">Ingresos</div><div class="val" style="font-size:20px;color:var(--lima-500)">$29.800</div></div>
+          <div class="metric" style="padding:14px"><div class="lab">Egresos</div><div class="val" style="font-size:20px;color:var(--signal-error)">$0</div></div>
+          <div class="metric" style="padding:14px"><div class="lab">Reservas</div><div class="val" style="font-size:20px">14</div></div>
+        </div>
+        <div class="card" style="padding:14px 18px;display:flex;justify-content:space-between;align-items:center;background:#fff"><div><b style="font-size:14px">Caja Principal</b> <span style="color:var(--ink-500);font-size:12px">· abierta 16:29</span></div><span class="badge badge-positive"><span class="dot"></span>Abierta</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- MOTION + PRINCIPLES -->
+<section class="page">
+  <div class="section-head">
+    <div class="label">08 · Principios</div>
+    <div>
+      <h2>Cuatro reglas no negociables.</h2>
+      <p>Cuando el sistema no resuelve, estas son las reglas que ganan.</p>
+    </div>
+  </div>
+  <div class="principles">
+    <div>
+      <span class="num">01</span>
+      <h5>Confirmar siempre</h5>
+      <p>Cada acción crítica termina con un estado visible. El dot lima no es decoración: es contrato. Si el usuario no ve el dot, la acción no pasó.</p>
+    </div>
+    <div>
+      <span class="num">02</span>
+      <h5>Densidad por contexto</h5>
+      <p>Marketing respira; producto trabaja. La misma marca cambia de tamaño, no de identidad. Nunca usar tipografía display en tablas; nunca tipografía body en hero.</p>
+    </div>
+    <div>
+      <span class="num">03</span>
+      <h5>Color con rol</h5>
+      <p>Lima 300 es marca. Lima 500 es estado positivo. Carbón es estructura. Signal es funcional. No mezclar roles — un mismo color no puede significar dos cosas en pantalla.</p>
+    </div>
+    <div>
+      <span class="num">04</span>
+      <h5>Mono para datos</h5>
+      <p>Montos, IDs, horas y fechas siempre en Geist Mono. Da textura "operativa" y es el detalle que separa Pique de un SaaS genérico.</p>
+    </div>
+  </div>
+</section>
+
+<!-- PLAN DE ACCIÓN -->
+<section id="plan" class="page">
+  <div class="section-head">
+    <div class="label">09 · Plan de acción</div>
+    <div>
+      <h2>Cómo lo implementás.</h2>
+      <p>Cinco fases en orden. Si saltás una, las siguientes se rompen. Estimación total: <strong>10–12 semanas</strong> con un equipo de 1 diseñador + 1–2 frontends.</p>
+    </div>
+  </div>
+
+  <div class="road">
+    <div class="phase"><div class="num">FASE 01</div><div class="title">Tokens y fundaciones</div><div class="when">Semanas 1–2</div></div>
+    <div class="body">
+      <h5>Definir la base antes de tocar pantallas</h5>
+      <p>Crear la fuente única de verdad para color, tipografía, spacing, radius y sombras. Mapear los tokens a CSS variables y a la herramienta de diseño (Figma vars). Validar contraste (AA mínimo, AAA en CTA primarios). En este punto todavía no se rediseña nada — sólo se consolidan los valores que ya existen, dispersos, en los dos productos.</p>
+      <div class="deliverables"><span>tokens.css</span><span>Figma variables</span><span>Auditoría de contraste</span><span>Naming convention</span></div>
+    </div>
+
+    <div class="phase"><div class="num">FASE 02</div><div class="title">Marca aplicada</div><div class="when">Semanas 2–3</div></div>
+    <div class="body">
+      <h5>El logo viviendo en producto</h5>
+      <p>Producir todos los assets de marca: SVG en variantes, app icons (PNG 16/32/48/128/512/1024), favicons, social cards, email signature. Definir clearspace, tamaños mínimos y reglas de uso. Reemplazar el logo viejo en los dos productos como única tarea visual de esta fase.</p>
+      <div class="deliverables"><span>Logo kit (SVG/PNG)</span><span>App icons</span><span>Brand guidelines PDF</span><span>Reemplazo en pública + admin</span></div>
+    </div>
+
+    <div class="phase"><div class="num">FASE 03</div><div class="title">Librería de componentes</div><div class="when">Semanas 3–6</div></div>
+    <div class="body">
+      <h5>Construir el lego compartido</h5>
+      <p>Implementar los 22 componentes base en código (React + CSS variables) con sus variantes. Documentación viva tipo Storybook. Tests de accesibilidad (focus, navegación por teclado, ARIA). Esta es la fase más cara — pero es la que paga todo el resto. Sin librería compartida, los dos productos divergen siempre.</p>
+      <div class="deliverables"><span>22 componentes en React</span><span>Storybook</span><span>Tests A11y</span><span>Documentación de uso</span></div>
+    </div>
+
+    <div class="phase"><div class="num">FASE 04</div><div class="title">Rediseño público</div><div class="when">Semanas 6–9</div></div>
+    <div class="body">
+      <h5>Aplicar el sistema al mundo aspiracional</h5>
+      <p>Rediseñar landing, listado de complejos, ficha de complejo y flujo de reserva consumiendo la librería. Sólo composición — nada de componentes nuevos. Si en esta fase falta algo, vuelve a Fase 03 y se actualiza la librería; nunca se inventa local. Resultado esperado: el público se siente moderno, premium y un escalón arriba de la competencia LATAM.</p>
+      <div class="deliverables"><span>Landing</span><span>Listado y ficha</span><span>Flujo de reserva</span><span>Mobile completo</span></div>
+    </div>
+
+    <div class="phase"><div class="num">FASE 05</div><div class="title">Rediseño admin</div><div class="when">Semanas 8–12</div></div>
+    <div class="body">
+      <h5>Aplicar el sistema al mundo operativo</h5>
+      <p>Rediseñar calendario, caja, clientes, reservas, facturación, informes y ajustes. Densidad alta, color como acento puntual, tipografía mono para datos. La sidebar lleva sólo isotipo. Conviven en el tiempo dos versiones (vieja y nueva) durante 2 semanas para migración por usuario, no big bang.</p>
+      <div class="deliverables"><span>Calendario</span><span>Caja + movimientos</span><span>Clientes</span><span>Reservas</span><span>Informes</span><span>Migración progresiva</span></div>
+    </div>
+  </div>
+
+  <!-- Kickoff checklist -->
+  <h4 style="margin:48px 0 18px;font-size:18px;font-weight:600">Lo que necesitás antes de empezar</h4>
+  <div class="col-3">
+    <div class="card">
+      <h5>Equipo mínimo</h5>
+      <p>1 diseñador product (full-time las 12 semanas) · 1–2 frontends (full-time desde Fase 03) · 1 PM acompañando · Owner del backend disponible para fase 03.</p>
+    </div>
+    <div class="card">
+      <h5>Decisiones que tomar ya</h5>
+      <p>Stack del design system (recomiendo CSS variables + React + un library headless como Radix). Si Figma vs. Tokens Studio. Si Storybook vs. otra doc tool. Si rebrand de marca anterior → Pique se hace en una sola release o gradual.</p>
+    </div>
+    <div class="card">
+      <h5>Riesgos a vigilar</h5>
+      <p>Que la Fase 03 se infinitice — fijar scope a 22 componentes y todo lo nuevo va a v2. Que el admin rediseñado quiebre flujos críticos para clubes que ya están operando — por eso migración progresiva. Que el público y admin se desincronicen otra vez — la librería compartida es la única defensa.</p>
+    </div>
+  </div>
+
+  <!-- Quick win -->
+  <div style="margin-top:48px;background:var(--ink-900);color:#fff;border-radius:24px;padding:48px;display:grid;grid-template-columns:1fr 1.5fr;gap:48px;align-items:center">
+    <div>
+      <div class="label" style="color:var(--lima-300);margin-bottom:14px">Quick win · Semana 1</div>
+      <h3 style="font-size:36px;line-height:1.05;letter-spacing:-.03em;font-weight:600;margin:0">Antes que nada,<br/>cambiá el logo.</h3>
+    </div>
+    <div style="color:#bcc1cc;font-size:15px;line-height:1.55">
+      <p style="margin:0 0 12px">Reemplazar la marca anterior por Pique en los dos productos en la primera semana, antes incluso de tener tokens unificados, da una señal externa fuerte (a clubes y a inversores) y obliga al equipo a pensar la marca como una sola.</p>
+      <p style="margin:0">Es 2 horas de trabajo y desbloquea la conversación. Hacerlo después de las 12 semanas es perder momentum.</p>
+    </div>
+  </div>
+</section>
+
+<div class="foot">Pique · Design system v1.0 · 07 may 2026 · Camino B</div>
+
+</body>
+</html>

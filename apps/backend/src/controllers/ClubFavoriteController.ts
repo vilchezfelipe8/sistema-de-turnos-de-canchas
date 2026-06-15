@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { ClubFavoriteService } from '../services/ClubFavoriteService';
 import { sendAuthError } from '../utils/authError';
+import { sendAppError } from '../errors';
 
 export class ClubFavoriteController {
   constructor(private readonly favoriteService: ClubFavoriteService) {}
@@ -15,7 +16,7 @@ export class ClubFavoriteController {
       const favorites = await this.favoriteService.listFavorites(userId);
       return res.json({ favorites });
     } catch (error: any) {
-      return res.status(400).json({ error: error?.message || 'No se pudieron obtener favoritos' });
+      return sendAppError(res, error, 'No se pudieron obtener favoritos');
     }
   };
 
@@ -33,7 +34,7 @@ export class ClubFavoriteController {
       const result = await this.favoriteService.markFavorite(userId, clubId);
       return res.status(201).json(result);
     } catch (error: any) {
-      return res.status(400).json({ error: error?.message || 'No se pudo marcar favorito' });
+      return sendAppError(res, error, 'No se pudo marcar favorito');
     }
   };
 
@@ -51,7 +52,7 @@ export class ClubFavoriteController {
       const result = await this.favoriteService.removeFavorite(userId, clubId);
       return res.json(result);
     } catch (error: any) {
-      return res.status(400).json({ error: error?.message || 'No se pudo quitar favorito' });
+      return sendAppError(res, error, 'No se pudo quitar favorito');
     }
   };
 }

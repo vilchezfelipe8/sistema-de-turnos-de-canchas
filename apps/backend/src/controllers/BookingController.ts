@@ -5,21 +5,22 @@ import { prisma } from '../prisma';
 import { TimeHelper } from '../utils/TimeHelper';
 import { ProductService } from '../services/ProductService';
 import { ClientDuplicateIncidentService } from '../services/ClientDuplicateIncidentService';
+import { ReportsService } from '../services/ReportsService';
 import { getUserClubContext } from '../utils/getUserClubContext';
 import { getPreferredClubIdFromRequest } from '../utils/clubContext';
 import { sanitizeString } from '../utils/sanitize';
 import { normalizeIdentityPhone } from '../utils/phone';
 import { sendAuthError } from '../utils/authError';
+import { AppError, ErrorCodes, badRequest, conflict, forbidden, notFound, sendAppError, flattenZodFieldErrors, zodValidationAppError } from '../errors';
 
 const getErrorMessage = (error: unknown, fallback: string) =>
     error instanceof Error && String(error.message || '').trim().length > 0
         ? error.message
         : fallback;
 
-const isIntegrityInconsistencyError = (error: unknown) =>
-    getErrorMessage(error, '').includes('Inconsistencia de integridad');
-
 type OptionalAuthState = 'guest' | 'authenticated' | 'invalid_token';
+const TENANT_ADMIN_ROLES = new Set(['OWNER', 'ADMIN']);
+const TENANT_OPERATOR_ROLES = new Set(['OWNER', 'ADMIN', 'STAFF']);
 
 const resolveOptionalAuthState = (req: Request): OptionalAuthState => {
     const raw = String((req as any).authState || 'guest').trim();
@@ -27,15 +28,146 @@ const resolveOptionalAuthState = (req: Request): OptionalAuthState => {
     return 'guest';
 };
 
+const sendControllerAppError = (
+    res: Response,
+    params: { statusCode: number; code: string; message: string; meta?: Record<string, unknown>; [key: string]: unknown }
+) => sendAppError(res, new AppError(params));
+
+const sendZodControllerError = (
+    res: Response,
+    error: z.ZodError,
+    message: string,
+    field: string = 'general'
+) => sendControllerAppError(res, {
+    statusCode: 400,
+    code: 'VALIDATION_ERROR',
+    field,
+    blocking: true,
+    message,
+    fieldErrors: flattenZodFieldErrors(error),
+    meta: { issues: error.flatten() }
+});
+
+const createBookingAppError = (error: unknown, fallback = 'No se pudo crear la reserva.'): AppError => {
+    if (error instanceof AppError) return error;
+    const known = (error || {}) as any;
+    const rawCode = String(known?.code || '').trim();
+    const message = getErrorMessage(error, fallback);
+    const normalizedMessage = message
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+
+    if (rawCode === 'CLIENT_POSSIBLE_DUPLICATE') {
+        const details = (known?.meta && typeof known.meta === 'object')
+            ? known.meta
+            : (known?.details && typeof known.details === 'object') ? known.details : {};
+        const candidateClientIds = Array.isArray((details as any)?.candidateClientIds)
+            ? (details as any).candidateClientIds
+            : [];
+        const candidates = Array.isArray((details as any)?.candidates)
+            ? (details as any).candidates
+            : [];
+        return conflict(
+            'Se detectaron datos que podrían corresponder a más de un cliente. Revisá y seleccioná el cliente correcto.',
+            ErrorCodes.CLIENT_POSSIBLE_DUPLICATE,
+            {
+                ...(details as Record<string, unknown>),
+                candidateClientIds,
+                candidates
+            }
+        );
+    }
+
+    if (rawCode === 'BOOKING_OVERLAP') {
+        const meta = (known?.meta && typeof known.meta === 'object') ? known.meta : {};
+        const overlaps = Array.isArray((meta as any)?.overlaps)
+            ? (meta as any).overlaps
+            : Array.isArray(known?.overlaps) ? known.overlaps : [];
+        return conflict('El horario se superpone con reservas existentes.', ErrorCodes.BOOKING_OVERLAP, { overlaps });
+    }
+
+    if (message.includes('pasado')) {
+        return badRequest(message, ErrorCodes.INVALID_INPUT);
+    }
+
+    if (normalizedMessage.includes('duracion no permitida')) {
+        return conflict(message, ErrorCodes.BOOKING_SLOT_UNAVAILABLE);
+    }
+
+    if (normalizedMessage.includes('horario no permitido')) {
+        return conflict(message, ErrorCodes.BOOKING_SLOT_UNAVAILABLE);
+    }
+
+    if (normalizedMessage.includes('club esta cerrado')) {
+        return conflict(message, ErrorCodes.BOOKING_SLOT_UNAVAILABLE);
+    }
+
+    if (normalizedMessage.includes('limite de anticipacion')) {
+        return badRequest(message, ErrorCodes.INVALID_INPUT);
+    }
+
+    return badRequest(message, rawCode || ErrorCodes.INVALID_INPUT);
+};
+
+const createBillingConfigAppError = (error: unknown): AppError => {
+    if (error instanceof AppError) return error;
+    const known = (error || {}) as any;
+    const rawCode = String(known?.code || '').trim();
+    const message = getErrorMessage(error, 'No se pudo guardar la configuración de cobro.');
+    const lower = message
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+
+    if (lower.includes('reserva no encontrada')) {
+        return notFound(message, ErrorCodes.BOOKING_NOT_FOUND);
+    }
+    if (lower.includes('club invalido')) {
+        return badRequest(message, ErrorCodes.INVALID_INPUT);
+    }
+
+    return badRequest(message, rawCode || ErrorCodes.INVALID_INPUT);
+};
+
 export class BookingController {
     private productService = new ProductService();
     private duplicateIncidentService = new ClientDuplicateIncidentService();
+    private reportsService = new ReportsService();
 
     constructor(private bookingService: BookingService) {}
 
+    private async resolveMembershipRoleForCourt(req: Request, courtId: number): Promise<string> {
+        const explicitMembershipRole = String((req as any).membershipRole || '').trim();
+        if (explicitMembershipRole) return explicitMembershipRole;
+
+        const actorUserId = Number((req as any)?.user?.userId || 0);
+        if (!Number.isInteger(actorUserId) || actorUserId <= 0) return '';
+        if (!Number.isInteger(courtId) || courtId <= 0) return '';
+
+        const court = await prisma.court.findUnique({
+            where: { id: courtId },
+            select: { clubId: true }
+        });
+        const clubId = Number(court?.clubId || 0);
+        if (!Number.isInteger(clubId) || clubId <= 0) return '';
+
+        const membership = await prisma.membership.findUnique({
+            where: {
+                userId_clubId: {
+                    userId: actorUserId,
+                    clubId
+                }
+            },
+            select: { role: true }
+        });
+
+        return String(membership?.role || '').trim();
+    }
+
     private async registerDuplicateIncidentFromBookingError(req: Request, sourceType: 'BOOKING' | 'FIXED_BOOKING', error: any) {
         try {
-            const details = (error && typeof error === 'object') ? (error.details || {}) : {};
+            const details = (error && typeof error === 'object') ? (error.meta || error.details || {}) : {};
             let clubId = Number((req as any).clubId || details?.clubId || 0);
             if ((!Number.isInteger(clubId) || clubId <= 0) && Number.isInteger(Number(req.body?.courtId))) {
                 const court = await prisma.court.findUnique({
@@ -79,6 +211,34 @@ export class BookingController {
         }
     }
 
+    private async resolveCourtBookingContext(courtId: number): Promise<{ exists: boolean; country: string | null; timeZone: string }> {
+        const court = await prisma.court.findUnique({
+            where: { id: Number(courtId) },
+            select: {
+                id: true,
+                club: {
+                    select: {
+                        country: true,
+                        settings: {
+                            select: {
+                                timeZone: true
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        const country = String(court?.club?.country || '').trim() || null;
+        const timeZone = String(court?.club?.settings?.timeZone || '').trim();
+
+        return {
+            exists: Boolean(court),
+            country,
+            timeZone
+        };
+    }
+
     createBooking = async (req: Request, res: Response) => {
         try {
             const user = (req as any).user;
@@ -120,8 +280,45 @@ export class BookingController {
                         },
                         z.string().email().optional()
                     ),
-                    dni: optionalTrimmedString()
+                    dni: optionalTrimmedString(),
+                    /** Caso C: el admin confirmó crear un cliente nuevo pese a candidatos existentes */
+                    duplicateResolution: z.enum(['CREATE_NEW']).optional()
                 }).optional(),
+                ownerSelection: z.discriminatedUnion('kind', [
+                    z.object({
+                        kind: z.literal('clubClient'),
+                        clientId: optionalTrimmedString(1),
+                    }),
+                    z.object({
+                        kind: z.literal('linked'),
+                        userId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                        personKey: optionalTrimmedString(2),
+                        searchQuery: optionalTrimmedString(2),
+                    }),
+                    z.object({
+                        kind: z.literal('systemUser'),
+                        userId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                        personKey: optionalTrimmedString(2),
+                        searchQuery: optionalTrimmedString(2),
+                    }),
+                    z.object({
+                        kind: z.literal('newClient'),
+                        name: optionalTrimmedString(2),
+                        phone: optionalTrimmedString(),
+                        phoneCountryCode: optionalTrimmedString(),
+                        phoneNumberLocal: optionalTrimmedString(),
+                        email: z.preprocess(
+                            (v) => {
+                                if (typeof v !== 'string') return v;
+                                const trimmed = v.trim();
+                                return trimmed.length === 0 ? undefined : trimmed;
+                            },
+                            z.string().email().optional()
+                        ),
+                        dni: optionalTrimmedString(),
+                        duplicateResolution: z.enum(['CREATE_NEW']).optional()
+                    })
+                ]).optional(),
                 applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional())
             });
 
@@ -132,11 +329,25 @@ export class BookingController {
             const parsed = createSchema.safeParse(dataToValidate);
 
             if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
+                return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
 
-            let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, clientId, client, applyDiscount } = parsed.data;
+            let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, clientId, client, ownerSelection, applyDiscount } = parsed.data;
             clientId = clientId ? sanitizeString(clientId, 64) : undefined;
+            if (ownerSelection?.kind === 'clubClient') {
+                clientId = sanitizeString(String(ownerSelection.clientId || ''), 64) || clientId;
+            }
+            if (ownerSelection?.kind === 'newClient') {
+                client = {
+                    name: ownerSelection.name,
+                    phone: ownerSelection.phone,
+                    phoneCountryCode: ownerSelection.phoneCountryCode,
+                    phoneNumberLocal: ownerSelection.phoneNumberLocal,
+                    email: ownerSelection.email,
+                    dni: ownerSelection.dni,
+                    duplicateResolution: ownerSelection.duplicateResolution
+                };
+            }
             const sanitizedClient = client
                 ? {
                     name: client.name ? sanitizeString(client.name, 200) : '',
@@ -144,74 +355,115 @@ export class BookingController {
                     phoneCountryCode: client.phoneCountryCode ? sanitizeString(client.phoneCountryCode, 8) : undefined,
                     phoneNumberLocal: client.phoneNumberLocal ? sanitizeString(client.phoneNumberLocal, 30) : undefined,
                     email: client.email ? sanitizeString(client.email, 254) : undefined,
-                    dni: client.dni ? sanitizeString(client.dni, 20) : undefined
+                    dni: client.dni ? sanitizeString(client.dni, 20) : undefined,
+                    duplicateResolution: client.duplicateResolution ?? undefined
                 }
                 : undefined;
+
+            const courtContext = await this.resolveCourtBookingContext(Number(courtId));
+            if (!courtContext.exists) {
+                return sendControllerAppError(res, {
+                    statusCode: 404,
+                    code: 'COURT_NOT_FOUND',
+                    field: 'court',
+                    blocking: true,
+                    message: 'Cancha no encontrada.'
+                });
+            }
+            const clubTimeZone = String(courtContext.timeZone || '').trim();
+            if (!clubTimeZone) {
+                return sendControllerAppError(res, {
+                    statusCode: 400,
+                    code: 'CLUB_CONFIG_INVALID',
+                    field: 'general',
+                    blocking: true,
+                    message: 'Configuración de club inválida: timeZone es obligatorio.'
+                });
+            }
 
             // Resolve startDate: prefer date+slotTime (local) if provided, otherwise use startDateTime ISO
             let startDate: Date;
             if (dateStr && slotTime) {
-                // Need club timezone: fetch court->club to get timeZone
                 try {
-                    const court = await prisma.court.findUnique({ where: { id: Number(courtId) }, include: { club: { include: { settings: true } } } });
-                    const tz = String(court?.club?.settings?.timeZone || '').trim();
-                    if (!tz) {
-                        return res.status(400).json({ error: 'Configuración de club inválida: timeZone es obligatorio' });
-                    }
-                    startDate = TimeHelper.localSlotToUtc(dateStr, slotTime, tz);
+                    startDate = TimeHelper.localSlotToUtc(dateStr, slotTime, clubTimeZone);
                 } catch (e) {
-                    return res.status(400).json({ error: 'Combinación fecha/horario inválida o zona horaria del club faltante' });
+                    return sendControllerAppError(res, {
+                        statusCode: 400,
+                        code: 'INVALID_DATE_TIME',
+                        field: 'time',
+                        blocking: true,
+                        message: 'Combinación fecha/horario inválida o zona horaria del club faltante.'
+                    });
                 }
             } else if (startDateTime) {
                 startDate = new Date(String(startDateTime));
-                if (Number.isNaN(startDate.getTime())) return res.status(400).json({ error: 'startDateTime inválido' });
+                if (Number.isNaN(startDate.getTime())) {
+                    return sendControllerAppError(res, {
+                        statusCode: 400,
+                        code: 'INVALID_DATE_TIME',
+                        field: 'time',
+                        blocking: true,
+                        message: 'startDateTime invalido.'
+                    });
+                }
             } else {
-                return res.status(400).json({ error: 'Debe enviar startDateTime o (date y slotTime)' });
+                return sendControllerAppError(res, {
+                    statusCode: 400,
+                    code: 'MISSING_DATE_TIME',
+                    field: 'time',
+                    blocking: true,
+                    message: 'Debe enviar startDateTime o (date y slotTime).'
+                });
             }
-            
-            const userRole = user?.role;
-            const membershipRole = String((req as any).membershipRole || '');
-            const isAdmin = userRole === 'ADMIN' || membershipRole === 'OWNER' || membershipRole === 'ADMIN';
+            const membershipRole = await this.resolveMembershipRoleForCourt(req, Number(courtId));
+            const isTenantOperator = TENANT_OPERATOR_ROLES.has(membershipRole);
+            const canApplyDiscountOverride = TENANT_ADMIN_ROLES.has(membershipRole);
             const tokenUserId = userIdFromToken ? Number(userIdFromToken) : null;
             const now = new Date();
             if (startDate.getTime() < now.getTime()) {
-                return res.status(400).json({ error: "No se pueden reservar turnos en el pasado." });
+                return sendControllerAppError(res, {
+                    statusCode: 400,
+                    code: 'BOOKING_IN_PAST',
+                    field: 'time',
+                    blocking: true,
+                    message: 'No se pueden reservar turnos en el pasado.'
+                });
             }
 
-            const courtCountry = await prisma.court.findUnique({
-                where: { id: Number(courtId) },
-                select: { club: { select: { country: true } } }
-            });
             const normalizedDraftPhone = normalizeIdentityPhone(
                 {
                     phone: sanitizedClient?.phone,
                     countryCode: sanitizedClient?.phoneCountryCode,
                     phoneNumberLocal: sanitizedClient?.phoneNumberLocal
                 },
-                { defaultCountryIso2: String(courtCountry?.club?.country || '').trim() || null }
+                { defaultCountryIso2: String(courtContext.country || '').trim() || null }
             );
 
-            const incomingClientDraft = {
-                name: sanitizedClient?.name || '',
-                phone: normalizedDraftPhone || undefined,
-                email: sanitizedClient?.email,
-                dni: sanitizedClient?.dni
-            };
+            const adminClientDraft = isTenantOperator
+                ? {
+                    name: sanitizedClient?.name || '',
+                    phone: normalizedDraftPhone || undefined,
+                    email: sanitizedClient?.email,
+                    dni: sanitizedClient?.dni,
+                    duplicateResolution: sanitizedClient?.duplicateResolution ?? undefined
+                }
+                : undefined;
+            const adminOwnerUserSelection =
+                isTenantOperator && (ownerSelection?.kind === 'linked' || ownerSelection?.kind === 'systemUser')
+                    ? {
+                        userId: Number(ownerSelection.userId),
+                        personKey: sanitizeString(String(ownerSelection.personKey || ''), 255),
+                        searchQuery: sanitizeString(String(ownerSelection.searchQuery || ''), 255)
+                    }
+                    : null;
 
-            const hasClientDraftInput = Boolean(incomingClientDraft.name);
-            const hasGuestDraftInput = Boolean(incomingClientDraft.name || incomingClientDraft.phone);
-            const hasAdminClientInput = Boolean(clientId || hasClientDraftInput);
-            const useAdminClientMode = Boolean(isAdmin && hasAdminClientInput);
-            const useGuestClientMode = Boolean(!tokenUserId && !isAdmin && hasClientDraftInput);
-            const effectiveUserId = useAdminClientMode || useGuestClientMode ? null : tokenUserId;
+            const hasAdminClientInput = Boolean(clientId || adminClientDraft?.name);
+            const useAdminClientMode = Boolean(isTenantOperator && (hasAdminClientInput || adminOwnerUserSelection));
+            const effectiveUserId = useAdminClientMode ? null : tokenUserId;
 
-            if (!tokenUserId && !isAdmin && hasGuestDraftInput && !incomingClientDraft.phone) {
-                return res.status(400).json({ error: 'El teléfono es obligatorio para reservar como invitado.' });
-            }
-
-            if (!effectiveUserId && !useAdminClientMode && !useGuestClientMode) {
+            if (!effectiveUserId && !useAdminClientMode) {
                 if (resolveOptionalAuthState(req) === 'invalid_token') {
-                    return sendAuthError(res, 401, 'AUTH_INVALID', 'Sesion invalida. Volve a iniciar sesion.');
+                    return sendAuthError(res, 401, 'AUTH_INVALID', 'Sesión inválida. Volvé a iniciar sesión.');
                 }
                 return sendAuthError(res, 401, 'AUTH_MISSING', 'Debes iniciar sesión para reservar.');
             }
@@ -225,20 +477,13 @@ export class BookingController {
                 durationMinutes,
                 useAdminClientMode,
                 {
-                    applyDiscount: useAdminClientMode ? applyDiscount : false,
+                    applyDiscount: useAdminClientMode && canApplyDiscountOverride ? applyDiscount : false,
                     actorUserId: Number(user?.userId || 0) || null,
-                    clientId: useAdminClientMode ? (clientId || null) : null,
-                    clientDraft: (useAdminClientMode || useGuestClientMode) && incomingClientDraft.name
-                        ? incomingClientDraft
-                        : null
+                    clientId: clientId || null,
+                    clientDraft: useAdminClientMode && adminClientDraft?.name ? adminClientDraft : null,
+                    ownerUserSelection: useAdminClientMode ? adminOwnerUserSelection : null
                 }
             );
-
-            const courtWithClub = await prisma.court.findUnique({ where: { id: Number(courtId) }, include: { club: { include: { settings: true } } } });
-            const clubTimeZone = String(courtWithClub?.club?.settings?.timeZone || '').trim();
-            if (!clubTimeZone) {
-                return res.status(400).json({ error: 'Configuración de club inválida: timeZone es obligatorio' });
-            }
 
             // Retornamos la respuesta al cliente
             const localForRefresh = TimeHelper.utcToLocal(startDate, clubTimeZone);
@@ -248,25 +493,11 @@ export class BookingController {
             res.status(201).json(payload);
 
         } catch (error: any) {
-            console.error(error);
-            if (error?.code === 'CLIENT_POSSIBLE_DUPLICATE' || error?.message === 'CLIENT_POSSIBLE_DUPLICATE') {
+            if ((error instanceof AppError && error.code === ErrorCodes.CLIENT_POSSIBLE_DUPLICATE) || error?.code === ErrorCodes.CLIENT_POSSIBLE_DUPLICATE) {
                 await this.registerDuplicateIncidentFromBookingError(req, 'BOOKING', error);
-                return res.status(409).json({
-                    error: 'Se detectaron datos que podrían corresponder a más de un cliente. Revisá y seleccioná el cliente correcto.'
-                });
             }
-            if (error?.code === 'BOOKING_OVERLAP') {
-                return res.status(409).json({
-                    error: 'El horario se superpone con reservas existentes.',
-                    overlaps: Array.isArray(error?.overlaps) ? error.overlaps : []
-                });
-            }
-            if (error?.message === 'SLOT_ALREADY_BOOKED') {
-                return res.status(409).json({
-                    error: 'El horario acaba de ser reservado por otro jugador'
-                });
-            }
-            res.status(400).json({ error: error.message || "Error desconocido" });
+            const mapped = createBookingAppError(error);
+            return sendAppError(res, mapped);
         }
     }
 
@@ -307,7 +538,7 @@ export class BookingController {
 
             const parsed = quoteSchema.safeParse(req.body ?? {});
             if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
+                return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
 
             const {
@@ -342,7 +573,13 @@ export class BookingController {
                 Boolean(String(clientPhone || '').trim()) ||
                 Boolean(String(clientPhoneNumberLocal || '').trim());
             if (hasAnyClientPhoneInput && !normalizedClientPhone) {
-                return res.status(400).json({ error: 'Teléfono inválido para cotización' });
+                return sendControllerAppError(res, {
+                    statusCode: 400,
+                    code: 'INVALID_CLIENT_PHONE',
+                    field: 'owner',
+                    blocking: true,
+                    message: 'Teléfono inválido para cotización.'
+                });
             }
 
             let resolvedStart: Date;
@@ -350,23 +587,43 @@ export class BookingController {
                 const court = await prisma.court.findUnique({ where: { id: Number(courtId) }, include: { club: { include: { settings: true } } } });
                 const tz = String(court?.club?.settings?.timeZone || '').trim();
                 if (!tz) {
-                    return res.status(400).json({ error: 'Configuración de club inválida: timeZone es obligatorio' });
+                    return sendControllerAppError(res, {
+                        statusCode: 400,
+                        code: 'CLUB_CONFIG_INVALID',
+                        field: 'general',
+                        blocking: true,
+                        message: 'Configuración de club inválida: timeZone es obligatorio.'
+                    });
                 }
                 resolvedStart = TimeHelper.localSlotToUtc(dateStr, slotTime, tz);
             } else if (startDateTime) {
                 resolvedStart = new Date(String(startDateTime));
-                if (Number.isNaN(resolvedStart.getTime())) return res.status(400).json({ error: 'startDateTime inválido' });
+                if (Number.isNaN(resolvedStart.getTime())) {
+                    return sendControllerAppError(res, {
+                        statusCode: 400,
+                        code: 'INVALID_DATE_TIME',
+                        field: 'time',
+                        blocking: true,
+                        message: 'startDateTime invalido.'
+                    });
+                }
             } else {
-                return res.status(400).json({ error: 'Debe enviar startDateTime o (date y slotTime)' });
+                return sendControllerAppError(res, {
+                    statusCode: 400,
+                    code: 'MISSING_DATE_TIME',
+                    field: 'time',
+                    blocking: true,
+                    message: 'Debe enviar startDateTime o (date y slotTime).'
+                });
             }
 
             const tokenUserId = Number((req as any).user?.userId || 0);
-            const userRole = (req as any)?.user?.role;
-            const membershipRole = String((req as any).membershipRole || '');
-            const isAdmin = userRole === 'ADMIN' || membershipRole === 'OWNER' || membershipRole === 'ADMIN';
+            const membershipRole = await this.resolveMembershipRoleForCourt(req, Number(courtId));
+            const isTenantOperator = TENANT_OPERATOR_ROLES.has(membershipRole);
+            const canApplyDiscountOverride = TENANT_ADMIN_ROLES.has(membershipRole);
             const quote = await this.bookingService.quoteBookingPrice({
                 userId: tokenUserId > 0 ? tokenUserId : null,
-                allowAdminBenefits: isAdmin,
+                allowAdminBenefits: isTenantOperator,
                 clientId: clientId || null,
                 courtId: Number(courtId),
                 activityId: Number(activityId),
@@ -375,7 +632,7 @@ export class BookingController {
                 clientEmail,
                 clientPhone: normalizedClientPhone || undefined,
                 clientDni,
-                applyDiscount: isAdmin ? applyDiscount : false
+                applyDiscount: canApplyDiscountOverride ? applyDiscount : false
             });
 
             return res.json({
@@ -383,7 +640,7 @@ export class BookingController {
                 authState: resolveOptionalAuthState(req)
             });
         } catch (error: any) {
-            return res.status(400).json({ error: error?.message || 'No se pudo cotizar la reserva' });
+            return sendAppError(res, createBookingAppError(error, 'No se pudo cotizar la reserva.'));
         }
     }
 
@@ -402,7 +659,7 @@ export class BookingController {
         const parsed = querySchema.safeParse(req.query); 
 
         if (!parsed.success) {
-            return res.status(400).json({ error: parsed.error.format() });
+            return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
         }
 
         const { courtId, date, activityId, durationMinutes } = parsed.data;
@@ -420,7 +677,7 @@ export class BookingController {
 
         res.json({ date: date, availableSlots: slots });
     } catch (error: any) {
-        res.status(400).json({ error: error.message });
+        return sendAppError(res, error, 'No pudimos completar la acción. Intentá nuevamente.');
     }
 }
 
@@ -437,7 +694,7 @@ export class BookingController {
             });
             const parsed = cancelSchema.safeParse(req.body);
             if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
+                return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
             const { bookingId } = parsed.data;
             const user = (req as any).user;
@@ -454,13 +711,7 @@ export class BookingController {
             });
             res.json({ message: "Reserva cancelada", booking: result });
         } catch (error: any) {
-            if (error.message === "No tienes acceso a esta reserva") {
-                return sendAuthError(res, 403, 'AUTH_FORBIDDEN', error.message);
-            }
-            if (isIntegrityInconsistencyError(error)) {
-                return res.status(409).json({ error: getErrorMessage(error, 'Inconsistencia de integridad en reserva') });
-            }
-            res.status(400).json({ error: error.message });
+            return sendAppError(res, error, 'No pudimos completar la acción. Intentá nuevamente.');
         }
     }
 
@@ -479,7 +730,7 @@ export class BookingController {
             const booking = await this.bookingService.confirmBooking(bookingId, actorUserId, clubId);
             return res.json({ message: 'Reserva confirmada', booking });
         } catch (error: any) {
-            return res.status(400).json({ error: error.message || 'No se pudo confirmar la reserva' });
+            return sendAppError(res, error, 'No se pudo confirmar la reserva');
         }
     }
 
@@ -498,10 +749,7 @@ export class BookingController {
             const booking = await this.bookingService.completeBooking(bookingId, actorUserId, clubId);
             return res.json({ message: 'Reserva completada', booking });
         } catch (error: any) {
-            if (isIntegrityInconsistencyError(error)) {
-                return res.status(409).json({ error: getErrorMessage(error, 'Inconsistencia de integridad en reserva') });
-            }
-            return res.status(400).json({ error: error.message || 'No se pudo completar la reserva' });
+            return sendAppError(res, error, 'No se pudo completar la reserva');
         }
     }
 
@@ -523,17 +771,18 @@ export class BookingController {
             try {
                 preferredClubId = getPreferredClubIdFromRequest(req);
             } catch (error: any) {
-                return res.status(400).json({ error: error?.message || 'Contexto de club inválido' });
+                return sendAppError(res, error, 'Contexto de club inválido');
             }
-            let clubContext: { clubId: number } | null = null;
+            let clubContext: { clubId: number; role: string } | null = null;
             try {
                 clubContext = await getUserClubContext(Number(user.userId), preferredClubId);
             } catch {
                 clubContext = null;
             }
+            const requestRole = String(clubContext?.role || (req as any).membershipRole || user.role || 'MEMBER');
             const requestUser = {
                 userId: user.userId,
-                role: (req as any).membershipRole ?? user.role ?? 'MEMBER',
+                role: requestRole,
                 clubId: clubContext?.clubId ?? null
             };
             const history = await this.bookingService.getUserHistory(userId, requestUser, page, take);
@@ -566,10 +815,424 @@ export class BookingController {
             }));
             res.json(payload);
         } catch (error: any) {
-            if (error.message === "No tienes permiso para ver el historial de otro usuario") {
-                return sendAuthError(res, 403, 'AUTH_FORBIDDEN', error.message);
+            return sendAppError(res, error, 'No pudimos completar la acción. Intentá nuevamente.');
+        }
+    }
+
+    getMyBookings = async (req: Request, res: Response) => {
+        try {
+            const userId = Number((req as any)?.user?.userId || 0);
+            if (!Number.isInteger(userId) || userId <= 0) {
+                return sendAuthError(res, 401, ErrorCodes.AUTH_MISSING, 'Necesitás iniciar sesión para ver tus reservas.');
             }
-            res.status(400).json({ error: error.message });
+
+            const items = await this.bookingService.getPlayerBookings(userId);
+            return res.json({ items });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No pudimos cargar tus reservas.');
+        }
+    }
+
+    getMyBookingCheckout = async (req: Request, res: Response) => {
+        try {
+            const bookingId = Number(req.params.id);
+            if (!Number.isInteger(bookingId) || bookingId <= 0) {
+                return sendAppError(res, badRequest('Seleccioná una reserva válida.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const userId = Number((req as any)?.user?.userId || 0);
+            if (!Number.isInteger(userId) || userId <= 0) {
+                return sendAuthError(res, 401, ErrorCodes.AUTH_MISSING, 'Necesitás iniciar sesión para ver el estado de pago.');
+            }
+
+            const checkout = await this.bookingService.getPlayerBookingCheckout(bookingId, userId);
+            return res.json(checkout);
+        } catch (error: any) {
+            return sendAppError(res, error, 'No pudimos cargar el estado de pago de la reserva.');
+        }
+    }
+
+    createMyBookingMercadoPagoCheckout = async (req: Request, res: Response) => {
+        try {
+            const bookingId = Number(req.params.id);
+            if (!Number.isInteger(bookingId) || bookingId <= 0) {
+                return sendAppError(res, badRequest('Seleccioná una reserva válida.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const userId = Number((req as any)?.user?.userId || 0);
+            if (!Number.isInteger(userId) || userId <= 0) {
+                return sendAuthError(res, 401, ErrorCodes.AUTH_MISSING, 'Necesitás iniciar sesión para iniciar el pago online.');
+            }
+
+            const checkout = await this.bookingService.createPlayerMercadoPagoCheckoutAttempt(bookingId, userId);
+            return res.status(201).json(checkout);
+        } catch (error: any) {
+            return sendAppError(res, error, 'No pudimos iniciar el pago online de la reserva.');
+        }
+    }
+
+    getMyBookingParticipants = async (req: Request, res: Response) => {
+        try {
+            const bookingId = Number(req.params.id);
+            if (!Number.isInteger(bookingId) || bookingId <= 0) {
+                return sendAppError(res, badRequest('Seleccioná una reserva válida.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const userId = Number((req as any)?.user?.userId || 0);
+            if (!Number.isInteger(userId) || userId <= 0) {
+                return sendAuthError(res, 401, ErrorCodes.AUTH_MISSING, 'Necesitás iniciar sesión para ver los participantes.');
+            }
+
+            const items = await this.bookingService.getPlayerBookingParticipants(bookingId, userId);
+            return res.json({ items });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No pudimos cargar los participantes.');
+        }
+    }
+
+    getAdminBookingParticipants = async (req: Request, res: Response) => {
+        try {
+            const bookingId = Number(req.params.id);
+            if (!Number.isInteger(bookingId) || bookingId <= 0) {
+                return sendAppError(res, badRequest('Seleccioná una reserva válida.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const clubId = Number((req as any).clubId || 0);
+            if (!Number.isInteger(clubId) || clubId <= 0) {
+                return sendAppError(res, badRequest('No se pudo resolver el club activo.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const items = await this.bookingService.getAdminBookingParticipants(bookingId, clubId);
+            return res.json({ items });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No pudimos cargar los participantes de la reserva.');
+        }
+    }
+
+    getAdminBookingHistory = async (req: Request, res: Response) => {
+        try {
+            const bookingId = Number(req.params.id);
+            if (!Number.isInteger(bookingId) || bookingId <= 0) {
+                return sendAppError(res, badRequest('Seleccioná una reserva válida.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const clubId = Number((req as any).clubId || 0);
+            if (!Number.isInteger(clubId) || clubId <= 0) {
+                return sendAppError(res, badRequest('Club inválido.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const items = await this.bookingService.getAdminBookingHistory(bookingId, clubId);
+            return res.json(
+                items.map((entry: any) => ({
+                    id: entry.id,
+                    bookingId: entry.bookingId,
+                    clubId: entry.clubId,
+                    action: entry.action,
+                    category: entry.category,
+                    source: entry.source,
+                    summary: entry.summary,
+                    occurredAt: entry.occurredAt,
+                    actorUserId: entry.actorUserId ?? null,
+                    actorLabel: entry.actorLabel ?? null,
+                    detail: entry.detail ?? null,
+                    previousState: entry.previousState ?? null,
+                    nextState: entry.nextState ?? null,
+                    bookingParticipantId: entry.bookingParticipantId ?? null,
+                    paymentId: entry.paymentId ?? null,
+                    accountId: entry.accountId ?? null,
+                    metadata: entry.metadata ?? null,
+                }))
+            );
+        } catch (error: any) {
+            return sendAppError(res, error, 'No pudimos cargar el historial de la reserva.');
+        }
+    }
+
+    addAdminBookingParticipant = async (req: Request, res: Response) => {
+        try {
+            const bookingId = Number(req.params.id);
+            if (!Number.isInteger(bookingId) || bookingId <= 0) {
+                return sendAppError(res, badRequest('Seleccioná una reserva válida.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const clubId = Number((req as any).clubId || 0);
+            if (!Number.isInteger(clubId) || clubId <= 0) {
+                return sendAppError(res, badRequest('No se pudo resolver el club activo.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const optionalTrimmedString = (minLength?: number) =>
+                z.preprocess(
+                    (v) => {
+                        if (typeof v !== 'string') return v;
+                        const trimmed = v.trim();
+                        return trimmed.length === 0 ? undefined : trimmed;
+                    },
+                    minLength ? z.string().min(minLength).optional() : z.string().optional()
+                );
+
+            const bodySchema = z.object({
+                personSelection: z.discriminatedUnion('kind', [
+                    z.object({
+                        kind: z.literal('clubClient'),
+                        clientId: optionalTrimmedString(1),
+                    }),
+                    z.object({
+                        kind: z.literal('linked'),
+                        userId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                        personKey: optionalTrimmedString(2),
+                        searchQuery: optionalTrimmedString(2),
+                    }),
+                    z.object({
+                        kind: z.literal('systemUser'),
+                        userId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                        personKey: optionalTrimmedString(2),
+                        searchQuery: optionalTrimmedString(2),
+                    }),
+                    z.object({
+                        kind: z.literal('newClient'),
+                        name: optionalTrimmedString(2),
+                        phone: optionalTrimmedString(),
+                        email: z.preprocess(
+                            (v) => {
+                                if (typeof v !== 'string') return v;
+                                const trimmed = v.trim();
+                                return trimmed.length === 0 ? undefined : trimmed;
+                            },
+                            z.string().email().optional()
+                        ),
+                        dni: optionalTrimmedString(),
+                        forceCreateNew: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
+                    })
+                ])
+            });
+
+            const parsed = bodySchema.safeParse(req.body || {});
+            if (!parsed.success) {
+                return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
+            }
+
+            const actorUserId = Number((req as any)?.user?.userId || 0) || null;
+            const personSelection =
+                parsed.data.personSelection.kind === 'clubClient'
+                    ? {
+                        kind: 'clubClient' as const,
+                        clientId: sanitizeString(String(parsed.data.personSelection.clientId || ''), 64)
+                    }
+                    : parsed.data.personSelection.kind === 'newClient'
+                        ? {
+                            kind: 'newClient' as const,
+                            name: sanitizeString(String(parsed.data.personSelection.name || ''), 200),
+                            phone: parsed.data.personSelection.phone ? sanitizeString(String(parsed.data.personSelection.phone), 30) : undefined,
+                            email: parsed.data.personSelection.email ? sanitizeString(String(parsed.data.personSelection.email), 254) : undefined,
+                            dni: parsed.data.personSelection.dni ? sanitizeString(String(parsed.data.personSelection.dni), 20) : undefined,
+                            forceCreateNew: Boolean(parsed.data.personSelection.forceCreateNew)
+                        }
+                        : {
+                            kind: parsed.data.personSelection.kind,
+                            userId: Number(parsed.data.personSelection.userId),
+                            personKey: sanitizeString(String(parsed.data.personSelection.personKey || ''), 255),
+                            searchQuery: sanitizeString(String(parsed.data.personSelection.searchQuery || ''), 255)
+                        };
+
+            const participant = await this.bookingService.addAdminBookingParticipant({
+                bookingId,
+                clubId,
+                actorUserId,
+                personSelection
+            });
+            return res.status(201).json({
+                message: 'Participante agregado.',
+                participant
+            });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No pudimos agregar al participante.');
+        }
+    }
+
+    removeAdminBookingParticipant = async (req: Request, res: Response) => {
+        try {
+            const bookingId = Number(req.params.id);
+            if (!Number.isInteger(bookingId) || bookingId <= 0) {
+                return sendAppError(res, badRequest('Seleccioná una reserva válida.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const participantId = String(req.params.participantId || '').trim();
+            if (!participantId) {
+                return sendAppError(res, badRequest('Seleccioná un participante válido.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const clubId = Number((req as any).clubId || 0);
+            if (!Number.isInteger(clubId) || clubId <= 0) {
+                return sendAppError(res, badRequest('No se pudo resolver el club activo.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const actorUserId = Number((req as any)?.user?.userId || 0) || null;
+            await this.bookingService.removeAdminBookingParticipant({
+                bookingId,
+                participantId,
+                clubId,
+                actorUserId
+            });
+            return res.json({ message: 'Participante removido.' });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No pudimos remover al participante.');
+        }
+    }
+
+    inviteMyBookingParticipant = async (req: Request, res: Response) => {
+        try {
+            const bookingId = Number(req.params.id);
+            if (!Number.isInteger(bookingId) || bookingId <= 0) {
+                return sendAppError(res, badRequest('Seleccioná una reserva válida.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const bodySchema = z.object({
+                email: z.string().trim().email(),
+                name: z.string().trim().min(1).max(120).optional()
+            });
+            const parsed = bodySchema.safeParse(req.body || {});
+            if (!parsed.success) {
+                return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
+            }
+
+            const userId = Number((req as any)?.user?.userId || 0);
+            if (!Number.isInteger(userId) || userId <= 0) {
+                return sendAuthError(res, 401, ErrorCodes.AUTH_MISSING, 'Necesitás iniciar sesión para invitar jugadores.');
+            }
+
+            const participant = await this.bookingService.invitePlayerBookingParticipant({
+                bookingId,
+                ownerUserId: userId,
+                invitedEmail: parsed.data.email,
+                invitedName: parsed.data.name || null
+            });
+            return res.status(201).json({
+                message: 'Invitación creada.',
+                participant
+            });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No pudimos invitar al jugador.');
+        }
+    }
+
+    removeMyBookingParticipant = async (req: Request, res: Response) => {
+        try {
+            const bookingId = Number(req.params.id);
+            if (!Number.isInteger(bookingId) || bookingId <= 0) {
+                return sendAppError(res, badRequest('Seleccioná una reserva válida.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const participantId = String(req.params.participantId || '').trim();
+            if (!participantId) {
+                return sendAppError(res, badRequest('Seleccioná un participante válido.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const userId = Number((req as any)?.user?.userId || 0);
+            if (!Number.isInteger(userId) || userId <= 0) {
+                return sendAuthError(res, 401, ErrorCodes.AUTH_MISSING, 'Necesitás iniciar sesión para gestionar participantes.');
+            }
+
+            await this.bookingService.removePlayerBookingParticipant({
+                bookingId,
+                participantId,
+                ownerUserId: userId
+            });
+            return res.json({ message: 'Participante removido.' });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No pudimos remover al participante.');
+        }
+    }
+
+    getMyBookingInvitations = async (req: Request, res: Response) => {
+        try {
+            const userId = Number((req as any)?.user?.userId || 0);
+            if (!Number.isInteger(userId) || userId <= 0) {
+                return sendAuthError(res, 401, ErrorCodes.AUTH_MISSING, 'Necesitás iniciar sesión para ver tus invitaciones.');
+            }
+
+            const items = await this.bookingService.getMyBookingInvitations(userId);
+            return res.json({ items });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No pudimos cargar tus invitaciones.');
+        }
+    }
+
+    acceptMyBookingInvitation = async (req: Request, res: Response) => {
+        try {
+            const invitationId = String(req.params.id || '').trim();
+            if (!invitationId) {
+                return sendAppError(res, badRequest('Seleccioná una invitación válida.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const userId = Number((req as any)?.user?.userId || 0);
+            if (!Number.isInteger(userId) || userId <= 0) {
+                return sendAuthError(res, 401, ErrorCodes.AUTH_MISSING, 'Necesitás iniciar sesión para aceptar la invitación.');
+            }
+
+            await this.bookingService.acceptBookingInvitation(invitationId, userId);
+            return res.json({ message: 'Invitación aceptada.' });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No pudimos aceptar la invitación.');
+        }
+    }
+
+    declineMyBookingInvitation = async (req: Request, res: Response) => {
+        try {
+            const invitationId = String(req.params.id || '').trim();
+            if (!invitationId) {
+                return sendAppError(res, badRequest('Seleccioná una invitación válida.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const userId = Number((req as any)?.user?.userId || 0);
+            if (!Number.isInteger(userId) || userId <= 0) {
+                return sendAuthError(res, 401, ErrorCodes.AUTH_MISSING, 'Necesitás iniciar sesión para rechazar la invitación.');
+            }
+
+            await this.bookingService.declineBookingInvitation(invitationId, userId);
+            return res.json({ message: 'Invitación rechazada.' });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No pudimos rechazar la invitación.');
+        }
+    }
+
+    leaveMyBooking = async (req: Request, res: Response) => {
+        try {
+            const bookingId = Number(req.params.id);
+            if (!Number.isInteger(bookingId) || bookingId <= 0) {
+                return sendAppError(res, badRequest('Seleccioná una reserva válida.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const userId = Number((req as any)?.user?.userId || 0);
+            if (!Number.isInteger(userId) || userId <= 0) {
+                return sendAuthError(res, 401, ErrorCodes.AUTH_MISSING, 'Necesitás iniciar sesión para salirte de la reserva.');
+            }
+
+            await this.bookingService.leavePlayerBooking(bookingId, userId);
+            return res.json({ message: 'Te saliste de la reserva.' });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No pudimos procesar tu salida de la reserva.');
+        }
+    }
+
+    cancelMyBooking = async (req: Request, res: Response) => {
+        try {
+            const bookingId = Number(req.params.id);
+            if (!Number.isInteger(bookingId) || bookingId <= 0) {
+                return sendAppError(res, badRequest('Seleccioná una reserva válida.', ErrorCodes.INVALID_INPUT));
+            }
+
+            const userId = Number((req as any)?.user?.userId || 0);
+            if (!Number.isInteger(userId) || userId <= 0) {
+                return sendAuthError(res, 401, ErrorCodes.AUTH_MISSING, 'Necesitás iniciar sesión para cancelar tu reserva.');
+            }
+
+            const booking = await this.bookingService.cancelPlayerBooking(bookingId, userId);
+            return res.json({
+                message: 'Reserva cancelada.',
+                booking
+            });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No pudimos cancelar la reserva.');
         }
     }
 
@@ -580,7 +1243,7 @@ export class BookingController {
             });
             const parsed = paramsSchema.safeParse(req.params);
             if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
+                return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
 
             const bookingId = parsed.data.id;
@@ -596,7 +1259,7 @@ export class BookingController {
 
             return res.json({ booking, financialSummary });
         } catch (error: any) {
-            return res.status(404).json({ error: error.message || 'Reserva no encontrada' });
+            return sendAppError(res, error, 'Reserva no encontrada');
         }
     }
 
@@ -621,7 +1284,7 @@ export class BookingController {
             const parsed = querySchema.safeParse(req.query);
 
             if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
+                return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
 
             const { date, activityId, clubSlug, clientId, clientEmail, clientPhone, clientDni, durationMinutes } = parsed.data;
@@ -658,7 +1321,7 @@ export class BookingController {
                 authState: resolveOptionalAuthState(req)
             });
         } catch (error: any) {
-            res.status(400).json({ error: error.message });
+            return sendAppError(res, error, 'No pudimos completar la acción. Intentá nuevamente.');
         }
     }
 
@@ -679,11 +1342,212 @@ export class BookingController {
             const bookings = await this.bookingService.getDaySchedule(searchDate, clubId);
             res.json(bookings);
         } catch (error: any) {
-            console.error('Error en getAdminSchedule:', error);
-            if (isIntegrityInconsistencyError(error)) {
-                return res.status(409).json({ error: getErrorMessage(error, 'Inconsistencia de integridad en agenda') });
+            return sendAppError(res, error, 'Error interno al cargar agenda');
+        }
+    }
+
+    rescheduleBooking = async (req: Request, res: Response) => {
+        try {
+            const paramsSchema = z.object({
+                id: z.preprocess((v) => Number(v), z.number().int().positive())
+            });
+            const bodySchema = z.object({
+                courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                startDateTime: z.string().refine((s) => !Number.isNaN(Date.parse(s)), { message: 'startDateTime inválido' }),
+                durationMinutes: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional())
+            });
+
+            const p = paramsSchema.safeParse(req.params);
+            const b = bodySchema.safeParse(req.body || {});
+            if (!p.success) {
+                return sendControllerAppError(res, {
+                    statusCode: 400,
+                    code: 'VALIDATION_ERROR',
+                    field: 'general',
+                    blocking: true,
+                    message: 'Parámetros inválidos para mover la reserva.',
+                    meta: { issues: p.error.flatten() }
+                });
             }
-            res.status(500).json({ error: getErrorMessage(error, 'Error interno al cargar agenda') });
+            if (!b.success) {
+                return sendControllerAppError(res, {
+                    statusCode: 400,
+                    code: 'VALIDATION_ERROR',
+                    field: 'time',
+                    blocking: true,
+                    message: 'Datos inválidos para mover la reserva.',
+                    meta: { issues: b.error.flatten() }
+                });
+            }
+
+            const clubId = Number((req as any).clubId);
+            if (!Number.isInteger(clubId) || clubId <= 0) {
+                return sendControllerAppError(res, {
+                    statusCode: 400,
+                    code: 'CLUB_INVALID',
+                    field: 'general',
+                    blocking: true,
+                    message: 'Club invalido.'
+                });
+            }
+
+            const updated = await this.bookingService.rescheduleBooking({
+                bookingId: p.data.id,
+                clubId,
+                courtId: b.data.courtId,
+                startDateTime: new Date(b.data.startDateTime),
+                durationMinutes: b.data.durationMinutes,
+                actorUserId: Number((req as any)?.user?.userId || 0) || null
+            });
+            return res.json({ booking: updated });
+        } catch (error: any) {
+            return sendAppError(res, createBookingAppError(error, 'No se pudo mover la reserva.'));
+        }
+    }
+
+    getBookingBillingConfig = async (req: Request, res: Response) => {
+        try {
+            const paramsSchema = z.object({
+                id: z.preprocess((v) => Number(v), z.number().int().positive())
+            });
+            const parsed = paramsSchema.safeParse(req.params);
+            if (!parsed.success) {
+                return sendControllerAppError(res, {
+                    statusCode: 400,
+                    code: 'VALIDATION_ERROR',
+                    field: 'general',
+                    blocking: true,
+                    message: 'Parámetros inválidos para leer la configuración de cobro.',
+                    meta: { issues: parsed.error.flatten() }
+                });
+            }
+
+            const clubId = Number((req as any).clubId);
+            if (!Number.isInteger(clubId) || clubId <= 0) {
+                return sendControllerAppError(res, {
+                    statusCode: 400,
+                    code: 'CLUB_INVALID',
+                    field: 'general',
+                    blocking: true,
+                    message: 'Club invalido.'
+                });
+            }
+
+            const config = await this.bookingService.getBookingBillingConfig(parsed.data.id, clubId);
+            return res.json(config);
+        } catch (error: any) {
+            return sendAppError(res, createBillingConfigAppError(error));
+        }
+    }
+
+    upsertBookingBillingConfig = async (req: Request, res: Response) => {
+        // Commit 4 — P1 note: participants are intentionally isolated from booking
+        // identity. upsertBookingBillingConfig never writes to Booking.clientId.
+        // The only path that changes the titular is PATCH /:id/client (Commit 3).
+        // A future hardening pass should verify that chargeResponsibleRef cannot
+        // silently redirect payments away from the account owner without an explicit
+        // admin action. Tracking as P1 until billing aggregation is audited end-to-end.
+
+        // Commit 4 — participantRef prefix whitelist.
+        // Only well-known prefixes are accepted; unknown formats are rejected at
+        // the boundary so they can never reach normalization logic downstream.
+        const PARTICIPANT_REF_PREFIXES = [
+            'booking-client:',
+            'booking-user:',
+            'guest:',
+            'client:',
+            'user:'
+        ] as const;
+        const isValidParticipantRef = (ref: string): boolean => {
+            const lower = ref.toLowerCase();
+            return PARTICIPANT_REF_PREFIXES.some((prefix) => {
+                if (!lower.startsWith(prefix)) return false;
+                const suffix = ref.slice(prefix.length).trim();
+                return suffix.length > 0;
+            });
+        };
+
+        try {
+            const paramsSchema = z.object({
+                id: z.preprocess((v) => Number(v), z.number().int().positive())
+            });
+            const bodySchema = z.object({
+                chargeMode: z.enum(['INDIVIDUAL', 'SHARED']),
+                chargeResponsibleRef: z.preprocess(
+                    (v) => (typeof v === 'string' && v.trim().length === 0 ? undefined : v),
+                    z.string().trim().refine(
+                        (v) => isValidParticipantRef(v),
+                        { message: 'chargeResponsibleRef tiene un prefijo no reconocido.' }
+                    ).optional()
+                ),
+                assignments: z.array(
+                    z.object({
+                        id: z.string().trim().min(1),
+                        participantRef: z.string().trim().min(1).refine(
+                            (v) => isValidParticipantRef(v),
+                            { message: 'participantRef tiene un prefijo no reconocido.' }
+                        ),
+                        isChargeable: z.boolean(),
+                        assignedAmount: z.preprocess((v) => Number(v), z.number().min(0)),
+                        participantLinkState: z.enum(['ACTIVE', 'ARCHIVED_REFERENCE']).optional()
+                    })
+                ).min(1),
+                metadata: z.record(z.unknown()).optional()
+            });
+
+            const p = paramsSchema.safeParse(req.params);
+            const b = bodySchema.safeParse(req.body || {});
+            if (!p.success) {
+                return sendControllerAppError(res, {
+                    statusCode: 400,
+                    code: 'VALIDATION_ERROR',
+                    field: 'general',
+                    blocking: true,
+                    message: 'Parámetros inválidos para guardar configuración de cobro.',
+                    meta: { issues: p.error.flatten() }
+                });
+            }
+            if (!b.success) {
+                return sendControllerAppError(res, {
+                    statusCode: 400,
+                    code: 'VALIDATION_ERROR',
+                    field: 'payment',
+                    blocking: true,
+                    message: 'Datos inválidos para guardar configuración de cobro.',
+                    meta: { issues: b.error.flatten() }
+                });
+            }
+
+            const clubId = Number((req as any).clubId);
+            if (!Number.isInteger(clubId) || clubId <= 0) {
+                return sendControllerAppError(res, {
+                    statusCode: 400,
+                    code: 'CLUB_INVALID',
+                    field: 'general',
+                    blocking: true,
+                    message: 'Club invalido.'
+                });
+            }
+
+            const actorUserId = Number((req as any)?.user?.userId || 0) || null;
+            const config = await this.bookingService.upsertBookingBillingConfig({
+                bookingId: p.data.id,
+                clubId,
+                actorUserId,
+                chargeMode: b.data.chargeMode,
+                chargeResponsibleRef: b.data.chargeResponsibleRef || null,
+                assignments: b.data.assignments.map((assignment) => ({
+                    id: assignment.id,
+                    participantRef: assignment.participantRef,
+                    isChargeable: assignment.isChargeable,
+                    assignedAmount: Number(assignment.assignedAmount),
+                    participantLinkState: assignment.participantLinkState || 'ACTIVE'
+                })),
+                metadata: b.data.metadata || null
+            });
+            return res.json(config);
+        } catch (error: any) {
+            return sendAppError(res, createBillingConfigAppError(error));
         }
     }
     
@@ -719,20 +1583,77 @@ export class BookingController {
                     ),
                     dni: optionalTrimmedString()
                 }).optional(),
-                allowOverlappingSeries: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
+                ownerSelection: z.discriminatedUnion('kind', [
+                    z.object({
+                        kind: z.literal('clubClient'),
+                        clientId: optionalTrimmedString(1),
+                    }),
+                    z.object({
+                        kind: z.literal('linked'),
+                        userId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                        personKey: optionalTrimmedString(2),
+                        searchQuery: optionalTrimmedString(2),
+                    }),
+                    z.object({
+                        kind: z.literal('systemUser'),
+                        userId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                        personKey: optionalTrimmedString(2),
+                        searchQuery: optionalTrimmedString(2),
+                    }),
+                    z.object({
+                        kind: z.literal('newClient'),
+                        name: optionalTrimmedString(2),
+                        phone: optionalTrimmedString(),
+                        email: z.preprocess(
+                            (v) => {
+                                if (typeof v !== 'string') return v;
+                                const trimmed = v.trim();
+                                return trimmed.length === 0 ? undefined : trimmed;
+                            },
+                            z.string().email().optional()
+                        ),
+                        dni: optionalTrimmedString()
+                    })
+                ]).optional(),
+                allowOverlappingSeries: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional(),
+                everyDays: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
+                repetitions: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
+                previewConflictsOnly: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
             });
             const parsed = createFixedSchema.safeParse(req.body);
             if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
+                return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
-            const { userId, courtId, activityId, startDateTime, durationMinutes, clientId, client, allowOverlappingSeries } = parsed.data;
+            let { userId, courtId, activityId, startDateTime, durationMinutes, clientId, client, ownerSelection, allowOverlappingSeries, everyDays, repetitions, previewConflictsOnly } = parsed.data;
+            if (ownerSelection?.kind === 'clubClient') {
+                clientId = ownerSelection.clientId;
+            }
+            if (ownerSelection?.kind === 'newClient') {
+                client = {
+                    name: ownerSelection.name,
+                    phone: ownerSelection.phone,
+                    email: ownerSelection.email,
+                    dni: ownerSelection.dni
+                };
+            }
+            const ownerUserSelection =
+                ownerSelection?.kind === 'linked' || ownerSelection?.kind === 'systemUser'
+                    ? {
+                        userId: Number(ownerSelection.userId),
+                        personKey: sanitizeString(String(ownerSelection.personKey || ''), 255),
+                        searchQuery: sanitizeString(String(ownerSelection.searchQuery || ''), 255)
+                    }
+                    : null;
+            if (ownerUserSelection) {
+                userId = Number(ownerUserSelection.userId);
+            }
             const user = (req as any).user;
-            const membershipRole = String((req as any).membershipRole || '');
-            const isAdmin = user?.role === 'ADMIN' || membershipRole === 'OWNER' || membershipRole === 'ADMIN';
+            const membershipRole = String((req as any).membershipRole || '').trim();
+            const isTenantOperator = TENANT_OPERATOR_ROLES.has(membershipRole);
             const clubId = (req as any).clubId;
 
-            if (!isAdmin) {
-                return sendAuthError(res, 403, 'AUTH_FORBIDDEN', 'Solo un administrador puede crear turnos fijos.');
+            if (!isTenantOperator) {
+                return sendAuthError(res, 403, 'AUTH_FORBIDDEN', 'No tienes permisos para crear turnos fijos.');
             }
 
             const sanitizedClient = client
@@ -744,9 +1665,20 @@ export class BookingController {
                 }
                 : undefined;
 
-            const safeClientId = clientId ? sanitizeString(clientId, 64) : undefined;
-            if (!safeClientId && !userId && !sanitizedClient?.name) {
-                return res.status(400).json({ error: "Debes seleccionar un cliente o cargar un alta rápida." });
+            const sanitizedClientId = clientId ? sanitizeString(clientId, 64) : undefined;
+            const safeClientId =
+                sanitizedClientId && !['undefined', 'null', 'nan'].includes(String(sanitizedClientId).toLowerCase())
+                    ? sanitizedClientId
+                    : undefined;
+            if (!previewConflictsOnly && !safeClientId && !userId && !sanitizedClient?.name) {
+                return sendControllerAppError(res, {
+                    statusCode: 400,
+                    code: 'VALIDATION_ERROR',
+                    field: 'owner',
+                    blocking: true,
+                    message: 'Revisá los campos marcados.',
+                    fieldErrors: { owner: 'Debes seleccionar un cliente o cargar un alta rápida.' }
+                });
             }
 
             const startDate = new Date(startDateTime);
@@ -759,20 +1691,22 @@ export class BookingController {
                     userId: userId ? Number(userId) : null,
                     clientId: safeClientId || null,
                     clientDraft: sanitizedClient?.name ? sanitizedClient : null,
+                    ownerUserSelection,
                     clubId,
                     actorUserId: Number(user?.userId || 0) || null,
                     allowOverlappingSeries: Boolean(allowOverlappingSeries),
-                    durationMinutes
+                    durationMinutes,
+                    everyDays,
+                    repetitions,
+                    previewConflictsOnly: Boolean(previewConflictsOnly)
                 }
             );
             
             res.status(201).json(result);
         } catch (error: any) {
-            if (error?.code === 'CLIENT_POSSIBLE_DUPLICATE' || error?.message === 'CLIENT_POSSIBLE_DUPLICATE') {
+            if ((error instanceof AppError && error.code === ErrorCodes.CLIENT_POSSIBLE_DUPLICATE) || error?.code === ErrorCodes.CLIENT_POSSIBLE_DUPLICATE) {
                 await this.registerDuplicateIncidentFromBookingError(req, 'FIXED_BOOKING', error);
-                return res.status(409).json({
-                    error: 'Se detectaron datos que podrían corresponder a más de un cliente. Revisá y seleccioná el cliente correcto.'
-                });
+                return sendAppError(res, error);
             }
             if (error?.code === 'FIXED_BOOKING_OVERLAP') {
                 return res.status(409).json({
@@ -783,22 +1717,110 @@ export class BookingController {
             }
             if (error?.code === 'FIXED_BOOKING_NO_OCCURRENCES') {
                 return res.status(409).json({
-                    error: error.message || 'No se pudo crear ningún turno fijo por superposición.',
+                    error: 'No se pudo crear ningún turno fijo por superposición.',
                     overlaps: Array.isArray(error?.overlaps) ? error.overlaps : []
                 });
             }
-            res.status(400).json({ error: error.message });
+            return sendAppError(res, error, 'No pudimos completar la acción. Intentá nuevamente.');
         }
     }
 
     cancelFixed = async (req: Request, res: Response) => {
         try {
-            const id = parseInt(req.params.id as string);
-            const clubId = (req as any).clubId; // Agregado por middleware de verificación de club
-            const result = await this.bookingService.cancelFixedBooking(id, clubId);
+            const paramsSchema = z.object({
+                id: z.preprocess((v) => Number(v), z.number().int().positive())
+            });
+            const bodySchema = z.object({
+                scope: z.enum(['THIS_OCCURRENCE', 'NEXT_OCCURRENCES', 'ALL_OCCURRENCES']).optional(),
+                occurrenceBookingId: z.preprocess(
+                    (v) => (v === undefined || v === null || v === '' ? undefined : Number(v)),
+                    z.number().int().positive().optional()
+                ),
+                previewOnly: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
+            }).optional();
+
+            const parsedParams = paramsSchema.safeParse(req.params);
+            if (!parsedParams.success) {
+                return sendZodControllerError(res, parsedParams.error, 'Revisá los campos marcados.');
+            }
+            const parsedBody = bodySchema.safeParse(req.body || {});
+            if (!parsedBody.success) {
+                return sendZodControllerError(res, parsedBody.error, 'Revisá los campos marcados.');
+            }
+
+            const clubId = Number((req as any).clubId);
+            if (!Number.isInteger(clubId) || clubId <= 0) {
+                return res.status(400).json({ error: 'Club inválido' });
+            }
+
+            const result = await this.bookingService.cancelFixedBooking({
+                fixedBookingId: parsedParams.data.id,
+                clubId,
+                scope: parsedBody.data?.scope || 'ALL_OCCURRENCES',
+                occurrenceBookingId: parsedBody.data?.occurrenceBookingId,
+                previewOnly: Boolean(parsedBody.data?.previewOnly),
+                actorUserId: Number((req as any)?.user?.userId || 0) || null
+            });
             res.json(result);
         } catch (error: any) {
-            res.status(400).json({ error: error.message });
+            return sendAppError(res, error, 'No pudimos completar la acción. Intentá nuevamente.');
+        }
+    }
+
+    rescheduleFixed = async (req: Request, res: Response) => {
+        try {
+            const paramsSchema = z.object({
+                id: z.preprocess((v) => Number(v), z.number().int().positive())
+            });
+            const bodySchema = z.object({
+                scope: z.enum(['THIS_OCCURRENCE', 'NEXT_OCCURRENCES', 'ALL_OCCURRENCES']),
+                occurrenceBookingId: z.preprocess(
+                    (v) => (v === undefined || v === null || v === '' ? undefined : Number(v)),
+                    z.number().int().positive().optional()
+                ),
+                courtId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                startDateTime: z.string().refine((s) => !Number.isNaN(Date.parse(s)), { message: 'startDateTime inválido' }),
+                durationMinutes: z.preprocess(
+                    (v) => (v === undefined || v === null || v === '' ? undefined : Number(v)),
+                    z.number().int().positive().optional()
+                ),
+                previewOnly: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
+            });
+
+            const parsedParams = paramsSchema.safeParse(req.params);
+            const parsedBody = bodySchema.safeParse(req.body || {});
+            if (!parsedParams.success) {
+                return sendZodControllerError(res, parsedParams.error, 'Revisá los campos marcados.');
+            }
+            if (!parsedBody.success) {
+                return sendZodControllerError(res, parsedBody.error, 'Revisá los campos marcados.');
+            }
+
+            const clubId = Number((req as any).clubId);
+            if (!Number.isInteger(clubId) || clubId <= 0) {
+                return res.status(400).json({ error: 'Club inválido' });
+            }
+
+            const result = await this.bookingService.rescheduleFixedBooking({
+                fixedBookingId: parsedParams.data.id,
+                clubId,
+                scope: parsedBody.data.scope,
+                occurrenceBookingId: parsedBody.data.occurrenceBookingId,
+                courtId: parsedBody.data.courtId,
+                startDateTime: new Date(parsedBody.data.startDateTime),
+                durationMinutes: parsedBody.data.durationMinutes,
+                previewOnly: Boolean(parsedBody.data.previewOnly),
+                actorUserId: Number((req as any)?.user?.userId || 0) || null
+            });
+            return res.json(result);
+        } catch (error: any) {
+            if (error?.code === 'BOOKING_OVERLAP') {
+                return res.status(409).json({
+                    error: 'Superposición detectada',
+                    overlaps: Array.isArray(error?.overlaps) ? error.overlaps : []
+                });
+            }
+            return sendAppError(res, error, 'No se pudo editar la serie.');
         }
     }
 
@@ -815,11 +1837,7 @@ export class BookingController {
             
             res.json(items);
         } catch (error) {
-            console.error(error);
-            if (isIntegrityInconsistencyError(error)) {
-                return res.status(409).json({ error: getErrorMessage(error, 'Inconsistencia de integridad en consumos') });
-            }
-            res.status(500).json({ error: getErrorMessage(error, 'Error al obtener los consumos') });
+            return sendAppError(res, error, 'Error al obtener los consumos');
         }
     }
 
@@ -836,7 +1854,7 @@ export class BookingController {
             const paramId = req.params.id || req.params.bookingId;
             const bodyParsed = addItemSchema.safeParse(req.body);
             if (!bodyParsed.success) {
-                return res.status(400).json({ error: bodyParsed.error.format() });
+                return sendZodControllerError(res, bodyParsed.error, 'Revisá los campos marcados.');
             }
             const { productId, quantity, paymentMethod, applyDiscount } = bodyParsed.data;
             const rawBookingId = paramId ?? bodyParsed.data.bookingId;
@@ -862,12 +1880,8 @@ export class BookingController {
 
             return res.json(newItem);
 
-    } catch (error: any) { // 👇 Le ponemos 'any' para poder leer el mensaje
-        console.error("❌ Error en addItem:", error);
-        // Devolvemos el error real para verlo en el frontend
-        return res.status(500).json({ 
-            error: "Error al agregar item: " + (error.message || "Desconocido") 
-        });
+    } catch (error: any) {
+        return sendAppError(res, error, 'Error al agregar item');
     }
 }
 
@@ -882,7 +1896,7 @@ export class BookingController {
             const paramId = req.params.id || req.params.bookingId;
             const bodyParsed = schema.safeParse(req.body);
             if (!bodyParsed.success) {
-                return res.status(400).json({ error: bodyParsed.error.format() });
+                return sendZodControllerError(res, bodyParsed.error, 'Revisá los campos marcados.');
             }
             const rawBookingId = paramId;
             const bookingId = Number(rawBookingId);
@@ -903,8 +1917,7 @@ export class BookingController {
             );
             return res.json(result);
         } catch (error: any) {
-            const message = String(error?.message || 'Error al cotizar consumo');
-            return res.status(400).json({ error: message });
+            return sendAppError(res, error, 'Error al cotizar consumo');
         }
     }
 
@@ -921,254 +1934,175 @@ export class BookingController {
             
             res.json({ message: 'Consumo eliminado y stock devuelto' });
         } catch (error: any) {
-            console.error(error);
-            const message = String(error?.message || '');
-            const known =
-                message.includes('Item no encontrado') ||
-                message.includes('No tienes acceso') ||
-                message.includes('cuentas abiertas') ||
-                message.includes('cancha no se puede eliminar') ||
-                message.includes('pagos asociados') ||
-                message.includes('sobrepagada');
-            res.status(known ? 400 : 500).json({ error: message || 'Error al eliminar el consumo' });
+            return sendAppError(res, error, 'Error al eliminar el consumo');
         }
     }
 
     getDashboardStats = async (req: Request, res: Response) => {
-    try {
-        const clubId = Number((req as any).clubId);
-        const { startDate, endDate } = req.query;
-
-        const club = await prisma.club.findUnique({ where: { id: clubId }, include: { settings: true } });
-        const timeZone = String(club?.settings?.timeZone || '').trim();
-        if (!timeZone) {
-            return res.status(400).json({ error: 'Configuración de club inválida: timeZone es obligatorio' });
-        }
-
-        const parseLocalDate = (value: string) => {
-            const [y, m, d] = String(value).split('-').map(Number);
-            if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
-            return new Date(y, m - 1, d);
-        };
-
-        const nowLocal = TimeHelper.utcToLocal(new Date(), timeZone);
-        let startLocal = new Date(nowLocal.getFullYear(), nowLocal.getMonth(), 1);
-        let endLocal = new Date(nowLocal.getFullYear(), nowLocal.getMonth() + 1, 0);
-
-        let start: Date;
-        let end: Date;
-
-        if (startDate && endDate) {
-            const asDateStart = new Date(String(startDate));
-            const asDateEnd = new Date(String(endDate));
-            if (!Number.isNaN(asDateStart.getTime()) && !Number.isNaN(asDateEnd.getTime())) {
-                start = asDateStart;
-                end = asDateEnd;
-            } else {
-                const parsedStart = parseLocalDate(String(startDate));
-                const parsedEnd = parseLocalDate(String(endDate));
-                if (parsedStart && parsedEnd) {
-                    startLocal = parsedStart;
-                    endLocal = parsedEnd;
-                }
-                const rangeStart = TimeHelper.getUtcRangeForLocalDate(startLocal, timeZone);
-                const rangeEnd = TimeHelper.getUtcRangeForLocalDate(endLocal, timeZone);
-                start = rangeStart.startUtc;
-                end = rangeEnd.endUtc;
-            }
-        } else {
-            const rangeStart = TimeHelper.getUtcRangeForLocalDate(startLocal, timeZone);
-            const rangeEnd = TimeHelper.getUtcRangeForLocalDate(endLocal, timeZone);
-            start = rangeStart.startUtc;
-            end = rangeEnd.endUtc;
-        }
-
-        let dailyRows: Array<{ day: string; turnos: number; bar: number }> = [];
         try {
-            dailyRows = await prisma.$queryRaw<Array<{ day: string; turnos: number; bar: number }>>`
-                WITH payments AS (
-                    SELECT p."id",
-                           p."createdAt",
-                           p."amount",
-                           a."sourceType"::text AS "sourceType"
-                    FROM "Payment" p
-                    JOIN "Account" a ON a."id" = p."accountId"
-                    WHERE a."clubId" = ${clubId}
-                      AND p."createdAt" >= ${start}
-                      AND p."createdAt" <= ${end}
-                ),
-                alloc AS (
-                    SELECT pa."paymentId",
-                           COALESCE(SUM(CASE WHEN ai."type" = 'BOOKING' THEN pa."amount" ELSE 0 END), 0)::float8 AS booking_amount,
-                           COALESCE(SUM(CASE WHEN ai."type" = 'BOOKING' THEN 0 ELSE pa."amount" END), 0)::float8 AS bar_amount
-                    FROM "PaymentAllocation" pa
-                    JOIN "AccountItem" ai ON ai."id" = pa."accountItemId"
-                    GROUP BY pa."paymentId"
-                )
-                SELECT
-                  to_char(day, 'DD/MM') AS day,
-                  COALESCE(SUM(COALESCE(booking_amount, CASE WHEN "sourceType" = 'BOOKING' THEN amount ELSE 0 END)), 0)::float8 AS turnos,
-                  COALESCE(SUM(COALESCE(bar_amount, CASE WHEN "sourceType" = 'BAR' THEN amount ELSE 0 END)), 0)::float8 AS bar
-                FROM (
-                  SELECT
-                    DATE(timezone(${timeZone}::text, p."createdAt")) AS day,
-                    p."amount" AS amount,
-                    p."sourceType" AS "sourceType",
-                    a.booking_amount,
-                    a.bar_amount
-                  FROM payments p
-                  LEFT JOIN alloc a ON a."paymentId" = p."id"
-                ) t
-                GROUP BY day
-                ORDER BY day ASC
-            `;
-        } catch (error: any) {
-            const message = String(error?.message || '');
-            if (!message.includes('PaymentAllocation') && !message.includes('42P01')) {
-                throw error;
+            const clubId = Number((req as any).clubId);
+            const schema = z.object({
+                startDate: z.string().trim().optional(),
+                endDate: z.string().trim().optional()
+            });
+            const parsed = schema.safeParse(req.query);
+            if (!parsed.success) {
+                return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
             }
-            dailyRows = await prisma.$queryRaw<Array<{ day: string; turnos: number; bar: number }>>`
-                SELECT
-                  to_char(day, 'DD/MM') AS day,
-                  COALESCE(SUM(CASE WHEN LOWER(concept) LIKE '%producto%' THEN 0 ELSE amount END), 0)::float8 AS turnos,
-                  COALESCE(SUM(CASE WHEN LOWER(concept) LIKE '%producto%' THEN amount ELSE 0 END), 0)::float8 AS bar
-                FROM (
-                  SELECT
-                    DATE(timezone(${timeZone}::text, "createdAt")) AS day,
-                    "amount" AS amount,
-                    "concept" AS concept
-                  FROM "CashMovement"
-                  WHERE "clubId" = ${clubId}
-                    AND "type" = 'PAYMENT_IN'::"CashMovementPosType"
-                    AND "createdAt" >= ${start}
-                    AND "createdAt" <= ${end}
-                ) t
-                GROUP BY day
-                ORDER BY day ASC
-            `;
+
+            const report = await this.reportsService.getAdminDashboardReport(
+                clubId,
+                parsed.data.startDate,
+                parsed.data.endDate
+            );
+
+            return res.json(report);
+        } catch (error) {
+            return sendAppError(res, error, 'No se pudieron cargar los informes.');
         }
-
-        const [methodRows, playedBookings] = await Promise.all([
-            prisma.$queryRaw<Array<{ method: string; value: number }>>`
-                SELECT
-                  "method"::text AS method,
-                  COALESCE(SUM("amount"), 0)::float8 AS value
-                FROM "CashMovement"
-                WHERE "clubId" = ${clubId}
-                  AND "type" = 'PAYMENT_IN'::"CashMovementPosType"
-                  AND "createdAt" >= ${start}
-                  AND "createdAt" <= ${end}
-                GROUP BY "method"
-            `,
-            prisma.booking.count({
-                where: {
-                    clubId,
-                    startDateTime: { gte: start, lte: end },
-                    status: 'COMPLETED' 
-                }
-            })
-        ]);
-
-        const productAllRows = await prisma.$queryRaw<Array<{
-            productId: number;
-            name: string | null;
-            quantity: number;
-            revenue: number;
-        }>>`
-            WITH sales AS (
-              SELECT
-                ai."productId"::int AS "productId",
-                COALESCE(SUM(ai."quantity"), 0)::int AS quantity,
-                COALESCE(SUM(ai."total"), 0)::float8 AS revenue
-              FROM "AccountItem" ai
-              JOIN "Account" a ON a."id" = ai."accountId"
-              WHERE a."clubId" = ${clubId}
-                AND ai."type" = 'PRODUCT'::"AccountItemType"
-                AND ai."createdAt" >= ${start}
-                AND ai."createdAt" <= ${end}
-                AND ai."productId" IS NOT NULL
-              GROUP BY ai."productId"
-            )
-            SELECT
-              p."id"::int AS "productId",
-              p."name"::text AS name,
-              COALESCE(s.quantity, 0)::int AS quantity,
-              COALESCE(s.revenue, 0)::float8 AS revenue
-            FROM "Product" p
-            LEFT JOIN sales s ON s."productId" = p."id"
-            WHERE p."clubId" = ${clubId}
-              AND p."isActive" = true
-            ORDER BY quantity DESC, revenue DESC, p."name" ASC
-        `;
-
-        const productsTop = productAllRows.slice(0, 12);
-        const productsBottom = [...productAllRows]
-            .sort((a, b) => {
-                const qa = Number(a.quantity || 0);
-                const qb = Number(b.quantity || 0);
-                if (qa !== qb) return qa - qb;
-                const ra = Number(a.revenue || 0);
-                const rb = Number(b.revenue || 0);
-                if (ra !== rb) return ra - rb;
-                return String(a.name || '').localeCompare(String(b.name || ''), 'es', { sensitivity: 'base' });
-            })
-            .slice(0, 12);
-        const productsUnsold = productAllRows.filter((row) => Number(row.quantity || 0) <= 0);
-        const productsUnsoldTop = productsUnsold
-            .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es', { sensitivity: 'base' }))
-            .slice(0, 12);
-
-        const dailyEvolution = dailyRows.map((row) => ({
-            day: String(row.day || ''),
-            turnos: Number(row.turnos || 0),
-            bar: Number(row.bar || 0)
-        }));
-
-        const totalTurnos = dailyEvolution.reduce((sum, row) => sum + Number(row.turnos || 0), 0);
-        const totalBar = dailyEvolution.reduce((sum, row) => sum + Number(row.bar || 0), 0);
-        const productsRevenueAll = productAllRows.reduce((sum, row) => sum + Number(row.revenue || 0), 0);
-        const productsQuantityAll = productAllRows.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
-        const productsRevenueTop = productsTop.reduce((sum, row) => sum + Number(row.revenue || 0), 0);
-        const productsQuantityTop = productsTop.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
-
-        res.json({
-            totalRevenue: totalTurnos + totalBar,
-            totalBookings: playedBookings,
-            dailyEvolution: dailyEvolution,
-            paymentMethods: methodRows.map((row) => ({
-                name: row.method,
-                value: Number(row.value || 0)
-            })),
-            products: {
-                totals: {
-                    quantityAll: productsQuantityAll,
-                    revenueAll: productsRevenueAll,
-                    quantityTop: productsQuantityTop,
-                    revenueTop: productsRevenueTop,
-                    unsoldCount: productsUnsold.length
-                },
-                top: productsTop.map((row) => ({
-                    productId: row.productId,
-                    name: row.name || 'Producto',
-                    quantity: Number(row.quantity || 0),
-                    revenue: Number(row.revenue || 0)
-                })),
-                bottom: productsBottom.map((row) => ({
-                    productId: row.productId,
-                    name: row.name || 'Producto',
-                    quantity: Number(row.quantity || 0),
-                    revenue: Number(row.revenue || 0)
-                })),
-                unsold: productsUnsoldTop.map((row) => ({
-                    productId: row.productId,
-                    name: row.name || 'Producto'
-                }))
-            }
-        });
-
-    } catch (error) {
-        console.error("Error:", error);
-        res.status(500).json({ error: "Error al calcular estadísticas" });
     }
-}
+
+    // Commit 3 — PATCH /admin/bookings/:id/client
+    // Cambia el titular (clientId) de una reserva de forma explícita.
+    // Solo OWNER/ADMIN. Bloqueado si existen pagos o devoluciones.
+    changeBookingClient = async (req: Request, res: Response) => {
+        try {
+            const optionalTrimmedString = (minLength?: number) =>
+                z.preprocess(
+                    (v) => {
+                        if (typeof v !== 'string') return v;
+                        const trimmed = v.trim();
+                        return trimmed.length === 0 ? undefined : trimmed;
+                    },
+                    minLength ? z.string().min(minLength).optional() : z.string().optional()
+                );
+
+            const bookingId = Number(req.params.id);
+            if (!Number.isInteger(bookingId) || bookingId <= 0) {
+                return res.status(400).json({ error: 'bookingId inválido' });
+            }
+
+            const clubId = Number((req as any).clubId);
+            if (!Number.isInteger(clubId) || clubId <= 0) {
+                return res.status(400).json({ error: 'Club inválido' });
+            }
+
+            const actorUserId = Number((req as any).user?.userId);
+            if (!Number.isInteger(actorUserId) || actorUserId <= 0) {
+                return res.status(401).json({ error: 'No autenticado' });
+            }
+
+            const schema = z.object({
+                newClientId: optionalTrimmedString(),
+                newClient: z.object({
+                    name: optionalTrimmedString(2),
+                    phone: optionalTrimmedString(),
+                    email: z.preprocess(
+                        (v) => {
+                            if (typeof v !== 'string') return v;
+                            const trimmed = v.trim();
+                            return trimmed.length === 0 ? undefined : trimmed;
+                        },
+                        z.string().email().optional()
+                    ),
+                    dni: optionalTrimmedString(),
+                    duplicateResolution: z.enum(['CREATE_NEW']).optional()
+                }).optional(),
+                ownerSelection: z.discriminatedUnion('kind', [
+                    z.object({
+                        kind: z.literal('linked'),
+                        userId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                        personKey: optionalTrimmedString(2),
+                        searchQuery: optionalTrimmedString(2),
+                    }),
+                    z.object({
+                        kind: z.literal('systemUser'),
+                        userId: z.preprocess((v) => Number(v), z.number().int().positive()),
+                        personKey: optionalTrimmedString(2),
+                        searchQuery: optionalTrimmedString(2),
+                    }),
+                    z.object({
+                        kind: z.literal('newClient'),
+                        name: optionalTrimmedString(2),
+                        phone: optionalTrimmedString(),
+                        email: z.preprocess(
+                            (v) => {
+                                if (typeof v !== 'string') return v;
+                                const trimmed = v.trim();
+                                return trimmed.length === 0 ? undefined : trimmed;
+                            },
+                            z.string().email().optional()
+                        ),
+                        dni: optionalTrimmedString(),
+                        duplicateResolution: z.enum(['CREATE_NEW']).optional()
+                    })
+                ]).optional(),
+                reason: optionalTrimmedString(),
+            });
+
+            const parsed = schema.safeParse(req.body ?? {});
+            if (!parsed.success) {
+                return sendControllerAppError(res, {
+                    statusCode: 400,
+                    code: ErrorCodes.VALIDATION_ERROR,
+                    message: 'Revisá los campos marcados.',
+                    fieldErrors: { owner: 'Seleccioná una persona válida para continuar.' }
+                });
+            }
+
+            let { newClientId, newClient, ownerSelection, reason } = parsed.data;
+            newClientId = String(newClientId || '').trim();
+            if (ownerSelection?.kind === 'newClient') {
+                newClient = {
+                    name: ownerSelection.name,
+                    phone: ownerSelection.phone,
+                    email: ownerSelection.email,
+                    dni: ownerSelection.dni,
+                    duplicateResolution: ownerSelection.duplicateResolution
+                };
+            }
+            const ownerUserSelection =
+                ownerSelection?.kind === 'linked' || ownerSelection?.kind === 'systemUser'
+                    ? {
+                        userId: Number(ownerSelection.userId),
+                        personKey: sanitizeString(String(ownerSelection.personKey || ''), 255),
+                        searchQuery: sanitizeString(String(ownerSelection.searchQuery || ''), 255)
+                    }
+                    : null;
+
+            if (!newClientId && !ownerUserSelection && !String(newClient?.name || '').trim()) {
+                return sendControllerAppError(res, {
+                    statusCode: 400,
+                    code: ErrorCodes.VALIDATION_ERROR,
+                    message: 'Revisá los campos marcados.',
+                    fieldErrors: { owner: 'Seleccioná una persona válida para continuar.' }
+                });
+            }
+
+            const updated = await this.bookingService.changeBookingClient({
+                bookingId,
+                newClientId: newClientId || null,
+                newClientDraft: newClient
+                    ? {
+                        name: sanitizeString(String(newClient.name || ''), 200),
+                        phone: newClient.phone ? sanitizeString(newClient.phone, 30) : undefined,
+                        email: newClient.email ? sanitizeString(newClient.email, 254) : undefined,
+                        dni: newClient.dni ? sanitizeString(newClient.dni, 20) : undefined,
+                        duplicateResolution: newClient.duplicateResolution ?? undefined
+                    }
+                    : null,
+                ownerUserSelection,
+                actorUserId,
+                clubId,
+                reason: reason || null
+            });
+
+            return res.json({
+                message: 'Titular actualizado correctamente',
+                booking: updated
+            });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No se pudo cambiar el titular');
+        }
+    }
 }

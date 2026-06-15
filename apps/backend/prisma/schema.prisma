@@ -32,10 +32,28 @@ enum BookingStatus {
   COMPLETED
 }
 
+enum BookingParticipantStatus {
+  INVITED
+  JOINED
+  DECLINED
+  LEFT
+  REMOVED
+}
+
+enum BookingParticipantRole {
+  ORGANIZER
+  PARTICIPANT
+}
+
 enum BookingConfirmationMode {
   AUTOMATIC
   MANUAL
   DEPOSIT_REQUIRED
+}
+
+enum ChargeMode {
+  INDIVIDUAL
+  SHARED
 }
 
 enum ClubOperationalStatus {
@@ -60,6 +78,8 @@ enum AccountSource {
   BAR
   TABLE
   MANUAL
+  CLASS_PASS
+  CLASS_ENROLLMENT
 }
 
 enum AccountStatus {
@@ -85,6 +105,27 @@ enum PaymentSource {
   POS
   ONLINE
   BACKOFFICE
+}
+
+enum PaymentProvider {
+  MERCADO_PAGO
+}
+
+enum PaymentIntegrationStatus {
+  CONNECTED
+  DISCONNECTED
+  EXPIRED
+  ERROR
+}
+
+enum OnlinePaymentAttemptStatus {
+  CREATED
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  EXPIRED
+  ERROR
 }
 
 enum PaymentChannel {
@@ -115,6 +156,8 @@ enum LedgerReferenceType {
   PAYMENT
   REFUND
   BOOKING
+  CLASS_PASS
+  CLASS_ENROLLMENT
   MANUAL
 }
 
@@ -131,6 +174,7 @@ enum LedgerAccount {
   ACCOUNTS_RECEIVABLE
   BOOKING_REVENUE
   BAR_REVENUE
+  ACADEMY_REVENUE
   ADJUSTMENTS
   EXPENSE
 }
@@ -152,6 +196,57 @@ enum OutboxStatus {
   PROCESSING
   SENT
   FAILED
+}
+
+enum NotificationRecipientRole {
+  CUSTOMER
+  CLUB_STAFF
+}
+
+enum NotificationEventType {
+  BOOKING_CREATED
+  BOOKING_CANCELLED
+  BOOKING_PENDING_WARNING
+}
+
+enum WhatsappSenderMode {
+  PIQUE_DEFAULT
+  CLUB_OWN
+}
+
+enum WhatsappProvider {
+  META_CLOUD_API
+  WHATSAPP_WEB_LEGACY
+}
+
+enum WhatsappSenderStatus {
+  ACTIVE
+  DISABLED
+  PENDING_SETUP
+  ERROR
+}
+
+enum WhatsappTemplateStatus {
+  ACTIVE
+  DISABLED
+  PENDING_APPROVAL
+  REJECTED
+}
+
+enum WhatsappTemplateCategory {
+  UTILITY
+  MARKETING
+  AUTHENTICATION
+}
+
+enum WhatsappDeliveryStatus {
+  QUEUED
+  ACCEPTED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  SKIPPED
 }
 
 enum RefundStatus {
@@ -208,6 +303,78 @@ enum AuthSessionStatus {
   EXPIRED
 }
 
+enum UserOAuthProvider {
+  GOOGLE
+  APPLE
+  FACEBOOK
+}
+
+enum ClientRelationshipType {
+  PARENT
+  GUARDIAN
+  CHILD
+  PAYER
+  FAMILY_MEMBER
+  EMERGENCY_CONTACT
+  OTHER
+}
+
+enum ClassSessionVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum ClassSessionType {
+  INDIVIDUAL
+  GROUP
+}
+
+enum ClassSessionStatus {
+  DRAFT
+  SCHEDULED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+enum ClassEnrollmentStatus {
+  ENROLLED
+  WAITLISTED
+  CANCELLED
+}
+
+enum ClassAttendanceStatus {
+  PENDING
+  ATTENDED
+  ABSENT
+  NO_SHOW
+  CANCELLED_ON_TIME
+  CANCELLED_LATE
+}
+
+enum ClassEnrollmentPaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  COVERED_BY_CREDIT
+  REFUNDED
+}
+
+enum ClassPassStatus {
+  ACTIVE
+  EXPIRED
+  DEPLETED
+  CANCELLED
+}
+
+enum ClassCreditUsageReason {
+  ATTENDANCE
+  LATE_CANCEL
+  NO_SHOW
+  MANUAL_ADJUSTMENT
+  REFUND_REVERSAL
+}
+
 //
 // MODELOS
 //
@@ -225,6 +392,12 @@ model User {
   dni       String?
 
   bookings      Booking[]
+  bookingHistoryEntries BookingHistoryEntry[] @relation("BookingHistoryActor")
+  bookingParticipants BookingParticipant[]
+  bookingParticipantInvitationsSent BookingParticipant[] @relation("BookingParticipantInvitedBy")
+  paymentIntegrationsConnected ClubPaymentIntegration[] @relation("ClubPaymentIntegrationConnectedBy")
+  paymentProviderOAuthStates PaymentProviderOAuthState[]
+  onlinePaymentAttempts OnlinePaymentAttempt[]
   clients       Client[]
   fixedBookings FixedBooking[]
   memberships   Membership[]
@@ -246,6 +419,15 @@ model User {
   duplicateIncidents ClientDuplicateIncident[] @relation("DuplicateIncidentUser")
   duplicateIncidentsResolved ClientDuplicateIncident[] @relation("DuplicateIncidentResolvedBy")
   sessions      AuthSession[]
+  oauthIdentities UserOAuthIdentity[]
+  teacherProfiles Teacher[]
+  academyClassSessionsCreated ClassSession[] @relation("ClassSessionCreatedByUser")
+  academyStudentEnrollments ClassEnrollment[] @relation("ClassEnrollmentStudentUser")
+  academyClassEnrollmentsCreated ClassEnrollment[] @relation("ClassEnrollmentCreatedByUser")
+  academyOwnedClassPasses ClassPass[] @relation("ClassPassOwnerUser")
+  academyBeneficiaryClassPasses ClassPass[] @relation("ClassPassBeneficiaryUser")
+  academyClassPassesCreated ClassPass[] @relation("ClassPassCreatedByUser")
+  academyClassCreditUsagesCreated ClassCreditUsage[] @relation("ClassCreditUsageCreatedByUser")
 }
 
 model MagicLoginToken {
@@ -286,6 +468,24 @@ model AuthSession {
   @@index([userId, status])
   @@index([familyId])
   @@index([expiresAt])
+}
+
+model UserOAuthIdentity {
+  id                    String            @id @default(cuid())
+  userId                Int
+  user                  User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider              UserOAuthProvider
+  providerUserId        String
+  providerEmail         String?
+  providerEmailVerified Boolean           @default(false)
+  profilePhotoUrl       String?
+  linkedAt              DateTime          @default(now()) @db.Timestamptz(3)
+  lastLoginAt           DateTime          @default(now()) @db.Timestamptz(3)
+  createdAt             DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime          @updatedAt @db.Timestamptz(3)
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
 }
 
 model Club {
@@ -331,6 +531,8 @@ model Club {
   auditLogs     AuditLog[]
   events        Event[]
   outboxMessages OutboxMessage[]
+  whatsappSenders WhatsappSender[]
+  whatsappDeliveries WhatsappDelivery[]
   cashRegisters CashRegister[]
   cashShifts    CashShift[]
   ledgerEntries LedgerEntry[]
@@ -342,6 +544,16 @@ model Club {
   reviews       ClubReview[]
   favorites     ClubFavorite[]
   duplicateIncidents ClientDuplicateIncident[]
+  paymentIntegrations ClubPaymentIntegration[]
+  paymentProviderOAuthStates PaymentProviderOAuthState[]
+  onlinePaymentAttempts OnlinePaymentAttempt[]
+  bookingHistoryEntries BookingHistoryEntry[]
+  teachers      Teacher[]
+  clientRelationships ClientRelationship[]
+  classSessions ClassSession[]
+  classEnrollments ClassEnrollment[]
+  classPasses ClassPass[]
+  classCreditUsages ClassCreditUsage[]
 }
 
 model ClubFavorite {
@@ -371,6 +583,47 @@ model Membership {
   @@unique([userId, clubId])
   @@index([clubId])
   @@index([userId])
+}
+
+model ClubPaymentIntegration {
+  id              String                   @id @default(cuid())
+  clubId          Int
+  club            Club                     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  provider        PaymentProvider
+  status          PaymentIntegrationStatus @default(DISCONNECTED)
+  accessTokenEnc  String?
+  refreshTokenEnc String?
+  publicKey       String?
+  externalUserId  String?
+  expiresAt       DateTime?                @db.Timestamptz(3)
+  connectedById   Int?
+  connectedBy     User?                    @relation("ClubPaymentIntegrationConnectedBy", fields: [connectedById], references: [id], onDelete: SetNull)
+  disconnectedAt  DateTime?                @db.Timestamptz(3)
+  createdAt       DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime                 @updatedAt @db.Timestamptz(3)
+
+  onlinePaymentAttempts OnlinePaymentAttempt[]
+  oauthStates          PaymentProviderOAuthState[]
+
+  @@unique([clubId, provider])
+  @@index([provider, status])
+}
+
+model PaymentProviderOAuthState {
+  id            String          @id @default(cuid())
+  clubId        Int
+  club          Club            @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  provider      PaymentProvider
+  userId        Int
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  integrationId String?
+  integration   ClubPaymentIntegration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+  nonce         String          @unique
+  expiresAt     DateTime        @db.Timestamptz(3)
+  consumedAt    DateTime?       @db.Timestamptz(3)
+  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
+
+  @@index([clubId, provider, expiresAt])
 }
 
 model Location {
@@ -404,6 +657,7 @@ model Court {
   bookings      Booking[]
   fixedBookings FixedBooking[]
   priceRules    CourtPriceRule[]
+  classSessions ClassSession[]
 
   @@index([clubId])
 }
@@ -451,6 +705,8 @@ model ActivityType {
   bookings               Booking[]
   fixedBookings          FixedBooking[]
   discountTargets        DiscountPolicyTarget[]
+  classSessions          ClassSession[]
+  classPasses            ClassPass[]
 
   @@index([clubId])
 }
@@ -497,18 +753,26 @@ model Client {
   updatedAt DateTime @updatedAt
 
   bookings  Booking[]
+  bookingParticipants BookingParticipant[]
   fixedBookings FixedBooking[]
   discountAssignments ClientDiscountAssignment[]
   accountItemDiscounts AccountItemDiscount[]
   duplicateIncidentsPrimary ClientDuplicateIncident[] @relation("DuplicateIncidentPrimaryClient")
   duplicateIncidentsResolvedTarget ClientDuplicateIncident[] @relation("DuplicateIncidentResolvedClient")
+  accounts      Account[]
+  teacherProfiles Teacher[]
+  outgoingClientRelationships ClientRelationship[] @relation("ClientRelationshipFromClient")
+  incomingClientRelationships ClientRelationship[] @relation("ClientRelationshipToClient")
+  studentClassEnrollments ClassEnrollment[] @relation("ClassEnrollmentStudentClient")
+  billingResponsibleClassEnrollments ClassEnrollment[] @relation("ClassEnrollmentBillingResponsibleClient")
+  ownedClassPasses ClassPass[] @relation("ClassPassOwnerClient")
+  beneficiaryClassPasses ClassPass[] @relation("ClassPassBeneficiaryClient")
 
   @@index([clubId])
   @@index([userId])
-  @@unique([clubId, email])
-  @@unique([clubId, phone])
+  @@index([clubId, email])
+  @@index([clubId, phone])
   @@index([clubId, dni])
-  @@unique([clubId, dni])
   @@unique([clubId, userId])
 }
 
@@ -552,6 +816,236 @@ model ClientDuplicateIncident {
   @@index([clubId, dedupeKey, status])
 }
 
+model Teacher {
+  id        String   @id @default(cuid())
+  clubId    Int
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clientId  String?
+  client    Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  displayName String
+  email       String?
+  phone       String?
+  isInternal  Boolean @default(false)
+  isActive    Boolean @default(true)
+  specialtiesJson Json?
+  notes       String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  classSessions ClassSession[]
+  classPasses   ClassPass[]
+
+  @@index([clubId, isActive, displayName])
+  @@index([clientId])
+  @@index([userId])
+  @@unique([clubId, clientId])
+  @@unique([clubId, userId])
+}
+
+model ClientRelationship {
+  id        String @id @default(cuid())
+  clubId    Int
+  club      Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  fromClientId String
+  fromClient   Client @relation("ClientRelationshipFromClient", fields: [fromClientId], references: [id], onDelete: Cascade)
+  toClientId   String
+  toClient     Client @relation("ClientRelationshipToClient", fields: [toClientId], references: [id], onDelete: Cascade)
+
+  relationshipType ClientRelationshipType
+  canPayFor            Boolean @default(false)
+  canManageEnrollments Boolean @default(false)
+  canViewSchedule      Boolean @default(false)
+  canCancelClass       Boolean @default(false)
+  canViewPayments      Boolean @default(false)
+  notes                String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([clubId, fromClientId])
+  @@index([clubId, toClientId])
+  @@index([clubId, relationshipType])
+  @@unique([clubId, fromClientId, toClientId, relationshipType])
+}
+
+model ClassSession {
+  id        String @id @default(cuid())
+  clubId    Int
+  club      Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  teacherId String
+  teacher   Teacher @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+
+  visibility ClassSessionVisibility
+  classType  ClassSessionType
+
+  activityTypeId Int?
+  activityType   ActivityType? @relation(fields: [activityTypeId], references: [id], onDelete: SetNull)
+
+  courtId Int?
+  court   Court? @relation(fields: [courtId], references: [id], onDelete: SetNull)
+
+  startsAt        DateTime @db.Timestamptz(3)
+  endsAt          DateTime @db.Timestamptz(3)
+  durationMinutes Int
+  capacity        Int
+  pricePerStudent Decimal? @db.Decimal(10, 2)
+  status          ClassSessionStatus @default(SCHEDULED)
+  level           String?
+  description     String?
+  requiresApproval Boolean @default(false)
+  requiresPaymentToEnroll Boolean @default(false)
+
+  createdByUserId Int
+  createdByUser   User @relation("ClassSessionCreatedByUser", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  metadataJson Json?
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+
+  enrollments ClassEnrollment[]
+
+  @@index([clubId, startsAt])
+  @@index([clubId, status])
+  @@index([clubId, teacherId, startsAt])
+  @@index([clubId, courtId, startsAt])
+  @@index([clubId, visibility, classType])
+}
+
+model ClassEnrollment {
+  id        String @id @default(cuid())
+  clubId    Int
+  club      Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  classSessionId String
+  classSession   ClassSession @relation(fields: [classSessionId], references: [id], onDelete: Cascade)
+
+  studentClientId String
+  studentClient   Client @relation("ClassEnrollmentStudentClient", fields: [studentClientId], references: [id], onDelete: Restrict)
+
+  studentUserId Int?
+  studentUser   User? @relation("ClassEnrollmentStudentUser", fields: [studentUserId], references: [id], onDelete: SetNull)
+
+  billingResponsibleClientId String?
+  billingResponsibleClient   Client? @relation("ClassEnrollmentBillingResponsibleClient", fields: [billingResponsibleClientId], references: [id], onDelete: SetNull)
+
+  snapshotName  String
+  snapshotEmail String?
+  snapshotPhone String?
+
+  priceAtEnrollment Decimal @default(0) @db.Decimal(10, 2)
+  paidAmount        Decimal @default(0) @db.Decimal(10, 2)
+  enrollmentStatus  ClassEnrollmentStatus @default(ENROLLED)
+  attendanceStatus  ClassAttendanceStatus @default(PENDING)
+  paymentStatus     ClassEnrollmentPaymentStatus @default(UNPAID)
+
+  cancelledAt DateTime? @db.Timestamptz(3)
+  attendedAt  DateTime? @db.Timestamptz(3)
+  notes       String?
+
+  createdByUserId Int
+  createdByUser   User @relation("ClassEnrollmentCreatedByUser", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  creditUsages ClassCreditUsage[]
+
+  @@index([clubId, classSessionId])
+  @@index([clubId, studentClientId])
+  @@index([clubId, billingResponsibleClientId])
+  @@index([classSessionId, enrollmentStatus])
+  @@index([classSessionId, attendanceStatus])
+  @@index([classSessionId, paymentStatus])
+}
+
+model ClassPass {
+  id        String @id @default(cuid())
+  clubId    Int
+  club      Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  ownerClientId String
+  ownerClient   Client @relation("ClassPassOwnerClient", fields: [ownerClientId], references: [id], onDelete: Restrict)
+
+  ownerUserId Int?
+  ownerUser   User? @relation("ClassPassOwnerUser", fields: [ownerUserId], references: [id], onDelete: SetNull)
+
+  beneficiaryClientId String
+  beneficiaryClient   Client @relation("ClassPassBeneficiaryClient", fields: [beneficiaryClientId], references: [id], onDelete: Restrict)
+
+  beneficiaryUserId Int?
+  beneficiaryUser   User? @relation("ClassPassBeneficiaryUser", fields: [beneficiaryUserId], references: [id], onDelete: SetNull)
+
+  packageName      String
+  priceAtPurchase  Decimal? @db.Decimal(10, 2)
+  totalCredits     Int
+  usedCredits      Int @default(0)
+  remainingCredits Int
+  expiresAt        DateTime? @db.Timestamptz(3)
+
+  activityTypeId Int?
+  activityType   ActivityType? @relation(fields: [activityTypeId], references: [id], onDelete: SetNull)
+
+  classType ClassSessionType?
+
+  teacherId String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+
+  transferable Boolean @default(false)
+  status       ClassPassStatus @default(ACTIVE)
+  purchasedAt  DateTime @default(now()) @db.Timestamptz(3)
+  notes        String?
+
+  createdByUserId Int
+  createdByUser   User @relation("ClassPassCreatedByUser", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  usages ClassCreditUsage[]
+
+  @@index([clubId, status])
+  @@index([clubId, ownerClientId])
+  @@index([clubId, beneficiaryClientId])
+  @@index([clubId, expiresAt])
+  @@index([clubId, activityTypeId])
+  @@index([clubId, teacherId])
+  @@index([beneficiaryClientId, status, expiresAt])
+}
+
+model ClassCreditUsage {
+  id        String @id @default(cuid())
+  clubId    Int
+  club      Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  classPassId String
+  classPass   ClassPass @relation(fields: [classPassId], references: [id], onDelete: Cascade)
+
+  classEnrollmentId String
+  classEnrollment   ClassEnrollment @relation(fields: [classEnrollmentId], references: [id], onDelete: Restrict)
+
+  creditsUsed Int
+  usedAt      DateTime @default(now()) @db.Timestamptz(3)
+  reason      ClassCreditUsageReason
+  notes       String?
+
+  createdByUserId Int
+  createdByUser   User @relation("ClassCreditUsageCreatedByUser", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([classPassId, classEnrollmentId])
+  @@index([clubId, classPassId, usedAt])
+  @@index([clubId, classEnrollmentId, usedAt])
+  @@index([clubId, reason, usedAt])
+}
+
 model Booking {
   id              Int           @id @default(autoincrement())
   displayCode     String?       @unique
@@ -588,6 +1082,10 @@ model Booking {
 
   fixedBookingId Int?
   fixedBooking   FixedBooking? @relation(fields: [fixedBookingId], references: [id])
+  billingConfig  BookingBillingConfig?
+  participants   BookingParticipant[]
+  historyEntries BookingHistoryEntry[]
+  onlinePaymentAttempts OnlinePaymentAttempt[]
   reviews        ClubReview[]
 
   @@index([courtId, startDateTime], map: "booking_court_day")
@@ -596,6 +1094,56 @@ model Booking {
   @@index([activityId, startDateTime], map: "booking_activity_day")
   @@index([startDateTime])
   @@index([status, startDateTime, autoCancelledAt], map: "booking_pending_autocancel_idx")
+}
+
+model BookingParticipant {
+  id              String                   @id @default(cuid())
+  bookingId       Int
+  booking         Booking                  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  clientId        String?
+  client          Client?                  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  userId          Int?
+  user            User?                    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  displayName     String?
+  email           String?
+  phone           String?
+  invitedEmail    String?
+  invitedName     String?
+  status          BookingParticipantStatus @default(INVITED)
+  role            BookingParticipantRole   @default(PARTICIPANT)
+  invitedByUserId Int?
+  invitedByUser   User?                    @relation("BookingParticipantInvitedBy", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  historyEntries  BookingHistoryEntry[]
+  acceptedAt      DateTime?                @db.Timestamptz(3)
+  declinedAt      DateTime?                @db.Timestamptz(3)
+  leftAt          DateTime?                @db.Timestamptz(3)
+  removedAt       DateTime?                @db.Timestamptz(3)
+  createdAt       DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime                 @updatedAt @db.Timestamptz(3)
+
+  @@unique([bookingId, userId])
+  @@index([bookingId, status])
+  @@index([bookingId, role])
+  @@index([clientId])
+  @@index([userId, status])
+  @@index([invitedEmail, status])
+}
+
+model BookingBillingConfig {
+  id                   String    @id @default(cuid())
+  bookingId            Int       @unique
+  booking              Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  clubId               Int
+  chargeMode           ChargeMode
+  chargeResponsibleRef String?
+  assignmentsJson      Json
+  metadataJson         Json?
+  createdByUserId      Int?
+  updatedByUserId      Int?
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([clubId])
 }
 
 model ClubReview {
@@ -666,20 +1214,27 @@ model Account {
   totalAmount   Decimal       @default(0) @db.Decimal(10, 2)
   paidAmount    Decimal       @default(0) @db.Decimal(10, 2)
 
+  // Cliente asociado (opcional — principalmente para ventas POS/BAR)
+  clientId      String?
+  client        Client?       @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
   createdAt     DateTime      @default(now()) @db.Timestamptz(3)
   closedAt      DateTime?     @db.Timestamptz(3)
 
   items         AccountItem[]
   payments      Payment[]
+  onlinePaymentAttempts OnlinePaymentAttempt[]
   paymentAllocations PaymentAllocation[]
   refunds       Refund[]
   ledgerEntries LedgerEntry[]
+  bookingHistoryEntries BookingHistoryEntry[]
 
   @@index([clubId])
   @@index([sourceType, sourceId])
   @@index([status, createdAt])
   @@unique([clubId, sourceType, sourceId])
   @@index([idempotencyKey])
+  @@index([clientId])
 }
 
 model AccountItem {
@@ -821,6 +1376,10 @@ model Payment {
   channel   PaymentChannel @default(AUTO)
   collectorAccountLabel String?
   externalReference String?
+  payerParticipantRef String? @db.VarChar(191)
+  payerParticipantName String? @db.VarChar(120)
+  coveredParticipantRef String? @db.VarChar(191)
+  coveredParticipantName String? @db.VarChar(120)
   source    PaymentSource @default(POS)
   idempotencyKey String?
 
@@ -831,13 +1390,17 @@ model Payment {
   cashShift   CashShift? @relation(fields: [cashShiftId], references: [id], onDelete: SetNull)
 
   cashMovement CashMovement?
+  onlinePaymentAttempts OnlinePaymentAttempt[] @relation("OnlinePaymentAttemptPayment")
   allocations  PaymentAllocation[]
   refunds      Refund[]
   ledgerEntries LedgerEntry[]
+  bookingHistoryEntries BookingHistoryEntry[]
 
   @@index([accountId])
   @@index([channel])
   @@index([externalReference])
+  @@index([payerParticipantRef])
+  @@index([coveredParticipantRef])
   @@index([source])
   @@index([cashShiftId])
   @@index([idempotencyKey])
@@ -862,6 +1425,43 @@ model PaymentAllocation {
   @@index([accountItemId, createdAt])
   @@index([paymentId, createdAt])
   @@unique([paymentId, accountItemId])
+}
+
+model OnlinePaymentAttempt {
+  id                   String                     @id @default(cuid())
+  clubId               Int
+  club                 Club                       @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  bookingId            Int
+  booking              Booking                    @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  accountId            String
+  account              Account                    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  userId               Int
+  user                 User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  integrationId        String?
+  integration          ClubPaymentIntegration?    @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+  provider             PaymentProvider
+  status               OnlinePaymentAttemptStatus @default(CREATED)
+  amount               Decimal                    @db.Decimal(10, 2)
+  currency             String
+  idempotencyKey       String
+  externalReference    String                     @unique
+  providerPreferenceId String?
+  providerPaymentId    String?
+  initPoint            String?
+  providerStatus       String?
+  paymentId            String?                    @unique
+  payment              Payment?                   @relation("OnlinePaymentAttemptPayment", fields: [paymentId], references: [id], onDelete: SetNull)
+  failureReason        String?
+  rawProviderData      Json?
+  processedAt          DateTime?                  @db.Timestamptz(3)
+  createdAt            DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime                   @updatedAt @db.Timestamptz(3)
+
+  @@unique([clubId, idempotencyKey])
+  @@index([bookingId, status])
+  @@index([accountId, status])
+  @@index([provider, status])
+  @@index([providerPaymentId])
 }
 
 model LedgerTransaction {
@@ -925,6 +1525,44 @@ model AuditLog {
   @@index([entity, entityId])
 }
 
+model BookingHistoryEntry {
+  id                   String   @id @default(cuid())
+  clubId               Int
+  club                 Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  bookingId            Int
+  booking              Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  actorUserId          Int?
+  actorUser            User?    @relation("BookingHistoryActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorLabel           String?
+  action               String
+  category             String
+  source               String
+  summary              String
+  detail               Json?
+  previousState        Json?
+  nextState            Json?
+  bookingParticipantId String?
+  bookingParticipant   BookingParticipant? @relation(fields: [bookingParticipantId], references: [id], onDelete: SetNull)
+  paymentId            String?
+  payment              Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  accountId            String?
+  account              Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  sourceEventId        String?  @unique
+  idempotencyKey       String?  @unique
+  metadata             Json?
+  occurredAt           DateTime @default(now()) @db.Timestamptz(3)
+  createdAt            DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([clubId, bookingId, occurredAt])
+  @@index([bookingId, occurredAt])
+  @@index([action, occurredAt])
+  @@index([category, occurredAt])
+  @@index([actorUserId, occurredAt])
+  @@index([bookingParticipantId, occurredAt])
+  @@index([paymentId, occurredAt])
+  @@index([accountId, occurredAt])
+}
+
 model Event {
   id        String   @id @default(cuid())
 
@@ -958,10 +1596,105 @@ model OutboxMessage {
   lastError     String?
   createdAt     DateTime     @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime     @updatedAt @db.Timestamptz(3)
+  whatsappDelivery WhatsappDelivery?
 
   @@index([clubId, createdAt])
   @@index([type, status])
   @@index([status, availableAt, createdAt])
+}
+
+model WhatsappSender {
+  id             String               @id @default(cuid())
+  clubId         Int?
+  club           Club?                @relation(fields: [clubId], references: [id], onDelete: SetNull)
+  code           String               @unique
+  mode           WhatsappSenderMode
+  provider       WhatsappProvider
+  displayName    String
+  wabaId         String?
+  phoneNumberId  String?
+  businessPhone  String?
+  tokenSecretRef String?
+  status         WhatsappSenderStatus @default(PENDING_SETUP)
+  createdAt      DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime             @updatedAt @db.Timestamptz(3)
+
+  templateMappings WhatsappTemplateMapping[]
+  deliveries       WhatsappDelivery[]
+  webhookEvents    WhatsappWebhookEvent[]
+
+  @@index([clubId, status])
+  @@index([mode, status])
+}
+
+model WhatsappTemplateMapping {
+  id            String                   @id @default(cuid())
+  senderId      String
+  sender        WhatsappSender           @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  eventType     NotificationEventType
+  recipientRole NotificationRecipientRole
+  templateName  String
+  languageCode  String
+  category      WhatsappTemplateCategory @default(UTILITY)
+  status        WhatsappTemplateStatus   @default(PENDING_APPROVAL)
+  version       Int                      @default(1)
+  createdAt     DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime                 @updatedAt @db.Timestamptz(3)
+
+  deliveries WhatsappDelivery[]
+
+  @@unique([senderId, eventType, recipientRole, languageCode, version])
+  @@index([senderId, status])
+}
+
+model WhatsappDelivery {
+  id                     String                   @id @default(cuid())
+  clubId                 Int
+  club                   Club                     @relation(fields: [clubId], references: [id], onDelete: Restrict)
+  outboxMessageId        String                   @unique
+  outboxMessage          OutboxMessage            @relation(fields: [outboxMessageId], references: [id], onDelete: Cascade)
+  senderId               String?
+  sender                 WhatsappSender?          @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  templateMappingId      String?
+  templateMapping        WhatsappTemplateMapping? @relation(fields: [templateMappingId], references: [id], onDelete: SetNull)
+  recipientRole          NotificationRecipientRole
+  recipientPhone         String
+  eventType              NotificationEventType
+  provider               WhatsappProvider
+  providerMessageId      String?                  @unique
+  providerConversationId String?
+  status                 WhatsappDeliveryStatus   @default(QUEUED)
+  errorCode              String?
+  errorMessage           String?
+  rawRequest             Json?
+  rawResponse            Json?
+  createdAt              DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime                 @updatedAt @db.Timestamptz(3)
+
+  webhookEvents WhatsappWebhookEvent[]
+
+  @@index([clubId, status, createdAt])
+  @@index([eventType, recipientRole, createdAt])
+  @@index([provider, providerMessageId])
+}
+
+model WhatsappWebhookEvent {
+  id              String                  @id @default(cuid())
+  senderId        String?
+  sender          WhatsappSender?         @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  deliveryId      String?
+  delivery        WhatsappDelivery?       @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
+  providerMessageId String?
+  providerEventId String?                 @unique
+  eventType       String
+  status          WhatsappDeliveryStatus?
+  rawPayload      Json
+  processedAt     DateTime?               @db.Timestamptz(3)
+  createdAt       DateTime                @default(now()) @db.Timestamptz(3)
+
+  @@index([providerMessageId])
+  @@index([providerEventId])
+  @@index([createdAt])
 }
 
 model AccountSummaryProjection {

@@ -34,7 +34,7 @@ const humanizeAccountItemValidationError = (payload: any) => {
   return '';
 };
 
-export type AccountSource = 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL';
+export type AccountSource = 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT';
 export type AccountStatus = 'OPEN' | 'CLOSED';
 export type PaymentMethod = 'CASH' | 'TRANSFER' | 'CARD' | 'OTHER';
 export type PaymentChannel = 'AUTO' | 'CASH_DRAWER' | 'BANK_ACCOUNT' | 'CARD_TERMINAL' | 'VIRTUAL_WALLET' | 'OTHER';
@@ -139,6 +139,10 @@ export const registerPayment = async (body: {
   externalReference?: string;
   source?: PaymentSource;
   cashShiftId?: string;
+  payerParticipantRef?: string;
+  payerParticipantName?: string;
+  coveredParticipantRef?: string;
+  coveredParticipantName?: string;
   allocations?: Array<{ accountItemId: string; amount: number }>;
 }) => {
   if (body.method === 'TRANSFER' && body.channel !== 'BANK_ACCOUNT' && body.channel !== 'VIRTUAL_WALLET') {
@@ -154,6 +158,10 @@ export const registerPayment = async (body: {
     externalReference: body.externalReference,
     source: body.source,
     cashShiftId: body.cashShiftId,
+    payerParticipantRef: body.payerParticipantRef,
+    payerParticipantName: body.payerParticipantName,
+    coveredParticipantRef: body.coveredParticipantRef,
+    coveredParticipantName: body.coveredParticipantName,
     allocations: body.allocations
   });
   const res = await fetchWithAuth(`${apiBase()}/accounts/${body.accountId}/payments`, {
@@ -170,6 +178,10 @@ export const registerPayment = async (body: {
       externalReference: body.externalReference,
       source: body.source ?? 'POS',
       cashShiftId: body.cashShiftId,
+      payerParticipantRef: body.payerParticipantRef,
+      payerParticipantName: body.payerParticipantName,
+      coveredParticipantRef: body.coveredParticipantRef,
+      coveredParticipantName: body.coveredParticipantName,
       allocations: body.allocations
     })
   });
@@ -198,6 +210,19 @@ export const closeAccount = async (accountId: string) => {
       closeError.remaining = Number(error.remaining);
     }
     throw closeError;
+  }
+  return res.json();
+};
+
+// P2-B: Anular venta de mostrador — restaura stock
+export const voidPosAccount = async (accountId: string) => {
+  const res = await fetchWithAuth(`${apiBase()}/accounts/${accountId}/void-pos`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.error || 'No se pudo anular la cuenta');
   }
   return res.json();
 };

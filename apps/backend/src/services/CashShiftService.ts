@@ -3,6 +3,8 @@ import { prisma, prismaRead } from '../prisma';
 import { AccountingService } from './AccountingService';
 import { acquireTransactionAdvisoryLock } from '../utils/advisoryLock';
 import { ProjectionService } from './ProjectionService';
+import { badRequest, notFound, conflict } from '../errors';
+import { ErrorCodes } from '../errors';
 
 const USE_PROJECTION_READ_MODELS = String(process.env.READ_MODEL_SOURCE || '').toLowerCase() === 'projection';
 const EPSILON = 0.009;
@@ -56,19 +58,19 @@ export class CashShiftService {
 
   async open(clubId: number, openedByUserId: number, input: { cashRegisterId: string; openingAmount: number }) {
     if (!Number.isFinite(input.openingAmount) || input.openingAmount < 0) {
-      throw new Error('Monto de apertura inválido');
+      throw badRequest('Monto de apertura inválido.', ErrorCodes.INVALID_INPUT);
     }
 
     return prisma.$transaction(async (tx) => {
       await acquireTransactionAdvisoryLock(tx, `cash-shift:${input.cashRegisterId}`);
 
       const register = await tx.cashRegister.findFirst({ where: { id: input.cashRegisterId, clubId } });
-      if (!register) throw new Error('Caja no encontrada');
+      if (!register) throw notFound('Caja no encontrada.', ErrorCodes.CASH_REGISTER_NOT_FOUND);
 
       const alreadyOpen = await tx.cashShift.findFirst({
         where: { cashRegisterId: input.cashRegisterId, status: 'OPEN' }
       });
-      if (alreadyOpen) throw new Error('Ya existe un turno abierto para esta caja');
+      if (alreadyOpen) throw conflict('Ya existe un turno abierto para esta caja.', ErrorCodes.CASH_SHIFT_ALREADY_OPEN);
 
       const shift = await tx.cashShift.create({
         data: {
@@ -113,7 +115,7 @@ export class CashShiftService {
 
   async close(clubId: number, shiftId: string, countedCash: number, actorUserId?: number) {
     if (!Number.isFinite(countedCash) || countedCash < 0) {
-      throw new Error('Monto contado en efectivo inválido');
+      throw badRequest('Monto contado en efectivo inválido.', ErrorCodes.INVALID_INPUT);
     }
 
     return prisma.$transaction(async (tx) => {
@@ -126,7 +128,7 @@ export class CashShiftService {
         include: { movements: true, payments: true }
       });
 
-      if (!shift) throw new Error('Turno de caja abierto no encontrado');
+      if (!shift) throw notFound('Turno de caja abierto no encontrado.', ErrorCodes.NO_ACTIVE_CASH_SHIFT);
 
       const [openAccountsSummary, closePolicy] = await Promise.all([
         this.getOpenAccountsSummaryTx(tx, clubId),
@@ -134,9 +136,7 @@ export class CashShiftService {
       ]);
 
       if (closePolicy.strict && openAccountsSummary.openAccounts > 0) {
-        throw new Error(
-          `No se puede cerrar caja en modo estricto: ${openAccountsSummary.openAccounts} cuentas abiertas / $${openAccountsSummary.pendingAmount.toLocaleString('es-AR')} pendiente`
-        );
+        throw conflict('No se puede cerrar la caja: hay cuentas abiertas con saldo pendiente.', ErrorCodes.CASH_SHIFT_CLOSE_BLOCKED, { openAccounts: openAccountsSummary.openAccounts, pendingAmount: openAccountsSummary.pendingAmount });
       }
 
       const movementDelta = shift.movements.reduce((sum, movement) => {
@@ -165,12 +165,12 @@ export class CashShiftService {
       });
 
       if (closeResult.count === 0) {
-        throw new Error('El turno de caja ya estaba cerrado');
+        throw conflict('El turno de caja ya estaba cerrado.', ErrorCodes.CASH_SHIFT_NOT_FOUND);
       }
 
       const closedShift = await tx.cashShift.findUnique({ where: { id: shift.id } });
       if (!closedShift) {
-        throw new Error('Turno de caja no encontrado luego del cierre');
+        throw notFound('Turno de caja no encontrado luego del cierre.', ErrorCodes.CASH_SHIFT_NOT_FOUND);
       }
 
       if (Math.abs(difference) > 0.009) {
@@ -202,7 +202,7 @@ export class CashShiftService {
       }
     });
 
-    if (!shift) throw new Error('Turno no encontrado');
+    if (!shift) throw notFound('Turno no encontrado.', ErrorCodes.CASH_SHIFT_NOT_FOUND);
 
     const totals = shift.movements.reduce(
       (acc, movement) => {

@@ -7,6 +7,13 @@ import { ActivityType } from '../entities/ActivityType';
 
 export class ClubRepository {
     private readonly CLOSURE_STATUS_DEFAULT: ClubOperationalStatus = 'OPEN';
+    private readonly PUBLIC_SPORTS: Array<{ key: string; tokens: string[] }> = [
+        { key: 'football', tokens: ['futbol', 'fútbol', 'football', 'soccer'] },
+        { key: 'padel', tokens: ['padel', 'pádel'] },
+        { key: 'tennis', tokens: ['tenis', 'tennis'] },
+        { key: 'basketball', tokens: ['basquet', 'básquet', 'basket', 'basketball'] },
+        { key: 'volleyball', tokens: ['voley', 'vóley', 'voleibol', 'volleyball'] }
+    ];
 
     private supportsClosureDatesField(): boolean {
         const models = ((Prisma as any)?.dmmf?.datamodel?.models ?? []) as Array<{ name?: string; fields?: Array<{ name?: string }> }>;
@@ -63,7 +70,31 @@ export class ClubRepository {
         if (!value) return null;
         const date = value instanceof Date ? value : new Date(String(value));
         if (Number.isNaN(date.getTime())) return null;
-        return date.toISOString().slice(0, 10);
+        return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+    }
+
+    private normalizeSportName(value: unknown): string {
+        return String(value || '')
+            .normalize('NFD')
+            .replace(/\p{Diacritic}/gu, '')
+            .toLowerCase()
+            .trim();
+    }
+
+    private inferPublicSports(dbClub: any): string[] {
+        const sports = new Set<string>();
+        const courts = Array.isArray(dbClub?.courts) ? dbClub.courts : [];
+        for (const court of courts) {
+            const normalized = this.normalizeSportName(court?.activityType?.name);
+            if (!normalized) continue;
+            for (const option of this.PUBLIC_SPORTS) {
+                if (option.tokens.some((token) => normalized.includes(this.normalizeSportName(token)))) {
+                    sports.add(option.key);
+                    break;
+                }
+            }
+        }
+        return Array.from(sports);
     }
 
     async createClub(
@@ -289,14 +320,34 @@ export class ClubRepository {
     }
     
     async findAllClubs(): Promise<Club[]> {
-        const all = await prisma.club.findMany({ include: { settings: true } });
+        const all = await prisma.club.findMany({
+            include: {
+                settings: true,
+                courts: {
+                    select: {
+                        activityType: {
+                            select: { name: true }
+                        }
+                    }
+                }
+            }
+        });
         return all.map(c => this.mapToClub(c));
     }
 
     async findClubById(id: number): Promise<Club | undefined> {
         const found = await prisma.club.findUnique({
             where: { id },
-            include: { settings: true }
+            include: {
+                settings: true,
+                courts: {
+                    select: {
+                        activityType: {
+                            select: { name: true }
+                        }
+                    }
+                }
+            }
         });
         if (!found) return undefined;
         return this.mapToClub(found);
@@ -305,7 +356,16 @@ export class ClubRepository {
     async findClubBySlug(slug: string): Promise<Club | undefined> {
         const found = await prisma.club.findUnique({
             where: { slug },
-            include: { settings: true }
+            include: {
+                settings: true,
+                courts: {
+                    select: {
+                        activityType: {
+                            select: { name: true }
+                        }
+                    }
+                }
+            }
         });
         if (!found) return undefined;
         return this.mapToClub(found);
@@ -552,7 +612,7 @@ export class ClubRepository {
             : 30;
         const resolvedFixedBooking = (settings?.fixedBookingSettingsByActivity ?? null) as FixedBookingSettingsByActivity | null;
 
-        return new Club(
+        const club = new Club(
             dbClub.id,
             dbClub.slug,
             dbClub.name,
@@ -595,6 +655,8 @@ export class ClubRepository {
             resolvedTemporaryClosureStartDate,
             resolvedTemporaryClosureEndDate
         );
+        club.publicSports = this.inferPublicSports(dbClub);
+        return club;
     }
 
     private parseLightsFromHour(value: string | null | undefined): number | null {

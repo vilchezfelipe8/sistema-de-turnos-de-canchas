@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma';
+import { ErrorCodes, badRequest, conflict, notFound } from '../errors';
 import { recordUserClientLinkAuditTx } from './UserClientLinkAudit';
 
 type IncidentStatus = 'OPEN' | 'RESOLVED' | 'DISMISSED';
@@ -49,7 +50,7 @@ export class ClientDuplicateIncidentService {
   async createOrReuseIncidentTx(tx: any, input: RegisterIncidentInput) {
     const candidateClientIds = normalizeIds(input.candidateClientIds);
     if (candidateClientIds.length === 0) {
-      throw new Error('candidateClientIds is required');
+      throw badRequest('candidateClientIds is required', ErrorCodes.INVALID_INPUT);
     }
 
     const dedupeKey = buildDedupeKey(input);
@@ -85,6 +86,98 @@ export class ClientDuplicateIncidentService {
         payload: input.payload || Prisma.JsonNull
       }
     });
+  }
+
+  async createManualIdentityReview(input: {
+    clubId: number;
+    clientId: string;
+    clientName: string;
+    email?: string | null;
+    phone?: string | null;
+    dni?: string | null;
+    status?: string | null;
+    reasonCode?: string | null;
+    summary?: string | null;
+    signals?: string[] | null;
+    recommendedUserId?: number | null;
+    userCandidates?: any[] | null;
+    duplicateClients?: any[] | null;
+    note?: string | null;
+    actorUserId?: number | null;
+  }) {
+    const duplicateClientIds = Array.isArray(input.duplicateClients)
+      ? input.duplicateClients
+          .map((row: any) => String(row?.clientId || row?.id || '').trim())
+          .filter(Boolean)
+      : [];
+
+    const candidateClientIds = normalizeIds([input.clientId, ...duplicateClientIds]);
+    const signals = Array.isArray(input.signals) ? input.signals.map((item) => String(item || '').trim().toUpperCase()).filter(Boolean) : [];
+    const status = String(input.status || 'REVIEW_REQUIRED').trim().toUpperCase();
+    const reasonCode = String(input.reasonCode || 'NO_STRONG_MATCH').trim().toUpperCase();
+
+    const reasonType = reasonCode === 'DUPLICATE_CLIENTS_FOUND' || reasonCode === 'DUPLICATE_CLIENT_AND_USER_CONFLICT'
+      ? 'MULTI_SIGNAL_CONFLICT'
+      : reasonCode === 'USER_ALREADY_LINKED_ELSEWHERE' || reasonCode === 'MULTIPLE_USER_CANDIDATES'
+      ? 'LINKING_CONFLICT'
+      : signals.includes('PHONE')
+      ? 'PHONE'
+      : signals.includes('EMAIL')
+      ? 'EMAIL'
+      : signals.includes('DNI')
+      ? 'DNI'
+      : 'UNKNOWN';
+
+    const incident = await this.createOrReuseIncident({
+      clubId: Number(input.clubId),
+      userId: Number(input.recommendedUserId || 0) > 0 ? Number(input.recommendedUserId) : null,
+      sourceType: 'ADMIN',
+      reasonType,
+      primaryClientId: String(input.clientId),
+      candidateClientIds,
+      payload: {
+        kind: 'IDENTITY_REVIEW',
+        clientId: String(input.clientId),
+        clientName: String(input.clientName || '').trim() || 'Cliente sin nombre',
+        email: input.email || null,
+        phone: input.phone || null,
+        dni: input.dni || null,
+        status,
+        reasonCode,
+        summary: input.summary ? String(input.summary) : null,
+        signals,
+        recommendedUserId: Number(input.recommendedUserId || 0) > 0 ? Number(input.recommendedUserId) : null,
+        userCandidates: Array.isArray(input.userCandidates) ? input.userCandidates : [],
+        duplicateClients: Array.isArray(input.duplicateClients) ? input.duplicateClients : [],
+        note: input.note ? String(input.note) : null,
+        source: 'CLIENT_PROFILE_IDENTITY_REVIEW',
+      }
+    });
+
+    if (Number(input.actorUserId || 0) > 0) {
+      try {
+        await prisma.auditLog.create({
+          data: {
+            clubId: Number(input.clubId),
+            userId: Number(input.actorUserId),
+            entity: 'CLIENT',
+            entityId: String(input.clientId),
+            action: 'IDENTITY_REVIEW_MARKED',
+            payload: {
+              incidentId: String((incident as any)?.id || ''),
+              status,
+              reasonCode,
+              note: input.note ? String(input.note) : null,
+              source: 'CLIENT_PROFILE'
+            }
+          }
+        });
+      } catch {
+        // noop
+      }
+    }
+
+    return incident;
   }
 
   async listByClub(input: {
@@ -159,13 +252,13 @@ export class ClientDuplicateIncidentService {
       const incident = await txAny.clientDuplicateIncident.findFirst({
         where: { id: input.incidentId, clubId: input.clubId }
       });
-      if (!incident) throw new Error('Incidente no encontrado');
-      if (incident.status !== 'OPEN') throw new Error('El incidente ya no está abierto');
-      if (!incident.userId) throw new Error('El incidente no tiene usuario asociado para vincular');
+      if (!incident) throw notFound('Incidente no encontrado', ErrorCodes.NOT_FOUND);
+      if (incident.status !== 'OPEN') throw conflict('El incidente ya no está abierto', ErrorCodes.CONFLICT);
+      if (!incident.userId) throw badRequest('El incidente no tiene usuario asociado para vincular', ErrorCodes.INVALID_INPUT);
 
       const candidateClientIds = normalizeIds(incident.candidateClientIds);
       if (!candidateClientIds.includes(String(input.clientId))) {
-        throw new Error('El cliente seleccionado no pertenece a los candidatos del incidente');
+        throw conflict('El cliente seleccionado no pertenece a los candidatos del incidente', ErrorCodes.CLIENT_OUT_OF_CLUB);
       }
 
       const targetClient = await tx.client.findFirst({
@@ -178,9 +271,9 @@ export class ClientDuplicateIncidentService {
           userId: true
         }
       });
-      if (!targetClient?.id) throw new Error('Cliente no encontrado');
+      if (!targetClient?.id) throw notFound('Cliente no encontrado', ErrorCodes.CLIENT_NOT_FOUND);
       if (targetClient.userId && Number(targetClient.userId) !== Number(incident.userId)) {
-        throw new Error('El cliente seleccionado ya está vinculado a otro usuario');
+        throw conflict('El cliente seleccionado ya está vinculado a otro usuario', ErrorCodes.CONFLICT);
       }
 
       await tx.client.update({
@@ -222,8 +315,8 @@ export class ClientDuplicateIncidentService {
     const existing = await txAny.clientDuplicateIncident.findFirst({
       where: { id: input.incidentId, clubId: input.clubId }
     });
-    if (!existing) throw new Error('Incidente no encontrado');
-    if (existing.status !== 'OPEN') throw new Error('El incidente ya no está abierto');
+    if (!existing) throw notFound('Incidente no encontrado', ErrorCodes.NOT_FOUND);
+    if (existing.status !== 'OPEN') throw conflict('El incidente ya no está abierto', ErrorCodes.CONFLICT);
 
     return txAny.clientDuplicateIncident.update({
       where: { id: existing.id },

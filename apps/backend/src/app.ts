@@ -25,31 +25,38 @@ import AuditLogRoutes from './routes/AuditLogRoutes';
 import CourtPriceRuleRoutes from './routes/CourtPriceRuleRoutes';
 import PaymentRoutes from './routes/PaymentRoutes';
 import ClubReviewRoutes from './routes/ClubReviewRoutes';
+import MeRoutes from './routes/MeRoutes';
+import IntegrationRoutes from './routes/IntegrationRoutes';
+import WebhookRoutes from './routes/WebhookRoutes';
+import WhatsappAdminRoutes from './routes/WhatsappAdminRoutes';
 
 import { errorHandler } from './middleware/ErrorHandler';
 import { authMiddleware } from './middleware/AuthMiddleware';
-import { requireRole } from './middleware/RoleMiddleware';
+import { csrfProtection } from './middleware/CsrfMiddleware';
+import { requireGlobalRole } from './middleware/RoleMiddleware';
 import { prisma } from './prisma';
 import { metricsService } from './services/MetricsService';
 import { RedisService } from './services/RedisService';
 import { WhatsappDeliveryService } from './services/WhatsappDeliveryService';
 import { authConfig } from './utils/authConfig';
 
+const isProduction = process.env.NODE_ENV === 'production';
 const defaultAllowedOrigins = [
   'http://localhost:3000',
-  'http://localhost:3001',
-  'https://tucancha.app',
-  'https://www.tucancha.app',
-  'http://187.77.48.97',
-  'https://187.77.48.97'
+  'http://localhost:3001'
 ];
 
 const getAllowedOrigins = () => {
   const fromEnv = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
     : [];
-
-  return Array.from(new Set([...defaultAllowedOrigins, ...fromEnv]));
+  const frontendOrigin = String(process.env.FRONTEND_URL || '').trim().replace(/\/+$/, '');
+  const base = isProduction ? [] : defaultAllowedOrigins;
+  const resolved = Array.from(new Set([...base, ...fromEnv, ...(frontendOrigin ? [frontendOrigin] : [])]));
+  if (isProduction && resolved.length === 0) {
+    throw new Error('CORS misconfigured: set ALLOWED_ORIGINS and/or FRONTEND_URL in production.');
+  }
+  return resolved;
 };
 
 export const createApp = () => {
@@ -103,7 +110,7 @@ export const createApp = () => {
       if (allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        console.log('❌ CORS bloqueado para:', origin);
+        baseLogger.warn({ origin, allowedOrigins }, 'CORS bloqueado');
         callback(new Error('Not allowed by CORS'));
       }
     },
@@ -115,6 +122,7 @@ export const createApp = () => {
       'Cache-Control',
       'Pragma',
       'Expires',
+      'X-CSRF-Token',
       'X-Active-Club-Id',
       'X-Club-Id',
       'Idempotency-Key'
@@ -124,6 +132,7 @@ export const createApp = () => {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ limit: '10mb', extended: true }));
   app.use(cookieParser());
+  app.use(csrfProtection);
   app.use(metricsService.middleware);
 
   app.use('/api/auth', authRoutes);
@@ -144,9 +153,13 @@ export const createApp = () => {
   app.use('/api/court-price-rules', CourtPriceRuleRoutes);
   app.use('/api/payments', PaymentRoutes);
   app.use('/api/clients', ClientRoutes);
+  app.use('/api/me', MeRoutes);
+  app.use('/api', IntegrationRoutes);
+  app.use('/api', WebhookRoutes);
+  app.use('/api/admin/whatsapp', WhatsappAdminRoutes);
 
   app.get('/', (_req: Request, res: Response) => {
-    res.json({ message: 'API Sistema de Turnos' });
+    res.json({ message: 'API Pique' });
   });
 
   app.get('/health', (_req: Request, res: Response) => {
@@ -191,7 +204,7 @@ export const createApp = () => {
   app.get(
     '/whatsapp/qr',
     authMiddleware,
-    requireRole('ADMIN'),
+    requireGlobalRole('ADMIN'),
     async (_req: Request, res: Response) => {
       if (whatsappDelivery.getProvider() !== 'local_browser') {
         return res.status(404).send('<h1>QR no disponible con el provider actual</h1>');
@@ -234,7 +247,7 @@ export const createApp = () => {
     }
   );
 
-  app.get('/whatsapp/status', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
+  app.get('/whatsapp/status', authMiddleware, requireGlobalRole('ADMIN'), async (_req: Request, res: Response) => {
     res.json(await whatsappDelivery.getStatus());
   });
 

@@ -1,89 +1,70 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { createPortal } from 'react-dom';
-import type { ReactNode } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Search, Plus } from 'lucide-react';
 import { ClubAdminService } from '../services/ClubAdminService';
-import { Search, Plus, Edit, Trash2, X, Package, Tag, DollarSign, Box } from 'lucide-react';
 import { extractErrorMessage, reportUiError } from '../utils/uiError';
-import AppModal from './AppModal';
+import { showAdminToast } from '../utils/adminToast';
+import AdminAppModal from './admin/ui/AdminAppModal';
+import { AdminFilterToolbar, MetricCard } from './admin/ui';
+import ProductsTable from '../modules/tienda/components/ProductsTable';
+import ProductDrawer from '../modules/tienda/components/ProductDrawer';
+import type { ProductFormData } from '../modules/tienda/components/ProductDrawer';
+import type { ProductRow } from '../modules/tienda/components/ProductsTable';
+import { getApiFieldErrors } from '../utils/apiError';
 
 interface ProductsPageProps {
   slug?: string;
-  params?: { slug: string };
 }
 
-// --- ✨ COMPONENTE PORTAL (VERSIÓN BEIGE WIMBLEDON) ✨ ---
-const ModalPortal = ({ children, onClose }: { children: ReactNode, onClose: () => void }) => {
-  const backdropMouseDownRef = useRef(false);
-  if (typeof document === 'undefined') return null;
-  
-  return createPortal(
-  <div
-    className="fixed inset-0 z-[2147483000] flex items-center justify-center bg-[#347048]/60 p-4 animate-in fade-in duration-200"
-    onMouseDown={(event) => {
-      backdropMouseDownRef.current = event.target === event.currentTarget;
-    }}
-    onTouchStart={(event) => {
-      backdropMouseDownRef.current = event.target === event.currentTarget;
-    }}
-    onClick={(event) => {
-      const startedOnBackdrop = backdropMouseDownRef.current;
-      backdropMouseDownRef.current = false;
-      if (startedOnBackdrop && event.target === event.currentTarget) {
-        onClose();
-      }
-    }}
-  >
-      {/* Tarjeta Flotante Beige con bordes blancos */}
-      <div
-        className="density-compact relative z-10 w-full max-w-md bg-[#EBE1D8] border-2 border-white rounded-[2rem] shadow-2xl flex flex-col max-h-[93vh] animate-in zoom-in-95 duration-200 overflow-hidden text-[#347048]"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="overflow-y-auto p-5 custom-scrollbar">
-            {children}
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-};
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
-export default function ProductsPage({ slug: slugProp, params }: ProductsPageProps) {
-  const slug = slugProp ?? params?.slug ?? '';
-  const [products, setProducts] = useState<any[]>([]);
+const emptyForm = (): ProductFormData => ({
+  name: '',
+  price: '',
+  stock: '',
+  category: '',
+  isCombo: false,
+  components: [{ componentProductId: '', quantity: '1' }],
+});
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+export default function ProductsPage({ slug = '' }: ProductsPageProps) {
+  const [products, setProducts] = useState<ProductRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<any | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<ProductRow | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ProductRow | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [formFieldErrors, setFormFieldErrors] = useState<Record<string, string>>({});
+  const [submittingForm, setSubmittingForm] = useState(false);
   const [feedbackModal, setFeedbackModal] = useState<{
     show: boolean;
     title: string;
     message: string;
     isWarning?: boolean;
   }>({ show: false, title: 'Información', message: '' });
-  const [formData, setFormData] = useState({
-    name: '',
-    price: '',
-    stock: '',
-    category: '',
-    isCombo: false,
-    components: [{ componentProductId: '', quantity: '1' }]
-  });
+  const [formData, setFormData] = useState<ProductFormData>(emptyForm());
 
+  // ── Data loading ──
   const loadProducts = useCallback(async () => {
     try {
       const data = await ClubAdminService.getProducts(slug);
-      setProducts(data);
+      setProducts(data as ProductRow[]);
     } catch (error) {
       reportUiError({ area: 'ProductsPage', action: 'loadProducts' }, error);
       setFeedbackModal({
         show: true,
         title: 'Error',
         message: 'No se pudieron cargar los productos.',
-        isWarning: true
+        isWarning: true,
       });
     } finally {
       setLoading(false);
@@ -91,463 +72,292 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
   }, [slug]);
 
   useEffect(() => {
-    if (slug) loadProducts();
+    if (slug) void loadProducts();
   }, [slug, loadProducts]);
 
-  const showErrorModal = (message: string) => {
-    setFeedbackModal({
-      show: true,
-      title: 'Error',
-      message,
-      isWarning: true
-    });
+  // ── Drawer handlers ──
+  const openNew = () => {
+    setEditingProduct(null);
+    setFormData(emptyForm());
+    setFormError('');
+    setFormFieldErrors({});
+    setDrawerOpen(true);
   };
 
+  const openEdit = (product: ProductRow) => {
+    setEditingProduct(product);
+    setFormData({
+      name: product.name,
+      price: String(product.price),
+      stock: String((product.baseStock as number | undefined) ?? product.stock ?? 0),
+      category: (product.category as string) || '',
+      isCombo: Boolean(product.isCombo),
+      components:
+        Array.isArray(product.components) && product.components.length > 0
+          ? (product.components as Array<{ componentProductId: number; quantity: number }>).map(
+              (c) => ({
+                componentProductId: String(c.componentProductId),
+                quantity: String(c.quantity),
+              }),
+            )
+          : [{ componentProductId: '', quantity: '1' }],
+    });
+    setFormError('');
+    setFormFieldErrors({});
+    setDrawerOpen(true);
+  };
+
+  const closeDrawer = () => {
+    setDrawerOpen(false);
+    setEditingProduct(null);
+    setFormData(emptyForm());
+    setFormError('');
+    setFormFieldErrors({});
+  };
+
+  // ── Form submit ──
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      const components = formData.components
-        .map((component) => ({
-          componentProductId: Number(component.componentProductId),
-          quantity: Number(component.quantity)
-        }))
-        .filter((component) => Number.isFinite(component.componentProductId) && component.componentProductId > 0 && Number.isFinite(component.quantity) && component.quantity > 0);
+    if (submittingForm) return;
+    setFormError('');
+    setFormFieldErrors({});
 
-      if (formData.isCombo) {
-        if (components.length === 0) {
-          showErrorModal('Un combo debe tener al menos un componente.');
-          return;
-        }
-        const ids = components.map((component) => component.componentProductId);
-        if (new Set(ids).size !== ids.length) {
-          showErrorModal('No podés repetir el mismo producto en un combo.');
-          return;
-        }
-        if (editingProduct && ids.includes(Number(editingProduct.id))) {
-          showErrorModal('Un producto no puede ser componente de sí mismo.');
-          return;
-        }
+    const components = formData.components
+      .map((c) => ({
+        componentProductId: Number(c.componentProductId),
+        quantity: Number(c.quantity),
+      }))
+      .filter(
+        (c) =>
+          Number.isFinite(c.componentProductId) &&
+          c.componentProductId > 0 &&
+          Number.isFinite(c.quantity) &&
+          c.quantity > 0,
+      );
+
+    if (formData.isCombo) {
+      if (components.length === 0) {
+        setFormFieldErrors({ components: 'Un combo debe tener al menos un componente.' });
+        setFormError('Un combo debe tener al menos un componente.');
+        return;
       }
+      const ids = components.map((c) => c.componentProductId);
+      if (new Set(ids).size !== ids.length) {
+        setFormFieldErrors({ components: 'No podés repetir el mismo producto en un combo.' });
+        setFormError('No podés repetir el mismo producto en un combo.');
+        return;
+      }
+      if (editingProduct && ids.includes(Number(editingProduct.id))) {
+        setFormFieldErrors({ components: 'Un producto no puede ser componente de sí mismo.' });
+        setFormError('Un producto no puede ser componente de sí mismo.');
+        return;
+      }
+    }
 
+    try {
+      setSubmittingForm(true);
       const payload = {
         name: formData.name,
         price: Number(formData.price),
         stock: formData.isCombo ? 0 : Number(formData.stock),
         category: formData.category,
         isCombo: formData.isCombo,
-        components: formData.isCombo ? components : []
+        components: formData.isCombo ? components : [],
       };
       if (editingProduct) {
         await ClubAdminService.updateProduct(slug, editingProduct.id, payload);
+        closeDrawer();
+        void loadProducts();
+        showAdminToast('Producto actualizado.');
       } else {
         await ClubAdminService.createProduct(slug, payload);
+        closeDrawer();
+        void loadProducts();
+        showAdminToast('Producto creado.');
       }
-      setIsModalOpen(false);
-      setFormData({
-        name: '',
-        price: '',
-        stock: '',
-        category: '',
-        isCombo: false,
-        components: [{ componentProductId: '', quantity: '1' }]
-      });
-      setEditingProduct(null);
-      loadProducts();
     } catch (error) {
       const message = extractErrorMessage(error, 'No se pudo guardar el producto.');
+      const fieldErrors = getApiFieldErrors(error);
       reportUiError({ area: 'ProductsPage', action: 'saveProduct' }, error);
-      showErrorModal(message);
+      if (Object.keys(fieldErrors).length > 0) setFormFieldErrors(fieldErrors);
+      setFormError(message);
+    } finally {
+      setSubmittingForm(false);
     }
   };
 
-  const handleDelete = async (product: any) => {
-    setDeleteTarget(product);
-  };
-
+  // ── Delete ──
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
       await ClubAdminService.deleteProduct(slug, deleteTarget.id);
-      loadProducts();
       setDeleteTarget(null);
+      void loadProducts();
+      showAdminToast('Producto dado de baja.');
     } catch (error) {
       const message = extractErrorMessage(error, 'No se pudo dar de baja el producto.');
       reportUiError({ area: 'ProductsPage', action: 'deleteProduct' }, error);
-      showErrorModal(message);
+      setFeedbackModal({ show: true, title: 'Error', message, isWarning: true });
     } finally {
       setDeleting(false);
     }
   };
 
-  const openEdit = (product: any) => {
-    setEditingProduct(product);
-    setFormData({
-      name: product.name,
-      price: String(product.price),
-      stock: String(product.baseStock ?? product.stock ?? 0),
-      category: product.category || '',
-      isCombo: Boolean(product.isCombo),
-      components: Array.isArray(product.components) && product.components.length > 0
-        ? product.components.map((component: any) => ({
-            componentProductId: String(component.componentProductId),
-            quantity: String(component.quantity)
-          }))
-        : [{ componentProductId: '', quantity: '1' }]
-    });
-    setIsModalOpen(true);
-  };
-
-  const openNew = () => {
-    setEditingProduct(null);
-    setFormData({
-      name: '',
-      price: '',
-      stock: '',
-      category: '',
-      isCombo: false,
-      components: [{ componentProductId: '', quantity: '1' }]
-    });
-    setIsModalOpen(true);
-  };
-
-  const addComponentRow = () => {
+  // ── Combo component rows ──
+  const addComponentRow = () =>
     setFormData((prev) => ({
       ...prev,
-      components: [...prev.components, { componentProductId: '', quantity: '1' }]
+      components: [...prev.components, { componentProductId: '', quantity: '1' }],
     }));
+
+  const handleFormChange = (next: ProductFormData) => {
+    setFormFieldErrors({});
+    setFormData(next);
   };
 
-  const removeComponentRow = (index: number) => {
+  const removeComponentRow = (index: number) =>
     setFormData((prev) => ({
       ...prev,
-      components: prev.components.filter((_, i) => i !== index)
+      components: prev.components.filter((_, i) => i !== index),
     }));
-  };
 
-  const updateComponentRow = (index: number, field: 'componentProductId' | 'quantity', value: string) => {
+  const updateComponentRow = (
+    index: number,
+    field: 'componentProductId' | 'quantity',
+    value: string,
+  ) =>
     setFormData((prev) => ({
       ...prev,
-      components: prev.components.map((component, i) => i === index ? { ...component, [field]: value } : component)
+      components: prev.components.map((c, i) => (i === index ? { ...c, [field]: value } : c)),
     }));
-  };
 
-  const filteredProducts = products.filter((p) =>
-    p.name.toLowerCase().includes(searchTerm.toLowerCase())
+  // ── Derived state ──
+  const filteredProducts = useMemo(
+    () => products.filter((p) => p.name.toLowerCase().includes(searchTerm.toLowerCase())),
+    [products, searchTerm],
   );
 
-  // Estilos Wimbledon para los inputs del Modal
-  const inputClass ="compact-field w-full h-10 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all";
-  const labelClass = 'block text-[10px] font-black text-[#347048]/60 mb-1.5 uppercase tracking-widest ml-1';
-  const comboComponentOptions = products.filter((product) => !editingProduct || product.id !== editingProduct.id);
+  const comboOptions = useMemo(
+    () => products.filter((p) => !editingProduct || p.id !== editingProduct.id),
+    [products, editingProduct],
+  );
 
+  const summary = useMemo(() => {
+    const simple = products.filter((p) => !p.isCombo);
+    const lowStock = simple.filter((p) => Number(p.stock ?? 0) < 5);
+    const stockValue = simple.reduce(
+      (sum, p) => sum + Number(p.stock ?? 0) * Number(p.price ?? 0),
+      0,
+    );
+    return {
+      lowStock: lowStock.length,
+      stockValue,
+      total: products.length,
+    };
+  }, [products]);
+
+  // ── Render ──
   return (
-    <>
-      <div className="density-compact flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center mb-5">
-        {/* BUSCADOR */}
-        <div className="relative flex-1 w-full sm:max-w-md group">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[#347048]/40 group-focus-within:text-[#B9CF32] transition-colors" size={18} strokeWidth={2.5} />
-          <input
-            type="text"
-            placeholder="Buscar por nombre de producto..."
-            className="compact-field w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl pl-12 pr-4 py-2.5 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
+    <div className="flex flex-col gap-3">
 
-        {/* BOTÓN NUEVO */}
-        <button
-          type="button"
-          onClick={openNew}
-          className="compact-field w-full sm:w-auto px-5 py-2.5 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-[#347048]/20 uppercase tracking-widest text-xs italic"
-        >
-          <Plus size={18} strokeWidth={3} /> Nuevo producto
-        </button>
+      {/* ── Summary metrics ── */}
+      <div className="grid grid-cols-2 gap-3">
+        <MetricCard
+          label="Bajo stock"
+          value={summary.lowStock}
+          format="number"
+          valueColor={summary.lowStock > 0 ? 'var(--error-fg)' : undefined}
+          delta={
+            summary.lowStock > 0
+              ? { value: -summary.lowStock, label: 'productos con menos de 5 u.' }
+              : { value: 0, label: 'sin alertas de stock' }
+          }
+        />
+        <MetricCard
+          label="Valor en stock"
+          value={summary.stockValue}
+          format="money"
+          delta={{ value: summary.total, label: 'productos activos' }}
+        />
       </div>
 
-      {/* TABLA DE PRODUCTOS */}
-      <div className="density-compact bg-white/40 border-2 border-white rounded-[1.5rem] overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-            <table className="w-full text-left border-separate border-spacing-y-1.5 px-3">
-              <thead>
-                <tr className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]/40">
-                  <th className="px-4 py-3">Producto</th>
-                  <th className="px-4 py-3">Tipo</th>
-                  <th className="px-4 py-3">Categoría</th>
-                  <th className="px-4 py-3">Stock Actual</th>
-                  <th className="px-4 py-3">Precio Venta</th>
-                  <th className="px-4 py-3 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="text-sm font-bold">
-                {loading ? (
-                  <tr>
-                    <td colSpan={6} className="p-20 text-center text-[#347048]/40">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-4 border-[#347048] mx-auto mb-4"></div>
-                      CARGANDO INVENTARIO...
-                    </td>
-                  </tr>
-                ) : filteredProducts.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="p-20 text-center text-[#347048]/30 italic uppercase tracking-widest font-black">
-                      No hay productos registrados
-                    </td>
-                  </tr>
-                ) : (
-                  filteredProducts.map((product) => (
-                    <tr key={product.id} className="bg-white/80 hover:bg-white transition-all shadow-sm group">
-                      <td className="px-4 py-3 first:rounded-l-2xl font-black text-[#347048] uppercase tracking-tight italic">
-                        {product.name}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`text-[10px] font-black px-3 py-1 rounded-full border uppercase tracking-widest ${product.isCombo ? 'bg-[#347048]/10 text-[#347048] border-[#347048]/20' : 'bg-[#926699]/10 text-[#926699] border-[#926699]/20'}`}>
-                          {product.isCombo ? 'Combo' : 'Simple'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-[10px] font-black bg-[#926699]/10 text-[#926699] px-3 py-1 rounded-full border border-[#926699]/20 uppercase tracking-widest">
-                            {product.category || 'General'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border ${
-                            product.stock < 5 ? 'bg-red-50 text-red-600 border-red-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'
-                          }`}
-                        >
-                          {product.stock} unidades
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-base font-black text-[#347048] italic tracking-tighter">
-                        ${product.price?.toLocaleString?.() ?? product.price}
-                      </td>
-                      <td className="px-4 py-3 last:rounded-r-2xl text-right">
-                        <div className="flex justify-end gap-3">
-                          <button
-                            type="button"
-                            onClick={() => openEdit(product)}
-                            className="p-2 rounded-xl bg-white border border-[#347048]/10 text-[#347048] hover:bg-[#347048] hover:text-[#EBE1D8] transition-all shadow-sm"
-                            title="Editar"
-                          >
-                            <Edit size={16} strokeWidth={2.5} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(product)}
-                            className="p-2 rounded-xl bg-red-50 border border-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm"
-                            title="Dar de baja"
-                          >
-                            <Trash2 size={16} strokeWidth={2.5} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-        </div>
-      </div>
-
-      {/* --- MODAL DE PRODUCTO --- */}
-      {isModalOpen && (
-        <ModalPortal onClose={() => setIsModalOpen(false)}>
-            
-            <div className="flex justify-between items-start mb-5 border-b border-[#347048]/10 pb-4">
-              <div>
-                <h3 className="text-2xl font-black text-[#926699] flex items-center gap-3 uppercase italic tracking-tighter">
-                    <div className="bg-[#926699] p-2 rounded-xl text-[#EBE1D8] shadow-lg shadow-[#926699]/20">
-                        {editingProduct ? <Edit size={24} strokeWidth={2.5}/> : <Plus size={24} strokeWidth={3}/>}
-                    </div>
-                    {editingProduct ? 'Editar Producto' : 'Nuevo Producto'}
-                </h3>
-                <p className="text-[#347048]/60 text-[10px] font-black uppercase tracking-widest mt-2 ml-1">Información del inventario</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
-                title="Cerrar ventana"
-              >
-                <X size={20} strokeWidth={3} />
-              </button>
+      {/* ── Table ── */}
+      <ProductsTable
+        products={filteredProducts}
+        loading={loading}
+        onEdit={openEdit}
+        onDelete={setDeleteTarget}
+        onRowClick={openEdit}
+        selectedId={editingProduct?.id ?? null}
+        toolbar={(
+          <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-1 sm:flex-nowrap sm:justify-end">
+            <div className="relative w-full sm:w-[300px] sm:flex-none">
+              <Search
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-p-text-muted"
+                size={14}
+                strokeWidth={2.5}
+              />
+              <input
+                type="text"
+                placeholder="Buscar por nombre de producto..."
+                className="h-8 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[12px] text-p-text placeholder:text-p-text-muted outline-none transition focus:border-p-accent"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
             </div>
+            <button
+              type="button"
+              onClick={openNew}
+              className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 shadow-p-md transition hover:bg-ink-800 hover:shadow-p-md sm:w-auto"
+            >
+              <Plus size={14} strokeWidth={2.5} />
+              Nuevo producto
+            </button>
+          </AdminFilterToolbar>
+        )}
+      />
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {/* NOMBRE */}
-              <div className="space-y-1.5">
-                <label className={labelClass}>Nombre del Producto</label>
-                <div className="relative group">
-                    <input
-                        required
-                        placeholder="Ej: Gatorade Blue"
-                        className={`${inputClass} pl-12`}
-                        value={formData.name}
-                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    />
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#347048]/40 group-focus-within:text-[#B9CF32] transition-colors">
-                        <Tag size={18} strokeWidth={2.5} />
-                    </div>
-                </div>
-              </div>
-              
-              <div className="space-y-3">
-                <label className={labelClass}>Tipo de producto</label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setFormData((prev) => ({ ...prev, isCombo: false }))}
-                    className={`compact-field py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${!formData.isCombo ? 'bg-[#347048] border-[#347048] text-[#B9CF32]' : 'bg-white border-transparent text-[#347048]/40'}`}
-                  >
-                    Producto simple
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFormData((prev) => ({ ...prev, isCombo: true }))}
-                    className={`compact-field py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${formData.isCombo ? 'bg-[#347048] border-[#347048] text-[#B9CF32]' : 'bg-white border-transparent text-[#347048]/40'}`}
-                  >
-                    Combo
-                  </button>
-                </div>
-              </div>
+      {/* ── Drawer ── */}
+      <ProductDrawer
+        open={drawerOpen}
+        onClose={closeDrawer}
+        editingProduct={editingProduct}
+        comboOptions={comboOptions}
+        formData={formData}
+        formError={formError}
+        fieldErrors={formFieldErrors}
+        submitting={submittingForm}
+        onFormChange={handleFormChange}
+        onAddComponent={addComponentRow}
+        onRemoveComponent={removeComponentRow}
+        onUpdateComponent={updateComponentRow}
+        onSubmit={handleSubmit}
+      />
 
-              <div className="space-y-1.5">
-                <label className={labelClass}>Precio ($)</label>
-                <div className="relative group">
-                    <input
-                      required
-                      type="number"
-                      min="0"
-                      placeholder="0"
-                      className={`${inputClass} pl-12`}
-                      value={formData.price}
-                      onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                      onWheel={(event) => {
-                        event.currentTarget.blur();
-                      }}
-                    />
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#347048]/40 group-focus-within:text-[#B9CF32] transition-colors">
-                        <DollarSign size={18} strokeWidth={2.5} />
-                    </div>
-                </div>
-              </div>
-
-              {!formData.isCombo && (
-                <div className="space-y-1.5">
-                  <label className={labelClass}>Stock Inicial</label>
-                  <div className="relative group">
-                      <input
-                        required
-                        type="number"
-                        min="0"
-                        placeholder="0"
-                        className={`${inputClass} pl-12`}
-                        value={formData.stock}
-                        onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
-                        onWheel={(event) => {
-                          event.currentTarget.blur();
-                        }}
-                      />
-                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#347048]/40 group-focus-within:text-[#B9CF32] transition-colors">
-                          <Box size={18} strokeWidth={2.5} />
-                      </div>
-                  </div>
-                </div>
-              )}
-
-              {/* CATEGORÍA */}
-              <div className="space-y-1.5">
-                <label className={labelClass}>Categoría (Opcional)</label>
-                <div className="relative group">
-                    <input
-                        className={`${inputClass} pl-12`}
-                        placeholder="Ej: Bebidas, Grips, Alquiler..."
-                        value={formData.category}
-                        onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    />
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#347048]/40 group-focus-within:text-[#B9CF32] transition-colors">
-                        <Package size={18} strokeWidth={2.5} />
-                    </div>
-                </div>
-              </div>
-
-              {formData.isCombo && (
-                <div className="space-y-3">
-                  <label className={labelClass}>Componentes del combo</label>
-                  <div className="space-y-2">
-                    {formData.components.map((component, index) => (
-                      <div key={index} className="grid grid-cols-12 gap-2 items-center">
-                        <select
-                          className="compact-field col-span-7 h-10 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold focus:outline-none shadow-sm"
-                          value={component.componentProductId}
-                          onChange={(e) => updateComponentRow(index, 'componentProductId', e.target.value)}
-                        >
-                          <option value="">Seleccionar producto</option>
-                          {comboComponentOptions.map((product) => (
-                            <option key={product.id} value={product.id}>{product.name}</option>
-                          ))}
-                        </select>
-                        <input
-                          type="number"
-                          min="1"
-                          className="compact-field col-span-3 h-10 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold focus:outline-none shadow-sm"
-                          value={component.quantity}
-                          onChange={(e) => updateComponentRow(index, 'quantity', e.target.value)}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeComponentRow(index)}
-                          className="compact-field col-span-2 h-10 rounded-xl bg-red-50 border border-red-100 text-red-500 hover:bg-red-500 hover:text-white transition"
-                        >
-                          <X size={16} className="mx-auto" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={addComponentRow}
-                    className="compact-field w-full py-2.5 bg-white border-2 border-[#347048]/10 text-[#347048] rounded-xl text-[10px] font-black uppercase tracking-widest"
-                  >
-                    + Agregar componente
-                  </button>
-                </div>
-              )}
-
-              {/* BOTÓN DE GUARDADO */}
-              <div className="pt-4">
-                <button
-                  type="submit"
-                  className="compact-field w-full py-3 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-2xl shadow-xl shadow-[#347048]/20 transition-all uppercase tracking-[0.2em] text-sm italic"
-                >
-                  {editingProduct ? 'Guardar Cambios' : 'Confirmar Ingreso'}
-                </button>
-              </div>
-            </form>
-        </ModalPortal>
-      )}
-
-      <AppModal
-        show={!!deleteTarget}
+      {/* ── Delete confirmation ── */}
+      <AdminAppModal
+        show={Boolean(deleteTarget)}
         onClose={() => setDeleteTarget(null)}
         onCancel={() => setDeleteTarget(null)}
         title="Dar de baja producto"
         message={
           deleteTarget ? (
             <span>
-              <strong>{deleteTarget.name}</strong> no se va a borrar definitivamente. Lo vamos a dar de baja para que no aparezca en el stock ni en los consumos.
+              <strong>{deleteTarget.name}</strong> no se va a borrar definitivamente. Lo vamos a
+              dar de baja para que no aparezca en el stock ni en los consumos.
             </span>
           ) : null
         }
         cancelText="Cancelar"
         confirmText={deleting ? 'Dando de baja...' : 'Dar de baja'}
         isWarning
-        onConfirm={confirmDelete}
+        onConfirm={() => void confirmDelete()}
         confirmDisabled={deleting}
       />
 
-      <AppModal
+      {/* ── Feedback modal ── */}
+      <AdminAppModal
         show={feedbackModal.show}
         onClose={() => setFeedbackModal((prev) => ({ ...prev, show: false }))}
         title={feedbackModal.title}
@@ -556,6 +366,6 @@ export default function ProductsPage({ slug: slugProp, params }: ProductsPagePro
         confirmText="Aceptar"
         isWarning={feedbackModal.isWarning}
       />
-    </>
+    </div>
   );
 }

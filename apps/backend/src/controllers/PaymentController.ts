@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { PaymentService } from '../services/PaymentService';
 import { mapPaymentDto, mapRefundDto } from '../dto/financialDto';
 import { RefundService } from '../services/RefundService';
+import { sendAppError, ErrorCodes } from '../errors';
 
 const refundStatusEnum = z.enum(['REQUESTED', 'APPROVED', 'READY_TO_EXECUTE', 'EXECUTED', 'FAILED', 'CANCELLED']);
 const refundReasonTypeEnum = z.enum(['FULL', 'PARTIAL_COMMERCIAL', 'PARTIAL_SERVICE_FAILURE', 'PARTIAL_PRICING_ERROR', 'OTHER']);
@@ -43,7 +44,7 @@ export class PaymentController {
 
       return res.json(result.map(mapPaymentDto));
     } catch (error: any) {
-      return res.status(500).json({ error: error.message || 'Error al listar pagos' });
+      return sendAppError(res, error, 'No se pudieron cargar los pagos.');
     }
   };
 
@@ -89,7 +90,7 @@ export class PaymentController {
 
       return res.status(201).json(mapPaymentDto(payment));
     } catch (error: any) {
-      return res.status(400).json({ error: error.message || 'Error al crear pago' });
+      return sendAppError(res, error, 'No se pudo registrar el pago.');
     }
   };
 
@@ -129,7 +130,7 @@ export class PaymentController {
 
       return res.status(201).json(mapRefundDto(refund));
     } catch (error: any) {
-      return res.status(400).json({ error: error.message || 'Error al solicitar devolucion' });
+      return sendAppError(res, error, 'No se pudo solicitar la devolución.');
     }
   };
 
@@ -163,7 +164,7 @@ export class PaymentController {
 
       return res.status(200).json(mapRefundDto(refund));
     } catch (error: any) {
-      return res.status(400).json({ error: error.message || 'Error al aprobar devolucion' });
+      return sendAppError(res, error, 'No se pudo aprobar la devolución.');
     }
   };
 
@@ -195,7 +196,7 @@ export class PaymentController {
 
       return res.status(200).json(mapRefundDto(refund));
     } catch (error: any) {
-      return res.status(400).json({ error: error.message || 'Error al ejecutar devolucion' });
+      return sendAppError(res, error, 'No se pudo ejecutar la devolución.');
     }
   };
 
@@ -223,7 +224,7 @@ export class PaymentController {
 
       return res.status(200).json(mapRefundDto(refund));
     } catch (error: any) {
-      return res.status(400).json({ error: error.message || 'Error al marcar devolucion fallida' });
+      return sendAppError(res, error, 'No se pudo marcar la devolución como fallida.');
     }
   };
 
@@ -257,7 +258,7 @@ export class PaymentController {
 
       return res.status(200).json(mapRefundDto(refund));
     } catch (error: any) {
-      return res.status(400).json({ error: error.message || 'Error al reintentar devolucion' });
+      return sendAppError(res, error, 'No se pudo reintentar la devolución.');
     }
   };
 
@@ -285,7 +286,7 @@ export class PaymentController {
 
       return res.status(200).json(mapRefundDto(refund));
     } catch (error: any) {
-      return res.status(400).json({ error: error.message || 'Error al cancelar devolucion' });
+      return sendAppError(res, error, 'No se pudo cancelar la devolución.');
     }
   };
 
@@ -305,7 +306,7 @@ export class PaymentController {
 
       return res.json(result.map(mapRefundDto));
     } catch (error: any) {
-      return res.status(500).json({ error: error.message || 'Error al listar devoluciones pendientes' });
+      return sendAppError(res, error, 'No se pudieron cargar las devoluciones pendientes.');
     }
   };
 
@@ -340,7 +341,7 @@ export class PaymentController {
 
       return res.json(result.map(mapRefundDto));
     } catch (error: any) {
-      return res.status(500).json({ error: error.message || 'Error al listar devoluciones' });
+      return sendAppError(res, error, 'No se pudieron cargar las devoluciones.');
     }
   };
 }

@@ -1,6 +1,7 @@
 import { prisma } from '../prisma';
 import { Prisma } from '@prisma/client';
 import { getUserClubContext } from '../utils/getUserClubContext';
+import { ErrorCodes, badRequest, conflict, notFound } from '../errors';
 
 type ProductComponentInput = {
     componentProductId: number;
@@ -44,16 +45,16 @@ export class ProductService {
         components: ProductComponentInput[]
     ) {
         if (components.length === 0) {
-            throw new Error('Un combo debe tener al menos un componente');
+            throw badRequest('Un combo debe tener al menos un componente', ErrorCodes.INVALID_INPUT);
         }
 
         const seen = new Set<number>();
         for (const component of components) {
             if (parentProductId && component.componentProductId === parentProductId) {
-                throw new Error('Un producto no puede ser componente de sí mismo');
+                throw badRequest('Un producto no puede ser componente de sí mismo', ErrorCodes.INVALID_INPUT);
             }
             if (seen.has(component.componentProductId)) {
-                throw new Error('No se puede repetir el mismo producto dentro del combo');
+                throw badRequest('No se puede repetir el mismo producto dentro del combo', ErrorCodes.INVALID_INPUT);
             }
             seen.add(component.componentProductId);
         }
@@ -65,7 +66,7 @@ export class ProductService {
         });
 
         if (componentProducts.length !== componentIds.length) {
-            throw new Error('Uno o más componentes no existen, están inactivos o no pertenecen al club');
+            throw conflict('Uno o más componentes no existen, están inactivos o no pertenecen al club', ErrorCodes.PRODUCT_INACTIVE);
         }
 
         if (!parentProductId) return;
@@ -97,7 +98,7 @@ export class ProductService {
 
         for (const component of components) {
             if (canReach(component.componentProductId, parentProductId, new Set<number>())) {
-                throw new Error('La configuración genera un ciclo entre combos');
+                throw conflict('La configuración genera un ciclo entre combos', ErrorCodes.CONFLICT);
             }
         }
     }
@@ -176,8 +177,8 @@ export class ProductService {
         path: Set<number>
     ) {
         const product = byId.get(productId);
-        if (!product) throw new Error('Producto no encontrado');
-        if (path.has(productId)) throw new Error('Se detectó un ciclo en la composición de combos');
+        if (!product) throw notFound('Producto no encontrado', ErrorCodes.PRODUCT_NOT_FOUND);
+        if (path.has(productId)) throw conflict('Se detectó un ciclo en la composición de combos', ErrorCodes.CONFLICT);
 
         if (!product.isCombo) {
             requirements.set(productId, (requirements.get(productId) || 0) + quantity);
@@ -185,14 +186,14 @@ export class ProductService {
         }
 
         const components = Array.isArray(product.components) ? product.components : [];
-        if (components.length === 0) throw new Error('El combo no tiene componentes definidos');
+        if (components.length === 0) throw badRequest('El combo no tiene componentes definidos', ErrorCodes.INVALID_INPUT);
 
         path.add(productId);
         for (const componentRow of components) {
             const componentId = Number(componentRow.componentProductId);
             const componentQty = Number(componentRow.quantity || 0);
             if (!Number.isFinite(componentQty) || componentQty <= 0) {
-                throw new Error('Un componente del combo tiene cantidad inválida');
+                throw badRequest('Un componente del combo tiene cantidad inválida', ErrorCodes.INVALID_INPUT);
             }
             this.explodeToBaseRequirements(componentId, quantity * componentQty, byId, requirements, path);
         }
@@ -339,19 +340,19 @@ export class ProductService {
 
     async consumeStock(clubId: number, productId: number, quantity: number, txClient: Prisma.TransactionClient) {
         const qty = Number(quantity);
-        if (!Number.isFinite(qty) || qty <= 0) throw new Error('Cantidad inválida');
+        if (!Number.isFinite(qty) || qty <= 0) throw badRequest('Cantidad inválida', ErrorCodes.INVALID_INPUT);
 
         const products = await this.getProductsGraph(clubId, txClient);
         const byId = new Map<number, any>(products.map((product) => [product.id, product]));
         const target = byId.get(productId);
 
-        if (!target) throw new Error('Producto no encontrado');
-        if (!target.isActive) throw new Error('Producto inactivo');
+        if (!target) throw notFound('Producto no encontrado', ErrorCodes.PRODUCT_NOT_FOUND);
+        if (!target.isActive) throw conflict('Producto inactivo', ErrorCodes.PRODUCT_INACTIVE);
 
         const availableStockMap = this.computeAvailableStockMap(products);
         const available = availableStockMap.get(productId) ?? 0;
         if (available < qty) {
-            throw new Error('No hay suficiente stock');
+            throw conflict('No hay stock suficiente para completar la venta.', ErrorCodes.STOCK_INSUFFICIENT);
         }
 
         const requirements = new Map<number, number>();

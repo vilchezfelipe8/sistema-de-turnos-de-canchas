@@ -1,25 +1,25 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/AuthMiddleware';
-import { requireRole } from '../middleware/RoleMiddleware';
+import { requireTenantRole } from '../middleware/RoleMiddleware';
 import { verifyClubAccess } from '../middleware/ClubMiddleware';
 import { ClientDebtService } from '../services/ClientDebtService';
+import { sendAppError, validationError } from '../errors';
 
 const router = Router();
 const clientDebtService = new ClientDebtService();
-const getErrorMessage = (error: unknown, fallback: string) =>
-  error instanceof Error && String(error.message || '').trim().length > 0
-    ? error.message
-    : fallback;
-const isIntegrityInconsistencyError = (error: unknown) =>
-  getErrorMessage(error, '').includes('Inconsistencia de integridad');
 
 // GET /api/clients/:slug — solo el admin de ese club puede ver la lista
-router.get('/:slug', authMiddleware, verifyClubAccess, requireRole('ADMIN'), async (req, res) => {
+router.get('/:slug', authMiddleware, verifyClubAccess, requireTenantRole(['ADMIN', 'STAFF']), async (req, res) => {
   try {
     const club = (req as any).club;
     const rawScope = String(req.query.scope || 'all').trim().toLowerCase();
     if (rawScope !== 'all' && rawScope !== 'debt_open') {
-      return res.status(400).json({ error: 'scope inválido. Valores permitidos: all | debt_open' });
+      return sendAppError(
+        res,
+        validationError('Revisá los campos marcados.', {
+          scope: 'scope inválido. Valores permitidos: all | debt_open.'
+        })
+      );
     }
 
     const clientsArray = await clientDebtService.listByClub(club.id, {
@@ -28,11 +28,7 @@ router.get('/:slug', authMiddleware, verifyClubAccess, requireRole('ADMIN'), asy
     res.json(clientsArray);
 
   } catch (error) {
-    console.error('Error getting clients:', error);
-    if (isIntegrityInconsistencyError(error)) {
-      return res.status(409).json({ error: getErrorMessage(error, 'Inconsistencia de integridad en clientes/deuda') });
-    }
-    res.status(500).json({ error: getErrorMessage(error, 'Error interno del servidor') });
+    return sendAppError(res, error, 'No se pudo cargar la lista de clientes');
   }
 });
 

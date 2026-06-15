@@ -1,0 +1,260 @@
+<!doctype html><html lang="es"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=1280"/>
+<title>Pique · Social Media Kit v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0E1116;--ink2:#1B1F26;--ink4:#41464F;--ink5:#6F6A60;
+  --ink8:#DBD9D1;--ink9:#ECEBE5;--ink10:#F5F4F0;
+  --lima:#B6F36A;--limad:#5C8E1A;--lima900:#1F3A0E;
+  --lima10:#F0FBDD;--lima20:#E7FBC5;
+  --bg:#131518;--surface:#1C1F24;--surface2:#222630;
+  --border:rgba(255,255,255,.08);--border2:rgba(255,255,255,.12);
+  --text:rgba(255,255,255,.9);--text2:rgba(255,255,255,.5);--text3:rgba(255,255,255,.28);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:'Geist',sans-serif;-webkit-font-smoothing:antialiased;font-size:15px}
+.mono{font-family:'Geist Mono',monospace}
+svg{display:block}
+
+/* ── TOPBAR ── */
+.topbar{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;justify-content:space-between;align-items:center;padding:0 48px;height:56px;background:rgba(19,21,24,.92);backdrop-filter:blur(14px);border-bottom:1px solid var(--border)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px;flex-shrink:0}
+.brand-label{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text3);margin-left:10px}
+.nav{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
+.nav a{font-size:12px;font-weight:500;color:var(--text3);text-decoration:none;padding:6px 12px;border-radius:6px;white-space:nowrap;transition:.15s}
+.nav a:hover{color:var(--text);background:rgba(255,255,255,.06)}
+.nav a.active{color:var(--lima);background:rgba(182,243,106,.08)}
+.tb-right{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text3);flex-shrink:0}
+
+/* ── LAYOUT ── */
+.wrap{max-width:1280px;margin:0 auto;padding:0 48px}
+section{padding:80px 0;border-bottom:1px solid var(--border)}
+section:last-of-type{border-bottom:none}
+.sec-label{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--lima);margin-bottom:10px}
+.sec-title{font-size:38px;font-weight:600;letter-spacing:-.035em;line-height:1;margin-bottom:10px}
+.sec-desc{font-size:14px;color:var(--text2);line-height:1.55;max-width:580px;margin-bottom:36px}
+.divider{height:1px;background:var(--border);margin:48px 0}
+
+/* ── CARDS / SURFACES ── */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px}
+.card-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.card-head h4{font-size:14px;font-weight:600}
+.tag{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text3)}
+.card-body{padding:24px}
+
+/* ── FORMAT WRAPPERS ── */
+.fmt-row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+.fmt{display:flex;flex-direction:column;gap:8px;align-items:center;flex-shrink:0}
+.fmt-label{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text3);text-align:center}
+.fmt-size{font-family:'Geist Mono',monospace;font-size:10px;color:rgba(255,255,255,.18);text-align:center}
+
+/* CANVAS SIZES */
+.c-story{width:240px;height:427px;border-radius:16px;overflow:hidden;flex-shrink:0;position:relative}
+.c-feed{width:300px;height:300px;border-radius:12px;overflow:hidden;flex-shrink:0;position:relative}
+.c-car{width:264px;height:330px;border-radius:12px;overflow:hidden;flex-shrink:0;position:relative}
+.c-banner-ln{width:100%;height:200px;border-radius:12px;overflow:hidden;position:relative;max-width:840px}
+.c-banner-tw{width:100%;height:167px;border-radius:12px;overflow:hidden;position:relative;max-width:500px}
+.c-banner-fb{width:100%;height:185px;border-radius:12px;overflow:hidden;position:relative;max-width:500px}
+.c-pfp{border-radius:50%;overflow:hidden;flex-shrink:0;position:relative}
+.c-hl{width:80px;height:80px;border-radius:50%;overflow:hidden;flex-shrink:0;position:relative}
+.c-email{width:540px;border-radius:10px;overflow:hidden;flex-shrink:0;position:relative}
+
+/* GLOW */
+.glow{position:absolute;border-radius:50%;filter:blur(56px);pointer-events:none}
+.gl{background:rgba(182,243,106,.18)}
+.gd{background:rgba(14,17,22,.9)}
+
+/* ── STORY TEMPLATES ── */
+/* S1 · Launch */
+.s-launch{background:var(--ink);display:flex;flex-direction:column;justify-content:space-between;padding:22px 20px;height:100%}
+.s-launch .pill{display:inline-flex;align-items:center;gap:6px;background:rgba(182,243,106,.14);border:1px solid rgba(182,243,106,.28);border-radius:999px;padding:4px 10px;font-size:10px;color:var(--lima)}
+.s-launch .pill span{width:5px;height:5px;border-radius:50%;background:var(--lima)}
+.s-launch h2{font-size:34px;font-weight:800;letter-spacing:-.05em;line-height:.9;color:#fff}
+.s-launch h2 em{font-style:normal;color:var(--lima)}
+.s-launch .sub{font-size:11px;color:rgba(255,255,255,.45);line-height:1.4}
+.s-launch .cta{background:var(--lima);color:var(--lima900);font-weight:700;font-size:11px;border-radius:999px;padding:8px 14px;display:inline-flex;align-items:center;gap:6px;width:fit-content}
+
+/* S2 · Feature */
+.s-feat{background:linear-gradient(175deg,#0C0F13 0%,#141920 100%);display:flex;flex-direction:column;justify-content:flex-end;padding:22px 20px;height:100%}
+.s-feat .mod{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:4px 9px;font-size:10px;color:#fff}
+.s-feat .dot{width:4px;height:4px;border-radius:50%;background:var(--lima)}
+
+/* S3 · Stat lima */
+.s-stat{background:var(--lima);display:flex;flex-direction:column;justify-content:space-between;padding:22px 20px;height:100%}
+
+/* S4 · Tutorial */
+.s-tut{background:linear-gradient(180deg,#0B0E12 0%,#101420 100%);display:flex;flex-direction:column;justify-content:space-between;padding:22px 20px;height:100%}
+.s-tut .step{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.05);border-radius:8px;padding:7px 10px;font-size:10px;color:rgba(255,255,255,.75)}
+.s-tut .step .num{background:var(--lima);color:var(--lima900);width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:9px;flex-shrink:0}
+
+/* ── FEED TEMPLATES ── */
+.f-hero{background:var(--ink);display:flex;flex-direction:column;justify-content:space-between;padding:20px;height:100%}
+.f-hero h2{font-size:32px;font-weight:800;letter-spacing:-.05em;line-height:.9;color:#fff}
+.f-hero h2 em{font-style:normal;color:var(--lima)}
+
+.f-mods{background:var(--ink10);display:grid;grid-template-columns:1fr 1fr;height:100%}
+.f-mods .hd{grid-column:span 2;padding:14px 16px;border-bottom:1px solid var(--ink8);background:#fff;display:flex;align-items:center;gap:7px}
+.f-mods .hd span{font-size:12px;font-weight:600;color:var(--ink)}
+.f-mod{padding:13px;border-right:1px solid var(--ink8);border-bottom:1px solid var(--ink8);display:flex;flex-direction:column;gap:5px}
+.f-mod:nth-child(even){border-right:none}
+.f-mod:nth-last-child(-n+2){border-bottom:none}
+.f-mod .dot{width:6px;height:6px;border-radius:50%;background:var(--lima)}
+.f-mod h5{font-size:11px;font-weight:600;color:var(--ink)}
+.f-mod p{font-size:10px;color:var(--ink5);line-height:1.3}
+
+.f-testi{background:var(--ink10);display:flex;flex-direction:column;justify-content:space-between;padding:20px;height:100%}
+
+.f-stat{background:var(--ink2);display:flex;flex-direction:column;justify-content:space-between;padding:20px;height:100%;position:relative}
+
+/* ── CAROUSEL TEMPLATES ── */
+.car-d{background:var(--ink);display:flex;flex-direction:column;justify-content:space-between;padding:18px;height:100%}
+.car-l{background:#fff;display:flex;flex-direction:column;justify-content:space-between;padding:18px;height:100%}
+.car-li{background:var(--lima);display:flex;flex-direction:column;justify-content:space-between;padding:18px;height:100%}
+.car-num-d{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--lima)}
+.car-num-l{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--limad)}
+
+/* ── HIGHLIGHT ── */
+.hl{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:20px}
+
+/* ── SETUP TABLE ── */
+.setup-table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.setup-table th{text-align:left;padding:12px 16px;font-size:11px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border);background:rgba(255,255,255,.03)}
+.setup-table td{padding:14px 16px;font-size:13px;color:var(--text2);border-bottom:1px solid var(--border);vertical-align:top;line-height:1.5}
+.setup-table tr:last-child td{border-bottom:none}
+.setup-table .field{color:var(--text);font-weight:500;font-size:13px;white-space:nowrap}
+.setup-table .copy{font-family:'Geist Mono',monospace;font-size:12px;color:var(--lima);background:rgba(182,243,106,.07);border-radius:6px;padding:2px 8px;display:inline-block}
+
+/* ── BIO CARDS ── */
+.bio-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.bio-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px}
+.bio-card .plat{font-size:11px;font-weight:600;color:var(--lima);font-family:'Geist Mono',monospace;letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px}
+.bio-card .bio-text{font-size:13px;color:var(--text2);line-height:1.55;white-space:pre-line}
+.bio-card .limit{font-size:11px;color:var(--text3);margin-top:8px;font-family:'Geist Mono',monospace}
+
+/* ── PILLAR CARDS ── */
+.pillar-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.pillar{padding:24px 20px;border-right:1px solid var(--border)}
+.pillar:last-child{border-right:none}
+.pillar .num{font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--text3);margin-bottom:14px}
+.pillar h5{font-size:16px;font-weight:600;margin-bottom:8px}
+.pillar p{font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:12px}
+.pillar ul{list-style:none;display:flex;flex-direction:column;gap:4px}
+.pillar li{font-size:12px;color:var(--text3);display:flex;gap:6px}
+.pillar li::before{content:"·";color:var(--lima)}
+.pillar .pct{font-size:11px;font-weight:600;color:var(--lima);font-family:'Geist Mono',monospace;margin-top:10px}
+
+/* ── COPY CARDS ── */
+.copy-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:32px}
+.copy-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px}
+.copy-card .cn{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--lima);margin-bottom:10px}
+.copy-card .ct{font-size:13px;color:var(--text2);line-height:1.55;margin-bottom:10px;white-space:pre-line}
+.copy-card .tags{font-size:11px;color:var(--text3);line-height:1.6}
+
+/* ── SCRIPT CARDS ── */
+.script-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.script{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.script .sh{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.script .sh h5{font-size:14px;font-weight:600}
+.script .sb{padding:18px}
+.script .seg{margin-bottom:14px}
+.script .seg:last-child{margin-bottom:0}
+.script .seg .tm{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--lima);margin-bottom:4px}
+.script .seg p{font-size:12px;color:var(--text2);line-height:1.5}
+
+/* ── CALENDAR ── */
+.cal-grid{display:grid;grid-template-columns:80px repeat(7,1fr);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.ch{padding:10px 12px;border-bottom:1px solid var(--border);font-size:11px;font-weight:500;color:var(--text3);border-right:1px solid var(--border);text-align:center}
+.ch:last-child{border-right:none}
+.crl{padding:14px 10px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);font-family:'Geist Mono',monospace;letter-spacing:.08em;display:flex;align-items:center;justify-content:center}
+.cs{border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:8px 10px;font-size:10px;color:var(--text3);min-height:56px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;line-height:1.35;gap:4px}
+.cs:last-child{border-right:none}
+.cs.on{background:rgba(182,243,106,.06);color:var(--text);border-color:rgba(182,243,106,.14)}
+.cs .ct{font-weight:500;font-size:10px}
+.cs .ft{font-size:9px;color:var(--lima);font-family:'Geist Mono',monospace}
+.cal-grid .crl:nth-last-child(-n+8),.cal-grid .cs:nth-last-child(-n+7){border-bottom:none}
+
+/* monthly */
+.month-grid{display:grid;grid-template-columns:80px repeat(4,1fr);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:32px}
+.mh{padding:12px 16px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text2);border-right:1px solid var(--border);text-align:center}
+.mh:last-child{border-right:none}
+.ml{padding:16px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);font-family:'Geist Mono',monospace;letter-spacing:.08em;display:flex;align-items:flex-start;padding-top:16px}
+.mc{border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:14px 16px;vertical-align:top}
+.mc:last-child{border-right:none}
+.mc .wk{font-family:'Geist Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);margin-bottom:8px}
+.mc ul{list-style:none;display:flex;flex-direction:column;gap:5px}
+.mc li{font-size:11px;color:var(--text2);display:flex;gap:6px;line-height:1.35}
+.mc li .dot{width:4px;height:4px;border-radius:50%;background:var(--lima);flex-shrink:0;margin-top:4px}
+.month-grid .ml:last-of-type,.month-grid .mc:nth-last-child(-n+5){border-bottom:none}
+
+/* ── PLATFORM SPEC ── */
+.spec-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:0;border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.spec-cell{padding:20px 18px;border-right:1px solid var(--border)}
+.spec-cell:last-child{border-right:none}
+.spec-cell .plat{font-size:13px;font-weight:600;margin-bottom:4px}
+.spec-cell .handle{font-family:'Geist Mono',monospace;font-size:10px;color:var(--lima);margin-bottom:12px}
+.spec-cell ul{list-style:none;display:flex;flex-direction:column;gap:5px}
+.spec-cell li{font-size:11px;color:var(--text2);display:flex;gap:5px;line-height:1.4}
+.spec-cell li::before{content:"·";color:var(--lima);flex-shrink:0}
+
+/* ── EMAIL SIG ── */
+.sig{background:#fff;padding:24px 28px;display:flex;align-items:center;gap:20px;border-left:3px solid var(--lima)}
+.sig .info h3{font-size:15px;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.sig .info .role{font-size:12px;color:var(--ink5);margin-top:2px}
+.sig .info .links{display:flex;gap:14px;margin-top:8px}
+.sig .info .links a{font-size:11px;color:var(--limad);text-decoration:none;font-weight:500}
+.sig .divLine{width:1px;height:48px;background:var(--ink8)}
+
+/* ── HASHTAG BANK ── */
+.hbank{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.hchip{background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:999px;padding:4px 12px;font-size:12px;color:var(--text3)}
+.hchip.b{background:rgba(182,243,106,.09);border-color:rgba(182,243,106,.2);color:var(--lima)}
+
+/* ── SAFE ZONE ── */
+.safezone{position:relative;overflow:hidden;border-radius:16px}
+.sz-overlay{position:absolute;inset:0;pointer-events:none}
+.sz-top{position:absolute;top:0;left:0;right:0;height:80px;background:rgba(255,165,0,.15);border-bottom:2px dashed rgba(255,165,0,.5)}
+.sz-bot{position:absolute;bottom:0;left:0;right:0;height:100px;background:rgba(255,165,0,.15);border-top:2px dashed rgba(255,165,0,.5)}
+.sz-label{position:absolute;font-size:9px;letter-spacing:.1em;text-transform:uppercase;font-family:'Geist Mono',monospace;font-weight:600;color:rgba(255,165,0,.9)}
+
+/* profile pic grid */
+.pfp-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:24px}
+.pfp-item{display:flex;flex-direction:column;align-items:center;gap:10px}
+.pfp-item .lbl{font-size:12px;font-weight:600;color:var(--text2)}
+.pfp-item .sz{font-family:'Geist Mono',monospace;font-size:10px;color:var(--text3);text-align:center}
+
+/* progress bar at top */
+#progress{position:fixed;top:56px;left:0;height:2px;background:var(--lima);z-index:99;width:0%;transition:width .1s}
+
+/* color grid banners */
+.banner-row{display:flex;flex-direction:column;gap:20px;width:100%}
+
+/* info box */
+.info-box{background:rgba(182,243,106,.06);border:1px solid rgba(182,243,106,.15);border-radius:12px;padding:16px 18px;font-size:13px;color:var(--text2);line-height:1.55;margin-top:20px}
+.info-box strong{color:var(--lima)}
+
+/* highlight row */
+.hl-row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start}
+.hl-item{display:flex;flex-direction:column;align-items:center;gap:8px}
+.hl-item .hl-ring{width:80px;height:80px;border-radius:50%;overflow:hidden;background:linear-gradient(135deg,#E4405F,#FF9A3D);padding:2px}
+.hl-item .hl-inner{width:100%;height:100%;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.hl-item .hl-lbl{font-size:11px;color:var(--text3);text-align:center;font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.08em}
+
+footer{padding:40px 48px;text-align:center;font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text3);border-top:1px solid var(--border)}
+</style>
+</head><body style="margin:0;width:840px;height:200px;overflow:hidden;background:#131518"><div class="c-banner-ln" style="width:100%;background:var(--ink);display:flex;align-items:center;justify-content:space-between;padding:0 56px">
+        <div class="glow gl" style="width:360px;height:360px;top:-180px;right:120px;opacity:.2"></div>
+        <div style="display:flex;flex-direction:column;gap:10px;z-index:2">
+          <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(182,243,106,.12);border:1px solid rgba(182,243,106,.22);border-radius:999px;padding:4px 12px;font-size:11px;color:var(--lima);width:fit-content"><span style="width:5px;height:5px;border-radius:50%;background:var(--lima)"></span>SaaS deportivo · Argentina</div>
+          <div style="font-size:34px;font-weight:700;letter-spacing:-.04em;line-height:1;color:#fff">Reservas y gestión<br/><span style="color:var(--lima)">para clubes.</span></div>
+          <div style="font-size:13px;color:rgba(255,255,255,.4)">Agenda · Caja · Clientes · Facturación</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:14px;z-index:2">
+          <svg width="52" height="52" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="14" fill="#fff" opacity=".08"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+          <span style="font-size:38px;font-weight:700;letter-spacing:-.04em">pique</span>
+        </div>
+      </div></body></html>

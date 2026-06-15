@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { ErrorCodes, badRequest, sendAppError, validationError, zodValidationAppError } from '../errors';
 import { z } from 'zod';
 import { DiscountService } from '../services/DiscountService';
 
@@ -8,7 +9,7 @@ export class DiscountController {
   private resolveClubId(req: Request) {
     const clubId = Number((req as any).clubId);
     if (!Number.isInteger(clubId) || clubId <= 0) {
-      throw new Error('Club inválido');
+      throw badRequest('Club inválido', ErrorCodes.INVALID_INPUT);
     }
     return clubId;
   }
@@ -24,7 +25,7 @@ export class DiscountController {
       const policies = await this.discountService.listPolicies(clubId);
       return res.json(policies);
     } catch (error: any) {
-      return res.status(400).json({ error: error.message || 'No se pudieron listar las políticas' });
+      return sendAppError(res, error, 'No se pudieron listar las políticas');
     }
   };
 
@@ -51,7 +52,7 @@ export class DiscountController {
       });
 
       const parsed = bodySchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const created = await this.discountService.createPolicy({
@@ -60,7 +61,7 @@ export class DiscountController {
       });
       return res.status(201).json(created);
     } catch (error: any) {
-      return res.status(400).json({ error: error.message || 'No se pudo crear la política' });
+      return sendAppError(res, error, 'No se pudo crear la política');
     }
   };
 
@@ -85,12 +86,12 @@ export class DiscountController {
 
       const parsedParams = paramsSchema.safeParse(req.params);
       const parsedBody = bodySchema.safeParse(req.body);
-      if (!parsedParams.success) return res.status(400).json({ error: parsedParams.error.format() });
-      if (!parsedBody.success) return res.status(400).json({ error: parsedBody.error.format() });
+      if (!parsedParams.success) return sendAppError(res, zodValidationAppError(parsedParams.error, 'Revisá los campos marcados.'));
+      if (!parsedBody.success) return sendAppError(res, zodValidationAppError(parsedBody.error, 'Revisá los campos marcados.'));
 
       const body = parsedBody.data;
       if (Object.keys(body).length === 0) {
-        return res.status(400).json({ error: 'No se enviaron cambios para actualizar' });
+        throw validationError('Revisá los campos marcados.', { general: 'No se enviaron cambios para actualizar.' });
       }
 
       const clubId = this.resolveClubId(req);
@@ -101,7 +102,7 @@ export class DiscountController {
       });
       return res.json(updated);
     } catch (error: any) {
-      return res.status(400).json({ error: error.message || 'No se pudo actualizar la política' });
+      return sendAppError(res, error, 'No se pudo actualizar la política');
     }
   };
 
@@ -109,13 +110,13 @@ export class DiscountController {
     try {
       const paramsSchema = z.object({ clientId: z.string().trim().min(1) });
       const parsed = paramsSchema.safeParse(req.params);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const assignments = await this.discountService.listClientAssignments(clubId, parsed.data.clientId);
       return res.json(assignments);
     } catch (error: any) {
-      return res.status(400).json({ error: error.message || 'No se pudieron listar las asignaciones' });
+      return sendAppError(res, error, 'No se pudieron listar las asignaciones');
     }
   };
 
@@ -130,8 +131,8 @@ export class DiscountController {
       });
       const parsedParams = paramsSchema.safeParse(req.params);
       const parsedBody = bodySchema.safeParse(req.body);
-      if (!parsedParams.success) return res.status(400).json({ error: parsedParams.error.format() });
-      if (!parsedBody.success) return res.status(400).json({ error: parsedBody.error.format() });
+      if (!parsedParams.success) return sendAppError(res, zodValidationAppError(parsedParams.error, 'Revisá los campos marcados.'));
+      if (!parsedBody.success) return sendAppError(res, zodValidationAppError(parsedBody.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const assignment = await this.discountService.assignPolicyToClient({
@@ -145,7 +146,7 @@ export class DiscountController {
       });
       return res.status(201).json(assignment);
     } catch (error: any) {
-      return res.status(400).json({ error: error.message || 'No se pudo asignar la política al cliente' });
+      return sendAppError(res, error, 'No se pudo asignar la política al cliente');
     }
   };
 
@@ -155,8 +156,8 @@ export class DiscountController {
       const bodySchema = z.object({ isActive: z.boolean() });
       const parsedParams = paramsSchema.safeParse(req.params);
       const parsedBody = bodySchema.safeParse(req.body);
-      if (!parsedParams.success) return res.status(400).json({ error: parsedParams.error.format() });
-      if (!parsedBody.success) return res.status(400).json({ error: parsedBody.error.format() });
+      if (!parsedParams.success) return sendAppError(res, zodValidationAppError(parsedParams.error, 'Revisá los campos marcados.'));
+      if (!parsedBody.success) return sendAppError(res, zodValidationAppError(parsedBody.error, 'Revisá los campos marcados.'));
 
       const clubId = this.resolveClubId(req);
       const updated = await this.discountService.setAssignmentActive({
@@ -166,7 +167,23 @@ export class DiscountController {
       });
       return res.json(updated);
     } catch (error: any) {
-      return res.status(400).json({ error: error.message || 'No se pudo actualizar la asignación' });
+      return sendAppError(res, error, 'No se pudo actualizar la asignación');
+    }
+  };
+  deleteAssignment = async (req: Request, res: Response) => {
+    try {
+      const paramsSchema = z.object({ assignmentId: z.string().trim().min(1) });
+      const parsedParams = paramsSchema.safeParse(req.params);
+      if (!parsedParams.success) return sendAppError(res, zodValidationAppError(parsedParams.error, 'Revisá los campos marcados.'));
+
+      const clubId = this.resolveClubId(req);
+      await this.discountService.deleteAssignment({
+        clubId,
+        assignmentId: parsedParams.data.assignmentId
+      });
+      return res.status(204).send();
+    } catch (error: any) {
+      return sendAppError(res, error, 'No se pudo eliminar la asignación');
     }
   };
 }

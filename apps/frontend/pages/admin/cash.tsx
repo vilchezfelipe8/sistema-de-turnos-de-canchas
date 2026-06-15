@@ -1,22 +1,9 @@
-import React from 'react';
-import Head from 'next/head';
-import AdminLayout from '../../components/AdminLayout'; // Ajustá la ruta si es necesario
-import AdminCashDashboard from '../../components/admin/AdminCashDashboard'; // Tu componente nuevo
+import type { GetServerSideProps } from 'next';
 
-const CashPage = () => {
-  return (
-    <AdminLayout>
-      <Head>
-        <title>Caja | TuCancha Admin</title>
-      </Head>
-      
-     
+export const getServerSideProps: GetServerSideProps = async () => ({
+  redirect: { destination: '/admin/caja', permanent: true },
+});
 
-      {/* Aquí renderizamos el tablero que creamos antes */}
-      <AdminCashDashboard />
-      
-    </AdminLayout>
-  );
-};
-
-export default CashPage;
+export default function CashRedirect() {
+  return null;
+}

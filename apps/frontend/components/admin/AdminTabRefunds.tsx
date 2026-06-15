@@ -7,6 +7,12 @@ import { formatRefundExecutionMethod, formatRefundStatus } from '../../modules/r
 import RefundList from './refunds/RefundList';
 import RefundLifecycleActions from './refunds/RefundLifecycleActions';
 import { formatAccountCode, formatPaymentCode, formatRefundCode } from '../../utils/displayCode';
+import { AdminPageHeader, AdminPanel } from './ui';
+import AdminAppModal from './ui/AdminAppModal';
+import { AdminFeedbackBanner } from './ui/AdminFeedback';
+import { extractErrorMessage } from '../../utils/uiError';
+import { showAdminToast } from '../../utils/adminToast';
+import { ADMIN_Z_INDEX } from '../../utils/adminZIndex';
 
 const STATUS_OPTIONS: Array<{ value: 'ALL' | RefundStatus; label: string }> = [
   { value: 'ALL', label: 'Todos' },
@@ -35,23 +41,33 @@ const formatDateTime = (value?: string | null) => {
 
 function DetailItem({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="rounded-xl border border-[#347048]/10 bg-white px-3 py-2.5">
-      <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/55">{label}</p>
-      <p className={`mt-1 text-sm font-bold ${mono ? 'font-mono text-[12px] break-all' : ''}`}>{value || '-'}</p>
+    <div className="rounded-xl border border-p-border bg-p-surface px-3 py-2.5">
+      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-p-text-muted">{label}</p>
+      <p className={`mt-1 text-sm font-bold text-p-text ${mono ? 'font-mono text-[12px] break-all' : ''}`}>{value || '-'}</p>
     </div>
   );
 }
 
 function DetailBlock({ label, value, mono = false }: { label: string; value?: string | null; mono?: boolean }) {
   return (
-    <div className="rounded-xl border border-[#347048]/10 bg-white px-3 py-3">
-      <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/55">{label}</p>
-      <p className={`mt-1 text-sm font-semibold whitespace-pre-wrap break-words ${mono ? 'font-mono text-[12px]' : ''}`}>
+    <div className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
+      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-p-text-muted">{label}</p>
+      <p className={`mt-1 text-sm font-semibold whitespace-pre-wrap break-words text-p-text ${mono ? 'font-mono text-[12px]' : ''}`}>
         {value && value.trim() ? value : '-'}
       </p>
     </div>
   );
 }
+
+type RefundActionConfig = {
+  refundId: string;
+  title: string;
+  description: string;
+  confirmText: string;
+  successMessage: string;
+  isWarning?: boolean;
+  execute: () => Promise<unknown>;
+};
 
 export default function AdminTabRefunds() {
   const [refunds, setRefunds] = useState<RefundRecord[]>([]);
@@ -60,6 +76,11 @@ export default function AdminTabRefunds() {
   const [error, setError] = useState('');
   const [mounted, setMounted] = useState(false);
   const [selectedRefundId, setSelectedRefundId] = useState<string | null>(null);
+
+  // Confirmación modal
+  const [pendingAction, setPendingAction] = useState<RefundActionConfig | null>(null);
+  const [actionConfirming, setActionConfirming] = useState(false);
+  const [actionConfirmError, setActionConfirmError] = useState('');
 
   const [statusFilter, setStatusFilter] = useState<'ALL' | RefundStatus>('ALL');
   const [paymentIdFilter, setPaymentIdFilter] = useState('');
@@ -92,8 +113,8 @@ export default function AdminTabRefunds() {
         accountId: accountIdFilter.trim() || undefined
       });
       setRefunds(data);
-    } catch (err: any) {
-      setError(err?.message || 'No se pudieron cargar devoluciones');
+    } catch (err) {
+      setError(extractErrorMessage(err, 'No se pudieron cargar las devoluciones. Recargá la página.'));
       setRefunds([]);
     } finally {
       setLoading(false);
@@ -110,63 +131,115 @@ export default function AdminTabRefunds() {
     if (!stillExists) setSelectedRefundId(null);
   }, [refunds, selectedRefundId]);
 
-  const runAction = async (refundId: string, action: () => Promise<any>) => {
+  // Ejecuta la acción pendiente confirmada por el modal
+  const handleConfirmAction = useCallback(async () => {
+    if (!pendingAction || actionConfirming) return;
+    setActionConfirming(true);
+    setActionConfirmError('');
+    setActionBusyId(pendingAction.refundId);
     try {
-      setActionBusyId(refundId);
-      await action();
+      await pendingAction.execute();
+      const msg = pendingAction.successMessage;
+      setPendingAction(null);
       await load();
-    } catch (err: any) {
-      setError(err?.message || 'No se pudo procesar la devolucion');
+      showAdminToast(msg);
+    } catch (err) {
+      setActionConfirmError(extractErrorMessage(err, 'No se pudo procesar la devolución. Intentá nuevamente.'));
     } finally {
+      setActionConfirming(false);
       setActionBusyId(null);
     }
-  };
+  }, [pendingAction, actionConfirming, load]);
 
-  const onApprove = (refund: RefundRecord, executeNow: boolean) => {
-    const ok = window.confirm(executeNow ? '¿Aprobar y ejecutar esta devolución?' : '¿Aprobar esta devolución?');
-    if (!ok) return;
-    runAction(refund.id, () => refundActions.approve(refund.id, executeNow));
-  };
+  const closePendingAction = useCallback(() => {
+    if (actionConfirming) return;
+    setPendingAction(null);
+    setActionConfirmError('');
+  }, [actionConfirming]);
 
-  const onExecute = (refund: RefundRecord) => {
-    if (!window.confirm('¿Ejecutar esta devolución?')) return;
-    runAction(refund.id, () => refundActions.execute(refund.id));
-  };
+  // Builders de cada acción — usan el modal del sistema.
+  const onApprove = useCallback((refund: RefundRecord, executeNow: boolean) => {
+    setPendingAction({
+      refundId: refund.id,
+      title: '¿Aprobar esta devolución?',
+      description: executeNow
+        ? 'Vas a aprobar y ejecutar la devolución en un solo paso.'
+        : 'Vas a marcar esta solicitud como aprobada para continuar con el proceso.',
+      confirmText: executeNow ? 'Aprobar y ejecutar' : 'Aprobar devolución',
+      successMessage: 'Devolución aprobada.',
+      execute: () => refundActions.approve(refund.id, executeNow),
+    });
+  }, []);
 
-  const onRetry = (refund: RefundRecord, executeNow: boolean) => {
-    if (!window.confirm('¿Reintentar esta devolución?')) return;
-    runAction(refund.id, () => refundActions.retry(refund.id, executeNow));
-  };
+  const onExecute = useCallback((refund: RefundRecord) => {
+    setPendingAction({
+      refundId: refund.id,
+      title: '¿Registrar la devolución como ejecutada?',
+      description: 'Confirmá solo si el dinero ya fue devuelto o el ajuste fue realizado.',
+      confirmText: 'Registrar como ejecutada',
+      successMessage: 'Devolución registrada como ejecutada.',
+      execute: () => refundActions.execute(refund.id),
+    });
+  }, []);
 
-  const onFail = (refund: RefundRecord) => {
-    if (!window.confirm('¿Marcar esta devolución como fallida?')) return;
-    runAction(refund.id, () => refundActions.fail(refund.id));
-  };
+  const onRetry = useCallback((refund: RefundRecord, executeNow: boolean) => {
+    setPendingAction({
+      refundId: refund.id,
+      title: '¿Reintentar esta devolución?',
+      description: 'El sistema volverá a intentar procesar la operación.',
+      confirmText: 'Reintentar devolución',
+      successMessage: 'Devolución reintentada.',
+      execute: () => refundActions.retry(refund.id, executeNow),
+    });
+  }, []);
 
-  const onCancel = (refund: RefundRecord) => {
-    if (!window.confirm('¿Cancelar esta devolución?')) return;
-    runAction(refund.id, () => refundActions.cancel(refund.id));
-  };
+  const onFail = useCallback((refund: RefundRecord) => {
+    setPendingAction({
+      refundId: refund.id,
+      title: '¿Marcar esta devolución como fallida?',
+      description: 'Esta acción dejará registrada la devolución como no completada.',
+      confirmText: 'Marcar como fallida',
+      successMessage: 'Devolución marcada como fallida.',
+      isWarning: true,
+      execute: () => refundActions.fail(refund.id),
+    });
+  }, []);
+
+  const onCancel = useCallback((refund: RefundRecord) => {
+    setPendingAction({
+      refundId: refund.id,
+      title: '¿Cancelar esta devolución?',
+      description: 'La solicitud quedará cancelada y no se procesará.',
+      confirmText: 'Cancelar devolución',
+      successMessage: 'Devolución cancelada.',
+      isWarning: true,
+      execute: () => refundActions.cancel(refund.id),
+    });
+  }, []);
 
   return (
-    <div className="density-compact bg-[#EBE1D8] border-4 border-white/60 rounded-[1.5rem] p-4 md:p-5 shadow-2xl shadow-[#347048]/25 text-[#347048] space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-xl sm:text-2xl font-black uppercase italic tracking-tight text-[#347048]">Bandeja de devoluciones</h2>
-        <button
-          type="button"
-          onClick={load}
-          className="h-9 px-3 rounded-lg border border-[#347048]/20 bg-white text-[10px] font-black uppercase tracking-widest text-[#347048] hover:border-[#B9CF32] shadow-sm hover:shadow-md transition-all"
-        >
-          Recargar
-        </button>
-      </div>
+    <div className="mx-auto flex w-full max-w-[1380px] flex-col gap-4">
+      <AdminPageHeader
+        eyebrow="Caja"
+        title="Devoluciones"
+        description="Solicitudes de cuentas y reservas en un flujo auditable."
+        actions={
+          <button
+            type="button"
+            onClick={load}
+            className="h-10 rounded-lg border border-p-border bg-p-surface px-4 text-xs font-bold uppercase tracking-[0.14em] text-p-text-secondary transition hover:bg-p-surface-2"
+          >
+            Recargar
+          </button>
+        }
+      />
 
-      <div className="rounded-2xl border border-[#347048]/15 bg-white/80 p-3">
+      <AdminPanel>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as 'ALL' | RefundStatus)}
-            className="compact-field h-9 border border-[#347048]/20 rounded-xl px-3 bg-white text-sm font-semibold"
+            className="h-10 rounded-lg border border-p-border bg-p-surface px-3 text-sm font-semibold text-p-text outline-none focus:border-p-accent focus:ring-3 focus:ring-lima-300/30"
           >
             {STATUS_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -178,13 +251,13 @@ export default function AdminTabRefunds() {
             value={paymentIdFilter}
             onChange={(e) => setPaymentIdFilter(e.target.value)}
             placeholder="Filtrar por pago"
-            className="compact-field h-9 border border-[#347048]/20 rounded-xl px-3 bg-white text-sm font-semibold placeholder:text-[#347048]/45"
+            className="h-10 rounded-lg border border-p-border bg-p-surface px-3 text-sm font-semibold text-p-text placeholder:text-p-text-muted outline-none focus:border-p-accent focus:ring-3 focus:ring-lima-300/30"
           />
           <input
             value={accountIdFilter}
             onChange={(e) => setAccountIdFilter(e.target.value)}
             placeholder="Filtrar por cuenta"
-            className="compact-field h-9 border border-[#347048]/20 rounded-xl px-3 bg-white text-sm font-semibold placeholder:text-[#347048]/45"
+            className="h-10 rounded-lg border border-p-border bg-p-surface px-3 text-sm font-semibold text-p-text placeholder:text-p-text-muted outline-none focus:border-p-accent focus:ring-3 focus:ring-lima-300/30"
           />
           <button
             type="button"
@@ -194,41 +267,44 @@ export default function AdminTabRefunds() {
               setAccountIdFilter('');
             }}
             disabled={!hasActiveFilters}
-            className="compact-field h-9 rounded-xl border border-[#347048]/20 bg-[#EBE1D8] text-xs font-black uppercase tracking-wide disabled:opacity-40"
+            className="h-10 rounded-lg border border-p-border bg-p-surface-2 text-xs font-bold uppercase tracking-[0.14em] text-p-text-secondary disabled:opacity-40"
           >
             Limpiar filtros
           </button>
         </div>
-      </div>
+      </AdminPanel>
 
-      {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-600">{error}</div> : null}
+      {error ? <AdminFeedbackBanner tone="error">{error}</AdminFeedbackBanner> : null}
 
-      <RefundList
-        refunds={refunds}
-        loading={loading}
-        emptyText="No hay devoluciones para los filtros seleccionados."
-        maxHeightClass="max-h-[76vh]"
-        actionBusyId={actionBusyId}
-        selectedRefundId={selectedRefundId}
-        onSelectRefund={(refund) => setSelectedRefundId(refund.id)}
-        renderActions={(refund, isBusy) => (
-          <RefundLifecycleActions
-            status={refund.status}
-            disabled={isBusy}
-            handlers={{
-              onApprove: (executeNow) => onApprove(refund, executeNow),
-              onExecute: () => onExecute(refund),
-              onRetry: (executeNow) => onRetry(refund, executeNow),
-              onFail: () => onFail(refund),
-              onCancel: () => onCancel(refund)
-            }}
-          />
-        )}
-      />
+      <AdminPanel title="Bandeja" description={`${refunds.length} devoluciones encontradas.`}>
+        <RefundList
+          refunds={refunds}
+          loading={loading}
+          emptyText="No hay devoluciones para los filtros seleccionados."
+          maxHeightClass="max-h-[65vh]"
+          actionBusyId={actionBusyId}
+          selectedRefundId={selectedRefundId}
+          onSelectRefund={(refund) => setSelectedRefundId(refund.id)}
+          renderActions={(refund, isBusy) => (
+            <RefundLifecycleActions
+              status={refund.status}
+              disabled={isBusy}
+              handlers={{
+                onApprove: (executeNow) => onApprove(refund, executeNow),
+                onExecute: () => onExecute(refund),
+                onRetry: (executeNow) => onRetry(refund, executeNow),
+                onFail: () => onFail(refund),
+                onCancel: () => onCancel(refund)
+              }}
+            />
+          )}
+        />
+      </AdminPanel>
 
       {mounted && selectedRefund && createPortal(
         <div
-          className="fixed inset-0 z-[2147483400] flex items-center justify-center bg-black/60 p-4"
+          className="fixed inset-0 flex items-center justify-center bg-black/60 p-4"
+          style={{ zIndex: ADMIN_Z_INDEX.modalCritical }}
           onMouseDown={(event) => {
             detailBackdropMouseDownRef.current = event.target === event.currentTarget;
           }}
@@ -244,14 +320,14 @@ export default function AdminTabRefunds() {
           }}
         >
           <div
-            className="density-compact w-full max-w-2xl bg-[#EBE1D8] border-4 border-white/70 rounded-[1.5rem] shadow-2xl text-[#347048] max-h-[90vh] overflow-hidden"
+            className="w-full max-w-2xl bg-ink-50 border-4 border-white/70 rounded-[2rem] shadow-2xl text-ink-900 max-h-[90vh] overflow-hidden"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="px-4 py-4 border-b border-[#347048]/10 bg-white/60 flex items-start justify-between gap-3">
+            <div className="px-6 py-5 border-b border-lima-900/10 bg-p-surface/60 flex items-start justify-between gap-3">
               <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]/50">Gestion de devoluciones</p>
-                <h3 className="compact-title font-black uppercase italic tracking-tight">Detalle de devolución</h3>
-                <p className="text-[11px] font-black uppercase tracking-widest text-[#347048]/60 mt-1">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-ink-900/50">Gestión de devoluciones</p>
+                <h3 className="text-2xl font-black uppercase italic tracking-tight">Detalle de devolución</h3>
+                <p className="text-[11px] font-black uppercase tracking-widest text-ink-900/60 mt-1">
                   {formatRefundStatus(selectedRefund.status)} · {formatMoney(selectedRefund.amount)}
                 </p>
               </div>
@@ -259,13 +335,13 @@ export default function AdminTabRefunds() {
                 type="button"
                 onClick={() => setSelectedRefundId(null)}
                 title="Cerrar"
-                className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
+                className="bg-p-error-bg p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-p-error hover:text-ink-50 hover:bg-p-error border border-p-error"
               >
                 <X size={20} strokeWidth={3} />
               </button>
             </div>
 
-            <div className="p-4 space-y-3 overflow-y-auto max-h-[calc(90vh-80px)]">
+            <div className="p-6 space-y-4 overflow-y-auto max-h-[calc(90vh-88px)]">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <DetailItem label="Código devolución" value={formatRefundCode(selectedRefund.id, (selectedRefund as any)?.displayCode)} />
                 <DetailItem label="Estado" value={formatRefundStatus(selectedRefund.status)} />
@@ -289,8 +365,8 @@ export default function AdminTabRefunds() {
                 <DetailItem label="Cancelada por" value={selectedRefund.cancelledByUserId != null ? String(selectedRefund.cancelledByUserId) : '-'} />
               </div>
 
-              <div className="rounded-xl border border-[#347048]/10 bg-[#f7f4ef] px-3 py-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/55">Datos técnicos</p>
+              <div className="rounded-xl border border-lima-900/10 bg-p-surface-2 px-3 py-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-ink-900/55">Datos técnicos</p>
                 <p className="mt-1 text-[12px] font-mono break-all">refundId: {selectedRefund.id}</p>
                 <p className="text-[12px] font-mono break-all">paymentId: {selectedRefund.paymentId || '-'}</p>
                 <p className="text-[12px] font-mono break-all">accountId: {selectedRefund.accountId || '-'}</p>
@@ -306,6 +382,30 @@ export default function AdminTabRefunds() {
         </div>,
         document.body
       )}
+
+      {/* Modal de confirmación para acciones de devolución */}
+      <AdminAppModal
+        show={pendingAction !== null}
+        title={pendingAction?.title ?? ''}
+        message={
+          <>
+            <p>{pendingAction?.description}</p>
+            {actionConfirmError && (
+              <AdminFeedbackBanner tone="error" compact className="mt-3">
+                {actionConfirmError}
+              </AdminFeedbackBanner>
+            )}
+          </>
+        }
+        confirmText={actionConfirming ? 'Procesando...' : (pendingAction?.confirmText ?? 'Confirmar')}
+        cancelText="Cancelar"
+        confirmDisabled={actionConfirming}
+        isWarning={pendingAction?.isWarning ?? false}
+        closeOnBackdrop={!actionConfirming}
+        closeOnEscape={!actionConfirming}
+        onClose={closePendingAction}
+        onConfirm={() => { void handleConfirmAction(); }}
+      />
     </div>
   );
 }

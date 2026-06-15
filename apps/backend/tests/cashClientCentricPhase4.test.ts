@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CashService } from '../src/services/CashService';
+import { AppError, ErrorCodes } from '../src/errors';
 import { prisma } from '../src/prisma';
 
 function buildServiceHarness() {
@@ -16,7 +17,8 @@ function buildServiceHarness() {
   };
 
   service.accountingService = {
-    createAccountItemTransaction: async () => null
+    createAccountItemTransaction: async () => null,
+    mapRevenueAccount: (type: string) => (type === 'PRODUCT' ? 'BAR_REVENUE' : 'ADJUSTMENTS')
   };
 
   service.projectionService = {
@@ -24,6 +26,11 @@ function buildServiceHarness() {
   };
 
   service.paymentService = {
+    createInTransaction: async (_tx: any, input: any) => ({
+      id: 'pay-1',
+      amount: Number(input.amount || 0),
+      method: input.method
+    }),
     create: async (input: any) => ({
       id: 'pay-1',
       amount: Number(input.amount || 0),
@@ -64,8 +71,10 @@ function buildQuoteTx(overrides?: Partial<any>) {
         name: 'Pelota',
         price: 1000,
         category: 'INSUMO',
-        stock: 20
-      })
+        stock: 20,
+        isActive: true
+      }),
+      updateMany: async () => ({ count: 1 })
     },
     account: {
       create: async () => ({ id: 'acc-1' }),
@@ -135,9 +144,10 @@ test('venta con clientId mantiene identidad client-centric', async () => {
         name: 'Pelota',
         price: 1000,
         category: 'INSUMO',
-        stock: 20
+        stock: 20,
+        isActive: true
       }),
-      update: async () => ({ id: 101 })
+      updateMany: async () => ({ count: 1 })
     }
   });
 
@@ -183,9 +193,10 @@ test('venta con clientDraft crea cliente cuando no existe match seguro', async (
         name: 'Pelota',
         price: 1000,
         category: 'INSUMO',
-        stock: 20
+        stock: 20,
+        isActive: true
       }),
-      update: async () => ({ id: 101 })
+      updateMany: async () => ({ count: 1 })
     }
   });
 
@@ -253,7 +264,11 @@ test('no permite resolver cliente por nombre solo', async () => {
           phone: ''
         }
       } as any),
-      /CLIENT_DRAFT_INVALID/
+      (err: unknown) => {
+        assert.ok(err instanceof AppError, 'debe ser AppError');
+        assert.equal(err.code, ErrorCodes.INVALID_INPUT);
+        return true;
+      }
     );
   });
 });
@@ -278,7 +293,12 @@ test('duplicado posible devuelve error prudente', async () => {
           email: 'dup@example.com'
         }
       } as any),
-      /CLIENT_POSSIBLE_DUPLICATE/
+      (err: unknown) => {
+        assert.ok(err instanceof AppError, 'debe ser AppError');
+        assert.equal(err.code, ErrorCodes.CLIENT_POSSIBLE_DUPLICATE);
+        assert.ok(Array.isArray((err.meta as any)?.candidateClientIds), 'debe incluir candidateClientIds en meta');
+        return true;
+      }
     );
   });
 });

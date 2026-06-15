@@ -11,6 +11,7 @@ export type ClubOperationalStatus = 'OPEN' | 'TEMPORARY_CLOSED' | 'PERMANENTLY_C
 
 export class Club {
     public courts: Court[] = [];
+    public publicSports: string[] = [];
 
     constructor(
         public id: number,

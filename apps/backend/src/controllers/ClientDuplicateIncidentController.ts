@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { ClientDuplicateIncidentService } from '../services/ClientDuplicateIncidentService';
 import { sendAuthError } from '../utils/authError';
+import { sendAppError } from '../errors';
 
 export class ClientDuplicateIncidentController {
   constructor(private readonly service: ClientDuplicateIncidentService) {}
@@ -23,7 +24,7 @@ export class ClientDuplicateIncidentController {
       });
       return res.json({ incidents });
     } catch (error: any) {
-      return res.status(400).json({ error: error?.message || 'No se pudieron listar los incidentes' });
+      return sendAppError(res, error, 'No se pudieron listar los incidentes');
     }
   };
 
@@ -41,7 +42,7 @@ export class ClientDuplicateIncidentController {
       if (!incident) return res.status(404).json({ error: 'Incidente no encontrado' });
       return res.json({ incident });
     } catch (error: any) {
-      return res.status(400).json({ error: error?.message || 'No se pudo obtener el incidente' });
+      return sendAppError(res, error, 'No se pudo obtener el incidente');
     }
   };
 
@@ -69,7 +70,7 @@ export class ClientDuplicateIncidentController {
 
       return res.json({ incident });
     } catch (error: any) {
-      return res.status(400).json({ error: error?.message || 'No se pudo resolver el incidente' });
+      return sendAppError(res, error, 'No se pudo resolver el incidente');
     }
   };
 
@@ -99,7 +100,7 @@ export class ClientDuplicateIncidentController {
 
       return res.json({ incident });
     } catch (error: any) {
-      return res.status(400).json({ error: error?.message || 'No se pudo descartar el incidente' });
+      return sendAppError(res, error, 'No se pudo descartar el incidente');
     }
   };
 }

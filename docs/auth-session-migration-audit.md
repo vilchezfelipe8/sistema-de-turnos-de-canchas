@@ -30,9 +30,9 @@ Minimum matrix:
 
 | Environment | Frontend URL | Backend URL | Cookie Domain | Secure | SameSite | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| Local dev | `http://localhost:3000` | `http://localhost:3001` (or similar) | host-only (`localhost`) | `false` | `Lax` | cross-port only, not cross-site |
+| Local dev | `http://localhost:3001` | `http://localhost:3000` | host-only (`localhost`) | `false` | `Lax` | cross-port only, not cross-site |
 | Preview | define exact preview host | define exact preview host | explicit or host-only | `true` | `Lax` (or `None` only if truly cross-site) | validate proxy headers |
-| Production | `https://app.tucancha.app` | `https://api.tucancha.app` | `.tucancha.app` or host-only by design | `true` | `Lax` | confirm no mixed-domain edge cases |
+| Production | `https://pique.ar` | `https://pique.ar/api` | host-only by default, `.pique.ar` only if subdomains are introduced later | `true` | `Lax` | prefer same-origin for the first controlled pilot |
 
 Rules:
 1. Prefer `SameSite=Lax` unless a real cross-site requirement forces `None`.

@@ -1,4 +1,5 @@
 import { prisma } from '../prisma';
+import { ErrorCodes, badRequest } from '../errors';
 
 type CreateServiceInput = {
   code: string;
@@ -37,9 +38,9 @@ export class ClubServiceCatalogService {
     const name = String(input.name || '').trim();
     const price = Number(input.price);
 
-    if (!code) throw new Error('Codigo de servicio invalido');
-    if (!name) throw new Error('Nombre de servicio invalido');
-    if (!Number.isFinite(price) || price <= 0) throw new Error('Precio invalido');
+    if (!code) throw badRequest('Código de servicio inválido', ErrorCodes.INVALID_INPUT);
+    if (!name) throw badRequest('Nombre de servicio inválido', ErrorCodes.INVALID_INPUT);
+    if (!Number.isFinite(price) || price <= 0) throw badRequest('Precio inválido', ErrorCodes.INVALID_INPUT);
 
     return prisma.clubServiceCatalog.create({
       data: {
@@ -62,12 +63,12 @@ export class ClubServiceCatalogService {
 
     if (input.code !== undefined) {
       const nextCode = normalizeCode(input.code);
-      if (!nextCode) throw new Error('Codigo de servicio invalido');
+      if (!nextCode) throw badRequest('Código de servicio inválido', ErrorCodes.INVALID_INPUT);
       nextData.code = nextCode;
     }
     if (input.name !== undefined) {
       const nextName = String(input.name || '').trim();
-      if (!nextName) throw new Error('Nombre de servicio invalido');
+      if (!nextName) throw badRequest('Nombre de servicio inválido', ErrorCodes.INVALID_INPUT);
       nextData.name = nextName;
     }
     if (input.description !== undefined) {
@@ -76,7 +77,7 @@ export class ClubServiceCatalogService {
     }
     if (input.price !== undefined) {
       const nextPrice = Number(input.price);
-      if (!Number.isFinite(nextPrice) || nextPrice <= 0) throw new Error('Precio invalido');
+      if (!Number.isFinite(nextPrice) || nextPrice <= 0) throw badRequest('Precio inválido', ErrorCodes.INVALID_INPUT);
       nextData.price = nextPrice;
     }
     if (input.isActive !== undefined) {

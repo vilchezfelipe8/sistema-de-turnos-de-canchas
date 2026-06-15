@@ -1,6 +1,7 @@
 import { getApiUrl } from './apiUrl';
 import { getActiveClubId, logout } from '../services/AuthService';
 import { getActiveClubSlug } from './session';
+import { buildCsrfHeaders } from './csrf';
 
 type ApiErrorCode =
   | 'AUTH_MISSING'
@@ -21,7 +22,7 @@ export class AuthSessionInvalidatedError extends Error {
   public readonly status: number;
 
   constructor(code: ApiErrorCode, status: number) {
-    super('Sesion finalizada.');
+    super('Sesión finalizada.');
     this.name = 'AuthSessionInvalidatedError';
     this.code = code;
     this.status = status;
@@ -35,10 +36,20 @@ const LOGOUT_INVALIDATION_COOLDOWN_MS = 6000;
 const parseApiError = async (res: Response): Promise<ParsedApiError> => {
   try {
     const data = await res.clone().json();
-    const code = typeof data?.code === 'string' ? data.code : null;
+    const nested = data?.error && typeof data.error === 'object' ? data.error : null;
+    const code =
+      typeof data?.code === 'string'
+        ? data.code
+        : typeof nested?.code === 'string'
+          ? nested.code
+          : null;
     const message =
       typeof data?.error === 'string'
         ? data.error
+        : typeof nested?.message === 'string'
+          ? nested.message
+          : typeof nested?.error === 'string'
+            ? nested.error
         : typeof data?.message === 'string'
           ? data.message
           : '';
@@ -69,8 +80,15 @@ export const isAuthSessionInvalidCode = (code: ApiErrorCode | null) => isSession
 export const isAuthSessionInvalidatedError = (value: unknown): value is AuthSessionInvalidatedError =>
   value instanceof AuthSessionInvalidatedError;
 
-const buildHeaders = (init?: RequestInit) => {
-  const headers = new Headers(init?.headers);
+const isUnsafeMethod = (method?: string) => {
+  const normalized = String(method || 'GET').trim().toUpperCase();
+  return normalized !== 'GET' && normalized !== 'HEAD' && normalized !== 'OPTIONS';
+};
+
+const buildHeaders = async (init?: RequestInit) => {
+  const headers = isUnsafeMethod(init?.method)
+    ? await buildCsrfHeaders(init?.headers)
+    : new Headers(init?.headers);
   const activeClubId = getActiveClubId();
   if (activeClubId) {
     headers.set('x-active-club-id', String(activeClubId));
@@ -101,10 +119,16 @@ const resolveAdminLogoutRedirect = (): string | null => {
   return null;
 };
 
-const triggerLogoutInvalidation = (redirectTo: string | null) => {
+const resolveLogoutReason = (code: ApiErrorCode | null) => {
+  if (code === 'AUTH_EXPIRED') return 'session_expired';
+  if (code === 'AUTH_REVOKED') return 'session_revoked';
+  return 'session_invalid';
+};
+
+const triggerLogoutInvalidation = (redirectTo: string | null, code: ApiErrorCode | null) => {
   if (logoutInvalidationInFlight) return;
   logoutInvalidationInFlight = true;
-  logout({ redirectTo });
+  logout({ redirectTo, reason: resolveLogoutReason(code) });
   if (typeof window !== 'undefined') {
     window.setTimeout(() => {
       logoutInvalidationInFlight = false;
@@ -121,7 +145,7 @@ const refreshSessionSingleFlight = async (): Promise<boolean> => {
 
   const task = (async () => {
     try {
-      const headers = buildHeaders();
+      const headers = await buildHeaders({ method: 'POST' });
       const response = await fetch(`${getApiUrl()}/api/auth/session/refresh`, {
         method: 'POST',
         headers,
@@ -151,7 +175,7 @@ const executeFetchWithAuth = async (
   init: RequestInit | undefined,
   retried: boolean
 ): Promise<Response> => {
-  const headers = buildHeaders(init);
+  const headers = await buildHeaders(init);
   const response = await fetch(input, { ...init, headers, credentials: 'include' });
   const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : String((input as any)?.url || '');
 
@@ -170,7 +194,7 @@ const executeFetchWithAuth = async (
 
   if (response.status === 401) {
     if (isSessionInvalidCode(code)) {
-      triggerLogoutInvalidation(resolveAdminLogoutRedirect());
+      triggerLogoutInvalidation(resolveAdminLogoutRedirect(), code);
       throw new AuthSessionInvalidatedError(code || 'AUTH_INVALID', response.status);
     }
     throw new Error(formatMessage(message, 'No autorizado'));
@@ -181,7 +205,7 @@ const executeFetchWithAuth = async (
       throw new Error(formatMessage(message, 'No autorizado'));
     }
     if (isSessionInvalidCode(code)) {
-      triggerLogoutInvalidation(resolveAdminLogoutRedirect());
+      triggerLogoutInvalidation(resolveAdminLogoutRedirect(), code);
       throw new AuthSessionInvalidatedError(code || 'AUTH_INVALID', response.status);
     }
     throw new Error(formatMessage(message, 'No autorizado'));

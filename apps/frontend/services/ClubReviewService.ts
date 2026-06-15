@@ -74,15 +74,27 @@ export const getMyReviewForBooking = async (slug: string, bookingId: number): Pr
   return response.json();
 };
 
+export const getMyReviewForClub = async (slug: string): Promise<MyClubReview> => {
+  const response = await fetchWithAuth(
+    `${apiBase()}/clubs/${encodeURIComponent(slug)}/reviews/mine`,
+    { method: 'GET' }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'No se pudo obtener tu reseña');
+  }
+  return response.json();
+};
+
 export const upsertMyClubReview = async (
   slug: string,
-  input: { bookingId: number; rating: number; comment?: string | null }
+  input: { bookingId?: number; rating: number; comment?: string | null }
 ) => {
   const response = await fetchWithAuth(`${apiBase()}/clubs/${encodeURIComponent(slug)}/reviews`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      bookingId: input.bookingId,
+      ...(input.bookingId ? { bookingId: input.bookingId } : {}),
       rating: input.rating,
       comment: input.comment ?? null
     })
@@ -93,4 +105,3 @@ export const upsertMyClubReview = async (
   }
   return response.json();
 };
-

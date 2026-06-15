@@ -4,515 +4,348 @@
   -webkit-appearance: none;
   margin: 0;
 }
-
 .no-spinner {
   appearance: textfield;
   -moz-appearance: textfield;
 }
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ── Pique base reset ── */
 @layer base {
+  html {
+    font-family: 'Geist', system-ui, -apple-system, sans-serif;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
   body {
     @apply antialiased;
-    background-color: #347048; /* Forzamos el verde aquí también */
-    color: var(--text);
+    background-color: var(--bg);
+    color: var(--text-primary);
+    font-family: 'Geist', system-ui, -apple-system, sans-serif;
   }
+
+  ::selection {
+    background: var(--brand);
+    color: var(--brand-on);
+  }
+
+  ::-webkit-scrollbar        { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track  { background: transparent; }
+  ::-webkit-scrollbar-thumb  { background-color: var(--border); border-radius: 999px; }
+  ::-webkit-scrollbar-thumb:hover { background-color: var(--border-strong); }
 }
 
+/* ── Utility classes ── */
 @layer utilities {
-  /* Clases para efectos de brillo (Glow) */
-  .text-glow {
-    text-shadow: 0 0 10px rgba(255, 255, 255, 0.08);
+  .text-glow { text-shadow: 0 0 10px var(--border-subtle); }
+  .box-glow  { box-shadow: 0 0 16px var(--border-subtle); }
+
+  /* Pique scrollbars */
+  .p-scrollbar-x {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
   }
-  
-  .box-glow {
-    box-shadow: 0 0 16px rgba(255, 255, 255, 0.04);
-  }
+  .p-scrollbar-x::-webkit-scrollbar { height: 4px; }
+  .p-scrollbar-x::-webkit-scrollbar-track  { background: transparent; }
+  .p-scrollbar-x::-webkit-scrollbar-thumb  { background-color: var(--border); border-radius: 999px; }
 
   .club-times-scrollbar {
     scrollbar-width: thin;
-    scrollbar-color: rgba(52, 112, 72, 0.35) transparent;
+    scrollbar-color: var(--border) transparent;
   }
+  .club-times-scrollbar::-webkit-scrollbar { height: 4px; }
+  .club-times-scrollbar::-webkit-scrollbar-track { background: transparent; }
+  .club-times-scrollbar::-webkit-scrollbar-thumb { background-color: var(--border); border-radius: 999px; }
 
-  .club-times-scrollbar::-webkit-scrollbar {
-    height: 4px;
+  .scrollbar-padel {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
   }
-
-  .club-times-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .club-times-scrollbar::-webkit-scrollbar-thumb {
-    background-color: rgba(52, 112, 72, 0.35);
+  .scrollbar-padel::-webkit-scrollbar { width: 5px; height: 5px; }
+  .scrollbar-padel::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-padel::-webkit-scrollbar-thumb {
+    background-color: var(--border);
     border-radius: 999px;
+    border: 1px solid transparent;
+    background-clip: padding-box;
   }
+  .scrollbar-padel::-webkit-scrollbar-thumb:hover { background-color: var(--border-strong); }
 
-  .club-times-scrollbar::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(52, 112, 72, 0.35);
-  }
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
 
-  .bg-vibrant-brand {
-    background-color: #347048;
+  /* Brand gradient bg (used in landing hero) */
+  .p-brand-ambient {
+    background-color: var(--bg);
     background-image:
-      radial-gradient(circle at 12% 18%, rgba(185, 207, 50, 0.18), transparent 42%),
-      radial-gradient(circle at 88% 22%, rgba(146, 102, 153, 0.16), transparent 44%),
-      radial-gradient(circle at 35% 82%, rgba(185, 207, 50, 0.1), transparent 38%),
-      linear-gradient(165deg, #2d6240 0%, #347048 48%, #2a5c3b 100%);
+      radial-gradient(circle at 12% 18%, var(--accent-bg-muted), transparent 42%),
+      radial-gradient(circle at 88% 22%, var(--accent-bg-faint), transparent 44%),
+      radial-gradient(circle at 35% 82%, var(--accent-bg-soft), transparent 38%);
     background-attachment: fixed;
   }
 
-  /* Compact density system for data-heavy views */
-  .density-compact {
-    --compact-field-height: 2.3rem;
-    --compact-radius: 0.7rem;
-  }
-
-  .density-compact .compact-card {
-    padding: 1rem !important;
-    border-radius: 1rem !important;
-  }
-
-  .density-compact .compact-stack {
-    gap: 0.75rem !important;
-  }
-
-  .density-compact .compact-grid {
-    gap: 0.75rem !important;
-  }
-
-  .density-compact .compact-field,
-  .density-compact input:not([type='checkbox']):not([type='radio']),
-  .density-compact select,
-  .density-compact textarea {
-    min-height: var(--compact-field-height);
-    border-radius: var(--compact-radius);
-    font-size: 0.875rem;
-  }
-
-  .density-compact .compact-title {
-    font-size: clamp(1.15rem, 2vw, 1.6rem) !important;
-    line-height: 1.15 !important;
-  }
-
-  .density-compact .compact-subtitle {
-    font-size: 0.8125rem !important;
+  /* Legacy compat */
+  .no-bg  { background-color: transparent !important; }
+  .bg-surface  { background-color: var(--surface-1) !important; }
+  .bg-surface-70 { background-color: var(--surface-1) !important; }
+  .text-text   { color: var(--text-primary) !important; }
+  .text-muted  { color: var(--text-muted) !important; }
+  .border-border { border-color: var(--border) !important; }
+  .shadow-soft { box-shadow: var(--shadow-md) !important; }
+  .bg-surface-gradient {
+    background: linear-gradient(180deg, transparent, transparent), var(--surface-1);
   }
 }
 
-/* Paleta B/N global */
-:root {
-  --bg: #347048;        /* CAMBIO: Ahora el fondo base es el Verde */
-  --bg-base: #2a5c3b;   /* Un verde más profundo */
-  --surface: #EBE1D8;   /* CAMBIO: Surface ahora es el Beige */
-  --muted: #347048;     /* Texto verde sobre el beige */
-  --text: #EBE1D8;      /* Texto beige sobre el verde */
-  --muted-2: #d4c5b0;
-  --border: rgba(235, 225, 216, 0.1);
-  --accent: #B9CF32;    /* Lima */
-}
-
-/* Botones y utilidades globales B/N */
+/* ── Global button/badge utilities ── */
 .btn {
   @apply inline-flex items-center justify-center font-bold rounded-xl px-4 py-2 transition-all;
-  background-color: var(--surface);
-  color: var(--text);
+  background-color: var(--surface-2);
+  color: var(--text-primary);
   border: 1px solid var(--border);
 }
-.btn:hover {
-  background-color: rgba(255, 255, 255, 0.03);
-  filter: brightness(1.05);
-}
+.btn:hover { background-color: var(--surface-3); }
+
 .btn-primary {
   background-color: transparent;
-  color: var(--text);
-  border: 1px solid var(--text);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
 }
-.btn-danger {
-  background-color: rgba(239, 68, 68, 0.12);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.6);
-}
-.btn-danger:hover {
-  background-color: rgba(239, 68, 68, 0.18);
-}
+.btn-primary:hover { background-color: var(--surface-2); }
+
 .btn-selected {
-  background-color: rgba(255, 255, 255, 0.08);
-  color: var(--text);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+  background-color: var(--surface-2);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 0 0 2px var(--shadow-focus);
 }
-.btn-primary:hover {
-  background-color: rgba(255, 255, 255, 0.03);
-}
+
 .btn-disabled {
   background-color: transparent;
-  color: var(--muted-2);
-  border: 1px solid rgba(255,255,255,0.03);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
   cursor: not-allowed;
-  opacity: 0.6;
+  opacity: .6;
 }
+
+.btn-success {
+  background-color: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  transition: all .3s ease;
+  opacity: .8;
+}
+.btn-success:hover {
+  background-color: var(--positive-bg);
+  color: var(--positive-fg);
+  border-color: var(--positive-fg);
+  opacity: 1;
+  transform: translateY(-1px);
+  box-shadow: 0 0 15px var(--accent-bg-muted);
+}
+
+.btn-danger {
+  background-color: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  transition: all .3s ease;
+  opacity: .8;
+}
+.btn-danger:hover {
+  background-color: var(--error-bg);
+  color: var(--error-fg);
+  border-color: var(--error-fg);
+  opacity: 1;
+  transform: translateY(-1px);
+  box-shadow: 0 0 15px var(--danger-border);
+}
+
 .badge {
   @apply inline-block px-3 py-1 rounded-full text-xs font-mono;
-  background-color: transparent;
-  color: var(--muted);
-  border: 1px solid rgba(255,255,255,0.03);
+  background-color: var(--surface-2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.badge-success {
+  background-color: var(--positive-bg);
+  color: var(--positive-fg);
+  border: 1px solid var(--accent-border);
+}
+.badge-danger {
+  background-color: var(--error-bg);
+  color: var(--error-fg);
+  border: 1px solid var(--danger-border);
+}
+.badge-warning {
+  background-color: var(--warn-bg);
+  color: var(--warn-fg);
+  border: 1px solid var(--warn-fg);
+}
+.badge-info {
+  background-color: var(--info-bg);
+  color: var(--info-fg);
+  border: 1px solid var(--info-fg);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
-/* Si algún componente necesita fondo transparente, añadir la clase `no-bg` para excluirlo. */
-.no-bg {
-  background-color: transparent !important;
-}
-
-/* Utility classes mapped to CSS variables for easier usage */
-.bg-surface { background-color: var(--surface) !important; }
-.bg-surface-70 { background-color: rgba(11,11,11,0.7) !important; }
-.text-text { color: var(--text) !important; }
-.text-muted { color: var(--muted) !important; }
-.text-muted-2 { color: var(--muted-2) !important; }
-.border-border { border-color: var(--border) !important; }
-.border-soft { border: 1px solid rgba(255,255,255,0.03) !important; }
-.shadow-soft { box-shadow: 0 8px 30px rgba(0,0,0,0.6) !important; }
-
-/* Superposición de gradiente para secciones principales */
-.bg-surface-gradient {
-  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)), var(--surface);
-  /* sutil brillo radial centrado */
-  background-blend-mode: overlay;
-}
-
-/* Estilos personalizados para react-datepicker - Tema oscuro */
+/* ── react-datepicker: global dark/light overrides ── */
 .date-picker-custom {
   box-sizing: border-box !important;
   max-width: 100% !important;
   width: 100% !important;
-  background-color: var(--surface) !important;
-  color: var(--text) !important;
+  background-color: var(--surface-1) !important;
+  color: var(--text-primary) !important;
   border: 1px solid var(--border) !important;
   border-radius: 0.75rem !important;
   padding: 1rem !important;
   padding-right: 3rem !important;
   font-weight: 500 !important;
   cursor: pointer !important;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' stroke='%23fff' stroke-width='1.8' viewBox='0 0 24 24'%3E%3Crect x='3' y='4' width='18' height='18' rx='2'/%3E%3Cpath d='M16 2v4M8 2v4M3 10h18'/%3E%3C/svg%3E") !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' stroke='%23B6F36A' stroke-width='1.8' viewBox='0 0 24 24'%3E%3Crect x='3' y='4' width='18' height='18' rx='2'/%3E%3Cpath d='M16 2v4M8 2v4M3 10h18'/%3E%3C/svg%3E") !important;
   background-repeat: no-repeat !important;
   background-position: right 0.75rem center !important;
   background-size: 1rem 1rem !important;
 }
-
 .date-picker-custom:focus {
   outline: none !important;
-  border-color: var(--border) !important;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1) !important;
+  border-color: var(--accent-fg) !important;
+  box-shadow: var(--shadow-focus) !important;
 }
-
-/* Calendario popup */
 .date-picker-calendar {
-  background-color: var(--surface) !important;
+  background-color: var(--surface-1) !important;
   border: 1px solid var(--border) !important;
   border-radius: 0.75rem !important;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6) !important;
+  box-shadow: var(--shadow-lg) !important;
   padding: 1rem !important;
 }
-
 .date-picker-calendar .react-datepicker__header {
-  background-color: var(--surface) !important;
+  background-color: var(--surface-1) !important;
   border-bottom: 1px solid var(--border) !important;
-  padding-top: 0.75rem !important;
+  padding-top: .75rem !important;
 }
-
-.date-picker-calendar .react-datepicker__current-month {
-  color: var(--text) !important;
-  font-weight: bold !important;
-  font-size: 0.875rem !important;
-}
-
-.date-picker-calendar .react-datepicker__day-name {
-  color: var(--muted) !important;
-  font-weight: 600 !important;
-  font-size: 0.75rem !important;
-}
-
-.date-picker-calendar .react-datepicker__day {
-  color: var(--text) !important;
-  border-radius: 0.5rem !important;
-  margin: 0.125rem !important;
-}
-
-.date-picker-calendar .react-datepicker__day:hover {
-  background-color: rgba(255, 255, 255, 0.1) !important;
-  color: var(--text) !important;
-}
-
+.date-picker-calendar .react-datepicker__current-month { color: var(--text-primary) !important; font-weight: bold !important; font-size: .875rem !important; }
+.date-picker-calendar .react-datepicker__day-name { color: var(--text-muted) !important; font-weight: 600 !important; font-size: .75rem !important; }
+.date-picker-calendar .react-datepicker__day { color: var(--text-primary) !important; border-radius: .5rem !important; margin: .125rem !important; }
+.date-picker-calendar .react-datepicker__day:hover { background-color: var(--surface-2) !important; }
 .date-picker-calendar .react-datepicker__day--selected,
 .date-picker-calendar .react-datepicker__day--keyboard-selected {
-  background-color: rgba(255, 255, 255, 0.2) !important;
-  color: var(--text) !important;
+  background-color: var(--brand) !important;
+  color: var(--brand-on) !important;
   font-weight: bold !important;
 }
+.date-picker-calendar .react-datepicker__day--disabled { color: var(--text-muted) !important; opacity: .4 !important; cursor: not-allowed !important; }
+.date-picker-calendar .react-datepicker__day--disabled:hover { background-color: transparent !important; }
+.date-picker-calendar .react-datepicker__day--outside-month { opacity: .4 !important; }
+.date-picker-calendar .react-datepicker__navigation { top: .75rem !important; }
+.date-picker-calendar .react-datepicker__navigation-icon::before { border-color: var(--text-secondary) !important; }
 
-.date-picker-calendar .react-datepicker__day--disabled {
-  color: var(--muted-2) !important;
-  opacity: 0.4 !important;
-  cursor: not-allowed !important;
-}
-
-.date-picker-calendar .react-datepicker__day--disabled:hover {
-  background-color: transparent !important;
-}
-
-.date-picker-calendar .react-datepicker__day--outside-month {
-  color: var(--muted-2) !important;
-  opacity: 0.5 !important;
-}
-
-.date-picker-calendar .react-datepicker__navigation {
-  top: 0.75rem !important;
-}
-
-.date-picker-calendar .react-datepicker__navigation-icon::before {
-  border-color: var(--text) !important;
-}
-
-.date-picker-calendar .react-datepicker__navigation:hover *::before {
-  border-color: var(--text) !important;
-}
-
-/* Popper (contenedor del calendario) */
-.date-picker-popper {
-  z-index: 9000 !important;
-}
-
-/* Asegurar que el calendario se renderice fuera del contenedor */
-.react-datepicker-popper {
-  z-index: 9000 !important;
-}
-
-.react-datepicker {
-  z-index: 9000 !important;
-}
-
-.react-datepicker__triangle {
-  z-index: 9000 !important;
-}
-
-/* Asegurar que todos los elementos del calendario tengan z-index alto */
-.react-datepicker-popper[data-placement],
-.react-datepicker-popper[data-placement] > div {
-  z-index: 9000 !important;
-}
-
-/* Portal del datepicker - con portalId, react-datepicker maneja todo correctamente */
-#datepicker-portal {
-  z-index: 9000;
-}
-
-/* Asegurar que el calendario esté por encima de todos los contenedores */
-.react-datepicker-popper {
-  z-index: 9000 !important;
-}
-
-/* --- BOTONES DINÁMICOS (Color solo al pasar el mouse) --- */
-
-/* 1. Botón VERDE (Confirmar / Reactivar) */
-.btn-success {
-  background-color: transparent;      /* Fondo transparente por defecto */
-  color: var(--text);                 /* Texto blanco/gris */
-  border: 1px solid var(--border);    /* Borde gris sutil */
-  transition: all 0.3s ease;          /* Transición suave */
-  opacity: 0.8;
-}
-
-.btn-success:hover {
-  background-color: rgba(16, 185, 129, 0.2); /* Fondo verde al 20% */
-  color: #10b981;                            /* Texto Verde Emerald */
-  border-color: #10b981;                     /* Borde Verde */
-  opacity: 1;
-  transform: translateY(-1px);               /* Pequeño efecto de elevación */
-  box-shadow: 0 0 15px rgba(16, 185, 129, 0.3); /* Brillo (Glow) verde */
-}
-
-/* 2. Botón ROJO (Cancelar / Suspender) */
-.btn-danger {
-  background-color: transparent;      /* Fondo transparente */
-  color: var(--text);                 /* Texto blanco/gris */
-  border: 1px solid var(--border);    /* Borde gris */
-  transition: all 0.3s ease;
-  opacity: 0.8;
-}
-
-.btn-danger:hover {
-  background-color: rgba(239, 68, 68, 0.2);  /* Fondo rojo al 20% */
-  color: #ef4444;                            /* Texto Rojo */
-  border-color: #ef4444;                     /* Borde Rojo */
-  opacity: 1;
-  transform: translateY(-1px);
-  box-shadow: 0 0 15px rgba(239, 68, 68, 0.3); /* Brillo (Glow) rojo */
-}
-
-/* --- BADGES (Etiquetas de estado: Operativo/Mantenimiento) --- */
-/* Estos sí conviene dejarlos con color fijo para leer rápido el estado, 
-   pero los hacemos sutiles */
-
-.badge-success {
-  background-color: rgba(16, 185, 129, 0.05);
-  color: #10b981;
-  border: 1px solid rgba(16, 185, 129, 0.2);
-}
-
-.badge-danger {
-  background-color: rgba(239, 68, 68, 0.05);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.2);
-}
-
-.badge-warning {
-  background-color: rgba(234, 179, 8, 0.05);
-  color: #eab308;
-  border: 1px solid rgba(234, 179, 8, 0.2);
-}
-
-/* Badge AZUL para Turnos Fijos */
-.badge-info {
-  background-color: rgba(59, 130, 246, 0.15); /* Azul Blue-500 transparente */
-  color: #60a5fa;                             /* Texto Azul claro */
-  border: 1px solid rgba(59, 130, 246, 0.4);  /* Borde Azul */
-  display: inline-flex;
-  align-items: center;
-  gap: 4px; /* Espacio entre icono y texto */
-}
-
-/* --- ESTILOS PARA EL CALENDARIO WIMBLEDON --- */
-
-/* Contenedor principal del calendario */
-.wimbledon-datepicker .react-datepicker {
-  background-color: #347048 !important; /* Fondo Verde */
-  border: 4px solid #EBE1D8 !important; /* Borde Beige */
-  border-radius: 1.5rem !important;
+/* Booking datepicker (BookingGrid) */
+.p-booking-datepicker .react-datepicker {
+  background-color: var(--surface-1) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 1.25rem !important;
   font-family: inherit !important;
   overflow: hidden;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3) !important;
+  box-shadow: var(--shadow-lg) !important;
 }
-
-/* Encabezado (Mes y flechas) */
-.wimbledon-datepicker .react-datepicker__header {
-  background-color: #2a5c3b !important; /* Un verde un pelín más oscuro */
-  border-bottom: 1px solid rgba(235, 225, 216, 0.1) !important;
+.p-booking-datepicker .react-datepicker__header {
+  background-color: var(--surface-2) !important;
+  border-bottom: 1px solid var(--border) !important;
   padding-top: 1rem !important;
 }
-
-/* Texto de mes y días de la semana */
-.wimbledon-datepicker .react-datepicker__current-month,
-.wimbledon-datepicker .react-datepicker__day-name {
-  color: #EBE1D8 !important; /* Texto Beige */
+.p-booking-datepicker .react-datepicker__current-month,
+.p-booking-datepicker .react-datepicker__day-name {
+  color: var(--text-primary) !important;
   font-weight: 800 !important;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: .05em;
 }
-
-/* Los días del mes */
-.wimbledon-datepicker .react-datepicker__day {
-  color: #EBE1D8 !important;
+.p-booking-datepicker .react-datepicker__day {
+  color: var(--text-primary) !important;
   font-weight: 600 !important;
-  border-radius: 0.5rem !important;
-  transition: all 0.2s ease;
+  border-radius: .5rem !important;
+  transition: all .2s ease;
 }
-
-/* Hover sobre los días */
-.wimbledon-datepicker .react-datepicker__day:hover {
-  background-color: #B9CF32 !important; /* Fondo Lima */
-  color: #347048 !important; /* Texto Verde */
+.p-booking-datepicker .react-datepicker__day:hover {
+  background-color: var(--brand) !important;
+  color: var(--brand-on) !important;
 }
-
-/* Día seleccionado */
-.wimbledon-datepicker .react-datepicker__day--selected,
-.wimbledon-datepicker .react-datepicker__day--keyboard-selected {
-  background-color: #B9CF32 !important; /* Fondo Lima */
-  color: #347048 !important; /* Texto Verde */
+.p-booking-datepicker .react-datepicker__day--selected,
+.p-booking-datepicker .react-datepicker__day--keyboard-selected {
+  background-color: var(--brand) !important;
+  color: var(--brand-on) !important;
   font-weight: 900 !important;
 }
-
-/* Días de otros meses (fuera de foco) */
-.wimbledon-datepicker .react-datepicker__day--outside-month {
-  color: rgba(235, 225, 216, 0.2) !important;
-}
-
-/* Flechas de navegación */
-.wimbledon-datepicker .react-datepicker__navigation-icon::before {
-  border-color: #B9CF32 !important; /* Flechas Lima */
-}
-
-/* El input donde se ve la fecha elegida */
-.wimbledon-datepicker input {
-  background-color: white !important;
-  color: #347048 !important;
+.p-booking-datepicker .react-datepicker__day--outside-month { opacity: .25 !important; }
+.p-booking-datepicker .react-datepicker__navigation-icon::before { border-color: var(--accent-fg) !important; }
+.p-booking-datepicker input {
+  background-color: var(--surface-1) !important;
+  color: var(--text-primary) !important;
   font-weight: 700 !important;
-  border-radius: 0.75rem !important;
-  padding: 0.75rem 1rem !important;
-  border: 2px solid transparent !important;
+  border-radius: .75rem !important;
+  padding: .75rem 1rem !important;
+  border: 1px solid var(--border) !important;
   width: 100% !important;
 }
-
-.wimbledon-datepicker input:focus {
-  border-color: #B9CF32 !important; /* Borde Lima al hacer clic */
+.p-booking-datepicker input:focus {
+  border-color: var(--accent-fg) !important;
   outline: none !important;
+  box-shadow: var(--shadow-focus) !important;
 }
 
-/* globals.css */
-
-@layer utilities {
-  /* Ancho de la barra */
-  .scrollbar-padel::-webkit-scrollbar {
-    width: 6px;       /* Ancho vertical */
-    height: 6px;      /* Alto horizontal */
-  }
-
-  /* El fondo (riel) por donde corre */
-  .scrollbar-padel::-webkit-scrollbar-track {
-    background: transparent; /* O podés ponerle #EBE1D8 si querés que se note el riel */
-  }
-
-  /* La "pastilla" que se mueve */
-  .scrollbar-padel::-webkit-scrollbar-thumb {
-    background-color: #347048; /* Tu verde corporativo */
-    border-radius: 20px;       /* Bien redondeado */
-    border: 2px solid transparent; /* Truco para dar aire si usaras fondo */
-  }
-
-  /* Efecto al pasar el mouse por encima */
-  .scrollbar-padel::-webkit-scrollbar-thumb:hover {
-    background-color: #2a5a3a; /* Un verde un pelín más oscuro */
-  }
-
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none;
+/* Datepicker portal z-index */
+.date-picker-popper,
+.react-datepicker-popper,
+.react-datepicker,
+.react-datepicker__triangle,
+.react-datepicker-popper[data-placement],
+.react-datepicker-popper[data-placement] > div {
+  /* Mirrors ADMIN_Z_INDEX.datepickerInOverlay. CSS cannot import TS tokens. */
+  z-index: 2147483500 !important;
 }
-.scrollbar-hide {
-    -ms-overflow-style: none;  /* IE and Edge */
-    scrollbar-width: none;  /* Firefox */
+#datepicker-portal { z-index: 2147483500; }
+
+.date-picker-popper--public {
+  max-width: calc(100vw - 16px) !important;
 }
 
-@layer base {
-  /* ESTILO PARA LA BARRA DE TODA LA PÁGINA */
-  ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-
-  ::-webkit-scrollbar-track {
-    background: #EBE1D8; /* El beige de tu fondo */
-  }
-
-  ::-webkit-scrollbar-thumb {
-    background-color: #347048; /* Tu verde padel */
-    border-radius: 10px;
-    border: 2px solid #EBE1D8; /* Borde beige para que parezca una pastilla flotante */
-  }
-
-  ::-webkit-scrollbar-thumb:hover {
-    background-color: #B9CF32; /* Verde limón al pasar el mouse (opcional, queda genial) */
-  }
+.date-picker-popper--public .react-datepicker {
+  max-width: calc(100vw - 16px) !important;
 }
 
+@media (max-width: 720px) {
+  .date-picker-popper--public .react-datepicker {
+    width: min(320px, calc(100vw - 16px)) !important;
+    border-radius: 16px !important;
+  }
+
+  .date-picker-popper--public .react-datepicker__month-container {
+    width: 100% !important;
+  }
+
+  .date-picker-popper--public .react-datepicker__header {
+    padding: 14px 12px 10px !important;
+  }
+
+  .date-picker-popper--public .react-datepicker__current-month {
+    font-size: 14px !important;
+  }
+
+  .date-picker-popper--public .react-datepicker__day-name,
+  .date-picker-popper--public .react-datepicker__day {
+    width: calc((100% - 8px) / 7) !important;
+    margin: 0 !important;
+    line-height: 36px !important;
+  }
+
+  .date-picker-popper--public .react-datepicker__day-names,
+  .date-picker-popper--public .react-datepicker__week {
+    display: flex !important;
+  }
 }

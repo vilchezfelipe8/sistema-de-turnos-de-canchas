@@ -1,4 +1,6 @@
 import { Request, Response } from 'express';
+import { sendAppError } from '../errors';
+import { validationError, zodValidationAppError } from '../errors';
 import { CourtRepository } from '../repositories/CourtRepository';
 import { prisma } from '../prisma';
 import { z } from 'zod';
@@ -21,12 +23,12 @@ export class CourtController {
             });
             const parsed = createCourtSchema.safeParse(req.body);
             if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
+                return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
             }
             const { name, isIndoor, surface, activityTypeId } = parsed.data;
             const clubId = (req as any).clubId;
             if (!clubId) {
-                return res.status(400).json({ error: "No se pudo determinar el club" });
+                return sendAppError(res, validationError('Revisá los campos marcados.', { general: 'No se pudo determinar el club.' }));
             }
             const data: any = {
                 name,
@@ -39,7 +41,7 @@ export class CourtController {
                     where: { id: activityTypeId, clubId: Number(clubId) }
                 });
                 if (!activityType) {
-                    return res.status(400).json({ error: 'La actividad no pertenece al club actual' });
+                    return sendAppError(res, validationError('Revisá los campos marcados.', { activityTypeId: 'La actividad no pertenece al club actual.' }));
                 }
                 data.activityTypeId = activityTypeId;
             }
@@ -51,7 +53,7 @@ export class CourtController {
 
             res.status(201).json(newCourt);
         } catch (error: any) {
-            res.status(500).json({ error: error.message });
+            return sendAppError(res, error, 'No se pudo crear la cancha');
         }
     }
 
@@ -67,10 +69,10 @@ export class CourtController {
             const paramsParsed = paramsSchema.safeParse(req.params);
             const bodyParsed = bodySchema.safeParse(req.body);
             if (!paramsParsed.success) {
-                return res.status(400).json({ error: paramsParsed.error.format() });
+                return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá los campos marcados.'));
             }
             if (!bodyParsed.success) {
-                return res.status(400).json({ error: bodyParsed.error.format() });
+                return sendAppError(res, zodValidationAppError(bodyParsed.error, 'Revisá los campos marcados.'));
             }
             const { id } = paramsParsed.data;
             const { isUnderMaintenance, name, activityTypeId, price } = bodyParsed.data;
@@ -97,7 +99,7 @@ export class CourtController {
                     where: { id: Number(activityTypeId), clubId: Number(clubId) }
                 });
                 if (!activityType) {
-                    return res.status(400).json({ error: 'La actividad no pertenece al club actual' });
+                    return sendAppError(res, validationError('Revisá los campos marcados.', { activityTypeId: 'La actividad no pertenece al club actual.' }));
                 }
                 data.activityTypeId = Number(activityTypeId);
             }
@@ -111,7 +113,7 @@ export class CourtController {
 
             res.json(updatedCourt);
         } catch (error: any) {
-            res.status(400).json({ error: "No se pudo actualizar la cancha. Verifica el ID." });
+            return sendAppError(res, error, 'No se pudo actualizar la cancha.');
         }
     }
 
@@ -156,7 +158,7 @@ export class CourtController {
 
             res.json({ message: "Cancha suspendida exitosamente", court: suspendedCourt });
         } catch (error: any) {
-            res.status(400).json({ error: "No se pudo suspender la cancha. Verifica el ID." });
+            return sendAppError(res, error, 'No se pudo suspender la cancha.');
         }
     }
 
@@ -188,7 +190,7 @@ export class CourtController {
 
             res.json({ message: "Cancha reactivada exitosamente", court: reactivatedCourt });
         } catch (error: any) {
-            res.status(400).json({ error: "No se pudo reactivar la cancha. Verifica el ID." });
+            return sendAppError(res, error, 'No se pudo reactivar la cancha.');
         }
     }
 
@@ -197,7 +199,7 @@ export class CourtController {
             const paramsSchema = z.object({ id: z.preprocess((v) => Number(v), z.number().int().positive()) });
             const paramsParsed = paramsSchema.safeParse(req.params);
             if (!paramsParsed.success) {
-                return res.status(400).json({ error: paramsParsed.error.format() });
+                return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá los campos marcados.'));
             }
 
             const id = paramsParsed.data.id;
@@ -215,7 +217,7 @@ export class CourtController {
             const deleted = await this.courtRepo.deleteCourt(id);
             return res.json({ success: true, court: deleted });
         } catch (error: any) {
-            return res.status(400).json({ error: error.message || 'No se pudo eliminar la cancha' });
+            return sendAppError(res, error, 'No se pudo eliminar la cancha');
         }
     }
 }

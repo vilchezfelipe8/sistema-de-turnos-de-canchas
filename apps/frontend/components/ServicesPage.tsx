@@ -1,68 +1,41 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import type { ReactNode } from 'react';
-import { Search, Plus, Edit, Trash2, Wrench, Tag, DollarSign, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Search, Plus } from 'lucide-react';
 import { ClubAdminService, type ClubCatalogService } from '../services/ClubAdminService';
 import { extractErrorMessage, reportUiError } from '../utils/uiError';
-import AppModal from './AppModal';
-
-const ModalPortal = ({ children, onClose }: { children: ReactNode; onClose: () => void }) => {
-  const backdropMouseDownRef = useRef(false);
-  if (typeof document === 'undefined') return null;
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[2147483000] flex items-center justify-center bg-[#347048]/60 p-4"
-      onMouseDown={(event) => {
-        backdropMouseDownRef.current = event.target === event.currentTarget;
-      }}
-      onTouchStart={(event) => {
-        backdropMouseDownRef.current = event.target === event.currentTarget;
-      }}
-      onClick={(event) => {
-        const startedOnBackdrop = backdropMouseDownRef.current;
-        backdropMouseDownRef.current = false;
-        if (startedOnBackdrop && event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div
-        className="density-compact relative z-10 w-full max-w-md bg-[#EBE1D8] border-2 border-white rounded-[2rem] shadow-2xl flex flex-col max-h-[93vh] overflow-hidden text-[#347048]"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="overflow-y-auto p-5">{children}</div>
-      </div>
-    </div>,
-    document.body
-  );
-};
+import { showAdminToast } from '../utils/adminToast';
+import AdminAppModal from './admin/ui/AdminAppModal';
+import { AdminFilterToolbar, MetricCard } from './admin/ui';
+import ServicesTable from '../modules/tienda/components/ServicesTable';
+import ServiceDrawer from '../modules/tienda/components/ServiceDrawer';
+import type { ServiceFormData } from '../modules/tienda/components/ServiceDrawer';
+import { getApiFieldErrors } from '../utils/apiError';
 
 type ServicesPageProps = {
   slug: string;
 };
 
-type ServiceFormState = {
-  code: string;
-  name: string;
-  description: string;
-  price: string;
-};
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
-const EMPTY_FORM: ServiceFormState = {
-  code: '',
-  name: '',
-  description: '',
-  price: ''
-};
+const EMPTY_FORM: ServiceFormData = { code: '', name: '', description: '', price: '' };
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 export default function ServicesPage({ slug }: ServicesPageProps) {
   const [services, setServices] = useState<ClubCatalogService[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<ClubCatalogService | null>(null);
-  const [form, setForm] = useState<ServiceFormState>(EMPTY_FORM);
+  const [form, setForm] = useState<ServiceFormData>(EMPTY_FORM);
+  const [formError, setFormError] = useState('');
+  const [formFieldErrors, setFormFieldErrors] = useState<Record<string, string>>({});
+  const [submittingForm, setSubmittingForm] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ClubCatalogService | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [feedbackModal, setFeedbackModal] = useState<{
@@ -70,8 +43,9 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
     title: string;
     message: string;
     isWarning?: boolean;
-  }>({ show: false, title: 'Informacion', message: '' });
+  }>({ show: false, title: 'Información', message: '' });
 
+  // ── Data loading ──
   const loadServices = useCallback(async () => {
     try {
       setLoading(true);
@@ -80,12 +54,7 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
     } catch (error) {
       const message = extractErrorMessage(error, 'No se pudieron cargar los servicios.');
       reportUiError({ area: 'ServicesPage', action: 'loadServices' }, error);
-      setFeedbackModal({
-        show: true,
-        title: 'Error',
-        message,
-        isWarning: true
-      });
+      setFeedbackModal({ show: true, title: 'Error', message, isWarning: true });
     } finally {
       setLoading(false);
     }
@@ -95,10 +64,13 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
     if (slug) void loadServices();
   }, [slug, loadServices]);
 
+  // ── Drawer handlers ──
   const openNew = () => {
     setEditing(null);
     setForm(EMPTY_FORM);
-    setIsModalOpen(true);
+    setFormError('');
+    setFormFieldErrors({});
+    setDrawerOpen(true);
   };
 
   const openEdit = (row: ClubCatalogService) => {
@@ -107,36 +79,63 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
       code: row.code || '',
       name: row.name || '',
       description: row.description || '',
-      price: String(row.price || '')
+      price: String(row.price || ''),
     });
-    setIsModalOpen(true);
+    setFormError('');
+    setFormFieldErrors({});
+    setDrawerOpen(true);
   };
 
+  const closeDrawer = () => {
+    setDrawerOpen(false);
+    setForm(EMPTY_FORM);
+    setEditing(null);
+    setFormError('');
+    setFormFieldErrors({});
+  };
+
+  const handleFormChange = (next: ServiceFormData) => {
+    setFormFieldErrors({});
+    setForm(next);
+  };
+
+  // ── Form submit ──
   const submitForm = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (submittingForm) return;
+    setFormError('');
+    setFormFieldErrors({});
     try {
+      setSubmittingForm(true);
       const payload = {
         code: form.code.trim(),
         name: form.name.trim(),
         description: form.description.trim(),
-        price: Number(form.price)
+        price: Number(form.price),
       };
       if (editing) {
         await ClubAdminService.updateService(slug, editing.id, payload);
+        closeDrawer();
+        await loadServices();
+        showAdminToast('Servicio actualizado.');
       } else {
         await ClubAdminService.createService(slug, payload);
+        closeDrawer();
+        await loadServices();
+        showAdminToast('Servicio creado.');
       }
-      setIsModalOpen(false);
-      setForm(EMPTY_FORM);
-      setEditing(null);
-      await loadServices();
     } catch (error) {
       const message = extractErrorMessage(error, 'No se pudo guardar el servicio.');
+      const fieldErrors = getApiFieldErrors(error);
       reportUiError({ area: 'ServicesPage', action: 'submitForm' }, error);
-      setFeedbackModal({ show: true, title: 'Error', message, isWarning: true });
+      if (Object.keys(fieldErrors).length > 0) setFormFieldErrors(fieldErrors);
+      setFormError(message);
+    } finally {
+      setSubmittingForm(false);
     }
   };
 
+  // ── Delete ──
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -144,6 +143,7 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
       await ClubAdminService.deleteService(slug, deleteTarget.id);
       setDeleteTarget(null);
       await loadServices();
+      showAdminToast('Servicio dado de baja.');
     } catch (error) {
       const message = extractErrorMessage(error, 'No se pudo eliminar el servicio.');
       reportUiError({ area: 'ServicesPage', action: 'confirmDelete' }, error);
@@ -153,200 +153,102 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
     }
   };
 
-  const filtered = services.filter((row) => {
+  // ── Derived state ──
+  const filtered = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
-    if (!term) return true;
-    return (
-      String(row.code || '').toLowerCase().includes(term) ||
-      String(row.name || '').toLowerCase().includes(term)
+    if (!term) return services;
+    return services.filter(
+      (row) =>
+        String(row.code || '').toLowerCase().includes(term) ||
+        String(row.name || '').toLowerCase().includes(term),
     );
-  });
+  }, [services, searchTerm]);
 
-  const inputClass = 'compact-field w-full h-10 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all';
-  const labelClass = 'block text-[10px] font-black text-[#347048]/60 mb-1.5 uppercase tracking-widest ml-1';
+  const summary = useMemo(() => {
+    const active = services.filter((s) => s.isActive).length;
+    const inactive = services.length - active;
+    return { total: services.length, active, inactive };
+  }, [services]);
 
+  // ── Render ──
   return (
-    <>
-      <div className="density-compact flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center mb-5">
-        <div className="relative flex-1 w-full sm:max-w-md group">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[#347048]/40 group-focus-within:text-[#B9CF32]" size={18} strokeWidth={2.5} />
-          <input
-            type="text"
-            placeholder="Buscar por codigo o nombre..."
-            className="compact-field w-full bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl pl-12 pr-4 py-2.5 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
+    <div className="flex flex-col gap-3">
 
-        <button
-          type="button"
-          onClick={openNew}
-          className="compact-field w-full sm:w-auto px-5 py-2.5 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-[#347048]/20 uppercase tracking-widest text-xs italic"
-        >
-          <Plus size={18} strokeWidth={3} /> Nuevo servicio
-        </button>
+      {/* ── Summary metrics ── */}
+      <div className="grid grid-cols-2 gap-3">
+        <MetricCard
+          label="Servicios activos"
+          value={summary.active}
+          format="number"
+          delta={{ value: summary.total, label: `de ${summary.total} en el catálogo` }}
+        />
+        <MetricCard
+          label="Inactivos"
+          value={summary.inactive}
+          format="number"
+          valueColor={summary.inactive > 0 ? 'var(--error-fg)' : undefined}
+          delta={{ value: -summary.inactive, label: 'dados de baja' }}
+        />
       </div>
 
-      <div className="density-compact bg-white/40 border-2 border-white rounded-[1.5rem] overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-separate border-spacing-y-1.5 px-3">
-            <thead>
-              <tr className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]/40">
-                <th className="px-4 py-3">Codigo</th>
-                <th className="px-4 py-3">Servicio</th>
-                <th className="px-4 py-3">Precio</th>
-                <th className="px-4 py-3">Estado</th>
-                <th className="px-4 py-3 text-right">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="text-sm font-bold">
-              {loading ? (
-                <tr>
-                  <td colSpan={5} className="p-20 text-center text-[#347048]/40">
-                    Cargando servicios...
-                  </td>
-                </tr>
-              ) : filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="p-20 text-center text-[#347048]/30 italic uppercase tracking-widest font-black">
-                    No hay servicios registrados
-                  </td>
-                </tr>
-              ) : (
-                filtered.map((service) => (
-                  <tr key={service.id} className="bg-white/80 hover:bg-white transition-all shadow-sm">
-                    <td className="px-4 py-3 first:rounded-l-2xl text-[#926699] font-black uppercase">{service.code}</td>
-                    <td className="px-4 py-3 text-[#347048] font-black">{service.name}</td>
-                    <td className="px-4 py-3 text-base font-black text-[#347048] italic tracking-tighter">
-                      ${Number(service.price || 0).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`text-[10px] font-black px-3 py-1 rounded-full border uppercase tracking-widest ${service.isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-600 border-red-200'}`}>
-                        {service.isActive ? 'Activo' : 'Inactivo'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 last:rounded-r-2xl text-right">
-                      <div className="flex justify-end gap-3">
-                        <button
-                          type="button"
-                          onClick={() => openEdit(service)}
-                          className="p-2 rounded-xl bg-white border border-[#347048]/10 text-[#347048] hover:bg-[#347048] hover:text-[#EBE1D8] transition-all shadow-sm"
-                          title="Editar"
-                        >
-                          <Edit size={16} strokeWidth={2.5} />
-                        </button>
-                        {service.isActive && (
-                          <button
-                            type="button"
-                            onClick={() => setDeleteTarget(service)}
-                            className="p-2 rounded-xl bg-red-50 border border-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm"
-                            title="Dar de baja"
-                          >
-                            <Trash2 size={16} strokeWidth={2.5} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+      {/* ── Table ── */}
+      <div className="w-full">
+        <ServicesTable
+          services={filtered}
+          loading={loading}
+          onEdit={openEdit}
+          onDelete={setDeleteTarget}
+          onRowClick={openEdit}
+          selectedId={editing?.id ?? null}
+          toolbar={(
+            <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-1 sm:flex-nowrap sm:justify-end">
+              <div className="relative w-full sm:w-[300px] sm:flex-none">
+                <Search
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-p-text-muted"
+                  size={14}
+                  strokeWidth={2.5}
+                />
+                <input
+                  type="text"
+                  placeholder="Buscar por código o nombre..."
+                  className="h-8 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[12px] text-p-text placeholder:text-p-text-muted outline-none transition focus:border-p-accent"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={openNew}
+                className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 shadow-p-md transition hover:bg-ink-800 hover:shadow-p-md sm:w-auto"
+              >
+                <Plus size={14} strokeWidth={2.5} />
+                Nuevo servicio
+              </button>
+            </AdminFilterToolbar>
+          )}
+        />
       </div>
 
-      {isModalOpen && (
-        <ModalPortal onClose={() => setIsModalOpen(false)}>
-          <div className="flex justify-between items-start mb-5 border-b border-[#347048]/10 pb-4">
-            <div>
-              <h3 className="text-2xl font-black text-[#926699] flex items-center gap-3 uppercase italic tracking-tighter">
-                <div className="bg-[#926699] p-2 rounded-xl text-[#EBE1D8] shadow-lg shadow-[#926699]/20">
-                  {editing ? <Edit size={24} strokeWidth={2.5} /> : <Wrench size={24} strokeWidth={3} />}
-                </div>
-                {editing ? 'Editar servicio' : 'Nuevo servicio'}
-              </h3>
-              <p className="text-[#347048]/60 text-[10px] font-black uppercase tracking-widest mt-2 ml-1">Catalogo de servicios del club</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
-            >
-              <X size={20} strokeWidth={3} />
-            </button>
-          </div>
+      {/* ── Drawer ── */}
+      <ServiceDrawer
+        open={drawerOpen}
+        onClose={closeDrawer}
+        editingService={editing}
+        formData={form}
+        formError={formError}
+        fieldErrors={formFieldErrors}
+        submitting={submittingForm}
+        onFormChange={handleFormChange}
+        onSubmit={(e) => void submitForm(e)}
+      />
 
-            <form onSubmit={submitForm} className="space-y-4">
-            <div>
-              <label className={labelClass}>Codigo del servicio</label>
-              <div className="relative">
-                <input
-                  required
-                  value={form.code}
-                  onChange={(e) => setForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
-                  className={`${inputClass} pl-12`}
-                  placeholder="Ej: CLASE_PARTICULAR"
-                />
-                <Tag className="absolute left-4 top-1/2 -translate-y-1/2 text-[#347048]/40" size={18} strokeWidth={2.5} />
-              </div>
-            </div>
-
-            <div>
-              <label className={labelClass}>Nombre</label>
-              <input
-                required
-                value={form.name}
-                onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-                className={inputClass}
-                placeholder="Ej: Clase particular"
-              />
-            </div>
-
-            <div>
-              <label className={labelClass}>Precio</label>
-              <div className="relative">
-                <input
-                  required
-                  type="number"
-                  min={0.01}
-                  step="0.01"
-                  value={form.price}
-                  onChange={(e) => setForm((prev) => ({ ...prev, price: e.target.value }))}
-                  className={`${inputClass} pl-12`}
-                  placeholder="0.00"
-                  onWheel={(event) => event.currentTarget.blur()}
-                />
-                <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 text-[#347048]/40" size={18} strokeWidth={2.5} />
-              </div>
-            </div>
-
-            <div>
-              <label className={labelClass}>Descripcion</label>
-              <textarea
-                value={form.description}
-                onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
-                className="w-full min-h-[88px] bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-4 py-3 text-[#347048] font-bold placeholder-[#347048]/30 focus:outline-none shadow-sm transition-all resize-none"
-                placeholder="Detalle opcional del servicio"
-              />
-            </div>
-
-            <button
-              type="submit"
-              className="compact-field w-full h-10 bg-[#347048] hover:bg-[#B9CF32] text-[#EBE1D8] hover:text-[#347048] font-black rounded-xl uppercase tracking-widest text-xs"
-            >
-              {editing ? 'Guardar cambios' : 'Crear servicio'}
-            </button>
-          </form>
-        </ModalPortal>
-      )}
-
-      <AppModal
+      {/* ── Delete confirmation ── */}
+      <AdminAppModal
         show={Boolean(deleteTarget)}
         title="Dar de baja servicio"
         message={`Vas a dar de baja el servicio "${deleteTarget?.name || ''}".`}
         cancelText="Cancelar"
-        confirmText={deleting ? 'Eliminando...' : 'Si, dar de baja'}
+        confirmText={deleting ? 'Eliminando...' : 'Sí, dar de baja'}
         isWarning
         onClose={() => {
           if (deleting) return;
@@ -357,9 +259,11 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
           setDeleteTarget(null);
         }}
         onConfirm={() => void confirmDelete()}
+        confirmDisabled={deleting}
       />
 
-      <AppModal
+      {/* ── Feedback modal ── */}
+      <AdminAppModal
         show={feedbackModal.show}
         title={feedbackModal.title}
         message={feedbackModal.message}
@@ -368,6 +272,6 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
         cancelText=""
         onClose={() => setFeedbackModal((prev) => ({ ...prev, show: false }))}
       />
-    </>
+    </div>
   );
 }

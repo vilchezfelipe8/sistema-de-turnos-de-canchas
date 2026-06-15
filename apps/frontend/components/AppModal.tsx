@@ -26,10 +26,8 @@ type AppModalProps = {
   hideCloseButton?: boolean;
 };
 
-/**
- * Modal genérico reutilizable para la aplicación
- * Soporta diferentes variantes: información, advertencia, confirmación, input
- */
+const FONT = "'Geist',system-ui,sans-serif";
+
 export default function AppModal({
   show,
   onClose,
@@ -61,57 +59,32 @@ export default function AppModal({
   const holdStartRef = useRef(0);
   const backdropMouseDownRef = useRef(false);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
-    if (show) {
-      setInputText(inputValue);
-      cancelHold();
-    }
+    if (show) { setInputText(inputValue); cancelHold(); }
   }, [show, inputValue]);
 
   useEffect(() => {
     if (!show) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (closeOnEscape && event.key === 'Escape') {
-        onClose();
-      }
-    };
+    const onKeyDown = (e: KeyboardEvent) => { if (closeOnEscape && e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKeyDown);
-    const releaseBodyScrollLock = lockBodyScroll();
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      releaseBodyScrollLock();
-    };
+    const release = lockBodyScroll();
+    return () => { document.removeEventListener('keydown', onKeyDown); release(); };
   }, [show, onClose, closeOnEscape]);
 
   const handleConfirm = () => {
-    if (onConfirm) {
-      if (showInput) {
-        onConfirm(inputText);
-      } else {
-        onConfirm();
-      }
-      return;
-    }
+    if (onConfirm) { showInput ? onConfirm(inputText) : onConfirm(); return; }
     onClose();
   };
 
-  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const value = event.target.value;
-    setInputText(value);
-    if (onInputChange) {
-      onInputChange(value);
-    }
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputText(e.target.value);
+    onInputChange?.(e.target.value);
   };
 
   const cancelHold = () => {
-    if (holdRef.current) {
-      cancelAnimationFrame(holdRef.current);
-      holdRef.current = null;
-    }
+    if (holdRef.current) { cancelAnimationFrame(holdRef.current); holdRef.current = null; }
     holdStartRef.current = 0;
     setHolding(false);
     setHoldProgress(0);
@@ -119,127 +92,155 @@ export default function AppModal({
 
   useEffect(() => cancelHold, []);
 
-  const stepHold = (timestamp: number) => {
-    if (!holdStartRef.current) holdStartRef.current = timestamp;
-    const elapsed = timestamp - holdStartRef.current;
-    const progress = Math.min(1, elapsed / holdDuration);
+  const stepHold = (ts: number) => {
+    if (!holdStartRef.current) holdStartRef.current = ts;
+    const progress = Math.min(1, (ts - holdStartRef.current) / holdDuration);
     setHoldProgress(progress);
-    if (progress >= 1) {
-      cancelHold();
-      handleConfirm();
-      return;
-    }
+    if (progress >= 1) { cancelHold(); handleConfirm(); return; }
     holdRef.current = requestAnimationFrame(stepHold);
   };
 
-  const startHold = (event: React.MouseEvent | React.TouchEvent) => {
+  const startHold = (e: React.MouseEvent | React.TouchEvent) => {
     if (confirmDisabled || (showInput && !inputText.trim())) return;
-    event.preventDefault();
+    e.preventDefault();
     cancelHold();
     setHolding(true);
     holdStartRef.current = 0;
     holdRef.current = requestAnimationFrame(stepHold);
   };
 
-  const releaseHold = () => {
-    cancelHold();
-  };
+  const releaseHold = () => { cancelHold(); };
 
   if (!show) return null;
 
   const disabled = confirmDisabled || (showInput && !inputText.trim());
 
+  // Colour tokens
+  const confirmBg = disabled
+    ? 'var(--surface-3)'
+    : isWarning
+    ? 'var(--error-fg)'
+    : 'var(--brand)';
+  const confirmColor = disabled ? 'var(--text-muted)' : isWarning ? 'var(--surface-1)' : 'var(--brand-on)';
+  const confirmHoverBg = isWarning ? 'var(--error-fg)' : 'var(--brand-hover)';
+
+  const titleIcon = isWarning
+    ? <AlertTriangle size={20} style={{ color: 'var(--error-fg)', flexShrink: 0 }} />
+    : title.toLowerCase().includes('éxito') || title.toLowerCase().includes('listo') || title.toLowerCase().includes('confirmad')
+    ? <CheckCircle2 size={20} style={{ color: 'var(--brand)', flexShrink: 0 }} />
+    : <Info size={20} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />;
+
   const modalContent = (
     <div
       role="dialog"
       aria-modal="true"
-      className={`fixed inset-0 ${zIndexClass} bg-[#347048]/60 flex items-center justify-center p-4 animate-in fade-in duration-200`}
-      onMouseDown={(event) => {
-        if (!closeOnBackdrop) return;
-        backdropMouseDownRef.current = event.target === event.currentTarget;
-      }}
-      onTouchStart={(event) => {
-        if (!closeOnBackdrop) return;
-        backdropMouseDownRef.current = event.target === event.currentTarget;
-      }}
-      onClick={
-        closeOnBackdrop
-          ? (event) => {
-              const startedOnBackdrop = backdropMouseDownRef.current;
-              backdropMouseDownRef.current = false;
-              if (startedOnBackdrop && event.target === event.currentTarget) {
-                onClose();
-              }
-            }
-          : undefined
-      }
+      className={`fixed inset-0 ${zIndexClass}`}
+      style={{ background: 'var(--overlay)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, animation: 'am-fadein .15s ease' }}
+      onMouseDown={e => { if (!closeOnBackdrop) return; backdropMouseDownRef.current = e.target === e.currentTarget; }}
+      onTouchStart={e => { if (!closeOnBackdrop) return; backdropMouseDownRef.current = e.target === e.currentTarget; }}
+      onClick={closeOnBackdrop ? e => {
+        const started = backdropMouseDownRef.current;
+        backdropMouseDownRef.current = false;
+        if (started && e.target === e.currentTarget) onClose();
+      } : undefined}
     >
+      <style>{`
+        @keyframes am-fadein { from { opacity:0 } to { opacity:1 } }
+        @keyframes am-scalein { from { opacity:0; transform:scale(.95) } to { opacity:1; transform:scale(1) } }
+      `}</style>
+
       <div
-        onClick={(event) => event.stopPropagation()}
-        className="density-compact w-full max-w-xl max-h-[92vh] bg-[#EBE1D8] border-4 border-white rounded-[2rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: '100%', maxWidth: 440, maxHeight: '90vh',
+          background: 'var(--surface-1)',
+          border: '1px solid var(--border)',
+          borderRadius: 20,
+          boxShadow: 'var(--shadow-lg)',
+          display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          animation: 'am-scalein .2s ease',
+          fontFamily: FONT,
+        }}
       >
-        
-        {/* CABECERA WIMBLEDON */}
-        <div className={`p-4 sm:p-5 border-b border-[#347048]/10 flex justify-between items-center ${isWarning ? 'bg-red-50' : 'bg-[#EBE1D8]'}`}>
-          <h3 className={`compact-title font-black flex items-center gap-2 uppercase italic tracking-tighter ${isWarning ? 'text-red-600' : 'text-[#347048]'}`}>
-            {isWarning ? (
-                <AlertTriangle size={28} className="text-red-500" strokeWidth={2.5} />
-            ) : title.toLowerCase().includes('éxito') || title.toLowerCase().includes('listo') ? (
-                <CheckCircle2 size={28} className="text-[#B9CF32]" strokeWidth={3} />
-            ) : (
-                <Info size={28} className="text-[#926699]" strokeWidth={3} />
-            )}
-            {title}
-          </h3>
-          {!hideCloseButton ? (
-            <button 
-              onClick={onClose} 
-              className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
-              title="Cerrar ventana"
+        {/* Header */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+          padding: '18px 22px',
+          borderBottom: '1px solid var(--border)',
+          background: isWarning ? 'var(--error-bg)' : 'transparent',
+          flexShrink: 0,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {titleIcon}
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: isWarning ? 'var(--error-fg)' : 'var(--text-primary)', letterSpacing: '-.02em' }}>
+              {title}
+            </h3>
+          </div>
+          {!hideCloseButton && (
+            <button
+              onClick={onClose}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', color: 'var(--text-muted)', flexShrink: 0, transition: 'background .15s, color .15s' }}
+              title="Cerrar"
             >
-              <X size={20} strokeWidth={3} />
+              <X size={15} />
             </button>
-          ) : null}
+          )}
         </div>
 
-        {/* CUERPO DEL MODAL */}
-        <div className="p-4 sm:p-5 bg-white/40 flex-1 min-h-0 flex flex-col gap-3 overflow-y-auto">
-          <div className="text-[#347048] text-base font-bold leading-relaxed">
-            {typeof message === 'string' ? <p className="m-0">{message}</p> : message}
+        {/* Body */}
+        <div style={{ padding: '20px 22px', flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, fontWeight: 400 }}>
+            {typeof message === 'string' ? <p style={{ margin: 0 }}>{message}</p> : message}
           </div>
-          
-          {/* INPUT (Si corresponde) */}
+
           {showInput && (
             <input
               type="text"
               value={inputText}
               onChange={handleInputChange}
               placeholder={inputPlaceholder}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && inputText.trim()) {
-                  handleConfirm();
-                }
-              }}
+              onKeyDown={e => { if (e.key === 'Enter' && inputText.trim()) handleConfirm(); }}
               autoFocus
-              className={`compact-field w-full px-4 text-sm font-black text-[#347048] bg-white border-2 rounded-xl outline-none shadow-sm transition-all placeholder-[#347048]/30 ${inputFocused ? 'border-[#B9CF32]' : 'border-transparent hover:border-[#B9CF32]/50'}`}
+              style={{
+                width: '100%', padding: '11px 14px', boxSizing: 'border-box',
+                background: 'var(--surface-1)',
+                border: `1px solid ${inputFocused ? 'var(--accent-border-strong)' : 'var(--border)'}`,
+                borderRadius: 12, outline: 'none',
+                fontSize: 14, fontWeight: 600, color: 'var(--text-primary)',
+                fontFamily: FONT,
+                boxShadow: inputFocused ? 'var(--shadow-focus)' : 'none',
+                transition: 'border-color .2s, box-shadow .2s',
+              }}
               onFocus={() => setInputFocused(true)}
               onBlur={() => setInputFocused(false)}
             />
           )}
         </div>
 
-        {/* PIE Y BOTONES DE ACCIÓN */}
-        <div className="p-4 sm:p-5 border-t border-[#347048]/10 bg-[#EBE1D8] flex justify-end gap-2.5">
+        {/* Footer */}
+        <div style={{
+          display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8,
+          padding: '14px 22px',
+          borderTop: '1px solid var(--border)',
+          flexShrink: 0,
+        }}>
           {cancelText && (
             <button
               type="button"
               onClick={onCancel ?? onClose}
-              className="px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest bg-white border-2 border-transparent hover:border-[#347048]/20 text-[#347048]/60 hover:text-[#347048] transition-all shadow-sm active:scale-95"
+              style={{
+                padding: '9px 18px', borderRadius: 10,
+                background: 'var(--surface-2)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-secondary)', fontSize: 12, fontWeight: 700,
+                letterSpacing: '.01em',
+                cursor: 'pointer', fontFamily: FONT, transition: 'background .15s, color .15s',
+              }}
             >
               {cancelText}
             </button>
           )}
-          
+
           <button
             type="button"
             onClick={holdToConfirm ? undefined : handleConfirm}
@@ -250,34 +251,43 @@ export default function AppModal({
             onTouchCancel={holdToConfirm ? releaseHold : undefined}
             onMouseLeave={() => { if (holdToConfirm) releaseHold(); }}
             disabled={disabled}
-            className={`relative overflow-hidden px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest shadow-xl transition-all flex items-center gap-2 ${
-                disabled 
-                    ? 'opacity-40 cursor-not-allowed bg-gray-300 text-gray-500 shadow-none' 
-                    : isWarning 
-                        ? 'bg-red-600 text-white hover:bg-red-500 shadow-red-900/20 active:scale-95' 
-                        : 'bg-[#B9CF32] text-[#347048] hover:bg-[#aebd2b] shadow-[#B9CF32]/20 active:scale-95'
-            }`}
+            style={{
+              position: 'relative', overflow: 'hidden',
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '9px 20px', borderRadius: 10, border: 'none',
+              background: confirmBg, color: confirmColor,
+              fontSize: 12, fontWeight: 800, letterSpacing: '.01em',
+              cursor: disabled ? 'not-allowed' : 'pointer',
+              opacity: disabled ? 0.5 : 1,
+              fontFamily: FONT, transition: 'background .15s, opacity .15s',
+            }}
           >
-            {/* Lógica de Barra de Progreso (Hold To Confirm) mantenida intacta */}
+            {/* Hold-to-confirm progress bar */}
             {holdToConfirm && (
               <span
                 aria-hidden="true"
-                className="absolute inset-0 pointer-events-none origin-left bg-white/40"
                 style={{
+                  position: 'absolute', inset: 0, pointerEvents: 'none', transformOrigin: 'left',
+                  background: 'var(--accent-bg-strong)',
                   transform: `scaleX(${holding ? holdProgress : 0})`,
-                  transition: holding ? 'none' : 'transform 0.2s ease'
+                  transition: holding ? 'none' : 'transform .2s ease',
                 }}
               />
             )}
-            
-            {!disabled && !holdToConfirm && (isWarning ? <AlertTriangle size={16} strokeWidth={3}/> : <CheckCircle2 size={16} strokeWidth={3}/>)}
-            <span className="relative z-10">{holdToConfirm ? `Mantener presionado (${confirmText})` : confirmText}</span>
+            {!disabled && !holdToConfirm && (
+              isWarning
+                ? <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+                : <CheckCircle2 size={14} style={{ flexShrink: 0 }} />
+            )}
+            <span style={{ position: 'relative', zIndex: 1 }}>
+              {holdToConfirm ? `Mantener (${confirmText})` : confirmText}
+            </span>
           </button>
         </div>
       </div>
     </div>
   );
-  
+
   if (!mounted || typeof document === 'undefined') return null;
   return createPortal(modalContent, document.body);
 }

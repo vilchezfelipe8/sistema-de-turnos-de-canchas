@@ -22,6 +22,7 @@ const BOOKINGS_COMPLETION_LOCK_TTL_MS = Number(process.env.BOOKINGS_COMPLETION_L
 const PENDING_BOOKINGS_AUTOCANCEL_LOCK_TTL_MS = Number(process.env.PENDING_BOOKINGS_AUTOCANCEL_LOCK_TTL_MS) || 55_000;
 const PROCESS_ROLE = String(process.env.PROCESS_ROLE || 'all').toLowerCase();
 const RUN_BOOKING_COMPLETION_JOB = process.env.RUN_BOOKING_COMPLETION_JOB;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 if (!process.env.JWT_SECRET) {
   console.error('❌ Missing JWT_SECRET in environment.');
@@ -31,6 +32,45 @@ if (!process.env.JWT_SECRET) {
 if (!process.env.DATABASE_URL) {
   console.error('❌ Missing DATABASE_URL in environment.');
   process.exit(1);
+}
+
+if (IS_PRODUCTION) {
+  const jwtSecret = String(process.env.JWT_SECRET || '').trim();
+  if (!jwtSecret || jwtSecret === 'replace_with_a_strong_jwt_secret') {
+    console.error('❌ Invalid JWT_SECRET in production.');
+    process.exit(1);
+  }
+
+  const frontendUrl = String(process.env.FRONTEND_URL || '').trim();
+  if (!frontendUrl) {
+    console.error('❌ Missing FRONTEND_URL in production.');
+    process.exit(1);
+  }
+
+  const allowedOrigins = String(process.env.ALLOWED_ORIGINS || '').trim();
+  if (!allowedOrigins) {
+    console.error('❌ Missing ALLOWED_ORIGINS in production.');
+    process.exit(1);
+  }
+
+  const mercadoPagoEnabled = ['1', 'true', 'yes'].includes(String(process.env.MERCADO_PAGO_ENABLED || '').trim().toLowerCase());
+  if (mercadoPagoEnabled) {
+    const requiredMercadoPagoVars = [
+      'MERCADO_PAGO_CLIENT_ID',
+      'MERCADO_PAGO_CLIENT_SECRET',
+      'MERCADO_PAGO_REDIRECT_URI',
+      'MERCADO_PAGO_WEBHOOK_SECRET',
+      'INTEGRATION_SECRETS_KEY',
+      'APP_BASE_URL'
+    ] as const;
+
+    for (const key of requiredMercadoPagoVars) {
+      if (!String(process.env[key] || '').trim()) {
+        console.error(`❌ Missing ${key} in production while Mercado Pago is enabled.`);
+        process.exit(1);
+      }
+    }
+  }
 }
 
 const shouldRunApi = () => PROCESS_ROLE === 'all' || PROCESS_ROLE === 'api';

@@ -1,5 +1,6 @@
 import { DiscountAmountType, DiscountApplyMode, DiscountScope, Prisma } from '@prisma/client';
 import { prisma } from '../prisma';
+import { ErrorCodes, badRequest, notFound } from '../errors';
 
 type TxClient = Prisma.TransactionClient;
 
@@ -296,10 +297,10 @@ export class DiscountService {
   }) {
     const amount = Number(input.amountValue);
     if (!Number.isFinite(amount) || amount <= 0) {
-      throw new Error('amountValue inválido');
+      throw badRequest('amountValue inválido', ErrorCodes.INVALID_INPUT);
     }
     if (input.amountType === 'PERCENT' && amount > 100) {
-      throw new Error('El descuento porcentual no puede superar 100');
+      throw badRequest('El descuento porcentual no puede superar 100', ErrorCodes.INVALID_INPUT);
     }
 
     return prisma.discountPolicy.create({
@@ -349,7 +350,7 @@ export class DiscountService {
     const existing = await prisma.discountPolicy.findFirst({
       where: { id: input.policyId, clubId: input.clubId }
     });
-    if (!existing) throw new Error('Política no encontrada para el club');
+    if (!existing) throw notFound('Política no encontrada para el club', ErrorCodes.PRICE_RULE_NOT_FOUND);
 
     const nextAmountType = input.amountType ?? existing.amountType;
     const nextAmountValue = input.amountValue == null
@@ -357,10 +358,10 @@ export class DiscountService {
       : Number(input.amountValue);
 
     if (!Number.isFinite(nextAmountValue) || nextAmountValue <= 0) {
-      throw new Error('amountValue inválido');
+      throw badRequest('amountValue inválido', ErrorCodes.INVALID_INPUT);
     }
     if (nextAmountType === 'PERCENT' && nextAmountValue > 100) {
-      throw new Error('El descuento porcentual no puede superar 100');
+      throw badRequest('El descuento porcentual no puede superar 100', ErrorCodes.INVALID_INPUT);
     }
 
     return prisma.discountPolicy.update({
@@ -394,12 +395,12 @@ export class DiscountService {
     const policy = await prisma.discountPolicy.findFirst({
       where: { id: input.policyId, clubId: input.clubId }
     });
-    if (!policy) throw new Error('Política no encontrada para el club');
+    if (!policy) throw notFound('Política no encontrada para el club', ErrorCodes.PRICE_RULE_NOT_FOUND);
 
     const client = await prisma.client.findFirst({
       where: { id: input.clientId, clubId: input.clubId }
     });
-    if (!client) throw new Error('Cliente no encontrado para el club');
+    if (!client) throw notFound('Cliente no encontrado para el club', ErrorCodes.CLIENT_NOT_FOUND);
 
     return prisma.clientDiscountAssignment.create({
       data: {
@@ -434,11 +435,27 @@ export class DiscountService {
     const assignment = await prisma.clientDiscountAssignment.findFirst({
       where: { id: input.assignmentId, clubId: input.clubId }
     });
-    if (!assignment) throw new Error('Asignación no encontrada');
+    if (!assignment) throw notFound('Asignación no encontrada', ErrorCodes.NOT_FOUND);
 
     return prisma.clientDiscountAssignment.update({
       where: { id: input.assignmentId },
       data: { isActive: input.isActive }
     });
+  }
+
+  async deleteAssignment(input: {
+    clubId: number;
+    assignmentId: string;
+  }) {
+    const assignment = await prisma.clientDiscountAssignment.findFirst({
+      where: { id: input.assignmentId, clubId: input.clubId }
+    });
+    if (!assignment) throw notFound('Asignación no encontrada', ErrorCodes.NOT_FOUND);
+
+    await prisma.clientDiscountAssignment.delete({
+      where: { id: input.assignmentId }
+    });
+
+    return { ok: true };
   }
 }

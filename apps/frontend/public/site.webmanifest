@@ -1,20 +1,13 @@
 {
-  "name": "TuCancha App",
-  "short_name": "TuCancha",
+  "name": "Pique",
+  "short_name": "Pique",
+  "description": "Reserva canchas y gestiona turnos fácilmente.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#ffffff",
+  "background_color": "#F5F4F0",
+  "theme_color": "#B6F36A",
   "icons": [
-    {
-      "src": "/favicon-192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "/favicon-512.png",
-      "sizes": "512x512",
-      "type": "image/png"
-    }
+    { "src": "/favicon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/favicon-512.png", "sizes": "512x512", "type": "image/png" }
   ]
 }

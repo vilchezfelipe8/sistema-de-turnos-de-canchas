@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { sendAppError } from '../errors';
 import { LocationService } from '../services/LocationService';
 
 export class LocationController {
@@ -9,7 +10,7 @@ export class LocationController {
       const locations = await this.locationService.getAllLocations();
       res.json(locations);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      return sendAppError(res, error, 'Error al listar ubicaciones');
     }
   };
 }

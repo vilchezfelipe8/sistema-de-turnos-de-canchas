@@ -5,19 +5,22 @@ import { ClubService, Club } from '../services/ClubService';
 import { getApiUrl } from '../utils/apiUrl';
 import { LocationService, Location } from '../services/LocationService';
 import DatePickerDark from '../components/ui/DatePickerDark';
-import AppModal from '../components/AppModal';
-import { Search, MapPin, Calendar, TrendingUp, ShieldCheck, ArrowRight, Menu, X, Phone, Mail, Instagram, Activity, ChevronRight, ChevronLeft, MousePointerClick, CalendarCheck, PlayCircle, Coffee, Droplets, Lightbulb, Trophy, ChevronDown, LogOut, Check, MessageSquare, Calculator, Users, Heart } from 'lucide-react';
+import { Search, MapPin, Calendar, TrendingUp, ArrowRight, X, Phone, Mail, Instagram, Activity, ChevronRight, ChevronLeft, MousePointerClick, CalendarCheck, PlayCircle, Coffee, Droplets, Lightbulb, Trophy, ChevronDown, Check, MessageSquare, Calculator, Heart } from 'lucide-react';
 import Link from 'next/link';
-import { logout } from '../services/AuthService';
-import { getMyBookings } from '../services/BookingService';
-import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser } from '../utils/session';
+import { normalizeSessionUser } from '../utils/session';
 import { reportUiError } from '../utils/uiError';
 import { useAuth } from '../contexts/AuthContext';
+import { useUserTheme } from '../contexts/UserThemeContext';
 import { isAuthSessionInvalidatedError } from '../utils/apiClient';
-// Importamos los íconos de la librería
-import { FaTableTennis } from "react-icons/fa"; // Paleta (Perfecta para Pádel)
-import { IoFootballOutline } from "react-icons/io5"; // Pelota de fútbol limpia
+import PiqueLogo from '../components/PiqueLogo';
+import NavBar from '../components/NavBar';
+// Importamos los iconos de la libreria
+import { FaTableTennis } from "react-icons/fa"; // Paleta (Perfecta para Padel)
+import { IoFootballOutline } from "react-icons/io5"; // Pelota de futbol limpia
 import { IoTennisballOutline } from "react-icons/io5"; // Pelota de tenis limpia
+
+const APP_NOTICE_EVENT = 'app:notice';
+type AppNoticeTone = 'success' | 'error' | 'info' | 'warning';
 
 const countActiveBookings = (rows: any[]): number => {
   const now = Date.now();
@@ -33,7 +36,7 @@ const countActiveBookings = (rows: any[]): number => {
 
 // ReactDOM portal removed: menu will be rendered inside the sidebar to keep positioning stable under zoom
 
-// --- COMPONENTE DE ANIMACIÓN AL SCROLLEAR ---
+// --- COMPONENTE DE ANIMACION AL SCROLLEAR ---
 const RevealOnScroll = ({ children, delay = 0, className = "" }: { children: React.ReactNode, delay?: number, className?: string }) => {
   const [isVisible, setIsVisible] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -66,7 +69,7 @@ const RevealOnScroll = ({ children, delay = 0, className = "" }: { children: Rea
   );
 };
 
-// --- HELPERS DE UBICACIÓN ---
+// --- HELPERS DE UBICACION ---
 type LocationSuggestion = {
   label: string;
   query: string;
@@ -87,9 +90,9 @@ const normalizeText = (text: string) =>
     .trim();
 
 const sportAliases: Record<string, string[]> = {
-  padel: ['padel', 'pádel'],
+  padel: ['padel'],
   tenis: ['tenis', 'tennis'],
-  futbol: ['futbol', 'fútbol', 'football']
+  futbol: ['futbol', 'football']
 };
 
 const matchesSport = (activityName: string, sport: string) => {
@@ -148,22 +151,37 @@ const formatClubAddress = (club: Club) => {
 export default function Home() {
   const router = useRouter();
   const { user: authUser } = useAuth();
+  const { isLight } = useUserTheme();
   const [clubs, setClubs] = useState<Club[]>([]);
   const [loadingClubs, setLoadingClubs] = useState(true);
   const [locations, setLocations] = useState<Location[]>([]);
   const [loadingLocations, setLoadingLocations] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [showContact, setShowContact] = useState(false);
-  const [showLogoutModal, setShowLogoutModal] = useState(false);
-  const [showUserMenu, setShowUserMenu] = useState(false);
-  const [activeBookingsCount, setActiveBookingsCount] = useState(0);
   const [favoriteClubIds, setFavoriteClubIds] = useState<Set<number>>(new Set());
   const [favoriteClubs, setFavoriteClubs] = useState<Club[]>([]);
-  const [favoriteFeedback, setFavoriteFeedback] = useState<string | null>(null);
   const [favoriteBusyByClub, setFavoriteBusyByClub] = useState<Record<number, boolean>>({});
   // track which FAQ item is currently open (null if none)
+  const sportClubCounts = useMemo(() => {
+    if (!clubs.length) return { futbol: 0, padel: 0, tenis: 0, otros: 0 };
+    const counts = { futbol: 0, padel: 0, tenis: 0, otros: 0 };
+    for (const club of clubs) {
+      const keys = club.fixedBookingSettingsByActivity ? Object.keys(club.fixedBookingSettingsByActivity) : [];
+      if (keys.some(k => matchesSport(k, 'futbol'))) counts.futbol++;
+      if (keys.some(k => matchesSport(k, 'padel'))) counts.padel++;
+      if (keys.some(k => matchesSport(k, 'tenis'))) counts.tenis++;
+      if (!keys.length || keys.every(k => !matchesSport(k, 'futbol') && !matchesSport(k, 'padel') && !matchesSport(k, 'tenis'))) counts.otros++;
+    }
+    return counts;
+  }, [clubs]);
+
+  const sportWords = ['fútbol', 'pádel', 'tenis', 'básquet'];
+  const [heroSportIdx, setHeroSportIdx] = useState(0);
+  const [heroWordVisible, setHeroWordVisible] = useState(true);
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
   const faqRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const shouldAnimateMarquee = clubs.length >= 6;
+  const marqueeClubs = shouldAnimateMarquee ? [...clubs, ...clubs] : clubs;
 
   // close open FAQ when clicking outside the open item's box
   useEffect(() => {
@@ -177,9 +195,95 @@ export default function Home() {
     document.addEventListener('click', handler);
     return () => document.removeEventListener('click', handler);
   }, [openFaqIndex]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setHeroWordVisible(false);
+      setTimeout(() => {
+        setHeroSportIdx(i => (i + 1) % sportWords.length);
+        setHeroWordVisible(true);
+      }, 380);
+    }, 2700);
+    return () => clearInterval(timer);
+  }, [sportWords.length]);
+
+  useEffect(() => {
+    const els = document.querySelectorAll('.p-home-sr,.p-home-sr-up,.p-home-sr-left,.p-home-sr-right');
+    if (!els.length) return;
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('p-home-in'); obs.unobserve(e.target); } });
+    }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+    els.forEach(el => obs.observe(el));
+    return () => obs.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const closeTransientPanels = () => {
+      setShowContact(false);
+      setContactMenu(null);
+      };
+    router.events.on('routeChangeStart', closeTransientPanels);
+    return () => {
+      router.events.off('routeChangeStart', closeTransientPanels);
+    };
+  }, [router.events]);
+
+  const toggleContactDrawer = () => {
+    setContactMenu(null);
+    setShowContact((prev) => !prev);
+  };
+
+  useEffect(() => {
+    const closingSection = closingSectionRef.current;
+    const ownerSection = ownerSectionRef.current;
+    if (!closingSection && !ownerSection) return;
+
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let rafId: number | null = null;
+
+    const applyParallax = (section: HTMLElement, cssVarName: string, amplitude: number) => {
+      const rect = section.getBoundingClientRect();
+      const viewportHeight = window.innerHeight || 1;
+      const progress = (viewportHeight - rect.top) / (viewportHeight + rect.height);
+      const clamped = Math.max(0, Math.min(1, progress));
+      const shift = (clamped - 0.5) * amplitude;
+      section.style.setProperty(cssVarName, `${shift.toFixed(2)}px`);
+    };
+
+    const updateParallax = () => {
+      if (reducedMotion.matches) {
+        if (closingSection) closingSection.style.setProperty('--p-home-closing-parallax', '0px');
+        if (ownerSection) ownerSection.style.setProperty('--p-home-owner-parallax', '0px');
+        return;
+      }
+      if (closingSection) applyParallax(closingSection, '--p-home-closing-parallax', 28); // -14..14
+      if (ownerSection) applyParallax(ownerSection, '--p-home-owner-parallax', 24); // -12..12
+    };
+
+    const scheduleParallax = () => {
+      if (rafId !== null) return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        updateParallax();
+      });
+    };
+
+    scheduleParallax();
+    window.addEventListener('scroll', scheduleParallax, { passive: true });
+    window.addEventListener('resize', scheduleParallax);
+
+    return () => {
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+      window.removeEventListener('scroll', scheduleParallax);
+      window.removeEventListener('resize', scheduleParallax);
+    };
+  }, []);
+
   const resultsRef = useRef<HTMLElement>(null);
   const searchBarRef = useRef<HTMLDivElement | null>(null);
   const sidebarRef = useRef<HTMLDivElement | null>(null);
+  const ownerSectionRef = useRef<HTMLElement | null>(null);
+  const closingSectionRef = useRef<HTMLElement | null>(null);
   const apiBase = useMemo(() => `${getApiUrl()}/api`, []);
 
   // Estados del Buscador
@@ -194,9 +298,9 @@ export default function Home() {
 
   const [searchSport, setSearchSport] = useState('padel');
   const [showSportDropdown, setShowSportDropdown] = useState(false);
-  // Fecha seleccionada en formato YYYY-MM-DD. Por defecto, el día de hoy.
+  // Fecha seleccionada en formato YYYY-MM-DD. Por defecto, el dia de hoy.
   const getEffectiveToday = () => {
-    // Aquí podemos aplicar offsets si fuera necesario (zona horaria / reglas de negocio).
+    // Aqui podemos aplicar offsets si fuera necesario (zona horaria / reglas de negocio).
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), now.getDate());
   };
@@ -205,7 +309,7 @@ export default function Home() {
   const [availableTimesByClub, setAvailableTimesByClub] = useState<Record<number, string[]>>({});
   const searchRequestIdRef = useRef(0);
 
-  // Menú de acciones para contactos (abrir / copiar)
+  // Menu de acciones para contactos (abrir / copiar)
   const [contactMenu, setContactMenu] = useState<{
     type: 'whatsapp' | 'email' | 'instagram';
     top: number;
@@ -213,7 +317,6 @@ export default function Home() {
     href: string;
     copyText: string;
   } | null>(null);
-  const [copied, setCopied] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -253,11 +356,11 @@ export default function Home() {
       href = 'https://wa.me/5493513436163';
       copyText = '+5493513436163';
     } else if (type === 'email') {
-      href = 'mailto:soporte.tucancha@gmail.com';
-      copyText = 'soporte.tucancha@gmail.com';
+      href = 'mailto:soporte.pique@gmail.com';
+      copyText = 'soporte.pique@gmail.com';
     } else if (type === 'instagram') {
-      href = 'https://www.instagram.com/tucancha.app_/';
-      copyText = '@tucancha.app_';
+      href = 'https://www.instagram.com/pique.app_/';
+      copyText = '@pique.app_';
     }
     setContactMenu({ type, top: Math.max(top, 10), left: Math.max(left, 10), href, copyText });
   };
@@ -268,42 +371,24 @@ export default function Home() {
   };
 
   const handleCopy = async (text: string) => {
+    setContactMenu(null);
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      showAppNotice(`¡Copiado! ${text}`, 'success');
     } catch (err) {
       reportUiError({ area: 'HomePage', action: 'copyContactData' }, err);
     }
-    setContactMenu(null);
   };
 
-  const userInitials = useMemo(() => {
-    if (!user) return 'TU';
-    const first = (user.firstName || user.name || '').trim();
-    const last = (user.lastName || '').trim();
-    const initials = `${first.charAt(0)}${last.charAt(0)}`.trim();
-    return initials || 'TU';
-  }, [user]);
-  const isAdmin = hasAdminAccess(user);
-  const adminClubSlug = useMemo(() => {
-    if (!user || !isAdmin) return null;
-
-    const normalizedUser = normalizeSessionUser(user);
-    const activeSlug = getActiveClubSlug(normalizedUser);
-    if (activeSlug) return activeSlug;
-
-    const fallbackClubId = Number(normalizedUser?.activeClubId || normalizedUser?.clubId || normalizedUser?.club?.id);
-    if (!Number.isFinite(fallbackClubId) || fallbackClubId <= 0) return null;
-
-    const club = clubs.find((item) => Number(item.id) === fallbackClubId);
-    return club?.slug || null;
-  }, [clubs, isAdmin, user]);
+  const handleNavbarInteract = () => {
+    setShowContact(false);
+    setContactMenu(null);
+  };
 
   const sportOptions = useMemo(() => ([
   {
     value: 'padel',
-    label: 'Pádel',
+    label: 'Padel',
     icon: (
       <svg viewBox="0 0 20 20" className="h-5 w-5" aria-hidden="true">
         <g>
@@ -326,13 +411,13 @@ export default function Home() {
   },
   {
     value: 'futbol',
-    label: 'Fútbol',
-    icon: <IoFootballOutline className="h-5 w-5" /> // Dejás la de la librería que estaba buena
+    label: 'Futbol',
+    icon: <IoFootballOutline className="h-5 w-5" /> // Dejs la de la libreria que estaba buena
   },
   {
     value: 'tenis',
     label: 'Tenis',
-    icon: <IoTennisballOutline className="h-5 w-5" /> // Dejás la de la librería
+    icon: <IoTennisballOutline className="h-5 w-5" /> // Dejs la de la libreria
   }
 ]), []);
 
@@ -366,50 +451,14 @@ export default function Home() {
   useEffect(() => {
     setUser(authUser ? normalizeSessionUser(authUser as any) : null);
     if (!authUser) {
-      setShowUserMenu(false);
-    }
+      }
   }, [authUser]);
-
-  useEffect(() => {
-    const loadActiveBookings = async () => {
-      if (!user?.id) {
-        setActiveBookingsCount(0);
-        return;
-      }
-      try {
-        const bookings = await getMyBookings(user.id);
-        const active = Array.isArray(bookings) ? countActiveBookings(bookings) : 0;
-        setActiveBookingsCount(active);
-      } catch (error) {
-        if (isAuthSessionInvalidatedError(error)) {
-          return;
-        }
-        reportUiError({ area: 'HomePage', action: 'loadActiveBookings' }, error);
-      }
-    };
-
-    loadActiveBookings();
-  }, [user]);
-
-  useEffect(() => {
-    const syncGuestFavorites = async () => {
-      if (!user?.id) return;
-      try {
-        await ClubService.syncGuestFavoritesToAccount();
-      } catch (error) {
-        reportUiError({ area: 'HomePage', action: 'syncGuestFavorites' }, error);
-      }
-    };
-    void syncGuestFavorites();
-  }, [user?.id]);
 
   useEffect(() => {
     const loadFavorites = async () => {
       if (!user?.id) {
-        const guestIds = new Set<number>(ClubService.getGuestFavoriteClubIds());
-        setFavoriteClubIds(guestIds);
-        setFavoriteClubs(clubs.filter((club) => guestIds.has(Number(club.id))));
-        setFavoriteFeedback(null);
+        setFavoriteClubIds(new Set());
+        setFavoriteClubs([]);
         return;
       }
       try {
@@ -428,44 +477,22 @@ export default function Home() {
       }
     };
     void loadFavorites();
-  }, [user?.id, clubs]);
+  }, [user?.id]);
 
-  const resolveLinkingMessage = (linking: { status?: string; reason?: string } | null | undefined) => {
-    const status = String(linking?.status || '');
-    if (status === 'linked_existing_client') return 'Favorito guardado y cliente vinculado.';
-    if (status === 'created_client') return 'Favorito guardado y cliente creado.';
-    if (status === 'already_linked') return 'Favorito guardado. Ya estabas vinculado en este club.';
-    if (status === 'duplicate_detected_no_link') return 'Favorito guardado. Detectamos posible duplicado y no vinculamos automáticamente.';
-    if (status === 'insufficient_data_no_link') {
-      const reason = String(linking?.reason || '');
-      if (reason === 'missing_phone') return 'Favorito guardado. No se pudo vincular cliente: falta teléfono.';
-      if (reason === 'missing_name') return 'Favorito guardado. No se pudo vincular cliente: falta nombre.';
-      return 'Favorito guardado. No se pudo vincular cliente: faltan datos de identidad.';
-    }
-    return null;
+  const showAppNotice = (message: string, tone: AppNoticeTone = 'info') => {
+    if (typeof window === 'undefined') return;
+    const safe = String(message || '').trim();
+    if (!safe) return;
+    window.dispatchEvent(new CustomEvent(APP_NOTICE_EVENT, { detail: { message: safe, tone } }));
   };
+
 
   const handleToggleFavorite = async (e: React.MouseEvent, club: Club) => {
     e.preventDefault();
     e.stopPropagation();
 
     if (!user?.id) {
-      const clubId = Number(club.id);
-      if (!Number.isFinite(clubId) || clubId <= 0) return;
-      const nextIsFavorite = !favoriteClubIds.has(clubId);
-      ClubService.setGuestFavorite(clubId, nextIsFavorite);
-      setFavoriteClubIds((prev) => {
-        const next = new Set(prev);
-        if (nextIsFavorite) next.add(clubId);
-        else next.delete(clubId);
-        return next;
-      });
-      setFavoriteClubs((prev) => {
-        const exists = prev.some((item) => Number(item.id) === clubId);
-        if (nextIsFavorite) return exists ? prev : [club, ...prev];
-        return prev.filter((item) => Number(item.id) !== clubId);
-      });
-      setFavoriteFeedback(nextIsFavorite ? 'Favorito guardado (invitado).' : 'Favorito eliminado (invitado).');
+      showAppNotice('Iniciá sesión para guardar favoritos.', 'info');
       return;
     }
 
@@ -483,9 +510,9 @@ export default function Home() {
           return next;
         });
         setFavoriteClubs((prev) => prev.filter((item) => Number(item.id) !== clubId));
-        setFavoriteFeedback('Favorito eliminado.');
+        showAppNotice('Club eliminado de favoritos.', 'success');
       } else {
-        const result = await ClubService.markFavorite(clubId);
+        await ClubService.markFavorite(clubId);
         setFavoriteClubIds((prev) => {
           const next = new Set(prev);
           next.add(clubId);
@@ -495,11 +522,11 @@ export default function Home() {
           const exists = prev.some((item) => Number(item.id) === clubId);
           return exists ? prev : [club, ...prev];
         });
-        setFavoriteFeedback(resolveLinkingMessage(result?.linking) || 'Favorito guardado.');
+        showAppNotice('Club agregado a favoritos.', 'success');
       }
     } catch (error) {
       reportUiError({ area: 'HomePage', action: 'toggleFavorite' }, error);
-      setFavoriteFeedback('No se pudo actualizar favorito.');
+      showAppNotice('No pudimos actualizar tus favoritos. Intentá nuevamente.', 'error');
     } finally {
       setFavoriteBusyByClub((prev) => ({ ...prev, [clubId]: false }));
     }
@@ -581,7 +608,7 @@ export default function Home() {
     const next = new Date(current);
     next.setDate(current.getDate() + days);
     const min = getEffectiveToday();
-    if (next < min) return; // no retroceder más que el mínimo
+    if (next < min) return; // no retroceder mas que el minimo
     setSearchDate(formatLocalDate(next));
   };
 
@@ -600,194 +627,28 @@ export default function Home() {
     window.scrollTo({ top: Math.max(top - navbarOffset, 0), behavior: 'smooth' });
   };
 
-  const handleSearch = async () => {
-    const requestId = ++searchRequestIdRef.current;
-    const isCurrentRequest = () => searchRequestIdRef.current === requestId;
+  const handleSearch = () => {
+    const query: Record<string, string> = {};
+    const cityTerm = searchCity.trim();
+    if (cityTerm) {
+      const normalizedTerm = normalizeText(cityTerm);
+      const matchedLocation = (
+        selectedLocation && normalizeText(selectedLocation.label) === normalizedTerm
+      )
+        ? selectedLocation
+        : locationOptions.find((option) =>
+            normalizeText(option.label) === normalizedTerm ||
+            normalizeText(option.city) === normalizedTerm
+          ) || null;
 
-    scrollToSearchBarTop();
-    setIsSearching(true);
-    setShowCityDropdown(false);
-    setSearchError(null);
-    setDisplayedClubs([]);
-    setAvailableTimesByClub({});
-
-    try {
-      if (locationOptions.length === 0 && searchCity.trim()) {
-        if (!isCurrentRequest()) return;
-        setSearchError('No hay ubicaciones cargadas para validar la búsqueda.');
-        setLastSearchLabel('');
-        scrollToSearchBarTop();
-        return;
-      }
-
-      let location = searchCity.trim() ? selectedLocation : null;
-      if (!location && searchCity.trim()) {
-        const normalized = normalizeText(searchCity);
-        const exact = locationOptions.find(
-          (option) => normalizeText(option.label) === normalized || normalizeText(option.query) === normalized
-        );
-        if (exact) {
-          location = exact;
-          setSelectedLocation(exact);
-          setSearchCity(exact.label);
-        }
-      }
-
-      if (!location) {
-        if (!isCurrentRequest()) return;
-        setDisplayedClubs(clubs);
-        if (searchCity.trim()) {
-          setSearchError('Seleccioná una ubicación del listado para buscar clubes cercanos.');
-        }
-        setLastSearchLabel('');
-        scrollToSearchBarTop();
-        return;
-      }
-
-      const coordsResults = await fetchLocations(location.query, 1);
-      const locationCoords = coordsResults[0];
-      if (!locationCoords) {
-        if (!isCurrentRequest()) return;
-        setSearchError('No pudimos ubicar esa ciudad. Probá con otra.');
-        setDisplayedClubs([]);
-        setLastSearchLabel('');
-        scrollToSearchBarTop();
-        return;
-      }
-
-      const filtered: { club: Club; distance: number }[] = (await Promise.all(
-        clubs.map(async (club) => {
-          const coords = await resolveClubCoords(club);
-          if (!coords) return null;
-          const distance = calculateDistanceKm({ lat: locationCoords.lat, lon: locationCoords.lon }, coords);
-          if (distance > DEFAULT_RADIUS_KM) return null;
-          return { club, distance };
-        })
-      )).filter((row): row is { club: Club; distance: number } => Boolean(row));
-
-      filtered.sort((a, b) => a.distance - b.distance);
-      let finalClubs = filtered.map(item => item.club);
-
-      if (searchDate) {
-        try {
-          if (/^\d{4}-\d{2}-\d{2}$/.test(searchDate)) {
-            const [year, month, day] = searchDate.split('-').map(Number);
-            const parsed = new Date(year, month - 1, day);
-            if (!isNaN(parsed.getTime())) {
-              const dayOfWeek = parsed.getDay(); // 0 (Dom) .. 6 (Sab)
-              finalClubs = finalClubs.filter((club) => {
-                const closureDates = Array.isArray((club as any).closureDates)
-                  ? (club as any).closureDates.map((value: unknown) => String(value || '').trim())
-                  : [];
-                const clubOperationalStatus = String((club as any).clubOperationalStatus || 'OPEN');
-                const temporaryClosureStartDate = String((club as any).temporaryClosureStartDate || '').trim();
-                const temporaryClosureEndDate = String((club as any).temporaryClosureEndDate || '').trim();
-
-                if (clubOperationalStatus === 'PERMANENTLY_CLOSED') return false;
-                if (
-                  clubOperationalStatus === 'TEMPORARY_CLOSED' &&
-                  /^\d{4}-\d{2}-\d{2}$/.test(temporaryClosureStartDate) &&
-                  /^\d{4}-\d{2}-\d{2}$/.test(temporaryClosureEndDate) &&
-                  searchDate >= temporaryClosureStartDate &&
-                  searchDate <= temporaryClosureEndDate
-                ) {
-                  return false;
-                }
-
-                if (closureDates.includes(searchDate)) return false;
-                if (!Array.isArray(club.openingDays) || club.openingDays.length === 0) return true; // no config => open all days
-                return club.openingDays.includes(dayOfWeek);
-              });
-            }
-          }
-        } catch (e) { /* noop */ }
-
-        if (searchSport) {
-          const availabilityChecks = await Promise.all(
-            finalClubs.map(async (club) => {
-              try {
-                const courtsRes = await fetch(`${apiBase}/courts?clubSlug=${encodeURIComponent(club.slug)}`, {
-                  cache: 'no-store'
-                });
-                if (!courtsRes.ok) return { hasSlots: false, times: [] };
-
-                const courts = await courtsRes.json();
-                const activityIds = Array.from(
-                  new Set(
-                    (Array.isArray(courts) ? courts : [])
-                      .filter((court: any) => matchesSport(String(court?.activityType?.name || ''), searchSport))
-                      .map((court: any) => Number(court?.activityType?.id))
-                      .filter((activityId: number) => Number.isFinite(activityId) && activityId > 0)
-                  )
-                );
-
-                if (activityIds.length === 0) return { hasSlots: false, times: [] };
-
-                const times: string[] = [];
-                const results = await Promise.all(
-                  activityIds.map(async (activityId) => {
-                    const res = await fetch(
-                      `${apiBase}/bookings/availability-with-courts?activityId=${activityId}&date=${searchDate}&clubSlug=${encodeURIComponent(club.slug)}&t=${Date.now()}`,
-                      { cache: 'no-store' }
-                    );
-                    if (!res.ok) return [];
-                    const data = await res.json();
-                    const slots = Array.isArray(data?.slotsWithCourts)
-                      ? data.slotsWithCourts.filter((slot: any) => Array.isArray(slot.availableCourts) && slot.availableCourts.length > 0)
-                      : [];
-                    return slots
-                      .map((slot: any) => (slot?.slotTime ? String(slot.slotTime) : null))
-                      .filter((slotTime: string | null): slotTime is string => Boolean(slotTime));
-                  })
-                );
-
-                results.forEach((slotTimes) => times.push(...slotTimes));
-                const hasSlots = times.length > 0;
-                if (!hasSlots) return { hasSlots: false, times: [] };
-                const uniqueTimes = Array.from(new Set(times)).sort();
-                return { hasSlots: true, times: uniqueTimes };
-              } catch (error) {
-                reportUiError({ area: 'HomePage', action: 'validateClubAvailability' }, error);
-              }
-              return { hasSlots: false, times: [] };
-            })
-          );
-
-          if (!isCurrentRequest()) return;
-
-          const filteredClubs: Club[] = [];
-          const timesMap: Record<number, string[]> = {};
-          availabilityChecks.forEach((result, index) => {
-            if (result.hasSlots) {
-              const club = finalClubs[index];
-              filteredClubs.push(club);
-              timesMap[club.id] = result.times;
-            }
-          });
-          finalClubs = filteredClubs;
-          setAvailableTimesByClub(timesMap);
-        }
+      if (matchedLocation?.city) {
+        query.zone = matchedLocation.city;
       } else {
-        setAvailableTimesByClub({});
-      }
-
-      if (!isCurrentRequest()) return;
-
-      setDisplayedClubs(finalClubs);
-      setLastSearchLabel(location.label);
-      scrollToSearchBarTop();
-    } catch (error) {
-      if (!isCurrentRequest()) return;
-      reportUiError({ area: 'HomePage', action: 'handleSearch' }, error);
-      setSearchError('No pudimos completar la búsqueda. Intentá de nuevo.');
-      setDisplayedClubs([]);
-      setLastSearchLabel('');
-      setAvailableTimesByClub({});
-    } finally {
-      if (isCurrentRequest()) {
-        setIsSearching(false);
+        query.q = cityTerm;
       }
     }
+    if (searchSport) query.sport = searchSport;
+    router.push({ pathname: '/complejos', query });
   };
 
   // Cierra el DatePicker abierto (si existe) forzando blur sobre su input
@@ -815,883 +676,866 @@ export default function Home() {
     setShowCityDropdown(false);
   };
 
+  const homeCss = `
+    .p-home-root { min-height:100vh; background:var(--bg); color:var(--text-primary); font-family:var(--font-sans); -webkit-font-smoothing:antialiased; overflow-x:clip; --p-home-bg-a:var(--bg); --p-home-bg-b:var(--surface-1); --p-home-bg-c:var(--surface-2); }
+    .p-home-root *,.p-home-root *::before,.p-home-root *::after { box-sizing:border-box; }
+    .p-home-root a { color:inherit; text-decoration:none; }
+    .p-home-root ::selection { background:var(--brand); color:var(--brand-on); }
+    /* Header actions */
+    .p-home-btn { display:inline-flex; align-items:center; gap:8px; padding:9px 18px; border-radius:999px; font-size:13px; font-weight:700; border:1px solid var(--border); background:var(--surface-1); color:var(--text-secondary); cursor:pointer; transition:transform .15s,box-shadow .15s; font-family:inherit; }
+    .p-home-btn:hover { transform:translateY(-1px); box-shadow:var(--shadow-md); }
+    .p-home-btn-primary { background:var(--brand)!important; color:var(--brand-on)!important; border-color:var(--accent-fg)!important; }
+    .p-home-btn-primary:hover { background:var(--accent-fg)!important; }
+    .p-home-btn-ghost { background:var(--border-subtle); border-color:var(--border); }
+    .p-home-btn-ghost:hover { background:var(--border); }
+    /* Hero */
+    .p-home-hero { position:relative; z-index:10; min-height:92vh; display:flex; align-items:flex-end; padding:120px 40px 64px; overflow:visible; }
+    .p-home-hero-visuals { position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:0; }
+    .p-home-hero-bg { position:absolute; inset:0; overflow:hidden; background:linear-gradient(135deg,var(--ink-900) 0%,var(--bg) 45%,var(--lima-900) 100%); }
+    .p-home-hero-bg::before,
+    .p-home-hero-bg::after { content:''; position:absolute; inset:-22%; will-change:transform; }
+    .p-home-hero-bg::before {
+      background:radial-gradient(ellipse 62% 50% at 20% 100%,var(--accent-bg-muted),transparent 70%),
+                 radial-gradient(ellipse 42% 38% at 85% 15%,var(--accent-bg-faint),transparent 66%);
+      animation:p-home-hero-drift-a 18s ease-in-out infinite alternate;
+    }
+    .p-home-hero-bg::after {
+      background:radial-gradient(ellipse 44% 34% at 68% 72%,rgba(182,243,106,.13),transparent 68%),
+                 radial-gradient(ellipse 36% 28% at 9% 20%,rgba(255,255,255,.08),transparent 64%);
+      opacity:.7;
+      animation:p-home-hero-drift-b 24s ease-in-out infinite alternate;
+    }
+    @keyframes p-home-hero-drift-a {
+      from { transform:translate3d(-1.3%, -1%, 0) scale(1); }
+      to { transform:translate3d(1.7%, 1.2%, 0) scale(1.04); }
+    }
+    @keyframes p-home-hero-drift-b {
+      from { transform:translate3d(1.1%, -.8%, 0) scale(1.02); }
+      to { transform:translate3d(-1.5%, 1.3%, 0) scale(1.06); }
+    }
+    .p-home-hero-noise { position:absolute; inset:0; opacity:.022; pointer-events:none; background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' seed='3'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .5 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+    .p-home-hero-inner { position:relative; z-index:2; max-width:1360px; margin:0 auto; width:100%; display:grid; grid-template-columns:1.2fr auto; align-items:end; gap:48px; }
+    .p-home-hero-copy { max-width:720px; }
+    .p-home-hero-eyebrow { display:inline-flex; align-items:center; gap:10px; padding:6px 14px 6px 10px; background:var(--border-subtle); border:1px solid var(--border); border-radius:999px; font-size:12px; font-weight:600; color:var(--text-secondary); margin-bottom:28px; backdrop-filter:blur(12px); }
+    .p-home-hero-eyebrow-dot { width:6px; height:6px; border-radius:50%; background:var(--brand); box-shadow:0 0 0 3px var(--accent-border); animation:p-home-pulse 1.6s ease-in-out infinite; }
+    @keyframes p-home-pulse { 0%,100%{opacity:1}50%{opacity:.5} }
+    .p-home-hero-h1 { font-size:clamp(52px,8vw,108px); font-weight:800; letter-spacing:-.045em; line-height:.96; margin:0 0 24px; color:var(--ink-50); }
+    .p-home-hero-h1 i { font-style:italic; font-weight:700; color:var(--accent-fg); }
+    .p-home-hero-h1 .p-home-grad-text { color:unset; }
+    .p-home-hero-sub { font-size:17px; font-weight:400; color:var(--text-secondary); line-height:1.55; max-width:500px; margin:0 0 36px; }
+    /* Search */
+    .p-home-search { position:relative; z-index:25; display:flex; gap:0; background:var(--border-subtle); border:1px solid var(--border-subtle); border-radius:999px; padding:4px; backdrop-filter:blur(20px); max-width:620px; align-items:center; flex-wrap:wrap; }
+    .p-home-search-seg { display:flex; align-items:center; gap:8px; padding:10px 16px; font-size:13px; font-weight:600; color:var(--text-secondary); cursor:pointer; position:relative; white-space:nowrap; border-radius:999px; transition:background .15s; }
+    .p-home-search-seg:hover { background:var(--border-subtle); }
+    .p-home-search-caret { width:12px; height:12px; color:var(--text-muted); flex-shrink:0; transform-origin:center; transition:transform .22s ease, color .18s ease; }
+    .p-home-search-seg:hover .p-home-search-caret { color:var(--text-muted); }
+    .p-home-search-caret.p-home-search-caret-open { transform:rotate(180deg); color:var(--accent-fg); }
+    .p-home-search-divider { width:1px; height:28px; background:var(--border); flex-shrink:0; margin:0 2px; }
+    .p-home-search-loc { flex:1; position:relative; min-width:0; }
+    .p-home-search-input { flex:1; min-width:120px; padding:10px 14px; background:transparent; border:none; color:var(--text-secondary); font-family:var(--font-sans); font-size:13px; font-weight:500; outline:none; }
+    .p-home-search-input::placeholder { color:var(--text-muted); }
+    .p-home-search-cta { padding:12px 20px; background:var(--brand); color:var(--brand-on); border:none; border-radius:999px; font-size:13px; font-weight:700; display:inline-flex; align-items:center; gap:8px; transition:background .15s; cursor:pointer; font-family:inherit; white-space:nowrap; flex-shrink:0; }
+    .p-home-search-cta:hover { background:var(--brand-hover); }
+    .p-home-search-quicks { display:flex; gap:6px; margin-top:14px; flex-wrap:wrap; }
+    .p-home-quick-chip { padding:5px 13px; background:var(--border-subtle); border:1px solid var(--border-subtle); border-radius:999px; font-size:12px; font-weight:500; color:var(--text-secondary); transition:background .15s,color .15s; cursor:pointer; font-family:inherit; }
+    .p-home-quick-chip:hover { background:var(--border-subtle); color:var(--ink-50); }
+    .p-home-hero-side { display:flex; flex-direction:column; gap:12px; min-width:260px; }
+    .p-home-live-card { padding:20px 22px; background:var(--border-subtle); border:1px solid var(--border-subtle); border-radius:20px; backdrop-filter:blur(20px); }
+    .p-home-live-head { display:flex; align-items:center; gap:8px; font-size:10px; font-weight:700; letter-spacing:.04em; color:var(--text-muted); margin-bottom:10px; }
+    .p-home-live-dot { width:7px; height:7px; border-radius:50%; background:var(--brand); animation:p-home-pulse 1.2s ease-in-out infinite; }
+    .p-home-live-stat { font-size:26px; font-weight:700; letter-spacing:-.03em; color:var(--ink-50); }
+    .p-home-live-label { font-size:12px; color:var(--text-secondary); margin-top:8px; line-height:1.5; font-weight:400; }
+    /* Trust */
+    /* Sports */
+    .p-home-sports { padding:72px 40px; background:var(--p-home-bg-a); border-bottom:1px solid var(--border-subtle); }
+    .p-home-sports-head { max-width:1360px; margin:0 auto 36px; display:flex; justify-content:space-between; align-items:flex-end; gap:24px; flex-wrap:wrap; }
+    .p-home-sports-h3 { font-size:32px; font-weight:700; letter-spacing:-.03em; margin:0; color:var(--text-primary); }
+    .p-home-sports-h3 i { font-style:italic; color:var(--accent-fg); }
+    .p-home-sports-grid { max-width:1360px; margin:0 auto; display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+    .p-home-sport-card { position:relative; height:260px; border-radius:18px; overflow:hidden; border:1px solid var(--border-subtle); display:flex; flex-direction:column; justify-content:flex-end; padding:20px 22px; cursor:pointer; transition:border-color .3s,transform .3s; text-decoration:none; }
+    .p-home-sport-card:hover { border-color:var(--accent-border); transform:translateY(-3px); }
+    .p-home-sport-bg { position:absolute; inset:0; background-size:cover; background-position:center; transition:transform .5s; }
+    .p-home-sport-card:hover .p-home-sport-bg { transform:scale(1.05); }
+    .p-home-sport-bg::after { content:''; position:absolute; inset:0; background:linear-gradient(0deg,var(--overlay-strong),transparent 60%); }
+    .p-home-sport-content { position:relative; z-index:2; }
+    .p-home-sport-count { font-size:10px; color:var(--text-muted); letter-spacing:.03em; font-weight:600; margin-bottom:6px; }
+    .p-home-sport-name { font-size:22px; font-weight:800; letter-spacing:-.02em; color:var(--ink-50); }
+    /* Clubs */
+    .p-home-clubs { padding:80px 40px; background:var(--surface-1); border-top:1px solid var(--border-subtle); }
+    .p-home-clubs-inner { max-width:1360px; margin:0 auto; }
+    .p-home-clubs-h { font-size:28px; font-weight:700; letter-spacing:-.025em; color:var(--text-primary); margin:0 0 32px; display:flex; align-items:center; gap:10px; }
+    .p-home-club-card { background:var(--surface-1); border:1px solid var(--border-subtle); border-radius:16px; overflow:hidden; transition:border-color .2s,transform .2s; display:flex; flex-direction:column; text-decoration:none; height:100%; }
+    .p-home-club-card:hover { border-color:var(--accent-border); transform:translateY(-2px); }
+    .p-home-club-img { height:160px; background:var(--surface-3); position:relative; flex-shrink:0; }
+    .p-home-club-body { padding:18px 20px; flex:1; display:flex; flex-direction:column; gap:4px; }
+    .p-home-club-name { font-size:17px; font-weight:800; color:var(--text-primary); margin:0; }
+    .p-home-club-addr { font-size:13px; color:var(--text-muted); margin:0; }
+    .p-home-club-cta { margin-top:auto; padding-top:14px; display:block; text-align:center; background:var(--brand); color:var(--brand-on); border-radius:10px; padding:10px; font-size:12px; font-weight:800; letter-spacing:.01em; transition:background .15s; }
+    .p-home-club-cta:hover { background:var(--brand-hover); }
+    /* Section wrapper */
+    .p-home-sec-w { max-width:1360px; margin:0 auto; padding:100px 40px; }
+    .p-home-eyebrow { display:inline-flex; align-items:center; gap:10px; font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--text-muted); margin-bottom:20px; }
+    .p-home-eyebrow::before { content:''; display:inline-block; width:24px; height:1px; background:var(--text-muted); }
+    .p-home-sec-h { font-size:clamp(36px,4.5vw,60px); font-weight:700; letter-spacing:-.035em; line-height:1.02; margin:0 0 20px; color:var(--text-primary); }
+    .p-home-sec-h b { font-weight:900; }
+    .p-home-sec-h i { font-style:italic; color:var(--accent-fg); }
+    .p-home-sec-sub { font-size:16px; font-weight:400; color:var(--text-secondary); line-height:1.55; max-width:560px; margin:0 0 52px; }
+    /* Values */
+    .p-home-values-band { border-top:1px solid var(--border-subtle); background:var(--p-home-bg-b); }
+    .p-home-values-grid { display:grid; grid-template-columns:1fr 1fr; gap:80px; align-items:start; }
+    .p-home-values-h { position:sticky; top:90px; }
+    .p-home-values-list { display:flex; flex-direction:column; }
+    .p-home-value { padding:36px 0; border-top:1px solid var(--border-subtle); display:grid; grid-template-columns:72px 1fr; gap:24px; align-items:start; }
+    .p-home-value:first-child { border-top:0; padding-top:0; }
+    .p-home-value-num { font-size:34px; font-weight:700; color:var(--text-muted); letter-spacing:-.04em; line-height:1; }
+    .p-home-value-body h4 { margin:0 0 8px; font-size:20px; font-weight:800; color:var(--text-primary); }
+
+    .p-home-value-body p { margin:0; color:var(--text-secondary); font-size:14px; line-height:1.7; max-width:400px; }
+    /* Stats */
+    /* Steps */
+    .p-home-step:hover { background:var(--surface-2); }
+    .p-home-step-num { font-weight:800; font-size:60px; color:var(--text-muted); line-height:1; letter-spacing:-.05em; margin-bottom:24px; transition:color .3s; }
+    .p-home-step:hover .p-home-step-num { color:var(--accent-fg); }
+    .p-home-step-foot { margin-top:24px; padding-top:24px; border-top:1px solid var(--border-subtle); font-size:12px; color:var(--text-muted); display:flex; align-items:center; gap:8px; }
+    .p-home-step-foot b { color:var(--text-primary); font-weight:700; }
+    /* Owner */
+    .p-home-owner { --p-home-owner-parallax:0px; position:relative; isolation:isolate; border-top:1px solid var(--border-subtle); background:var(--bg); overflow:hidden; }
+    .p-home-owner-media { position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:0; transform:translate3d(0,var(--p-home-owner-parallax),0); will-change:transform; }
+    .p-home-owner-media-img { position:absolute; inset:-4%; background-image:url('https://images.pexels.com/photos/32474981/pexels-photo-32474981.jpeg?auto=compress&cs=tinysrgb&w=1800'); background-size:cover; background-position:center; opacity:.58; transform:scale(1.03); will-change:transform; animation:p-home-owner-kenburns 24s ease-in-out infinite alternate; }
+    .p-home-owner::after { content:''; position:absolute; inset:0; background:linear-gradient(112deg,var(--overlay-strong) 12%,var(--overlay-strong) 48%,var(--overlay-strong) 100%),linear-gradient(180deg,var(--overlay) 0%,var(--overlay-strong) 100%); z-index:1; pointer-events:none; }
+    .p-home-owner-inner { position:relative; z-index:2; max-width:1360px; margin:0 auto; padding:106px 40px; display:grid; grid-template-columns:1.05fr .95fr; gap:72px; align-items:center; }
+    .p-home-owner .p-home-sec-h { max-width:620px; }
+    .p-home-owner .p-home-sec-sub { max-width:520px; margin-bottom:30px; color:var(--text-secondary); }
+    .p-home-owner-side { padding:34px; border:1px solid var(--border-strong); border-radius:20px; background:var(--overlay); backdrop-filter:blur(8px); }
+    .p-home-owner-side-h { font-size:10px; color:var(--text-muted); font-weight:700; letter-spacing:.04em; margin-bottom:20px; }
+    .p-home-owner-perk { display:flex; gap:14px; align-items:center; padding:13px 0; border-top:1px solid var(--border-subtle); font-size:13px; color:var(--text-secondary); font-weight:400; }
+    .p-home-owner-perk:first-child { border-top:0; padding-top:0; }
+    .p-home-owner-perk b { color:var(--text-primary); font-size:16px; letter-spacing:-.02em; min-width:90px; font-weight:800; }
+    .p-home-owner-ctas { display:flex; gap:10px; margin-top:32px; flex-wrap:wrap; }
+    @keyframes p-home-owner-kenburns {
+      0% { transform:scale(1.03) translate3d(-1.2%, -0.8%, 0); }
+      50% { transform:scale(1.07) translate3d(0.9%, 1.1%, 0); }
+      100% { transform:scale(1.05) translate3d(-0.6%, 1.3%, 0); }
+    }
+    /* FAQ */
+    .p-home-faq-band { border-top:1px solid var(--border-subtle); background:linear-gradient(180deg,var(--p-home-bg-a) 0%,var(--p-home-bg-c) 100%); }
+    .p-home-faq-grid { display:grid; grid-template-columns:1fr 1.2fr; gap:72px; align-items:start; }
+    .p-home-faq-list { position:relative; display:flex; flex-direction:column; padding-left:26px; }
+    .p-home-faq-list::before { content:''; position:absolute; left:0; top:6px; bottom:6px; width:1px; background:linear-gradient(180deg,var(--accent-border-strong) 0%,var(--border-subtle) 100%); }
+    .p-home-faq-item { border-top:1px solid var(--border-subtle); padding:22px 0 22px 2px; cursor:pointer; }
+    .p-home-faq-item:last-child { border-bottom:1px solid var(--border-subtle); }
+    .p-home-faq-q { display:flex; justify-content:space-between; align-items:center; gap:16px; font-size:16px; font-weight:700; color:var(--text-primary); }
+    .p-home-faq-icon { flex-shrink:0; color:var(--text-muted); transition:transform .3s,color .3s; }
+    .p-home-faq-item.p-home-open .p-home-faq-icon { transform:rotate(45deg); color:var(--accent-fg); }
+    .p-home-faq-a { max-height:0; overflow:hidden; transition:max-height .4s cubic-bezier(.2,.6,.2,1),margin .3s; color:var(--text-secondary); font-size:14px; line-height:1.7; }
+    .p-home-faq-item.p-home-open .p-home-faq-a { max-height:300px; margin-top:14px; }
+    /* Closing */
+    .p-home-closing { --p-home-closing-parallax:0px; position:relative; isolation:isolate; border-top:1px solid var(--border-subtle); padding:100px 40px 80px; background:var(--bg); overflow:hidden; }
+    .p-home-closing-media { position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:0; transform:translate3d(0,var(--p-home-closing-parallax),0); will-change:transform; }
+    .p-home-closing-media-img { position:absolute; inset:-4%; background-image:url('/closing-botines.jpg'); background-size:cover; background-position:center 43%; opacity:.84; transform:scale(1.03); will-change:transform; animation:p-home-closing-kenburns 26s ease-in-out infinite alternate; }
+    .p-home-closing::after { content:''; position:absolute; inset:0; background:linear-gradient(110deg,var(--overlay) 8%,var(--overlay) 48%,var(--overlay) 100%),linear-gradient(180deg,var(--overlay) 0%,var(--overlay) 92%); z-index:1; pointer-events:none; }
+    .p-home-closing-inner { position:relative; z-index:2; max-width:1360px; margin:0 auto; }
+    .p-home-big-closing { font-size:clamp(44px,7vw,88px); font-weight:800; letter-spacing:-.05em; line-height:.98; color:var(--text-primary); margin:0 0 36px; }
+    .p-home-big-closing i { font-style:italic; color:var(--accent-fg); }
+    .p-home-closing-ctas { display:flex; gap:12px; flex-wrap:wrap; }
+    @keyframes p-home-closing-kenburns {
+      0% { transform:scale(1.03) translate3d(-1.3%, -1.1%, 0); }
+      50% { transform:scale(1.08) translate3d(1.2%, 0.9%, 0); }
+      100% { transform:scale(1.05) translate3d(-0.7%, 1.2%, 0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .p-home-hero-bg::before,
+      .p-home-hero-bg::after,
+      .p-home-aurora-orb { animation:none; }
+      .p-home-owner-media { transform:translate3d(0,0,0); }
+      .p-home-owner-media-img { animation:none; transform:scale(1.03); }
+      .p-home-closing-media { transform:translate3d(0,0,0); }
+      .p-home-closing-media-img { animation:none; transform:scale(1.03); }
+    }
+    /* Footer */
+    .p-home-foot { background:var(--surface-1); border-top:1px solid var(--border-subtle); padding:52px 40px 28px; }
+    .p-home-foot-inner { max-width:1360px; margin:0 auto; }
+    .p-home-foot-cols { display:grid; grid-template-columns:1.6fr repeat(3,1fr); gap:48px; padding-bottom:36px; border-bottom:1px solid var(--border-subtle); }
+    .p-home-foot-brand { display:flex; flex-direction:column; gap:12px; max-width:320px; }
+    .p-home-foot-brand p { font-size:13px; line-height:1.6; color:var(--text-muted); margin:0; }
+    .p-home-foot-col h6 { font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--text-muted); margin:0 0 14px; }
+    .p-home-foot-col ul { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:10px; }
+    .p-home-foot-col li a,.p-home-foot-col li button { font-size:13px; color:var(--text-muted); font-weight:500; transition:color .15s; background:none; border:none; padding:0; cursor:pointer; font-family:inherit; text-align:left; }
+    .p-home-foot-col li a:hover,.p-home-foot-col li button:hover { color:var(--accent-fg); }
+    .p-home-foot-base { padding-top:24px; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--text-muted); margin-top:28px; }
+    /* Contact panel */
+    .p-home-contact-overlay { position:fixed; inset:0; background:var(--overlay); z-index:60; transition:opacity .3s; }
+    .p-home-contact-panel { position:fixed; top:0; right:0; height:100%; width:100%; max-width:360px; background:var(--surface-1); z-index:70; box-shadow:var(--shadow-lg); transform:translateX(100%); transition:transform .3s ease-out; border-left:1px solid var(--border-subtle); }
+    .p-home-contact-panel.p-home-open { transform:translateX(0); }
+    /* Dropdowns */
+    .p-home-dropdown { position:absolute; top:calc(100% + 8px); left:0; min-width:220px; width:max-content; max-width:min(360px, calc(100vw - 32px)); background:var(--surface-1); border:1px solid var(--border-subtle); border-radius:12px; overflow:hidden; box-shadow:var(--shadow-md); z-index:100; }
+    /* Responsive */
+    @media(max-width:1024px){
+      .p-home-hero-inner{grid-template-columns:1fr;gap:40px}
+      .p-home-hero-side{flex-direction:row;min-width:auto;width:100%}
+      .p-home-values-grid{grid-template-columns:1fr;gap:40px}
+      .p-home-values-h{position:static}
+      .p-home-owner-inner{grid-template-columns:1fr;gap:48px;padding:72px 32px}
+      .p-home-faq-grid{grid-template-columns:1fr;gap:40px}
+      .p-home-sports-grid{grid-template-columns:repeat(2,1fr)}
+    }
+    @media(max-width:900px){
+    }
+    @media(max-width:720px){
+      .p-home-hero{padding:100px 24px 56px;min-height:auto}
+      .p-home-sports{padding:52px 24px}
+      .p-home-sports-grid{grid-template-columns:1fr;gap:10px}
+      .p-home-sec-w{padding:64px 24px}
+      .p-home-clubs{padding:56px 24px}
+      .p-home-owner-inner{padding:56px 24px}
+      .p-home-closing{padding:72px 24px}
+      .p-home-foot{padding:44px 24px 24px}
+      .p-home-foot-cols{grid-template-columns:1fr 1fr;gap:28px}
+      .p-home-foot-brand{grid-column:1 / -1;max-width:none}
+      .p-home-search{border-radius:24px;padding:8px;gap:8px}
+      .p-home-search-divider{display:none}
+      .p-home-search-sport{order:1;flex:1 1 0;min-width:0}
+      .p-home-search-date{order:2;flex:0 0 auto;margin-left:auto}
+      .p-home-search-loc{order:3;flex:1 0 100%}
+      .p-home-search-input{width:100%;min-width:0;padding:12px 14px}
+      .p-home-search-cta{order:4;width:100%;justify-content:center;padding:14px 18px}
+      .p-home-search .p-home-dropdown{left:0;right:auto;width:100%;min-width:0;max-width:100%}
+      .p-home-contact-panel{top:auto;right:0;bottom:0;left:0;height:auto;max-width:none;max-height:min(78vh,680px);border-left:none;border-top:1px solid var(--border-subtle);border-radius:20px 20px 0 0;transform:translateY(100%)}
+      .p-home-contact-panel.p-home-open{transform:translateY(0)}
+    }
+    @media(max-width:480px){
+      .p-home-foot-cols{grid-template-columns:1fr}
+    }
+    @keyframes p-home-spin{to{transform:rotate(360deg)}}
+    /* Scroll reveal */
+    .p-home-sr { opacity:0; transform:translateY(28px); transition:opacity .75s cubic-bezier(.2,.8,.2,1), transform .75s cubic-bezier(.2,.8,.2,1); }
+    .p-home-sr.p-home-in { opacity:1; transform:translateY(0); }
+    .p-home-sr-d1 { transition-delay:.08s; }
+    .p-home-sr-d2 { transition-delay:.18s; }
+    .p-home-sr-d3 { transition-delay:.28s; }
+    .p-home-sr-d4 { transition-delay:.38s; }
+    .p-home-sr-up { opacity:0; transform:translateY(40px); transition:opacity .8s cubic-bezier(.2,.8,.2,1), transform .8s cubic-bezier(.2,.8,.2,1); }
+    .p-home-sr-up.p-home-in { opacity:1; transform:translateY(0); }
+    .p-home-sr-left { opacity:0; transform:translateX(-24px); transition:opacity .75s cubic-bezier(.2,.8,.2,1), transform .75s cubic-bezier(.2,.8,.2,1); }
+    .p-home-sr-left.p-home-in { opacity:1; transform:translateX(0); }
+    .p-home-sr-right { opacity:0; transform:translateX(24px); transition:opacity .75s cubic-bezier(.2,.8,.2,1), transform .75s cubic-bezier(.2,.8,.2,1); }
+    .p-home-sr-right.p-home-in { opacity:1; transform:translateX(0); }
+    /* Hero fade-in stagger */
+    @keyframes p-home-fade-up { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+    .p-home-hero-eyebrow { animation:p-home-fade-up .7s ease both .05s; }
+    .p-home-hero-h1 { animation:p-home-fade-up .85s ease both .18s; }
+    .p-home-hero-sub { animation:p-home-fade-up .7s ease both .38s; }
+    .p-home-search { animation:p-home-fade-up .7s ease both .52s; }
+    .p-home-search-quicks { animation:p-home-fade-up .6s ease both .68s; }
+    /* Hero stat bar */
+    .p-home-hero-stat { display:flex; align-items:center; gap:8px; margin-top:18px; font-size:13px; color:var(--text-muted); font-weight:500; animation:p-home-fade-up .6s ease both .82s; }
+    .p-home-hero-stat b { color:var(--accent-fg); font-weight:700; }
+    .p-home-hero-stat-dot { width:6px; height:6px; border-radius:50%; background:var(--brand); opacity:.7; flex-shrink:0; }
+    /* Marquee strip */
+    .p-home-marquee-wrap { overflow:hidden; border-bottom:1px solid var(--border-subtle); background:var(--surface-1); padding:20px 0; }
+    .p-home-marquee-track { display:flex; gap:14px; width:max-content; animation:p-home-marquee 40s linear infinite; }
+    .p-home-marquee-wrap:hover .p-home-marquee-track { animation-play-state:paused; }
+    .p-home-marquee-track.p-home-marquee-static { width:100%; min-width:100%; justify-content:center; flex-wrap:wrap; padding:0 24px; animation:none; }
+    @keyframes p-home-marquee { to { transform:translateX(-50%); } }
+    .p-home-marquee-item { display:inline-flex; align-items:center; gap:8px; padding:7px 16px; background:var(--surface-2); border:1px solid var(--border-subtle); border-radius:999px; font-size:12px; font-weight:600; color:var(--text-muted); white-space:nowrap; transition:color .2s,border-color .2s; cursor:default; }
+    .p-home-marquee-item:hover { color:var(--text-secondary); border-color:var(--border); }
+    .p-home-marquee-dot { width:5px; height:5px; border-radius:50%; background:var(--brand); opacity:.5; flex-shrink:0; }
+    /* Sport card count overlay */
+    .p-home-sport-club-count { font-size:11px; color:var(--card-accent,var(--brand)); font-weight:700; letter-spacing:.08em; margin-bottom:4px; opacity:.85; }
+    /* Aurora orbs */
+    .p-home-aurora-orb { position:absolute; border-radius:50%; filter:blur(90px); pointer-events:none; will-change:transform; }
+    .p-home-aurora-1 { width:700px; height:500px; top:-150px; left:-140px; background:var(--accent-bg-soft); animation:p-home-aurora-1 16s ease-in-out infinite; }
+    .p-home-aurora-2 { width:580px; height:420px; bottom:-120px; right:8%; background:var(--accent-bg-soft); animation:p-home-aurora-2 20s ease-in-out infinite; }
+    .p-home-aurora-3 { width:360px; height:280px; top:35%; right:22%; background:var(--accent-bg-faint); animation:p-home-aurora-3 24s ease-in-out infinite; }
+    @keyframes p-home-aurora-1 { 0%,100%{transform:translate(0,0) scale(1)} 33%{transform:translate(70px,-60px) scale(1.1)} 66%{transform:translate(-40px,50px) scale(.93)} }
+    @keyframes p-home-aurora-2 { 0%,100%{transform:translate(0,0) scale(1)} 40%{transform:translate(-90px,35px) scale(1.13)} 70%{transform:translate(55px,-25px) scale(.97)} }
+    @keyframes p-home-aurora-3 { 0%,100%{transform:translate(0,0) scale(1)} 50%{transform:translate(50px,70px) scale(1.18)} }
+    /* Gradient animated text */
+    .p-home-grad-text { display:inline-block; overflow:visible; padding-inline:.14em; margin-inline:-.14em; background:linear-gradient(90deg,var(--brand) 0%,var(--brand-hover) 35%,var(--brand-hover) 65%,var(--brand) 100%); background-size:220% 100%; background-repeat:no-repeat; background-position:0% 50%; -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; animation:p-home-grad-shift 4.6s ease-in-out infinite alternate; font-style:italic; }
+    @keyframes p-home-grad-shift { from{background-position:0% 50%} to{background-position:100% 50%} }
+    /* Rotating sport word */
+    .p-home-sport-word { display:inline-block; letter-spacing:0; line-height:1.02; overflow:visible; padding-inline:.1em; margin-inline:-.1em; transition:opacity .36s ease, transform .36s ease; }
+    .p-home-sport-word-out { opacity:0; transform:translateY(12px); }
+    /* Sport card per-card glow */
+    .p-home-sport-card:hover { border-color:var(--border); transform:translateY(-5px); }
+    /* Universal close button */
+    .p-home-close-btn { width:30px; height:30px; border-radius:8px; background:var(--border-subtle); border:1px solid var(--border-subtle); display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text-muted); flex-shrink:0; transition:background .15s,color .15s; }
+    .p-home-close-btn:hover { background:var(--border); color:var(--text-secondary); }
+    .p-home-root.p-home-theme-light .p-home-close-btn { background:var(--surface-2); border-color:var(--border); color:var(--text-muted); }
+    .p-home-root.p-home-theme-light .p-home-close-btn:hover { background:var(--border); color:var(--text-secondary); }
+    /* Light theme */
+    .p-home-root.p-home-theme-light { background:var(--bg); color:var(--text-primary); --p-home-bg-a:var(--bg); --p-home-bg-b:var(--surface-2); --p-home-bg-c:var(--surface-3); }
+    .p-home-root.p-home-theme-light .p-home-btn { background:var(--surface-1); color:var(--text-primary); border-color:var(--border-strong); box-shadow:0 2px 12px var(--border-subtle); }
+    .p-home-root.p-home-theme-light .p-home-btn-primary { background:var(--brand)!important; color:var(--brand-on)!important; border-color:var(--accent-fg)!important; box-shadow:none; }
+    .p-home-root.p-home-theme-light .p-home-btn-ghost { background:var(--surface-1); border-color:var(--border); }
+    .p-home-root.p-home-theme-light .p-home-hero-bg { background:linear-gradient(180deg,#fbfff4 0%,rgba(245,244,240,.9) 52%,#eef8df 100%); }
+    .p-home-root.p-home-theme-light .p-home-hero-bg::before {
+      background:radial-gradient(ellipse 62% 52% at 18% 96%,rgba(182,243,106,.48) 0%,rgba(182,243,106,.22) 38%,transparent 72%),
+                 radial-gradient(ellipse 42% 38% at 86% 15%,rgba(47,175,106,.22) 0%,rgba(47,175,106,.1) 36%,transparent 68%);
+      opacity:1;
+      filter:saturate(1.14);
+    }
+    .p-home-root.p-home-theme-light .p-home-hero-bg::after {
+      background:radial-gradient(ellipse 44% 34% at 68% 72%,rgba(255,209,102,.22),transparent 68%);
+      opacity:.58;
+      mix-blend-mode:multiply;
+    }
+    .p-home-root.p-home-theme-light .p-home-hero-noise { opacity:0; }
+    .p-home-root.p-home-theme-light .p-home-hero-h1 { color:var(--text-primary); }
+    .p-home-root.p-home-theme-light .p-home-hero-sub { color:var(--text-secondary); }
+    .p-home-root.p-home-theme-light .p-home-hero-eyebrow { background:var(--surface-1); border-color:var(--border); color:var(--text-secondary); box-shadow:0 8px 20px var(--border); }
+    .p-home-root.p-home-theme-light .p-home-search { background:var(--surface-1); border-color:var(--border); box-shadow:0 10px 24px var(--border); }
+    .p-home-root.p-home-theme-light .p-home-search-seg { color:var(--text-primary); }
+    .p-home-root.p-home-theme-light .p-home-search-seg:hover { background:var(--surface-2); }
+    .p-home-root.p-home-theme-light .p-home-search-caret { color:var(--text-muted); }
+    .p-home-root.p-home-theme-light .p-home-search-seg:hover .p-home-search-caret { color:var(--text-secondary); }
+    .p-home-root.p-home-theme-light .p-home-search-caret.p-home-search-caret-open { color:var(--positive-fg); }
+    .p-home-root.p-home-theme-light .p-home-search-divider { background:var(--border); }
+    .p-home-root.p-home-theme-light .p-home-search-input { color:var(--text-primary); }
+    .p-home-root.p-home-theme-light .p-home-search-input::placeholder { color:var(--text-muted); }
+    .p-home-root.p-home-theme-light .p-home-quick-chip { background:var(--surface-1); border-color:var(--border); color:var(--text-secondary); }
+    .p-home-root.p-home-theme-light .p-home-quick-chip:hover { background:var(--surface-2); color:var(--text-primary); }
+    .p-home-root.p-home-theme-light .p-home-live-card { background:var(--surface-1); border-color:var(--border); box-shadow:0 10px 28px var(--border); }
+    .p-home-root.p-home-theme-light .p-home-live-head { color:var(--text-muted); }
+    .p-home-root.p-home-theme-light .p-home-live-stat { color:var(--text-primary); }
+    .p-home-root.p-home-theme-light .p-home-live-label { color:var(--text-secondary); }
+    .p-home-root.p-home-theme-light .p-home-sports { border-bottom-color:var(--border-subtle); }
+    .p-home-root.p-home-theme-light .p-home-sports-h3,
+    .p-home-root.p-home-theme-light .p-home-sec-h,
+    .p-home-root.p-home-theme-light .p-home-value-body h4,
+    .p-home-root.p-home-theme-light .p-home-clubs-h,
+    .p-home-root.p-home-theme-light .p-home-big-closing { color:var(--text-primary); }
+    .p-home-root.p-home-theme-light .p-home-sport-card { border-color:var(--border); box-shadow:0 8px 26px var(--border); }
+    .p-home-root.p-home-theme-light .p-home-sport-bg::after { background:linear-gradient(0deg,var(--overlay-strong),transparent 62%); }
+    .p-home-root.p-home-theme-light .p-home-sport-count { color:var(--ink-50); }
+    .p-home-root.p-home-theme-light .p-home-sport-name { color:var(--surface-1); }
+    .p-home-root.p-home-theme-light .p-home-clubs { background:var(--surface-2); border-top-color:var(--border-subtle); }
+    .p-home-root.p-home-theme-light .p-home-club-card { background:var(--surface-1); border-color:var(--border); box-shadow:0 10px 24px var(--border-subtle); }
+    .p-home-root.p-home-theme-light .p-home-club-name { color:var(--text-primary); }
+    .p-home-root.p-home-theme-light .p-home-club-addr { color:var(--text-secondary); }
+    .p-home-root.p-home-theme-light .p-home-sec-sub,
+    .p-home-root.p-home-theme-light .p-home-value-body p,
+    .p-home-root.p-home-theme-light .p-home-faq-a { color:var(--text-secondary); }
+    .p-home-root.p-home-theme-light .p-home-eyebrow,
+    .p-home-root.p-home-theme-light .p-home-foot-col h6,
+    .p-home-root.p-home-theme-light .p-home-owner-side-h { color:var(--text-muted); }
+    .p-home-root.p-home-theme-light .p-home-eyebrow::before { background:var(--text-muted); }
+    .p-home-root.p-home-theme-light .p-home-values-band,
+    .p-home-root.p-home-theme-light .p-home-owner,
+    .p-home-root.p-home-theme-light .p-home-faq-band,
+    .p-home-root.p-home-theme-light .p-home-closing { border-top-color:var(--border-subtle); }
+    .p-home-root.p-home-theme-light .p-home-value { border-top-color:var(--border-subtle); }
+    .p-home-root.p-home-theme-light .p-home-value-num,
+    .p-home-root.p-home-theme-light .p-home-step-num { color:var(--border-strong); }
+    .p-home-root.p-home-theme-light .p-home-step-foot { border-top-color:var(--border-subtle); color:var(--text-muted); }
+    .p-home-root.p-home-theme-light .p-home-step-foot b { color:var(--text-primary); }
+    .p-home-root.p-home-theme-light .p-home-owner-media-img { opacity:.96; }
+    .p-home-root.p-home-theme-light .p-home-owner::after { background:linear-gradient(112deg,rgba(245,244,240,.78) 0%,rgba(245,244,240,.4) 42%,rgba(245,244,240,.08) 100%),linear-gradient(180deg,rgba(245,244,240,.18) 0%,rgba(245,244,240,.48) 100%); }
+    .p-home-root.p-home-theme-light .p-home-owner .p-home-sec-sub { color:var(--text-secondary); }
+    .p-home-root.p-home-theme-light .p-home-owner-side { background:var(--surface-1); border-color:var(--border); box-shadow:var(--shadow-lg); }
+    .p-home-root.p-home-theme-light .p-home-owner-perk { border-top-color:var(--border-subtle); color:var(--text-secondary); }
+    .p-home-root.p-home-theme-light .p-home-owner-perk b { color:var(--text-primary); }
+    .p-home-root.p-home-theme-light .p-home-faq-list::before { background:linear-gradient(180deg,var(--accent-border-strong) 0%,var(--border) 100%); }
+    .p-home-root.p-home-theme-light .p-home-faq-item { border-top-color:var(--border-subtle); }
+    .p-home-root.p-home-theme-light .p-home-faq-item:last-child { border-bottom-color:var(--border-subtle); }
+    .p-home-root.p-home-theme-light .p-home-faq-q { color:var(--text-primary); }
+    .p-home-root.p-home-theme-light .p-home-faq-icon { color:var(--text-muted); }
+    .p-home-root.p-home-theme-light .p-home-closing-media-img { opacity:.98; }
+    .p-home-root.p-home-theme-light .p-home-closing::after { background:linear-gradient(110deg,rgba(245,244,240,.8) 0%,rgba(245,244,240,.42) 44%,rgba(245,244,240,.1) 100%),linear-gradient(180deg,rgba(245,244,240,.12) 0%,rgba(245,244,240,.5) 92%); }
+    .p-home-root.p-home-theme-light .p-home-foot { background:var(--bg); border-top-color:var(--border-subtle); }
+    .p-home-root.p-home-theme-light .p-home-foot-cols { border-bottom-color:var(--border-subtle); }
+    .p-home-root.p-home-theme-light .p-home-foot-brand p,
+    .p-home-root.p-home-theme-light .p-home-foot-col li a,
+    .p-home-root.p-home-theme-light .p-home-foot-col li button,
+    .p-home-root.p-home-theme-light .p-home-foot-base { color:var(--text-muted); }
+    .p-home-root.p-home-theme-light .p-home-foot-col li a:hover,
+    .p-home-root.p-home-theme-light .p-home-foot-col li button:hover { color:var(--positive-fg); }
+    .p-home-root.p-home-theme-light .p-home-contact-overlay { background:var(--overlay); }
+    .p-home-root.p-home-theme-light .p-home-contact-panel { background:var(--surface-1); border-left-color:var(--border); box-shadow:var(--shadow-lg); }
+    .p-home-root.p-home-theme-light .p-home-contact-panel p,
+    .p-home-root.p-home-theme-light .p-home-contact-panel div,
+    .p-home-root.p-home-theme-light .p-home-contact-panel button { color:var(--text-primary)!important; }
+    .p-home-root.p-home-theme-light .p-home-dropdown { background:var(--surface-1); border-color:var(--border); box-shadow:var(--shadow-md); }
+    .p-home-root.p-home-theme-light .p-home-dropdown button { color:var(--text-primary)!important; }
+    .p-home-root.p-home-theme-light .p-home-dropdown button:hover { background:var(--surface-2)!important; }
+    .p-home-root.p-home-theme-light .p-home-marquee-wrap { background:var(--surface-2); border-bottom-color:var(--border-subtle); }
+    .p-home-root.p-home-theme-light .p-home-marquee-item { background:var(--surface-1); border-color:var(--border); color:var(--text-secondary); }
+    .p-home-root.p-home-theme-light .p-home-marquee-item:hover { color:var(--text-primary); border-color:var(--border-strong); }
+    /* Aurora orbs — reduce intensity on light background */
+    .p-home-root.p-home-theme-light .p-home-aurora-1 { background:rgba(182,243,106,.48); opacity:.78; }
+    .p-home-root.p-home-theme-light .p-home-aurora-2 { background:rgba(47,175,106,.22); opacity:.72; }
+    .p-home-root.p-home-theme-light .p-home-aurora-3 { background:rgba(255,209,102,.24); opacity:.7; }
+    /* Value/step section numbers — stronger contrast in light mode */
+    .p-home-root.p-home-theme-light .p-home-value-num,
+    .p-home-root.p-home-theme-light .p-home-step-num { color:var(--text-muted); }
+  `;
+
   return (
     <>
       <Head>
-        <title>Inicio | TuCancha</title>
+        <title>Pique — Reservá, jugá, encontrá jugadores</title>
       </Head>
-      <div className="min-h-screen relative overflow-x-hidden bg-vibrant-brand text-[#D4C5B0] selection:bg-[#B9CF32] selection:text-[#347048]" onClick={() => {
+      <style dangerouslySetInnerHTML={{ __html: homeCss }} />
+      {/* eslint-disable-next-line @next/next/no-css-tags */}
+      <div className={`p-home-root${isLight ? ' p-home-theme-light' : ''}`} onClick={() => {
         setShowCityDropdown(false);
         setShowSportDropdown(false);
-        setShowUserMenu(false);
-      }}>
-      
-      {/* NAVBAR */}
-      <nav className="absolute top-0 left-0 right-0 z-50 px-6 py-4 flex justify-between items-center max-w-7xl mx-auto">
-        <div className="flex items-center gap-2">
-            <span className="text-2xl font-black tracking-tighter text-[#D4C5B0] italic opacity-90 hover:opacity-100 transition-opacity cursor-pointer">
-                TuCancha
+        }}>
+      <NavBar onContactClick={toggleContactDrawer} onNavbarInteract={handleNavbarInteract} showContactLink showHomeShortcuts />
+
+      {/* Hero */}
+      <section className="p-home-hero">
+        <div className="p-home-hero-visuals" aria-hidden="true">
+          <div className="p-home-hero-bg" />
+          <div className="p-home-hero-noise" />
+          <div className="p-home-aurora-orb p-home-aurora-1" />
+          <div className="p-home-aurora-orb p-home-aurora-2" />
+          <div className="p-home-aurora-orb p-home-aurora-3" />
+        </div>
+        <div className="p-home-hero-inner">
+          <div className="p-home-hero-copy">
+            <span className="p-home-hero-eyebrow">
+              <span className="p-home-hero-eyebrow-dot" />
+              <span>Reservas y gestión para complejos en Argentina</span>
             </span>
-        </div>
-        <div className="flex items-center gap-4 relative">
-            <button onClick={() => setShowContact(true)} className="hidden md:flex items-center gap-2 px-5 py-2 rounded-full border border-[#D4C5B0]/30 text-[#D4C5B0] font-bold text-sm hover:bg-[#D4C5B0] hover:text-[#347048] transition-all">
-                <span>Contacto</span>
-            </button>
-            {user ? (
-              <>
-                <div className="relative">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowUserMenu((prev) => !prev);
-                    }}
-                    className="hidden md:flex items-center gap-3 pl-1 pr-4 py-1 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 transition-all shadow-sm"
-                  >
-                    <div className="relative">
-                      <div className="h-9 w-9 rounded-full bg-[#B9CF32] flex items-center justify-center text-[#347048] text-xs font-black shadow-inner">
-                        {userInitials}
-                      </div>
-                      {activeBookingsCount > 0 && (
-                        <span className="absolute -right-1 -top-1 bg-[#926699] text-white text-[9px] font-black rounded-full h-4 min-w-[16px] px-1 flex items-center justify-center shadow-md border-2 border-[#347048]">
-                          {activeBookingsCount}
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-[#D4C5B0] font-bold text-sm">{user.firstName || user.name || 'Usuario'}</span>
-                  </button>
-
-                  {showUserMenu && (
-                    <div className="absolute right-0 mt-4 w-[280px] md:w-[320px] bg-[#EBE1D8] rounded-3xl shadow-2xl shadow-[#347048]/50 border border-[#347048]/10 overflow-hidden z-[120] max-[767px]:fixed max-[767px]:top-[74px] max-[767px]:right-6 max-[767px]:!left-auto max-[767px]:mt-0 max-[767px]:w-[min(320px,calc(100vw-3rem))]" onClick={(e) => e.stopPropagation()}>
-                      <div className="p-6 flex flex-col items-center text-center">
-                        <div className="relative mb-4">
-                          <div className="h-20 w-20 rounded-full bg-[#347048] flex items-center justify-center text-[#EBE1D8] text-xl font-black shadow-inner">
-                            {userInitials}
-                          </div>
-                          <span className="absolute -right-1 -bottom-1 bg-[#B9CF32] text-[#347048] text-xs font-black rounded-full h-7 w-7 flex items-center justify-center border-4 border-[#EBE1D8]">
-                            <Check size={14} strokeWidth={4} />
-                          </span>
-                        </div>
-                        <h3 className="text-xl font-black text-[#347048] italic tracking-tight">{user.firstName || user.name || 'Usuario'}</h3>
-                        <p className="text-[#347048]/60 text-xs font-bold uppercase tracking-widest mt-1">{isAdmin ? 'Administrador' : 'Miembro'}</p>
-                      </div>
-                      <div className="border-t border-[#347048]/10 px-6 py-5 bg-[#347048]/5">
-                        <p className="text-[#347048]/40 font-black text-[10px] uppercase tracking-widest mb-3">Mis Datos</p>
-                        <div className="space-y-3 text-[#347048] text-sm font-bold">
-                          <div className="flex items-center gap-3">
-                            <Phone size={16} className="text-[#B9CF32]" strokeWidth={2.5} />
-                            <span>{user.phoneNumber || user.phone || 'Sin teléfono'}</span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <Mail size={16} className="text-[#B9CF32]" strokeWidth={2.5} />
-                            <span className="truncate">{user.email || 'Sin email'}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="border-t border-[#347048]/10 px-6 py-4 space-y-2 font-bold">
-                        {isAdmin && (
-                          <Link
-                            href="/admin/agenda"
-                            className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
-                            onClick={() => setShowUserMenu(false)}
-                          >
-                            <ShieldCheck size={18} strokeWidth={2.5} /> Gestión
-                          </Link>
-                        )}
-                        {isAdmin && adminClubSlug && (
-                          <Link
-                            href={`/club/${adminClubSlug}`}
-                            className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
-                            onClick={() => setShowUserMenu(false)}
-                          >
-                            <MapPin size={18} strokeWidth={2.5} /> Mi club
-                          </Link>
-                        )}
-                        {router.pathname !== '/perfil' && (
-                          <Link
-                            href="/perfil"
-                            className="flex items-center gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
-                            onClick={() => setShowUserMenu(false)}
-                          >
-                            <Users size={18} strokeWidth={2.5} /> Mi Perfil
-                          </Link>
-                        )}
-                        <Link
-                          href="/bookings"
-                          className="flex items-center justify-between gap-3 text-[#347048] hover:text-[#B9CF32] p-2 rounded-xl hover:bg-[#347048]/5 transition-colors"
-                          onClick={() => setShowUserMenu(false)}
-                        >
-                          <span className="flex items-center gap-3">
-                            <Calendar size={18} strokeWidth={2.5} /> Mis Reservas
-                          </span>
-                          {activeBookingsCount > 0 ? (
-                            <span className="inline-flex items-center justify-center min-w-[22px] h-6 px-2 rounded-full bg-[#926699] text-white text-[10px] font-black">
-                              {activeBookingsCount}
-                            </span>
-                          ) : null}
-                        </Link>
-                        <button
-                          type="button"
-                          className="flex items-center gap-3 text-red-500 hover:text-red-600 w-full text-left p-2 rounded-xl hover:bg-red-50 transition-colors"
-                          onClick={() => {
-                            // Cerrar sesión sin forzar redirección.
-                            setShowLogoutModal(true);
-                            setShowUserMenu(false);
-                          }}
-                        >
-                          <LogOut size={18} strokeWidth={2.5} /> Cerrar sesión
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : null}
-            {!user && (
-                <Link href="/login" className="px-5 py-2 rounded-full bg-[#D4C5B0] text-[#347048] font-bold hover:bg-[#B9CF32] transition-all text-sm shadow-lg shadow-[#347048]/50">
-                    Ingresar
-                </Link>
-            )}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                if (user) {
-                  setShowUserMenu((prev) => !prev);
-                } else {
-                  setShowContact(true);
-                }
-              }}
-              className="md:hidden text-[#D4C5B0]"
-            >
-              <Menu />
-            </button>
-        </div>
-      </nav>
-
-      {/* HERO SECTION */}
-      <section className="relative pt-32 pb-24 px-4 flex flex-col items-center text-center z-10 animate-in fade-in slide-in-from-bottom-8 duration-1000">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-[#B9CF32]/10 rounded-full blur-[120px] -z-10 pointer-events-none" />
-        
-        <h1 className="text-5xl md:text-7xl font-black mb-6 tracking-tight text-[#D4C5B0]">
-          Tu cancha, <span className="text-[#B9CF32]">al toque.</span>
-        </h1>
-        <p className="text-[#D4C5B0]/80 text-lg md:text-xl max-w-2xl mb-12 font-medium leading-relaxed">
-          Explorá las canchas disponibles en tu ciudad y en tiempo real.
-        </p>
-
-        {/* BARRA DE BÚSQUEDA */}
-    <div
-      ref={searchBarRef}
-      className="w-full max-w-5xl bg-[#EBE1D8] rounded-[2rem] p-2 shadow-2xl shadow-[#347048]/50 flex flex-col md:flex-row items-center divide-y md:divide-y-0 md:divide-x divide-[#347048]/10 relative z-50"
-            onClick={(e) => e.stopPropagation()} 
-        >
-      <div className="flex-1 md:flex-[1.4] w-full relative group">
-                <div 
-          className="p-2 px-4 hover:bg-[#d4c5b0]/20 rounded-xl transition-colors cursor-pointer h-full flex items-center gap-3 min-h-[56px]"
-                    onClick={() => {
-                        setShowSportDropdown(false);
-                        // Al abrir el dropdown de ubicación cerramos el calendario si estaba abierto
-                        closeDatepicker();
-                        setShowCityDropdown(true);
-                        document.getElementById('cityInput')?.focus();
-                    }}
-                >
-                    <MapPin className="text-[#347048] group-hover:text-[#B9CF32] transition-colors shrink-0" size={20} />
-          <div className="flex flex-col items-start text-left w-full overflow-hidden min-h-[38px] justify-center gap-1 flex-1">
-                        <label className="text-[10px] font-bold text-[#347048]/60 uppercase tracking-wider h-3 leading-3">Ubicación</label>
-                        <input 
-                            id="cityInput"
-                            type="text" 
-                            placeholder="¿Dónde jugás?" 
-              className="bg-transparent border-none outline-none text-[#347048] font-bold placeholder-[#347048]/40 w-full p-0 leading-5 truncate h-full cursor-pointer"
-                            value={searchCity}
-                            onChange={(e) => {
-                                const nextValue = e.target.value;
-                                setSearchCity(nextValue);
-                                if (!nextValue.trim()) {
-                                  setSelectedLocation(null);
-                                }
-                                setShowCityDropdown(true);
-                            }}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                const input = e.currentTarget;
-                input.focus();
-                input.select();
-              }}
-                            onFocus={(e) => {
-                              e.target.select();
-                              setShowSportDropdown(false);
-                              // Si el usuario enfoca la caja de ubicación cerramos el calendario
-                              closeDatepicker();
-                              setShowCityDropdown(true);
-                            }}
-                            autoComplete="off"
-                        />
-                    </div>
-                </div>
-
-                {showCityDropdown && (
-                    <div className="absolute top-full left-0 w-full md:w-[300px] mt-4 bg-white rounded-2xl shadow-xl border border-[#347048]/10 overflow-hidden z-[100] animate-in fade-in zoom-in-95 duration-200">
-                        <div className="p-3 bg-[#EBE1D8]/30 border-b border-[#347048]/5">
-                            <span className="text-xs font-bold text-[#347048] uppercase tracking-wider">Lugares disponibles</span>
-                        </div>
-                        <ul className="max-h-60 overflow-y-auto">
-              {loadingLocations ? (
-                <li className="px-4 py-6 text-center text-gray-400 text-sm">Cargando ubicaciones...</li>
-              ) : locationSuggestions.length > 0 ? (
-                locationSuggestions.map((location, idx) => (
-                                    <li 
-                                        key={idx}
-                                        onClick={() => selectCity(location)}
-                                        className="px-4 py-3 hover:bg-[#B9CF32]/10 cursor-pointer flex items-center justify-between group transition-colors border-b border-gray-50 last:border-0"
-                                    >
-                                        <div className="flex items-center gap-3">
-                                            <div className="bg-[#EBE1D8] p-1.5 rounded-full text-[#347048]"><MapPin size={14} /></div>
-                                            <div className="flex flex-col">
-                                                <span className="text-[#347048] font-medium text-sm">{location.label}</span>
-                                                <span className="text-xs text-[#347048]/60">{location.country}</span>
-                                            </div>
-                                        </div>
-                                        <ChevronRight size={14} className="text-[#B9CF32] opacity-0 group-hover:opacity-100 transition-opacity transform group-hover:translate-x-1" />
-                                    </li>
-                                ))
-                            ) : (
-                                <li className="px-4 py-6 text-center text-gray-400 text-sm">No encontramos ubicaciones con ese texto.</li>
-                            )}
-                        </ul>
-                    </div>
-                )}
-            </div>
-
-  <div className="flex-1 md:flex-none md:w-[240px] w-full relative group">
-        <div
-          className="p-2 px-4 hover:bg-[#d4c5b0]/20 rounded-xl transition-colors cursor-pointer h-full flex items-center gap-3"
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowCityDropdown(false);
-            // Al abrir/cerrar el dropdown de deporte, cerramos el calendario
-            closeDatepicker();
-            setShowSportDropdown((prev) => !prev);
-          }}
-        >
-          <Activity className="text-[#347048] group-hover:text-[#B9CF32] transition-colors shrink-0" size={20} />
-          <div className="flex flex-col items-start text-left w-full overflow-hidden min-h-[38px] justify-center gap-1">
-            <label className="text-[10px] font-bold text-[#347048]/60 uppercase tracking-wider h-3 leading-3">Deporte</label>
-            <div className="flex items-center gap-2 text-[#347048] font-bold text-sm uppercase truncate leading-5">
-              <span className="text-[#347048]">{selectedSport.icon}</span>
-              <span className="truncate">{selectedSport.label}</span>
-            </div>
-          </div>
-        </div>
-
-       {showSportDropdown && (
-  <div className="absolute top-full left-0 w-full md:w-[240px] mt-4 bg-[#Fdfbf7] rounded-3xl shadow-xl border border-[#347048]/10 overflow-hidden z-[100] animate-in fade-in zoom-in-95 duration-200">
-    
-    {/* ENCABEZADO CENTRADO COMO EN LA FOTO */}
-    <div className="py-5 border-b border-[#347048]/5 flex justify-center">
-      <span className="text-xs font-black text-[#347048] uppercase tracking-widest">
-        Elegí deporte
-      </span>
-    </div>
-
-    {/* LISTA DE DEPORTES */}
-    <ul className="max-h-60 overflow-y-auto flex flex-col py-2">
-      {sportOptions.map((sport) => {
-        // Comparamos el valor actual con el del loop para saber si está seleccionado
-        const isSelected = searchSport === sport.value; 
-
-        return (
-          <li
-            key={sport.value || 'all'}
-            onClick={() => {
-              setSearchSport(sport.value);
-              setShowSportDropdown(false);
-            }}
-            className="px-6 py-3.5 hover:bg-[#347048]/5 cursor-pointer flex items-center transition-colors border-b border-[#347048]/5 last:border-0"
-          >
-            <div className="flex items-center gap-4">
-              {/* CÍRCULO DEL ÍCONO CON COLOR DINÁMICO */}
-              <div 
-                className={`flex items-center justify-center w-10 h-10 rounded-full transition-colors ${
-                  isSelected 
-                    ? 'bg-[#347048] text-[#Fdfbf7]' // Seleccionado: Fondo verde oscuro, ícono claro
-                    : 'bg-[#EBE1D8] text-[#347048]' // Normal: Fondo beige, ícono verde oscuro
-                }`}
-              >
-                {sport.icon}
-              </div>
-              
-              {/* NOMBRE DEL DEPORTE */}
-              <span className={`text-[16px] text-[#347048] ${isSelected ? 'font-bold' : 'font-medium'}`}>
-                {sport.label}
+            <h1 className="p-home-hero-h1">
+              Reservá<br />
+              <span className={`p-home-sport-word${heroWordVisible ? '' : ' p-home-sport-word-out'}`}>
+                <span className="p-home-grad-text" style={{ backgroundImage: [
+                  'linear-gradient(90deg,var(--brand) 0%,var(--brand-hover) 50%,var(--brand) 100%)',
+                  'linear-gradient(90deg,var(--accent-fg) 0%,var(--brand-hover) 50%,var(--accent-fg) 100%)',
+                  'linear-gradient(90deg,var(--lima-700) 0%,var(--brand) 50%,var(--lima-500) 100%)',
+                  'linear-gradient(90deg,var(--ink-500) 0%,var(--brand-hover) 50%,var(--accent-fg) 100%)',
+                ][heroSportIdx] }}>{sportWords[heroSportIdx]}</span>
               </span>
+              <br />al toque.
+            </h1>
+            <p className="p-home-hero-sub">Buscá cancha, elegí horario y reservá en minutos. Y si tenés un complejo, empezá a gestionar tus turnos con Pique.</p>
+
+            {/* Search bar */}
+            <div ref={searchBarRef} className="p-home-search" onClick={e => e.stopPropagation()}>
+              {/* Sport selector */}
+              <div className="p-home-search-seg p-home-search-sport" style={{ position: 'relative' }} onClick={(e) => { e.stopPropagation(); setShowCityDropdown(false); closeDatepicker(); setShowSportDropdown(p => !p); }}>
+                <span style={{ color: 'var(--text-muted)', display: 'flex' }}>{selectedSport.icon}</span>
+                <span>{selectedSport.label}</span>
+                <ChevronDown className={`p-home-search-caret${showSportDropdown ? ' p-home-search-caret-open' : ''}`} />
+                {showSportDropdown && (
+                  <div className="p-home-dropdown" onClick={e => e.stopPropagation()}>
+                    <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', fontSize: 10, fontWeight: 700, letterSpacing: '.04em', color: 'var(--text-muted)' }}>Elegí deporte</div>
+                    {sportOptions.map(sport => (
+                      <button key={sport.value} onClick={() => { setSearchSport(sport.value); setShowSportDropdown(false); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '12px 16px', background: searchSport === sport.value ? 'var(--accent-bg-soft)' : 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', color: searchSport === sport.value ? 'var(--brand)' : 'var(--text-secondary)', fontSize: 14, fontWeight: 600 }}>
+                        <span style={{ color: searchSport === sport.value ? 'var(--brand)' : 'var(--text-muted)', display: 'flex' }}>{sport.icon}</span>
+                        {sport.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="p-home-search-divider" />
+              {/* Location */}
+              <div className="p-home-search-loc">
+                <input
+                  id="cityInput"
+                  type="text"
+                  placeholder="¿Dónde jugás?"
+                  className="p-home-search-input"
+                  value={searchCity}
+                  onChange={(e) => { const v = e.target.value; setSearchCity(v); if (!v.trim()) setSelectedLocation(null); setShowCityDropdown(true); }}
+                  onFocus={(e) => { e.target.select(); setShowSportDropdown(false); closeDatepicker(); setShowCityDropdown(true); }}
+                  autoComplete="off"
+                />
+                {showCityDropdown && (
+                  <div className="p-home-dropdown" style={{ minWidth: 280 }} onClick={e => e.stopPropagation()}>
+                    <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', fontSize: 10, fontWeight: 700, letterSpacing: '.04em', color: 'var(--text-muted)' }}>Lugares disponibles</div>
+                    <ul style={{ maxHeight: 220, overflowY: 'auto', margin: 0, padding: 0, listStyle: 'none' }}>
+                      {loadingLocations ? (
+                        <li style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Cargando...</li>
+                      ) : locationSuggestions.length > 0 ? (
+                        locationSuggestions.map((loc, i) => (
+                          <li key={i} onClick={() => selectCity(loc)} style={{ padding: '11px 16px', cursor: 'pointer', borderBottom: '1px solid var(--surface-2)', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500, transition: 'background .15s' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                            <MapPin size={13} style={{ color: 'var(--brand)', flexShrink: 0 }} />
+                            <div><div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{loc.label}</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{loc.country}</div></div>
+                          </li>
+                        ))
+                      ) : (
+                        <li style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Sin resultados</li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+              </div>
+              <div className="p-home-search-divider" />
+              {/* Date */}
+              <div className="p-home-search-seg p-home-search-date" onClick={() => { setShowCityDropdown(false); setShowSportDropdown(false); }}>
+                <Calendar size={13} style={{ color: 'var(--text-muted)' }} />
+                <DatePickerDark
+                  selected={searchDate ? (() => { const [y,m,d] = searchDate.split('-').map(Number); return new Date(y,m-1,d); })() : null}
+                  onChange={(date: Date | null) => { if (!date) { setSearchDate(''); return; } setSearchDate(formatLocalDate(date)); }}
+                  minDate={getEffectiveToday()}
+                  showIcon={false}
+                  inputSize="compact"
+                  dateFormat="dd MMM"
+                  inputClassName="bg-transparent border-none outline-none font-semibold text-xs p-0 w-[64px] cursor-pointer focus:ring-0"
+                  variant="dark"
+                />
+              </div>
+              {/* CTA */}
+              <button className="p-home-search-cta" onClick={handleSearch} disabled={isSearching}>
+                {isSearching ? 'Buscando...' : 'Buscar'}
+                <Search size={13} />
+              </button>
             </div>
 
-          </li>
-        );
-      })}
-    </ul>
-  </div>
-)}
-      </div>
-
-  <div className="flex-1 w-full relative group">
-        <div
-          className="p-2 px-4 hover:bg-[#d4c5b0]/20 rounded-xl transition-colors cursor-pointer h-full flex items-center gap-3"
-          onClick={() => { setShowCityDropdown(false); setShowSportDropdown(false); }}
-        >
-          <Calendar className="text-[#347048] group-hover:text-[#B9CF32] transition-colors shrink-0" size={20} />
-          <div className="flex flex-col items-start text-left w-full overflow-hidden min-h-[38px] justify-center gap-1">
-            <label className="text-[10px] font-bold text-[#347048]/60 uppercase tracking-wider h-3 leading-3">Fecha</label>
-                    <div className="w-full grid grid-cols-1 md:grid-cols-[28px,1fr,28px] items-center">
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); changeDateBy(-1); }}
-                        disabled={!canGoPrev()}
-                        className="hidden md:flex p-1 rounded-lg text-[#347048] disabled:opacity-20 disabled:cursor-not-allowed hover:bg-[#347048]/10 transition-colors"
-                        aria-label="Fecha anterior"
-                      >
-                        <ChevronLeft className="w-5 h-5" />
-                      </button>
-
-                      <div className="flex justify-start md:justify-center">
-                        <DatePickerDark
-                          selected={
-                            searchDate
-                              ? (() => {
-                                  const [y, m, d] = searchDate.split('-').map(Number);
-                                  return new Date(y, m - 1, d);
-                                })()
-                              : null
-                          }
-                          onChange={(date: Date | null) => {
-                            if (!date) { setSearchDate(''); return; }
-                            setSearchDate(formatLocalDate(date));
-                          }}
-                          minDate={getEffectiveToday()}
-                          showIcon={false}
-                          inputSize="compact"
-                          // AGREGÁ ESTA LÍNEA ACÁ ABAJO:
-                          dateFormat="EEE dd MMM yyyy" 
-                          // ---------------------------
-                          inputClassName="bg-transparent border-none outline-none text-[#347048] font-bold text-sm w-full md:w-[132px] text-left md:text-center p-0 leading-5 uppercase cursor-pointer placeholder-[#347048]/40 h-auto px-0 py-0 focus:ring-0 focus:border-transparent"
-                          variant="light"
-                        />
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); changeDateBy(1); }}
-                        className="hidden md:flex p-1 rounded-lg text-[#347048] hover:bg-[#347048]/10 transition-colors"
-                        aria-label="Fecha siguiente"
-                      >
-                        <ChevronRight className="w-5 h-5" />
-                      </button>
-                    </div>
-          </div>
-        </div>
-      </div>
-
-            <div className="p-2 w-full md:w-auto">
-                <button 
-                    onClick={handleSearch}
-                    disabled={isSearching}
-                    className={`w-full md:w-auto text-[#EBE1D8] font-black py-4 px-8 rounded-full transition-all shadow-lg flex items-center justify-center gap-2 ${
-                      isSearching
-                        ? 'bg-[#347048]/70 cursor-not-allowed'
-                        : 'bg-[#347048] hover:bg-[#B9CF32] hover:text-[#347048] group'
-                    }`}
-                >
-                    <Search size={20} strokeWidth={3} className={isSearching ? '' : 'group-hover:scale-110 transition-transform'} />
-                    <span className="md:hidden lg:inline">{isSearching ? 'Buscando...' : 'Buscar'}</span>
-                </button>
-            </div>
-        </div>
-      </section>
-
-      {/* RESULTADOS (AHORA CON ANIMACIONES AL HACER SCROLL) */}
-      <section ref={resultsRef} className="container mx-auto px-4 py-10 pb-20 max-w-6xl">
-        <RevealOnScroll delay={0}>
-          <h2 className="text-2xl font-bold mb-8 flex items-center gap-2 text-[#D4C5B0]/90">
-            <MapPin className="text-[#B9CF32]" /> 
-            {lastSearchLabel ? `Resultados cerca de ${lastSearchLabel}` : 'Clubes Disponibles'}
-          </h2>
-        </RevealOnScroll>
-
-        {user?.id && favoriteClubs.length > 0 && (
-          <RevealOnScroll delay={40}>
-            <div className="mb-5 flex flex-wrap items-center gap-2">
-              <span className="text-[11px] font-black uppercase tracking-widest text-[#D4C5B0]/70">Favoritos</span>
-              {favoriteClubs.slice(0, 5).map((club) => (
-                <Link
-                  key={`favorite-chip-${club.id}`}
-                  href={`/club/${club.slug}`}
-                  className="inline-flex items-center gap-1 rounded-full bg-[#B9CF32]/20 border border-[#B9CF32]/50 px-3 py-1 text-[11px] font-black text-[#D4C5B0]"
-                >
-                  <Heart size={12} className="fill-[#B9CF32] text-[#B9CF32]" />
-                  {club.name}
-                </Link>
+            <div className="p-home-search-quicks">
+              {locationOptions.slice(0, 4).map((loc, i) => (
+                <button key={i} className="p-home-quick-chip" onClick={() => selectCity(loc)}>{loc.label}</button>
               ))}
             </div>
-          </RevealOnScroll>
-        )}
+            {!loadingClubs && clubs.length > 0 && (
+              <div className="p-home-hero-stat">
+                <span className="p-home-hero-stat-dot" />
+                <span>
+                  <b>{clubs.length}</b>{' '}
+                  {clubs.length === 1 ? 'club disponible en Argentina' : 'clubes disponibles en Argentina'}
+                </span>
+              </div>
+            )}
+          </div>
 
-        {favoriteFeedback && (
-          <RevealOnScroll delay={50}>
-            <div className="mb-5 text-xs text-[#D4C5B0]/85 font-semibold">{favoriteFeedback}</div>
-          </RevealOnScroll>
-        )}
-
-        {searchError && (
-          <RevealOnScroll delay={100}><div className="mb-6 text-sm text-[#B9CF32] font-semibold">{searchError}</div></RevealOnScroll>
-        )}
-
-        {loadingClubs ? (
-           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-             {[1,2,3].map(i => (
-                <div key={i} className="h-64 bg-[#D4C5B0]/5 rounded-3xl animate-pulse border border-[#D4C5B0]/10"></div>
-             ))}
-           </div>
-        ) : isSearching ? (
-          <RevealOnScroll delay={100}>
-            <div className="text-center py-20 bg-[#D4C5B0]/5 rounded-3xl border border-dashed border-[#D4C5B0]/20 flex flex-col items-center justify-center gap-4">
-              <div className="h-10 w-10 rounded-full border-4 border-[#D4C5B0]/25 border-t-[#B9CF32] animate-spin" />
-              <p className="text-[#D4C5B0]/80 font-semibold">Buscando canchas...</p>
+          <div className="p-home-hero-side">
+            <div className="p-home-live-card">
+              <div className="p-home-live-head"><span className="p-home-live-dot" />Reservas</div>
+              <div className="p-home-live-stat">En minutos</div>
+              <div className="p-home-live-label">Buscás, elegís y confirmás sin vueltas.</div>
             </div>
-          </RevealOnScroll>
-        ) : displayedClubs.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {displayedClubs.map((club, index) => (
-              <RevealOnScroll key={club.id} delay={index * 100} className="h-full block">
-                <Link href={`/club/${club.slug}`} className="group relative h-full bg-[#EBE1D8] border border-transparent rounded-3xl overflow-hidden hover:scale-[1.02] transition-all shadow-xl hover:shadow-[#B9CF32]/20 flex flex-col">
-                  <div className="h-40 shrink-0 w-full bg-[#dcd0c5] relative border-b border-[#347048]/10 rounded-t-3xl">
-                    <button
-                      type="button"
-                      onClick={(event) => handleToggleFavorite(event, club)}
-                      disabled={Boolean(favoriteBusyByClub[Number(club.id)])}
-                      className={`group/fav absolute top-3 right-3 z-20 rounded-xl p-2 border transition-all duration-200 shadow-md disabled:opacity-60 ${
-                        favoriteClubIds.has(Number(club.id))
-                          ? 'bg-[#347048] border-[#B9CF32] shadow-[#347048]/40 hover:bg-[#2d5f3d] hover:scale-105'
-                          : 'bg-white/90 border-[#347048]/20 hover:bg-[#347048] hover:border-[#B9CF32] hover:shadow-[#347048]/40 hover:scale-105'
-                      }`}
-                      aria-label={favoriteClubIds.has(Number(club.id)) ? 'Quitar de favoritos' : 'Guardar en favoritos'}
-                      title={favoriteClubIds.has(Number(club.id)) ? 'Quitar de favoritos' : 'Guardar en favoritos'}
-                    >
-                      <Heart
-                        size={16}
-                        className={
-                          favoriteClubIds.has(Number(club.id))
-                            ? 'text-[#B9CF32] fill-[#B9CF32] drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)] transition-all duration-200 group-hover/fav:scale-110'
-                            : 'text-[#347048]/80 transition-all duration-200 group-hover/fav:text-[#B9CF32] group-hover/fav:fill-[#B9CF32] group-hover/fav:scale-110'
-                        }
-                      />
-                    </button>
-                    {club.clubImageUrl ? (
-                      <>
-                        <div className="absolute inset-0 bg-cover bg-center transition-transform duration-700 rounded-t-3xl" style={{ backgroundImage: `url(${club.clubImageUrl})` }} />
-                        {club.logoUrl && (
-                          <div className="absolute top-3 left-3 bg-white/80 backdrop-blur rounded-xl p-2 shadow-sm">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={club.logoUrl} alt={club.name} className="h-10 w-10 object-contain" />
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="absolute inset-0 bg-gradient-to-br from-[#EBE1D8] to-[#d6c7ba] flex items-center justify-center transition-transform duration-700 rounded-t-3xl">
-                          {club.logoUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={club.logoUrl} alt={club.name} className="h-24 w-24 object-contain opacity-90 mix-blend-multiply" />
-                          ) : (
-                            <Activity size={32} className="text-[#347048]/20" strokeWidth={2} />
-                          )}
-                      </div>
-                    )}
-                    <div className="absolute bottom-3 right-3 bg-[#926699] px-3 py-1 rounded-full text-xs font-bold text-[#EBE1D8] shadow-sm flex items-center gap-1">
-                      <MapPin size={12} className="text-[#EBE1D8]" /> {club.name || 'Club'}
-                    </div>
-                  </div>
-                  <div className="p-6 flex flex-col flex-1">
-                    <h3 className="text-xl font-black text-[#347048] mb-1 leading-tight">{club.name}</h3>
-                    <p className="text-[#347048]/70 text-sm font-medium line-clamp-1">{formatClubAddress(club) || 'Ubicación no disponible'}</p>
-                    {searchDate && (availableTimesByClub[club.id]?.length ?? 0) > 0 && (
-                      <div className="mt-4 mb-5">
-                        <div className="flex items-center gap-1.5 overflow-x-auto pb-4 club-times-scrollbar">
-                          {availableTimesByClub[club.id].map((time) => (
-                            <Link
-                              key={`${club.id}-${time}`}
-                              href={{
-                                pathname: `/club/${club.slug}`,
-                                query: { date: searchDate, time, sport: searchSport }
-                              }}
-                              className="shrink-0 px-3 py-1.5 rounded-full border border-[#347048]/40 text-[#347048] font-black text-xs bg-white/80 hover:border-[#B9CF32] hover:text-[#B9CF32] transition-colors"
-                            >
-                              {time}
-                            </Link>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {searchDate && (availableTimesByClub[club.id]?.length ?? 0) === 0 && (
-                      <div className="mb-5" />
-                    )}
-                    {!searchDate && <div className="mb-5" />}
-                    <div className="w-full -mt-1 bg-[#347048] group-hover:bg-[#B9CF32] py-3 rounded-xl text-center transition-colors duration-300">
-                      <span className="text-xs font-black text-[#D4C5B0] group-hover:text-[#347048] uppercase tracking-widest">Reservar</span>
-                    </div>
-                  </div>
-                </Link>
-              </RevealOnScroll>
+            <div className="p-home-live-card">
+              <div className="p-home-live-head">Para complejos</div>
+              <div className="p-home-live-stat" style={{ fontSize: 20 }}>Más orden</div>
+              <div className="p-home-live-label">Publicá horarios, ordená cobros y recibí reservas desde un solo panel.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── MARQUEE STRIP ── */}
+      {!loadingClubs && clubs.length > 0 && (
+        <div className="p-home-marquee-wrap">
+          <div className={`p-home-marquee-track${shouldAnimateMarquee ? '' : ' p-home-marquee-static'}`}>
+            {marqueeClubs.map((club, i) => (
+              <div key={i} className="p-home-marquee-item">
+                <span className="p-home-marquee-dot" />
+                {club.name}
+              </div>
             ))}
           </div>
-        ) : (
-          <RevealOnScroll delay={100}>
-            <div className="text-center py-20 bg-[#D4C5B0]/5 rounded-3xl border border-dashed border-[#D4C5B0]/20">
-              <p className="text-[#D4C5B0]/60">No encontramos canchas con ese criterio.</p>
-              <button
-                onClick={() => {
-                  setSearchCity('');
-                  setSelectedLocation(null);
-                  setSearchError(null);
-                  setLastSearchLabel('');
-                  setAvailableTimesByClub({});
-                  setDisplayedClubs(clubs);
+        </div>
+      )}
+
+      {/* ── SPORTS GRID ── */}
+      <section id="deportes" className="p-home-sports" style={{ scrollMarginTop: 88 }}>
+        <div className="p-home-sports-head">
+          <h3 className="p-home-sports-h3 p-home-sr">Encontrá tu deporte y <i>reservá sin vueltas.</i></h3>
+        </div>
+        <div className="p-home-sports-grid">
+          {[
+            {
+              name: 'Fútbol',
+              sub: 'F5 · F7 · F11',
+              sport: 'futbol',
+              bg: 'linear-gradient(135deg,var(--ink-900),var(--lima-900))',
+              photo: 'https://images.pexels.com/photos/27394466/pexels-photo-27394466.jpeg?auto=compress&cs=tinysrgb&w=1600',
+              bgPosition: 'center 52%',
+              accent: 'var(--brand)',
+              countKey: 'futbol' as const
+            },
+            {
+              name: 'Pádel',
+              sub: 'Cubierto & Panorámico',
+              sport: 'padel',
+              bg: 'linear-gradient(135deg,var(--ink-900),var(--ink-700))',
+              photo: 'https://images.pexels.com/photos/32897038/pexels-photo-32897038.jpeg?auto=compress&cs=tinysrgb&w=1600',
+              bgPosition: 'center 42%',
+              accent: 'var(--accent-fg)',
+              countKey: 'padel' as const
+            },
+            {
+              name: 'Tenis',
+              sub: 'Polvo & cemento',
+              sport: 'tenis',
+              bg: 'linear-gradient(135deg,var(--ink-900),var(--lima-900))',
+              photo: 'https://images.pexels.com/photos/19872965/pexels-photo-19872965.jpeg?auto=compress&cs=tinysrgb&w=1600',
+              bgPosition: 'center 54%',
+              accent: 'var(--lima-500)',
+              countKey: 'tenis' as const
+            },
+            {
+              name: 'Otros deportes',
+              sub: 'Hockey · Vóley · Básquet',
+              sport: '',
+              bg: 'linear-gradient(135deg,var(--ink-900),var(--ink-700))',
+              photo: 'https://images.pexels.com/photos/9716286/pexels-photo-9716286.jpeg?auto=compress&cs=tinysrgb&w=1600',
+              bgPosition: 'center',
+              accent: 'var(--accent-fg)',
+              countKey: 'otros' as const
+            },
+          ].map((s, si) => (
+            <div key={s.name} className={`p-home-sport-card p-home-sr p-home-sr-d${si + 1}`} style={{'--card-accent': s.accent} as React.CSSProperties} onClick={() => router.push({ pathname: '/complejos', query: s.sport ? { sport: s.sport } : {} })}>
+              <div
+                className="p-home-sport-bg"
+                style={{
+                  background: s.bg,
+                  backgroundImage: s.photo
+                    ? `linear-gradient(160deg, var(--overlay) 0%, var(--overlay) 58%, var(--overlay-strong) 100%), url('${s.photo}')`
+                    : undefined,
+                  backgroundPosition: s.bgPosition || 'center',
                 }}
-                className="mt-4 text-[#B9CF32] font-bold hover:underline"
-              >
-                Ver todos
-              </button>
+              />
+              <div className="p-home-sport-content">
+                {!loadingClubs && sportClubCounts[s.countKey] > 0 && (
+                  <div className="p-home-sport-club-count">{sportClubCounts[s.countKey]} clubes</div>
+                )}
+                <div className="p-home-sport-count">{s.sub}</div>
+                <div className="p-home-sport-name">{s.name} →</div>
+              </div>
             </div>
-          </RevealOnScroll>
-        )}
+          ))}
+        </div>
       </section>
-
-      {/* SECCIÓN: CÓMO FUNCIONA (CON ANIMACIONES) */}
-      <section className="py-20 px-4 max-w-6xl mx-auto relative z-10 overflow-hidden">
-        <RevealOnScroll delay={0}>
-          <div className="text-center mb-16">
-            <span className="text-[#B9CF32] font-black tracking-wider uppercase text-sm mb-3 block">Rápido y Fácil</span>
-            <h2 className="text-4xl md:text-5xl font-black text-[#D4C5B0] italic tracking-tighter">¿CÓMO RESERVAR?</h2>
+      {/* ── VALUES (POR QUE PIQUE) ── */}
+      <section id="por-que-pique" className="p-home-values-band" style={{ scrollMarginTop: 88 }}>
+        <div className="p-home-sec-w">
+          <div className="p-home-values-grid">
+            <div className="p-home-values-h p-home-sr-left">
+              <span className="p-home-eyebrow">Por qué Pique</span>
+              <h2 className="p-home-sec-h">La forma más<br /><b>fluida</b> de <i>jugar.</i></h2>
+              <p className="p-home-sec-sub">Elegís cancha, horario y confirmás en el momento.</p>
+            </div>
+            <div className="p-home-values-list">
+              {[
+                { num: '01', title: 'Confirmación al instante', desc: 'Si la cancha está libre, la reservás en segundos.' },
+                { num: '02', title: 'Clubes verificados', desc: 'Fotos, precios y horarios más claros antes de reservar.' },
+                { num: '03', title: 'Cambios más simples', desc: 'Si surge algo, gestionás tu reserva desde la app.' },
+                { num: '04', title: 'Pago claro', desc: 'Ves cómo se paga cada turno antes de confirmar.' },
+              ].map((v, vi) => (
+                <div key={v.num} className={`p-home-value p-home-sr p-home-sr-d${vi + 1}`}>
+                  <div className="p-home-value-num">{v.num}</div>
+                  <div className="p-home-value-body"><h4>{v.title}</h4><p>{v.desc}</p></div>
+                </div>
+              ))}
+            </div>
           </div>
-        </RevealOnScroll>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative">
-          <RevealOnScroll delay={100} className="h-full">
-            <div className="h-full bg-[#EBE1D8] rounded-[2rem] p-8 text-center relative overflow-hidden group hover:-translate-y-2 transition-transform duration-300 shadow-xl shadow-[#B9CF32]/5 border-4 border-transparent hover:border-[#B9CF32]">
-              <div className="absolute -top-6 -right-6 text-[100px] font-black text-[#347048]/5 group-hover:text-[#B9CF32]/20 transition-colors z-0 select-none">1</div>
-              <div className="relative z-10 flex flex-col items-center">
-                <div className="bg-[#347048] text-[#B9CF32] h-16 w-16 rounded-2xl flex items-center justify-center mb-6 shadow-inner">
-                  <Search size={32} strokeWidth={2.5} />
-                </div>
-                <h3 className="text-xl font-black text-[#347048] mb-3 uppercase tracking-wide">Buscá tu horario</h3>
-                <p className="text-[#347048]/70 font-medium">Usá nuestro buscador para encontrar canchas disponibles en tu ciudad en tiempo real.</p>
-              </div>
-            </div>
-          </RevealOnScroll>
-
-          <RevealOnScroll delay={200} className="h-full">
-            <div className="h-full bg-[#EBE1D8] rounded-[2rem] p-8 text-center relative overflow-hidden group hover:-translate-y-2 transition-transform duration-300 shadow-xl shadow-[#B9CF32]/5 border-4 border-transparent hover:border-[#B9CF32]">
-              <div className="absolute -top-6 -right-6 text-[100px] font-black text-[#347048]/5 group-hover:text-[#B9CF32]/20 transition-colors z-0 select-none">2</div>
-              <div className="relative z-10 flex flex-col items-center">
-                <div className="bg-[#347048] text-[#B9CF32] h-16 w-16 rounded-2xl flex items-center justify-center mb-6 shadow-inner">
-                  <CalendarCheck size={32} strokeWidth={2.5} />
-                </div>
-                <h3 className="text-xl font-black text-[#347048] mb-3 uppercase tracking-wide">Elegí tu cancha</h3>
-                <p className="text-[#347048]/70 font-medium">Revisá los clubes, compará precios e instalaciones, y confirmá tu turno con un clic.</p>
-              </div>
-            </div>
-          </RevealOnScroll>
-
-          <RevealOnScroll delay={300} className="h-full">
-            <div className="h-full bg-[#EBE1D8] rounded-[2rem] p-8 text-center relative overflow-hidden group hover:-translate-y-2 transition-transform duration-300 shadow-xl shadow-[#B9CF32]/5 border-4 border-transparent hover:border-[#B9CF32]">
-              <div className="absolute -top-6 -right-6 text-[100px] font-black text-[#347048]/5 group-hover:text-[#B9CF32]/20 transition-colors z-0 select-none">3</div>
-              <div className="relative z-10 flex flex-col items-center">
-                <div className="bg-[#B9CF32] text-[#347048] h-16 w-16 rounded-2xl flex items-center justify-center mb-6 shadow-inner">
-                  <PlayCircle size={32} strokeWidth={2.5} />
-                </div>
-                <h3 className="text-xl font-black text-[#347048] mb-3 uppercase tracking-wide">¡A Jugar!</h3>
-                <p className="text-[#347048]/70 font-medium">Presentate en el club y disfrutá de tu partido. ¡El tercer tiempo te está esperando!</p>
-              </div>
-            </div>
-          </RevealOnScroll>
         </div>
       </section>
 
-      {/* SECCIÓN: AMENIDADES PREMIUM */}
-      <section className="py-24 px-4 relative z-10 overflow-hidden">
-        <RevealOnScroll delay={0}>
-          <div className="max-w-7xl mx-auto bg-[#EBE1D8] rounded-[3rem] p-8 md:p-16 shadow-2xl shadow-black/20 border-8 border-white/10 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-96 h-96 bg-[#B9CF32]/20 rounded-full blur-[100px] pointer-events-none" />
-            <div className="absolute bottom-0 left-0 w-96 h-96 bg-[#926699]/10 rounded-full blur-[100px] pointer-events-none" />
-            
-            <div className="relative z-10">
-            <div className="text-center mb-16">
-              <h2 className="text-4xl md:text-5xl font-black text-[#347048] italic tracking-tighter mb-4 uppercase">Gestión inteligente</h2>
-              <p className="text-[#347048]/70 font-bold max-w-2xl mx-auto uppercase tracking-widest text-sm">La herramienta definitiva diseñada para potenciar la administración de tu complejo.</p>
-            </div>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-              <RevealOnScroll delay={100}>
-                <div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white">
-                  <div className="bg-[#926699]/10 text-[#926699] p-4 rounded-2xl mb-4"><MessageSquare size={32} strokeWidth={2} /></div>
-                  <h4 className="text-[#347048] font-black text-lg mb-2">WhatsApp Bot</h4>
-                  <p className="text-[#347048]/70 text-sm font-medium">Notificaciones automáticas para confirmar reservas y reducir ausencias de clientes.</p>
-                </div>
-              </RevealOnScroll>
-
-              <RevealOnScroll delay={200}>
-                <div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white">
-                  <div className="bg-[#347048]/10 text-[#347048] p-4 rounded-2xl mb-4"><Calendar size={32} strokeWidth={2} /></div>
-                  <h4 className="text-[#347048] font-black text-lg mb-2">Reserva en línea</h4>
-                  <p className="text-[#347048]/70 text-sm font-medium">Sistema de turnos disponible las 24 horas para que tus clientes reserven en segundos.</p>
-                </div>
-              </RevealOnScroll>
-
-              <RevealOnScroll delay={300}>
-                <div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white">
-                  <div className="bg-[#B9CF32]/20 text-[#347048] p-4 rounded-2xl mb-4"><Calculator size={32} strokeWidth={2} /></div>
-                  <h4 className="text-[#347048] font-black text-lg mb-2">Caja y Stock</h4>
-                  <p className="text-[#347048]/70 text-sm font-medium">Control total de ingresos, ventas de buffet y stock de productos en tiempo real.</p>
-                </div>
-              </RevealOnScroll>
-
-              <RevealOnScroll delay={400}>
-                <div className="h-full flex flex-col items-center text-center p-6 bg-white/60 rounded-3xl border border-white">
-                  <div className="bg-blue-50 text-blue-500 p-4 rounded-2xl mb-4"><Users size={32} strokeWidth={2} /></div>
-                  <h4 className="text-[#347048] font-black text-lg mb-2">Panel de administración</h4>
-                  <p className="text-[#347048]/70 text-sm font-medium">Gestioná canchas, precios y base de datos de usuarios desde cualquier dispositivo.</p>
-                </div>
-              </RevealOnScroll>
+      {/* ── OWNER (PARA COMPLEJOS) ── */}
+      <section id="para-complejos" ref={ownerSectionRef} className="p-home-owner" style={{ scrollMarginTop: 88 }}>
+        <div className="p-home-owner-media" aria-hidden="true">
+          <div className="p-home-owner-media-img" />
+        </div>
+        <div className="p-home-owner-inner">
+          <div className="p-home-sr-left">
+            <span className="p-home-eyebrow">Para complejos</span>
+            <h2 className="p-home-sec-h">Llená tu agenda con<br /><i>reservas online.</i></h2>
+            <p className="p-home-sec-sub">Sumate a Pique y centralizá agenda, cobros y comunicación con jugadores en un solo lugar.</p>
+            <div className="p-home-owner-ctas">
+              <button className="p-home-btn p-home-btn-primary" onClick={toggleContactDrawer}>Quiero sumar mi complejo →</button>
             </div>
           </div>
+          <div className="p-home-owner-side p-home-sr-right">
+            <div className="p-home-owner-side-h">Qué resolvemos</div>
+            <div>
+              {[
+                { b: 'Agenda', t: 'Horarios y canchas actualizados, sin cruces ni planillas.' },
+                { b: 'Cobros', t: 'Pagos más claros y mejor seguimiento de cada reserva.' },
+                { b: 'Clientes', t: 'Confirmaciones automáticas y menos idas y vueltas por WhatsApp.' },
+              ].map(p => (
+                <div key={p.b} className="p-home-owner-perk"><b>{p.b}</b>{p.t}</div>
+              ))}
+            </div>
           </div>
-        </RevealOnScroll>
+        </div>
       </section>
 
-      {/* SECCIÓN B2B (DUEÑOS) */}
-      <section className="bg-[#926699] relative overflow-hidden">
-        <div className="container mx-auto px-4 py-24 max-w-6xl relative z-10">
-          <div className="grid md:grid-cols-2 gap-16 items-center">
-            
-            <RevealOnScroll delay={0}>
-              <div>
-                <span className="text-[#B9CF32] font-black tracking-wider uppercase text-xs mb-3 block">
-                  Software para complejos
-                </span>
-                <h2 className="text-4xl md:text-5xl font-black mb-6 leading-tight text-[#EBE1D8]">
-                  Tu club, <br/>
-                  <span className="opacity-70">a otro nivel.</span>
-                </h2>
-                <p className="text-[#EBE1D8]/80 text-lg mb-8 font-medium leading-relaxed">
-                  Olvidate de los mensajes de WhatsApp y las planillas de excel. Automatizá reservas, cobros y estadísticas hoy mismo.
-                </p>
-                
-                <ul className="space-y-4 mb-10">
-                  <FeatureItem icon={<Calendar className="text-[#926699]" />} text="Reservas en línea 24/7." />
-                  <FeatureItem icon={<ShieldCheck className="text-[#926699]" />} text="Adiós a los deudores." />
-                </ul>
-
-                <button
-                  type="button"
-                  onClick={() => setShowContact(true)}
-                  className="inline-flex items-center gap-2 bg-[#B9CF32] hover:bg-[#d6ed42] text-[#347048] px-8 py-4 rounded-2xl font-black transition-all shadow-xl shadow-[#347048]/20 hover:-translate-y-1"
+      {/* ── FAQ ── */}
+      <section id="faq" className="p-home-faq-band" onClick={() => setOpenFaqIndex(null)} style={{ scrollMarginTop: 88 }}>
+        <div className="p-home-sec-w">
+          <div className="p-home-faq-grid">
+            <div className="p-home-sr-up">
+              <span className="p-home-eyebrow">FAQ</span>
+              <h2 className="p-home-sec-h">Preguntas<br /><i>frecuentes.</i></h2>
+              <p className="p-home-sec-sub">Lo básico antes de reservar o sumar tu complejo.</p>
+              <button className="p-home-btn p-home-btn-ghost" onClick={toggleContactDrawer} style={{ marginTop: 4 }}>Escribinos →</button>
+            </div>
+            <div className="p-home-faq-list">
+              {[
+                { q: '¿Tengo que pagar para usar Pique?', a: 'No. Usar Pique es gratis para jugadores. Solo pagás el valor de la reserva definido por el complejo.' },
+                { q: '¿Puedo cancelar una reserva si no puedo ir?', a: 'Sí. Cada complejo define su política y la ves antes de confirmar.' },
+                { q: '¿Qué pasa si llueve el día de mi partido?', a: 'Si el club suspende por lluvia, se gestiona según la política del complejo.' },
+                { q: '¿Con cuánta anticipación puedo reservar?', a: 'Podés reservar con anticipación según la disponibilidad que publique cada club.' },
+                { q: '¿Puedo gestionar más de una cancha o sede?', a: 'Sí. Pique permite manejar múltiples canchas, horarios y precios desde un mismo panel.' },
+              ].map((item, idx) => (
+                <div
+                  key={idx}
+                  ref={el => { faqRefs.current[idx] = el; }}
+                  className={`p-home-faq-item${openFaqIndex === idx ? ' p-home-open' : ''}`}
+                  onClick={e => { e.stopPropagation(); setOpenFaqIndex(openFaqIndex === idx ? null : idx); }}
                 >
-                  Probar Demo Gratis <ArrowRight size={20} />
-                </button>
-              </div>
-            </RevealOnScroll>
-
-            {/* MINI DASHBOARD VENDEDOR */}
-            <div className="hidden md:block relative">
-              <RevealOnScroll delay={300}>
-                <div className="bg-[#EBE1D8] rounded-3xl p-8 shadow-2xl rotate-3 hover:rotate-0 transition-transform duration-500 border-4 border-[#EBE1D8]/20 select-none">
-                    <div className="flex justify-between items-start mb-8 border-b border-[#347048]/10 pb-6">
-                        <div>
-                            <p className="text-[#347048]/60 text-xs font-bold uppercase tracking-wider mb-1">Ingresos de Febrero</p>
-                            <h3 className="text-4xl font-black text-[#347048] tracking-tight">$ 1.250.000</h3>
-                        </div>
-                        <div className="bg-[#B9CF32] px-3 py-1 rounded-full flex items-center gap-1 shadow-sm">
-                            <TrendingUp size={16} className="text-[#347048]" />
-                            <span className="text-[#347048] font-bold text-xs">+24%</span>
-                        </div>
-                    </div>
-                    <div className="flex items-end justify-between gap-2 h-32 mb-8 px-2">
-                        <div className="w-full bg-[#347048]/10 rounded-t-lg h-[40%] hover:bg-[#B9CF32] transition-colors"></div>
-                        <div className="w-full bg-[#347048]/10 rounded-t-lg h-[60%] hover:bg-[#B9CF32] transition-colors"></div>
-                        <div className="w-full bg-[#347048]/10 rounded-t-lg h-[45%] hover:bg-[#B9CF32] transition-colors"></div>
-                        <div className="w-full bg-[#347048]/10 rounded-t-lg h-[70%] hover:bg-[#B9CF32] transition-colors"></div>
-                        <div className="w-full bg-[#347048]/10 rounded-t-lg h-[55%] hover:bg-[#B9CF32] transition-colors"></div>
-                        <div className="w-full bg-[#347048]/20 rounded-t-lg h-[80%] hover:bg-[#B9CF32] transition-colors"></div>
-                        <div className="w-full bg-gradient-to-t from-[#347048] to-[#B9CF32] rounded-t-lg h-[95%]"></div>
-                    </div>
+                  <div className="p-home-faq-q">
+                    {item.q}
+                    <svg className="p-home-faq-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 5v14M5 12h14" /></svg>
+                  </div>
+                  <div className="p-home-faq-a">{item.a}</div>
                 </div>
-              </RevealOnScroll>
+              ))}
             </div>
-
           </div>
         </div>
       </section>
 
-      {/* SECCIÓN: PREGUNTAS FRECUENTES (FAQ) */}
-      <section onClick={() => setOpenFaqIndex(null)} className="py-20 px-4 max-w-3xl mx-auto relative z-10 pb-32 overflow-hidden">
-        <RevealOnScroll delay={0}>
-          <div className="text-center mb-12">
-            <span className="text-[#B9CF32] font-black tracking-wider uppercase text-sm mb-3 block">Dudas Comunes</span>
-            <h2 className="text-3xl md:text-4xl font-black text-[#D4C5B0] italic tracking-tighter">PREGUNTAS FRECUENTES</h2>
+      {/* ── CLOSING CTA ── */}
+      <section ref={closingSectionRef} className="p-home-closing">
+        <div className="p-home-closing-media" aria-hidden="true">
+          <div className="p-home-closing-media-img" />
+        </div>
+        <div className="p-home-closing-inner">
+          <div className="p-home-big-closing p-home-sr-up">
+            ¿Tenés un club?<br /><i>Sumate a Pique.</i>
           </div>
-        </RevealOnScroll>
-        <div className="space-y-4">
-           {[
-             { q: "¿Con cuánto tiempo de anticipación puedo reservar?", a: "Podés reservar tu cancha hasta con 30 días de anticipación utilizando nuestro calendario interactivo. Te recomendamos asegurar tu lugar temprano, ¡especialmente en horarios pico (18:00 a 22:00)!" },
-             { q: "¿Puedo cancelar o reprogramar mi turno?", a: "Sí, podés cancelar tu turno desde tu panel de usuario o comunicándote con el club. El sistema devuelve automáticamente tu dinero en la caja si la cancelación se realiza dentro del margen de tiempo permitido por cada club." },
-             { q: "¿Cómo recibo los avisos de nuevas reservas?", a: "El sistema envía una notificación automática e instantánea a través de WhatsApp tanto al dueño del complejo como al cliente, asegurando que el turno quede confirmado sin esfuerzo manual." },
-             { q: "¿Puedo gestionar más de una cancha y diferentes deportes?", a: "Sí, la plataforma es totalmente flexible. Podés configurar múltiples canchas, definir horarios diferenciados por día y establecer precios específicos para cada actividad deportiva." },
-             { q: "¿El sistema me ayuda a controlar las ventas del buffet?", a: "¡Exacto! Contamos con un módulo de Caja y Stock integrado donde podés registrar cada venta de productos, gestionar tu inventario en tiempo real y tener un cierre de caja diario preciso." },
-             { q: "¿Es necesario instalar algún programa en mi computadora?", a: "No, nuestra solución es 100% basada en la nube. Podés acceder a tu panel de administración desde cualquier dispositivo (celular, tablet o PC) con conexión a internet, en cualquier momento y lugar." }
-           ].map((item, idx) => (
-             <RevealOnScroll delay={100 * (idx + 1)} key={idx}>
-               <div ref={(el) => { faqRefs.current[idx] = el; }}>
-                 <FAQItem
-                   question={item.q}
-                   answer={item.a}
-                   isOpen={openFaqIndex === idx}
-                   onToggle={() => setOpenFaqIndex(openFaqIndex === idx ? null : idx)}
-                 />
-               </div>
-             </RevealOnScroll>
-           ))}
+          <div className="p-home-closing-ctas p-home-sr p-home-sr-d2">
+            <button className="p-home-btn p-home-btn-primary" onClick={toggleContactDrawer}>
+              Quiero sumar mi club →
+            </button>
+            <button className="p-home-btn p-home-btn-ghost" onClick={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setTimeout(() => document.getElementById('cityInput')?.focus(), 600); }}>
+              Buscar cancha
+            </button>
+          </div>
         </div>
       </section>
 
-      {/* FOOTER */}
-      <footer className="border-t border-[#D4C5B0]/10 py-10 bg-[#2a5c3b] text-center text-[#D4C5B0]/50 text-sm">
-        <p className="font-medium">&copy; {new Date().getFullYear()} TuCancha App. Todos los derechos reservados.</p>
+      {/* ── FOOTER ── */}
+      <footer className="p-home-foot">
+        <div className="p-home-foot-inner">
+          <div className="p-home-foot-cols">
+            <div className="p-home-foot-brand">
+              <PiqueLogo variant={isLight ? 'horizontal' : 'horizontalDark'} style={{ width: 96, height: 'auto', display: 'block' }} />
+              <p>Reservas deportivas y gestión de complejos, en un solo lugar.</p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {[
+                  { href: 'https://wa.me/5493513436163', label: 'WhatsApp', icon: <Phone size={15} /> },
+                  { href: 'mailto:soporte.pique@gmail.com', label: 'Email', icon: <Mail size={15} /> },
+                  { href: 'https://www.instagram.com/pique.app_/', label: 'Instagram', icon: <Instagram size={15} /> },
+                ].map(s => (
+                  <a key={s.label} href={s.href} target="_blank" rel="noopener" aria-label={s.label}
+                    style={{ width: 34, height: 34, borderRadius: 10, border: '1px solid var(--border-subtle)', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', transition: 'color .15s, border-color .15s' }}
+                    onMouseEnter={e => { e.currentTarget.style.color = 'var(--brand)'; e.currentTarget.style.borderColor = 'var(--accent-border)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}>
+                    {s.icon}
+                  </a>
+                ))}
+              </div>
+            </div>
+            <div className="p-home-foot-col">
+              <h6>Jugadores</h6>
+              <ul>
+                <li><Link href="/bookings">Mis reservas</Link></li>
+                <li><Link href="/login">Crear cuenta</Link></li>
+              </ul>
+            </div>
+            <div className="p-home-foot-col">
+              <h6>Complejos</h6>
+              <ul>
+                <li><button onClick={toggleContactDrawer}>Sumá tu complejo</button></li>
+                <li><button onClick={toggleContactDrawer}>Contactar ventas</button></li>
+              </ul>
+            </div>
+            <div className="p-home-foot-col">
+              <h6>Soporte</h6>
+              <ul>
+                <li><a href="mailto:soporte.pique@gmail.com">soporte.pique@gmail.com</a></li>
+                <li><a href="https://wa.me/5493513436163" target="_blank" rel="noopener">WhatsApp</a></li>
+                <li><Link href="/legal/privacy">Privacidad</Link></li>
+                <li><Link href="/legal/terms">Términos</Link></li>
+              </ul>
+            </div>
+          </div>
+          <div className="p-home-foot-base">
+            <span>© {new Date().getFullYear()} Pique · Hecho en Argentina · Con pasión por el juego</span>
+          </div>
+        </div>
       </footer>
-      
-      {/* SIDEBAR DE CONTACTO (OFF-CANVAS) */}
-      <div 
-  className={`fixed inset-0 bg-black/60 z-[60] transition-opacity duration-300 ${showContact ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-        onClick={() => setShowContact(false)}
-      />
 
-      <div ref={sidebarRef} className={`fixed top-0 right-0 h-full w-full max-w-sm bg-[#EBE1D8] z-[70] shadow-2xl transform transition-transform duration-300 ease-out ${showContact ? 'translate-x-0' : 'translate-x-full'}`}>
-            <div className="p-6 flex justify-between items-center border-b border-[#347048]/10">
-                <h2 className="text-2xl font-black text-[#347048]">Contacto</h2>
-                <button 
-                  onClick={() => setShowContact(false)}
-                  className="bg-red-50 p-2.5 rounded-full shadow-sm hover:scale-110 transition-transform text-red-500 hover:text-white hover:bg-red-500 border border-red-100"
-                  title="Cerrar ventana"
-                >
-                  <X size={20} strokeWidth={3} />
-                </button>
-            </div>
-            <div className="p-8 flex flex-col gap-6">
-                <p className="text-[#347048]/80 font-medium leading-relaxed">
-                    ¿Tenés dudas sobre el sistema o querés dar de alta tu club? Escribinos, respondemos al toque.
-                </p>
-        <button type="button" onClick={(e) => openContactMenu(e, 'whatsapp')} className="flex items-center gap-4 px-4 py-3 bg-white rounded-2xl shadow-sm border border-[#347048]/5 hover:border-[#B9CF32] hover:shadow-md transition-all group">
-              <div className="bg-[#B9CF32] h-12 w-12 rounded-full flex items-center justify-center text-[#347048] group-hover:scale-110 transition-transform shrink-0">
-                        <Phone size={20} fill="currentColor" className="text-[#347048]" />
-                    </div>
-                    <div>
-                        <p className="text-[#347048]/50 text-xs font-bold uppercase tracking-wider">WhatsApp</p>
-            <p className="text-[#347048] font-bold text-lg">+54 351 343 6163</p>
-                    </div>
-              </button>
-                <button type="button" onClick={(e) => openContactMenu(e, 'email')} className="w-full flex items-center gap-4 px-4 py-3 bg-white rounded-2xl shadow-sm border border-[#347048]/5 hover:border-[#B9CF32] hover:shadow-md transition-all group">
-                      <div className="bg-[#347048] h-12 w-12 rounded-full flex items-center justify-center text-[#EBE1D8] group-hover:scale-110 transition-transform shrink-0">
-                        <Mail size={20} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[#347048]/50 text-xs font-bold uppercase tracking-wider">Email</p>
-                        <p className="text-[#347048] font-bold text-lg truncate">soporte.tucancha@gmail.com</p>
-                      </div>
-                    </button>
-                <div className="mt-8 pt-8 border-t border-[#347048]/10">
-                    <p className="text-[#347048]/60 text-sm font-bold mb-4 text-center">Seguinos en redes</p>
-                    <div className="flex justify-center gap-4">
-                      <button type="button" onClick={(e) => openContactMenu(e, 'instagram')} className="flex items-center gap-4 px-4 py-3 bg-[#347048] text-[#EBE1D8] rounded-full hover:bg-[#B9CF32] hover:text-[#347048] transition-colors">
-                        <Instagram size={20} className="shrink-0" />
-                        <span className="hidden sm:inline text-[#EBE1D8] font-bold">@tucancha.app_</span>
-                      </button>
-                    </div>
-                </div>
-            </div>
-        {contactMenu && (
-          <div
-            ref={menuRef}
-            role="dialog"
-            aria-label="Acciones de contacto"
-            style={{ position: 'absolute', top: contactMenu.top, left: contactMenu.left }}
-            className="z-[90] bg-white rounded-lg shadow-lg border p-2 w-52"
-          >
-            <button
-              onClick={() => handleOpenHref(contactMenu.href)}
-              className="w-full text-left px-3 py-3 hover:bg-[#f3f4f6] rounded text-sm text-[#111827] font-medium"
-            >Abrir</button>
-            <button
-              onClick={() => handleCopy(contactMenu.copyText)}
-              className="w-full text-left px-3 py-3 hover:bg-[#f3f4f6] rounded text-sm text-[#111827] font-medium"
-            >{copied ? 'Copiado!' : 'Copiar'}</button>
+      {/* ── CONTACT SIDEBAR ── */}
+      <div className="p-home-contact-overlay" style={{ opacity: showContact ? 1 : 0, pointerEvents: showContact ? 'auto' : 'none' }} onClick={() => setShowContact(false)} />
+      <div
+        ref={sidebarRef}
+        className={`p-home-contact-panel${showContact ? ' p-home-open' : ''}`}
+        style={{
+          visibility: showContact ? 'visible' : 'hidden',
+          pointerEvents: showContact ? 'auto' : 'none',
+        }}
+        aria-hidden={!showContact}
+      >
+        <div style={{ padding: '18px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${isLight ? 'var(--border)' : 'var(--border-subtle)'}` }}>
+          <h2 style={{ fontSize: 18, fontWeight: 800, color: 'var(--brand)', margin: 0 }}>Contacto</h2>
+          <button className="p-home-close-btn" onClick={() => setShowContact(false)} aria-label="Cerrar">
+            <X size={15} />
+          </button>
+        </div>
+        <div style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>¿Tenés dudas o querés dar de alta tu club? Escribinos.</p>
+          {([
+            { type: 'whatsapp' as const, label: 'WhatsApp', value: '+54 351 343 6163', icon: <Phone size={16} /> },
+            { type: 'email' as const, label: 'Email', value: 'soporte.pique@gmail.com', icon: <Mail size={16} /> },
+          ]).map(c => (
+            <button key={c.type} type="button" onClick={e => openContactMenu(e, c.type)}
+              style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 14px', background: isLight ? 'var(--surface-2)' : 'var(--border-subtle)', border: `1px solid ${isLight ? 'var(--border)' : 'var(--border-subtle)'}`, borderRadius: 12, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', transition: 'border-color .15s', width: '100%' }}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--accent-border)')}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = isLight ? 'var(--border)' : 'var(--border-subtle)')}>
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 10,
+                  background: 'var(--positive-bg)',
+                  border: '1px solid var(--accent-border-subtle)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--accent-fg)',
+                  flexShrink: 0
+                }}
+              >
+                {c.icon}
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.04em', color: isLight ? 'var(--text-muted)' : 'var(--text-muted)' }}>{c.label}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: isLight ? 'var(--text-primary)' : 'var(--text-primary)' }}>{c.value}</div>
+              </div>
+            </button>
+          ))}
+          <div style={{ marginTop: 8, paddingTop: 14, borderTop: `1px solid ${isLight ? 'var(--border)' : 'var(--border-subtle)'}` }}>
+            <button type="button" onClick={e => openContactMenu(e, 'instagram')} style={{ display: 'inline-flex', alignItems: 'center', gap: 10, padding: '9px 14px', background: isLight ? 'var(--surface-2)' : 'var(--border-subtle)', border: `1px solid ${isLight ? 'var(--border)' : 'var(--border-subtle)'}`, borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit', color: isLight ? 'var(--text-secondary)' : 'var(--text-secondary)', fontSize: 13, fontWeight: 600 }}>
+              <Instagram size={15} /> @pique.app_
+            </button>
           </div>
-        )}
-        <AppModal
-          show={showLogoutModal}
-          title="Cerrar sesión"
-          message="¿Seguro que querés cerrar sesión?"
-          isWarning
-          confirmText="Salir"
-          cancelText="Cancelar"
-          onConfirm={() => {
-            setShowLogoutModal(false);
-            logout();
-            setUser(null);
-          }}
-          onClose={() => setShowLogoutModal(false)}
-          onCancel={() => setShowLogoutModal(false)}
-        />
+          {contactMenu && (
+            <div ref={menuRef} role="dialog" style={{ position: 'absolute', top: contactMenu.top, left: contactMenu.left, zIndex: 90, background: isLight ? 'var(--surface-1)' : 'var(--surface-3)', border: `1px solid ${isLight ? 'var(--border)' : 'var(--border-subtle)'}`, borderRadius: 12, padding: 6, minWidth: 150, boxShadow: isLight ? '0 8px 24px var(--border)' : 'var(--shadow-md)' }}>
+              <button onClick={() => handleOpenHref(contactMenu.href)} style={{ display: 'block', width: '100%', padding: '9px 13px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: isLight ? 'var(--text-primary)' : 'var(--text-primary)', fontWeight: 500, textAlign: 'left', borderRadius: 8 }}
+                onMouseEnter={e => (e.currentTarget.style.background = isLight ? 'var(--surface-2)' : 'var(--border-subtle)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>Abrir</button>
+              <button onClick={() => handleCopy(contactMenu.copyText)} style={{ display: 'block', width: '100%', padding: '9px 13px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: isLight ? 'var(--text-primary)' : 'var(--text-primary)', fontWeight: 500, textAlign: 'left', borderRadius: 8 }}
+                onMouseEnter={e => (e.currentTarget.style.background = isLight ? 'var(--surface-2)' : 'var(--border-subtle)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>Copiar</button>
+            </div>
+          )}
+        </div>
       </div>
-      </div>
+
+
+      </div>{/* end p-home-root */}
     </>
   );
 }
-
-const FeatureItem = ({ icon, text }: { icon: React.ReactNode; text: string }) => (
-  <li className="flex items-center gap-3">
-    <div className="bg-[#EBE1D8] h-8 w-8 rounded-lg flex items-center justify-center shadow-sm shrink-0 opacity-90">
-        {icon}
-    </div>
-    <span className="text-[#EBE1D8]/90 font-bold text-lg tracking-tight">{text}</span>
-  </li>
-);
-
-// FAQ item now controlled by parent via props
-const FAQItem = ({
-  question,
-  answer,
-  isOpen,
-  onToggle
-}: {
-  question: string;
-  answer: string;
-  isOpen: boolean;
-  onToggle: () => void;
-}) => {
-  return (
-    <div className="bg-[#D4C5B0]/5 border border-[#D4C5B0]/10 rounded-2xl overflow-hidden transition-all duration-300 hover:bg-[#D4C5B0]/10">
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggle();
-        }}
-        className="w-full px-6 py-5 text-left flex justify-between items-center focus:outline-none"
-      >
-        <span className="font-bold text-[#EBE1D8] pr-4">{question}</span>
-        <ChevronDown className={`text-[#B9CF32] shrink-0 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
-      </button>
-      <div className={`px-6 overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-40 pb-5 opacity-100' : 'max-h-0 opacity-0'}`}>
-        <p className="text-[#EBE1D8]/70 text-sm leading-relaxed">{answer}</p>
-      </div>
-    </div>
-  );
-};
-

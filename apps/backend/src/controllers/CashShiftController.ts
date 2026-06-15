@@ -3,13 +3,14 @@ import { z } from 'zod';
 import { CashShiftService } from '../services/CashShiftService';
 import { mapCashShiftDto } from '../dto/financialDto';
 import { sendAuthError } from '../utils/authError';
+import { sendAppError, badRequest, ErrorCodes } from '../errors';
 
 export class CashShiftController {
   private readonly service = new CashShiftService();
 
   private resolveClubId(req: Request) {
     const clubId = Number((req as Request & { clubId?: number }).clubId);
-    if (!Number.isFinite(clubId) || clubId <= 0) throw new Error('Club inválido');
+    if (!Number.isFinite(clubId) || clubId <= 0) throw badRequest('Club inválido.', ErrorCodes.INVALID_INPUT);
     return clubId;
   }
 
@@ -34,8 +35,7 @@ export class CashShiftController {
       const shift = await this.service.open(clubId, openedByUserId, parsed.data);
       return res.status(201).json(mapCashShiftDto(shift));
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'No se pudo abrir turno de caja';
-      return res.status(400).json({ error: message });
+      return sendAppError(res, error, 'No se pudo abrir el turno de caja.');
     }
   };
 
@@ -51,8 +51,7 @@ export class CashShiftController {
       const shift = await this.service.close(clubId, params.data.id, body.data.countedCash, actorUserId);
       return res.json(mapCashShiftDto(shift));
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'No se pudo cerrar turno de caja';
-      return res.status(400).json({ error: message });
+      return sendAppError(res, error, 'No se pudo cerrar el turno de caja.');
     }
   };
 
@@ -69,8 +68,7 @@ export class CashShiftController {
       const shift = await this.service.close(clubId, current.id, body.data.countedCash, actorUserId);
       return res.json(mapCashShiftDto(shift));
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'No se pudo cerrar turno de caja';
-      return res.status(400).json({ error: message });
+      return sendAppError(res, error, 'No se pudo cerrar el turno de caja.');
     }
   };
 
@@ -80,8 +78,7 @@ export class CashShiftController {
       const shift = await this.service.current(clubId);
       return res.json(shift ? mapCashShiftDto(shift) : null);
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'No se pudo obtener turno actual';
-      return res.status(400).json({ error: message });
+      return sendAppError(res, error, 'No se pudo obtener el turno actual.');
     }
   };
 
@@ -100,8 +97,7 @@ export class CashShiftController {
         difference: report.difference
       });
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'No se pudo obtener reporte de turno';
-      return res.status(400).json({ error: message });
+      return sendAppError(res, error, 'No se pudo obtener el reporte del turno.');
     }
   };
 }

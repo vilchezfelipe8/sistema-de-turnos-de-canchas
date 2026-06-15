@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Package, Plus, Search } from 'lucide-react';
+import { ADMIN_Z_INDEX } from '../../utils/adminZIndex';
 
 export type ClubProductSearchItem = {
   id: number;
@@ -83,7 +84,7 @@ export default function ClubProductSearch({
   return (
     <div ref={wrapperRef} className={`relative w-full ${className}`}>
       <div className="relative">
-        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#347048]/40">
+        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-ink-900/40">
           <Search size={18} strokeWidth={3} />
         </div>
         <input
@@ -123,14 +124,17 @@ export default function ClubProductSearch({
             }
           }}
           placeholder={placeholder}
-          className="w-full h-12 bg-white border-2 border-[#347048]/10 focus:border-[#B9CF32] rounded-xl pl-12 pr-4 text-sm font-bold text-[#347048] outline-none transition-all shadow-sm disabled:opacity-60"
+          className="w-full h-12 bg-p-surface border-2 border-lima-900/10 focus:border-lima-300 rounded-xl pl-12 pr-4 text-sm font-bold text-ink-900 outline-none transition-all shadow-sm disabled:opacity-60"
           autoComplete="off"
           spellCheck={false}
         />
       </div>
 
       {open && !disabled && (
-        <div className="absolute z-[120] w-full mt-2 bg-white border-2 border-[#347048]/10 rounded-2xl shadow-2xl max-h-64 overflow-y-auto overflow-hidden">
+        <div
+          className="absolute w-full mt-2 bg-p-surface border-2 border-lima-900/10 rounded-2xl shadow-2xl max-h-64 overflow-y-auto overflow-hidden"
+          style={{ zIndex: ADMIN_Z_INDEX.dropdown }}
+        >
           {results.length > 0 ? (
             <ul className="py-2">
               {results.map((product, idx) => {
@@ -141,21 +145,21 @@ export default function ClubProductSearch({
                     onMouseEnter={() => setActiveIndex(idx)}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => commitSelect(product)}
-                    className={`px-4 py-3 flex items-center justify-between cursor-pointer transition-colors border-b border-[#347048]/5 last:border-0 ${
-                      isActive ? 'bg-[#B9CF32]/20' : 'hover:bg-[#B9CF32]/15'
+                    className={`px-4 py-3 flex items-center justify-between cursor-pointer transition-colors border-b border-lima-900/5 last:border-0 ${
+                      isActive ? 'bg-lima-300/20' : 'hover:bg-lima-300/15'
                     }`}
                   >
                     <div className="min-w-0">
-                      <p className="font-black text-sm text-[#347048] truncate">{product.name}</p>
-                      <p className="text-[10px] font-bold text-[#347048]/50 uppercase tracking-widest">
+                      <p className="font-black text-sm text-ink-900 truncate">{product.name}</p>
+                      <p className="text-[10px] font-bold text-ink-900/50 uppercase tracking-widest">
                         ${Number(product.price || 0).toLocaleString()}
                       </p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
-                      <span className="text-[10px] font-black uppercase text-[#347048]/65">
+                      <span className="text-[10px] font-black uppercase text-ink-900/65">
                         Stock {Number(product?.stock || 0)}
                       </span>
-                      <div className="bg-[#347048] text-[#B9CF32] p-1.5 rounded-lg">
+                      <div className="bg-lima-700 text-lima-300 p-1.5 rounded-lg">
                         <Plus size={14} strokeWidth={4} />
                       </div>
                     </div>
@@ -165,8 +169,8 @@ export default function ClubProductSearch({
             </ul>
           ) : (
             <div className="p-8 text-center">
-              <Package size={32} className="mx-auto text-[#347048]/20 mb-2" />
-              <p className="text-xs font-bold text-[#347048]/40 uppercase tracking-widest">Sin coincidencias</p>
+              <Package size={32} className="mx-auto text-ink-900/20 mb-2" />
+              <p className="text-xs font-bold text-ink-900/40 uppercase tracking-widest">Sin coincidencias</p>
             </div>
           )}
         </div>

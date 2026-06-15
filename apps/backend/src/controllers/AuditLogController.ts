@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { sendAppError } from '../errors';
 import { z } from 'zod';
 import { prisma } from '../prisma';
 
@@ -41,7 +42,7 @@ export class AuditLogController {
 
       return res.json(logs);
     } catch (error: any) {
-      return res.status(500).json({ error: error.message || 'Error al listar auditoría' });
+      return sendAppError(res, error, 'Error al listar auditoría');
     }
   };
 }

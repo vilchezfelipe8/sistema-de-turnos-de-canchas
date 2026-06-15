@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "mcp__plugin_subframe_subframe__list_projects",
+      "mcp__plugin_subframe_subframe__generate_auth_token"
+    ]
+  }
+}

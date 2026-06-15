@@ -9,6 +9,7 @@ import {
 } from '../services/AuthService';
 import { getActiveClubId } from '../services/AuthService';
 import { normalizeSessionUser, persistSessionUser, type MembershipLite } from '../utils/session';
+import { buildCsrfHeaders } from '../utils/csrf';
 
 export interface AuthUser {
   id: number;
@@ -125,7 +126,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   const tryRefreshSession = useCallback(async () => {
-    const headers = new Headers();
+    const headers = await buildCsrfHeaders();
     const activeClubId = getActiveClubId();
     if (activeClubId) {
       headers.set('x-active-club-id', String(activeClubId));

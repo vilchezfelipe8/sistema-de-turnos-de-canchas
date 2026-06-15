@@ -1,69 +1,306 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { getCourts, suspendCourt, reactivateCourt, updateCourtPrice } from '../../services/CourtService';
+import { Activity, Ban, Power, Save } from 'lucide-react';
+import { getCourts, reactivateCourt, suspendCourt, updateCourtPrice } from '../../services/CourtService';
 import { isAuthSessionInvalidatedError } from '../../utils/apiClient';
-import AppModal from '../AppModal';
-import { Plus, LayoutGrid, Activity, Power, Ban } from 'lucide-react';
+import { extractErrorMessage } from '../../utils/uiError';
+import { showAdminToast } from '../../utils/adminToast';
+import AdminAppModal from './ui/AdminAppModal';
+import { MetricCard } from './ui';
+import SettingsSection from '../../modules/ajustes/components/SettingsSection';
+import SettingsInfoNote from '../../modules/ajustes/components/SettingsInfoNote';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type Court = {
+  id: number;
+  name: string;
+  price?: number | null;
+  isUnderMaintenance?: boolean;
+  sport?: string;
+  surface?: string;
+  activityType?: {
+    name?: string;
+    defaultDurationMinutes?: number;
+  } | null;
+};
+
+type ModalState = {
+  show: boolean;
+  title?: string;
+  message?: ReactNode;
+  cancelText?: string;
+  confirmText?: string;
+  isWarning?: boolean;
+  onConfirm?: () => Promise<void> | void;
+  onCancel?: () => Promise<void> | void;
+  closeOnBackdrop?: boolean;
+  closeOnEscape?: boolean;
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const getCourtTypeLabel = (court: Court): string => {
+  const activityName = String(court?.activityType?.name || '').trim();
+  if (activityName) return activityName;
+  return String(court?.sport || court?.surface || '-');
+};
+
+const getPriceReferenceMinutes = (court: Court): number => {
+  const activityName = String(court?.activityType?.name || court?.sport || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toUpperCase()
+    .trim();
+
+  if (activityName === 'FUTBOL' || activityName === 'TENIS') return 60;
+
+  const rawDefault = Number(court?.activityType?.defaultDurationMinutes);
+  if (Number.isFinite(rawDefault) && rawDefault > 0) return rawDefault;
+
+  return 90;
+};
+
+// ---------------------------------------------------------------------------
+// CourtCard sub-component
+// ---------------------------------------------------------------------------
+
+type CourtCardProps = {
+  court: Court;
+  priceEdit: string;
+  onPriceChange: (value: string) => void;
+  onPriceSave: () => void;
+  onSuspend: () => void;
+  onReactivate: () => void;
+};
+
+function CourtCard({
+  court,
+  priceEdit,
+  onPriceChange,
+  onPriceSave,
+  onSuspend,
+  onReactivate,
+}: CourtCardProps) {
+  const isMaintenance = Boolean(court.isUnderMaintenance);
+
+  return (
+    <div className="relative overflow-hidden rounded-xl border border-p-border bg-p-surface">
+      {/* Status indicator stripe */}
+      <div
+        className={`absolute inset-y-0 left-0 w-[3px] ${
+          isMaintenance ? 'bg-p-error' : 'bg-p-positive'
+        }`}
+      />
+
+      <div className="p-5 pl-6">
+        {/* Header */}
+        <div className="mb-3 flex items-start justify-between gap-2">
+          <h3 className="text-[15px] font-semibold leading-snug text-p-text">
+            {court.name}
+          </h3>
+          {isMaintenance ? (
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-p-error bg-p-error-bg px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-p-error">
+              <span className="h-1.5 w-1.5 rounded-full bg-p-error" />
+              Mantenimiento
+            </span>
+          ) : (
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-p-positive bg-p-positive-bg px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-p-positive">
+              <span className="h-1.5 w-1.5 rounded-full bg-p-positive" />
+              Operativo
+            </span>
+          )}
+        </div>
+
+        {/* Activity type badge */}
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-p-border bg-p-surface-2 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-p-text-muted">
+          <Activity size={11} strokeWidth={2.2} />
+          {getCourtTypeLabel(court)}
+        </span>
+
+        {/* Price editor */}
+        <div className="mt-4 rounded-xl border border-p-border bg-p-surface-2 p-3">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-p-text-muted">
+            Precio base · {getPriceReferenceMinutes(court)} min
+          </p>
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[12px] font-bold text-p-text-muted">
+                $
+              </span>
+              <input
+                type="number"
+                min={0}
+                className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-7 pr-3 text-[13px] font-semibold text-p-text outline-none transition focus:border-p-accent"
+                value={priceEdit}
+                onChange={(e) => onPriceChange(e.target.value)}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={onPriceSave}
+              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg bg-ink-900 px-4 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-900"
+            >
+              <Save size={13} />
+              Guardar
+            </button>
+          </div>
+        </div>
+
+        {/* Action */}
+        <div className="mt-3 border-t border-p-border pt-3">
+          {isMaintenance ? (
+            <button
+              type="button"
+              onClick={onReactivate}
+              className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-p-positive px-3 text-[12px] font-semibold text-ink-50 transition hover:bg-p-positive"
+            >
+              <Power size={13} strokeWidth={2.4} />
+              Reactivar cancha
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onSuspend}
+              className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-p-error bg-p-surface px-3 text-[12px] font-semibold text-p-error transition hover:bg-p-error-bg"
+            >
+              <Ban size={13} strokeWidth={2.4} />
+              Poner en mantenimiento
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 
 export default function AdminTabCourts() {
-  const [courts, setCourts] = useState<any[]>([]);
+  const [courts, setCourts] = useState<Court[]>([]);
   const [priceEdits, setPriceEdits] = useState<Record<number, string>>({});
-  const [modalState, setModalState] = useState<{
-    show: boolean; title?: string; message?: ReactNode; cancelText?: string; confirmText?: string;
-    isWarning?: boolean; onConfirm?: () => Promise<void> | void; onCancel?: () => Promise<void> | void;
-    closeOnBackdrop?: boolean; closeOnEscape?: boolean;
-  }>({ show: false });
+  const [modalState, setModalState] = useState<ModalState>({ show: false });
+  const [modalConfirming, setModalConfirming] = useState(false);
 
-  const closeModal = () => setModalState((prev) => ({ ...prev, show: false, onConfirm: undefined, onCancel: undefined }));
-  const wrapAction = (action?: () => Promise<void> | void) => async () => { closeModal(); await action?.(); };
-  const showInfo = (message: ReactNode, title = 'Información') => setModalState({ show: true, title, message, cancelText: '', confirmText: 'OK' });
-  const showError = (message: ReactNode) => setModalState({ show: true, title: 'Error', message, isWarning: true, cancelText: '', confirmText: 'Aceptar' });
-  
-  const showConfirm = (options: {
-    title: string; message: ReactNode; confirmText?: string; cancelText?: string; isWarning?: boolean;
-    onConfirm: () => Promise<void> | void; onCancel?: () => Promise<void> | void; closeOnBackdrop?: boolean; closeOnEscape?: boolean;
-  }) => setModalState({
-    show: true, title: options.title, message: options.message,
-    confirmText: options.confirmText ?? 'Aceptar', cancelText: options.cancelText ?? 'Cancelar', isWarning: options.isWarning ?? true,
-    closeOnBackdrop: options.closeOnBackdrop, closeOnEscape: options.closeOnEscape,
-    onConfirm: wrapAction(options.onConfirm), onCancel: options.onCancel ? wrapAction(options.onCancel) : undefined
-  });
+  // ── Modal helpers ──
+  const closeModal = useCallback(() => {
+    if (modalConfirming) return;
+    setModalState((prev) => ({ ...prev, show: false, onConfirm: undefined, onCancel: undefined }));
+  }, [modalConfirming]);
 
+  const wrapAction = useCallback(
+    (action?: () => Promise<void> | void) => async () => {
+      if (modalConfirming) return;
+      setModalConfirming(true);
+      try {
+        await action?.();
+        setModalConfirming(false);
+        setModalState((prev) => ({ ...prev, show: false, onConfirm: undefined, onCancel: undefined }));
+      } catch (error) {
+        setModalConfirming(false);
+        setModalState({
+          show: true,
+          title: 'Error',
+          message: extractErrorMessage(error, 'No se pudo completar la acción.'),
+          isWarning: true,
+          cancelText: '',
+          confirmText: 'Aceptar',
+        });
+      }
+    },
+    [modalConfirming],
+  );
+
+  const showError = useCallback((message: ReactNode) => {
+    setModalState({
+      show: true,
+      title: 'Error',
+      message,
+      isWarning: true,
+      cancelText: '',
+      confirmText: 'Aceptar',
+    });
+  }, []);
+
+  const showConfirm = useCallback(
+    (options: {
+      title: string;
+      message: ReactNode;
+      confirmText?: string;
+      cancelText?: string;
+      isWarning?: boolean;
+      onConfirm: () => Promise<void> | void;
+      onCancel?: () => Promise<void> | void;
+    }) =>
+      setModalState({
+        show: true,
+        title: options.title,
+        message: options.message,
+        confirmText: options.confirmText ?? 'Aceptar',
+        cancelText: options.cancelText ?? 'Cancelar',
+        isWarning: options.isWarning ?? true,
+        onConfirm: wrapAction(options.onConfirm),
+        onCancel: options.onCancel ? wrapAction(options.onCancel) : undefined,
+      }),
+    [wrapAction],
+  );
+
+  // ── Data loading ──
   const loadCourts = useCallback(async () => {
     try {
       const data = await getCourts();
-      setCourts(data);
+      setCourts(data as Court[]);
       setPriceEdits((prev) => {
         const next = { ...prev };
-        data.forEach((court: any) => {
+        (data as Court[]).forEach((court) => {
           if (next[court.id] === undefined) {
-            next[court.id] = court.price !== undefined && court.price !== null ? String(court.price) : '';
+            next[court.id] =
+              court.price !== undefined && court.price !== null ? String(court.price) : '';
           }
         });
         return next;
       });
-    } catch (error: any) {
-      if (isAuthSessionInvalidatedError(error)) {
-        return;
-      }
-      showError('Error: ' + error.message);
+    } catch (error: unknown) {
+      if (isAuthSessionInvalidatedError(error)) return;
+      showError(extractErrorMessage(error, 'No se pudieron cargar las canchas.'));
     }
-  }, []);
-  useEffect(() => { loadCourts(); }, [loadCourts]);
+  }, [showError]);
 
-  // ✅ Alta de canchas deshabilitada por seguridad: se gestiona desde base de datos.
+  useEffect(() => {
+    void loadCourts();
+  }, [loadCourts]);
 
-  const handleSuspend = async (id: number) => {
+  // ── Actions ──
+  const handleSuspend = (id: number) => {
     showConfirm({
-      title: 'Suspender cancha', message: '¿Seguro que deseas poner esta cancha en mantenimiento?', confirmText: 'Suspender',
-      onConfirm: async () => { try { await suspendCourt(id); loadCourts(); } catch (error: any) { showError('Error: ' + error.message); } }
+      title: 'Suspender cancha',
+      message: '¿Seguro que querés poner esta cancha en mantenimiento?',
+      confirmText: 'Suspender',
+      onConfirm: async () => {
+        await suspendCourt(id);
+        await loadCourts();
+        showAdminToast('Cancha puesta en mantenimiento.');
+      },
     });
   };
 
-  const handleReactivate = async (id: number) => {
+  const handleReactivate = (id: number) => {
     showConfirm({
-      title: 'Reactivar cancha', message: '¿Deseas habilitar nuevamente esta cancha para reservas?', confirmText: 'Reactivar', isWarning: false,
-      onConfirm: async () => { try { await reactivateCourt(id); loadCourts(); } catch (error: any) { showError('Error: ' + error.message); } }
+      title: 'Reactivar cancha',
+      message: '¿Querés habilitar nuevamente esta cancha para reservas?',
+      confirmText: 'Reactivar',
+      isWarning: false,
+      onConfirm: async () => {
+        await reactivateCourt(id);
+        await loadCourts();
+        showAdminToast('Cancha reactivada.');
+      },
     });
   };
 
@@ -76,168 +313,106 @@ export default function AdminTabCourts() {
         return;
       }
       await updateCourtPrice(id, parsed);
-      showInfo('Precio actualizado', 'Listo');
-      loadCourts();
-    } catch (error: any) {
-      showError('Error: ' + error.message);
+      showAdminToast('Precio actualizado.');
+      await loadCourts();
+    } catch (error: unknown) {
+      showError(extractErrorMessage(error, 'No se pudo actualizar el precio.'));
     }
   };
 
-  const getCourtTypeLabel = (court: any) => {
-    const activityName = String(court?.activityType?.name || '').trim();
-    if (activityName) return activityName;
-    return String(court?.sport || court?.surface || '-');
-  };
+  // ── Derived metrics ──
+  const activeCourts = courts.filter((c) => !c.isUnderMaintenance).length;
+  const maintenanceCourts = courts.length - activeCourts;
+  const averagePrice = courts.length
+    ? courts.reduce((sum, c) => sum + Number(c.price || 0), 0) / courts.length
+    : 0;
 
-  const getPriceReferenceMinutes = (court: any) => {
-    const activityName = String(court?.activityType?.name || court?.sport || '')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toUpperCase()
-      .trim();
-
-    if (activityName === 'FUTBOL' || activityName === 'TENIS') {
-      return 60;
-    }
-
-    const rawDefault = Number(court?.activityType?.defaultDurationMinutes);
-    if (Number.isFinite(rawDefault) && rawDefault > 0) {
-      return rawDefault;
-    }
-
-    return 90;
-  };
-
+  // ── Render ──
   return (
-    <>
-      {/* --- ALTA DESHABILITADA (SE GESTIONA POR DB) --- */}
-      <div className="density-compact bg-[#EBE1D8] border-4 border-white rounded-[1.5rem] p-4 mb-6 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
-        <div className="flex items-center gap-3 text-[#926699]">
-          <div className="bg-[#926699] text-[#EBE1D8] p-2 rounded-xl text-xl shadow-lg shadow-[#926699]/20">
-            <Plus size={20} strokeWidth={3} />
-          </div>
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-[#347048]/50">Alta de canchas</p>
-            <p className="text-sm font-black text-[#347048]">Deshabilitada en el panel. Para altas, comunicarse con soporte.</p>
-          </div>
-        </div>
+    <div className="flex w-full flex-col gap-4">
+
+      {/* ── Summary metrics ── */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <MetricCard
+          label="Total"
+          value={courts.length}
+          format="number"
+          valueColor="var(--accent-fg)"
+        />
+        <MetricCard
+          label="Operativas"
+          value={activeCourts}
+          format="number"
+          valueColor="var(--positive-fg)"
+        />
+        <MetricCard
+          label="Mantenimiento"
+          value={maintenanceCourts}
+          format="number"
+          valueColor={maintenanceCourts > 0 ? 'var(--warn-fg)' : undefined}
+        />
+        <MetricCard
+          label="Precio prom."
+          value={Math.round(averagePrice)}
+          format="money"
+        />
       </div>
 
-      {/* --- LISTADO Y ESTADOS (DISEÑO PREMIUM) --- */}
-      <div className="density-compact bg-[#EBE1D8] border-4 border-white rounded-[1.5rem] p-5 mb-6 shadow-2xl shadow-[#347048]/30 relative overflow-hidden transition-all">
-        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-5">
-          <h2 className="text-2xl font-black text-[#347048] uppercase italic tracking-tighter flex items-center gap-3">
-             <div className="w-2 h-8 bg-[#B9CF32] rounded-full"></div>
-             Estado de Canchas
-          </h2>
-          <div className="bg-white/40 border border-white px-4 py-1.5 rounded-full shadow-sm">
-             <span className="text-[10px] font-black text-[#347048] uppercase tracking-widest">{courts.length} Registradas</span>
-          </div>
-        </div>
+      {/* ── Info: cálculo de precio ── */}
+      <SettingsInfoNote variant="info">
+        El precio definido es la base para la duración por defecto de cada actividad. Si la reserva
+        es más corta o larga, el sistema ajusta el importe de forma proporcional. Para Fútbol y
+        Tenis la base es siempre 60 min.
+      </SettingsInfoNote>
 
-        <div className="overflow-x-auto -mx-5 sm:mx-0">
-          <div className="mx-5 sm:mx-0 mb-3 rounded-2xl border border-[#347048]/15 bg-white/60 p-3">
-            <p className="text-[11px] font-black uppercase tracking-wider text-[#347048]">Cómo se calcula el precio</p>
-            <p className="text-[11px] text-[#347048]/75 font-bold mt-1">
-              El precio que definís en cada cancha se toma como precio base para la duración por defecto de su actividad.
-              Si la reserva es más corta o más larga, el sistema lo ajusta de forma proporcional.
-            </p>
-            <p className="text-[10px] text-[#347048]/60 font-bold mt-2">
-              Regla actual: para Fútbol y Tenis la base de cálculo es siempre 60 min.
-            </p>
+      {/* ── Courts list ── */}
+      <SettingsSection
+        title="Canchas registradas"
+        description="Administrá precios, estado operativo y mantenimiento de cada cancha."
+      >
+        {courts.length === 0 ? (
+          <div className="flex items-center justify-center py-10 text-[13px] font-semibold text-p-text-muted">
+            Sin canchas registradas.
           </div>
-            <table className="w-full text-left border-separate border-spacing-y-1.5">
-            <thead>
-              <tr className="text-[10px] font-black uppercase tracking-[0.2em] text-[#347048]/40">
-                <th className="px-4 py-2">ID</th>
-                <th className="px-4 py-2">Nombre Cancha</th>
-                <th className="px-4 py-2">Disciplina</th>
-                <th className="px-4 py-2">Precio</th>
-                <th className="px-4 py-2 text-center">Estado Operativo</th>
-                <th className="px-4 py-2 text-right">Controles</th>
-              </tr>
-            </thead>
-            <tbody className="text-sm">
-              {courts.map((c) => (
-                <tr key={c.id} className="bg-white/60 hover:bg-white transition-all shadow-sm group">
-                  <td className="px-4 py-3 first:rounded-l-2xl font-black text-[#347048]/40 italic">#{c.id.toString().padStart(3, '0')}</td>
-                  <td className="px-4 py-3 font-black text-[#347048] uppercase tracking-tight">{c.name}</td>
-                  <td className="px-4 py-3">
-                    <span className="text-[10px] font-black bg-[#926699]/10 text-[#926699] px-3 py-1 rounded-full border border-[#926699]/20 uppercase tracking-widest">
-                        {getCourtTypeLabel(c)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="number"
-                        min={0}
-                        className="compact-field w-24 h-9 bg-white border-2 border-transparent focus:border-[#B9CF32] rounded-xl px-3 text-[#347048] font-bold focus:outline-none shadow-sm transition-all appearance-none no-spinner"
-                        value={priceEdits[c.id] ?? ''}
-                        onChange={(e) => setPriceEdits((prev) => ({ ...prev, [c.id]: e.target.value }))}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handlePriceSave(c.id)}
-                        className="text-[10px] font-black uppercase tracking-widest bg-[#347048] text-[#EBE1D8] px-3 py-2 rounded-xl shadow-md hover:bg-[#B9CF32] hover:text-[#347048] transition-all"
-                      >
-                        Guardar
-                      </button>
-                    </div>
-                    <p className="text-[10px] font-bold text-[#347048]/55 mt-1">
-                      Base para {getPriceReferenceMinutes(c)} min
-                    </p>
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {c.isUnderMaintenance ? (
-                      <span className="inline-flex items-center gap-2 text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-wider border bg-red-50 text-red-600 border-red-200">
-                        <div className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse"></div>
-                        Mantenimiento
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-2 text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-wider border bg-emerald-50 text-emerald-700 border-emerald-200">
-                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
-                        Operativo
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 last:rounded-r-2xl text-right">
-                    {c.isUnderMaintenance ? (
-                      <button 
-                        onClick={() => handleReactivate(c.id)} 
-                        className="text-[10px] font-black uppercase tracking-widest bg-[#B9CF32] text-[#347048] px-4 py-2 rounded-xl shadow-md hover:scale-105 transition-all flex items-center gap-2 ml-auto"
-                      >
-                        <Power size={14} strokeWidth={3} /> Reactivar
-                      </button>
-                    ) : (
-                      <button 
-                        onClick={() => handleSuspend(c.id)} 
-                        className="text-[10px] font-black uppercase tracking-widest bg-white border-2 border-red-100 text-red-500 px-4 py-2 rounded-xl hover:bg-red-500 hover:text-white transition-all flex items-center gap-2 ml-auto"
-                      >
-                        <Ban size={14} strokeWidth={3} /> Suspender
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {courts.map((court) => (
+              <CourtCard
+                key={court.id}
+                court={court}
+                priceEdit={priceEdits[court.id] ?? ''}
+                onPriceChange={(value) =>
+                  setPriceEdits((prev) => ({ ...prev, [court.id]: value }))
+                }
+                onPriceSave={() => void handlePriceSave(court.id)}
+                onSuspend={() => handleSuspend(court.id)}
+                onReactivate={() => handleReactivate(court.id)}
+              />
+            ))}
+          </div>
+        )}
+      </SettingsSection>
 
-      <AppModal 
-        show={modalState.show} 
-        onClose={closeModal} 
-        onCancel={modalState.onCancel} 
-        title={modalState.title} 
+      {/* ── Alta de canchas ── */}
+      <SettingsInfoNote variant="neutral" title="Alta de canchas">
+        Deshabilitada en el panel. Para agregar nuevas canchas, comunicarse con soporte.
+      </SettingsInfoNote>
+
+      {/* ── Modal ── */}
+      <AdminAppModal
+        show={modalState.show}
+        onClose={closeModal}
+        onCancel={modalState.onCancel}
+        title={modalState.title}
         message={modalState.message}
-        cancelText={modalState.cancelText} 
-        confirmText={modalState.confirmText} 
+        cancelText={modalState.cancelText}
+        confirmText={modalConfirming ? 'Procesando...' : modalState.confirmText}
         isWarning={modalState.isWarning}
-        onConfirm={modalState.onConfirm} 
-        closeOnBackdrop={modalState.closeOnBackdrop} 
-        closeOnEscape={modalState.closeOnEscape} 
+        onConfirm={modalState.onConfirm}
+        confirmDisabled={modalConfirming}
+        closeOnBackdrop={!modalConfirming && modalState.closeOnBackdrop}
+        closeOnEscape={!modalConfirming && modalState.closeOnEscape}
       />
-    </>
+    </div>
   );
 }

@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { ErrorCodes } from '../errors';
 import { prisma } from '../prisma'; // Asegurate que esta ruta sea la correcta a tu instancia de prisma
 import os from 'os';
 
@@ -78,7 +79,7 @@ export const getSystemHealth = async (req: Request, res: Response) => {
     });
 
   } catch (error: any) {
-    res.status(500).json({ status: 'ERROR', error: error.message });
+    res.status(500).json({ status: 'ERROR', error: 'No pudimos completar la acción. Intentá nuevamente.', code: ErrorCodes.UNEXPECTED_ERROR });
   }
 };
 

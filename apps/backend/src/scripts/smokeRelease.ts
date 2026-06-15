@@ -64,6 +64,20 @@ const run = async () => {
     const authMe = await fetch(`${baseUrl}/api/auth/me`);
     await assertStatus(authMe, 401, 'auth_me_requires_token');
 
+    const bookingQuote = await fetch(`${baseUrl}/api/bookings/quote`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    await assertStatus(bookingQuote, 400, 'booking_quote_contract');
+
+    const createBooking = await fetch(`${baseUrl}/api/bookings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    await assertStatus(createBooking, 400, 'booking_create_contract');
+
     const bookingItems = await fetch(`${baseUrl}/api/bookings/1/items`);
     await assertStatus(bookingItems, 401, 'booking_items_requires_auth');
 
@@ -74,11 +88,46 @@ const run = async () => {
     });
     await assertStatus(registerPayment, 401, 'account_payment_requires_auth');
 
+    const adminProducts = await fetch(`${baseUrl}/api/clubs/smoke-club/admin/products`);
+    await assertStatus(adminProducts, 401, 'admin_products_requires_auth');
+
+    const adminDiscountPolicies = await fetch(`${baseUrl}/api/clubs/smoke-club/admin/discount-policies`);
+    await assertStatus(adminDiscountPolicies, 401, 'admin_discount_policies_requires_auth');
+
+    const currentCashShift = await fetch(`${baseUrl}/api/cash-shifts/current`);
+    await assertStatus(currentCashShift, 401, 'cash_shift_current_requires_auth');
+
+    const posItems = await fetch(`${baseUrl}/api/cash/pos-items`);
+    await assertStatus(posItems, 401, 'cash_pos_items_requires_auth');
+
+    const productSaleQuote = await fetch(`${baseUrl}/api/cash/product-sale/quote`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    await assertStatus(productSaleQuote, 401, 'cash_product_sale_quote_requires_auth');
+
+    const posReport = await fetch(`${baseUrl}/api/cash/pos-report`);
+    await assertStatus(posReport, 401, 'cash_pos_report_requires_auth');
+
     const authFlow = await maybeRunAuthenticatedFlow(baseUrl);
 
     console.log(JSON.stringify({
       ok: true,
-      smoke: ['health', 'auth_me_requires_token', 'booking_items_requires_auth', 'account_payment_requires_auth'],
+      smoke: [
+        'health',
+        'auth_me_requires_token',
+        'booking_quote_contract',
+        'booking_create_contract',
+        'booking_items_requires_auth',
+        'account_payment_requires_auth',
+        'admin_products_requires_auth',
+        'admin_discount_policies_requires_auth',
+        'cash_shift_current_requires_auth',
+        'cash_pos_items_requires_auth',
+        'cash_product_sale_quote_requires_auth',
+        'cash_pos_report_requires_auth'
+      ],
       authenticatedFlow: authFlow.executed ? authFlow.checks : 'skipped (set SMOKE_USER_EMAIL/SMOKE_USER_PASSWORD)'
     }));
   } finally {

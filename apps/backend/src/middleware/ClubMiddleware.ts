@@ -3,14 +3,15 @@ import { prisma } from '../prisma';
 import { getUserClubContext } from '../utils/getUserClubContext';
 import { getPreferredClubIdFromRequest } from '../utils/clubContext';
 import { sendAuthError } from '../utils/authError';
+import { sendAppError } from '../errors';
 
 const handleClubContextError = (error: unknown, res: Response, fallbackMessage: string) => {
     const message = error instanceof Error ? error.message : fallbackMessage;
     if (message.includes('x-active-club-id')) {
-        return sendAuthError(res, 400, 'AUTH_CONTEXT_INVALID', message);
+        return sendAuthError(res, 400, 'AUTH_CONTEXT_INVALID', 'Contexto de club inválido');
     }
     if (message.includes('Debe seleccionar un club activo')) {
-        return sendAuthError(res, 400, 'AUTH_CONTEXT_INVALID', message);
+        return sendAuthError(res, 400, 'AUTH_CONTEXT_INVALID', 'Debe seleccionar un club activo');
     }
     return sendAuthError(res, 403, 'AUTH_FORBIDDEN', fallbackMessage);
 };
@@ -55,7 +56,7 @@ export const verifyClubAccess = async (req: Request, res: Response, next: NextFu
 
         next();
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        return sendAppError(res, error, 'No se pudo resolver el contexto del club');
     }
 };
 
@@ -88,15 +89,15 @@ export const verifyClubAccessById = async (req: Request, res: Response, next: Ne
         (req as any).setLogContext?.({ clubId: parsed });
         next();
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        return sendAppError(res, error, 'No se pudo resolver el contexto del club');
     }
 };
 
 /**
  * Middleware para rutas admin que no llevan slug en la URL.
  * Establece req.clubId con el club del usuario autenticado.
- * Debe usarse después de authMiddleware y requireRole('ADMIN').
- * Si el admin no tiene clubId, responde 403.
+ * Debe usarse después de authMiddleware.
+ * Luego la ruta debe validar membresía/rol tenant con requireTenantRole/requireClubMembership.
  */
 export const setAdminClubFromUser = async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -117,7 +118,7 @@ export const setAdminClubFromUser = async (req: Request, res: Response, next: Ne
         (req as any).setLogContext?.({ clubId: context.clubId });
         next();
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        return sendAppError(res, error, 'No se pudo resolver el contexto del club');
     }
 };
 
@@ -141,6 +142,6 @@ export const optionalSetAdminClubFromUser = async (req: Request, res: Response, 
         }
         next();
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        return sendAppError(res, error, 'No se pudo resolver el contexto del club');
     }
 };

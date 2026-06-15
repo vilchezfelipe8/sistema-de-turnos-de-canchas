@@ -1,11 +1,16 @@
 import { Request, Response } from 'express';
 import { ClubService } from '../services/ClubService';
 import { z } from 'zod';
+import { sendAppError, validationError, zodValidationAppError } from '../errors';
 import { validateOpeningDays } from '../utils/ActivityScheduleHelper';
 import { MediaStorageService } from '../services/MediaStorageService';
 import { sanitizeString } from '../utils/sanitize';
 import { normalizeIdentityPhone } from '../utils/phone';
 import { AuditLogService } from '../services/AuditLogService';
+import { ClientIdentityAdminService } from '../services/ClientIdentityAdminService';
+import { ClientDuplicateIncidentService } from '../services/ClientDuplicateIncidentService';
+import { ClientIdentityOverviewService } from '../services/ClientIdentityOverviewService';
+import { ClientIdentityAuditService } from '../services/ClientIdentityAuditService';
 
 const fixedBookingActivityConfigSchema = z.object({
     fixedBookingDaysAhead: z.union([z.number(), z.string()]).transform((v) => Number(v)).pipe(z.number().int().positive()),
@@ -148,6 +153,10 @@ export class ClubController {
     private static readonly LIGHTS_FROM_HOUR_OPTIONS = new Set(['18:00', '19:00', '20:00', '21:00', '22:00']);
     private readonly mediaStorageService = new MediaStorageService();
     private readonly auditLogService = new AuditLogService();
+    private readonly clientIdentityAdminService = new ClientIdentityAdminService();
+    private readonly duplicateIncidentService = new ClientDuplicateIncidentService();
+    private readonly clientIdentityOverviewService = new ClientIdentityOverviewService();
+    private readonly clientIdentityAuditService = new ClientIdentityAuditService();
     constructor(private clubService: ClubService) {}
 
     createClub = async (req: Request, res: Response) => {
@@ -194,7 +203,7 @@ export class ClubController {
             });
             const parsed = createClubSchema.safeParse(req.body);
             if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
+                return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
             }
             const { slug, name, addressLine, city, province, country, contact, phone, logoUrl, clubImageUrl, instagramUrl, facebookUrl, websiteUrl, description, timeZone,
                 lightsEnabled, lightsExtraAmount, lightsFromHour, openingDays, closureDates,
@@ -316,7 +325,7 @@ export class ClubController {
             );
             res.status(201).json(club);
         } catch (error: any) {
-            res.status(400).json({ error: error.message });
+            return sendAppError(res, error, 'No se pudo guardar el club');
         }
     }
 
@@ -329,7 +338,7 @@ export class ClubController {
             const club = await this.clubService.getClubById(id);
             res.json(club);
         } catch (error: any) {
-            res.status(404).json({ error: error.message });
+            return sendAppError(res, error, 'Club no encontrado');
         }
     }
 
@@ -342,7 +351,7 @@ export class ClubController {
             const club = await this.clubService.getClubBySlug(slug as string);
             res.json(club);
         } catch (error: any) {
-            res.status(404).json({ error: error.message });
+            return sendAppError(res, error, 'Club no encontrado');
         }
     }
 
@@ -351,7 +360,7 @@ export class ClubController {
             const clubs = await this.clubService.getAllClubs();
             res.json(clubs);
         } catch (error: any) {
-            res.status(500).json({ error: error.message });
+            return sendAppError(res, error, 'Error al obtener los clubes');
         }
     }
 
@@ -405,7 +414,7 @@ export class ClubController {
             });
             const parsed = updateClubSchema.safeParse(req.body);
             if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.format() });
+                return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
             }
             const {
                 slug,
@@ -655,7 +664,7 @@ export class ClubController {
 
             res.json(club);
         } catch (error: any) {
-            res.status(400).json({ error: error.message });
+            return sendAppError(res, error, 'No se pudo guardar el club');
         }
     }
 
@@ -676,8 +685,49 @@ export class ClubController {
         res.json(filtered);
 
     } catch (error: any) {
-        console.error("Error buscando clientes:", error);
-        res.status(500).json({ error: error.message });
+        return sendAppError(res, error, 'Error al buscar clientes');
+    }
+};
+
+    searchClubParticipants = async (req: Request, res: Response) => {
+    try {
+        const club = (req as any).club;
+
+        if (!club) {
+            return res.status(404).json({ message: 'Club no encontrado' });
+        }
+
+        const query = String(req.query.q || '').trim();
+        if (!query) {
+            return res.json([]);
+        }
+
+        const filtered = await this.clubService.searchParticipants(club.id, query);
+        res.json(filtered);
+
+    } catch (error: any) {
+        return sendAppError(res, error, 'Error al buscar participantes');
+    }
+};
+
+    searchClubPeople = async (req: Request, res: Response) => {
+    try {
+        const club = (req as any).club;
+
+        if (!club) {
+            return res.status(404).json({ message: 'Club no encontrado' });
+        }
+
+        const query = String(req.query.q || '').trim();
+        if (!query) {
+            return res.json([]);
+        }
+
+        const filtered = await this.clubService.searchPeople(club.id, query);
+        res.json(filtered);
+
+    } catch (error: any) {
+        return sendAppError(res, error, 'Error al buscar personas');
     }
 };
 
@@ -693,10 +743,11 @@ export class ClubController {
                 phoneNumberLocal: z.string().trim().optional().nullable(),
                 dni: z.string().trim().optional().nullable(),
                 email: z.string().trim().email().optional().nullable(),
-                isProfessor: z.boolean().optional()
+                isProfessor: z.boolean().optional(),
+                forceCreateNew: z.boolean().optional()
             });
             const parsed = bodySchema.safeParse(req.body);
-            if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
+            if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
 
             const normalizedPhone = normalizeIdentityPhone(
                 {
@@ -709,20 +760,27 @@ export class ClubController {
             const hasAnyPhoneInput =
                 Boolean(parsed.data.phone && String(parsed.data.phone).trim()) ||
                 Boolean(parsed.data.phoneNumberLocal && String(parsed.data.phoneNumberLocal).trim());
-            if (hasAnyPhoneInput && !normalizedPhone) {
-                return res.status(400).json({ error: 'Teléfono inválido' });
+            if (!hasAnyPhoneInput || !normalizedPhone) {
+                throw validationError('Revisá los campos marcados.', {
+                    phone: 'Cargá un teléfono válido.'
+                });
             }
+            // Fase 1.2: email es opcional en alta de cliente admin.
 
             const client = await this.clubService.createClient(Number(club.id), {
                 name: sanitizeString(parsed.data.name, 120),
                 phone: normalizedPhone,
                 dni: parsed.data.dni ? sanitizeString(parsed.data.dni, 40) : null,
                 email: parsed.data.email ? sanitizeString(parsed.data.email, 120).toLowerCase() : null,
-                isProfessor: Boolean(parsed.data.isProfessor)
+                isProfessor: Boolean(parsed.data.isProfessor),
+                forceCreateNew: Boolean(parsed.data.forceCreateNew)
             });
             return res.status(201).json(client);
         } catch (error: any) {
-            return res.status(400).json({ error: error?.message || 'No se pudo crear el cliente' });
+            if ((error instanceof Error && (error as any).code === 'CLIENT_POSSIBLE_DUPLICATE') || error?.code === 'CLIENT_POSSIBLE_DUPLICATE') {
+                await this.registerDuplicateIncidentFromClientCreateError(req, error);
+            }
+            return sendAppError(res, error, 'No se pudo crear el cliente');
         }
     };
 
@@ -743,8 +801,8 @@ export class ClubController {
             });
             const paramsParsed = paramsSchema.safeParse(req.params);
             const bodyParsed = bodySchema.safeParse(req.body);
-            if (!paramsParsed.success) return res.status(400).json({ error: paramsParsed.error.format() });
-            if (!bodyParsed.success) return res.status(400).json({ error: bodyParsed.error.format() });
+            if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá los campos marcados.'));
+            if (!bodyParsed.success) return sendAppError(res, zodValidationAppError(bodyParsed.error, 'Revisá los campos marcados.'));
 
             const normalizedPhone = normalizeIdentityPhone(
                 {
@@ -757,9 +815,12 @@ export class ClubController {
             const hasAnyPhoneInput =
                 Boolean(bodyParsed.data.phone && String(bodyParsed.data.phone).trim()) ||
                 Boolean(bodyParsed.data.phoneNumberLocal && String(bodyParsed.data.phoneNumberLocal).trim());
-            if (hasAnyPhoneInput && !normalizedPhone) {
-                return res.status(400).json({ error: 'Teléfono inválido' });
+            if (!hasAnyPhoneInput || !normalizedPhone) {
+                throw validationError('Revisá los campos marcados.', {
+                    phone: 'Cargá un teléfono válido.'
+                });
             }
+            // Fase 1.2: email es opcional en edición de cliente admin.
 
             const client = await this.clubService.updateClient(Number(club.id), paramsParsed.data.clientId, {
                 name: sanitizeString(bodyParsed.data.name, 120),
@@ -770,7 +831,7 @@ export class ClubController {
             });
             return res.json(client);
         } catch (error: any) {
-            return res.status(400).json({ error: error?.message || 'No se pudo actualizar el cliente' });
+            return sendAppError(res, error, 'No se pudo actualizar el cliente');
         }
     };
 
@@ -781,12 +842,246 @@ export class ClubController {
 
             const paramsSchema = z.object({ clientId: z.string().trim().min(1) });
             const paramsParsed = paramsSchema.safeParse(req.params);
-            if (!paramsParsed.success) return res.status(400).json({ error: paramsParsed.error.format() });
+            if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá los campos marcados.'));
 
             await this.clubService.deleteClient(Number(club.id), paramsParsed.data.clientId);
             return res.status(204).send();
         } catch (error: any) {
-            return res.status(400).json({ error: error?.message || 'No se pudo eliminar el cliente' });
+            return sendAppError(res, error, 'No se pudo eliminar el cliente');
         }
     };
+
+    linkClubClientUser = async (req: Request, res: Response) => {
+        try {
+            const club = (req as any).club;
+            const actorUserId = Number((req as any)?.user?.userId || 0);
+            if (!club?.id) return res.status(404).json({ error: 'Club no encontrado' });
+
+            const paramsSchema = z.object({ clientId: z.string().trim().min(1) });
+            const bodySchema = z.object({
+                userId: z.preprocess((v) => Number(v), z.number().int().positive())
+            });
+            const paramsParsed = paramsSchema.safeParse(req.params);
+            const bodyParsed = bodySchema.safeParse(req.body);
+            if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá los campos marcados.'));
+            if (!bodyParsed.success) return sendAppError(res, zodValidationAppError(bodyParsed.error, 'Revisá los campos marcados.'));
+
+            const client = await this.clientIdentityAdminService.linkUserToClient({
+                clubId: Number(club.id),
+                clientId: paramsParsed.data.clientId,
+                userId: bodyParsed.data.userId,
+                actorUserId
+            });
+            return res.json(client);
+        } catch (error: any) {
+            return sendAppError(res, error, 'No se pudo vincular el cliente con el usuario');
+        }
+    };
+
+    unlinkClubClientUser = async (req: Request, res: Response) => {
+        try {
+            const club = (req as any).club;
+            const actorUserId = Number((req as any)?.user?.userId || 0);
+            if (!club?.id) return res.status(404).json({ error: 'Club no encontrado' });
+
+            const paramsSchema = z.object({ clientId: z.string().trim().min(1) });
+            const paramsParsed = paramsSchema.safeParse(req.params);
+            if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá los campos marcados.'));
+
+            const client = await this.clientIdentityAdminService.unlinkUserFromClient({
+                clubId: Number(club.id),
+                clientId: paramsParsed.data.clientId,
+                actorUserId
+            });
+            return res.json(client);
+        } catch (error: any) {
+            return sendAppError(res, error, 'No se pudo desvincular el cliente del usuario');
+        }
+    };
+
+    getClubClientIdentityOverview = async (req: Request, res: Response) => {
+        try {
+            const club = (req as any).club;
+            if (!club?.id) return res.status(404).json({ error: 'Club no encontrado' });
+
+            const paramsSchema = z.object({ clientId: z.string().trim().min(1) });
+            const paramsParsed = paramsSchema.safeParse(req.params);
+            if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá los campos marcados.'));
+
+            const overview = await this.clientIdentityOverviewService.getOverview(Number(club.id), paramsParsed.data.clientId);
+            return res.json(overview);
+        } catch (error: any) {
+            return sendAppError(res, error, 'No se pudo obtener el estado de identidad del cliente');
+        }
+    };
+
+    listClubClientIdentityQueue = async (req: Request, res: Response) => {
+        try {
+            const club = (req as any).club;
+            if (!club?.id) return res.status(404).json({ error: 'Club no encontrado' });
+
+            const querySchema = z.object({
+                status: z.string().trim().optional(),
+                limit: z.coerce.number().int().positive().max(200).optional()
+            });
+            const parsed = querySchema.safeParse(req.query);
+            if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los filtros de identidad.'));
+
+            const statuses = String(parsed.data.status || '')
+                .split(',')
+                .map((value) => value.trim().toUpperCase())
+                .filter(Boolean) as Array<'REVIEW_REQUIRED' | 'SUGGESTED_LINK' | 'LINKED' | 'NO_MATCH'>;
+
+            const incidents = await this.clientIdentityOverviewService.listQueue(Number(club.id), {
+                statuses: statuses.length > 0 ? statuses : undefined,
+                limit: parsed.data.limit
+            });
+            return res.json({ incidents });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No se pudo obtener la bandeja de identidad');
+        }
+    };
+
+    getClubClientIdentityAuditTimeline = async (req: Request, res: Response) => {
+        try {
+            const club = (req as any).club;
+            if (!club?.id) return res.status(404).json({ error: 'Club no encontrado' });
+
+            const paramsSchema = z.object({ clientId: z.string().trim().min(1) });
+            const querySchema = z.object({
+                take: z.coerce.number().int().positive().max(50).optional()
+            });
+            const paramsParsed = paramsSchema.safeParse(req.params);
+            const queryParsed = querySchema.safeParse(req.query);
+            if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá el cliente seleccionado.'));
+            if (!queryParsed.success) return sendAppError(res, zodValidationAppError(queryParsed.error, 'Revisá el rango de auditoría.'));
+
+            const entries = await this.clientIdentityAuditService.listTimeline(
+                Number(club.id),
+                paramsParsed.data.clientId,
+                queryParsed.data.take
+            );
+            return res.json({ entries });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No se pudo obtener la auditoría de identidad');
+        }
+    };
+
+    createClubClientIdentityIncident = async (req: Request, res: Response) => {
+        try {
+            const club = (req as any).club;
+            const actorUserId = Number((req as any)?.user?.userId || 0);
+            if (!club?.id) return res.status(404).json({ error: 'Club no encontrado' });
+
+            const paramsSchema = z.object({ clientId: z.string().trim().min(1) });
+            const bodySchema = z.object({
+                note: z.string().trim().max(300).optional()
+            });
+            const paramsParsed = paramsSchema.safeParse(req.params);
+            const bodyParsed = bodySchema.safeParse(req.body || {});
+            if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá el cliente seleccionado.'));
+            if (!bodyParsed.success) return sendAppError(res, zodValidationAppError(bodyParsed.error, 'Revisá la nota interna.'));
+
+            const client = await this.clubService.getClients(Number(club.id), undefined);
+            const currentClient = Array.isArray(client)
+                ? client.find((row: any) => String(row?.id || '') === String(paramsParsed.data.clientId))
+                : null;
+
+            const overview = await this.clientIdentityOverviewService.getOverview(Number(club.id), paramsParsed.data.clientId);
+            const incident = await this.duplicateIncidentService.createManualIdentityReview({
+                clubId: Number(club.id),
+                clientId: paramsParsed.data.clientId,
+                clientName: String(currentClient?.name || ''),
+                email: currentClient?.email || null,
+                phone: currentClient?.phone || null,
+                dni: currentClient?.dni || null,
+                status: overview.status,
+                reasonCode: overview.reasonCode,
+                summary: overview.summary,
+                signals: overview.signals,
+                recommendedUserId: overview.recommendedUserId,
+                userCandidates: overview.userCandidates,
+                duplicateClients: overview.duplicateClients,
+                note: bodyParsed.data.note || null,
+                actorUserId
+            });
+
+            return res.status(201).json({ incident });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No se pudo marcar el caso para revisión');
+        }
+    };
+
+    mergeClubClients = async (req: Request, res: Response) => {
+        try {
+            const club = (req as any).club;
+            const actorUserId = Number((req as any)?.user?.userId || 0);
+            if (!club?.id) return res.status(404).json({ error: 'Club no encontrado' });
+
+            const paramsSchema = z.object({ clientId: z.string().trim().min(1) });
+            const bodySchema = z.object({
+                targetClientId: z.string().trim().min(1),
+                incidentId: z.string().trim().min(1).optional(),
+                resolutionNotes: z.string().trim().max(300).optional()
+            });
+            const paramsParsed = paramsSchema.safeParse(req.params);
+            const bodyParsed = bodySchema.safeParse(req.body);
+            if (!paramsParsed.success) return sendAppError(res, zodValidationAppError(paramsParsed.error, 'Revisá los campos marcados.'));
+            if (!bodyParsed.success) return sendAppError(res, zodValidationAppError(bodyParsed.error, 'Revisá los campos marcados.'));
+
+            const result = await this.clientIdentityAdminService.mergeClients({
+                clubId: Number(club.id),
+                sourceClientId: paramsParsed.data.clientId,
+                targetClientId: bodyParsed.data.targetClientId,
+                actorUserId,
+                incidentId: bodyParsed.data.incidentId || null,
+                resolutionNotes: bodyParsed.data.resolutionNotes || null
+            });
+            return res.json(result);
+        } catch (error: any) {
+            return sendAppError(res, error, 'No se pudo fusionar el cliente');
+        }
+    };
+
+    private async registerDuplicateIncidentFromClientCreateError(req: Request, error: any) {
+        try {
+            const club = (req as any).club;
+            const clubId = Number(club?.id || 0);
+            if (!Number.isInteger(clubId) || clubId <= 0) return;
+
+            const details = (error && typeof error === 'object') ? (error.meta || error.details || {}) : {};
+            const candidateClientIds: string[] = Array.from(
+                new Set(
+                    (Array.isArray(details?.candidateClientIds) ? details.candidateClientIds : [])
+                        .map((value: unknown) => String(value || '').trim())
+                        .filter((value: string): value is string => value.length > 0)
+                )
+            );
+            if (candidateClientIds.length === 0) return;
+
+            const actorUserId = Number((req as any)?.user?.userId || 0);
+
+            await this.duplicateIncidentService.createOrReuseIncident({
+                clubId,
+                sourceType: 'ADMIN',
+                reasonType: String(details?.reasonType || 'MULTI_SIGNAL_CONFLICT'),
+                primaryClientId: details?.primaryClientId ? String(details.primaryClientId) : null,
+                candidateClientIds,
+                payload: {
+                    endpoint: 'createClubClient',
+                    actorUserId: Number.isInteger(actorUserId) && actorUserId > 0 ? actorUserId : null,
+                    draft: {
+                        name: req.body?.name ?? null,
+                        phone: req.body?.phone ?? req.body?.phoneNumberLocal ?? null,
+                        dni: req.body?.dni ?? null,
+                        email: req.body?.email ?? null,
+                        isProfessor: req.body?.isProfessor ?? null
+                    },
+                    signals: details?.signals || null
+                }
+            });
+        } catch (incidentError) {
+            console.warn('No se pudo registrar incidente de duplicado en alta de cliente', incidentError);
+        }
+    }
 }

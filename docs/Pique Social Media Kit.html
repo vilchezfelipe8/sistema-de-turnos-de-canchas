@@ -1,0 +1,1362 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=1280"/>
+<title>Pique · Social Media Kit v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0E1116;--ink2:#1B1F26;--ink4:#41464F;--ink5:#6F6A60;
+  --ink8:#DBD9D1;--ink9:#ECEBE5;--ink10:#F5F4F0;
+  --lima:#B6F36A;--limad:#5C8E1A;--lima900:#1F3A0E;
+  --lima10:#F0FBDD;--lima20:#E7FBC5;
+  --bg:#131518;--surface:#1C1F24;--surface2:#222630;
+  --border:rgba(255,255,255,.08);--border2:rgba(255,255,255,.12);
+  --text:rgba(255,255,255,.9);--text2:rgba(255,255,255,.5);--text3:rgba(255,255,255,.28);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:'Geist',sans-serif;-webkit-font-smoothing:antialiased;font-size:15px}
+.mono{font-family:'Geist Mono',monospace}
+svg{display:block}
+
+/* ── TOPBAR ── */
+.topbar{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;justify-content:space-between;align-items:center;padding:0 48px;height:56px;background:rgba(19,21,24,.92);backdrop-filter:blur(14px);border-bottom:1px solid var(--border)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px;flex-shrink:0}
+.brand-label{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text3);margin-left:10px}
+.nav{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
+.nav a{font-size:12px;font-weight:500;color:var(--text3);text-decoration:none;padding:6px 12px;border-radius:6px;white-space:nowrap;transition:.15s}
+.nav a:hover{color:var(--text);background:rgba(255,255,255,.06)}
+.nav a.active{color:var(--lima);background:rgba(182,243,106,.08)}
+.tb-right{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text3);flex-shrink:0}
+
+/* ── LAYOUT ── */
+.wrap{max-width:1280px;margin:0 auto;padding:0 48px}
+section{padding:80px 0;border-bottom:1px solid var(--border)}
+section:last-of-type{border-bottom:none}
+.sec-label{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--lima);margin-bottom:10px}
+.sec-title{font-size:38px;font-weight:600;letter-spacing:-.035em;line-height:1;margin-bottom:10px}
+.sec-desc{font-size:14px;color:var(--text2);line-height:1.55;max-width:580px;margin-bottom:36px}
+.divider{height:1px;background:var(--border);margin:48px 0}
+
+/* ── CARDS / SURFACES ── */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px}
+.card-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.card-head h4{font-size:14px;font-weight:600}
+.tag{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text3)}
+.card-body{padding:24px}
+
+/* ── FORMAT WRAPPERS ── */
+.fmt-row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+.fmt{display:flex;flex-direction:column;gap:8px;align-items:center;flex-shrink:0}
+.fmt-label{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text3);text-align:center}
+.fmt-size{font-family:'Geist Mono',monospace;font-size:10px;color:rgba(255,255,255,.18);text-align:center}
+
+/* CANVAS SIZES */
+.c-story{width:240px;height:427px;border-radius:16px;overflow:hidden;flex-shrink:0;position:relative}
+.c-feed{width:300px;height:300px;border-radius:12px;overflow:hidden;flex-shrink:0;position:relative}
+.c-car{width:264px;height:330px;border-radius:12px;overflow:hidden;flex-shrink:0;position:relative}
+.c-banner-ln{width:100%;height:200px;border-radius:12px;overflow:hidden;position:relative;max-width:840px}
+.c-banner-tw{width:100%;height:167px;border-radius:12px;overflow:hidden;position:relative;max-width:500px}
+.c-banner-fb{width:100%;height:185px;border-radius:12px;overflow:hidden;position:relative;max-width:500px}
+.c-pfp{border-radius:50%;overflow:hidden;flex-shrink:0;position:relative}
+.c-hl{width:80px;height:80px;border-radius:50%;overflow:hidden;flex-shrink:0;position:relative}
+.c-email{width:540px;border-radius:10px;overflow:hidden;flex-shrink:0;position:relative}
+
+/* GLOW */
+.glow{position:absolute;border-radius:50%;filter:blur(56px);pointer-events:none}
+.gl{background:rgba(182,243,106,.18)}
+.gd{background:rgba(14,17,22,.9)}
+
+/* ── STORY TEMPLATES ── */
+/* S1 · Launch */
+.s-launch{background:var(--ink);display:flex;flex-direction:column;justify-content:space-between;padding:22px 20px;height:100%}
+.s-launch .pill{display:inline-flex;align-items:center;gap:6px;background:rgba(182,243,106,.14);border:1px solid rgba(182,243,106,.28);border-radius:999px;padding:4px 10px;font-size:10px;color:var(--lima)}
+.s-launch .pill span{width:5px;height:5px;border-radius:50%;background:var(--lima)}
+.s-launch h2{font-size:34px;font-weight:800;letter-spacing:-.05em;line-height:.9;color:#fff}
+.s-launch h2 em{font-style:normal;color:var(--lima)}
+.s-launch .sub{font-size:11px;color:rgba(255,255,255,.45);line-height:1.4}
+.s-launch .cta{background:var(--lima);color:var(--lima900);font-weight:700;font-size:11px;border-radius:999px;padding:8px 14px;display:inline-flex;align-items:center;gap:6px;width:fit-content}
+
+/* S2 · Feature */
+.s-feat{background:linear-gradient(175deg,#0C0F13 0%,#141920 100%);display:flex;flex-direction:column;justify-content:flex-end;padding:22px 20px;height:100%}
+.s-feat .mod{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:4px 9px;font-size:10px;color:#fff}
+.s-feat .dot{width:4px;height:4px;border-radius:50%;background:var(--lima)}
+
+/* S3 · Stat lima */
+.s-stat{background:var(--lima);display:flex;flex-direction:column;justify-content:space-between;padding:22px 20px;height:100%}
+
+/* S4 · Tutorial */
+.s-tut{background:linear-gradient(180deg,#0B0E12 0%,#101420 100%);display:flex;flex-direction:column;justify-content:space-between;padding:22px 20px;height:100%}
+.s-tut .step{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.05);border-radius:8px;padding:7px 10px;font-size:10px;color:rgba(255,255,255,.75)}
+.s-tut .step .num{background:var(--lima);color:var(--lima900);width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:9px;flex-shrink:0}
+
+/* ── FEED TEMPLATES ── */
+.f-hero{background:var(--ink);display:flex;flex-direction:column;justify-content:space-between;padding:20px;height:100%}
+.f-hero h2{font-size:32px;font-weight:800;letter-spacing:-.05em;line-height:.9;color:#fff}
+.f-hero h2 em{font-style:normal;color:var(--lima)}
+
+.f-mods{background:var(--ink10);display:grid;grid-template-columns:1fr 1fr;height:100%}
+.f-mods .hd{grid-column:span 2;padding:14px 16px;border-bottom:1px solid var(--ink8);background:#fff;display:flex;align-items:center;gap:7px}
+.f-mods .hd span{font-size:12px;font-weight:600;color:var(--ink)}
+.f-mod{padding:13px;border-right:1px solid var(--ink8);border-bottom:1px solid var(--ink8);display:flex;flex-direction:column;gap:5px}
+.f-mod:nth-child(even){border-right:none}
+.f-mod:nth-last-child(-n+2){border-bottom:none}
+.f-mod .dot{width:6px;height:6px;border-radius:50%;background:var(--lima)}
+.f-mod h5{font-size:11px;font-weight:600;color:var(--ink)}
+.f-mod p{font-size:10px;color:var(--ink5);line-height:1.3}
+
+.f-testi{background:var(--ink10);display:flex;flex-direction:column;justify-content:space-between;padding:20px;height:100%}
+
+.f-stat{background:var(--ink2);display:flex;flex-direction:column;justify-content:space-between;padding:20px;height:100%;position:relative}
+
+/* ── CAROUSEL TEMPLATES ── */
+.car-d{background:var(--ink);display:flex;flex-direction:column;justify-content:space-between;padding:18px;height:100%}
+.car-l{background:#fff;display:flex;flex-direction:column;justify-content:space-between;padding:18px;height:100%}
+.car-li{background:var(--lima);display:flex;flex-direction:column;justify-content:space-between;padding:18px;height:100%}
+.car-num-d{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--lima)}
+.car-num-l{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--limad)}
+
+/* ── HIGHLIGHT ── */
+.hl{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:20px}
+
+/* ── SETUP TABLE ── */
+.setup-table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.setup-table th{text-align:left;padding:12px 16px;font-size:11px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border);background:rgba(255,255,255,.03)}
+.setup-table td{padding:14px 16px;font-size:13px;color:var(--text2);border-bottom:1px solid var(--border);vertical-align:top;line-height:1.5}
+.setup-table tr:last-child td{border-bottom:none}
+.setup-table .field{color:var(--text);font-weight:500;font-size:13px;white-space:nowrap}
+.setup-table .copy{font-family:'Geist Mono',monospace;font-size:12px;color:var(--lima);background:rgba(182,243,106,.07);border-radius:6px;padding:2px 8px;display:inline-block}
+
+/* ── BIO CARDS ── */
+.bio-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.bio-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px}
+.bio-card .plat{font-size:11px;font-weight:600;color:var(--lima);font-family:'Geist Mono',monospace;letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px}
+.bio-card .bio-text{font-size:13px;color:var(--text2);line-height:1.55;white-space:pre-line}
+.bio-card .limit{font-size:11px;color:var(--text3);margin-top:8px;font-family:'Geist Mono',monospace}
+
+/* ── PILLAR CARDS ── */
+.pillar-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.pillar{padding:24px 20px;border-right:1px solid var(--border)}
+.pillar:last-child{border-right:none}
+.pillar .num{font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--text3);margin-bottom:14px}
+.pillar h5{font-size:16px;font-weight:600;margin-bottom:8px}
+.pillar p{font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:12px}
+.pillar ul{list-style:none;display:flex;flex-direction:column;gap:4px}
+.pillar li{font-size:12px;color:var(--text3);display:flex;gap:6px}
+.pillar li::before{content:"·";color:var(--lima)}
+.pillar .pct{font-size:11px;font-weight:600;color:var(--lima);font-family:'Geist Mono',monospace;margin-top:10px}
+
+/* ── COPY CARDS ── */
+.copy-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:32px}
+.copy-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px}
+.copy-card .cn{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--lima);margin-bottom:10px}
+.copy-card .ct{font-size:13px;color:var(--text2);line-height:1.55;margin-bottom:10px;white-space:pre-line}
+.copy-card .tags{font-size:11px;color:var(--text3);line-height:1.6}
+
+/* ── SCRIPT CARDS ── */
+.script-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.script{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.script .sh{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.script .sh h5{font-size:14px;font-weight:600}
+.script .sb{padding:18px}
+.script .seg{margin-bottom:14px}
+.script .seg:last-child{margin-bottom:0}
+.script .seg .tm{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--lima);margin-bottom:4px}
+.script .seg p{font-size:12px;color:var(--text2);line-height:1.5}
+
+/* ── CALENDAR ── */
+.cal-grid{display:grid;grid-template-columns:80px repeat(7,1fr);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.ch{padding:10px 12px;border-bottom:1px solid var(--border);font-size:11px;font-weight:500;color:var(--text3);border-right:1px solid var(--border);text-align:center}
+.ch:last-child{border-right:none}
+.crl{padding:14px 10px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);font-family:'Geist Mono',monospace;letter-spacing:.08em;display:flex;align-items:center;justify-content:center}
+.cs{border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:8px 10px;font-size:10px;color:var(--text3);min-height:56px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;line-height:1.35;gap:4px}
+.cs:last-child{border-right:none}
+.cs.on{background:rgba(182,243,106,.06);color:var(--text);border-color:rgba(182,243,106,.14)}
+.cs .ct{font-weight:500;font-size:10px}
+.cs .ft{font-size:9px;color:var(--lima);font-family:'Geist Mono',monospace}
+.cal-grid .crl:nth-last-child(-n+8),.cal-grid .cs:nth-last-child(-n+7){border-bottom:none}
+
+/* monthly */
+.month-grid{display:grid;grid-template-columns:80px repeat(4,1fr);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:32px}
+.mh{padding:12px 16px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text2);border-right:1px solid var(--border);text-align:center}
+.mh:last-child{border-right:none}
+.ml{padding:16px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);font-family:'Geist Mono',monospace;letter-spacing:.08em;display:flex;align-items:flex-start;padding-top:16px}
+.mc{border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:14px 16px;vertical-align:top}
+.mc:last-child{border-right:none}
+.mc .wk{font-family:'Geist Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);margin-bottom:8px}
+.mc ul{list-style:none;display:flex;flex-direction:column;gap:5px}
+.mc li{font-size:11px;color:var(--text2);display:flex;gap:6px;line-height:1.35}
+.mc li .dot{width:4px;height:4px;border-radius:50%;background:var(--lima);flex-shrink:0;margin-top:4px}
+.month-grid .ml:last-of-type,.month-grid .mc:nth-last-child(-n+5){border-bottom:none}
+
+/* ── PLATFORM SPEC ── */
+.spec-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:0;border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.spec-cell{padding:20px 18px;border-right:1px solid var(--border)}
+.spec-cell:last-child{border-right:none}
+.spec-cell .plat{font-size:13px;font-weight:600;margin-bottom:4px}
+.spec-cell .handle{font-family:'Geist Mono',monospace;font-size:10px;color:var(--lima);margin-bottom:12px}
+.spec-cell ul{list-style:none;display:flex;flex-direction:column;gap:5px}
+.spec-cell li{font-size:11px;color:var(--text2);display:flex;gap:5px;line-height:1.4}
+.spec-cell li::before{content:"·";color:var(--lima);flex-shrink:0}
+
+/* ── EMAIL SIG ── */
+.sig{background:#fff;padding:24px 28px;display:flex;align-items:center;gap:20px;border-left:3px solid var(--lima)}
+.sig .info h3{font-size:15px;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.sig .info .role{font-size:12px;color:var(--ink5);margin-top:2px}
+.sig .info .links{display:flex;gap:14px;margin-top:8px}
+.sig .info .links a{font-size:11px;color:var(--limad);text-decoration:none;font-weight:500}
+.sig .divLine{width:1px;height:48px;background:var(--ink8)}
+
+/* ── HASHTAG BANK ── */
+.hbank{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.hchip{background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:999px;padding:4px 12px;font-size:12px;color:var(--text3)}
+.hchip.b{background:rgba(182,243,106,.09);border-color:rgba(182,243,106,.2);color:var(--lima)}
+
+/* ── SAFE ZONE ── */
+.safezone{position:relative;overflow:hidden;border-radius:16px}
+.sz-overlay{position:absolute;inset:0;pointer-events:none}
+.sz-top{position:absolute;top:0;left:0;right:0;height:80px;background:rgba(255,165,0,.15);border-bottom:2px dashed rgba(255,165,0,.5)}
+.sz-bot{position:absolute;bottom:0;left:0;right:0;height:100px;background:rgba(255,165,0,.15);border-top:2px dashed rgba(255,165,0,.5)}
+.sz-label{position:absolute;font-size:9px;letter-spacing:.1em;text-transform:uppercase;font-family:'Geist Mono',monospace;font-weight:600;color:rgba(255,165,0,.9)}
+
+/* profile pic grid */
+.pfp-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:24px}
+.pfp-item{display:flex;flex-direction:column;align-items:center;gap:10px}
+.pfp-item .lbl{font-size:12px;font-weight:600;color:var(--text2)}
+.pfp-item .sz{font-family:'Geist Mono',monospace;font-size:10px;color:var(--text3);text-align:center}
+
+/* progress bar at top */
+#progress{position:fixed;top:56px;left:0;height:2px;background:var(--lima);z-index:99;width:0%;transition:width .1s}
+
+/* color grid banners */
+.banner-row{display:flex;flex-direction:column;gap:20px;width:100%}
+
+/* info box */
+.info-box{background:rgba(182,243,106,.06);border:1px solid rgba(182,243,106,.15);border-radius:12px;padding:16px 18px;font-size:13px;color:var(--text2);line-height:1.55;margin-top:20px}
+.info-box strong{color:var(--lima)}
+
+/* highlight row */
+.hl-row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start}
+.hl-item{display:flex;flex-direction:column;align-items:center;gap:8px}
+.hl-item .hl-ring{width:80px;height:80px;border-radius:50%;overflow:hidden;background:linear-gradient(135deg,#E4405F,#FF9A3D);padding:2px}
+.hl-item .hl-inner{width:100%;height:100%;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.hl-item .hl-lbl{font-size:11px;color:var(--text3);text-align:center;font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.08em}
+
+footer{padding:40px 48px;text-align:center;font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text3);border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+<div id="progress"></div>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="brand">
+    <svg width="20" height="20" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="14" fill="#fff"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+    pique
+    <span class="brand-label">social media kit v2</span>
+  </div>
+  <nav class="nav">
+    <a href="#setup" class="active">Setup</a>
+    <a href="#pfp">Perfiles</a>
+    <a href="#banners">Banners</a>
+    <a href="#highlights">Highlights</a>
+    <a href="#stories">Stories/Reels</a>
+    <a href="#feed">Feed</a>
+    <a href="#carousel">Carrusel</a>
+    <a href="#pilares">Pilares</a>
+    <a href="#copys">Copys</a>
+    <a href="#scripts">Scripts</a>
+    <a href="#calendario">Calendario</a>
+    <a href="#specs">Specs</a>
+    <a href="#firma">Firma</a>
+  </nav>
+  <div class="tb-right">17 may 2026</div>
+</div>
+
+<div style="height:56px"></div>
+
+<!-- ══════════════════════════════════════════
+     01 · SETUP — por plataforma
+═══════════════════════════════════════════ -->
+<section id="setup">
+<div class="wrap">
+  <div class="sec-label">01 · Setup</div>
+  <div class="sec-title">Configurá cada red desde cero.</div>
+  <div class="sec-desc">Todo lo que necesitás llenar al crear o actualizar cada perfil. Copiá los textos directamente — están optimizados para cada plataforma.</div>
+
+  <!-- BIO TEMPLATES -->
+  <h4 style="font-size:15px;font-weight:600;margin-bottom:16px;color:var(--text2)">Bios listas para copiar</h4>
+  <div class="bio-grid" style="margin-bottom:36px">
+    <div class="bio-card">
+      <div class="plat">Instagram</div>
+      <div class="bio-text">Reservas y gestión para clubes deportivos ·
+Pádel · Tenis · Fútbol · y más
+🟢 Probalo gratis en pique.com.ar
+⬇️ Reservá tu cancha ahora</div>
+      <div class="limit">150 chars máx · Link in bio activado</div>
+    </div>
+    <div class="bio-card">
+      <div class="plat">TikTok</div>
+      <div class="bio-text">Gestión de clubes deportivos ⚡
+Reservas · Caja · Clientes
+pique.com.ar</div>
+      <div class="limit">80 chars máx · Muy corto y directo</div>
+    </div>
+    <div class="bio-card">
+      <div class="plat">LinkedIn</div>
+      <div class="bio-text">Plataforma SaaS para clubes y complejos deportivos. Gestión de reservas, agenda, caja y clientes en un solo panel. Operando en Argentina y LATAM.</div>
+      <div class="limit">200 chars máx · Tono profesional</div>
+    </div>
+    <div class="bio-card">
+      <div class="plat">Twitter / X</div>
+      <div class="bio-text">SaaS para clubes deportivos 🎾
+Reservas + gestión en un panel
+Argentina & LATAM → pique.com.ar</div>
+      <div class="limit">160 chars máx · Conciso</div>
+    </div>
+    <div class="bio-card">
+      <div class="plat">Facebook</div>
+      <div class="bio-text">Pique es la plataforma que necesita tu club. Gestioná reservas, agenda, caja y clientes desde un solo lugar. Sin papel, sin WhatsApp, sin caos.</div>
+      <div class="limit">Página de empresa · Categoría: Software</div>
+    </div>
+    <div class="bio-card">
+      <div class="plat">WhatsApp Business</div>
+      <div class="bio-text">Hola 👋 Soy Pique, la plataforma para gestionar tu club.
+Reservas, caja y agenda en un solo lugar.
+Probalo gratis: pique.com.ar</div>
+      <div class="limit">Mensaje de bienvenida automático</div>
+    </div>
+  </div>
+
+  <!-- SETUP CHECKLISTS -->
+  <h4 style="font-size:15px;font-weight:600;margin-bottom:16px;color:var(--text2)">Checklist de configuración por red</h4>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <!-- IG -->
+    <div class="card">
+      <div class="card-head"><h4>Instagram · Empresa</h4><span class="tag">@pique.app</span></div>
+      <div class="card-body" style="padding:0">
+        <table class="setup-table" style="border:none;border-radius:0">
+          <tr><td class="field">Usuario</td><td><span class="copy">@pique.app</span></td></tr>
+          <tr><td class="field">Nombre</td><td><span class="copy">Pique · Reservas y Gestión</span></td></tr>
+          <tr><td class="field">Categoría</td><td>Software</td></tr>
+          <tr><td class="field">Link en bio</td><td><span class="copy">pique.com.ar</span></td></tr>
+          <tr><td class="field">Botón CTA</td><td>Reservar → link al producto</td></tr>
+          <tr><td class="field">Email de contacto</td><td>hola@pique.com.ar</td></tr>
+          <tr><td class="field">Highlights</td><td>Reservas · Pádel · Admin · Novedades · ¿Qué es?</td></tr>
+          <tr><td class="field">Publicaciones fijadas</td><td>1er post: video "¿Qué es Pique?" (Reel)</td></tr>
+        </table>
+      </div>
+    </div>
+    <!-- TikTok -->
+    <div class="card">
+      <div class="card-head"><h4>TikTok · Empresa</h4><span class="tag">@pique.app</span></div>
+      <div class="card-body" style="padding:0">
+        <table class="setup-table" style="border:none;border-radius:0">
+          <tr><td class="field">Usuario</td><td><span class="copy">@piqueapp</span></td></tr>
+          <tr><td class="field">Nombre</td><td><span class="copy">Pique · Tu club, ordenado.</span></td></tr>
+          <tr><td class="field">Categoría</td><td>Tecnología</td></tr>
+          <tr><td class="field">Link en bio</td><td><span class="copy">pique.com.ar</span></td></tr>
+          <tr><td class="field">Email</td><td>hola@pique.com.ar (para B2B)</td></tr>
+          <tr><td class="field">Primer video</td><td>"Reservá en 40 segundos" — gancho en 2s</td></tr>
+          <tr><td class="field">Listas</td><td>Tutoriales · Detrás del panel · Tips de gestión</td></tr>
+          <tr><td class="field">Creator Tools</td><td>Activar Analytics y TikTok Business</td></tr>
+        </table>
+      </div>
+    </div>
+    <!-- LinkedIn -->
+    <div class="card">
+      <div class="card-head"><h4>LinkedIn · Página empresa</h4><span class="tag">linkedin.com/company/piqueapp</span></div>
+      <div class="card-body" style="padding:0">
+        <table class="setup-table" style="border:none;border-radius:0">
+          <tr><td class="field">Nombre</td><td><span class="copy">Pique</span></td></tr>
+          <tr><td class="field">Slogan</td><td><span class="copy">Reservas y gestión para clubes deportivos</span></td></tr>
+          <tr><td class="field">Industria</td><td>Software Development</td></tr>
+          <tr><td class="field">Tamaño</td><td>2–10 employees</td></tr>
+          <tr><td class="field">Sitio web</td><td><span class="copy">pique.com.ar</span></td></tr>
+          <tr><td class="field">Hashtags</td><td>#SaaS #GestiónDeportiva #Pádel #Startups</td></tr>
+          <tr><td class="field">Botón CTA</td><td>"Más información" → pique.com.ar</td></tr>
+          <tr><td class="field">Banner</td><td>Usar template LinkedIn de este kit</td></tr>
+        </table>
+      </div>
+    </div>
+    <!-- WhatsApp -->
+    <div class="card">
+      <div class="card-head"><h4>WhatsApp Business</h4><span class="tag">Número dedicado</span></div>
+      <div class="card-body" style="padding:0">
+        <table class="setup-table" style="border:none;border-radius:0">
+          <tr><td class="field">Nombre empresa</td><td><span class="copy">Pique</span></td></tr>
+          <tr><td class="field">Categoría</td><td>Tecnología y Electrónica</td></tr>
+          <tr><td class="field">Dirección web</td><td><span class="copy">pique.com.ar</span></td></tr>
+          <tr><td class="field">Mensaje bienvenida</td><td>Se activa si no respondés en 24hs</td></tr>
+          <tr><td class="field">Mensaje ausencia</td><td><span class="copy">Gracias por escribir a Pique. Te respondemos en breve o visitá pique.com.ar</span></td></tr>
+          <tr><td class="field">Respuestas rápidas</td><td>/demo · /precio · /contacto</td></tr>
+          <tr><td class="field">Etiquetas</td><td>Lead · Demo agendada · Cliente · Pendiente</td></tr>
+          <tr><td class="field">Catálogo</td><td>Listar plan Starter / Pro / Enterprise</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="info-box" style="margin-top:20px"><strong>Nombre de usuario unificado:</strong> intentar conseguir <strong>@pique.app</strong> o <strong>@piqueapp</strong> en todas las redes antes del lanzamiento. Si alguna está tomada, usar <strong>@pique.ar</strong>. La consistencia entre plataformas reduce fricciones al buscar la marca.</div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════
+     02 · FOTOS DE PERFIL
+═══════════════════════════════════════════ -->
+<section id="pfp">
+<div class="wrap">
+  <div class="sec-label">02 · Foto de perfil</div>
+  <div class="sec-title">El isotipo en cada formato.</div>
+  <div class="sec-desc">Cinco versiones del mismo isotipo, adaptadas al fondo, tamaño y forma de cada plataforma. Todas se ven idénticas en pequeño.</div>
+
+  <div class="pfp-grid">
+    <!-- IG/TikTok: circle dark -->
+    <div class="pfp-item">
+      <div style="width:110px;height:110px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 3px rgba(182,243,106,.3)">
+        <svg width="64" height="64" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="14" fill="#fff"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+      </div>
+      <div class="lbl">IG · TikTok</div>
+      <div class="sz">110 × 110 mín<br/>Círculo recortado</div>
+    </div>
+    <!-- LinkedIn: circle white bg -->
+    <div class="pfp-item">
+      <div style="width:110px;height:110px;border-radius:50%;background:#F5F4F0;display:flex;align-items:center;justify-content:center;border:2px solid var(--ink8)">
+        <svg width="64" height="64" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="14" fill="#0E1116"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+      </div>
+      <div class="lbl">LinkedIn</div>
+      <div class="sz">400 × 400<br/>Círculo</div>
+    </div>
+    <!-- Twitter/X: circle dark -->
+    <div class="pfp-item">
+      <div style="width:110px;height:110px;border-radius:50%;background:#0B0D0F;display:flex;align-items:center;justify-content:center;border:2px solid #2A2D32">
+        <svg width="64" height="64" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="14" fill="#fff" opacity=".1"/><rect x="6" y="6" width="52" height="52" rx="14" stroke="#fff" stroke-width="3" fill="none"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+      </div>
+      <div class="lbl">Twitter / X</div>
+      <div class="sz">400 × 400<br/>Círculo recortado</div>
+    </div>
+    <!-- Facebook: square with round -->
+    <div class="pfp-item">
+      <div style="width:110px;height:110px;border-radius:14px;background:var(--ink);display:flex;align-items:center;justify-content:center">
+        <svg width="72" height="72" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="14" fill="#fff"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+      </div>
+      <div class="lbl">Facebook</div>
+      <div class="sz">170 × 170<br/>Recorte circular</div>
+    </div>
+    <!-- WhatsApp: lima bg -->
+    <div class="pfp-item">
+      <div style="width:110px;height:110px;border-radius:50%;background:var(--lima);display:flex;align-items:center;justify-content:center">
+        <svg width="60" height="60" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="14" fill="#1F3A0E"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+      </div>
+      <div class="lbl">WhatsApp</div>
+      <div class="sz">500 × 500<br/>Círculo recortado</div>
+    </div>
+  </div>
+
+  <div class="info-box">El isotipo sobre <strong>fondo carbón</strong> (#0E1116) es la versión primaria. El dot lima tiene contraste 13:1 sobre fondo oscuro — AAA. Nunca usar fondo blanco puro: usar off-white (#F5F4F0) o carbón. En formatos de 16px o menos, el dot se escala proporcionalmente al 35% del isotipo.</div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════
+     03 · BANNERS
+═══════════════════════════════════════════ -->
+<section id="banners">
+<div class="wrap">
+  <div class="sec-label">03 · Banners</div>
+  <div class="sec-title">Portadas para cada red.</div>
+  <div class="sec-desc">Un banner por plataforma, con sus proporciones exactas. Composición limpia: mensaje a la izquierda, marca a la derecha.</div>
+
+  <div class="banner-row">
+    <!-- LinkedIn 4:1 -->
+    <div class="fmt" style="width:100%;align-items:flex-start">
+      <div class="fmt-label">LinkedIn · 1584 × 396</div>
+      <div class="c-banner-ln" style="width:100%;background:var(--ink);display:flex;align-items:center;justify-content:space-between;padding:0 56px">
+        <div class="glow gl" style="width:360px;height:360px;top:-180px;right:120px;opacity:.2"></div>
+        <div style="display:flex;flex-direction:column;gap:10px;z-index:2">
+          <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(182,243,106,.12);border:1px solid rgba(182,243,106,.22);border-radius:999px;padding:4px 12px;font-size:11px;color:var(--lima);width:fit-content"><span style="width:5px;height:5px;border-radius:50%;background:var(--lima)"></span>SaaS deportivo · Argentina</div>
+          <div style="font-size:34px;font-weight:700;letter-spacing:-.04em;line-height:1;color:#fff">Reservas y gestión<br/><span style="color:var(--lima)">para clubes.</span></div>
+          <div style="font-size:13px;color:rgba(255,255,255,.4)">Agenda · Caja · Clientes · Facturación</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:14px;z-index:2">
+          <svg width="52" height="52" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="14" fill="#fff" opacity=".08"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+          <span style="font-size:38px;font-weight:700;letter-spacing:-.04em">pique</span>
+        </div>
+      </div>
+      <div class="fmt-size">LinkedIn empresa · Banner de portada</div>
+    </div>
+
+    <!-- Twitter/X 3:1 -->
+    <div class="fmt" style="align-items:flex-start;width:640px">
+      <div class="fmt-label">Twitter / X · 1500 × 500</div>
+      <div class="c-banner-tw" style="width:640px;background:linear-gradient(135deg,#0E1116 0%,#1B1F26 100%);display:flex;align-items:center;justify-content:space-between;padding:0 40px;position:relative">
+        <div class="glow gl" style="width:280px;height:280px;top:-120px;left:40px;opacity:.15"></div>
+        <div style="z-index:2;display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:22px;font-weight:700;letter-spacing:-.04em;color:#fff;line-height:1">Tu club,<br/><span style="color:var(--lima)">ordenado.</span></div>
+          <div style="font-size:11px;color:rgba(255,255,255,.4)">Reservas · Caja · Agenda · LATAM</div>
+          <div style="font-family:'Geist Mono',monospace;font-size:10px;color:var(--lima);letter-spacing:.1em;margin-top:4px">pique.com.ar</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;z-index:2">
+          <svg width="36" height="36" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="12" fill="#fff" opacity=".08"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+          <span style="font-size:26px;font-weight:700;letter-spacing:-.04em">pique</span>
+        </div>
+      </div>
+      <div class="fmt-size">Twitter/X · Header</div>
+    </div>
+
+    <!-- Facebook + WhatsApp -->
+    <div style="display:flex;gap:20px;flex-wrap:wrap">
+      <!-- Facebook 2.7:1 -->
+      <div class="fmt" style="align-items:flex-start">
+        <div class="fmt-label">Facebook · 820 × 312</div>
+        <div class="c-banner-fb" style="width:500px;background:var(--ink);display:flex;align-items:center;justify-content:space-between;padding:0 36px;position:relative">
+          <div class="glow gl" style="width:300px;height:300px;bottom:-120px;right:60px;opacity:.15"></div>
+          <div style="z-index:2;display:flex;flex-direction:column;gap:8px">
+            <div style="font-size:20px;font-weight:700;letter-spacing:-.04em;color:#fff;line-height:1">Reservas y gestión<br/><span style="color:var(--lima)">para tu club.</span></div>
+            <div style="font-size:11px;color:rgba(255,255,255,.4);margin-top:2px">Pádel · Tenis · Fútbol · y más</div>
+          </div>
+          <div style="z-index:2;display:flex;flex-direction:column;align-items:center;gap:8px">
+            <svg width="44" height="44" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="14" fill="#fff" opacity=".08"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+            <span style="font-size:18px;font-weight:700">pique</span>
+            <span style="font-family:'Geist Mono',monospace;font-size:9px;color:var(--lima);letter-spacing:.1em">pique.com.ar</span>
+          </div>
+        </div>
+        <div class="fmt-size">Facebook página · Portada</div>
+      </div>
+
+      <!-- WhatsApp Business Catalog -->
+      <div class="fmt" style="align-items:flex-start">
+        <div class="fmt-label">WhatsApp Business · Catálogo</div>
+        <div style="width:280px;height:185px;background:var(--lima);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;padding:20px;position:relative">
+          <div style="display:flex;align-items:center;gap:8px">
+            <svg width="24" height="24" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="12" fill="#1F3A0E"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+            <span style="font-size:16px;font-weight:700;color:var(--lima900)">pique</span>
+          </div>
+          <div>
+            <div style="font-size:20px;font-weight:700;color:var(--lima900);letter-spacing:-.03em;line-height:1">Gestioná tu<br/>club hoy.</div>
+            <div style="font-size:11px;color:rgba(31,58,14,.6);margin-top:6px">Sin tarjeta · En 5 minutos</div>
+          </div>
+        </div>
+        <div class="fmt-size">WhatsApp Business · 500 × 500</div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════
+     04 · INSTAGRAM HIGHLIGHTS
+═══════════════════════════════════════════ -->
+<section id="highlights">
+<div class="wrap">
+  <div class="sec-label">04 · Highlights</div>
+  <div class="sec-title">Covers para Instagram Stories.</div>
+  <div class="sec-desc">5 portadas de Highlights para Instagram. Fondo carbón + dot lima. El anillo de IG se aplica automáticamente. Subir cada una como Story y anclarla.</div>
+
+  <div class="hl-row">
+    <!-- Reservas -->
+    <div class="hl-item">
+      <div class="hl-ring"><div class="hl-inner" style="background:var(--ink)">
+        <svg width="36" height="36" viewBox="0 0 48 48"><rect x="4" y="8" width="40" height="34" rx="4" stroke="#B6F36A" stroke-width="3" fill="none"/><line x1="4" y1="18" x2="44" y2="18" stroke="#B6F36A" stroke-width="2.5"/><circle cx="15" cy="28" r="3" fill="#B6F36A"/><circle cx="24" cy="28" r="3" fill="rgba(182,243,106,.4)"/><circle cx="33" cy="28" r="3" fill="rgba(182,243,106,.4)"/></svg>
+      </div></div>
+      <div class="hl-lbl">Reservas</div>
+    </div>
+    <!-- Admin -->
+    <div class="hl-item">
+      <div class="hl-ring"><div class="hl-inner" style="background:var(--ink)">
+        <svg width="36" height="36" viewBox="0 0 48 48"><rect x="6" y="6" width="16" height="16" rx="3" stroke="#B6F36A" stroke-width="2.5" fill="none"/><rect x="26" y="6" width="16" height="16" rx="3" stroke="#B6F36A" stroke-width="2.5" fill="rgba(182,243,106,.15)"/><rect x="6" y="26" width="16" height="16" rx="3" stroke="#B6F36A" stroke-width="2.5" fill="rgba(182,243,106,.15)"/><rect x="26" y="26" width="16" height="16" rx="3" stroke="#B6F36A" stroke-width="2.5" fill="none"/></svg>
+      </div></div>
+      <div class="hl-lbl">Panel admin</div>
+    </div>
+    <!-- Deportes -->
+    <div class="hl-item">
+      <div class="hl-ring"><div class="hl-inner" style="background:var(--ink)">
+        <svg width="36" height="36" viewBox="0 0 48 48"><circle cx="24" cy="24" r="16" stroke="#B6F36A" stroke-width="2.5" fill="none"/><path d="M8 24 Q16 16 24 24 Q32 32 40 24" stroke="#B6F36A" stroke-width="2" fill="none"/><path d="M24 8 Q16 16 24 24 Q32 32 24 40" stroke="rgba(182,243,106,.4)" stroke-width="2" fill="none"/></svg>
+      </div></div>
+      <div class="hl-lbl">Deportes</div>
+    </div>
+    <!-- Novedades -->
+    <div class="hl-item">
+      <div class="hl-ring"><div class="hl-inner" style="background:var(--ink)">
+        <svg width="36" height="36" viewBox="0 0 48 48"><polygon points="24,6 29,18 42,18 32,27 36,40 24,32 12,40 16,27 6,18 19,18" stroke="#B6F36A" stroke-width="2.5" fill="none"/></svg>
+      </div></div>
+      <div class="hl-lbl">Novedades</div>
+    </div>
+    <!-- ¿Qué es? -->
+    <div class="hl-item">
+      <div class="hl-ring"><div class="hl-inner" style="background:var(--ink)">
+        <svg width="36" height="36" viewBox="0 0 48 48">
+          <rect x="6" y="6" width="36" height="36" rx="10" fill="#fff" opacity=".06"/>
+          <rect x="6" y="6" width="36" height="36" rx="10" stroke="#B6F36A" stroke-width="2.5" fill="none"/>
+          <circle cx="33" cy="33" r="6" fill="#B6F36A"/>
+        </svg>
+      </div></div>
+      <div class="hl-lbl">¿Qué es?</div>
+    </div>
+    <!-- Clientes -->
+    <div class="hl-item">
+      <div class="hl-ring"><div class="hl-inner" style="background:var(--ink)">
+        <svg width="36" height="36" viewBox="0 0 48 48"><circle cx="18" cy="18" r="8" stroke="#B6F36A" stroke-width="2.5" fill="none"/><circle cx="30" cy="18" r="8" stroke="rgba(182,243,106,.4)" stroke-width="2.5" fill="none"/><path d="M4 40 Q10 28 18 28 Q26 28 32 28 Q40 28 44 40" stroke="#B6F36A" stroke-width="2.5" fill="none"/></svg>
+      </div></div>
+      <div class="hl-lbl">Clientes</div>
+    </div>
+    <!-- Tutoriales -->
+    <div class="hl-item">
+      <div class="hl-ring"><div class="hl-inner" style="background:var(--ink)">
+        <svg width="36" height="36" viewBox="0 0 48 48"><circle cx="24" cy="24" r="16" stroke="#B6F36A" stroke-width="2.5" fill="none"/><polygon points="20,16 36,24 20,32" fill="#B6F36A"/></svg>
+      </div></div>
+      <div class="hl-lbl">Tutoriales</div>
+    </div>
+    <!-- Caja -->
+    <div class="hl-item">
+      <div class="hl-ring"><div class="hl-inner" style="background:var(--ink)">
+        <svg width="36" height="36" viewBox="0 0 48 48"><rect x="4" y="12" width="40" height="28" rx="4" stroke="#B6F36A" stroke-width="2.5" fill="none"/><line x1="4" y1="22" x2="44" y2="22" stroke="#B6F36A" stroke-width="2"/><circle cx="34" cy="32" r="4" fill="#B6F36A"/></svg>
+      </div></div>
+      <div class="hl-lbl">Caja</div>
+    </div>
+  </div>
+  <div class="info-box" style="margin-top:24px"><strong>Cómo subir:</strong> crear cada highlight cover como una Story (1080×1920) usando el isotipo centrado sobre fondo carbón. Subir como Story, archivar, y luego crear el Highlight seleccionando esa Story. El anillo de gradiente de IG se aplica encima automáticamente.</div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════
+     05 · STORIES / REELS / TIKTOK
+═══════════════════════════════════════════ -->
+<section id="stories">
+<div class="wrap">
+  <div class="sec-label">05 · Stories · Reels · TikTok</div>
+  <div class="sec-title">Formato vertical 9:16.</div>
+  <div class="sec-desc">Un frame base que funciona para Instagram Stories, Reel cover y portada de TikTok. Safe zone: evitar texto en los primeros y últimos 100px.</div>
+
+  <div class="fmt-row">
+    <!-- S1 Lanzamiento -->
+    <div class="fmt">
+      <div class="c-story s-launch">
+        <div class="glow gl" style="width:180px;height:180px;top:-50px;right:-30px"></div>
+        <div style="display:flex;align-items:center;gap:7px">
+          <svg width="20" height="20" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="13" fill="#fff"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+          <span style="font-size:14px;font-weight:600">pique</span>
+        </div>
+        <div class="hero" style="display:flex;flex-direction:column;gap:10px">
+          <div class="pill"><span></span>Nuevo en Argentina</div>
+          <h2>Reserv<br/>ás <em>al<br/>toque.</em></h2>
+          <p class="sub">Sin llamadas ni WhatsApp. Elegís, reservás y listo.</p>
+          <div class="cta">Conocer Pique →</div>
+        </div>
+        <div style="font-size:10px;color:rgba(255,255,255,.25)">↑ Swipe up · pique.com.ar</div>
+      </div>
+      <div class="fmt-label">Lanzamiento</div>
+      <div class="fmt-size">1080 × 1920 · IG · TK</div>
+    </div>
+
+    <!-- S2 Feature -->
+    <div class="fmt">
+      <div class="c-story s-feat">
+        <div class="glow gl" style="width:260px;height:260px;top:-80px;right:-60px;opacity:.3"></div>
+        <div style="position:absolute;top:22px;left:20px;display:flex;align-items:center;gap:7px">
+          <svg width="18" height="18" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="12" fill="#fff" opacity=".12"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+          <span style="font-size:13px;font-weight:600">pique</span>
+        </div>
+        <div style="position:absolute;top:72px;left:20px;right:20px;background:#fff;border-radius:8px;overflow:hidden">
+          <div style="background:#F5F4F0;padding:5px 10px;border-bottom:1px solid #DBD9D1;display:flex;gap:5px;align-items:center">
+            <span style="width:4px;height:4px;border-radius:50%;background:#DBD9D1"></span>
+            <span style="font-size:8px;color:#6F6A60;font-family:'Geist Mono',monospace">Pique · Panel</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:#DBD9D1">
+            <div style="background:#fff;padding:7px 9px"><span style="font-size:7px;color:#6F6A60">Saldo</span><div style="font-size:13px;font-weight:600;color:#0E1116;font-family:'Geist Mono',monospace">$29.800</div></div>
+            <div style="background:#fff;padding:7px 9px"><span style="font-size:7px;color:#6F6A60">Reservas hoy</span><div style="font-size:13px;font-weight:600;color:#0E1116;font-family:'Geist Mono',monospace">14</div></div>
+          </div>
+        </div>
+        <div style="z-index:2">
+          <div class="s-feat feat-tag" style="font-family:'Geist Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--lima);margin-bottom:8px">Panel administrativo</div>
+          <div style="font-size:26px;font-weight:700;letter-spacing:-.04em;line-height:1;margin-bottom:8px">Todo el club,<br/>una pantalla.</div>
+          <p style="font-size:11px;color:rgba(255,255,255,.45);line-height:1.4;margin-bottom:12px">Agenda, caja, clientes y facturación en un solo lugar.</p>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <div class="mod" style="display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:3px 8px;font-size:9px;color:#fff"><span class="dot" style="width:4px;height:4px;border-radius:50%;background:var(--lima)"></span>Calendario</div>
+            <div class="mod" style="display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:3px 8px;font-size:9px;color:#fff"><span class="dot" style="width:4px;height:4px;border-radius:50%;background:var(--lima)"></span>Caja</div>
+            <div class="mod" style="display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:3px 8px;font-size:9px;color:#fff"><span class="dot" style="width:4px;height:4px;border-radius:50%;background:var(--lima)"></span>Clientes</div>
+          </div>
+        </div>
+      </div>
+      <div class="fmt-label">Feature · Admin</div>
+      <div class="fmt-size">Reel cover</div>
+    </div>
+
+    <!-- S3 Stat -->
+    <div class="fmt">
+      <div class="c-story s-stat">
+        <div style="display:flex;align-items:center;gap:7px">
+          <svg width="18" height="18" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="12" fill="#1F3A0E"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+          <span style="font-size:13px;font-weight:600;color:var(--lima900)">pique</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-family:'Geist Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:rgba(31,58,14,.5)">Dato de impacto</div>
+          <div style="font-size:80px;font-weight:800;letter-spacing:-.06em;color:var(--lima900);line-height:.85">3×</div>
+          <div style="font-size:16px;font-weight:600;color:var(--lima900)">más rápido reservar</div>
+          <div style="font-size:11px;color:rgba(31,58,14,.6);line-height:1.4">Jugadores confirman en menos de 40 segundos desde el celu.</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;opacity:.6">
+          <svg width="15" height="15" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="12" fill="#1F3A0E"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+          <span style="font-size:13px;font-weight:600;color:var(--lima900)">pique</span>
+        </div>
+      </div>
+      <div class="fmt-label">Estadística · Lima</div>
+      <div class="fmt-size">Dato de impacto</div>
+    </div>
+
+    <!-- S4 Tutorial -->
+    <div class="fmt">
+      <div class="c-story s-tut">
+        <div class="glow gl" style="width:200px;height:200px;bottom:-60px;left:-40px;opacity:.2"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="display:flex;align-items:center;gap:7px">
+            <svg width="18" height="18" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="12" fill="#fff" opacity=".08"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+            <span style="font-size:13px;font-weight:600">pique</span>
+          </div>
+          <div style="display:inline-flex;align-items:center;gap:4px;background:rgba(182,243,106,.1);border:1px solid rgba(182,243,106,.2);border-radius:999px;padding:3px 9px;font-size:9px;color:var(--lima)">▶ Tutorial</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;z-index:2">
+          <div style="font-family:'Geist Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--lima)">Reservá en 40 seg.</div>
+          <div style="font-size:28px;font-weight:700;letter-spacing:-.04em;line-height:.95">Así de fácil.</div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div class="step"><span class="num">1</span>Elegís el deporte y zona</div>
+            <div class="step"><span class="num">2</span>Ves horarios disponibles</div>
+            <div class="step"><span class="num">3</span>Confirmás y listo ✓</div>
+          </div>
+          <div style="background:var(--lima);color:var(--lima900);font-size:11px;font-weight:700;border-radius:999px;padding:8px 14px;display:inline-flex;width:fit-content;margin-top:4px">Probalo en pique.com.ar</div>
+        </div>
+      </div>
+      <div class="fmt-label">Tutorial · Pasos</div>
+      <div class="fmt-size">TikTok · Reel cover</div>
+    </div>
+
+    <!-- Safe zone -->
+    <div class="fmt">
+      <div class="c-story safezone" style="background:#1C1F24">
+        <div class="sz-overlay">
+          <div class="sz-top"><span class="sz-label" style="top:8px;left:10px">⚠ UI zona</span></div>
+          <div style="position:absolute;top:80px;bottom:100px;left:0;right:0;border:2px dashed rgba(182,243,106,.3);pointer-events:none"></div>
+          <div class="sz-bot"><span class="sz-label" style="bottom:8px;left:10px">⚠ UI zona</span></div>
+        </div>
+        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;z-index:2">
+          <div style="color:var(--lima);font-size:11px;font-weight:600;font-family:'Geist Mono',monospace;letter-spacing:.1em;text-transform:uppercase">Safe zone</div>
+          <div style="font-size:24px;font-weight:700;line-height:1">Todo el texto<br/>acá adentro.</div>
+          <div style="font-size:10px;color:var(--text3);line-height:1.4">±80px top: barra IG/TK<br/>±100px bottom: botones</div>
+        </div>
+      </div>
+      <div class="fmt-label">Safe zone · Guía</div>
+      <div class="fmt-size">Referencia para armar videos</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════
+     06 · FEED
+═══════════════════════════════════════════ -->
+<section id="feed">
+<div class="wrap">
+  <div class="sec-label">06 · Feed · Posts</div>
+  <div class="sec-title">Formato cuadrado 1:1.</div>
+  <div class="sec-desc">Posts de grilla para Instagram y Facebook. Cuatro registros: oscuro aspiracional, claro funcional, dato de impacto y social proof.</div>
+
+  <div class="fmt-row">
+    <!-- F1 Hero dark -->
+    <div class="fmt">
+      <div class="c-feed f-hero">
+        <div class="glow gl" style="width:180px;height:180px;top:-60px;right:-50px;opacity:.25"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="display:flex;align-items:center;gap:6px"><svg width="16" height="16" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="12" fill="#fff" opacity=".1"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg><span style="font-size:12px;font-weight:600">pique</span></div>
+          <div style="display:inline-flex;align-items:center;gap:4px;background:rgba(182,243,106,.1);border:1px solid rgba(182,243,106,.2);border-radius:999px;padding:3px 9px;font-size:9px;color:var(--lima)"><span style="width:4px;height:4px;border-radius:50%;background:var(--lima)"></span>Nueva plataforma</div>
+        </div>
+        <div>
+          <h2 style="font-size:42px;font-weight:800;letter-spacing:-.05em;line-height:.88">Reserv<span style="color:var(--lima)">á<br/>al toque.</span></h2>
+          <p style="font-size:11px;color:rgba(255,255,255,.4);margin-top:8px">Sin llamadas. Sin esperas. Desde el celu.</p>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="background:var(--lima);color:var(--lima900);font-size:11px;font-weight:700;padding:7px 13px;border-radius:999px">Probalo gratis</div>
+          <span style="font-size:10px;color:rgba(255,255,255,.2);font-family:'Geist Mono',monospace">pique.com.ar</span>
+        </div>
+      </div>
+      <div class="fmt-label">Hero · Dark</div>
+      <div class="fmt-size">1080 × 1080 · IG / FB</div>
+    </div>
+
+    <!-- F2 Modules light -->
+    <div class="fmt">
+      <div class="c-feed f-mods">
+        <div class="hd">
+          <svg width="16" height="16" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="12" fill="#0E1116"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+          <span>pique</span>
+          <span style="color:var(--ink5);font-size:10px;margin-left:4px">· Todo en un lugar.</span>
+        </div>
+        <div class="f-mod"><div class="dot"></div><h5>Calendario</h5><p>Agenda de turnos</p></div>
+        <div class="f-mod"><div class="dot"></div><h5>Caja</h5><p>Cierre del día</p></div>
+        <div class="f-mod"><div class="dot"></div><h5>Clientes</h5><p>Base y contacto</p></div>
+        <div class="f-mod"><div class="dot"></div><h5>Reservas</h5><p>Online 24/7</p></div>
+        <div class="f-mod"><div class="dot"></div><h5>Facturación</h5><p>Pagos automáticos</p></div>
+        <div class="f-mod"><div class="dot"></div><h5>Informes</h5><p>Métricas del club</p></div>
+      </div>
+      <div class="fmt-label">Módulos · Claro</div>
+      <div class="fmt-size">Para dueños de club</div>
+    </div>
+
+    <!-- F3 Stat -->
+    <div class="fmt">
+      <div class="c-feed f-stat">
+        <div class="glow gl" style="width:220px;height:220px;bottom:-80px;left:-40px;opacity:.18"></div>
+        <div style="z-index:2">
+          <div style="font-family:'Geist Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--lima)">Esta semana</div>
+          <div style="font-size:72px;font-weight:800;letter-spacing:-.07em;color:var(--lima);line-height:.85;margin-top:4px">14</div>
+          <div style="font-size:20px;font-weight:600;color:#fff;margin-top:4px">reservas.</div>
+        </div>
+        <div style="z-index:2">
+          <div style="font-size:12px;color:rgba(255,255,255,.4);line-height:1.4">Promedio de un complejo usando Pique en su primera semana.</div>
+          <div style="display:flex;align-items:center;gap:5px;margin-top:10px"><svg width="14" height="14" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="10" fill="#fff" opacity=".08"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg><span style="font-size:11px;font-weight:600">pique</span></div>
+        </div>
+      </div>
+      <div class="fmt-label">Estadística · Dark</div>
+      <div class="fmt-size">Dato de impacto</div>
+    </div>
+
+    <!-- F4 Testimonial -->
+    <div class="fmt">
+      <div class="c-feed f-testi">
+        <div style="display:flex;align-items:center;gap:5px"><svg width="15" height="15" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="10" fill="#0E1116"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg><span style="font-size:12px;font-weight:600;color:var(--ink)">pique</span></div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="font-size:38px;color:var(--limad);font-weight:700;line-height:1">"</div>
+          <div style="font-size:15px;font-weight:600;color:var(--ink);line-height:1.25;letter-spacing:-.02em">Antes perdíamos turnos por no contestar a tiempo. Ahora el club se llena solo.</div>
+          <div style="font-size:11px;color:var(--ink5)">— Martín R. · Las Tejas Pádel</div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="display:inline-flex;align-items:center;gap:4px;background:var(--lima10);border-radius:999px;padding:3px 9px;font-size:10px;color:var(--limad);font-weight:500"><span style="width:4px;height:4px;border-radius:50%;background:var(--limad)"></span>Cliente Pique</span>
+          <span style="font-size:10px;color:var(--ink5);font-family:'Geist Mono',monospace">pique.com.ar</span>
+        </div>
+      </div>
+      <div class="fmt-label">Testimonial · Claro</div>
+      <div class="fmt-size">Social proof</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════
+     07 · CARRUSEL
+═══════════════════════════════════════════ -->
+<section id="carousel">
+<div class="wrap">
+  <div class="sec-label">07 · Carrusel</div>
+  <div class="sec-title">Swipe posts 4:5.</div>
+  <div class="sec-desc">Ideal para Instagram y LinkedIn. Estructura: portada gancho → 3 slides de contenido → cierre con CTA. Alternar oscuro/claro para ritmo visual.</div>
+
+  <div class="fmt-row">
+    <div class="fmt"><div class="c-car car-d">
+      <div class="car-num-d">01 / 05</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:10px;color:rgba(255,255,255,.3);font-family:'Geist Mono',monospace;letter-spacing:.08em;text-transform:uppercase">Guía</div>
+        <div style="font-size:22px;font-weight:700;letter-spacing:-.04em;color:#fff;line-height:1.05">3 cosas que podés automatizar en tu club hoy.</div>
+        <p style="font-size:11px;color:rgba(255,255,255,.4);line-height:1.45">Deslizá y descubrí cómo Pique hace el trabajo por vos.</p>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600"><svg width="13" height="13" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="10" fill="#fff" opacity=".1"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>pique</div>
+        <div style="font-size:10px;color:var(--lima)">Swipe →</div>
+      </div>
+    </div><div class="fmt-label">Portada</div><div class="fmt-size">1080 × 1350</div></div>
+
+    <div class="fmt"><div class="c-car car-l">
+      <div class="car-num-l">02 / 05</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--lima);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;color:var(--lima900)">1</div>
+        <div style="font-size:20px;font-weight:700;letter-spacing:-.04em;color:var(--ink);line-height:1.05">Reservas online 24/7, sin que vos estés.</div>
+        <p style="font-size:11px;color:var(--ink5);line-height:1.45">Pique confirma automáticamente y notifica al jugador. Vos abrís el panel al día siguiente y todo está resuelto.</p>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--ink)"><svg width="13" height="13" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="10" fill="#0E1116"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>pique</div>
+        <div style="font-size:10px;color:var(--limad)">Siguiente →</div>
+      </div>
+    </div><div class="fmt-label">Slide 2 · Claro</div><div class="fmt-size">Alternar con oscuro</div></div>
+
+    <div class="fmt"><div class="c-car car-d">
+      <div class="car-num-d">03 / 05</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--lima);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;color:var(--lima900)">2</div>
+        <div style="font-size:20px;font-weight:700;letter-spacing:-.04em;color:#fff;line-height:1.05">Caja cerrada en 2 minutos, no en 20.</div>
+        <p style="font-size:11px;color:rgba(255,255,255,.4);line-height:1.45">El resumen del día aparece solo: ingresos, egresos, reservas pagas y pendientes.</p>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600"><svg width="13" height="13" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="10" fill="#fff" opacity=".1"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>pique</div>
+        <div style="font-size:10px;color:var(--lima)">Siguiente →</div>
+      </div>
+    </div><div class="fmt-label">Slide 3 · Dark</div><div class="fmt-size">Ritmo visual</div></div>
+
+    <div class="fmt"><div class="c-car car-l">
+      <div class="car-num-l">04 / 05</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--lima);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;color:var(--lima900)">3</div>
+        <div style="font-size:20px;font-weight:700;letter-spacing:-.04em;color:var(--ink);line-height:1.05">Tus clientes, organizados solos.</div>
+        <p style="font-size:11px;color:var(--ink5);line-height:1.45">Pique guarda historial de reservas, pagos y contacto. Podés comunicarte con un segmento en un clic.</p>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--ink)"><svg width="13" height="13" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="10" fill="#0E1116"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>pique</div>
+        <div style="font-size:10px;color:var(--limad)">Último →</div>
+      </div>
+    </div><div class="fmt-label">Slide 4 · Claro</div></div>
+
+    <div class="fmt"><div class="c-car car-li">
+      <div class="car-num-d" style="color:rgba(31,58,14,.5);font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase">05 / 05</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:24px;font-weight:800;letter-spacing:-.05em;color:var(--lima900);line-height:1">Empezá gratis hoy.</div>
+        <p style="font-size:11px;color:rgba(31,58,14,.6);line-height:1.45">Sin tarjeta. Sin configuración. En 5 minutos tu club está en Pique.</p>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="display:flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:var(--lima900)"><svg width="13" height="13" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="10" fill="#1F3A0E"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>pique</div>
+        <div style="background:var(--lima900);color:var(--lima);font-size:10px;font-weight:600;padding:5px 10px;border-radius:999px">pique.com.ar</div>
+      </div>
+    </div><div class="fmt-label">Cierre CTA · Lima</div></div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════
+     08 · PILARES DE CONTENIDO
+═══════════════════════════════════════════ -->
+<section id="pilares">
+<div class="wrap">
+  <div class="sec-label">08 · Pilares de contenido</div>
+  <div class="sec-title">La estrategia detrás de cada post.</div>
+  <div class="sec-desc">Todo lo que publicás cae en uno de estos cuatro pilares. Equilibrar los cuatro construye comunidad, autoridad y conversión a la vez.</div>
+
+  <div class="pillar-grid">
+    <div class="pillar" style="background:rgba(182,243,106,.04)">
+      <div class="num">01 · 40%</div>
+      <h5>Educativo</h5>
+      <p>Enseñás algo útil. El club no necesita ser cliente de Pique para que le sirva el contenido.</p>
+      <ul>
+        <li>Cómo gestionar mejor las reservas</li>
+        <li>Tips para llenar canchas en horarios bajos</li>
+        <li>Errores comunes en caja</li>
+        <li>Cómo comunicarse con clientes</li>
+      </ul>
+      <div class="pct">40% del contenido</div>
+    </div>
+    <div class="pillar">
+      <div class="num">02 · 25%</div>
+      <h5>Producto</h5>
+      <p>Mostrás qué hace Pique. Demos, tutoriales, features nuevas. Sin exagerar — el producto habla solo.</p>
+      <ul>
+        <li>Video: reservar en 40 segundos</li>
+        <li>Panel admin: una semana de uso</li>
+        <li>Feature nueva: X cosa que podés hacer</li>
+        <li>Antes y después de usar Pique</li>
+      </ul>
+      <div class="pct">25% del contenido</div>
+    </div>
+    <div class="pillar">
+      <div class="num">03 · 20%</div>
+      <h5>Social proof</h5>
+      <p>Testimonios, casos de éxito, números reales de clubes que usan Pique. La prueba social vende sola.</p>
+      <ul>
+        <li>Citas de dueños de club</li>
+        <li>Métricas de clientes (con permiso)</li>
+        <li>Clips de video de referidos</li>
+        <li>Reseñas de Google / App Store</li>
+      </ul>
+      <div class="pct">20% del contenido</div>
+    </div>
+    <div class="pillar">
+      <div class="num">04 · 15%</div>
+      <h5>Comunidad</h5>
+      <p>Posteos que generan conversación. Preguntas, encuestas, contenido de tendencia adaptado al deporte.</p>
+      <ul>
+        <li>¿Cuántos WhatsApp recibís por reserva?</li>
+        <li>Encuesta: ¿qué deporte jugás?</li>
+        <li>Trends deportivos + Pique</li>
+        <li>Behind the scenes del producto</li>
+      </ul>
+      <div class="pct">15% del contenido</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════
+     09 · COPYS Y HASHTAGS
+═══════════════════════════════════════════ -->
+<section id="copys">
+<div class="wrap">
+  <div class="sec-label">09 · Copys y hashtags</div>
+  <div class="sec-title">Textos listos para publicar.</div>
+  <div class="sec-desc">Seis copys optimizados por canal y pilar. Voz rioplatense, directa, sin emojis de relleno. Adaptá el nombre del deporte según el post.</div>
+
+  <div class="copy-grid">
+    <div class="copy-card">
+      <div class="cn">IG Story · Lanzamiento</div>
+      <div class="ct">¿Cuántos WhatsApp recibís por semana con consultas de cancha?
+
+Basta. Con Pique, el jugador reserva solo. Vos abrís el panel y ves todo resuelto.</div>
+      <div class="tags">#Pique #PádelArgentina #GestiónDeportiva #Reservas</div>
+    </div>
+    <div class="copy-card">
+      <div class="cn">Feed · Módulos del admin</div>
+      <div class="ct">Un solo panel para todo el club:
+· Calendario de canchas
+· Caja y movimientos
+· Clientes y comunicación
+· Facturación automática
+
+Así es el backoffice de un complejo que usa Pique.</div>
+      <div class="tags">#Pique #GestiónClub #AdminDeportivo #SaaS #Padel</div>
+    </div>
+    <div class="copy-card">
+      <div class="cn">Carrusel · Educativo</div>
+      <div class="ct">3 cosas que podés automatizar en tu club hoy 👇
+
+Deslizá y te cuento cómo los complejos que usan Pique recuperan 2 horas por día.
+
+¿Cuántas horas perdés vos con llamadas?</div>
+      <div class="tags">#PádelArgentina #Pique #Club #Reservas #GestiónDeportiva</div>
+    </div>
+    <div class="copy-card">
+      <div class="cn">TikTok · Hook directo</div>
+      <div class="ct">POV: tu complejo de pádel tiene reservas para el fin de semana y vos no respondiste ni un WhatsApp.
+
+Eso es Pique. [mostrar panel en pantalla]</div>
+      <div class="tags">#Pique #Padel #ClubDeportivo #TechDeportivo</div>
+    </div>
+    <div class="copy-card">
+      <div class="cn">LinkedIn · B2B</div>
+      <div class="ct">La mayoría de los complejos deportivos de Argentina todavía gestionan sus reservas por WhatsApp.
+
+Eso significa: turnos perdidos, errores de caja, clientes frustrados.
+
+Pique es la plataforma que cierra esa brecha. Calendario, caja y clientes en un panel.</div>
+      <div class="tags">#SaaS #GestiónDeportiva #Startups #Argentina #Pádel</div>
+    </div>
+    <div class="copy-card">
+      <div class="cn">Comunidad · Pregunta</div>
+      <div class="ct">Pregunta rápida para los que tienen o frecuentan un complejo deportivo:
+
+¿Cuánto tiempo les lleva reservar una cancha en promedio?
+
+A) Menos de 1 minuto
+B) 2 a 5 minutos
+C) Más de 10 minutos</div>
+      <div class="tags">#Pique #Padel #Deportes #Argentina</div>
+    </div>
+  </div>
+
+  <h4 style="font-size:14px;font-weight:600;color:var(--text2);margin-bottom:12px">Banco de hashtags</h4>
+  <div class="hbank">
+    <div class="hchip b">#Pique</div><div class="hchip b">#PiqueApp</div><div class="hchip b">#GestionéConPique</div>
+    <div class="hchip">#PádelArgentina</div><div class="hchip">#TenisArgentina</div><div class="hchip">#FútbolArgentina</div>
+    <div class="hchip">#ClubDeportivo</div><div class="hchip">#GestiónDeportiva</div><div class="hchip">#ReservasOnline</div>
+    <div class="hchip">#AdminDeportivo</div><div class="hchip">#SaaSLatam</div><div class="hchip">#TechDeportivo</div>
+    <div class="hchip">#StartupArgentina</div><div class="hchip">#DigitalizaciónDeportiva</div><div class="hchip">#Padel</div>
+    <div class="hchip">#ComplejoDeportivo</div><div class="hchip">#AgendaDeportiva</div><div class="hchip">#GestionTuClub</div>
+  </div>
+  <div style="margin-top:10px;font-size:11px;color:var(--text3);font-family:'Geist Mono',monospace">IG: 10–15 tags · TikTok: 4–6 · LinkedIn: 3–5 · Twitter: 2–3</div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════
+     10 · SCRIPTS DE VIDEO
+═══════════════════════════════════════════ -->
+<section id="scripts">
+<div class="wrap">
+  <div class="sec-label">10 · Scripts de video</div>
+  <div class="sec-title">Listos para grabar.</div>
+  <div class="sec-desc">Tres guiones para TikTok y Reels. Duración objetivo 15–45 segundos. Grabarse frente a cámara o grabando pantalla del panel.</div>
+
+  <div class="script-grid">
+    <div class="script">
+      <div class="sh"><h5>Script 01 · Reservá en 40s</h5><span class="tag">20–30 seg</span></div>
+      <div class="sb">
+        <div class="seg"><div class="tm">0–3s · Hook</div><p>"¿Cuánto tardás en reservar una cancha de pádel?"</p></div>
+        <div class="seg"><div class="tm">3–8s · Problema</div><p>"La mayoría necesita llamar, esperar que atiendan, confirmar por WhatsApp… eso si contestan."</p></div>
+        <div class="seg"><div class="tm">8–22s · Demo en pantalla</div><p>[Mostrar la app/web: elegir deporte → seleccionar horario → confirmar] "Con Pique: elegís el deporte, el día, el horario. Confirmás. Listo."</p></div>
+        <div class="seg"><div class="tm">22–30s · CTA</div><p>"Probalo gratis en pique.com.ar — link en bio."</p></div>
+      </div>
+    </div>
+    <div class="script">
+      <div class="sh"><h5>Script 02 · Panel del club</h5><span class="tag">25–40 seg</span></div>
+      <div class="sb">
+        <div class="seg"><div class="tm">0–3s · Hook</div><p>"Te muestro el panel de un complejo de pádel en un día normal."</p></div>
+        <div class="seg"><div class="tm">3–15s · Demo en pantalla</div><p>[Mostrar calendario con turnos, caja con movimientos, lista de clientes] "Acá ves todas las canchas del día, quién pagó, quién no, y cuánto entró."</p></div>
+        <div class="seg"><div class="tm">15–30s · Resultado</div><p>"El dueño cierra la caja en 2 minutos. Antes tardaba 20. Eso es Pique."</p></div>
+        <div class="seg"><div class="tm">30–40s · CTA</div><p>"Si tenés un club, entrá a pique.com.ar y probalo gratis hoy."</p></div>
+      </div>
+    </div>
+    <div class="script">
+      <div class="sh"><h5>Script 03 · Antes / Después</h5><span class="tag">30–45 seg</span></div>
+      <div class="sb">
+        <div class="seg"><div class="tm">0–4s · Hook</div><p>"Esto es gestionar un club sin Pique vs. con Pique."</p></div>
+        <div class="seg"><div class="tm">4–18s · Antes</div><p>[Recrear situación: teléfono sonando, WhatsApp lleno, libreta con turnos] "Llamadas, mensajes, libretas. Turnos que se cruzan. Plata que no cuadra."</p></div>
+        <div class="seg"><div class="tm">18–35s · Después</div><p>[Mostrar panel Pique limpio, con todos los turnos ordenados, caja en cero] "Pique: todo online, automático, ordenado. En el celular, en la compu, donde estés."</p></div>
+        <div class="seg"><div class="tm">35–45s · CTA</div><p>"Cambiá tu club hoy — pique.com.ar"</p></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="info-box" style="margin-top:20px"><strong>Tips de producción:</strong> Grabar en horizontal si es para LinkedIn/YouTube. Vertical para TikTok/Reels. Siempre con subtítulos (el 85% mira sin sonido). El logo Pique debe aparecer en los primeros 2 segundos. Fondo limpio o pantalla del producto — nada de chroma verde.</div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════
+     11 · CALENDARIO
+═══════════════════════════════════════════ -->
+<section id="calendario">
+<div class="wrap">
+  <div class="sec-label">11 · Calendario</div>
+  <div class="sec-title">Plan mensual de 4 semanas.</div>
+  <div class="sec-desc">Semana 1 es arranque / presentación. Semana 2–3 son contenido habitual. Semana 4 push de conversión. Ajustá según lanzamientos del producto.</div>
+
+  <!-- Monthly -->
+  <div class="month-grid">
+    <div class="mh">Red</div><div class="mh">Semana 1 · Presentación</div><div class="mh">Semana 2 · Educativo</div><div class="mh">Semana 3 · Producto</div><div class="mh">Semana 4 · Conversión</div>
+
+    <div class="ml" style="font-size:10px">Instagram<br/>Feed</div>
+    <div class="mc"><div class="wk">Meta: presentarse</div><ul><li><div class="dot"></div>"¿Qué es Pique?" — post hero dark</li><li><div class="dot"></div>Story: módulos del admin</li></ul></div>
+    <div class="mc"><div class="wk">Meta: enseñar</div><ul><li><div class="dot"></div>Carrusel: 3 cosas a automatizar</li><li><div class="dot"></div>Post: módulos del panel (claro)</li></ul></div>
+    <div class="mc"><div class="wk">Meta: demo</div><ul><li><div class="dot"></div>Feed: stat "14 reservas"</li><li><div class="dot"></div>Story: panel en vivo</li></ul></div>
+    <div class="mc"><div class="wk">Meta: convertir</div><ul><li><div class="dot"></div>Testimonial: cliente real</li><li><div class="dot"></div>Story con link: "Probalo gratis"</li></ul></div>
+
+    <div class="ml" style="font-size:10px">Reels</div>
+    <div class="mc"><ul><li><div class="dot"></div>Reel: "Reservá en 40 segundos" (Script 01)</li></ul></div>
+    <div class="mc"><ul><li><div class="dot"></div>Reel: antes / después (Script 03)</li></ul></div>
+    <div class="mc"><ul><li><div class="dot"></div>Reel: panel del club (Script 02)</li></ul></div>
+    <div class="mc"><ul><li><div class="dot"></div>Reel: testimonio de cliente (grabado)</li></ul></div>
+
+    <div class="ml" style="font-size:10px">TikTok</div>
+    <div class="mc"><ul><li><div class="dot"></div>TK: ¿qué hace Pique? (15s)</li><li><div class="dot"></div>TK: reservar en 40s</li></ul></div>
+    <div class="mc"><ul><li><div class="dot"></div>TK: tip gestión de club</li><li><div class="dot"></div>TK: encuesta reservas</li></ul></div>
+    <div class="mc"><ul><li><div class="dot"></div>TK: clip del panel admin</li><li><div class="dot"></div>TK: stat impacto</li></ul></div>
+    <div class="mc"><ul><li><div class="dot"></div>TK: before/after + CTA</li><li><div class="dot"></div>TK: respuesta a comentario popular</li></ul></div>
+
+    <div class="ml" style="font-size:10px">LinkedIn</div>
+    <div class="mc"><ul><li><div class="dot"></div>Post lanzamiento + propuesta de valor B2B</li></ul></div>
+    <div class="mc"><ul><li><div class="dot"></div>Carrusel PDF educativo (4 slides)</li></ul></div>
+    <div class="mc"><ul><li><div class="dot"></div>Caso de éxito: métricas de un cliente</li></ul></div>
+    <div class="mc"><ul><li><div class="dot"></div>Post: "probalo gratis" con CTA directo</li></ul></div>
+
+    <div class="ml" style="font-size:10px;border-bottom:none">Twitter/X</div>
+    <div class="mc" style="border-bottom:none"><ul><li><div class="dot"></div>Hilo: "Cómo gestiona su club un dueño moderno"</li></ul></div>
+    <div class="mc" style="border-bottom:none"><ul><li><div class="dot"></div>Tweet: dato curioso + pregunta</li></ul></div>
+    <div class="mc" style="border-bottom:none"><ul><li><div class="dot"></div>RT de mención / respuesta útil</li></ul></div>
+    <div class="mc" style="border-bottom:none"><ul><li><div class="dot"></div>Thread: "Por qué construimos Pique"</li></ul></div>
+  </div>
+
+  <!-- Weekly cadence -->
+  <h4 style="font-size:14px;font-weight:600;color:var(--text2);margin-bottom:16px">Cadencia semanal · Semana tipo (a partir de semana 2)</h4>
+  <div class="cal-grid">
+    <div class="ch">Red</div><div class="ch">Lun</div><div class="ch">Mar</div><div class="ch">Mié</div><div class="ch">Jue</div><div class="ch">Vie</div><div class="ch">Sáb</div><div class="ch">Dom</div>
+
+    <div class="crl">IG</div>
+    <div class="cs on"><div class="ct">Story · Dato</div><div class="ft">Educativo</div></div>
+    <div class="cs"></div>
+    <div class="cs on"><div class="ct">Feed · Feature</div><div class="ft">Producto</div></div>
+    <div class="cs"></div>
+    <div class="cs on"><div class="ct">Story · Testi</div><div class="ft">Social proof</div></div>
+    <div class="cs on"><div class="ct">Carrusel</div><div class="ft">Educativo</div></div>
+    <div class="cs"></div>
+
+    <div class="crl">Reels</div>
+    <div class="cs"></div>
+    <div class="cs on"><div class="ct">Tutorial 30s</div><div class="ft">Producto</div></div>
+    <div class="cs"></div>
+    <div class="cs"></div>
+    <div class="cs on"><div class="ct">Before/After</div><div class="ft">Producto</div></div>
+    <div class="cs"></div>
+    <div class="cs"></div>
+
+    <div class="crl">TikTok</div>
+    <div class="cs on"><div class="ct">¿Qué es Pique?</div><div class="ft">Producto</div></div>
+    <div class="cs"></div>
+    <div class="cs on"><div class="ct">Tutorial</div><div class="ft">Producto</div></div>
+    <div class="cs"></div>
+    <div class="cs on"><div class="ct">Stat impacto</div><div class="ft">Educativo</div></div>
+    <div class="cs on"><div class="ct">Clip panel</div><div class="ft">Producto</div></div>
+    <div class="cs"></div>
+
+    <div class="crl">LinkedIn</div>
+    <div class="cs"></div>
+    <div class="cs"></div>
+    <div class="cs on"><div class="ct">Carrusel B2B</div><div class="ft">Educativo</div></div>
+    <div class="cs"></div>
+    <div class="cs"></div>
+    <div class="cs"></div>
+    <div class="cs"></div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════
+     12 · SPECS POR PLATAFORMA
+═══════════════════════════════════════════ -->
+<section id="specs">
+<div class="wrap">
+  <div class="sec-label">12 · Specs</div>
+  <div class="sec-title">Tamaños y timing por red.</div>
+  <div class="sec-desc">Referencia técnica para exportar todos los assets. Los tamaños son en píxeles, siempre en resolución @2x para pantallas retina.</div>
+
+  <div class="spec-grid">
+    <div class="spec-cell">
+      <div class="plat">Instagram</div>
+      <div class="handle">@pique.app</div>
+      <ul>
+        <li>Feed cuadrado: 1080 × 1080</li>
+        <li>Feed vertical: 1080 × 1350</li>
+        <li>Story / Reel cover: 1080 × 1920</li>
+        <li>Foto de perfil: 320 × 320 (mín)</li>
+        <li>Publicar: 18–21hs (AR, mar–vie)</li>
+        <li>Reels: 7–30s para alcance</li>
+        <li>Carrusel: máx 10 slides</li>
+      </ul>
+    </div>
+    <div class="spec-cell">
+      <div class="plat">TikTok</div>
+      <div class="handle">@piqueapp</div>
+      <ul>
+        <li>Video: 1080 × 1920 (9:16)</li>
+        <li>Cover portada: 1080 × 1920</li>
+        <li>Foto de perfil: 200 × 200</li>
+        <li>Duración ideal: 15–45s</li>
+        <li>Publicar: 12hs y 20hs (AR)</li>
+        <li>Subtítulos: siempre activados</li>
+        <li>Hook: primeros 2 segundos</li>
+      </ul>
+    </div>
+    <div class="spec-cell">
+      <div class="plat">LinkedIn</div>
+      <div class="handle">pique.com.ar</div>
+      <ul>
+        <li>Banner empresa: 1584 × 396</li>
+        <li>Logo cuadrado: 300 × 300</li>
+        <li>Post imagen: 1200 × 628</li>
+        <li>Carrusel PDF: 1080 × 1350</li>
+        <li>Publicar: mar–jue 9–11hs</li>
+        <li>3 primeras líneas = hook</li>
+        <li>PDF carousel = mayor alcance</li>
+      </ul>
+    </div>
+    <div class="spec-cell">
+      <div class="plat">Twitter / X</div>
+      <div class="handle">@piqueapp</div>
+      <ul>
+        <li>Header: 1500 × 500</li>
+        <li>Foto de perfil: 400 × 400</li>
+        <li>Imagen en tweet: 1200 × 675</li>
+        <li>Publicar: 9–11hs y 18–20hs</li>
+        <li>Hilos: mejor que tweets sueltos</li>
+        <li>Máx 2–3 hashtags por tweet</li>
+      </ul>
+    </div>
+    <div class="spec-cell">
+      <div class="plat">Facebook</div>
+      <div class="handle">Pique · Página</div>
+      <ul>
+        <li>Portada página: 820 × 312</li>
+        <li>Foto de perfil: 170 × 170</li>
+        <li>Post imagen: 1200 × 630</li>
+        <li>Story: 1080 × 1920</li>
+        <li>Publicar: 13hs y 20hs</li>
+        <li>Categoría: Software</li>
+        <li>Reutilizar contenido de IG</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════
+     13 · FIRMA DE EMAIL
+═══════════════════════════════════════════ -->
+<section id="firma">
+<div class="wrap">
+  <div class="sec-label">13 · Firma de email</div>
+  <div class="sec-title">Para outreach B2B.</div>
+  <div class="sec-desc">Firma para usar en emails de contacto a dueños de club, inversores y prensa. Copia el HTML en el cliente de correo.</div>
+
+  <div style="display:flex;flex-direction:column;gap:24px">
+    <!-- Firma 1: Fundador -->
+    <div>
+      <div style="font-size:12px;color:var(--text3);font-family:'Geist Mono',monospace;letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px">Firma · Fundador / CEO</div>
+      <div class="c-email" style="border:1px solid #E0DDD6">
+        <div class="sig">
+          <div style="width:44px;height:44px;border-radius:10px;background:#0E1116;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <svg width="28" height="28" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="13" fill="#fff"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+          </div>
+          <div class="divLine"></div>
+          <div class="info">
+            <h3>Nombre Apellido</h3>
+            <div class="role">Co-founder &amp; CEO · Pique</div>
+            <div class="links">
+              <a href="#">hola@pique.com.ar</a>
+              <a href="#">pique.com.ar</a>
+              <a href="#">LinkedIn</a>
+            </div>
+          </div>
+          <div class="divLine"></div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <div style="font-size:11px;color:#5C8E1A;font-weight:600">Probalo gratis →</div>
+            <div style="font-size:10px;color:#9A9388">Reservas y gestión para clubes.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Firma 2: Equipo -->
+    <div>
+      <div style="font-size:12px;color:var(--text3);font-family:'Geist Mono',monospace;letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px">Firma · Equipo general</div>
+      <div class="c-email" style="border:1px solid #E0DDD6">
+        <div class="sig" style="border-left-color:var(--ink8)">
+          <div style="display:flex;align-items:center;gap:8px">
+            <svg width="22" height="22" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="13" fill="#0E1116"/><circle cx="42" cy="42" r="9" fill="#B6F36A"/></svg>
+            <span style="font-size:15px;font-weight:700;color:#0E1116;letter-spacing:-.02em">pique</span>
+          </div>
+          <div class="divLine"></div>
+          <div class="info">
+            <h3>Nombre Apellido</h3>
+            <div class="role">Rol · Pique</div>
+            <div class="links">
+              <a href="#">nombre@pique.com.ar</a>
+              <a href="#">pique.com.ar</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="info-box" style="margin-top:24px"><strong>Para agregar en Gmail/Outlook:</strong> ir a Configuración → Firma → pegar el HTML. La fuente del sistema reemplazará a Geist (normal, ambas son sans-serif). Asegurarse de que el logo tenga una URL pública (subir a CDN o usar la URL del site). El color del borde izquierdo (<span style="font-family:'Geist Mono',monospace;font-size:12px">#B6F36A</span>) identifica la firma de Pique visualmente.</div>
+</div>
+</section>
+
+<footer>Pique · Social Media Kit v2 · 17 may 2026 · 13 secciones</footer>
+
+<script>
+// Progress bar
+window.addEventListener('scroll',()=>{
+  const h=document.documentElement;
+  const pct=(h.scrollTop/(h.scrollHeight-h.clientHeight))*100;
+  document.getElementById('progress').style.width=pct+'%';
+});
+
+// Nav highlight
+const sections=document.querySelectorAll('section[id]');
+const links=document.querySelectorAll('.nav a');
+const obs=new IntersectionObserver(entries=>{
+  entries.forEach(e=>{
+    if(e.isIntersecting){
+      links.forEach(l=>l.classList.remove('active'));
+      const a=document.querySelector(`.nav a[href="#${e.target.id}"]`);
+      if(a){a.classList.add('active');a.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'});}
+    }
+  });
+},{rootMargin:'-40% 0px -55% 0px'});
+sections.forEach(s=>obs.observe(s));
+</script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma';
+import { sendAppError } from '../errors';
 
 export class CourtPriceRuleController {
   list = async (req: Request, res: Response) => {
@@ -22,7 +23,7 @@ export class CourtPriceRuleController {
 
       return res.json(rows);
     } catch (error: any) {
-      return res.status(500).json({ error: error.message || 'Error al listar reglas de precio' });
+      return sendAppError(res, error, 'Error al listar reglas de precio');
     }
   };
 
@@ -59,7 +60,7 @@ export class CourtPriceRuleController {
 
       return res.status(201).json(created);
     } catch (error: any) {
-      return res.status(500).json({ error: error.message || 'Error al crear regla de precio' });
+      return sendAppError(res, error, 'Error al crear regla de precio');
     }
   };
 
@@ -102,7 +103,7 @@ export class CourtPriceRuleController {
 
       return res.json(updated);
     } catch (error: any) {
-      return res.status(500).json({ error: error.message || 'Error al actualizar regla de precio' });
+      return sendAppError(res, error, 'Error al actualizar regla de precio');
     }
   };
 
@@ -121,7 +122,7 @@ export class CourtPriceRuleController {
       await prisma.courtPriceRule.delete({ where: { id: paramsParsed.data.id } });
       return res.json({ success: true });
     } catch (error: any) {
-      return res.status(500).json({ error: error.message || 'Error al eliminar regla de precio' });
+      return sendAppError(res, error, 'Error al eliminar regla de precio');
     }
   };
 }
