@@ -3,7 +3,10 @@
     "allow": [
       "Bash(npx tsc *)",
       "mcp__plugin_subframe_subframe__list_projects",
-      "mcp__plugin_subframe_subframe__generate_auth_token"
+      "mcp__plugin_subframe_subframe__generate_auth_token",
+      "Bash(Test-Path \"d:\\\\Users\\\\FELIPE\\\\Desktop\\\\Sistema turnos\\\\apps\\\\backend\\\\src\\\\services\\\\ArcaQrService.ts\")",
+      "Bash(node -e ' *)",
+      "Bash(xargs grep -l \"Invoice\\\\|invoice\")"
     ]
   }
 }
