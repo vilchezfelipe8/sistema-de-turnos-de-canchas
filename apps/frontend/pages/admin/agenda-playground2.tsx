@@ -1095,6 +1095,7 @@ export default function AdminAgendaPlaygroundPage() {
   const [recurringCreatedItems, setRecurringCreatedItems] = useState<RecurringCreatedItem[]>([]);
   const [recurringOverlapItems, setRecurringOverlapItems] = useState<RecurringOverlapItem[]>([]);
   const [recurringOverlapModalOpen, setRecurringOverlapModalOpen] = useState(false);
+  const [pendingRecurringEditBooking, setPendingRecurringEditBooking] = useState<Booking | null>(null);
   const [recurringCreateConfirmOpen, setRecurringCreateConfirmOpen] = useState(false);
   const [recurringPreviewSummary, setRecurringPreviewSummary] = useState<{
     generatedCount: number;
@@ -1354,10 +1355,6 @@ export default function AdminAgendaPlaygroundPage() {
     setDuplicateDecisionCandidates([]);
     setDuplicateDecisionSelectedClientId('');
     duplicateDecisionActionsRef.current = null;
-  }, []);
-
-  const closeRecurringResultModal = useCallback(() => {
-    setRecurringOverlapModalOpen(false);
   }, []);
 
   const closeDeleteBookingFlow = useCallback(() => {
@@ -1664,6 +1661,15 @@ export default function AdminAgendaPlaygroundPage() {
     setScheduleInputsDirty(false);
     setFormError('');
   }, [resetConsumptionsDraft, resolveParticipantsForBooking]);
+  const closeRecurringResultModal = useCallback(() => {
+    setRecurringOverlapModalOpen(false);
+    setPendingRecurringEditBooking((pendingBooking) => {
+      if (pendingBooking) {
+        openBookingInDrawer(pendingBooking);
+      }
+      return null;
+    });
+  }, [openBookingInDrawer]);
   const resetRecurringDraft = useCallback((baseDate: Date, fallbackCourtId?: string) => {
     const baseDay = baseDate.getDay();
     const firstCourtId =
@@ -3928,6 +3934,7 @@ export default function AdminAgendaPlaygroundPage() {
     let recurringSummaryError = '';
     let recurringResultModalShouldOpen = false;
     let createdBookingId: string | null = null;
+    let firstCreatedRecurringBookingId: number | null = null;
 
     const owner = participants.find((participant) => participant.isOwner);
 
@@ -4315,7 +4322,7 @@ export default function AdminAgendaPlaygroundPage() {
           dayOfWeek: number
         ) => {
           const firstOccurrence = getNextDateForDay(baseDate, dayOfWeek, slotTime);
-          const result = await createFixedBooking(Number(courtId), activityId, firstOccurrence, {
+          const requestPayload = {
             durationMinutes: selectionMinutes,
             everyDays: frequencyDays,
             ...(Number.isFinite(repetitionsPerDay) ? { repetitions: repetitionsPerDay } : {}),
@@ -4331,7 +4338,8 @@ export default function AdminAgendaPlaygroundPage() {
                     dni: ownerDni || undefined,
                   },
                 }),
-          });
+          };
+          const result = await createFixedBooking(Number(courtId), activityId, firstOccurrence, requestPayload);
           return result;
         };
 
@@ -4421,8 +4429,12 @@ export default function AdminAgendaPlaygroundPage() {
                   const createdEnd = createdEndRaw ? new Date(createdEndRaw) : null;
                   const hasCreatedStart = createdStart && !Number.isNaN(createdStart.getTime());
                   const hasCreatedEnd = createdEnd && !Number.isNaN(createdEnd.getTime());
+                  const createdItemBookingId = Number.isFinite(Number(item?.bookingId)) ? Number(item.bookingId) : undefined;
+                  if (firstCreatedRecurringBookingId === null && createdItemBookingId) {
+                    firstCreatedRecurringBookingId = createdItemBookingId;
+                  }
                   createdDetails.push({
-                    bookingId: Number.isFinite(Number(item?.bookingId)) ? Number(item.bookingId) : undefined,
+                    bookingId: createdItemBookingId,
                     courtName: String(item?.courtName || court.name || 'Cancha'),
                     requestedDateLabel: hasCreatedStart
                       ? formatSeriesDateLabel(createdStart as Date, activeClubTimeZone)
@@ -4595,9 +4607,24 @@ export default function AdminAgendaPlaygroundPage() {
       if (isRecurringKind) {
         if (recurringSummaryError && !recurringResultModalShouldOpen) {
           setFormError(recurringSummaryError);
+          setEditingBookingId(null);
+          setEditingBaseline(null);
+          return;
         }
+        const firstCreatedBooking = firstCreatedRecurringBookingId
+          ? (Array.isArray(refreshedBookings) ? refreshedBookings : []).find(
+              (booking) => Number(booking.id) === firstCreatedRecurringBookingId
+            )
+          : null;
+        setPendingRecurringEditBooking(firstCreatedBooking || null);
+        // No usamos closeBookingDrawer() acá: setear drawerOpen=false dispara el timer de
+        // limpieza que resetea recurringResult (y otros estados) y se comería el modal de
+        // resultado. Solo limpiamos lo necesario para que hasConflict no dispare un falso
+        // positivo contra la reserva recién creada, dejando el drawer/modal como están.
+        setSelectedCourtId('');
         setEditingBookingId(null);
         setEditingBaseline(null);
+        setFormError('');
         return;
       }
       if (createdBookingId) {
@@ -4826,7 +4853,7 @@ export default function AdminAgendaPlaygroundPage() {
       if (event.key === 'Escape') {
         setRecurringCourtsMenuOpen(false);
         setCustomRecurrenceModalOpen(false);
-        setRecurringOverlapModalOpen(false);
+        closeRecurringResultModal();
         setRecurringCreateConfirmOpen(false);
         setEditSeriesScopeModalOpen(false);
         setDeleteSeriesScopeModalOpen(false);
