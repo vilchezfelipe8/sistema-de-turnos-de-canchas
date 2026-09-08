@@ -19,7 +19,7 @@ import { logout } from '../../services/AuthService';
 import { useUserTheme } from '../../contexts/UserThemeContext';
 import { getActiveClubSlug, hasAdminAccess, hasOperatorAccess, normalizeSessionUser, setActiveClubId } from '../../utils/session';
 import { ADMIN_Z_INDEX } from '../../utils/adminZIndex';
-import { PLAYGROUND_SIDEBAR_ITEMS } from './playgroundNavigation';
+import { CLUB_LOCKED_SIDEBAR_ITEMS, PLAYGROUND_SIDEBAR_ITEMS } from './playgroundNavigation';
 import PiqueLogo from '../PiqueLogo';
 
 type AdminPlaygroundShellProps = {
@@ -111,14 +111,14 @@ export default function AdminPlaygroundShell({
   const hasAdminPrivileges = useMemo(() => hasAdminAccess(normalizedUser), [normalizedUser]);
   const hasOperatorPrivileges = useMemo(() => hasOperatorAccess(normalizedUser), [normalizedUser]);
   const adminClubSlug = useMemo(() => getActiveClubSlug(normalizedUser), [normalizedUser]);
-  const visibleSidebarItems = useMemo(
-    () =>
-      PLAYGROUND_SIDEBAR_ITEMS.filter((item) => {
-        if (item.minAccess === 'admin') return hasAdminPrivileges;
-        return hasOperatorPrivileges;
-      }),
-    [hasAdminPrivileges, hasOperatorPrivileges]
-  );
+  const visibleSidebarItems = useMemo(() => {
+    const lockedLabels = CLUB_LOCKED_SIDEBAR_ITEMS[adminClubSlug || ''];
+    return PLAYGROUND_SIDEBAR_ITEMS.filter((item) => {
+      if (lockedLabels?.has(item.label)) return false;
+      if (item.minAccess === 'admin') return hasAdminPrivileges;
+      return hasOperatorPrivileges;
+    });
+  }, [hasAdminPrivileges, hasOperatorPrivileges, adminClubSlug]);
   const clubOptions = useMemo(
     () =>
       Array.isArray(normalizedUser?.memberships)
