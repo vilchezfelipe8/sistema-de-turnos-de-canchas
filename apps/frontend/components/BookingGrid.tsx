@@ -176,7 +176,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   const [selectedCourt, setSelectedCourt] = useState<CourtSummary | null>(null);
   const [selectedActivityFilter, setSelectedActivityFilter] = useState<string>('');
   const [selectedDuration, setSelectedDuration] = useState<number>(DEFAULT_DURATION_MINUTES);
-  const [scheduleViewMode, setScheduleViewMode] = useState<ScheduleViewMode>('timeline');
+  const [scheduleViewMode, setScheduleViewMode] = useState<ScheduleViewMode>('list');
   const [isMobileListOnly, setIsMobileListOnly] = useState(false);
   const [showAllMobileSlots, setShowAllMobileSlots] = useState(false);
   const [hoveredAtcSlot, setHoveredAtcSlot] = useState<{ courtId: number; slotTime: string } | null>(null);
@@ -963,19 +963,19 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
           <div className="v-view-toggle-group">
             <button
               type="button"
-              onClick={() => setScheduleViewMode('timeline')}
-              className="v-view-toggle"
-              aria-pressed={scheduleViewMode === 'timeline'}
-            >
-              <LayoutGrid size={12} /> Agenda visual
-            </button>
-            <button
-              type="button"
               onClick={() => setScheduleViewMode('list')}
               className="v-view-toggle"
               aria-pressed={scheduleViewMode === 'list'}
             >
               <Rows3 size={12} /> Lista clásica
+            </button>
+            <button
+              type="button"
+              onClick={() => setScheduleViewMode('timeline')}
+              className="v-view-toggle"
+              aria-pressed={scheduleViewMode === 'timeline'}
+            >
+              <LayoutGrid size={12} /> Agenda visual
             </button>
           </div>
         </div>
