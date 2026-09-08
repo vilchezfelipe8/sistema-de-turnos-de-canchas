@@ -51,3 +51,4 @@ coverage/
 .wwebjs_auth/
 .wwebjs_cache/
 *.session.json
+apps/wpp-service/qr.png
