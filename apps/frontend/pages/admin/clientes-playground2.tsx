@@ -20,6 +20,9 @@ import DuplicateClientDecisionModal, {
   type DuplicateClientDecisionCandidate,
 } from '../../components/admin/agenda/DuplicateClientDecisionModal';
 import ClientsTable from '../../modules/clientes/components/ClientsTable';
+import ClientMemberPanel from '../../components/admin/members/ClientMemberPanel';
+import MemberBadge from '../../components/admin/members/MemberBadge';
+import MembersRosterPanel from '../../components/admin/members/MembersRosterPanel';
 import { AdminDrawer, AdminDrawerSection, AdminFeedbackBanner, AdminFilterToolbar, AdminInlineError, AdminSegmentedControl } from '../../components/admin/ui';
 import NotFound from '../../components/NotFound';
 import RouteTransitionScreen from '../../components/RouteTransitionScreen';
@@ -45,7 +48,7 @@ import {
   splitCanonicalPhone,
 } from '../../utils/phone';
 
-type ClientsView = 'directory' | 'debt' | 'history' | 'incidents';
+type ClientsView = 'directory' | 'debt' | 'history' | 'members' | 'incidents';
 type ClientActionSidebarView = 'none' | 'client_create' | 'client_edit' | 'client_profile' | 'client_delete';
 type ClientSearchRow = {
   id: string;
@@ -1054,6 +1057,7 @@ export default function AdminClientesPlayground2Page() {
                   { value: 'directory', label: 'Directorio' },
                   { value: 'debt', label: 'Cuentas y deuda' },
                   { value: 'history', label: 'Perfil' },
+                  { value: 'members', label: 'Padrón' },
                   { value: 'incidents', label: 'Incidentes' },
                 ]}
                 className="w-fit"
@@ -1314,6 +1318,7 @@ export default function AdminClientesPlayground2Page() {
                                     Profesor
                                   </span>
                                 )}
+                                <MemberBadge member={selectedClient.member} />
                               </div>
                               <p className="mt-0.5 text-[12px] text-p-text-muted">ID #{shortId(selectedClient.id)}</p>
                             </div>
@@ -1370,6 +1375,15 @@ export default function AdminClientesPlayground2Page() {
                                 <p className="mt-0.5 text-[11px] text-p-text-muted">Rol</p>
                               </div>
                             </div>
+
+                            {/* Socio (padrón) */}
+                            <ClientMemberPanel
+                              clubSlug={resolveClubSlug() || ''}
+                              clientId={String(selectedClient.id)}
+                              clientHasDni={Boolean(String(selectedClient.dni || '').replace(/\D/g, ''))}
+                              canManage={hasAdminAccess(user)}
+                              onChanged={() => void loadClients()}
+                            />
 
                             {/* Contact */}
                             <div>
@@ -1717,6 +1731,18 @@ export default function AdminClientesPlayground2Page() {
                         </>
                       )}
                     </article>
+                  </div>
+                )}
+
+                {activeView === 'members' && (
+                  <div className="h-full overflow-auto">
+                    <MembersRosterPanel
+                      clubSlug={resolveClubSlug() || ''}
+                      onSelectClient={(clientId) => {
+                        setSelectedClientId(clientId);
+                        setActiveView('directory');
+                      }}
+                    />
                   </div>
                 )}
 

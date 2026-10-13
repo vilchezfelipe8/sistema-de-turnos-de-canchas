@@ -30,6 +30,7 @@ import { ClassEnrollmentAdminController } from '../controllers/ClassEnrollmentAd
 import { ClassPassAdminController } from '../controllers/ClassPassAdminController';
 import { ClassCreditUsageAdminController } from '../controllers/ClassCreditUsageAdminController';
 import { AcademyStudentAdminController } from '../controllers/AcademyStudentAdminController';
+import { MemberController } from '../controllers/MemberController';
 
 const router = Router();
 
@@ -40,6 +41,7 @@ const userRepository = new UserRepository();
 const activityRepository = new ActivityTypeRepository();
 const clubRepository = new ClubRepository();
 const productController = new ProductController();
+const memberController = new MemberController();
 const cashRepository = new CashRepository();
 const productRepository = new ProductRepository();
 
@@ -822,6 +824,98 @@ router.post('/:slug/admin/clients/:clientId/merge',
     verifyClubAccess,
     requireTenantRole('ADMIN'),
     clubController.mergeClubClients
+);
+
+// ---------- Socios (padrón) ----------
+router.get('/:slug/admin/members-settings',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    memberController.getSettings
+);
+
+router.put('/:slug/admin/members-settings',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    memberController.updateSettings
+);
+
+router.get('/:slug/admin/member-categories',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    memberController.listCategories
+);
+
+router.post('/:slug/admin/member-categories',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    memberController.createCategory
+);
+
+router.patch('/:slug/admin/member-categories/:categoryId',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    memberController.updateCategory
+);
+
+router.get('/:slug/admin/members',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    memberController.listMembers
+);
+
+router.get('/:slug/admin/clients/:clientId/member',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    memberController.getClientMember
+);
+
+router.post('/:slug/admin/clients/:clientId/member',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    memberController.createMember
+);
+
+router.patch('/:slug/admin/clients/:clientId/member',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    memberController.updateMember
+);
+
+router.post('/:slug/admin/clients/:clientId/member/status',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    memberController.changeMemberStatus
+);
+
+router.get('/:slug/admin/clients/:clientId/member/history',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    memberController.getMemberHistory
+);
+
+router.post('/:slug/admin/clients/:clientId/member/app-account',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    memberController.provisionAppAccount
+);
+
+router.post('/:slug/admin/clients/:clientId/activation-code',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    memberController.issueActivationCode
 );
 
 router.get('/:slug/admin/discount-policies',

@@ -14,6 +14,15 @@ const parseMax = (envKey: string, defaultVal: number) => {
   return Number.isFinite(n) && n > 0 ? n : defaultVal;
 };
 
+/** 3 pedidos de código (activación / recuperación) por minuto por IP. El límite por cuenta lo aplica AccountVerificationService. */
+export const verificationCodeLimiter = rateLimit({
+  windowMs: parseWindowMs('RATE_LIMIT_VERIFICATION_CODE_WINDOW_MS', 60_000),
+  max: parseMax('RATE_LIMIT_VERIFICATION_CODE_MAX', 3),
+  message: { error: 'Demasiadas solicitudes de código. Esperá un momento e intentá de nuevo.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 /** 5 intentos de login por minuto (brute force) */
 export const loginLimiter = rateLimit({
   windowMs: parseWindowMs('RATE_LIMIT_LOGIN_WINDOW_MS', 60_000),

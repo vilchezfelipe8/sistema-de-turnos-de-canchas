@@ -181,6 +181,24 @@ export class MetaCloudWhatsappProvider {
   }
 
   buildTemplateRequestBody(input: SendTemplateMessageInput) {
+    const bodyParameters = this.buildTemplateParameters(input);
+    const components: Array<Record<string, unknown>> = [
+      {
+        type: 'body',
+        parameters: bodyParameters
+      }
+    ];
+
+    // Las plantillas de autenticación de Meta exigen el código también en el botón "copiar código".
+    if (input.templateCategory === 'AUTHENTICATION' && bodyParameters.length > 0) {
+      components.push({
+        type: 'button',
+        sub_type: 'url',
+        index: '0',
+        parameters: [{ type: 'text', text: bodyParameters[0].text }]
+      });
+    }
+
     return {
       messaging_product: 'whatsapp',
       to: safeTrim(input.toPhone),
@@ -190,12 +208,7 @@ export class MetaCloudWhatsappProvider {
         language: {
           code: safeTrim(input.languageCode)
         },
-        components: [
-          {
-            type: 'body',
-            parameters: this.buildTemplateParameters(input)
-          }
-        ]
+        components
       }
     };
   }

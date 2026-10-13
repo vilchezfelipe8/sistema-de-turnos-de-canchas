@@ -700,7 +700,7 @@ export type AdminClubPaymentIntegration = {
   externalUserId: string | null;
   connectedBy: {
     id: number;
-    email: string;
+    email: string | null;
     firstName?: string | null;
     lastName?: string | null;
   } | null;

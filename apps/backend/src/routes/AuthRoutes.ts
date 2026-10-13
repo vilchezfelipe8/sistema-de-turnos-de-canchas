@@ -1,13 +1,17 @@
 import { Router } from 'express';
 import { AuthController } from '../controllers/AuthController';
 import { authMiddleware, optionalAuthMiddleware } from '../middleware/AuthMiddleware';
-import { loginLimiter, magicLinkRequestLimiter, registerLimiter, sessionRefreshLimiter } from '../middleware/rateLimit';
+import { loginLimiter, magicLinkRequestLimiter, registerLimiter, sessionRefreshLimiter, verificationCodeLimiter } from '../middleware/rateLimit';
 
 const router = Router();
 const authController = new AuthController();
 
 router.post('/register', registerLimiter, authController.register);
 router.post('/login', loginLimiter, authController.login);
+router.post('/activation/request', verificationCodeLimiter, authController.requestAccountActivation);
+router.post('/activation/confirm', loginLimiter, authController.confirmAccountActivation);
+router.post('/password-reset/request', verificationCodeLimiter, authController.requestPasswordReset);
+router.post('/password-reset/confirm', loginLimiter, authController.confirmPasswordReset);
 router.post('/email/request-link', magicLinkRequestLimiter, authController.requestEmailMagicLink);
 router.get('/email/verify', authController.verifyEmailMagicLink);
 router.get('/oauth/google/start', authController.startGoogleOAuth);

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BookingService } from '../src/services/BookingService';
+import { PricingService } from '../src/services/PricingService';
 import { prisma } from '../src/prisma';
 
 function buildServiceHarness(historyEntries: any[]) {
@@ -289,7 +290,9 @@ test('createBooking no genera history si falla por CLIENT_POSSIBLE_DUPLICATE', a
       fixedSlots: [{ start: '10:00', duration: 60 }]
     }
   });
-  service.pricingService = { calculateCourtPrice: async () => 10000 };
+  service.pricingService = Object.assign(new PricingService(), {
+    calculateCourtPrice: async () => 10000
+  });
   service.resolveOrCreateClient = async () => {
     throw duplicateError;
   };

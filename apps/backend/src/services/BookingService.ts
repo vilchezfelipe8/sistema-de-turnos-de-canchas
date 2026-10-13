@@ -211,6 +211,7 @@ export type PlayerBookingCheckoutDto = {
         enabled: boolean;
         reason:
             | 'PROVIDER_NOT_CONFIGURED'
+            | 'PAY_AT_CLUB'
             | 'BOOKING_NOT_PAYABLE'
             | 'NO_PENDING_BALANCE'
             | 'ACCOUNT_MISSING'
@@ -2087,23 +2088,6 @@ export class BookingService {
         }
     }
 
-    private calculateDurationAdjustedPrice(
-        basePrice: number,
-        effectiveDurationMinutes: number,
-        referenceDurationMinutes: number
-    ) {
-        const safeBase = Number(basePrice || 0);
-        const safeEffective = Number(effectiveDurationMinutes || 0);
-        const safeReference = Number(referenceDurationMinutes || 0);
-
-        if (!Number.isFinite(safeBase) || safeBase <= 0) return 0;
-        if (!Number.isFinite(safeEffective) || safeEffective <= 0) return Number(safeBase.toFixed(2));
-        if (!Number.isFinite(safeReference) || safeReference <= 0) return Number(safeBase.toFixed(2));
-
-        const proportional = safeBase * (safeEffective / safeReference);
-        return Number(proportional.toFixed(2));
-    }
-
     private resolvePriceReferenceDuration(
         activity: ActivityType,
         allowedDurations: number[],
@@ -2551,25 +2535,18 @@ export class BookingService {
             }
         }
 
-        const basePrice = await this.pricingService.calculateCourtPrice(input.courtId, input.startDateTime);
-        if (!Number.isFinite(basePrice) || basePrice <= 0) {
+        const priceBreakdown = await this.pricingService.resolveCourtPriceBreakdown({
+            courtId: input.courtId,
+            startDateTime: input.startDateTime,
+            effectiveDurationMinutes: effectiveDuration,
+            referenceDurationMinutes: this.resolvePriceReferenceDuration(activity, allowedDurations, effectiveDuration),
+            timeZone: clubTimeZone,
+            lights: clubConfig
+        });
+        if (!Number.isFinite(priceBreakdown.basePrice) || priceBreakdown.basePrice <= 0) {
             throw this.clubConfigInvalid('Precio de cancha no configurado.');
         }
-
-        const referenceDuration = this.resolvePriceReferenceDuration(activity, allowedDurations, effectiveDuration);
-        let listPrice = this.calculateDurationAdjustedPrice(Number(basePrice), effectiveDuration, referenceDuration);
-        if (clubConfig && clubConfig.lightsEnabled && clubConfig.lightsExtraAmount && clubConfig.lightsFromHour) {
-            const [lh, lm] = String(clubConfig.lightsFromHour).split(':').map((n: string) => parseInt(n, 10));
-            if (Number.isNaN(lh) || Number.isNaN(lm)) {
-                throw this.clubConfigInvalid('Configuración de club inválida: lightsFromHour debe tener formato HH:MM');
-            }
-            const localStart = TimeHelper.utcToLocal(input.startDateTime, clubTimeZone);
-            const bookingTotalMinutes = localStart.getHours() * 60 + localStart.getMinutes();
-            const lightsTotalMinutes = lh * 60 + lm;
-            if (bookingTotalMinutes >= lightsTotalMinutes) {
-                listPrice += Number(clubConfig.lightsExtraAmount);
-            }
-        }
+        const listPrice = priceBreakdown.listPrice;
 
         const quote = await prisma.$transaction(async (tx) => {
             const clientId = await this.resolveClientIdForDiscountTx(tx, {
@@ -3169,26 +3146,14 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         if (settings) {
             lightsEnabled = Boolean(settings.lightsEnabled);
             lightsFromHour = settings.lightsFromHour ? String(settings.lightsFromHour) : null;
-            const configuredLightsExtra = settings.lightsExtraAmount == null ? null : Number(settings.lightsExtraAmount);
             const clubTimeZone = String(settings.timeZone || 'America/Argentina/Buenos_Aires');
-            const localStart = TimeHelper.utcToLocal(summary.booking.startDateTime, clubTimeZone);
-
-            if (
-                lightsEnabled &&
-                Number.isFinite(Number(configuredLightsExtra)) &&
-                Number(configuredLightsExtra) > 0 &&
-                lightsFromHour &&
-                /^\d{2}:\d{2}$/.test(lightsFromHour)
-            ) {
-                const [lh, lm] = lightsFromHour.split(':').map((n) => Number.parseInt(n, 10));
-                if (!Number.isNaN(lh) && !Number.isNaN(lm)) {
-                    const bookingTotalMinutes = localStart.getHours() * 60 + localStart.getMinutes();
-                    const lightsTotalMinutes = lh * 60 + lm;
-                    if (bookingTotalMinutes >= lightsTotalMinutes) {
-                        lightsApplies = true;
-                        lightsExtraAmount = Number(Number(configuredLightsExtra).toFixed(2));
-                    }
-                }
+            if (lightsFromHour && /^\d{2}:\d{2}$/.test(lightsFromHour)) {
+                lightsExtraAmount = PricingService.computeLightsExtra(summary.booking.startDateTime, clubTimeZone, {
+                    lightsEnabled,
+                    lightsExtraAmount: settings.lightsExtraAmount == null ? null : Number(settings.lightsExtraAmount),
+                    lightsFromHour
+                });
+                lightsApplies = lightsExtraAmount > 0;
             }
         }
 
@@ -3395,32 +3360,21 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             throw err;
         }
 
-    // Calcular precio base dinámico por reglas horarias y extra por luces según configuración del club
-        const BASE_PRICE = await this.pricingService.calculateCourtPrice(courtId, startDateTime);
-        if (!Number.isFinite(BASE_PRICE) || BASE_PRICE <= 0) {
+        // Precio por reglas horarias + duración + luces. El descuento económico no se calcula acá:
+        // se unifica en DiscountPolicy sobre AccountItem.
+        const clubPricingConfig = this.resolveClubConfig((court as any)?.club);
+        const priceBreakdown = await this.pricingService.resolveCourtPriceBreakdown({
+            courtId,
+            startDateTime,
+            effectiveDurationMinutes: effectiveDuration,
+            referenceDurationMinutes: this.resolvePriceReferenceDuration(activity, allowedDurations, effectiveDuration),
+            timeZone: clubTimeZone,
+            lights: clubPricingConfig
+        });
+        if (!Number.isFinite(priceBreakdown.basePrice) || priceBreakdown.basePrice <= 0) {
             throw this.clubConfigInvalid('Precio de cancha no configurado.');
         }
-        const clubPricingConfig = this.resolveClubConfig((court as any)?.club);
-        const referenceDuration = this.resolvePriceReferenceDuration(activity, allowedDurations, effectiveDuration);
-        let finalPrice = this.calculateDurationAdjustedPrice(BASE_PRICE, effectiveDuration, referenceDuration);
-        // El descuento económico no se calcula acá: se unifica en DiscountPolicy sobre AccountItem.
-        if (clubPricingConfig && clubPricingConfig.lightsEnabled && clubPricingConfig.lightsExtraAmount && clubPricingConfig.lightsFromHour) {
-                try {
-                    const [lh, lm] = String(clubPricingConfig.lightsFromHour).split(':').map((n: string) => parseInt(n, 10));
-                    if (!Number.isNaN(lh) && !Number.isNaN(lm)) {
-                            const localStart = TimeHelper.utcToLocal(startDateTime, clubTimeZone);
-                            const bookingHour = localStart.getHours();
-                            const bookingMinutes = localStart.getMinutes();
-                        const bookingTotalMinutes = bookingHour * 60 + bookingMinutes;
-                        const lightsTotalMinutes = lh * 60 + lm;
-                        if (bookingTotalMinutes >= lightsTotalMinutes) {
-                            finalPrice += Number(clubPricingConfig.lightsExtraAmount);
-                        }
-                    }
-                } catch {
-                // Si algo falla en el parseo, seguimos cobrando solo el precio base
-            }
-        }
+        const finalPrice = priceBreakdown.listPrice;
 
         const created = await prisma.$transaction(async (tx: any) => {
             const classOverlap = await this.findClassSessionOverlap({
@@ -4900,6 +4854,15 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         });
     }
 
+    private async isOnlineCheckoutEnabledForClub(clubId: number) {
+        const settings = await prisma.clubSettings.findUnique({
+            where: { clubId },
+            select: { onlineCheckoutEnabled: true }
+        });
+        // Sin fila de configuración se mantiene el comportamiento histórico (checkout habilitado).
+        return settings?.onlineCheckoutEnabled ?? true;
+    }
+
     async getPlayerBookingCheckout(bookingId: number, userId: number): Promise<PlayerBookingCheckoutDto> {
         if (!Number.isInteger(userId) || userId <= 0) {
             throw this.bookingForbidden();
@@ -5002,6 +4965,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         const hasRelevantRefunds = account.refunds.some((refund) => refund.status !== 'FAILED' && refund.status !== 'CANCELLED');
 
         const integrationStatus = await this.clubPaymentIntegrationService.getMercadoPagoIntegrationStatusForClub(booking.clubId);
+        const onlineCheckoutEnabled = await this.isOnlineCheckoutEnabledForClub(booking.clubId);
         let checkoutEnabled = false;
         let checkoutReason: PlayerBookingCheckoutDto['checkout']['reason'] = 'UNKNOWN';
         let futureProvider: PlayerBookingCheckoutDto['checkout']['futureProvider'] = null;
@@ -5014,6 +4978,9 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             checkoutReason = 'PARTICIPANT_PAYMENTS_NOT_SUPPORTED';
         } else if (pending <= 0.009) {
             checkoutReason = 'NO_PENDING_BALANCE';
+        } else if (!onlineCheckoutEnabled) {
+            // El club cobra solo en el mostrador.
+            checkoutReason = 'PAY_AT_CLUB';
         } else if (!integrationStatus.connected) {
             checkoutReason = 'PROVIDER_NOT_CONFIGURED';
             futureProvider = 'MERCADO_PAGO';
@@ -5150,6 +5117,10 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 'Esta reserva tiene devoluciones o ajustes que debe revisar el club.',
                 ErrorCodes.CHECKOUT_NOT_AVAILABLE
             );
+        }
+
+        if (!(await this.isOnlineCheckoutEnabledForClub(booking.clubId))) {
+            throw conflict('Este club cobra las reservas en el mostrador.', ErrorCodes.CHECKOUT_NOT_AVAILABLE);
         }
 
         const accessToken = await this.clubPaymentIntegrationService.getMercadoPagoAccessTokenForClub(booking.clubId);
@@ -7283,31 +7254,18 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 let lightsExtraApplied = 0;
 
                 try {
-                    const basePrice = await this.pricingService.calculateCourtPrice(court.id, slotDateTime);
-                    if (Number.isFinite(Number(basePrice)) && Number(basePrice) > 0) {
-                        calculatedBase = this.calculateDurationAdjustedPrice(
-                            Number(basePrice),
-                            effectiveDuration,
-                            referenceDuration
-                        );
-                        calculatedPrice = calculatedBase;
-                        if (
-                            normalizedClubConfig &&
-                            normalizedClubConfig.lightsEnabled &&
-                            normalizedClubConfig.lightsExtraAmount &&
-                            normalizedClubConfig.lightsFromHour
-                        ) {
-                            const [lh, lm] = String(normalizedClubConfig.lightsFromHour).split(':').map((n: string) => parseInt(n, 10));
-                            if (!Number.isNaN(lh) && !Number.isNaN(lm)) {
-                                const localStart = TimeHelper.utcToLocal(slotDateTime, timeZone);
-                                const bookingTotalMinutes = localStart.getHours() * 60 + localStart.getMinutes();
-                                const lightsTotalMinutes = lh * 60 + lm;
-                                if (bookingTotalMinutes >= lightsTotalMinutes) {
-                                    lightsExtraApplied = Number(normalizedClubConfig.lightsExtraAmount || 0);
-                                    calculatedPrice += lightsExtraApplied;
-                                }
-                            }
-                        }
+                    const breakdown = await this.pricingService.resolveCourtPriceBreakdown({
+                        courtId: court.id,
+                        startDateTime: slotDateTime,
+                        effectiveDurationMinutes: effectiveDuration,
+                        referenceDurationMinutes: referenceDuration,
+                        timeZone,
+                        lights: normalizedClubConfig
+                    });
+                    if (Number.isFinite(breakdown.basePrice) && breakdown.basePrice > 0) {
+                        calculatedBase = breakdown.durationAdjustedPrice;
+                        lightsExtraApplied = breakdown.lightsExtra;
+                        calculatedPrice = breakdown.listPrice;
                     }
                 } catch {
                     // fallback al precio de cancha configurado

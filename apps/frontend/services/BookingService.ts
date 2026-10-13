@@ -196,6 +196,7 @@ export type PlayerBookingCheckoutDto = {
     enabled: boolean;
     reason:
       | 'PROVIDER_NOT_CONFIGURED'
+      | 'PAY_AT_CLUB'
       | 'BOOKING_NOT_PAYABLE'
       | 'NO_PENDING_BALANCE'
       | 'ACCOUNT_MISSING'

@@ -18,6 +18,29 @@ enum Role {
   GUEST
 }
 
+enum UserAccountStatus {
+  ACTIVE
+  PENDING_ACTIVATION // creada por un club (padrón de socios), todavía sin contraseña elegida
+  DISABLED
+}
+
+enum UserVerificationPurpose {
+  ACTIVATION
+  PASSWORD_RESET
+}
+
+enum UserVerificationChannel {
+  WHATSAPP
+  EMAIL
+  ADMIN_ISSUED
+}
+
+enum ClubMemberStatus {
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
 enum MembershipRole {
   OWNER
   ADMIN
@@ -207,6 +230,7 @@ enum NotificationEventType {
   BOOKING_CREATED
   BOOKING_CANCELLED
   BOOKING_PENDING_WARNING
+  ACCOUNT_VERIFICATION_CODE
 }
 
 enum WhatsappSenderMode {
@@ -381,7 +405,8 @@ enum ClassCreditUsageReason {
 
 model User {
   id            Int            @id @default(autoincrement())
-  email         String         @unique
+  // Opcional: los socios importados desde el padrón pueden no tener email.
+  email         String?        @unique
   password      String
   firstName     String
   lastName      String
@@ -389,7 +414,11 @@ model User {
   emailVerifiedAt DateTime?    @db.Timestamptz(3)
   lastLoginAt    DateTime?     @db.Timestamptz(3)
   role          Role           @default(MEMBER)
-  dni       String?
+  // Normalizado (solo dígitos, ver utils/dni.ts). Credencial de login alternativa al email.
+  dni       String?            @unique
+  accountStatus UserAccountStatus @default(ACTIVE)
+  // Club que pre-creó la cuenta (padrón de socios). Solo auditoría.
+  createdByClubId Int?
 
   bookings      Booking[]
   bookingHistoryEntries BookingHistoryEntry[] @relation("BookingHistoryActor")
@@ -428,6 +457,26 @@ model User {
   academyBeneficiaryClassPasses ClassPass[] @relation("ClassPassBeneficiaryUser")
   academyClassPassesCreated ClassPass[] @relation("ClassPassCreatedByUser")
   academyClassCreditUsagesCreated ClassCreditUsage[] @relation("ClassCreditUsageCreatedByUser")
+  verificationCodes UserVerificationCode[]
+}
+
+model UserVerificationCode {
+  id             String                  @id @default(cuid())
+  userId         Int
+  user           User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose        UserVerificationPurpose
+  channel        UserVerificationChannel
+  codeHash       String
+  attempts       Int                     @default(0)
+  expiresAt      DateTime                @db.Timestamptz(3)
+  consumedAt     DateTime?               @db.Timestamptz(3)
+  // Si lo generó un operador del club en el mostrador
+  issuedByUserId Int?
+  issuedForClubId Int?
+  createdAt      DateTime                @default(now()) @db.Timestamptz(3)
+
+  @@index([userId, purpose, consumedAt])
+  @@index([expiresAt])
 }
 
 model MagicLoginToken {
@@ -554,6 +603,8 @@ model Club {
   classEnrollments ClassEnrollment[]
   classPasses ClassPass[]
   classCreditUsages ClassCreditUsage[]
+  memberCategories MemberCategory[]
+  clubMembers ClubMember[]
 }
 
 model ClubFavorite {
@@ -767,6 +818,7 @@ model Client {
   billingResponsibleClassEnrollments ClassEnrollment[] @relation("ClassEnrollmentBillingResponsibleClient")
   ownedClassPasses ClassPass[] @relation("ClassPassOwnerClient")
   beneficiaryClassPasses ClassPass[] @relation("ClassPassBeneficiaryClient")
+  clubMember    ClubMember?
 
   @@index([clubId])
   @@index([userId])
@@ -774,6 +826,72 @@ model Client {
   @@index([clubId, phone])
   @@index([clubId, dni])
   @@unique([clubId, userId])
+}
+
+// Padrón de socios. "No socio" = el cliente no tiene ClubMember o no está ACTIVE y vigente.
+model MemberCategory {
+  id          String   @id @default(cuid())
+  clubId      Int
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  code        String
+  name        String
+  description String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  members ClubMember[]
+
+  @@unique([clubId, code])
+  @@index([clubId, isActive])
+}
+
+model ClubMember {
+  id           String           @id @default(cuid())
+  clubId       Int
+  club         Club             @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clientId     String           @unique
+  client       Client           @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  categoryId   String
+  category     MemberCategory   @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  memberNumber String?
+  status       ClubMemberStatus @default(ACTIVE)
+  joinedAt     DateTime         @db.Date
+  // "Al día hasta". Carga manual mientras la cuota social no se cobre con Pique.
+  validUntil   DateTime?        @db.Date
+  leftAt       DateTime?        @db.Date
+  statusReason String?
+  notes        String?
+  createdByUserId Int?
+  updatedByUserId Int?
+  createdAt    DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime         @updatedAt @db.Timestamptz(3)
+
+  history ClubMemberHistory[]
+
+  @@unique([clubId, memberNumber])
+  @@index([clubId, status])
+  @@index([clubId, categoryId])
+}
+
+model ClubMemberHistory {
+  id              String            @id @default(cuid())
+  clubMemberId    String
+  clubMember      ClubMember        @relation(fields: [clubMemberId], references: [id], onDelete: Cascade)
+  clubId          Int
+  // CREATED | STATUS_CHANGED | CATEGORY_CHANGED | UPDATED | MERGED
+  action          String
+  fromStatus      ClubMemberStatus?
+  toStatus        ClubMemberStatus?
+  fromCategoryId  String?
+  toCategoryId    String?
+  reason          String?
+  changedByUserId Int?
+  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+
+  @@index([clubMemberId, createdAt])
+  @@index([clubId, createdAt])
 }
 
 enum ClientDuplicateIncidentStatus {
@@ -1775,6 +1893,11 @@ model ClubSettings {
 
   // Configuración avanzada (Agregado para centralizar)
   fixedBookingSettingsByActivity Json?
+
+  // Módulo de socios (padrón, categorías, precio socio)
+  membersEnabled            Boolean  @default(false)
+  // false = el club cobra solo en el mostrador (sin checkout online)
+  onlineCheckoutEnabled     Boolean  @default(true)
 
   // Política de confirmación de reservas
   bookingConfirmationMode       BookingConfirmationMode @default(MANUAL)

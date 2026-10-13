@@ -164,27 +164,12 @@ export const getPendingLogoutRedirect = (): string | null => {
   }
 };
 
-export const login = async (email: string, password: string) => {
-  const headers = await buildCsrfHeaders({
-    'Content-Type': 'application/json',
-  });
-  const response = await fetch(`${apiBase()}/auth/login`, {
-    method: 'POST',
-    headers,
-    credentials: 'include',
-    body: JSON.stringify({ email, password }),
-  });
-
-  if (!response.ok) {
-    await throwApiErrorFromResponse(response, 'No se pudo iniciar sesión.');
-  }
-
-  const data = await response.json();
-
+// Sesión iniciada por login, activación de cuenta o recuperación de contraseña.
+const completeSessionLogin = (data: any) => {
   // Cookie-first: no persistimos bearer en localStorage.
   localStorage.removeItem('token');
 
-  if (data.user) {
+  if (data?.user) {
     persistSessionUser(data.user);
   }
   clearPendingLogoutRedirect();
@@ -193,8 +178,46 @@ export const login = async (email: string, password: string) => {
     window.dispatchEvent(new Event(AUTH_LOGIN_EVENT));
     emitAuthSync('login');
   }
-
   return data;
+};
+
+const postAuthJson = async (path: string, body: Record<string, unknown>, fallbackMessage: string) => {
+  const headers = await buildCsrfHeaders({
+    'Content-Type': 'application/json',
+  });
+  const response = await fetch(`${apiBase()}${path}`, {
+    method: 'POST',
+    headers,
+    credentials: 'include',
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    await throwApiErrorFromResponse(response, fallbackMessage);
+  }
+  return response.json().catch(() => ({}));
+};
+
+// `identifier` acepta DNI o email.
+export const login = async (identifier: string, password: string) => {
+  const data = await postAuthJson('/auth/login', { identifier, password }, 'No se pudo iniciar sesión.');
+  return completeSessionLogin(data);
+};
+
+// Primer ingreso de un socio cargado por el club: envía un código al WhatsApp registrado.
+export const requestAccountActivation = async (dni: string) =>
+  postAuthJson('/auth/activation/request', { dni }, 'No se pudo enviar el código.');
+
+export const confirmAccountActivation = async (dni: string, code: string, password: string) => {
+  const data = await postAuthJson('/auth/activation/confirm', { dni, code, password }, 'No se pudo activar la cuenta.');
+  return completeSessionLogin(data);
+};
+
+export const requestPasswordReset = async (identifier: string) =>
+  postAuthJson('/auth/password-reset/request', { identifier }, 'No se pudo enviar el código.');
+
+export const confirmPasswordReset = async (identifier: string, code: string, password: string) => {
+  const data = await postAuthJson('/auth/password-reset/confirm', { identifier, code, password }, 'No se pudo actualizar la contraseña.');
+  return completeSessionLogin(data);
 };
 
 export const requestMagicLink = async (email: string) => {

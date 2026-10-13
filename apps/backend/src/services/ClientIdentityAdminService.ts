@@ -202,6 +202,32 @@ export class ClientIdentityAdminService {
         );
       }
 
+      // RN-14: si los dos son socios hay que resolver cuál es el correcto antes de fusionar.
+      // Si solo el absorbido es socio, su registro pasa al cliente que queda.
+      const [sourceMember, targetMember] = await Promise.all([
+        tx.clubMember.findUnique({ where: { clientId: source.id } }),
+        tx.clubMember.findUnique({ where: { clientId: target.id } }),
+      ]);
+      if (sourceMember && targetMember) {
+        throw conflict(
+          'Los dos clientes figuran como socios. Resolvé cuál es el correcto antes de fusionar.',
+          ErrorCodes.MEMBER_MERGE_CONFLICT,
+          { sourceMemberId: sourceMember.id, targetMemberId: targetMember.id }
+        );
+      }
+      if (sourceMember) {
+        await tx.clubMember.update({ where: { id: sourceMember.id }, data: { clientId: target.id } });
+        await tx.clubMemberHistory.create({
+          data: {
+            clubMemberId: sourceMember.id,
+            clubId: Number(input.clubId),
+            action: 'MERGED',
+            reason: `Cliente ${source.id} fusionado en ${target.id}`,
+            changedByUserId: Number(input.actorUserId || 0) || null,
+          },
+        });
+      }
+
       const [sourceAssignments, targetAssignments] = await Promise.all([
         tx.clientDiscountAssignment.findMany({
           where: { clubId: Number(input.clubId), clientId: source.id },

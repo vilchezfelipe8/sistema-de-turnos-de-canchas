@@ -186,6 +186,7 @@ export class WhatsappSendV2Dispatcher {
       senderId: senderResult.sender.id,
       templateName: templateResult.template.templateName,
       languageCode: templateResult.template.languageCode,
+      templateCategory: templateResult.template.category as SendTemplateMessageInput['templateCategory'],
       toPhone: payload.recipientPhone,
       recipientRole: payload.recipientRole,
       eventType: payload.eventType,

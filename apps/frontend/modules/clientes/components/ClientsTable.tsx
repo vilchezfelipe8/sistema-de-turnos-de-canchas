@@ -1,6 +1,7 @@
 import { Pencil, Trash2, ArrowRight } from 'lucide-react';
 import AdminDataTable, { type AdminDataTableColumn } from '../../../components/admin/ui/AdminDataTable';
 import type { AdminClient } from '../hooks/useClients';
+import MemberBadge from '../../../components/admin/members/MemberBadge';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -69,7 +70,10 @@ export default function ClientsTable({
       key: 'name',
       label: 'Nombre',
       render: (c) => (
-        <span className="font-semibold text-p-text">{c.name}</span>
+        <span className="inline-flex flex-wrap items-center gap-1.5">
+          <span className="font-semibold text-p-text">{c.name}</span>
+          <MemberBadge member={c.member} />
+        </span>
       ),
     },
     {

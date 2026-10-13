@@ -536,6 +536,8 @@ export default function MyBookingsPage() {
         return 'Esta reserva tiene devoluciones o ajustes en revisión. Contactá al club para resolver cualquier cambio de pago.';
       case 'BOOKING_NOT_PAYABLE':
         return 'Esta reserva ya no está disponible para pago online desde la app.';
+      case 'PAY_AT_CLUB':
+        return 'Este club cobra las reservas en el mostrador. Cada jugador abona su parte al llegar.';
       case 'PROVIDER_NOT_CONFIGURED':
         return 'El pago online todavía no está disponible para este club. Contactá al club para pagar o resolver cambios.';
       default:

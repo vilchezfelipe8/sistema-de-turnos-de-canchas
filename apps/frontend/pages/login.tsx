@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { beginAppleOAuthLogin, beginFacebookOAuthLogin, beginGoogleOAuthLogin, login, register, requestMagicLink, verifyMagicLink } from '../services/AuthService';
+import { beginAppleOAuthLogin, beginFacebookOAuthLogin, beginGoogleOAuthLogin, confirmAccountActivation, confirmPasswordReset, login, register, requestAccountActivation, requestMagicLink, requestPasswordReset, verifyMagicLink } from '../services/AuthService';
 import { ClubService } from '../services/ClubService';
 import { Mail, Lock, User, Phone, UserPlus, LogIn, AlertCircle, Loader2, IdCard, CheckCircle, Eye, EyeOff, Zap, Moon, Sun, ArrowLeft } from 'lucide-react';
 import { getActiveClubSlug, hasOperatorAccess, normalizeSessionUser } from '../utils/session';
@@ -11,8 +11,14 @@ import { useAuth } from '../contexts/AuthContext';
 import { useUserTheme } from '../contexts/UserThemeContext';
 import PiqueLogo from '../components/PiqueLogo';
 import { extractErrorMessage } from '../utils/uiError';
+import { normalizeApiError } from '../utils/apiError';
 
 type PostLoginRedirectIntent = { sourceUser?: any };
+// Activación de cuenta de socio (primer ingreso) y recuperación de contraseña: pedir código → confirmar.
+type RecoveryMode = 'activate' | 'reset';
+type RecoveryStep = 'request' | 'confirm';
+
+const normalizeDniInput = (value: string) => String(value || '').replace(/\D/g, '');
 
 const FONT = "var(--font-sans)";
 
@@ -152,7 +158,14 @@ export default function LoginPage() {
 
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
+  // Login: DNI o email
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
+  const [recoveryMode, setRecoveryMode] = useState<RecoveryMode | null>(null);
+  const [recoveryStep, setRecoveryStep] = useState<RecoveryStep>('request');
+  const [recoveryIdentifier, setRecoveryIdentifier] = useState('');
+  const [recoveryCode, setRecoveryCode] = useState('');
+  const [recoveryPassword, setRecoveryPassword] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -310,7 +323,7 @@ export default function LoginPage() {
     setError(''); setSuccessMessage(''); setLoading(true);
     try {
       if (isLogin) {
-        const data = await login(email, password);
+        const data = await login(identifier.trim(), password);
         await revalidateSession();
         setRedirectIntent({ sourceUser: data?.user });
       } else {
@@ -318,20 +331,88 @@ export default function LoginPage() {
         const fullPhone = buildCanonicalPhone({ countryIso2: phoneCountryIso2, localNumber: localPhone });
         if (!localPhone) { setError('Ingresá un teléfono para completar el registro.'); return; }
         if (!fullPhone) { setError('Ingresá un teléfono con formato válido.'); return; }
-        const safeDni = String(dni || '').trim();
-        if (safeDni && safeDni.length < 7) { setError('Si cargás DNI, debe tener al menos 7 dígitos.'); return; }
+        const safeDni = normalizeDniInput(dni);
+        if (safeDni && (safeDni.length < 6 || safeDni.length > 9)) { setError('Si cargás DNI, ingresá solo los números (6 a 9 dígitos).'); return; }
         await register(firstName, lastName, email, password, fullPhone, 'MEMBER', safeDni || undefined, resolveCallingCodeByIso2(phoneCountryIso2), localPhone);
         setSuccessMessage('Usuario registrado exitosamente. Ahora podés iniciar sesión.');
         setIsLogin(true);
         setFirstName(''); setLastName(''); setPhoneNumber(''); setDni('');
       }
     } catch (err: unknown) {
+      const code = normalizeApiError(err).code;
+      if (isLogin && code === 'ACCOUNT_PENDING_ACTIVATION') {
+        // Socio cargado por el club que todavía no eligió contraseña.
+        openRecovery('activate', identifier);
+        setSuccessMessage('Tu cuenta de socio todavía no está activada. Te enviamos un código para activarla.');
+        return;
+      }
+      if (!isLogin && code === 'DNI_ALREADY_REGISTERED') {
+        setError('Ese DNI ya tiene una cuenta. Si sos vos, activala o recuperá tu contraseña.');
+        return;
+      }
       setError(extractErrorMessage(err, isLogin ? 'No se pudo iniciar sesión.' : 'No se pudo crear la cuenta.'));
     } finally { setLoading(false); }
   };
 
+  const openRecovery = (mode: RecoveryMode, prefill?: string) => {
+    const value = String(prefill || '').trim();
+    setRecoveryMode(mode);
+    setRecoveryStep('request');
+    // La activación es solo por DNI; la recuperación acepta DNI o email.
+    setRecoveryIdentifier(mode === 'activate' ? normalizeDniInput(value) : value);
+    setRecoveryCode('');
+    setRecoveryPassword('');
+    setError('');
+    setSuccessMessage('');
+    if (mode === 'activate' && normalizeDniInput(value).length >= 6) {
+      void handleRecoveryRequest(mode, normalizeDniInput(value));
+    }
+  };
+
+  const closeRecovery = () => {
+    setRecoveryMode(null);
+    setRecoveryStep('request');
+    setRecoveryCode('');
+    setRecoveryPassword('');
+    setError('');
+  };
+
+  const handleRecoveryRequest = async (mode: RecoveryMode, value: string) => {
+    const target = String(value || '').trim();
+    if (!target) { setError(mode === 'activate' ? 'Ingresá tu DNI.' : 'Ingresá tu DNI o email.'); return; }
+    setError(''); setLoading(true);
+    try {
+      if (mode === 'activate') await requestAccountActivation(target);
+      else await requestPasswordReset(target);
+      setRecoveryStep('confirm');
+      setSuccessMessage(
+        mode === 'activate'
+          ? 'Si el DNI corresponde a un socio, te enviamos un código por WhatsApp al teléfono registrado en el club. Si no lo recibís, pedilo en el mostrador.'
+          : 'Si los datos corresponden a una cuenta, te enviamos un código por email o WhatsApp.'
+      );
+    } catch (err: unknown) {
+      setError(extractErrorMessage(err, 'No se pudo enviar el código.'));
+    } finally { setLoading(false); }
+  };
+
+  const handleRecoveryConfirm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!recoveryMode) return;
+    if (recoveryPassword.length < 6) { setError('La contraseña debe tener al menos 6 caracteres.'); return; }
+    setError(''); setSuccessMessage(''); setLoading(true);
+    try {
+      const data = recoveryMode === 'activate'
+        ? await confirmAccountActivation(recoveryIdentifier, recoveryCode.trim(), recoveryPassword)
+        : await confirmPasswordReset(recoveryIdentifier, recoveryCode.trim(), recoveryPassword);
+      await revalidateSession();
+      setRedirectIntent({ sourceUser: data?.user });
+    } catch (err: unknown) {
+      setError(extractErrorMessage(err, 'No se pudo validar el código.'));
+    } finally { setLoading(false); }
+  };
+
   const handleRequestMagicLink = async () => {
-    const safeEmail = String(email || '').trim();
+    const safeEmail = String(identifier || '').trim();
     if (!safeEmail) { setError('Ingresá tu correo para enviarte el enlace.'); return; }
     setError(''); setSuccessMessage(''); setMagicLoading(true);
     try {
@@ -366,7 +447,7 @@ export default function LoginPage() {
   return (
     <>
       <Head>
-        <title>{isLogin ? 'Ingresar' : 'Crear cuenta'} | Pique</title>
+        <title>{recoveryMode === 'activate' ? 'Activar cuenta' : recoveryMode === 'reset' ? 'Recuperar contraseña' : isLogin ? 'Ingresar' : 'Crear cuenta'} | Pique</title>
       </Head>
       <style dangerouslySetInnerHTML={{ __html: LOGIN_CSS }} />
 
@@ -395,8 +476,16 @@ export default function LoginPage() {
                 style={{ width: 92, height: 'auto', display: 'block' }}
               />
             </Link>
-            <h1 className="lg-title">{isLogin ? 'Bienvenido' : 'Crear cuenta'}</h1>
-            <p className="lg-sub">{isLogin ? 'Ingresá a tu cuenta' : 'Sumate en segundos'}</p>
+            <h1 className="lg-title">
+              {recoveryMode === 'activate' ? 'Activá tu cuenta' : recoveryMode === 'reset' ? 'Recuperá tu contraseña' : isLogin ? 'Bienvenido' : 'Crear cuenta'}
+            </h1>
+            <p className="lg-sub">
+              {recoveryMode === 'activate'
+                ? 'Primer ingreso de socios: elegí tu contraseña'
+                : recoveryMode === 'reset'
+                ? 'Te enviamos un código para elegir una nueva'
+                : isLogin ? 'Ingresá a tu cuenta' : 'Sumate en segundos'}
+            </p>
           </div>
 
           {/* Body */}
@@ -418,6 +507,86 @@ export default function LoginPage() {
               </div>
             )}
 
+            {recoveryMode ? (
+              <form onSubmit={handleRecoveryConfirm} className="lg-form">
+                <div className="lg-field">
+                  <label className="lg-label">{recoveryMode === 'activate' ? 'DNI' : 'DNI o email'}</label>
+                  <div className="lg-input-wrap">
+                    <span className="lg-input-icon">{recoveryMode === 'activate' ? <IdCard size={14} /> : <User size={14} />}</span>
+                    <input
+                      type="text"
+                      inputMode={recoveryMode === 'activate' ? 'numeric' : 'text'}
+                      required
+                      value={recoveryIdentifier}
+                      disabled={recoveryStep === 'confirm'}
+                      onChange={e => setRecoveryIdentifier(recoveryMode === 'activate' ? normalizeDniInput(e.target.value) : e.target.value)}
+                      className="lg-input"
+                      placeholder={recoveryMode === 'activate' ? 'Ej: 35123456' : 'DNI o tu@email.com'}
+                    />
+                  </div>
+                </div>
+
+                {recoveryStep === 'request' ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleRecoveryRequest(recoveryMode, recoveryIdentifier)}
+                    disabled={loading || !recoveryIdentifier.trim()}
+                    className="lg-btn lg-btn-primary"
+                  >
+                    {loading ? <><Loader2 size={15} style={{ animation: 'lg-spin .8s linear infinite' }} /> Enviando...</> : 'Enviarme el código'}
+                  </button>
+                ) : (
+                  <>
+                    <div className="lg-field">
+                      <label className="lg-label">Código</label>
+                      <div className="lg-input-wrap">
+                        <span className="lg-input-icon"><Lock size={14} /></span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          required
+                          maxLength={6}
+                          value={recoveryCode}
+                          onChange={e => setRecoveryCode(e.target.value.replace(/[^\d]/g, ''))}
+                          className="lg-input"
+                          placeholder="6 dígitos"
+                        />
+                      </div>
+                    </div>
+                    <div className="lg-field">
+                      <label className="lg-label">{recoveryMode === 'activate' ? 'Elegí tu contraseña' : 'Nueva contraseña'}</label>
+                      <div className="lg-input-wrap">
+                        <span className="lg-input-icon"><Lock size={14} /></span>
+                        <input
+                          type="password"
+                          required
+                          minLength={6}
+                          value={recoveryPassword}
+                          onChange={e => setRecoveryPassword(e.target.value)}
+                          className="lg-input"
+                          placeholder="Mínimo 6 caracteres"
+                          autoComplete="new-password"
+                        />
+                      </div>
+                    </div>
+                    <button type="submit" disabled={loading} className="lg-btn lg-btn-primary">
+                      {loading
+                        ? <><Loader2 size={15} style={{ animation: 'lg-spin .8s linear infinite' }} /> Validando...</>
+                        : recoveryMode === 'activate' ? 'Activar e ingresar' : 'Guardar e ingresar'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleRecoveryRequest(recoveryMode, recoveryIdentifier)}
+                      disabled={loading}
+                      className="lg-btn lg-btn-ghost"
+                    >
+                      Reenviar código
+                    </button>
+                  </>
+                )}
+              </form>
+            ) : (
             <form onSubmit={handleSubmit} className="lg-form">
 
               {isLogin && (
@@ -475,7 +644,7 @@ export default function LoginPage() {
 
                   <div className="lg-divider">
                     <div className="lg-divider-line" />
-                    <span className="lg-divider-text">o con email</span>
+                    <span className="lg-divider-text">o con tu DNI o email</span>
                     <div className="lg-divider-line" />
                   </div>
                 </>
@@ -505,8 +674,11 @@ export default function LoginPage() {
                     <label className="lg-label">DNI <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>(opcional)</span></label>
                     <div className="lg-input-wrap">
                       <span className="lg-input-icon"><IdCard size={14} /></span>
-                      <input type="number" value={dni} onChange={e => setDni(e.target.value)} className="lg-input" placeholder="Ej: 35123456" />
+                      <input type="text" inputMode="numeric" value={dni} onChange={e => setDni(normalizeDniInput(e.target.value))} className="lg-input" placeholder="Ej: 35123456" />
                     </div>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                      Para ingresar con tu DNI y que el club te identifique más rápido. No se muestra a otros jugadores.
+                    </span>
                   </div>
                   {/* Teléfono */}
                   <div className="lg-field lg-full">
@@ -538,14 +710,24 @@ export default function LoginPage() {
                 </div>
               )}
 
-              {/* Email */}
-              <div className="lg-field">
-                <label className="lg-label">Correo electrónico</label>
-                <div className="lg-input-wrap">
-                  <span className="lg-input-icon"><Mail size={14} /></span>
-                  <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="lg-input" placeholder="tu@email.com" autoComplete="email" />
+              {/* Login: DNI o email. Registro: email */}
+              {isLogin ? (
+                <div className="lg-field">
+                  <label className="lg-label">DNI o email</label>
+                  <div className="lg-input-wrap">
+                    <span className="lg-input-icon"><User size={14} /></span>
+                    <input type="text" required value={identifier} onChange={e => setIdentifier(e.target.value)} className="lg-input" placeholder="35123456 o tu@email.com" autoComplete="username" />
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="lg-field">
+                  <label className="lg-label">Correo electrónico</label>
+                  <div className="lg-input-wrap">
+                    <span className="lg-input-icon"><Mail size={14} /></span>
+                    <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="lg-input" placeholder="tu@email.com" autoComplete="email" />
+                  </div>
+                </div>
+              )}
 
               {/* Password */}
               <div className="lg-field">
@@ -587,6 +769,17 @@ export default function LoginPage() {
                 }
               </button>
 
+              {isLogin && (
+                <div className="lg-toggle" style={{ marginTop: 0, display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <button type="button" className="lg-toggle-btn" onClick={() => openRecovery('activate', identifier)}>
+                    ¿Sos socio y es tu primera vez? Activá tu cuenta
+                  </button>
+                  <button type="button" className="lg-toggle-btn" onClick={() => openRecovery('reset', identifier)}>
+                    Olvidé mi contraseña
+                  </button>
+                </div>
+              )}
+
               {/* Magic link (login only) */}
               {isLogin && (
                 <>
@@ -598,7 +791,7 @@ export default function LoginPage() {
                   <button
                     type="button"
                     onClick={handleRequestMagicLink}
-                    disabled={magicLoading || loading || Boolean(oauthLoading) || !String(email || '').trim()}
+                    disabled={magicLoading || loading || Boolean(oauthLoading) || !String(identifier || '').includes('@')}
                     className="lg-btn lg-btn-ghost"
                   >
                     {magicLoading
@@ -610,16 +803,28 @@ export default function LoginPage() {
               )}
 
             </form>
+            )}
 
             {/* Toggle login/register */}
             <div className="lg-toggle">
-              <button
-                type="button"
-                className="lg-toggle-btn"
-                onClick={() => { setIsLogin(!isLogin); setError(''); setSuccessMessage(''); }}
-              >
-                {isLogin ? '¿No tenés cuenta? Registrate gratis' : '¿Ya tenés cuenta? Iniciá sesión'}
-              </button>
+              {recoveryMode ? (
+                <button type="button" className="lg-toggle-btn" onClick={closeRecovery}>
+                  Volver a iniciar sesión
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="lg-toggle-btn"
+                  onClick={() => { setIsLogin(!isLogin); setError(''); setSuccessMessage(''); }}
+                >
+                  {isLogin ? '¿No tenés cuenta? Registrate gratis' : '¿Ya tenés cuenta? Iniciá sesión'}
+                </button>
+              )}
+              {!isLogin && !recoveryMode && (
+                <button type="button" className="lg-toggle-btn" onClick={() => { setIsLogin(true); openRecovery('reset', dni); }}>
+                  ¿Tu DNI ya tiene cuenta? Recuperá tu contraseña
+                </button>
+              )}
             </div>
 
           </div>

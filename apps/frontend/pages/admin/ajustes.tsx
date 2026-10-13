@@ -13,6 +13,7 @@ const SETTINGS_TABS: Array<{ value: SettingsTab; label: string; comingSoon?: boo
   { value: 'precios', label: 'Precios' },
   { value: 'integraciones', label: 'Integraciones' },
   { value: 'usuarios', label: 'Usuarios' },
+  { value: 'socios', label: 'Socios' },
   { value: 'excepciones', label: 'Excepciones' },
   { value: 'auditoria', label: 'Auditoría' },
   { value: 'resenas', label: 'Reseñas' },
@@ -39,6 +40,7 @@ const parseSettingsTab = (value: unknown): SettingsTab => {
   if (raw === 'precios') return 'precios';
   if (raw === 'integraciones') return 'integraciones';
   if (raw === 'usuarios') return 'usuarios';
+  if (raw === 'socios' || raw === 'members') return 'socios';
   if (raw === 'notificaciones') return 'notificaciones';
   if (raw === 'excepciones') return 'excepciones';
   if (raw === 'auditoria') return 'auditoria';
