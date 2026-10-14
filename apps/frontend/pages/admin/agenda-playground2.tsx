@@ -1053,6 +1053,30 @@ export default function AdminAgendaPlaygroundPage() {
   const [isWaitingQueuedPaymentConfirmation, setIsWaitingQueuedPaymentConfirmation] = useState(false);
   const [isDeletingBooking, setIsDeletingBooking] = useState(false);
   const [editingBookingId, setEditingBookingId] = useState<string | null>(null);
+  // Drawer de edición: horario/cancha plegados detrás de "Modificar" y acciones secundarias en "Más acciones".
+  const [simplifiedScheduleEditorOpen, setSimplifiedScheduleEditorOpen] = useState(false);
+  const [simplifiedMoreActionsOpen, setSimplifiedMoreActionsOpen] = useState(false);
+  const simplifiedMoreActionsRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    setSimplifiedScheduleEditorOpen(false);
+    setSimplifiedMoreActionsOpen(false);
+  }, [editingBookingId, drawerOpen]);
+  useEffect(() => {
+    if (!simplifiedMoreActionsOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (simplifiedMoreActionsRef.current?.contains(event.target as Node)) return;
+      setSimplifiedMoreActionsOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSimplifiedMoreActionsOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [simplifiedMoreActionsOpen]);
   const [editingBaseline, setEditingBaseline] = useState<EditingBaseline | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState('');
@@ -5139,11 +5163,11 @@ export default function AdminAgendaPlaygroundPage() {
     simplifiedRemainingAmount > 0.009;
 
   const simplifiedSectionTabs: Array<{ id: SimplifiedSidebarSection; label: string }> = [
-    { id: 'DETAILS', label: 'Detalle' },
+    { id: 'DETAILS', label: 'Resumen' },
+    { id: 'BILLING', label: 'Jugadores' },
     ...(bookingKind === 'block'
       ? []
-      : [{ id: 'CONSUMPTIONS' as const, label: 'Consumos' }]),
-    { id: 'BILLING', label: 'Participantes y cuenta' },
+      : [{ id: 'CONSUMPTIONS' as const, label: 'Cuenta' }]),
     { id: 'HISTORY', label: 'Historial' },
   ];
   const consumptionProductOptions: ComboOption[] = consumptionProducts.map((product) => ({
@@ -5605,6 +5629,27 @@ export default function AdminAgendaPlaygroundPage() {
     !simplifiedIsEditingReservation || simplifiedSidebarSection === 'BILLING';
   const showSimplifiedHistorySection =
     simplifiedIsEditingReservation && simplifiedSidebarSection === 'HISTORY';
+  // El resumen de la cuenta (total, pagado, saldo y Cobrar) se ve en Resumen y en Cuenta.
+  const showSimplifiedAccountSummary =
+    simplifiedIsEditingReservation &&
+    (simplifiedSidebarSection === 'DETAILS' || simplifiedSidebarSection === 'CONSUMPTIONS');
+  // El editor de horario/cancha se abre solo si hay cambios sin guardar o errores, para no esconderlos.
+  const simplifiedScheduleEditorVisible =
+    simplifiedScheduleEditorOpen || hasScheduleChanges || Boolean(timeFieldError) || Boolean(courtFieldError);
+  const simplifiedHeaderTimeLabel = `${slotToTime(selectedStartSlot)}–${slotToTime(selectedEndSlot)}`;
+  const simplifiedHeaderShortDateLabel = (() => {
+    const label = selectionStartDateTime
+      .toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: '2-digit' })
+      .replace(',', '');
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  })();
+  const simplifiedHeaderDurationLabel = (() => {
+    const minutes = Math.max(0, (selectedEndSlot - selectedStartSlot) * slotMinutes);
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    if (hours === 0) return `${rest} min`;
+    return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
+  })();
   const cancelBookingPaidAmount = roundMoney(
     Number(bookingFinancial?.paid ?? editingBooking?.hoverPayment?.paidAmount ?? 0)
   );
@@ -7219,9 +7264,31 @@ export default function AdminAgendaPlaygroundPage() {
                 )}
                 <header className="border-b border-p-border px-6 py-5 flex items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <h2 className="text-[22px] font-semibold leading-snug tracking-tight text-p-text">
-                      {sidebarTitle}
-                    </h2>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-[22px] font-semibold leading-snug tracking-tight text-p-text">
+                        {sidebarTitle}
+                      </h2>
+                      {useSimplifiedBookingSidebar && simplifiedIsEditingReservation && (
+                        <>
+                          <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold ${reservationStatusTone}`}>
+                            {reservationStatusLabel}
+                          </span>
+                          {!isFinancialDisplayPending && !isPaymentLockedByManualPending && (
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold ${paymentStatusTone}`}>
+                              {simplifiedPaymentStatusLabel === 'Pagado' ? 'Pagada' : `Pago ${simplifiedPaymentStatusLabel.toLowerCase()}`}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </div>
+                    {useSimplifiedBookingSidebar && simplifiedIsEditingReservation && (
+                      <div className="mt-1.5 space-y-0.5">
+                        <p className="text-[15px] font-semibold text-p-text">{simplifiedSummaryOwnerLabel}</p>
+                        <p className="text-[13px] text-p-text-muted">
+                          {simplifiedHeaderShortDateLabel} · {simplifiedHeaderTimeLabel} · {simplifiedSummaryCourtLabel}
+                        </p>
+                      </div>
+                    )}
                     {!useSimplifiedBookingSidebar && (
                     <div className="mt-4 flex flex-wrap items-center gap-2 relative">
                       <button
@@ -7341,7 +7408,7 @@ export default function AdminAgendaPlaygroundPage() {
                             key={`simplified-tab-${tab.id}`}
                             type="button"
                             onClick={() => setSimplifiedSidebarSection(tab.id)}
-                            className={`h-12 border-b-2 text-[13px] font-semibold uppercase tracking-[0.02em] whitespace-nowrap transition ${
+                            className={`h-12 border-b-2 text-[14px] font-semibold whitespace-nowrap transition ${
                               isActive
                                 ? 'border-p-accent text-p-accent'
                                 : 'border-transparent text-p-text-muted hover:text-p-text'
@@ -7361,46 +7428,49 @@ export default function AdminAgendaPlaygroundPage() {
                       {showSimplifiedDetailsSection && (simplifiedIsEditingReservation ? (
                         <>
                           <div className="rounded-xl border border-p-border bg-p-surface-2 p-4">
-                            <div className="flex items-center">
-                              <p className="text-[18px] font-semibold text-p-text">Reserva del usuario</p>
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-[16px] font-semibold text-p-text">Turno</p>
+                              {isCompletedReservationScheduleLocked ? (
+                                <span className="text-[12px] text-p-text-muted">Completada: no se puede modificar</span>
+                              ) : !simplifiedScheduleEditorVisible ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setSimplifiedScheduleEditorOpen(true)}
+                                  className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
+                                >
+                                  <Pencil size={13} />
+                                  Modificar horario o cancha
+                                </button>
+                              ) : simplifiedScheduleEditorOpen && !hasScheduleChanges && !timeFieldError && !courtFieldError ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setSimplifiedScheduleEditorOpen(false)}
+                                  className="text-[13px] font-semibold text-p-text-muted hover:text-p-text"
+                                >
+                                  Ocultar
+                                </button>
+                              ) : (
+                                <span className="text-[12px] text-p-text-muted">Los cambios se aplican al guardar</span>
+                              )}
                             </div>
                             <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 md:grid-cols-3">
-                              <div>
-                                <p className="text-[12px] text-p-text-muted">Titular</p>
-                                <p className="mt-0.5 text-[15px] font-medium text-p-text">{simplifiedSummaryOwnerLabel}</p>
-                              </div>
                               <div>
                                 <p className="text-[12px] text-p-text-muted">Fecha</p>
                                 <p className="mt-0.5 text-[15px] font-medium text-p-text">{simplifiedSummaryDateLabel}</p>
                               </div>
                               <div>
-                                <p className="text-[12px] text-p-text-muted">Origen</p>
-                                <p className="mt-0.5 text-[15px] font-medium text-p-text">Administrador</p>
-                              </div>
-                              <div>
                                 <p className="text-[12px] text-p-text-muted">Horario</p>
-                                <p className="mt-0.5 text-[15px] font-medium text-p-text">{simplifiedSummaryTimeLabel}</p>
+                                <p className="mt-0.5 text-[15px] font-medium text-p-text">
+                                  {simplifiedHeaderTimeLabel} · {simplifiedHeaderDurationLabel}
+                                </p>
                               </div>
                               <div>
                                 <p className="text-[12px] text-p-text-muted">Cancha</p>
                                 <p className="mt-0.5 text-[15px] font-medium text-p-text">{simplifiedSummaryCourtLabel}</p>
                               </div>
                             </div>
-                          </div>
-
-                          <div className="mt-4 max-w-[260px]">
-                            <p className="text-[12px] font-medium text-p-text-muted">Precio</p>
-                            <div className="mt-1 h-12 rounded-xl border border-p-border bg-p-surface px-3 flex items-center justify-between">
-                              <input
-                                type="number"
-                                readOnly
-                                value={isFinancialDisplayPending ? '' : Number(totalPrice.toFixed(2))}
-                                className="w-full bg-transparent text-[18px] font-semibold text-p-text outline-none"
-                              />
-                              <span className="ml-2 text-[18px] font-semibold text-p-text-muted">$</span>
-                            </div>
-                          </div>
-                          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
+                          {simplifiedScheduleEditorVisible && !isCompletedReservationScheduleLocked && (
+                          <div className="mt-4 grid grid-cols-1 gap-3 border-t border-p-border pt-4 md:grid-cols-2">
                             <div className="block">
                               <span className="text-[12px] font-medium text-p-text-muted">Hora de inicio</span>
                               <PlaygroundCombo
@@ -7416,7 +7486,7 @@ export default function AdminAgendaPlaygroundPage() {
                                 }}
                                 options={timeOptions.slice(0, -1).map((option) => ({
                                   value: option.value,
-                                  label: slotToTimeAmPm(option.slot),
+                                  label: option.value,
                                 }))}
                                 disabled={isCompletedReservationScheduleLocked}
                                 className="mt-1"
@@ -7434,7 +7504,7 @@ export default function AdminAgendaPlaygroundPage() {
                                 }}
                                 options={timeOptions.slice(1).map((option) => ({
                                   value: option.value,
-                                  label: slotToTimeAmPm(option.slot),
+                                  label: option.value,
                                 }))}
                                 disabled={isCompletedReservationScheduleLocked}
                                 className="mt-1"
@@ -7462,6 +7532,8 @@ export default function AdminAgendaPlaygroundPage() {
                                 <p className="mt-1 text-[12px] font-medium text-p-error">{courtFieldError}</p>
                               )}
                             </div>
+                          </div>
+                          )}
                           </div>
                         </>
                       ) : (
@@ -7794,6 +7866,37 @@ export default function AdminAgendaPlaygroundPage() {
                         </>
                       ))}
 
+                      {showSimplifiedAccountSummary && (
+                        <BookingAccountSummarySection
+                          title={simplifiedSidebarSection === 'DETAILS' ? 'Precio y pagos' : 'Cuenta'}
+                          statusLabel={simplifiedPaymentStatusLabel}
+                          showStatusBadge
+                          showActionIcons
+                          totalAmount={simplifiedFinancialTotal}
+                          paidAmount={simplifiedPaidAmount}
+                          remainingAmount={simplifiedRemainingAmount}
+                          courtAmount={bookingCourtAmount}
+                          consumptionsAmount={bookingItemsAmount}
+                          isPending={isFinancialDisplayPending}
+                          onOpenOverview={() => {
+                            void openAgendaAccountDrawer(persistedEditingBookingId || 0, 'overview');
+                          }}
+                          onOpenPayment={() => {
+                            void openAgendaAccountDrawer(persistedEditingBookingId || 0, 'payment');
+                          }}
+                          disableOverview={!persistedEditingBookingId}
+                          disablePayment={!simplifiedCanRegisterPayment}
+                          helperMessage={
+                            !persistedEditingBookingId
+                              ? 'Primero creá la reserva.'
+                              : isPaymentLockedByManualPending
+                                ? 'Confirmá la reserva para habilitar pagos.'
+                                : null
+                          }
+                          className={simplifiedSidebarSection === 'DETAILS' ? 'mt-4' : 'mb-4'}
+                        />
+                      )}
+
                       {showSimplifiedConsumptionsSection && (
                         <section className="rounded-xl border border-p-border bg-p-surface-2 p-4">
                           <div className="flex items-center justify-between gap-3">
@@ -7979,36 +8082,6 @@ export default function AdminAgendaPlaygroundPage() {
 
                       {showSimplifiedBillingSection && (
                       <>
-                      {simplifiedIsEditingReservation && (
-                        <BookingAccountSummarySection
-                          title="Cuenta"
-                          statusLabel={simplifiedPaymentStatusLabel}
-                          showStatusBadge
-                          showActionIcons
-                          totalAmount={simplifiedFinancialTotal}
-                          paidAmount={simplifiedPaidAmount}
-                          remainingAmount={simplifiedRemainingAmount}
-                          courtAmount={bookingCourtAmount}
-                          consumptionsAmount={bookingItemsAmount}
-                          isPending={isFinancialDisplayPending}
-                          onOpenOverview={() => {
-                            void openAgendaAccountDrawer(persistedEditingBookingId || 0, 'overview');
-                          }}
-                          onOpenPayment={() => {
-                            void openAgendaAccountDrawer(persistedEditingBookingId || 0, 'payment');
-                          }}
-                          disableOverview={!persistedEditingBookingId}
-                          disablePayment={!simplifiedCanRegisterPayment}
-                          helperMessage={
-                            !persistedEditingBookingId
-                              ? 'Primero creá la reserva.'
-                              : isPaymentLockedByManualPending
-                                ? 'Confirmá la reserva para habilitar pagos.'
-                                : null
-                          }
-                        />
-                      )}
-
                       <AgendaPlayerSlotsSection
                         clubSlug={getClubSlug()}
                         bookingId={persistedEditingBookingId ? Number(persistedEditingBookingId) : null}
@@ -9253,31 +9326,69 @@ export default function AdminAgendaPlaygroundPage() {
                           <p className="mt-0.5 text-[12px] text-p-error">{blockingActionMessage}</p>
                         </div>
                       )}
-                      <div className="flex items-center justify-end gap-2">
-                        {editingBookingId && !isCompletedReservation && (
-                          <button
-                            type="button"
-                            onClick={openDeleteBookingFlow}
-                            aria-label="Eliminar reserva"
-                            title="Eliminar reserva"
-                            disabled={isSubmittingBooking || isDeletingBooking}
-                            className="h-10 w-10 rounded-xl border border-p-error bg-p-surface text-p-error grid place-items-center hover:bg-p-error-bg disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        )}
-                        {editingBookingId &&
-                          !isCompletedReservation &&
-                          canChangeTitularFromUi &&
-                          editingBooking?.state !== 'blocked' && (
-                          <button
-                            type="button"
-                            onClick={openChangeTitularModal}
-                            disabled={isSubmittingBooking || isDeletingBooking}
-                            className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-40"
-                          >
-                            Cambiar titular
-                          </button>
+                      <div className="flex items-center justify-between gap-2">
+                        {editingBookingId && !isCompletedReservation ? (
+                          <div ref={simplifiedMoreActionsRef} className="relative">
+                            <button
+                              type="button"
+                              onClick={() => setSimplifiedMoreActionsOpen((previous) => !previous)}
+                              disabled={isSubmittingBooking || isDeletingBooking}
+                              aria-haspopup="menu"
+                              aria-expanded={simplifiedMoreActionsOpen}
+                              className="h-10 inline-flex items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-40"
+                            >
+                              <MoreVertical size={15} />
+                              Más acciones
+                            </button>
+                            {simplifiedMoreActionsOpen && (
+                              <div
+                                role="menu"
+                                className="absolute bottom-[calc(100%+8px)] left-0 z-40 w-[280px] rounded-2xl border border-p-border bg-p-surface p-1.5 shadow-xl"
+                              >
+                                {canChangeTitularFromUi && editingBooking?.state !== 'blocked' && (
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => {
+                                      setSimplifiedMoreActionsOpen(false);
+                                      openChangeTitularModal();
+                                    }}
+                                    className="w-full rounded-xl px-3 py-2.5 text-left hover:bg-p-surface-2"
+                                  >
+                                    <span className="flex items-start gap-2.5">
+                                      <User size={15} className="mt-0.5 text-p-text-secondary" />
+                                      <span>
+                                        <span className="block text-[14px] font-semibold text-p-text">Cambiar titular</span>
+                                        <span className="block text-[12px] text-p-text-muted">Pasar la reserva a otro cliente</span>
+                                      </span>
+                                    </span>
+                                  </button>
+                                )}
+                                {canChangeTitularFromUi && editingBooking?.state !== 'blocked' && (
+                                  <div className="my-1 h-px bg-p-border" />
+                                )}
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setSimplifiedMoreActionsOpen(false);
+                                    openDeleteBookingFlow();
+                                  }}
+                                  className="w-full rounded-xl px-3 py-2.5 text-left hover:bg-p-error-bg"
+                                >
+                                  <span className="flex items-start gap-2.5">
+                                    <Trash2 size={15} className="mt-0.5 text-p-error" />
+                                    <span>
+                                      <span className="block text-[14px] font-semibold text-p-error">Eliminar reserva</span>
+                                      <span className="block text-[12px] text-p-text-muted">Pide confirmación antes de eliminar</span>
+                                    </span>
+                                  </span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span />
                         )}
                         <div className="flex items-center gap-2">
                           {showConfirmMainAction && (
