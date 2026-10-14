@@ -474,11 +474,14 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   }, [selectedDate, maxAllowedDate]);
 
   useEffect(() => {
+    // Si la modalidad fija la duración (ej. Single 60) no se corrige a las duraciones de la actividad:
+    // hacerlo rebotaba entre ambos valores en un bucle infinito.
+    if (formatFixedDuration) return;
     if (durationOptions.includes(selectedDuration)) return;
     setSelectedDuration(durationOptions[0]);
     setSelectedSlot(null);
     setSelectedCourt(null);
-  }, [durationOptions, selectedDuration]);
+  }, [durationOptions, formatFixedDuration, selectedDuration]);
 
   const filteredSlotsWithCourts = (() => {
     if (!selectedDate) return [];
