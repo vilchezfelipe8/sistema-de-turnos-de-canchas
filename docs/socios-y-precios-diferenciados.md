@@ -989,3 +989,8 @@ El DNI es **obligatorio** en el padrón (es la credencial de login). El teléfon
 
 ### Comportamiento previo detectado (no cambiado)
 - Cuando un jugador sin ficha vinculada reserva desde la app, `resolveOrCreateClient` reutiliza como titular la ficha de otra persona que coincida con su email o teléfono declarados. Con esta implementación el precio socio ya no se filtra por esa vía, pero la reserva queda a nombre de esa otra ficha. Conviene revisarlo aparte.
+
+### Ajustes tras las primeras pruebas del club (2026-10-14)
+- **Login en el modal de la grilla:** la lógica de ingreso (DNI o email, activación de socios, olvidé mi contraseña, enlace por email) vive en el hook `usePlayerSignIn` y la usan tanto `/login` como el modal que aparece al reservar sin sesión.
+- **Duración por modalidad:** `ActivityFormat.durationMinutes` (opcional). Si está cargada, el turno dura eso (ej. Single 60, Dobles 120) y pedir otra duración da error; si está vacía, se usan las duraciones de la actividad. En horario **fijo**, los turnos se definen con su duración, así que tienen que existir turnos de esa duración en Ajustes > Horarios (Ajustes > Actividades avisa si faltan). En horario por **rango** funciona directamente.
+- **Precio al cambiar de modalidad en la app:** la grilla no volvía a pedir precios al cambiar Single/Dobles; corregido.

@@ -17,6 +17,13 @@ const primaryButtonClass =
 const ghostButtonClass =
   'inline-flex h-8 items-center justify-center rounded-lg border border-p-border px-3 text-[12px] font-semibold text-p-text transition hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:opacity-50';
 
+// En horario fijo los turnos se definen con su duración: una modalidad con duración propia necesita turnos de esa duración.
+const missingFixedDuration = (activity: ClubActivityType, durationMinutes?: number | null) => {
+  if (!durationMinutes || activity.scheduleMode !== 'FIXED') return false;
+  const slots = Array.isArray(activity.scheduleFixedSlots) ? activity.scheduleFixedSlots : [];
+  return !slots.some((slot: any) => Number(slot?.duration) === Number(durationMinutes));
+};
+
 // Ajustes > Actividades: modalidades de juego (ej. Tenis Single 2 jugadores / Dobles 4) para el precio por jugador.
 export default function SettingsActivityFormatsSection() {
   const { user } = useAuth();
@@ -28,7 +35,7 @@ export default function SettingsActivityFormatsSection() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [drafts, setDrafts] = useState<Record<number, { name: string; playerCount: string }>>({});
+  const [drafts, setDrafts] = useState<Record<number, { name: string; playerCount: string; durationMinutes: string }>>({});
 
   const load = useCallback(async () => {
     if (!clubSlug) return;
@@ -63,9 +70,10 @@ export default function SettingsActivityFormatsSection() {
         activityTypeId: activityId,
         name: draft.name.trim(),
         playerCount: Number(draft.playerCount),
+        durationMinutes: draft.durationMinutes.trim() ? Number(draft.durationMinutes) : null,
         sortOrder: formats.filter((format) => format.activityTypeId === activityId).length
       });
-      setDrafts((prev) => ({ ...prev, [activityId]: { name: '', playerCount: '' } }));
+      setDrafts((prev) => ({ ...prev, [activityId]: { name: '', playerCount: '', durationMinutes: '' } }));
       await load();
       showAdminToast('Modalidad creada.');
     } catch (err) {
@@ -107,7 +115,7 @@ export default function SettingsActivityFormatsSection() {
 
       {activities.map((activity) => {
         const activityFormats = formats.filter((format) => format.activityTypeId === activity.id);
-        const draft = drafts[activity.id] || { name: '', playerCount: '' };
+        const draft = drafts[activity.id] || { name: '', playerCount: '', durationMinutes: '' };
         return (
           <SettingsSection key={activity.id} title={activity.name} description="Modalidades de juego de esta actividad.">
             <div className="space-y-2">
@@ -115,11 +123,17 @@ export default function SettingsActivityFormatsSection() {
                 <p className="text-[13px] text-p-text-muted">Sin modalidades.</p>
               ) : null}
               {activityFormats.map((format) => (
-                <div key={format.id} className="flex items-center justify-between gap-2 rounded-lg border border-p-border px-3 py-2">
+                <div key={format.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-p-border px-3 py-2">
                   <p className="text-[13px] text-p-text">
                     <span className="font-semibold">{format.name}</span> · {format.playerCount} jugador{format.playerCount === 1 ? '' : 'es'}
+                    {' · '}{format.durationMinutes ? `${format.durationMinutes} min` : 'duración de la actividad'}
                     {!format.isActive ? <span className="ml-2 text-[11px] text-p-text-muted">(desactivada)</span> : null}
                   </p>
+                  {format.isActive && missingFixedDuration(activity, format.durationMinutes) ? (
+                    <p className="basis-full text-[12px] text-p-warning">
+                      Los horarios fijos de {activity.name} no tienen turnos de {format.durationMinutes} min. Agregalos en Ajustes &gt; Horarios para poder reservar esta modalidad.
+                    </p>
+                  ) : null}
                   <button type="button" className={ghostButtonClass} disabled={saving} onClick={() => void handleToggle(format)}>
                     {format.isActive ? 'Desactivar' : 'Activar'}
                   </button>
@@ -127,7 +141,7 @@ export default function SettingsActivityFormatsSection() {
               ))}
             </div>
             <form
-              className="mt-3 grid gap-2 sm:grid-cols-[1fr_140px_auto]"
+              className="mt-3 grid gap-2 sm:grid-cols-[1fr_120px_150px_auto]"
               onSubmit={(event) => {
                 event.preventDefault();
                 void handleCreate(activity.id);
@@ -150,6 +164,17 @@ export default function SettingsActivityFormatsSection() {
                 value={draft.playerCount}
                 onChange={(event) => setDrafts((prev) => ({ ...prev, [activity.id]: { ...draft, playerCount: event.target.value } }))}
                 required
+              />
+              <input
+                className={inputClass}
+                type="number"
+                min={15}
+                max={600}
+                step={5}
+                placeholder="Duración (min)"
+                title="Opcional: duración fija del turno en esta modalidad. Vacío = las duraciones de la actividad."
+                value={draft.durationMinutes}
+                onChange={(event) => setDrafts((prev) => ({ ...prev, [activity.id]: { ...draft, durationMinutes: event.target.value } }))}
               />
               <button type="submit" className={primaryButtonClass} disabled={saving}>
                 <Plus size={14} /> Agregar

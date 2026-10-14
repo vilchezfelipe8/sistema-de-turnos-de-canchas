@@ -128,7 +128,7 @@ export function useAvailability(
         setLoading(false);
       }
     }
-  }, [date, activityId, apiBase, clubSlug, durationMinutes]);
+  }, [date, activityId, apiBase, clubSlug, durationMinutes, activityFormatId]);
 
   useEffect(() => {
     fetchSlots();

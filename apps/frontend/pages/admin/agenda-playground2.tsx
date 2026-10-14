@@ -3224,6 +3224,12 @@ export default function AdminAgendaPlaygroundPage() {
   }, [recurringEstimatedOccurrencesPerCourt, recurringEstimatedOccurrencesTotal, selectedRecurringCourts.length]);
 
   const selectionMinutes = Math.max((selectedEndSlot - selectedStartSlot) * slotMinutes, slotMinutes);
+  // Precio por jugador: una modalidad con duración fija (ej. Single 60, Dobles 120) ajusta el fin del turno.
+  const handleBookingFormatDurationChange = useCallback((durationMinutes: number | null) => {
+    if (!durationMinutes) return;
+    const span = Math.max(1, Math.round(durationMinutes / slotMinutes));
+    setSelectedEndSlot(selectedStartSlot + span);
+  }, [selectedStartSlot]);
   const selectionStartDateTime = useMemo(
     () => buildSelectionDateTime(selectedDate, selectedStartSlot),
     [selectedDate, selectedStartSlot]
@@ -8011,6 +8017,7 @@ export default function AdminAgendaPlaygroundPage() {
                         onFormatChange={setBookingActivityFormatId}
                         refreshKey={persistedAdminParticipants}
                         canReprice={hasAdminAccess(user)}
+                        onFormatDurationChange={handleBookingFormatDurationChange}
                       />
 
                       <section className="mt-4">
@@ -9031,6 +9038,7 @@ export default function AdminAgendaPlaygroundPage() {
                     onFormatChange={setBookingActivityFormatId}
                     refreshKey={persistedAdminParticipants}
                     canReprice={hasAdminAccess(user)}
+                    onFormatDurationChange={handleBookingFormatDurationChange}
                   />
 
                   <section className="py-6 border-b border-p-border">

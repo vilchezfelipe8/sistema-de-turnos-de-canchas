@@ -13,6 +13,8 @@ export type ActivityFormat = {
   activityName?: string;
   name: string;
   playerCount: number;
+  // Duración fija del turno en esta modalidad (null = la de la actividad)
+  durationMinutes?: number | null;
   sortOrder?: number;
   isActive?: boolean;
 };
@@ -88,14 +90,14 @@ export const PlayerPricingService = {
   listFormats: (slug: string) =>
     request<ActivityFormat[]>(`/clubs/${slug}/admin/activity-formats`, { method: 'GET' }, 'No se pudieron cargar las modalidades.'),
 
-  createFormat: (slug: string, body: { activityTypeId: number; name: string; playerCount: number; sortOrder?: number }) =>
+  createFormat: (slug: string, body: { activityTypeId: number; name: string; playerCount: number; durationMinutes?: number | null; sortOrder?: number }) =>
     request<ActivityFormat>(
       `/clubs/${slug}/admin/activity-formats`,
       { method: 'POST', body: JSON.stringify(body) },
       'No se pudo crear la modalidad.'
     ),
 
-  updateFormat: (slug: string, formatId: string, body: { name?: string; playerCount?: number; isActive?: boolean; sortOrder?: number }) =>
+  updateFormat: (slug: string, formatId: string, body: { name?: string; playerCount?: number; durationMinutes?: number | null; isActive?: boolean; sortOrder?: number }) =>
     request<ActivityFormat>(
       `/clubs/${slug}/admin/activity-formats/${formatId}`,
       { method: 'PATCH', body: JSON.stringify(body) },

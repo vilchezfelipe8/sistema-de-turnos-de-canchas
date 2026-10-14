@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { beginAppleOAuthLogin, beginFacebookOAuthLogin, beginGoogleOAuthLogin, confirmAccountActivation, confirmPasswordReset, login, register, requestAccountActivation, requestMagicLink, requestPasswordReset, verifyMagicLink } from '../services/AuthService';
+import { beginAppleOAuthLogin, beginFacebookOAuthLogin, beginGoogleOAuthLogin, register, verifyMagicLink } from '../services/AuthService';
+import { normalizeDniInput, usePlayerSignIn } from '../hooks/usePlayerSignIn';
 import { ClubService } from '../services/ClubService';
 import { Mail, Lock, User, Phone, UserPlus, LogIn, AlertCircle, Loader2, IdCard, CheckCircle, Eye, EyeOff, Zap, Moon, Sun, ArrowLeft } from 'lucide-react';
 import { getActiveClubSlug, hasOperatorAccess, normalizeSessionUser } from '../utils/session';
@@ -14,11 +15,6 @@ import { extractErrorMessage } from '../utils/uiError';
 import { normalizeApiError } from '../utils/apiError';
 
 type PostLoginRedirectIntent = { sourceUser?: any };
-// Activación de cuenta de socio (primer ingreso) y recuperación de contraseña: pedir código → confirmar.
-type RecoveryMode = 'activate' | 'reset';
-type RecoveryStep = 'request' | 'confirm';
-
-const normalizeDniInput = (value: string) => String(value || '').replace(/\D/g, '');
 
 const FONT = "var(--font-sans)";
 
@@ -158,26 +154,46 @@ export default function LoginPage() {
 
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
-  // Login: DNI o email
-  const [identifier, setIdentifier] = useState('');
-  const [password, setPassword] = useState('');
-  const [recoveryMode, setRecoveryMode] = useState<RecoveryMode | null>(null);
-  const [recoveryStep, setRecoveryStep] = useState<RecoveryStep>('request');
-  const [recoveryIdentifier, setRecoveryIdentifier] = useState('');
-  const [recoveryCode, setRecoveryCode] = useState('');
-  const [recoveryPassword, setRecoveryPassword] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [phoneCountryIso2, setPhoneCountryIso2] = useState(DEFAULT_PHONE_COUNTRY_ISO2);
   const [dni, setDni] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [magicLoading, setMagicLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<'google' | 'apple' | 'facebook' | null>(null);
-  const [successMessage, setSuccessMessage] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [redirectIntent, setRedirectIntent] = useState<PostLoginRedirectIntent | null>(null);
+
+  // Ingreso por DNI o email, activación de socios y recuperación: misma lógica que el modal de la grilla.
+  const signIn = usePlayerSignIn({
+    onAuthenticated: async (data) => {
+      await revalidateSession();
+      setRedirectIntent({ sourceUser: data?.user });
+    }
+  });
+  const {
+    identifier,
+    setIdentifier,
+    password,
+    setPassword,
+    recoveryMode,
+    recoveryStep,
+    recoveryIdentifier,
+    setRecoveryIdentifier,
+    recoveryCode,
+    setRecoveryCode,
+    recoveryPassword,
+    setRecoveryPassword,
+    error,
+    setError,
+    success: successMessage,
+    setSuccess: setSuccessMessage,
+    loading,
+    setLoading,
+    magicLoading,
+    openRecovery,
+    closeRecovery,
+    requestRecoveryCode: handleRecoveryRequest
+  } = signIn;
   const redirectingRef = useRef(false);
 
   const resolvePostLoginDestination = useCallback(async (sourceUser?: any) => {
@@ -320,13 +336,13 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLogin) {
+      await signIn.submitLogin();
+      return;
+    }
     setError(''); setSuccessMessage(''); setLoading(true);
     try {
-      if (isLogin) {
-        const data = await login(identifier.trim(), password);
-        await revalidateSession();
-        setRedirectIntent({ sourceUser: data?.user });
-      } else {
+      {
         const localPhone = String(phoneNumber || '').replace(/[^\d]/g, '');
         const fullPhone = buildCanonicalPhone({ countryIso2: phoneCountryIso2, localNumber: localPhone });
         if (!localPhone) { setError('Ingresá un teléfono para completar el registro.'); return; }
@@ -339,89 +355,20 @@ export default function LoginPage() {
         setFirstName(''); setLastName(''); setPhoneNumber(''); setDni('');
       }
     } catch (err: unknown) {
-      const code = normalizeApiError(err).code;
-      if (isLogin && code === 'ACCOUNT_PENDING_ACTIVATION') {
-        // Socio cargado por el club que todavía no eligió contraseña.
-        openRecovery('activate', identifier);
-        setSuccessMessage('Tu cuenta de socio todavía no está activada. Te enviamos un código para activarla.');
-        return;
-      }
-      if (!isLogin && code === 'DNI_ALREADY_REGISTERED') {
+      if (normalizeApiError(err).code === 'DNI_ALREADY_REGISTERED') {
         setError('Ese DNI ya tiene una cuenta. Si sos vos, activala o recuperá tu contraseña.');
         return;
       }
-      setError(extractErrorMessage(err, isLogin ? 'No se pudo iniciar sesión.' : 'No se pudo crear la cuenta.'));
-    } finally { setLoading(false); }
-  };
-
-  const openRecovery = (mode: RecoveryMode, prefill?: string) => {
-    const value = String(prefill || '').trim();
-    setRecoveryMode(mode);
-    setRecoveryStep('request');
-    // La activación es solo por DNI; la recuperación acepta DNI o email.
-    setRecoveryIdentifier(mode === 'activate' ? normalizeDniInput(value) : value);
-    setRecoveryCode('');
-    setRecoveryPassword('');
-    setError('');
-    setSuccessMessage('');
-    if (mode === 'activate' && normalizeDniInput(value).length >= 6) {
-      void handleRecoveryRequest(mode, normalizeDniInput(value));
-    }
-  };
-
-  const closeRecovery = () => {
-    setRecoveryMode(null);
-    setRecoveryStep('request');
-    setRecoveryCode('');
-    setRecoveryPassword('');
-    setError('');
-  };
-
-  const handleRecoveryRequest = async (mode: RecoveryMode, value: string) => {
-    const target = String(value || '').trim();
-    if (!target) { setError(mode === 'activate' ? 'Ingresá tu DNI.' : 'Ingresá tu DNI o email.'); return; }
-    setError(''); setLoading(true);
-    try {
-      if (mode === 'activate') await requestAccountActivation(target);
-      else await requestPasswordReset(target);
-      setRecoveryStep('confirm');
-      setSuccessMessage(
-        mode === 'activate'
-          ? 'Si el DNI corresponde a un socio, te enviamos un código por WhatsApp al teléfono registrado en el club. Si no lo recibís, pedilo en el mostrador.'
-          : 'Si los datos corresponden a una cuenta, te enviamos un código por email o WhatsApp.'
-      );
-    } catch (err: unknown) {
-      setError(extractErrorMessage(err, 'No se pudo enviar el código.'));
+      setError(extractErrorMessage(err, 'No se pudo crear la cuenta.'));
     } finally { setLoading(false); }
   };
 
   const handleRecoveryConfirm = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!recoveryMode) return;
-    if (recoveryPassword.length < 6) { setError('La contraseña debe tener al menos 6 caracteres.'); return; }
-    setError(''); setSuccessMessage(''); setLoading(true);
-    try {
-      const data = recoveryMode === 'activate'
-        ? await confirmAccountActivation(recoveryIdentifier, recoveryCode.trim(), recoveryPassword)
-        : await confirmPasswordReset(recoveryIdentifier, recoveryCode.trim(), recoveryPassword);
-      await revalidateSession();
-      setRedirectIntent({ sourceUser: data?.user });
-    } catch (err: unknown) {
-      setError(extractErrorMessage(err, 'No se pudo validar el código.'));
-    } finally { setLoading(false); }
+    await signIn.confirmRecovery();
   };
 
-  const handleRequestMagicLink = async () => {
-    const safeEmail = String(identifier || '').trim();
-    if (!safeEmail) { setError('Ingresá tu correo para enviarte el enlace.'); return; }
-    setError(''); setSuccessMessage(''); setMagicLoading(true);
-    try {
-      const data = await requestMagicLink(safeEmail);
-      setSuccessMessage(data?.message || 'Si el email es válido, te enviamos un enlace para ingresar.');
-    } catch (err: unknown) {
-      setError(extractErrorMessage(err, 'No se pudo enviar el enlace en este momento.'));
-    } finally { setMagicLoading(false); }
-  };
+  const handleRequestMagicLink = () => signIn.requestMagicLink();
 
   const handleGoogleLogin = () => {
     setError('');

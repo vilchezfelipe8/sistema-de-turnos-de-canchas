@@ -786,6 +786,8 @@ model ActivityFormat {
   activityType   ActivityType @relation(fields: [activityTypeId], references: [id], onDelete: Cascade)
   name           String
   playerCount    Int
+  // Duración fija del turno en esta modalidad (ej. Single 60, Dobles 120). null = la de la actividad.
+  durationMinutes Int?
   sortOrder      Int          @default(0)
   isActive       Boolean      @default(true)
   createdAt      DateTime     @default(now()) @db.Timestamptz(3)

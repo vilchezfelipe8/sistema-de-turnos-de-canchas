@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import type { ReactNode } from 'react';
 import { useAvailability } from '../hooks/useAvailability';
-import { login as loginUser, requestMagicLink } from '../services/AuthService';
+import { normalizeDniInput, usePlayerSignIn } from '../hooks/usePlayerSignIn';
 import AppModal from './AppModal';
 
 import { getApiUrl } from '../utils/apiUrl';
@@ -208,12 +208,6 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     closeOnBackdrop?: boolean; closeOnEscape?: boolean; blockManualClose?: boolean;
   }>({ show: false });
   const pendingAfterLoginActionRef = useRef<null | (() => void)>(null);
-  const [loginModalEmail, setLoginModalEmail] = useState('');
-  const [loginModalPassword, setLoginModalPassword] = useState('');
-  const [loginModalError, setLoginModalError] = useState('');
-  const [loginModalSuccess, setLoginModalSuccess] = useState('');
-  const [loginModalLoading, setLoginModalLoading] = useState(false);
-  const [loginModalMagicLoading, setLoginModalMagicLoading] = useState(false);
   const [loginModalShowPassword, setLoginModalShowPassword] = useState(false);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
 
@@ -244,13 +238,35 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     setModalState(p => ({ ...p, show: false }));
   }, []);
 
+  const loginModalLabelStyle = { fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: T.textMuted } as const;
+  const loginModalInputStyle = { width: '100%', padding: '11px 14px', background: T.bgInput, border: `1px solid ${T.border}`, borderRadius: 12, color: T.textPrimary, fontSize: 14, fontWeight: 600, outline: 'none' } as const;
+  const loginModalLinkStyle = { background: 'none', border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, color: T.textMuted, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '3px', padding: 0 } as const;
+  const loginModalPrimaryButtonStyle = (disabled: boolean) => ({
+    marginTop: 4, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '13px 20px',
+    borderRadius: 12, border: 'none', background: 'var(--brand)', color: 'var(--brand-on)', fontSize: 13, fontWeight: 800,
+    letterSpacing: '.01em', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1
+  } as const);
+
+  // Misma lógica de ingreso que /login: DNI o email, activación de socios y recuperación de contraseña.
+  const signIn = usePlayerSignIn({
+    onAuthenticated: () => {
+      setIsAuthenticated(true);
+      setIsLoginPromptOpen(false);
+      signIn.reset();
+      setLoginModalShowPassword(false);
+      const pendingAction = pendingAfterLoginActionRef.current;
+      pendingAfterLoginActionRef.current = null;
+      if (pendingAction) { try { pendingAction(); } catch (err) { reportUiError({ area: 'BookingGrid', action: 'postLoginPendingAction' }, err); } }
+    }
+  });
+  const loginModalLoading = signIn.loading;
+  const loginModalMagicLoading = signIn.magicLoading;
+
   const resetLoginModalState = useCallback(() => {
-    setLoginModalError('');
-    setLoginModalSuccess('');
-    setLoginModalLoading(false);
-    setLoginModalMagicLoading(false);
+    signIn.reset();
     setLoginModalShowPassword(false);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signIn.reset]);
 
   const closeLoginPromptModal = useCallback(() => {
     setIsLoginPromptOpen(false);
@@ -270,51 +286,6 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     pendingAfterLoginActionRef.current = afterLoginAction || null;
     resetLoginModalState();
     setIsLoginPromptOpen(true);
-  };
-
-  const handleRequestLoginMagicLink = async () => {
-    const safeEmail = String(loginModalEmail || '').trim();
-    if (!safeEmail) {
-      setLoginModalError('Ingresa tu email para enviar enlace.');
-      return;
-    }
-    setLoginModalError('');
-    setLoginModalSuccess('');
-    setLoginModalMagicLoading(true);
-    try {
-      const data = await requestMagicLink(safeEmail);
-      setLoginModalSuccess(data?.message || 'Si el email es valido, enviamos enlace de acceso.');
-    } catch (err) {
-      setLoginModalError(extractErrorMessage(err, 'No se pudo enviar el enlace.'));
-    } finally {
-      setLoginModalMagicLoading(false);
-    }
-  };
-
-  const handleLoginFromModal = async () => {
-    if (loginModalLoading) return;
-    const safeEmail = String(loginModalEmail || '').trim();
-    const safePassword = String(loginModalPassword || '');
-    if (!safeEmail || !safePassword) { setLoginModalError('Completa email y contrasena.'); return; }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(safeEmail)) { setLoginModalError('Ingresa un email valido.'); return; }
-    setLoginModalLoading(true);
-    setLoginModalError('');
-    setLoginModalSuccess('');
-    try {
-      await loginUser(safeEmail, safePassword);
-      setIsAuthenticated(true);
-      setIsLoginPromptOpen(false);
-      resetLoginModalState();
-      const pendingAction = pendingAfterLoginActionRef.current;
-      pendingAfterLoginActionRef.current = null;
-      if (pendingAction) { try { pendingAction(); } catch (err) { reportUiError({ area: 'BookingGrid', action: 'postLoginPendingAction' }, err); } }
-    } catch (err) {
-      const message = extractErrorMessage(err, 'No se pudo iniciar sesión.');
-      setLoginModalError(message);
-      const norm = message.toLowerCase();
-      const isExpected = norm.includes('credenciales') || norm.includes('usuario o contrasena') || norm.includes('401');
-      if (!isExpected) reportUiError({ area: 'BookingGrid', action: 'loginModalSubmit' }, err);
-    } finally { setLoginModalLoading(false); }
   };
 
   useEffect(() => {
@@ -423,6 +394,15 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     }
   }, [activityFormats, isPerPlayerPricing, selectedFormatId]);
   const selectedFormat = activityFormats.find(format => format.id === selectedFormatId) || null;
+  // Una modalidad con duración fija (ej. Single 60, Dobles 120) define la duración del turno.
+  const formatFixedDuration = isPerPlayerPricing ? selectedFormat?.durationMinutes ?? null : null;
+  useEffect(() => {
+    if (formatFixedDuration && selectedDuration !== formatFixedDuration) {
+      setSelectedDuration(formatFixedDuration);
+      setSelectedSlot(null);
+      setSelectedCourt(null);
+    }
+  }, [formatFixedDuration, selectedDuration]);
 
   const { slotsWithCourts, loading, error, refresh } = useAvailability(
     selectedDate,
@@ -995,6 +975,11 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
         {/* Duración */}
         <div style={{ position: 'relative', zIndex: 10, minWidth: 0 }}>
           <div style={labelStyle}><Clock size={12} style={{ color: 'var(--brand)' }} /> Duración</div>
+          {formatFixedDuration ? (
+            <div style={{ padding: '11px 14px', borderRadius: 12, border: `1px solid ${T.border}`, background: T.bgInput, color: T.textPrimary, fontSize: 14, fontWeight: 700, textAlign: isMobileListOnly ? 'center' : 'left' }}>
+              {formatFixedDuration} min · según la modalidad
+            </div>
+          ) : (
           <CustomSelect
             value={selectedDuration}
             onChange={(val: number) => { setSelectedDuration(Number(val)); setSelectedSlot(null); setSelectedCourt(null); }}
@@ -1002,6 +987,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
             centerLabel={isMobileListOnly}
             options={durationOptions.map(d => ({ value: d, label: `${d} min` }))}
           />
+          )}
         </div>
 
         {/* Modalidad (precio por jugador) */}
@@ -1487,116 +1473,200 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
               <div style={{ width: 52, height: 52, borderRadius: 16, background: 'var(--accent-bg-soft)', border: '1px solid var(--accent-border-subtle)', margin: '0 auto 16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--brand)' }}>
                 <LogIn size={22} />
               </div>
-              <h3 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.textPrimary, letterSpacing: '-.03em' }}>Bienvenido</h3>
-              <p style={{ margin: '6px 0 0', fontSize: 11, fontWeight: 600, letterSpacing: '.03em', color: T.textDisabled }}>Ingresa a tu cuenta</p>
+              <h3 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.textPrimary, letterSpacing: '-.03em' }}>
+                {signIn.recoveryMode === 'activate' ? 'Activá tu cuenta' : signIn.recoveryMode === 'reset' ? 'Recuperá tu contraseña' : 'Bienvenido'}
+              </h3>
+              <p style={{ margin: '6px 0 0', fontSize: 11, fontWeight: 600, letterSpacing: '.03em', color: T.textDisabled }}>
+                {signIn.recoveryMode === 'activate' ? 'Primer ingreso de socios' : signIn.recoveryMode === 'reset' ? 'Te enviamos un código' : 'Ingresá con tu DNI o email'}
+              </p>
             </div>
 
             <div style={{ padding: '22px 28px 28px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {loginModalError && (
+              {signIn.error && (
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', borderRadius: 12, background: 'var(--error-bg)', border: '1px solid var(--error-bg)', color: 'var(--error-fg)', fontSize: 13, fontWeight: 600 }}>
                   <AlertCircle size={15} style={{ marginTop: 1, flexShrink: 0 }} />
-                  <span>{loginModalError}</span>
+                  <span>{signIn.error}</span>
                 </div>
               )}
 
-              {loginModalSuccess && (
+              {signIn.success && (
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', borderRadius: 12, background: 'var(--accent-bg-soft)', border: '1px solid var(--accent-border-subtle)', color: 'var(--brand-hover)', fontSize: 13, fontWeight: 600 }}>
                   <Check size={15} style={{ marginTop: 1, flexShrink: 0 }} />
-                  <span>{loginModalSuccess}</span>
+                  <span>{signIn.success}</span>
                 </div>
               )}
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: T.textMuted }}>Correo electronico</label>
-                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                  <span style={{ position: 'absolute', left: 13, color: T.textDisabled, display: 'flex', pointerEvents: 'none' }}><Mail size={14} /></span>
-                  <input
-                    type="email"
-                    value={loginModalEmail}
-                    onChange={event => setLoginModalEmail(event.target.value)}
-                    style={{ width: '100%', padding: '11px 14px 11px 38px', background: T.bgInput, border: `1px solid ${T.border}`, borderRadius: 12, color: T.textPrimary, fontSize: 14, fontWeight: 600, outline: 'none' }}
-                    placeholder="tu@email.com"
-                    autoComplete="email"
-                  />
-                </div>
-              </div>
+              {signIn.recoveryMode ? (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <label style={loginModalLabelStyle}>{signIn.recoveryMode === 'activate' ? 'DNI' : 'DNI o email'}</label>
+                    <input
+                      type="text"
+                      inputMode={signIn.recoveryMode === 'activate' ? 'numeric' : 'text'}
+                      value={signIn.recoveryIdentifier}
+                      disabled={signIn.recoveryStep === 'confirm'}
+                      onChange={event => signIn.setRecoveryIdentifier(signIn.recoveryMode === 'activate' ? normalizeDniInput(event.target.value) : event.target.value)}
+                      style={loginModalInputStyle}
+                      placeholder={signIn.recoveryMode === 'activate' ? 'Ej: 35123456' : 'DNI o tu@email.com'}
+                    />
+                  </div>
+                  {signIn.recoveryStep === 'request' ? (
+                    <button
+                      type="button"
+                      onClick={() => { void signIn.requestRecoveryCode(signIn.recoveryMode!, signIn.recoveryIdentifier); }}
+                      disabled={loginModalLoading || !signIn.recoveryIdentifier.trim()}
+                      style={loginModalPrimaryButtonStyle(loginModalLoading || !signIn.recoveryIdentifier.trim())}
+                    >
+                      {loginModalLoading ? 'Enviando...' : 'Enviarme el código'}
+                    </button>
+                  ) : (
+                    <>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <label style={loginModalLabelStyle}>Código</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          maxLength={6}
+                          value={signIn.recoveryCode}
+                          onChange={event => signIn.setRecoveryCode(event.target.value.replace(/[^\d]/g, ''))}
+                          style={loginModalInputStyle}
+                          placeholder="6 dígitos"
+                        />
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <label style={loginModalLabelStyle}>{signIn.recoveryMode === 'activate' ? 'Elegí tu contraseña' : 'Nueva contraseña'}</label>
+                        <input
+                          type="password"
+                          value={signIn.recoveryPassword}
+                          onChange={event => signIn.setRecoveryPassword(event.target.value)}
+                          style={loginModalInputStyle}
+                          placeholder="Mínimo 6 caracteres"
+                          autoComplete="new-password"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => { void signIn.confirmRecovery(); }}
+                        disabled={loginModalLoading || signIn.recoveryCode.length < 6 || signIn.recoveryPassword.length < 6}
+                        style={loginModalPrimaryButtonStyle(loginModalLoading || signIn.recoveryCode.length < 6 || signIn.recoveryPassword.length < 6)}
+                      >
+                        {loginModalLoading ? 'Validando...' : signIn.recoveryMode === 'activate' ? 'Activar e ingresar' : 'Guardar e ingresar'}
+                      </button>
+                      <button type="button" onClick={() => { void signIn.requestRecoveryCode(signIn.recoveryMode!, signIn.recoveryIdentifier); }} disabled={loginModalLoading} style={loginModalLinkStyle}>
+                        Reenviar código
+                      </button>
+                    </>
+                  )}
+                  <button type="button" onClick={signIn.closeRecovery} style={loginModalLinkStyle}>
+                    Volver a iniciar sesión
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <label style={loginModalLabelStyle}>DNI o email</label>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                      <span style={{ position: 'absolute', left: 13, color: T.textDisabled, display: 'flex', pointerEvents: 'none' }}><Mail size={14} /></span>
+                      <input
+                        type="text"
+                        value={signIn.identifier}
+                        onChange={event => signIn.setIdentifier(event.target.value)}
+                        style={{ ...loginModalInputStyle, padding: '11px 14px 11px 38px' }}
+                        placeholder="35123456 o tu@email.com"
+                        autoComplete="username"
+                      />
+                    </div>
+                  </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: T.textMuted }}>Contrasena</label>
-                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                  <span style={{ position: 'absolute', left: 13, color: T.textDisabled, display: 'flex', pointerEvents: 'none' }}><Lock size={14} /></span>
-                  <input
-                    type={loginModalShowPassword ? 'text' : 'password'}
-                    value={loginModalPassword}
-                    onChange={event => setLoginModalPassword(event.target.value)}
-                    onKeyDown={event => {
-                      if (event.key === 'Enter' && !loginModalLoading) {
-                        event.preventDefault();
-                        void handleLoginFromModal();
-                      }
-                    }}
-                    style={{ width: '100%', padding: '11px 44px 11px 38px', background: T.bgInput, border: `1px solid ${T.border}`, borderRadius: 12, color: T.textPrimary, fontSize: 14, fontWeight: 600, outline: 'none' }}
-                    placeholder="••••••••"
-                    autoComplete="current-password"
-                  />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <label style={loginModalLabelStyle}>Contraseña</label>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                      <span style={{ position: 'absolute', left: 13, color: T.textDisabled, display: 'flex', pointerEvents: 'none' }}><Lock size={14} /></span>
+                      <input
+                        type={loginModalShowPassword ? 'text' : 'password'}
+                        value={signIn.password}
+                        onChange={event => signIn.setPassword(event.target.value)}
+                        onKeyDown={event => {
+                          if (event.key === 'Enter' && !loginModalLoading) {
+                            event.preventDefault();
+                            void signIn.submitLogin();
+                          }
+                        }}
+                        style={{ ...loginModalInputStyle, padding: '11px 44px 11px 38px' }}
+                        placeholder="••••••••"
+                        autoComplete="current-password"
+                      />
+                      <button
+                        type="button"
+                        onMouseDown={() => setLoginModalShowPassword(true)}
+                        onMouseUp={() => setLoginModalShowPassword(false)}
+                        onMouseLeave={() => setLoginModalShowPassword(false)}
+                        onTouchStart={() => setLoginModalShowPassword(true)}
+                        onTouchEnd={() => setLoginModalShowPassword(false)}
+                        style={{ position: 'absolute', right: 12, background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer', display: 'flex', alignItems: 'center', padding: 4 }}
+                        aria-label="Ver contraseña"
+                      >
+                        {loginModalShowPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
                   <button
                     type="button"
-                    onMouseDown={() => setLoginModalShowPassword(true)}
-                    onMouseUp={() => setLoginModalShowPassword(false)}
-                    onMouseLeave={() => setLoginModalShowPassword(false)}
-                    onTouchStart={() => setLoginModalShowPassword(true)}
-                    onTouchEnd={() => setLoginModalShowPassword(false)}
-                    style={{ position: 'absolute', right: 12, background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer', display: 'flex', alignItems: 'center', padding: 4 }}
-                    aria-label="Ver contrasena"
+                    onClick={() => { void signIn.submitLogin(); }}
+                    disabled={loginModalLoading || !signIn.identifier.trim() || !signIn.password}
+                    style={loginModalPrimaryButtonStyle(loginModalLoading || !signIn.identifier.trim() || !signIn.password)}
                   >
-                    {loginModalShowPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {loginModalLoading ? (
+                      <>
+                        <Loader2 size={15} style={{ animation: 'bg-spin .8s linear infinite' }} />
+                        Procesando...
+                      </>
+                    ) : (
+                      <>
+                        <LogIn size={15} />
+                        Ingresar
+                      </>
+                    )}
                   </button>
-                </div>
-              </div>
 
-              <button
-                type="button"
-                onClick={() => { void handleLoginFromModal(); }}
-                disabled={loginModalLoading || !String(loginModalEmail).trim() || !String(loginModalPassword).trim()}
-                style={{ marginTop: 4, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '13px 20px', borderRadius: 12, border: 'none', background: 'var(--brand)', color: 'var(--brand-on)', fontSize: 13, fontWeight: 800, letterSpacing: '.01em', cursor: (loginModalLoading || !String(loginModalEmail).trim() || !String(loginModalPassword).trim()) ? 'not-allowed' : 'pointer', opacity: (loginModalLoading || !String(loginModalEmail).trim() || !String(loginModalPassword).trim()) ? 0.5 : 1 }}
-              >
-                {loginModalLoading ? (
-                  <>
-                    <Loader2 size={15} style={{ animation: 'bg-spin .8s linear infinite' }} />
-                    Procesando...
-                  </>
-                ) : (
-                  <>
-                    <LogIn size={15} />
-                    Ingresar
-                  </>
-                )}
-              </button>
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: 14, flexWrap: 'wrap' }}>
+                    <button type="button" onClick={() => signIn.openRecovery('activate', signIn.identifier)} style={loginModalLinkStyle}>
+                      ¿Sos socio y es tu primera vez? Activá tu cuenta
+                    </button>
+                    <button type="button" onClick={() => signIn.openRecovery('reset', signIn.identifier)} style={loginModalLinkStyle}>
+                      Olvidé mi contraseña
+                    </button>
+                  </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ flex: 1, height: 1, background: T.divider }} />
-                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: T.textDisabled }}>o</span>
-                <div style={{ flex: 1, height: 1, background: T.divider }} />
-              </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ flex: 1, height: 1, background: T.divider }} />
+                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: T.textDisabled }}>o</span>
+                    <div style={{ flex: 1, height: 1, background: T.divider }} />
+                  </div>
 
-              <button
-                type="button"
-                onClick={() => { void handleRequestLoginMagicLink(); }}
-                disabled={loginModalMagicLoading || loginModalLoading || !String(loginModalEmail).trim()}
-                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '13px 20px', borderRadius: 12, background: T.bgSubtle2, border: `1px solid ${T.border}`, color: T.textMuted, fontSize: 13, fontWeight: 800, letterSpacing: '.01em', cursor: loginModalMagicLoading || loginModalLoading ? 'not-allowed' : 'pointer', opacity: loginModalMagicLoading || loginModalLoading ? 0.6 : 1 }}
-              >
-                {loginModalMagicLoading ? (
-                  <>
-                    <Loader2 size={15} style={{ animation: 'bg-spin .8s linear infinite' }} />
-                    Enviando...
-                  </>
-                ) : (
-                  <>
-                    <Zap size={15} />
-                    Enviar enlace de acceso
-                  </>
-                )}
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => { void signIn.requestMagicLink(); }}
+                    disabled={loginModalMagicLoading || loginModalLoading || !signIn.canRequestMagicLink}
+                    title={signIn.canRequestMagicLink ? undefined : 'Ingresá tu email para recibir el enlace'}
+                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '13px 20px', borderRadius: 12, background: T.bgSubtle2, border: `1px solid ${T.border}`, color: T.textMuted, fontSize: 13, fontWeight: 800, letterSpacing: '.01em', cursor: loginModalMagicLoading || loginModalLoading || !signIn.canRequestMagicLink ? 'not-allowed' : 'pointer', opacity: loginModalMagicLoading || loginModalLoading || !signIn.canRequestMagicLink ? 0.6 : 1 }}
+                  >
+                    {loginModalMagicLoading ? (
+                      <>
+                        <Loader2 size={15} style={{ animation: 'bg-spin .8s linear infinite' }} />
+                        Enviando...
+                      </>
+                    ) : (
+                      <>
+                        <Zap size={15} />
+                        Enviar enlace de acceso
+                      </>
+                    )}
+                  </button>
+                </>
+              )}
 
               <div style={{ textAlign: 'center', paddingTop: 14, borderTop: `1px solid ${T.divider}` }}>
                 <button

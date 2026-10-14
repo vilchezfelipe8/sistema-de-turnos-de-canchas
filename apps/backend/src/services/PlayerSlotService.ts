@@ -112,12 +112,20 @@ export class PlayerSlotService {
     });
   }
 
-  async createFormat(input: { clubId: number; activityTypeId: number; name: string; playerCount: number; sortOrder?: number }) {
+  private assertDuration(durationMinutes: number | null | undefined) {
+    if (durationMinutes === null || durationMinutes === undefined) return;
+    if (!Number.isInteger(durationMinutes) || durationMinutes < 15 || durationMinutes > 600 || durationMinutes % 5 !== 0) {
+      throw badRequest('La duración debe estar entre 15 y 600 minutos, en múltiplos de 5.', ErrorCodes.INVALID_INPUT);
+    }
+  }
+
+  async createFormat(input: { clubId: number; activityTypeId: number; name: string; playerCount: number; durationMinutes?: number | null; sortOrder?: number }) {
     const activity = await prisma.activityType.findFirst({ where: { id: input.activityTypeId, clubId: input.clubId } });
     if (!activity) throw notFound('Actividad no encontrada.', ErrorCodes.ACTIVITY_NOT_FOUND);
     if (!Number.isInteger(input.playerCount) || input.playerCount < 1 || input.playerCount > 30) {
       throw badRequest('La cantidad de jugadores debe estar entre 1 y 30.', ErrorCodes.INVALID_INPUT);
     }
+    this.assertDuration(input.durationMinutes);
     try {
       return await prisma.activityFormat.create({
         data: {
@@ -125,6 +133,7 @@ export class PlayerSlotService {
           activityTypeId: activity.id,
           name: input.name.trim(),
           playerCount: input.playerCount,
+          durationMinutes: input.durationMinutes ?? null,
           sortOrder: input.sortOrder ?? 0
         }
       });
@@ -136,7 +145,7 @@ export class PlayerSlotService {
     }
   }
 
-  async updateFormat(input: { clubId: number; formatId: string; name?: string; playerCount?: number; sortOrder?: number; isActive?: boolean }) {
+  async updateFormat(input: { clubId: number; formatId: string; name?: string; playerCount?: number; durationMinutes?: number | null; sortOrder?: number; isActive?: boolean }) {
     const format = await prisma.activityFormat.findFirst({ where: { id: input.formatId, clubId: input.clubId } });
     if (!format) throw notFound('Modalidad no encontrada.', ErrorCodes.NOT_FOUND);
     if (input.playerCount !== undefined && input.playerCount !== format.playerCount) {
@@ -145,6 +154,7 @@ export class PlayerSlotService {
         throw badRequest('La cantidad de jugadores debe estar entre 1 y 30.', ErrorCodes.INVALID_INPUT);
       }
     }
+    this.assertDuration(input.durationMinutes);
     // RN-15: no se desactiva una modalidad con reservas futuras activas.
     if (input.isActive === false && format.isActive) {
       const upcoming = await prisma.booking.count({
@@ -159,6 +169,7 @@ export class PlayerSlotService {
       data: {
         ...(input.name !== undefined ? { name: input.name.trim() } : {}),
         ...(input.playerCount !== undefined ? { playerCount: input.playerCount } : {}),
+        ...(input.durationMinutes !== undefined ? { durationMinutes: input.durationMinutes } : {}),
         ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
         ...(input.isActive !== undefined ? { isActive: input.isActive } : {})
       }
@@ -240,6 +251,20 @@ export class PlayerSlotService {
   }
 
   // ---------- Cálculo ----------
+
+  // Duración fija de la modalidad elegida (null = se usan las duraciones de la actividad).
+  async resolveFormatDurationTx(
+    db: DbClient,
+    input: { clubId: number; activityId: number; activityFormatId: string | null | undefined }
+  ): Promise<{ durationMinutes: number; formatName: string } | null> {
+    const formatId = String(input.activityFormatId || '').trim();
+    if (!formatId || !(await this.isPerPlayerClub(input.clubId, db))) return null;
+    const format = await db.activityFormat.findFirst({
+      where: { id: formatId, clubId: input.clubId, activityTypeId: input.activityId },
+      select: { name: true, durationMinutes: true }
+    });
+    return format?.durationMinutes ? { durationMinutes: format.durationMinutes, formatName: format.name } : null;
+  }
 
   async resolveFormatTx(db: DbClient, input: { clubId: number; activityId: number; activityFormatId: string | null | undefined }) {
     const formatId = String(input.activityFormatId || '').trim();

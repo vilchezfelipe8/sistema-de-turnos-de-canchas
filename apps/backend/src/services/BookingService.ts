@@ -2480,9 +2480,18 @@ export class BookingService {
             Number.isFinite(professorOverrideMinutes) &&
             professorOverrideMinutes > 0;
         const allowedDurations = activitySchedule.durations;
-        const effectiveDuration = input.durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
+        // Precio por jugador: la modalidad puede fijar la duración (ej. Single 60, Dobles 120).
+        const modalityDuration = await this.playerSlotService.resolveFormatDurationTx(prisma, {
+            clubId: Number((court as any).club.id),
+            activityId: input.activityId,
+            activityFormatId: input.activityFormatId
+        });
+        if (modalityDuration && input.durationMinutes && Number(input.durationMinutes) !== modalityDuration.durationMinutes) {
+            throw this.invalidInput(`La modalidad ${modalityDuration.formatName} dura ${modalityDuration.durationMinutes} minutos.`);
+        }
+        const effectiveDuration = modalityDuration?.durationMinutes ?? input.durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
         this.assertValidDuration(effectiveDuration);
-        if (!allowedDurations.includes(effectiveDuration)) {
+        if (!modalityDuration && !allowedDurations.includes(effectiveDuration)) {
             if (!(canProfessorDurationOverride && effectiveDuration === professorOverrideMinutes)) {
                 throw this.bookingSlotUnavailable('Duración no permitida por el club');
             }
@@ -3320,10 +3329,19 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             throw this.clubConfigInvalid('El club requiere una seña pero no tiene bookingDepositPercent válido');
         }
         const allowedDurations = activitySchedule.durations;
-        const effectiveDuration = durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
+        // Precio por jugador: la modalidad puede fijar la duración (ej. Single 60, Dobles 120).
+        const modalityDuration = await this.playerSlotService.resolveFormatDurationTx(prisma, {
+            clubId: bookingClubId,
+            activityId,
+            activityFormatId: options?.activityFormatId
+        });
+        if (modalityDuration && durationMinutes && Number(durationMinutes) !== modalityDuration.durationMinutes) {
+            throw this.invalidInput(`La modalidad ${modalityDuration.formatName} dura ${modalityDuration.durationMinutes} minutos.`);
+        }
+        const effectiveDuration = modalityDuration?.durationMinutes ?? durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
         this.assertValidDuration(effectiveDuration);
         // Regla operativa explícita: permitir duración especial profesor aunque no esté en scheduleDurations
-        if (!allowedDurations.includes(effectiveDuration)) {
+        if (!modalityDuration && !allowedDurations.includes(effectiveDuration)) {
             if (!(canProfessorDurationOverride && effectiveDuration === professorOverrideMinutes)) {
                 throw this.bookingSlotUnavailable('Duración no permitida por el club');
             }
@@ -7295,6 +7313,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             activityFormatId: string;
             formatName: string;
             playerCount: number;
+            durationMinutes: number;
         } | null;
         professorOverrideAvailable: boolean;
         professorDurationOverrideMinutes: number | null;
@@ -7407,9 +7426,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             Number.isFinite(professorOverrideMinutes) &&
             professorOverrideMinutes > 0;
         const allowedDurations = activitySchedule.durations;
-        const effectiveDuration = durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
+        // Precio por jugador: la modalidad puede fijar la duración; la grilla usa esa duración.
+        const modalityDurationMinutes = perPlayerFormat?.durationMinutes ?? null;
+        const effectiveDuration = modalityDurationMinutes ?? durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
         const referenceDuration = this.resolvePriceReferenceDuration(activity, allowedDurations, effectiveDuration);
-        if (!allowedDurations.includes(effectiveDuration)) {
+        if (!modalityDurationMinutes && !allowedDurations.includes(effectiveDuration)) {
             if (!(canProfessorDurationOverride && effectiveDuration === professorOverrideMinutes)) {
                 throw this.bookingSlotUnavailable('Duración no permitida por el club');
             }
@@ -7570,7 +7591,12 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             professorOverrideAvailable: Boolean(canProfessorDurationOverride),
             professorDurationOverrideMinutes: canProfessorDurationOverride ? professorOverrideMinutes : null,
             perPlayer: perPlayerFormat
-                ? { activityFormatId: perPlayerFormat.id, formatName: perPlayerFormat.name, playerCount: perPlayerFormat.playerCount }
+                ? {
+                    activityFormatId: perPlayerFormat.id,
+                    formatName: perPlayerFormat.name,
+                    playerCount: perPlayerFormat.playerCount,
+                    durationMinutes: effectiveDuration
+                }
                 : null
         };
     }

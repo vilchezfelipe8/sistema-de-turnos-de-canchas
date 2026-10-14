@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BadgeCheck, RefreshCw } from 'lucide-react';
 import { AdminFeedbackBanner } from '../ui/AdminFeedback';
 import {
@@ -25,6 +25,8 @@ type AgendaPlayerSlotsSectionProps = {
   refreshKey?: unknown;
   canReprice: boolean;
   onPricesChanged?: () => void;
+  // Avisa la duración fija de la modalidad elegida (null = la de la actividad) para ajustar la selección.
+  onFormatDurationChange?: (durationMinutes: number | null) => void;
 };
 
 const chipClass = (active: boolean) =>
@@ -42,7 +44,8 @@ export default function AgendaPlayerSlotsSection({
   onFormatChange,
   refreshKey,
   canReprice,
-  onPricesChanged
+  onPricesChanged,
+  onFormatDurationChange
 }: AgendaPlayerSlotsSectionProps) {
   const [pricingMode, setPricingMode] = useState<ClubPricingMode>('PER_COURT');
   const [formats, setFormats] = useState<ActivityFormat[]>([]);
@@ -74,6 +77,16 @@ export default function AgendaPlayerSlotsSection({
       onFormatChange(activityFormats[0]?.id || '');
     }
   }, [activityFormats, bookingId, formatId, onFormatChange, pricingMode]);
+
+  const selectedFormatDuration = activityFormats.find((format) => format.id === formatId)?.durationMinutes ?? null;
+  const onFormatDurationChangeRef = useRef(onFormatDurationChange);
+  useEffect(() => {
+    onFormatDurationChangeRef.current = onFormatDurationChange;
+  }, [onFormatDurationChange]);
+  useEffect(() => {
+    if (pricingMode !== 'PER_PLAYER' || bookingId || !formatId) return;
+    onFormatDurationChangeRef.current?.(selectedFormatDuration);
+  }, [bookingId, formatId, pricingMode, selectedFormatDuration]);
 
   const loadSlots = useCallback(async () => {
     if (!bookingId || pricingMode !== 'PER_PLAYER') {
@@ -122,7 +135,7 @@ export default function AgendaPlayerSlotsSection({
           <div className="mt-2 flex flex-wrap gap-2">
             {activityFormats.map((format) => (
               <button key={format.id} type="button" className={chipClass(format.id === formatId)} onClick={() => onFormatChange(format.id)}>
-                {format.name} · {format.playerCount} jug.
+                {format.name} · {format.playerCount} jug.{format.durationMinutes ? ` · ${format.durationMinutes} min` : ''}
               </button>
             ))}
           </div>
