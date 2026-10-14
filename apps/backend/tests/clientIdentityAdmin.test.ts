@@ -61,7 +61,7 @@ function buildState() {
       { userId: 88, clubId: 10 },
       { userId: 99, clubId: 99 },
     ],
-    bookings: [{ id: 101, clubId: 10, clientId: 'c-1' }],
+    bookings: [{ id: 101, clubId: 10, clientId: 'c-1', userId: null as number | null }],
     fixedBookings: [{ id: 201, clubId: 10, clientId: 'c-1' }],
     accounts: [{ id: 'acc-1', clubId: 10, clientId: 'c-1' }],
     clientDiscountAssignments: [{ id: 'as-1', clubId: 10, clientId: 'c-1', policyId: 'pol-1' }],
@@ -125,7 +125,12 @@ function withMockedPrisma(run: (state: MockState) => Promise<void>) {
             Number(row.clubId) === Number(where?.userId_clubId?.clubId)
         ) || null,
     },
+    bookingParticipant: { findFirst: async () => null },
     booking: {
+      findFirst: async ({ where }: any) =>
+        state.bookings.find(
+          (row) => Number(row.clubId) === Number(where?.clubId) && Number(row.userId || 0) === Number(where?.userId)
+        ) || null,
       updateMany: async ({ where, data }: any) => {
         let count = 0;
         state.bookings = state.bookings.map((row) => {
@@ -139,6 +144,7 @@ function withMockedPrisma(run: (state: MockState) => Promise<void>) {
       },
     },
     fixedBooking: {
+      findFirst: async () => null,
       updateMany: async ({ where, data }: any) => {
         let count = 0;
         state.fixedBookings = state.fixedBookings.map((row) => {
@@ -303,6 +309,15 @@ test('link manual cross-club bloquea', async () => {
         }),
       (error: any) => error instanceof AppError && error.code === ErrorCodes.FORBIDDEN
     );
+  });
+});
+
+test('link manual: un usuario que reservó en el club se puede vincular aunque no tenga ficha vinculada', async () => {
+  const service = new ClientIdentityAdminService();
+  await withMockedPrisma(async (state) => {
+    state.bookings[0]!.userId = 99;
+    const result = await service.linkUserToClient({ clubId: 10, clientId: 'c-2', userId: 99, actorUserId: 500 });
+    assert.equal(result?.userId, 99);
   });
 });
 

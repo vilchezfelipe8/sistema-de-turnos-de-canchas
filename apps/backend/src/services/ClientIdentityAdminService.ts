@@ -84,7 +84,18 @@ export class ClientIdentityAdminService {
       }),
     ]);
 
-    if (!membership && !linkedClient) {
+    // Haber reservado, participado o tener un turno fijo en el club también lo relaciona con el club
+    // (mismo criterio que la búsqueda de personas). Sin esto, quien reservó desde la app sin ficha
+    // vinculada no podía vincularse nunca: hacía falta estar vinculado para poder vincularse.
+    const hasClubActivity = membership || linkedClient
+      ? true
+      : Boolean(
+          (await tx.booking.findFirst({ where: { clubId: Number(clubId), userId: Number(userId) }, select: { id: true } })) ||
+          (await tx.bookingParticipant.findFirst({ where: { userId: Number(userId), booking: { clubId: Number(clubId) } }, select: { id: true } })) ||
+          (await tx.fixedBooking.findFirst({ where: { clubId: Number(clubId), userId: Number(userId) }, select: { id: true } }))
+        );
+
+    if (!hasClubActivity) {
       throw forbidden('El usuario no pertenece a este club.', ErrorCodes.FORBIDDEN);
     }
 
