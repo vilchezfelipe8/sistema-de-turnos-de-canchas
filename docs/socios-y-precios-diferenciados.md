@@ -679,12 +679,12 @@ Migración de datos previa a `@unique` en `dni`: normalizar los DNI existentes y
 | Método | Ruta | Rol |
 |---|---|---|
 | GET/POST/PATCH | `/:slug/admin/member-categories` | ADMIN (GET también STAFF) |
-| GET | `/:slug/admin/members` | ADMIN |
+| GET | `/:slug/admin/club-members` | ADMIN |
 | POST/PATCH | `/:slug/admin/clients/:clientId/member` | ADMIN |
 | POST | `/:slug/admin/clients/:clientId/member/status` | ADMIN |
 | GET | `/:slug/admin/clients/:clientId/member/history` | ADMIN |
 | POST | `/:slug/admin/clients/:clientId/activation-code` | ADMIN, STAFF |
-| POST | `/:slug/admin/members/import` (preview / commit) | ADMIN |
+| POST | `/:slug/admin/club-members/import` (preview / commit) | ADMIN |
 | GET/POST/PATCH | `/:slug/admin/activities/:id/formats` | ADMIN |
 | GET/PUT | `/:slug/admin/player-prices` | ADMIN |
 | POST | `/bookings/:id/participants/:participantId/validate-member` | ADMIN, STAFF |

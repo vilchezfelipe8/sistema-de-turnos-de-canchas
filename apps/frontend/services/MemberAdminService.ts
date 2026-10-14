@@ -125,7 +125,7 @@ export const MemberAdminService = {
       if (value !== undefined && value !== null && String(value).trim() !== '') search.set(key, String(value));
     });
     return request<{ page: number; pageSize: number; total: number; items: MemberListItem[] }>(
-      `/clubs/${slug}/admin/members?${search.toString()}`,
+      `/clubs/${slug}/admin/club-members?${search.toString()}`,
       { method: 'GET' },
       'No se pudo cargar el padrón.'
     );

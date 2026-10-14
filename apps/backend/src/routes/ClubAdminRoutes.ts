@@ -914,7 +914,8 @@ router.patch('/:slug/admin/member-categories/:categoryId',
     memberController.updateCategory
 );
 
-router.get('/:slug/admin/members',
+// Padrón de socios (no confundir con /admin/members: staff y roles del club)
+router.get('/:slug/admin/club-members',
     authMiddleware,
     verifyClubAccess,
     requireTenantRole('ADMIN'),
