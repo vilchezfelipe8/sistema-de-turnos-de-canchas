@@ -954,6 +954,31 @@ export class PlayerSlotService {
     return result;
   }
 
+  // Cuánto pagaría un invitado si acepta: su lugar con validación ACCEPTED y su ficha en el club.
+  async previewShareIfAcceptedTx(
+    db: DbClient,
+    input: { bookingId: number; participantId: string; clientId: string | null }
+  ): Promise<{ shareAmount: number; memberCategoryName: string | null } | null> {
+    const booking = await db.booking.findUnique({
+      where: { id: input.bookingId },
+      select: { clubId: true, activityFormatId: true, playerCount: true, startDateTime: true }
+    });
+    if (!booking?.activityFormatId || !booking.playerCount) return null;
+    const slot = await db.bookingPlayerSlot.findFirst({ where: { bookingId: input.bookingId, participantId: input.participantId } });
+    if (!slot) return null;
+    const [amount] = await this.computeSlotAmountsTx(db, {
+      clubId: booking.clubId,
+      activityFormatId: booking.activityFormatId,
+      playerCount: booking.playerCount,
+      startDateTime: booking.startDateTime,
+      slots: [{ slotIndex: slot.slotIndex, clientId: input.clientId, memberPriceValidation: 'ACCEPTED' }]
+    });
+    return {
+      shareAmount: amount.shareAmount,
+      memberCategoryName: amount.pricingMemberCategoryId ? amount.currentCategory?.categoryName ?? null : null
+    };
+  }
+
   // Vista del jugador (P13): cada uno ve su propia categoría; de los demás solo el monto.
   toPlayerView(slots: PlayerSlotDto[], viewer: { userId: number; clientIds: string[] }) {
     return slots.map((slot) => {

@@ -41,6 +41,7 @@ import {
   type AccountStatus,
 } from '../../services/AccountService';
 import { CashService } from '../../services/CashService';
+import { PlayerPricingService } from '../../services/PlayerPricingService';
 import { searchClients } from '../../services/BookingService';
 import { ClubService } from '../../services/ClubService';
 import {
@@ -165,6 +166,15 @@ type AccountDetailItem = {
   quantity: number;
   total: number;
   createdAt?: string;
+  // Precio por jugador: parte de un jugador (lugar) y si su precio socio está pendiente de validar.
+  playerSlot?: {
+    bookingId: number;
+    slotIndex: number;
+    displayName: string | null;
+    memberPricePending: boolean;
+    memberCategoryName: string | null;
+    isFrozen: boolean;
+  } | null;
 };
 
 type AccountDetailPaymentAllocation = {
@@ -734,6 +744,7 @@ export default function AdminPaymentsPlaygroundPage() {
           quantity: Number(item?.quantity || 1),
           total: Number(item?.total || 0),
           createdAt: String(item?.createdAt || ''),
+          playerSlot: item?.playerSlot ?? null,
         })),
         payments: (Array.isArray(detail?.payments) ? detail.payments : []).map((payment: any) => ({
           id: String(payment?.id || ''),
@@ -1437,6 +1448,23 @@ export default function AdminPaymentsPlaygroundPage() {
     [allAccounts, selectedAccountId]
   );
   const selectedAccountDetail = selectedAccountId ? accountDetailById[selectedAccountId] || null : null;
+
+  // Precio por jugador (D9, opción D): el cajero valida al socio presente y su parte pasa a precio socio.
+  const [validatingMemberItemId, setValidatingMemberItemId] = useState<string | null>(null);
+  const handleValidateMemberFromCash = useCallback(async (accountId: string, item: AccountDetailItem) => {
+    if (!item.playerSlot) return;
+    try {
+      setValidatingMemberItemId(item.id);
+      await PlayerPricingService.validateMember(item.playerSlot.bookingId, item.playerSlot.slotIndex);
+      await ensureAccountDetail(accountId, true);
+      showAdminToast('Socio validado: se aplicó el precio socio.');
+    } catch (validationError) {
+      reportUiError({ area: 'PaymentsPlayground', action: 'validateMemberFromCash' }, validationError);
+      showAdminToast(extractErrorMessage(validationError, 'No se pudo validar al socio.'));
+    } finally {
+      setValidatingMemberItemId(null);
+    }
+  }, [ensureAccountDetail]);
   const accountDrawerContext = useMemo<AccountDrawerContext | undefined>(() => {
     if (!selectedAccount) return undefined;
     const subtitleParts = [
@@ -1978,6 +2006,8 @@ export default function AdminPaymentsPlaygroundPage() {
                           onPay={() => openAccountDrawer(selectedAccount.id, 'payment')}
                           onRefund={() => void openRefundRequestForAccount(selectedAccount.id)}
                           onCloseAccount={() => openAccountDrawer(selectedAccount.id, 'close')}
+                          onValidateMember={(item) => void handleValidateMemberFromCash(selectedAccount.id, item)}
+                          validatingItemId={validatingMemberItemId}
                         />
                       ) : (
                         <div className="rounded-xl border border-p-border bg-p-surface px-4 py-10 text-center">

@@ -3,7 +3,9 @@
     "allow": [
       "Bash(npx tsc *)",
       "mcp__plugin_subframe_subframe__list_projects",
-      "mcp__plugin_subframe_subframe__generate_auth_token"
+      "mcp__plugin_subframe_subframe__generate_auth_token",
+      "Bash(rm -f \"C:\\\\Users\\\\FELIPE\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Users-FELIPE-Desktop-Sistema-turnos\\\\7ab1a88b-347d-4076-977e-9a0ca3600d4c\\\\scratchpad\\\\comments.json\" \"C:\\\\Users\\\\FELIPE\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Users-FELIPE-Desktop-Sistema-turnos\\\\7ab1a88b-347d-4076-977e-9a0ca3600d4c\\\\scratchpad\\\\print-comments.js\")",
+      "Bash(netstat -ano)"
     ]
   }
 }

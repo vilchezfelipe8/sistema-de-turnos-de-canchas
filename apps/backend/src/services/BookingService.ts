@@ -181,6 +181,13 @@ export type PlayerBookingInvitationDto = {
     invitedName?: string | null;
     invitedEmail?: string | null;
     status: 'INVITED';
+    activityName?: string | null;
+    // Precio por jugador: modalidad y parte que pagaría el invitado si acepta
+    formatName?: string | null;
+    playerCount?: number | null;
+    invitedByName?: string | null;
+    myShareAmount?: number | null;
+    myMemberCategoryName?: string | null;
 };
 
 export type PlayerBookingCheckoutDto = {
@@ -6349,8 +6356,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 }
             },
             include: {
+                invitedByUser: { select: { firstName: true, lastName: true } },
                 booking: {
                     include: {
+                        activity: { select: { name: true } },
+                        activityFormat: { select: { name: true, playerCount: true } },
                         court: {
                             include: {
                                 club: {
@@ -6370,6 +6380,21 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             }
         });
 
+        // Parte que pagaría el invitado si acepta (precio por jugador), con su ficha en cada club.
+        const shareByInvitation = new Map<string, { shareAmount: number; memberCategoryName: string | null } | null>();
+        for (const invitation of invitations) {
+            if (!invitation.booking.activityFormatId) continue;
+            const myClient = await prisma.client.findFirst({
+                where: { clubId: invitation.booking.clubId, userId },
+                select: { id: true }
+            });
+            shareByInvitation.set(invitation.id, await this.playerSlotService.previewShareIfAcceptedTx(prisma, {
+                bookingId: invitation.bookingId,
+                participantId: invitation.id,
+                clientId: myClient?.id ?? null
+            }));
+        }
+
         return invitations.map((invitation) => ({
             id: invitation.id,
             bookingId: String(invitation.bookingId),
@@ -6386,7 +6411,15 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             endDateTime: new Date(invitation.booking.endDateTime).toISOString(),
             invitedName: invitation.invitedName ?? null,
             invitedEmail: invitation.invitedEmail ?? null,
-            status: 'INVITED'
+            status: 'INVITED' as const,
+            activityName: invitation.booking.activity?.name ?? null,
+            formatName: invitation.booking.activityFormat?.name ?? null,
+            playerCount: invitation.booking.activityFormat?.playerCount ?? null,
+            invitedByName: invitation.invitedByUser
+                ? `${invitation.invitedByUser.firstName || ''} ${invitation.invitedByUser.lastName || ''}`.trim() || null
+                : null,
+            myShareAmount: shareByInvitation.get(invitation.id)?.shareAmount ?? null,
+            myMemberCategoryName: shareByInvitation.get(invitation.id)?.memberCategoryName ?? null
         }));
     }
 

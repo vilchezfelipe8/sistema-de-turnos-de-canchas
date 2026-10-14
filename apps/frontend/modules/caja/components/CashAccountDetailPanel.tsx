@@ -19,6 +19,15 @@ export type CashDetailItem = {
   description: string;
   quantity: number;
   total: number;
+  // Precio por jugador: parte de un jugador (lugar) y si su precio socio está pendiente de validar.
+  playerSlot?: {
+    bookingId: number;
+    slotIndex: number;
+    displayName: string | null;
+    memberPricePending: boolean;
+    memberCategoryName: string | null;
+    isFrozen: boolean;
+  } | null;
 };
 
 export type CashDetailPayment = {
@@ -50,6 +59,9 @@ type CashAccountDetailPanelProps = {
   onRefund: () => void;
   /** Opens the close account confirmation flow. */
   onCloseAccount: () => void;
+  /** Valida en el mostrador el precio socio pendiente de un jugador (D9, opción D). */
+  onValidateMember?: (item: CashDetailItem) => void;
+  validatingItemId?: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -156,6 +168,8 @@ export default function CashAccountDetailPanel({
   onPay,
   onRefund,
   onCloseAccount,
+  onValidateMember,
+  validatingItemId,
 }: CashAccountDetailPanelProps) {
   // ── Empty state ──
   if (!account) {
@@ -261,7 +275,23 @@ export default function CashAccountDetailPanel({
                             {itemTypeLabel[String(item.type).toUpperCase()] ?? item.type}
                           </span>
                           <span className="text-[10px] text-p-text-muted">× {item.quantity}</span>
+                          {item.playerSlot?.memberPricePending && !item.playerSlot.isFrozen ? (
+                            <span className="inline-flex rounded-full bg-p-warning-bg px-1.5 py-0.5 text-[10px] font-semibold text-p-warning">
+                              Socio · precio pendiente
+                            </span>
+                          ) : null}
                         </div>
+                        {item.playerSlot?.memberPricePending && !item.playerSlot.isFrozen && onValidateMember ? (
+                          <button
+                            type="button"
+                            onClick={() => onValidateMember(item)}
+                            disabled={validatingItemId === item.id}
+                            title="Verificá su carnet o DNI y aplicá el precio socio antes de cobrar"
+                            className="mt-1 inline-flex h-6 items-center rounded-md border border-p-border px-2 text-[11px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-50"
+                          >
+                            {validatingItemId === item.id ? 'Validando...' : 'Validar socio'}
+                          </button>
+                        ) : null}
                       </div>
                       <p className="shrink-0 text-[12px] font-semibold text-p-text">
                         {formatMoney(item.total)}

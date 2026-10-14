@@ -11,6 +11,7 @@ import {
   removeBookingParticipant,
   getMyBookingInvitations,
   acceptBookingInvitation,
+  BOOKING_INVITATIONS_CHANGED_EVENT,
   declineBookingInvitation,
   leaveBooking,
   type PlayerBookingDto,
@@ -196,6 +197,12 @@ export default function MyBookingsPage() {
   }>({ show: false });
   const [cancellingBooking, setCancellingBooking] = useState(false);
   const [pendingInvitations, setPendingInvitations] = useState<PlayerBookingInvitationDto[]>([]);
+  // Llegando desde el aviso de la barra (/bookings#invitaciones): ir a las invitaciones cuando cargan.
+  useEffect(() => {
+    if (pendingInvitations.length === 0 || typeof window === 'undefined') return;
+    if (window.location.hash !== '#invitaciones') return;
+    document.getElementById('invitaciones')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [pendingInvitations.length]);
   const [invitationActionId, setInvitationActionId] = useState<string | null>(null);
   const [participants, setParticipants] = useState<PlayerBookingParticipantDto[]>([]);
   const [participantsLoading, setParticipantsLoading] = useState(false);
@@ -631,6 +638,7 @@ export default function MyBookingsPage() {
     setInvitationActionId(invitationId);
     try {
       await acceptBookingInvitation(invitationId);
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event(BOOKING_INVITATIONS_CHANGED_EVENT));
       await loadData();
       flashSuccess('Invitación aceptada.');
     } catch (error) {
@@ -645,6 +653,7 @@ export default function MyBookingsPage() {
     setInvitationActionId(invitationId);
     try {
       await declineBookingInvitation(invitationId);
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event(BOOKING_INVITATIONS_CHANGED_EVENT));
       await loadData();
       flashSuccess('Invitación rechazada.');
     } catch (error) {
@@ -846,7 +855,7 @@ export default function MyBookingsPage() {
         {/* ── TABS ── */}
         <div className="bk-tabs-wrap">
           {pendingInvitations.length > 0 && (
-            <div style={{ marginBottom: 18, display: 'grid', gap: 10 }}>
+            <div id="invitaciones" style={{ marginBottom: 18, display: 'grid', gap: 10, scrollMarginTop: 90 }}>
               {pendingInvitations.map((invitation) => {
                 const busy = invitationActionId === invitation.id;
                 return (
@@ -867,8 +876,23 @@ export default function MyBookingsPage() {
                           Invitación pendiente para {invitation.club.name}
                         </div>
                         <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                          {invitation.court.name} · {formatWeekday(new Date(invitation.startDateTime), invitation.club.timeZone)} · {formatTime(new Date(invitation.startDateTime), invitation.club.timeZone)}
+                          {invitation.court.name} · {formatWeekday(new Date(invitation.startDateTime), invitation.club.timeZone)} · {formatTime(new Date(invitation.startDateTime), invitation.club.timeZone)} – {formatTime(new Date(invitation.endDateTime), invitation.club.timeZone)}
                         </div>
+                        {(invitation.activityName || invitation.formatName) && (
+                          <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 700 }}>
+                            {[invitation.activityName, invitation.formatName].filter(Boolean).join(' · ')}
+                            {invitation.playerCount ? ` (${invitation.playerCount} jugadores)` : ''}
+                          </div>
+                        )}
+                        {invitation.invitedByName && (
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Te invitó {invitation.invitedByName}</div>
+                        )}
+                        {invitation.myShareAmount != null && (
+                          <div style={{ marginTop: 2, fontSize: 13, fontWeight: 800, color: 'var(--text-primary)' }}>
+                            Tu parte: ${Number(invitation.myShareAmount).toLocaleString('es-AR')}
+                            {invitation.myMemberCategoryName ? ' con precio socio' : ''}
+                          </div>
+                        )}
                       </div>
                       <span className="bk-card-chip" style={{ background: 'var(--positive-bg)', color: 'var(--accent-fg)' }}>
                         Invitación

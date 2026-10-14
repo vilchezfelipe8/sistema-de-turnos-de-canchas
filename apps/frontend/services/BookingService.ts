@@ -175,6 +175,13 @@ export type PlayerBookingInvitationDto = {
   invitedName?: string | null;
   invitedEmail?: string | null;
   status: 'INVITED';
+  activityName?: string | null;
+  // Precio por jugador: modalidad y parte que pagaría si acepta
+  formatName?: string | null;
+  playerCount?: number | null;
+  invitedByName?: string | null;
+  myShareAmount?: number | null;
+  myMemberCategoryName?: string | null;
 };
 
 export type PlayerBookingCheckoutDto = {
@@ -520,6 +527,9 @@ export const createMercadoPagoCheckout = async (
 
   return res.json();
 };
+
+// Se dispara al aceptar o rechazar una invitación para que la barra actualice el aviso.
+export const BOOKING_INVITATIONS_CHANGED_EVENT = 'booking-invitations:changed';
 
 export const getMyBookingInvitations = async (): Promise<PlayerBookingInvitationDto[]> => {
   const res = await fetchWithAuth(`${apiBase()}/me/booking-invitations`, {

@@ -611,9 +611,37 @@ export class AccountService {
     const remaining = Number((total - paid).toFixed(2));
 
     const accountAny = account as any;
+
+    // Precio por jugador: cada ítem de cancha indica de qué lugar es y si su precio socio está pendiente
+    // de validar, para que Caja pueda validarlo al cobrar (D9, opción D).
+    let items = accountAny.items ?? [];
+    const bookingId = accountAny.sourceType === 'BOOKING' ? Number(accountAny.sourceId) : 0;
+    if (Number.isInteger(bookingId) && bookingId > 0) {
+      const slots = await this.playerSlotService.getSlotsTx(prismaRead as any, bookingId);
+      if (slots.length) {
+        const slotByItem = new Map(slots.filter((slot) => slot.accountItemId).map((slot) => [slot.accountItemId as string, slot]));
+        items = items.map((item: any) => {
+          const slot = slotByItem.get(String(item.id));
+          return slot
+            ? {
+                ...item,
+                playerSlot: {
+                  bookingId,
+                  slotIndex: slot.slotIndex,
+                  displayName: slot.displayName,
+                  memberPricePending: slot.memberPricePending,
+                  memberCategoryName: slot.pricingMemberCategoryName,
+                  isFrozen: slot.isFrozen
+                }
+              }
+            : item;
+        });
+      }
+    }
+
     return {
-      account: accountAny,
-      items: accountAny.items ?? [],
+      account: { ...accountAny, items },
+      items,
       payments: accountAny.payments ?? [],
       total,
       paid,

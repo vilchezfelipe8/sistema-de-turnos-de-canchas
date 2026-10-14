@@ -2,9 +2,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { Calendar, LogOut, MapPin, Moon, ShieldCheck, Sun, User, Users } from 'lucide-react';
+import { Calendar, LogOut, Mail, MapPin, Moon, ShieldCheck, Sun, User, Users } from 'lucide-react';
 import { logout } from '../services/AuthService';
-import { getMyBookings } from '../services/BookingService';
+import { BOOKING_INVITATIONS_CHANGED_EVENT, getMyBookingInvitations, getMyBookings } from '../services/BookingService';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserTheme } from '../contexts/UserThemeContext';
 import { getActiveClubSlug, getLastClubSlug, hasOperatorAccess, normalizeSessionUser } from '../utils/session';
@@ -190,6 +190,35 @@ export default function Navbar({
     void loadActiveBookings();
   }, [user?.id]);
 
+  // Invitaciones pendientes: aviso en el avatar, en el menú y debajo de la barra.
+  const [pendingInvitationsCount, setPendingInvitationsCount] = useState(0);
+  useEffect(() => {
+    if (!user?.id) {
+      setPendingInvitationsCount(0);
+      return;
+    }
+    let cancelled = false;
+    const loadInvitations = async () => {
+      try {
+        const rows = await getMyBookingInvitations();
+        if (!cancelled) setPendingInvitationsCount(Array.isArray(rows) ? rows.length : 0);
+      } catch (error) {
+        if (!isAuthSessionInvalidatedError(error)) {
+          reportUiError({ area: 'NavBar', action: 'loadPendingInvitations' }, error);
+        }
+      }
+    };
+    void loadInvitations();
+    const onFocus = () => { void loadInvitations(); };
+    window.addEventListener('focus', onFocus);
+    window.addEventListener(BOOKING_INVITATIONS_CHANGED_EVENT, onFocus);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener(BOOKING_INVITATIONS_CHANGED_EVENT, onFocus);
+    };
+  }, [user?.id]);
+
   const adminClubSlug = useMemo(() => {
     if (!user || !isAdmin) return null;
     return getActiveClubSlug(user as any) || getLastClubSlug();
@@ -207,12 +236,15 @@ export default function Navbar({
       { href: '/perfil', label: 'Mi perfil', icon: <User size={15} /> },
       { href: '/bookings', label: 'Mis reservas', icon: <Calendar size={15} />, badge: activeBookingsCount },
     ];
+    if (pendingInvitationsCount > 0) {
+      rows.push({ href: '/bookings#invitaciones', label: 'Invitaciones', icon: <Mail size={15} />, badge: pendingInvitationsCount });
+    }
     if (isAdmin) {
       rows.unshift({ href: '/admin/agenda', label: 'Gestión', icon: <ShieldCheck size={15} /> });
       if (adminClubSlug) rows.splice(1, 0, { href: `/club/${adminClubSlug}`, label: 'Mi club', icon: <Users size={15} /> });
     }
     return rows;
-  }, [activeBookingsCount, adminClubSlug, isAdmin]);
+  }, [activeBookingsCount, adminClubSlug, isAdmin, pendingInvitationsCount]);
 
   const handleContact = () => {
     setShowUserMenu(false);
@@ -376,7 +408,16 @@ export default function Navbar({
                 >
                   <div className="p-player-avatar">
                     {userInitials}
-                    {activeBookingsCount > 0 && (
+                    {pendingInvitationsCount > 0 ? (
+                      // Las invitaciones pendientes tienen prioridad: color de marca para que se note.
+                      <span
+                        className="p-player-menu-badge p-player-avatar-badge"
+                        title={`${pendingInvitationsCount} invitación${pendingInvitationsCount === 1 ? '' : 'es'} pendiente${pendingInvitationsCount === 1 ? '' : 's'}`}
+                        style={{ background: 'var(--brand)', color: 'var(--brand-on)' }}
+                      >
+                        {pendingInvitationsCount > 99 ? '99+' : pendingInvitationsCount}
+                      </span>
+                    ) : activeBookingsCount > 0 && (
                       <span
                         className="p-player-menu-badge p-player-avatar-badge"
                         style={{
@@ -440,6 +481,19 @@ export default function Navbar({
           </div>
         </div>
       </header>
+
+      {user && pendingInvitationsCount > 0 && router.pathname !== '/bookings' && (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 16px', background: 'var(--accent-bg-soft)', borderBottom: '1px solid var(--accent-border-subtle)' }}>
+          <Link
+            href="/bookings#invitaciones"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', textDecoration: 'none' }}
+          >
+            <Mail size={14} style={{ color: 'var(--brand)' }} />
+            Tenés {pendingInvitationsCount} invitación{pendingInvitationsCount === 1 ? '' : 'es'} para jugar pendiente{pendingInvitationsCount === 1 ? '' : 's'}
+            <span style={{ color: 'var(--brand)' }}>Ver</span>
+          </Link>
+        </div>
+      )}
 
       <AppModal
         show={showLogoutModal}
