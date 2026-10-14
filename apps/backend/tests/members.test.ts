@@ -86,3 +86,37 @@ test('plantillas de autenticación de Meta incluyen el código en el botón', ()
   const utility = provider.buildTemplateRequestBody({ ...base, templateCategory: 'UTILITY' });
   assert.equal(utility.template.components.length, 1);
 });
+
+test('splitLightsForSlot reparte las luces en partes iguales y los centavos van al lugar 1', async () => {
+  const { splitLightsForSlot } = await import('../src/services/PlayerSlotService');
+  assert.equal(splitLightsForSlot(5000, 4, 1), 1250);
+  assert.equal(splitLightsForSlot(5000, 4, 4), 1250);
+  // 1000 / 3 = 333.33 + 0.01 de resto al lugar 1
+  assert.equal(splitLightsForSlot(1000, 3, 1), 333.34);
+  assert.equal(splitLightsForSlot(1000, 3, 2), 333.33);
+  const total = [1, 2, 3].reduce((sum, slot) => sum + splitLightsForSlot(1000, 3, slot), 0);
+  assert.equal(Number(total.toFixed(2)), 1000);
+  assert.equal(splitLightsForSlot(0, 4, 1), 0);
+});
+
+test('vista del jugador: ve su categoría y de los demás solo el monto y el nombre abreviado', async () => {
+  const { PlayerSlotService } = await import('../src/services/PlayerSlotService');
+  const base = {
+    participantId: null, userId: null, isEmpty: false, memberPriceValidation: 'STAFF_VALIDATED' as const,
+    pricingMemberCategoryId: 'cat', memberPricePending: false, shareListAmount: 5000, accountItemId: null, paidAmount: 0, isFrozen: false
+  };
+  const view = new PlayerSlotService().toPlayerView(
+    [
+      { ...base, slotIndex: 1, clientId: 'mine', displayName: 'Juan Pérez', pricingMemberCategoryName: 'Activo', shareAmount: 2500 },
+      { ...base, slotIndex: 2, clientId: 'other', displayName: 'Ana María Gómez', pricingMemberCategoryName: 'Activo', shareAmount: 2500 },
+      { ...base, slotIndex: 3, clientId: null, displayName: null, isEmpty: true, pricingMemberCategoryId: null, pricingMemberCategoryName: null, shareAmount: 5000 }
+    ],
+    { userId: 1, clientIds: ['mine'] }
+  );
+  assert.equal(view[0].isMine, true);
+  assert.equal(view[0].memberCategoryName, 'Activo');
+  assert.equal(view[0].displayName, 'Juan Pérez');
+  assert.equal(view[1].memberCategoryName, null);
+  assert.equal(view[1].displayName, 'Ana G.');
+  assert.equal(view[2].isEmpty, true);
+});

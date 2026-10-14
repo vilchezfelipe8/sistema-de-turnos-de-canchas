@@ -8,8 +8,10 @@ import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
 import { authMiddleware } from '../middleware/AuthMiddleware';
 import { requireGlobalRole, requireTenantRole } from '../middleware/RoleMiddleware';
 import { verifyClubAccessById } from '../middleware/ClubMiddleware';
+import { PlayerSlotController } from '../controllers/PlayerSlotController';
 
 const router = Router();
+const playerSlotController = new PlayerSlotController();
 
 const clubRepository = new ClubRepository();
 const activityRepository = new ActivityTypeRepository();
@@ -21,6 +23,7 @@ const clubFavoriteController = new ClubFavoriteController(clubFavoriteService);
 // Rutas públicas
 router.get('/', clubController.getAllClubs);
 router.get('/slug/:slug', clubController.getClubBySlug);
+router.get('/slug/:slug/activity-formats', playerSlotController.listPublicFormats);
 router.get('/favorites/me', authMiddleware, clubFavoriteController.listMyFavorites);
 router.get('/:id', clubController.getClubById);
 router.post('/:id/favorite', authMiddleware, clubFavoriteController.markFavorite);

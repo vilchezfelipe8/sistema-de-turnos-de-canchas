@@ -4,6 +4,13 @@ import { BookingService } from '../src/services/BookingService';
 import { PricingService } from '../src/services/PricingService';
 import { prisma } from '../src/prisma';
 
+const withPlayerSlotStub = (tx: any) => {
+  // Reservas por cancha: sin lugares por jugador.
+  if (tx && !tx.bookingPlayerSlot) {
+    tx.bookingPlayerSlot = { findMany: async () => [], findFirst: async () => null, count: async () => 0 };
+  }
+  return tx;
+};
 type TxMock = {
   booking: {
     findMany: (args: any) => Promise<any[]>;
@@ -135,7 +142,7 @@ function buildServiceHarness() {
 
 function withMockedTransaction(tx: TxMock, run: () => Promise<void>) {
   const originalTransaction = (prisma as any).$transaction;
-  (prisma as any).$transaction = async (fn: any) => fn(tx);
+  (prisma as any).$transaction = async (fn: any) => fn(withPlayerSlotStub(tx));
   return run().finally(() => {
     (prisma as any).$transaction = originalTransaction;
   });

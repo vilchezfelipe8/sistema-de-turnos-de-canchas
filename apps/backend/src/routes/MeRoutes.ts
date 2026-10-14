@@ -8,6 +8,7 @@ import { UserRepository } from '../repositories/UserRepository';
 import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
 import { CashRepository } from '../repositories/CashRepository';
 import { ProductRepository } from '../repositories/ProductRepository';
+import { PlayerSlotController } from '../controllers/PlayerSlotController';
 
 const router = Router();
 
@@ -34,6 +35,8 @@ router.get('/bookings/:id/checkout', authMiddleware, (req, res) => bookingContro
 router.post('/bookings/:id/checkout/mercadopago', authMiddleware, (req, res) => bookingController.createMyBookingMercadoPagoCheckout(req, res));
 router.get('/bookings/:id/participants', authMiddleware, (req, res) => bookingController.getMyBookingParticipants(req, res));
 router.post('/bookings/:id/participants/invite', authMiddleware, (req, res) => bookingController.inviteMyBookingParticipant(req, res));
+const playerSlotController = new PlayerSlotController();
+router.get('/bookings/:id/player-slots', authMiddleware, (req, res) => playerSlotController.getMySlots(req, res));
 router.post('/bookings/:id/participants/:participantId/remove', authMiddleware, (req, res) => bookingController.removeMyBookingParticipant(req, res));
 router.post('/bookings/:id/cancel', authMiddleware, (req, res) => bookingController.cancelMyBooking(req, res));
 router.post('/bookings/:id/leave', authMiddleware, (req, res) => bookingController.leaveMyBooking(req, res));

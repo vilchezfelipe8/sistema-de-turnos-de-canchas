@@ -319,7 +319,9 @@ export class BookingController {
                         duplicateResolution: z.enum(['CREATE_NEW']).optional()
                     })
                 ]).optional(),
-                applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional())
+                applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional()),
+                // Modalidad (clubes con precio por jugador)
+                activityFormatId: z.string().trim().min(1).max(64).optional()
             });
 
             const dataToValidate = {
@@ -332,7 +334,7 @@ export class BookingController {
                 return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
 
-            let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, clientId, client, ownerSelection, applyDiscount } = parsed.data;
+            let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, clientId, client, ownerSelection, applyDiscount, activityFormatId } = parsed.data;
             clientId = clientId ? sanitizeString(clientId, 64) : undefined;
             if (ownerSelection?.kind === 'clubClient') {
                 clientId = sanitizeString(String(ownerSelection.clientId || ''), 64) || clientId;
@@ -479,6 +481,7 @@ export class BookingController {
                 {
                     applyDiscount: useAdminClientMode && canApplyDiscountOverride ? applyDiscount : false,
                     actorUserId: Number(user?.userId || 0) || null,
+                    activityFormatId: activityFormatId || null,
                     clientId: clientId || null,
                     clientDraft: useAdminClientMode && adminClientDraft?.name ? adminClientDraft : null,
                     ownerUserSelection: useAdminClientMode ? adminOwnerUserSelection : null
@@ -533,7 +536,8 @@ export class BookingController {
                 clientPhoneCountryCode: optionalTrimmedString(),
                 clientPhoneNumberLocal: optionalTrimmedString(),
                 clientDni: optionalTrimmedString(),
-                applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional())
+                applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional()),
+                activityFormatId: z.string().trim().min(1).max(64).optional()
             });
 
             const parsed = quoteSchema.safeParse(req.body ?? {});
@@ -554,7 +558,8 @@ export class BookingController {
                 clientPhoneCountryCode,
                 clientPhoneNumberLocal,
                 clientDni,
-                applyDiscount
+                applyDiscount,
+                activityFormatId
             } = parsed.data;
 
             const courtCountry = await prisma.court.findUnique({
@@ -632,7 +637,8 @@ export class BookingController {
                 clientEmail,
                 clientPhone: normalizedClientPhone || undefined,
                 clientDni,
-                applyDiscount: canApplyDiscountOverride ? applyDiscount : false
+                applyDiscount: canApplyDiscountOverride ? applyDiscount : false,
+                activityFormatId: activityFormatId || null
             });
 
             return res.json({
@@ -1003,7 +1009,9 @@ export class BookingController {
                         dni: optionalTrimmedString(),
                         forceCreateNew: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
                     })
-                ])
+                ]),
+                // Precio por jugador: lugar a ocupar (por defecto el primero libre)
+                slotIndex: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().min(2).max(30).optional())
             });
 
             const parsed = bodySchema.safeParse(req.body || {});
@@ -1038,7 +1046,8 @@ export class BookingController {
                 bookingId,
                 clubId,
                 actorUserId,
-                personSelection
+                personSelection,
+                slotIndex: parsed.data.slotIndex ?? null
             });
             return res.status(201).json({
                 message: 'Participante agregado.',
@@ -1086,9 +1095,14 @@ export class BookingController {
                 return sendAppError(res, badRequest('Seleccioná una reserva válida.', ErrorCodes.INVALID_INPUT));
             }
 
+            // Se invita por email o por DNI exacto de una cuenta existente.
             const bodySchema = z.object({
-                email: z.string().trim().email(),
+                email: z.string().trim().email().optional(),
+                dni: z.string().trim().min(6).max(20).optional(),
                 name: z.string().trim().min(1).max(120).optional()
+            }).refine((value) => Boolean(value.email || value.dni), {
+                path: ['email'],
+                message: 'Ingresá el email o el DNI del jugador.'
             });
             const parsed = bodySchema.safeParse(req.body || {});
             if (!parsed.success) {
@@ -1103,7 +1117,8 @@ export class BookingController {
             const participant = await this.bookingService.invitePlayerBookingParticipant({
                 bookingId,
                 ownerUserId: userId,
-                invitedEmail: parsed.data.email,
+                invitedEmail: parsed.data.email || null,
+                invitedDni: parsed.data.dni || null,
                 invitedName: parsed.data.name || null
             });
             return res.status(201).json({
@@ -1277,7 +1292,8 @@ export class BookingController {
             durationMinutes: z.preprocess(
                 (v) => (v === undefined || v === '' ? undefined : Number(v)),
                 z.number().optional()
-            )
+            ),
+            activityFormatId: z.preprocess((v) => (typeof v === 'string' ? v.trim() : v), z.string().optional())
 
             });
 
@@ -1287,7 +1303,7 @@ export class BookingController {
                 return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
 
-            const { date, activityId, clubSlug, clientId, clientEmail, clientPhone, clientDni, durationMinutes } = parsed.data;
+            const { date, activityId, clubSlug, clientId, clientEmail, clientPhone, clientDni, durationMinutes, activityFormatId } = parsed.data;
 
             // Blindaje matemático para que la fecha no se atrase un día por el UTC
             const [year, month, day] = String(date).split('-').map(Number);
@@ -1309,13 +1325,15 @@ export class BookingController {
                     userId: Number((req as any)?.user?.userId || 0) || null,
                     clientEmail: clientEmail || undefined,
                     clientPhone: clientPhone || undefined,
-                    clientDni: clientDni || undefined
+                    clientDni: clientDni || undefined,
+                    activityFormatId: activityFormatId || null
                 }
             );
 
             res.json({
                 date: date,
                 slotsWithCourts: availability.slotsWithCourts,
+                perPlayer: availability.perPlayer ?? null,
                 professorOverrideAvailable: availability.professorOverrideAvailable,
                 professorDurationOverrideMinutes: availability.professorDurationOverrideMinutes,
                 authState: resolveOptionalAuthState(req)
@@ -1618,13 +1636,14 @@ export class BookingController {
                 allowOverlappingSeries: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional(),
                 everyDays: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
                 repetitions: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
-                previewConflictsOnly: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
+                previewConflictsOnly: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional(),
+                activityFormatId: z.string().trim().min(1).max(64).optional()
             });
             const parsed = createFixedSchema.safeParse(req.body);
             if (!parsed.success) {
                 return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
-            let { userId, courtId, activityId, startDateTime, durationMinutes, clientId, client, ownerSelection, allowOverlappingSeries, everyDays, repetitions, previewConflictsOnly } = parsed.data;
+            let { userId, courtId, activityId, startDateTime, durationMinutes, clientId, client, ownerSelection, allowOverlappingSeries, everyDays, repetitions, previewConflictsOnly, activityFormatId } = parsed.data;
             if (ownerSelection?.kind === 'clubClient') {
                 clientId = ownerSelection.clientId;
             }
@@ -1698,7 +1717,8 @@ export class BookingController {
                     durationMinutes,
                     everyDays,
                     repetitions,
-                    previewConflictsOnly: Boolean(previewConflictsOnly)
+                    previewConflictsOnly: Boolean(previewConflictsOnly),
+                    activityFormatId: activityFormatId || null
                 }
             );
             

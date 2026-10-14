@@ -25,6 +25,7 @@ import { useValidateAuth } from '../hooks/useValidateAuth';
 import { getPendingLogoutRedirect } from '../services/AuthService';
 import Link from 'next/link';
 import UserLoadingState from '../components/UserLoadingState';
+import PlayerSlotsBreakdown from '../components/PlayerSlotsBreakdown';
 import { Calendar, Clock, MapPin, Ticket, ArrowRight, Search, XCircle, CheckCircle2, Star, MessageSquare, X, Users, UserPlus, Mail, LogOut, Trash2, ChevronDown } from 'lucide-react';
 import { getApiFieldErrors, normalizeApiError } from '../utils/apiError';
 
@@ -683,8 +684,10 @@ export default function MyBookingsPage() {
     setInviteFieldErrors({});
     setInviteBannerError('');
     try {
+      // Un solo campo: con @ es email; si no, DNI.
+      const inviteTarget = inviteEmail.trim();
       await inviteBookingParticipant(selectedBooking.id, {
-        email: inviteEmail,
+        ...(inviteTarget.includes('@') ? { email: inviteTarget } : { dni: inviteTarget }),
         name: inviteName
       });
       setInviteEmail('');
@@ -1153,6 +1156,8 @@ export default function MyBookingsPage() {
                       </div>
                     )}
 
+                    <PlayerSlotsBreakdown bookingId={selectedBooking.id} refreshKey={participants} />
+
                     {selectedBooking.capabilities.canInvitePlayers && (
                       <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
                         <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.03em', color: 'var(--text-muted)' }}>
@@ -1168,15 +1173,15 @@ export default function MyBookingsPage() {
                             <div style={{ position: 'relative' }}>
                               <Mail size={14} style={{ position: 'absolute', left: 12, top: 12, color: 'var(--text-muted)' }} />
                               <input
-                                type="email"
+                                type="text"
                                 value={inviteEmail}
                                 onChange={(e) => setInviteEmail(e.target.value)}
-                                placeholder="Email del jugador"
+                                placeholder="DNI o email del jugador"
                                 style={{ width: '100%', padding: '10px 12px 10px 34px', borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-primary)' }}
                               />
                             </div>
-                            {inviteFieldErrors.email && (
-                              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--error-fg)' }}>{inviteFieldErrors.email}</div>
+                            {(inviteFieldErrors.email || inviteFieldErrors.dni) && (
+                              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--error-fg)' }}>{inviteFieldErrors.email || inviteFieldErrors.dni}</div>
                             )}
                           </div>
                           <div>

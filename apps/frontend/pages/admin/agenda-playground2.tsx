@@ -126,7 +126,8 @@ import { reportUiError } from '../../utils/uiError';
 import { ADMIN_Z_INDEX_CLASS } from '../../utils/adminZIndex';
 import { AdminFeedbackBanner } from '../../components/admin/ui/AdminFeedback';
 import { showAdminToast } from '../../utils/adminToast';
-import { getActiveClubSlug, hasOperatorAccess, normalizeSessionUser } from '../../utils/session';
+import { getActiveClubSlug, hasAdminAccess, hasOperatorAccess, normalizeSessionUser } from '../../utils/session';
+import AgendaPlayerSlotsSection from '../../components/admin/agenda/AgendaPlayerSlotsSection';
 import { normalizeApiError } from '../../utils/apiError';
 import { resolveBookingErrorBehavior } from '../../utils/bookingErrorMap';
 import BookingDrawerShell from '../../modules/admin/bookingDrawer/components/BookingDrawerShell';
@@ -990,6 +991,8 @@ export default function AdminAgendaPlaygroundPage() {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedCourtId, setSelectedCourtId] = useState<string>('');
+  // Modalidad del turno en clubes con precio por jugador (Single / Dobles...).
+  const [bookingActivityFormatId, setBookingActivityFormatId] = useState<string>('');
   const [selectedStartSlot, setSelectedStartSlot] = useState(2);
   const [selectedEndSlot, setSelectedEndSlot] = useState(4);
   const [participants, setParticipants] = useState<Participant[]>(() => createInitialParticipants());
@@ -4255,6 +4258,7 @@ export default function AdminAgendaPlaygroundPage() {
                 const preview = await createFixedBooking(Number(court.id), activityId, firstOccurrence, {
                   durationMinutes: selectionMinutes,
                   everyDays: frequencyDays,
+                  ...(bookingActivityFormatId ? { activityFormatId: bookingActivityFormatId } : {}),
                   ...(Number.isFinite(repetitionsPerDay) ? { repetitions: repetitionsPerDay } : {}),
                   ...(ownerClientId
                     ? { clientId: ownerClientId }
@@ -4325,6 +4329,7 @@ export default function AdminAgendaPlaygroundPage() {
           const requestPayload = {
             durationMinutes: selectionMinutes,
             everyDays: frequencyDays,
+            ...(bookingActivityFormatId ? { activityFormatId: bookingActivityFormatId } : {}),
             ...(Number.isFinite(repetitionsPerDay) ? { repetitions: repetitionsPerDay } : {}),
             ...(ownerClientId
               ? { clientId: ownerClientId }
@@ -4548,6 +4553,7 @@ export default function AdminAgendaPlaygroundPage() {
         const bookingDate = new Date(selectedDate);
         const createdPayload: any = await createBooking(Number(selectedCourtId), selectedActivityId, bookingDate, slotTime, {
           durationMinutes: selectionMinutes,
+          ...(bookingActivityFormatId ? { activityFormatId: bookingActivityFormatId } : {}),
           ...(ownerClientId
             ? { clientId: ownerClientId }
             : ownerPersonSelection
@@ -4697,6 +4703,7 @@ export default function AdminAgendaPlaygroundPage() {
                 {
                   durationMinutes: selectionMinutes,
                   clientId: selectedClientId,
+                  ...(bookingActivityFormatId ? { activityFormatId: bookingActivityFormatId } : {}),
                 }
               );
 
@@ -4756,6 +4763,7 @@ export default function AdminAgendaPlaygroundPage() {
                 slotTime,
                 {
                   durationMinutes: selectionMinutes,
+                  ...(bookingActivityFormatId ? { activityFormatId: bookingActivityFormatId } : {}),
                   client: {
                     name: ownerName,
                     phone: ownerPhone,
@@ -7995,6 +8003,16 @@ export default function AdminAgendaPlaygroundPage() {
                         />
                       )}
 
+                      <AgendaPlayerSlotsSection
+                        clubSlug={getClubSlug()}
+                        bookingId={persistedEditingBookingId ? Number(persistedEditingBookingId) : null}
+                        activityId={selectedCourt?.activityTypeId ? Number(selectedCourt.activityTypeId) : null}
+                        formatId={bookingActivityFormatId}
+                        onFormatChange={setBookingActivityFormatId}
+                        refreshKey={persistedAdminParticipants}
+                        canReprice={hasAdminAccess(user)}
+                      />
+
                       <section className="mt-4">
                         <div className="rounded-xl border border-p-border bg-p-surface-2 p-4">
                           <div className="flex items-center justify-between gap-3">
@@ -9004,6 +9022,16 @@ export default function AdminAgendaPlaygroundPage() {
                       />
                     )}
                   </section>
+
+                  <AgendaPlayerSlotsSection
+                    clubSlug={getClubSlug()}
+                    bookingId={persistedEditingBookingId ? Number(persistedEditingBookingId) : null}
+                    activityId={selectedCourt?.activityTypeId ? Number(selectedCourt.activityTypeId) : null}
+                    formatId={bookingActivityFormatId}
+                    onFormatChange={setBookingActivityFormatId}
+                    refreshKey={persistedAdminParticipants}
+                    canReprice={hasAdminAccess(user)}
+                  />
 
                   <section className="py-6 border-b border-p-border">
                     <div className="flex items-end justify-between">

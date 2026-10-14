@@ -5,6 +5,7 @@ import { acquireTransactionAdvisoryLock } from '../utils/advisoryLock';
 import { ProjectionService } from './ProjectionService';
 import { getDerivedPaymentStatus } from '../domain/bookingDomain';
 import { DiscountService } from './DiscountService';
+import { PlayerSlotService } from './PlayerSlotService';
 import { generateDisplayCode } from '../utils/displayCode';
 import { AppError, badRequest, notFound, conflict, ErrorCodes } from '../errors';
 
@@ -21,6 +22,7 @@ export class AccountService {
   private readonly accountingService = new AccountingService();
   private readonly projectionService = new ProjectionService();
   private readonly discountService = new DiscountService();
+  private readonly playerSlotService = new PlayerSlotService();
 
   async calculateNetPaidAmountTx(tx: Prisma.TransactionClient, accountId: string): Promise<number> {
     const [paymentsAgg, refundsAgg] = await Promise.all([
@@ -418,7 +420,15 @@ export class AccountService {
         }
       });
 
-      if (input.sourceType === 'BOOKING' && bookingForAccount) {
+      const bookingHasPlayerSlots = input.sourceType === 'BOOKING' && bookingForAccount
+        ? (await tx.bookingPlayerSlot.count({ where: { bookingId: bookingForAccount.id } })) > 0
+        : false;
+
+      if (bookingHasPlayerSlots && bookingForAccount) {
+        // Precio por jugador: un ítem de cancha por lugar.
+        await this.playerSlotService.syncAccountItemsTx(tx, bookingForAccount.id, null);
+        await this.playerSlotService.applyBookingTotalsTx(tx, bookingForAccount.id);
+      } else if (input.sourceType === 'BOOKING' && bookingForAccount) {
         const bookingCharge = Number(bookingForAccount.price || 0);
         if (bookingCharge > 0) {
           const discountDraft = await this.discountService.computeDraftDiscountTx(tx, {

@@ -189,6 +189,7 @@ export default function CheckoutPage() {
       const result = await createBooking(draft.courtId, draft.activityId, date, draft.slotTime, {
         durationMinutes: draft.durationMinutes,
         applyDiscount: false,
+        ...(draft.activityFormatId ? { activityFormatId: draft.activityFormatId } : {}),
       });
       const booking = (result as any)?.booking || result;
       const bookingId = String(booking?.id || (result as any)?.bookingId || '').trim();
@@ -331,10 +332,22 @@ export default function CheckoutPage() {
 
             <aside className="checkout-card checkout-summary">
               <div className="checkout-price">
-                <div>
-                  <p className="checkout-price-label">Total del turno</p>
-                  <p className="checkout-price-value">{formatMoney(draft.price)}</p>
-                </div>
+                {draft.activityFormatId && draft.pricePerPlayer != null ? (
+                  <div>
+                    <p className="checkout-price-label">Tu parte · {draft.formatName} ({draft.playerCount} jugadores)</p>
+                    <p className="checkout-price-value">{formatMoney(draft.pricePerPlayer)}</p>
+                    <p style={{ margin: '6px 0 0', color: 'var(--text-muted)', fontSize: 12, fontWeight: 650 }}>
+                      {draft.memberCategoryName ? `Precio socio ${draft.memberCategoryName}. ` : ''}
+                      Cada jugador paga su parte según sea socio o no. Total estimado {formatMoney(draft.price)}.
+                      {draft.onlineCheckoutEnabled === false ? ' Se abona en el club.' : ''}
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="checkout-price-label">Total del turno</p>
+                    <p className="checkout-price-value">{formatMoney(draft.price)}</p>
+                  </div>
+                )}
                 <div style={{ textAlign: 'right', color: 'var(--text-muted)', fontSize: 12, lineHeight: 1.55, fontWeight: 650 }}>
                   {draft.lightsExtraApplied > 0.009 && (
                     <div>Luces +{formatMoney(draft.lightsExtraApplied)}{draft.lightsFromHour ? ` desde ${draft.lightsFromHour}` : ''}</div>

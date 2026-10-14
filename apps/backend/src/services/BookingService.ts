@@ -17,6 +17,8 @@ import { ProductRepository } from '../repositories/ProductRepository';
 import { buildSlotsFromSchedule, normalizeSchedule } from '../utils/ActivityScheduleHelper';
 import { getUserClubContext } from '../utils/getUserClubContext';
 import { PricingService } from './PricingService';
+import { PlayerSlotService, type PerPlayerQuote } from './PlayerSlotService';
+import { normalizeDni } from '../utils/dni';
 import { EventService } from './EventService';
 import { AuditLogService } from './AuditLogService';
 import { AccountingService } from './AccountingService';
@@ -56,6 +58,8 @@ type CancelBookingOptions = {
     };
 };
 type CreateBookingOptions = {
+    // Modalidad (ActivityFormat) para clubes con precio por jugador.
+    activityFormatId?: string | null;
     skipAccountCreation?: boolean;
     skipAdvanceLimit?: boolean;
     applyDiscount?: boolean;
@@ -77,6 +81,8 @@ type CreateBookingOptions = {
 };
 
 type CreateFixedBookingOptions = {
+    // Modalidad (clubes con precio por jugador); cada ocurrencia nace con el titular y lugares vacíos.
+    activityFormatId?: string | null;
     userId?: number | null;
     clientId?: string | null;
     clientDraft?: {
@@ -241,11 +247,14 @@ type BookingPriceQuoteInput = {
     clientPhone?: string;
     clientDni?: string;
     applyDiscount?: boolean;
+    activityFormatId?: string | null;
 };
 
 type BookingPriceQuote = {
     listPrice: number;
     finalPrice: number;
+    // Clubes con precio por jugador: desglose por jugador (titular con su precio, resto a precio general).
+    perPlayer?: PerPlayerQuote;
     discountAmount: number;
     hasDiscount: boolean;
     appliedPolicies: Array<{
@@ -295,6 +304,7 @@ type PersistedBillingAssignmentsJson = {
 
 export class BookingService {
     private readonly pricingService = new PricingService();
+    private readonly playerSlotService = new PlayerSlotService();
     private readonly eventService = new EventService();
     private readonly auditLogService = new AuditLogService();
     private readonly bookingHistoryService = new BookingHistoryService();
@@ -2535,6 +2545,38 @@ export class BookingService {
             }
         }
 
+        const quoteClubId = Number((court as any).club.id);
+        if (await this.playerSlotService.isPerPlayerClub(quoteClubId)) {
+            // El staff cotiza para cualquier cliente; el jugador solo con la ficha vinculada a su usuario (D2).
+            const ownerClientId = input.allowAdminBenefits
+                ? await prisma.$transaction((tx) => this.resolveClientIdForDiscountTx(tx, {
+                    clubId: quoteClubId,
+                    clientId: input.clientId ?? null,
+                    userId: input.userId,
+                    clientEmail: input.clientEmail,
+                    clientPhone: input.clientPhone,
+                    clientDni: input.clientDni
+                }))
+                : input.userId
+                    ? (await prisma.client.findFirst({ where: { clubId: quoteClubId, userId: Number(input.userId) }, select: { id: true } }))?.id ?? null
+                    : null;
+            const perPlayer = await this.playerSlotService.quotePerPlayer({
+                clubId: quoteClubId,
+                activityId: input.activityId,
+                activityFormatId: input.activityFormatId,
+                startDateTime: input.startDateTime,
+                ownerClientId: ownerClientId ?? null
+            });
+            return {
+                listPrice: perPlayer.listTotal,
+                finalPrice: perPlayer.estimatedTotal,
+                discountAmount: 0,
+                hasDiscount: false,
+                appliedPolicies: [],
+                perPlayer
+            };
+        }
+
         const priceBreakdown = await this.pricingService.resolveCourtPriceBreakdown({
             courtId: input.courtId,
             startDateTime: input.startDateTime,
@@ -2775,6 +2817,14 @@ export class BookingService {
                     paidAmount: 0
                 }
             });
+        }
+
+        const hasPlayerSlots = (await tx.bookingPlayerSlot.count({ where: { bookingId: params.bookingId } })) > 0;
+        if (hasPlayerSlots) {
+            await this.playerSlotService.syncAccountItemsTx(tx, params.bookingId, params.actorUserId ?? null);
+            await this.playerSlotService.applyBookingTotalsTx(tx, params.bookingId);
+            await this.projectionService.refreshAccountSummary(account.id, tx);
+            return account;
         }
 
         const bookingCharge = Number(params.bookingPrice || 0);
@@ -3360,21 +3410,33 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             throw err;
         }
 
+        // Precio por jugador: la reserva se arma con lugares; su precio es la suma de las partes.
+        const perPlayerFormat = await this.playerSlotService.isPerPlayerClub(bookingClubId)
+            ? await this.playerSlotService.resolveFormatTx(prisma, {
+                clubId: bookingClubId,
+                activityId,
+                activityFormatId: options?.activityFormatId
+            })
+            : null;
+
         // Precio por reglas horarias + duración + luces. El descuento económico no se calcula acá:
         // se unifica en DiscountPolicy sobre AccountItem.
-        const clubPricingConfig = this.resolveClubConfig((court as any)?.club);
-        const priceBreakdown = await this.pricingService.resolveCourtPriceBreakdown({
-            courtId,
-            startDateTime,
-            effectiveDurationMinutes: effectiveDuration,
-            referenceDurationMinutes: this.resolvePriceReferenceDuration(activity, allowedDurations, effectiveDuration),
-            timeZone: clubTimeZone,
-            lights: clubPricingConfig
-        });
-        if (!Number.isFinite(priceBreakdown.basePrice) || priceBreakdown.basePrice <= 0) {
-            throw this.clubConfigInvalid('Precio de cancha no configurado.');
+        let finalPrice = 0;
+        if (!perPlayerFormat) {
+            const clubPricingConfig = this.resolveClubConfig((court as any)?.club);
+            const priceBreakdown = await this.pricingService.resolveCourtPriceBreakdown({
+                courtId,
+                startDateTime,
+                effectiveDurationMinutes: effectiveDuration,
+                referenceDurationMinutes: this.resolvePriceReferenceDuration(activity, allowedDurations, effectiveDuration),
+                timeZone: clubTimeZone,
+                lights: clubPricingConfig
+            });
+            if (!Number.isFinite(priceBreakdown.basePrice) || priceBreakdown.basePrice <= 0) {
+                throw this.clubConfigInvalid('Precio de cancha no configurado.');
+            }
+            finalPrice = priceBreakdown.listPrice;
         }
-        const finalPrice = priceBreakdown.listPrice;
 
         const created = await prisma.$transaction(async (tx: any) => {
             const classOverlap = await this.findClassSessionOverlap({
@@ -3503,12 +3565,14 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         clientId: resolvedClient.id,
                         courtId: courtId,
                         activityId: activityId,
-                        clubId: bookingClubId
+                        clubId: bookingClubId,
+                        activityFormatId: perPlayerFormat?.id ?? null,
+                        playerCount: perPlayerFormat?.playerCount ?? null
                     },
                     include: { user: true, client: true, court: { include: { club: true } }, activity: true }
                 });
 
-                await this.ensureOrganizerParticipantTx(tx, {
+                const organizerParticipant = await this.ensureOrganizerParticipantTx(tx, {
                     bookingId: saved.id,
                     client: {
                         id: String(resolvedClient.id),
@@ -3527,6 +3591,30 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         : null,
                     userId: resolvedBookingUserId
                 });
+
+                if (perPlayerFormat) {
+                    // Lugar 1 = titular: SELF si reserva el propio jugador, STAFF_VALIDATED si lo carga el club (D9).
+                    const updatedTotals = await this.playerSlotService.initializeSlotsTx(tx, {
+                        bookingId: saved.id,
+                        clubId: bookingClubId,
+                        activityFormatId: perPlayerFormat.id,
+                        playerCount: perPlayerFormat.playerCount,
+                        startDateTime,
+                        owner: {
+                            participantId: organizerParticipant?.id ?? null,
+                            clientId: String(resolvedClient.id),
+                            userId: resolvedBookingUserId ?? null,
+                            displayName: resolvedClient.name ?? null
+                        },
+                        // Desde la app, SELF solo si la ficha está vinculada a su usuario: una ficha encontrada
+                        // por datos declarados (email/teléfono) no da precio socio sin validación (D2/D9).
+                        ownerValidation: createdByAdmin
+                            ? 'STAFF_VALIDATED'
+                            : (resolvedBookingUserId && Number(resolvedClient.userId || 0) === Number(resolvedBookingUserId) ? 'SELF' : 'PENDING'),
+                        actorUserId: options?.actorUserId ?? user?.id ?? null
+                    });
+                    saved = { ...saved, listPrice: updatedTotals.listPrice, price: updatedTotals.price };
+                }
 
                 // Estrategia lazy: para turnos simples no abrimos cuenta al crear.
                 // Solo se crea al confirmar, agregar consumos o registrar pagos.
@@ -4379,7 +4467,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 }
             });
 
-            await this.ensureOrganizerParticipantTx(tx, {
+            const nextOrganizer = await this.ensureOrganizerParticipantTx(tx, {
                 bookingId,
                 client: {
                     id: nextClient.id,
@@ -4389,6 +4477,16 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 },
                 user: nextBookingUserSnapshot,
                 userId: nextBookingUserId
+            });
+
+            // Precio por jugador: cambiar el titular es cambiar el jugador del lugar 1 (RN-06).
+            await this.playerSlotService.replaceOwnerSlotTx(tx, {
+                bookingId,
+                participantId: nextOrganizer?.id ?? null,
+                clientId: nextClient.id,
+                userId: nextBookingUserId ?? null,
+                displayName: nextClient.name ?? null,
+                actorUserId: Number(params.actorUserId || 0) || null
             });
 
             // 4.1 Sincronizar billing config para evitar inconsistencias
@@ -5503,6 +5601,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         bookingId: number;
         clubId: number;
         actorUserId?: number | null;
+        // Lugar a ocupar en reservas con precio por jugador (por defecto, el primero libre).
+        slotIndex?: number | null;
         personSelection:
             | { kind: 'clubClient'; clientId: string }
             | { kind: 'linked' | 'systemUser'; userId: number; personKey: string; searchQuery: string }
@@ -5718,6 +5818,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 removedAt: null
             };
 
+            await this.playerSlotService.assertHasFreeSlotTx(tx, bookingId);
+
             const participant = archivedParticipant
                 ? await tx.bookingParticipant.update({
                     where: { id: archivedParticipant.id },
@@ -5729,6 +5831,17 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         ...data
                     }
                 });
+
+            // Precio por jugador: ocupa un lugar (el elegido o el primero libre) y recalcula su parte.
+            await this.playerSlotService.assignParticipantTx(tx, {
+                bookingId,
+                participantId: participant.id,
+                clientId: resolvedClient.id,
+                userId: resolvedUserId ?? null,
+                displayName: snapshot.displayName ?? null,
+                slotIndex: input.slotIndex ?? null,
+                actorUserId: Number(input.actorUserId || 0) || null
+            });
 
             await this.appendBookingHistoryEntryTx(tx, {
                 bookingId,
@@ -5822,6 +5935,12 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         }
 
         await prisma.$transaction(async (tx) => {
+            // Precio por jugador: libera su lugar (bloquea si su parte ya tiene pagos).
+            await this.playerSlotService.releaseParticipantSlotTx(tx, {
+                bookingId: participant.bookingId,
+                participantId: participant.id,
+                actorUserId: null
+            });
             await tx.bookingParticipant.update({
                 where: { id: participant.id },
                 data: {
@@ -5877,16 +5996,45 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
     async invitePlayerBookingParticipant(input: {
         bookingId: number;
         ownerUserId: number;
-        invitedEmail: string;
+        // Email o DNI exacto (la búsqueda por DNI no acepta nombres parciales para no enumerar usuarios).
+        invitedEmail?: string | null;
+        invitedDni?: string | null;
         invitedName?: string | null;
     }): Promise<PlayerBookingParticipantDto> {
         if (!Number.isInteger(input.ownerUserId) || input.ownerUserId <= 0) {
             throw this.bookingForbidden();
         }
 
-        const invitedEmail = normalizeEmail(input.invitedEmail);
-        const invitedName = String(input.invitedName || '').trim() || null;
-        if (!invitedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(invitedEmail)) {
+        const rawDni = String(input.invitedDni || '').trim();
+        let invitedUser: { id: number; email: string | null; firstName: string; lastName: string } | null = null;
+        if (rawDni) {
+            const dni = normalizeDni(rawDni);
+            if (!dni) {
+                throw new AppError({
+                    statusCode: 400,
+                    code: ErrorCodes.INVALID_INPUT,
+                    message: 'Revisá los campos marcados.',
+                    fieldErrors: { dni: 'Ingresá un DNI válido.' }
+                });
+            }
+            invitedUser = await prisma.user.findUnique({
+                where: { dni },
+                select: { id: true, email: true, firstName: true, lastName: true }
+            });
+            if (!invitedUser) {
+                throw new AppError({
+                    statusCode: 404,
+                    code: ErrorCodes.USER_NOT_FOUND,
+                    message: 'No encontramos una cuenta con ese DNI. Podés sumarlo como invitado con su nombre o por email.',
+                    fieldErrors: { dni: 'No hay una cuenta con ese DNI.' }
+                });
+            }
+        }
+
+        const invitedEmail = invitedUser
+            ? normalizeEmail(String(invitedUser.email || '')) || null
+            : normalizeEmail(String(input.invitedEmail || ''));
+        if (!invitedUser && (!invitedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(invitedEmail))) {
             throw new AppError({
                 statusCode: 400,
                 code: ErrorCodes.INVALID_INPUT,
@@ -5896,6 +6044,15 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 }
             });
         }
+        if (!invitedUser && invitedEmail) {
+            invitedUser = await prisma.user.findUnique({
+                where: { email: invitedEmail },
+                select: { id: true, email: true, firstName: true, lastName: true }
+            });
+        }
+        // A los demás jugadores solo se les muestra el nombre abreviado (P13).
+        const invitedName = String(input.invitedName || '').trim()
+            || (invitedUser ? `${invitedUser.firstName} ${String(invitedUser.lastName || '').charAt(0)}.`.trim() : null);
 
         const booking = await prisma.booking.findUnique({
             where: { id: input.bookingId },
@@ -5908,6 +6065,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         id: true,
                         userId: true,
                         invitedEmail: true,
+                        invitedUserId: true,
                         status: true,
                         role: true
                     }
@@ -5927,20 +6085,26 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             where: { id: input.ownerUserId },
             select: { email: true }
         });
-        if (normalizeEmail(String(ownerUser?.email || '')) === invitedEmail) {
+        if (
+            (invitedEmail && normalizeEmail(String(ownerUser?.email || '')) === invitedEmail) ||
+            (invitedUser && invitedUser.id === input.ownerUserId)
+        ) {
             throw this.bookingParticipantAlreadyExists('No hace falta invitar al titular de la reserva.');
         }
 
         const duplicated = booking.participants.find((participant) => {
-            const sameEmail = normalizeEmail(String(participant.invitedEmail || '')) === invitedEmail;
+            const sameEmail = Boolean(invitedEmail) && normalizeEmail(String(participant.invitedEmail || '')) === invitedEmail;
+            const sameUser = Boolean(invitedUser) &&
+                (participant.userId === invitedUser!.id || participant.invitedUserId === invitedUser!.id);
             const activeStatus = participant.status === 'INVITED' || participant.status === 'JOINED';
-            return sameEmail && activeStatus;
+            return (sameEmail || sameUser) && activeStatus;
         });
         if (duplicated) {
             throw this.bookingParticipantAlreadyExists();
         }
 
         const created = await prisma.$transaction(async (tx) => {
+            await this.playerSlotService.assertHasFreeSlotTx(tx, booking.id);
             const participant = await tx.bookingParticipant.create({
                 data: {
                     bookingId: booking.id,
@@ -5950,6 +6114,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     phone: null,
                     invitedEmail,
                     invitedName,
+                    invitedUserId: invitedUser?.id ?? null,
                     invitedByUserId: input.ownerUserId,
                     status: 'INVITED',
                     role: 'PARTICIPANT'
@@ -5999,9 +6164,23 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     payload: {
                         bookingId: booking.id,
                         invitedEmail,
-                        invitedName
+                        invitedName,
+                        invitedUserId: invitedUser?.id ?? null
                     }
                 }
+            });
+
+            // Precio por jugador: el invitado ocupa un lugar y paga como no socio hasta aceptar (D9).
+            const invitedClient = invitedUser
+                ? await tx.client.findFirst({ where: { clubId: booking.clubId, userId: invitedUser.id }, select: { id: true } })
+                : null;
+            await this.playerSlotService.assignParticipantTx(tx, {
+                bookingId: booking.id,
+                participantId: participant.id,
+                clientId: invitedClient?.id ?? null,
+                userId: invitedUser?.id ?? null,
+                displayName: invitedName,
+                actorUserId: input.ownerUserId
             });
 
             return participant;
@@ -6071,6 +6250,12 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         }
 
         await prisma.$transaction(async (tx) => {
+            // Precio por jugador: libera su lugar (bloquea si su parte ya tiene pagos).
+            await this.playerSlotService.releaseParticipantSlotTx(tx, {
+                bookingId: participant.bookingId,
+                participantId: participant.id,
+                actorUserId: null
+            });
             await tx.bookingParticipant.update({
                 where: { id: participant.id },
                 data: {
@@ -6131,12 +6316,14 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             select: { email: true }
         });
         const email = normalizeEmail(String(user?.email || ''));
-        if (!email) return [];
 
         const invitations = await prisma.bookingParticipant.findMany({
             where: {
                 userId: null,
-                invitedEmail: email,
+                OR: [
+                    ...(email ? [{ invitedEmail: email }] : []),
+                    { invitedUserId: userId }
+                ],
                 status: 'INVITED',
                 booking: {
                     status: { in: ['PENDING', 'CONFIRMED'] },
@@ -6195,9 +6382,6 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             select: { email: true }
         });
         const userEmail = normalizeEmail(String(user?.email || ''));
-        if (!userEmail) {
-            throw this.bookingInvitationEmailMismatch();
-        }
 
         const invitation = await prisma.bookingParticipant.findUnique({
             where: { id: invitationId },
@@ -6229,7 +6413,9 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             throw this.bookingInvitationInvalid();
         }
 
-        if (normalizeEmail(String(invitation.invitedEmail || '')) !== userEmail) {
+        const invitedByUser = Number(invitation.invitedUserId || 0) === userId;
+        const invitedByEmail = Boolean(userEmail) && normalizeEmail(String(invitation.invitedEmail || '')) === userEmail;
+        if (!invitedByUser && !invitedByEmail) {
             throw this.bookingInvitationEmailMismatch();
         }
 
@@ -6281,6 +6467,19 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 }
             });
 
+            // Precio por jugador: aceptar desde su cuenta confirma su precio socio (D9).
+            const acceptedClient = await tx.client.findFirst({
+                where: { clubId: invitation.booking.clubId, userId },
+                select: { id: true }
+            });
+            await this.playerSlotService.markParticipantAcceptedTx(tx, {
+                bookingId: invitation.bookingId,
+                participantId: invitation.id,
+                clientId: acceptedClient?.id ?? null,
+                userId,
+                actorUserId: userId
+            });
+
             return participant;
         });
 
@@ -6297,9 +6496,6 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             select: { email: true }
         });
         const userEmail = normalizeEmail(String(user?.email || ''));
-        if (!userEmail) {
-            throw this.bookingInvitationEmailMismatch();
-        }
 
         const invitation = await prisma.bookingParticipant.findUnique({
             where: { id: invitationId },
@@ -6328,11 +6524,19 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         if (invitation.status === 'LEFT' || invitation.status === 'REMOVED') {
             throw this.bookingInvitationInvalid();
         }
-        if (normalizeEmail(String(invitation.invitedEmail || '')) !== userEmail) {
+        const invitedByUser = Number(invitation.invitedUserId || 0) === userId;
+        const invitedByEmail = Boolean(userEmail) && normalizeEmail(String(invitation.invitedEmail || '')) === userEmail;
+        if (!invitedByUser && !invitedByEmail) {
             throw this.bookingInvitationEmailMismatch();
         }
 
         await prisma.$transaction(async (tx) => {
+            // Precio por jugador: libera su lugar (bloquea si su parte ya tiene pagos).
+            await this.playerSlotService.releaseParticipantSlotTx(tx, {
+                bookingId: invitation.bookingId,
+                participantId: invitation.id,
+                actorUserId: userId
+            });
             await tx.bookingParticipant.update({
                 where: { id: invitation.id },
                 data: {
@@ -6390,6 +6594,12 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         }
 
         await prisma.$transaction(async (tx) => {
+            // Precio por jugador: libera su lugar (bloquea si su parte ya tiene pagos).
+            await this.playerSlotService.releaseParticipantSlotTx(tx, {
+                bookingId: participant.bookingId,
+                participantId: participant.id,
+                actorUserId: userId
+            });
             await tx.bookingParticipant.update({
                 where: { id: participant.id },
                 data: {
@@ -7065,6 +7275,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             clientEmail?: string;
             clientPhone?: string;
             clientDni?: string;
+            // Modalidad para clubes con precio por jugador (por defecto, la primera activa).
+            activityFormatId?: string | null;
         }
     ): Promise<{
         slotsWithCourts: Array<{
@@ -7073,8 +7285,17 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 id: number;
                 name: string;
                 price?: number | null;
+                pricePerPlayer?: number | null;
+                generalPricePerPlayer?: number | null;
+                playerCount?: number | null;
+                memberCategoryName?: string | null;
             }>;
         }>;
+        perPlayer?: {
+            activityFormatId: string;
+            formatName: string;
+            playerCount: number;
+        } | null;
         professorOverrideAvailable: boolean;
         professorDurationOverrideMinutes: number | null;
     }> {
@@ -7113,6 +7334,38 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 professorDurationOverrideMinutes: null
             };
         }
+
+        // Precio por jugador: la grilla muestra el precio de quien mira. El precio socio sale solo de
+        // la ficha vinculada a su usuario, nunca de datos enviados en el pedido (D2).
+        const perPlayerClub = clubId ? await this.playerSlotService.isPerPlayerClub(clubId) : false;
+        const perPlayerFormat = perPlayerClub
+            ? await prisma.activityFormat.findFirst({
+                where: {
+                    clubId,
+                    activityTypeId: Number(activityId),
+                    isActive: true,
+                    ...(identity?.activityFormatId ? { id: String(identity.activityFormatId) } : {})
+                },
+                orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }]
+            })
+            : null;
+        const perPlayerViewerClientId = perPlayerFormat && identity?.userId
+            ? (await prisma.client.findFirst({ where: { clubId, userId: Number(identity.userId) }, select: { id: true } }))?.id ?? null
+            : null;
+        const perPlayerQuotes = new Map<string, Promise<PerPlayerQuote | null>>();
+        const quoteForSlot = (slotDateTime: Date) => {
+            const key = slotDateTime.toISOString();
+            if (!perPlayerQuotes.has(key)) {
+                perPlayerQuotes.set(key, this.playerSlotService.quotePerPlayer({
+                    clubId: Number(clubId),
+                    activityId: Number(activityId),
+                    activityFormatId: perPlayerFormat!.id,
+                    startDateTime: slotDateTime,
+                    ownerClientId: perPlayerViewerClientId
+                }).catch(() => null));
+            }
+            return perPlayerQuotes.get(key)!;
+        };
 
         const activity = this.mapActivityType((activityCourts[0] as any).activityType)
             ?? await this.activityRepo.findById(activityId);
@@ -7249,6 +7502,22 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     return slotDateTime < classSession.endsAt && slotEndDateTime > classSession.startsAt;
                 });
 
+                if (perPlayerFormat) {
+                    const quote = await quoteForSlot(slotDateTime);
+                    return {
+                        id: court.id,
+                        name: court.name,
+                        price: quote ? quote.estimatedTotal : null,
+                        basePrice: quote ? quote.listTotal : null,
+                        lightsExtraApplied: quote ? quote.lightsExtra : 0,
+                        pricePerPlayer: quote ? quote.ownerPricePerPlayer + quote.lightsPerSlot : null,
+                        generalPricePerPlayer: quote ? quote.generalPricePerPlayer + quote.lightsPerSlot : null,
+                        playerCount: perPlayerFormat.playerCount,
+                        memberCategoryName: quote?.ownerMemberCategoryName ?? null,
+                        isAvailable: !isBusy
+                    };
+                }
+
                 let calculatedPrice = Number((court as any).price ?? 0);
                 let calculatedBase = Number((court as any).price ?? 0);
                 let lightsExtraApplied = 0;
@@ -7299,7 +7568,10 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         return {
             slotsWithCourts,
             professorOverrideAvailable: Boolean(canProfessorDurationOverride),
-            professorDurationOverrideMinutes: canProfessorDurationOverride ? professorOverrideMinutes : null
+            professorDurationOverrideMinutes: canProfessorDurationOverride ? professorOverrideMinutes : null,
+            perPlayer: perPlayerFormat
+                ? { activityFormatId: perPlayerFormat.id, formatName: perPlayerFormat.name, playerCount: perPlayerFormat.playerCount }
+                : null
         };
     }
 
@@ -7610,7 +7882,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     dayOfWeek,
                     startTimeMinutes,
                     endTimeMinutes,
-                    status: 'ACTIVE'
+                    status: 'ACTIVE',
+                    activityFormatId: options?.activityFormatId ?? null
                 }
             });
 
@@ -7671,6 +7944,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                             skipAccountCreation: true,
                             skipAdvanceLimit: true,
                             actorUserId: options?.actorUserId ?? null,
+                            activityFormatId: options?.activityFormatId ?? null,
                             clientId: requestedOwnerUserSelection ? null : fixedClientId,
                             ownerUserSelection: requestedOwnerUserSelection || null
                         }

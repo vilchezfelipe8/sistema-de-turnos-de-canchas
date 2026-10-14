@@ -41,6 +41,21 @@ enum ClubMemberStatus {
   INACTIVE
 }
 
+// Modo de precio del turno del club. PER_COURT = comportamiento histórico.
+enum ClubPricingMode {
+  PER_COURT
+  PER_PLAYER
+}
+
+// Cómo se validó el precio socio de un lugar (D9). Solo SELF, ACCEPTED y STAFF_VALIDATED dan precio socio.
+enum MemberPriceValidation {
+  NOT_MEMBER      // no socio o lugar vacío
+  SELF            // es el titular autenticado
+  ACCEPTED        // aceptó la invitación desde su cuenta
+  STAFF_VALIDATED // validado en el mostrador
+  PENDING         // socio agregado por otro, todavía no confirmó → precio no socio
+}
+
 enum MembershipRole {
   OWNER
   ADMIN
@@ -758,8 +773,46 @@ model ActivityType {
   discountTargets        DiscountPolicyTarget[]
   classSessions          ClassSession[]
   classPasses            ClassPass[]
+  formats                ActivityFormat[]
 
   @@index([clubId])
+}
+
+// Modalidad de juego de una actividad (ej. Tenis Single 2 jugadores / Dobles 4).
+model ActivityFormat {
+  id             String       @id @default(cuid())
+  clubId         Int
+  activityTypeId Int
+  activityType   ActivityType @relation(fields: [activityTypeId], references: [id], onDelete: Cascade)
+  name           String
+  playerCount    Int
+  sortOrder      Int          @default(0)
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @db.Timestamptz(3)
+
+  priceRules    PlayerPriceRule[]
+  bookings      Booking[]
+  fixedBookings FixedBooking[]
+
+  @@unique([activityTypeId, name])
+  @@index([clubId, isActive])
+}
+
+// Precio por jugador de una modalidad para una categoría (null = no socio). Sin franjas: solo varía por luces.
+model PlayerPriceRule {
+  id               String          @id @default(cuid())
+  clubId           Int
+  activityFormatId String
+  activityFormat   ActivityFormat  @relation(fields: [activityFormatId], references: [id], onDelete: Cascade)
+  memberCategoryId String?
+  memberCategory   MemberCategory? @relation(fields: [memberCategoryId], references: [id], onDelete: Cascade)
+  pricePerPlayer   Decimal         @db.Decimal(10, 2)
+  createdAt        DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime        @updatedAt @db.Timestamptz(3)
+
+  // La unicidad modalidad + categoría (incluida "no socio" con NULL) se valida en el servicio.
+  @@index([activityFormatId, memberCategoryId])
 }
 
 model ActivityScheduleException {
@@ -842,6 +895,7 @@ model MemberCategory {
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
 
   members ClubMember[]
+  playerPriceRules PlayerPriceRule[]
 
   @@unique([clubId, code])
   @@index([clubId, isActive])
@@ -1200,6 +1254,14 @@ model Booking {
 
   fixedBookingId Int?
   fixedBooking   FixedBooking? @relation(fields: [fixedBookingId], references: [id])
+
+  // Precio por jugador (ClubPricingMode.PER_PLAYER). null = reserva con precio por cancha.
+  activityFormatId    String?
+  activityFormat      ActivityFormat? @relation(fields: [activityFormatId], references: [id])
+  playerCount         Int?
+  // Σ (precio no socio − precio aplicado) de los lugares
+  memberBenefitAmount Decimal @default(0) @db.Decimal(10, 2)
+  playerSlots         BookingPlayerSlot[]
   billingConfig  BookingBillingConfig?
   participants   BookingParticipant[]
   historyEntries BookingHistoryEntry[]
@@ -1227,11 +1289,14 @@ model BookingParticipant {
   phone           String?
   invitedEmail    String?
   invitedName     String?
+  // Invitación por DNI a un usuario existente (puede no tener email)
+  invitedUserId   Int?
   status          BookingParticipantStatus @default(INVITED)
   role            BookingParticipantRole   @default(PARTICIPANT)
   invitedByUserId Int?
   invitedByUser   User?                    @relation("BookingParticipantInvitedBy", fields: [invitedByUserId], references: [id], onDelete: SetNull)
   historyEntries  BookingHistoryEntry[]
+  playerSlot      BookingPlayerSlot?
   acceptedAt      DateTime?                @db.Timestamptz(3)
   declinedAt      DateTime?                @db.Timestamptz(3)
   leftAt          DateTime?                @db.Timestamptz(3)
@@ -1245,6 +1310,7 @@ model BookingParticipant {
   @@index([clientId])
   @@index([userId, status])
   @@index([invitedEmail, status])
+  @@index([invitedUserId, status])
 }
 
 model BookingBillingConfig {
@@ -1314,6 +1380,9 @@ model FixedBooking {
 
   bookings Booking[]
 
+  activityFormatId String?
+  activityFormat   ActivityFormat? @relation(fields: [activityFormatId], references: [id])
+
   @@index([courtId, dayOfWeek])
   @@index([clubId])
   @@index([clientId])
@@ -1374,8 +1443,40 @@ model AccountItem {
   paymentAllocations PaymentAllocation[]
   discounts AccountItemDiscount[]
 
+  // A quién corresponde el ítem (parte de cancha de un jugador en precio por jugador).
+  clientId   String?
+  playerSlot BookingPlayerSlot?
+
   @@index([accountId])
   @@index([productId])
+}
+
+// Lugar de un jugador en una reserva con precio por jugador. La parte de cada lugar queda
+// congelada cuando su ítem de la cuenta tiene pagos imputados (RN-05).
+model BookingPlayerSlot {
+  id                      String                @id @default(cuid())
+  bookingId               Int
+  booking                 Booking               @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  clubId                  Int
+  slotIndex               Int
+  participantId           String?               @unique
+  participant             BookingParticipant?   @relation(fields: [participantId], references: [id], onDelete: SetNull)
+  clientId                String?
+  userId                  Int?
+  displayName             String?
+  pricingMemberCategoryId String?
+  memberPriceValidation   MemberPriceValidation @default(NOT_MEMBER)
+  memberValidatedByUserId Int?
+  shareListAmount         Decimal               @db.Decimal(10, 2)
+  shareAmount             Decimal               @db.Decimal(10, 2)
+  sharePricedAt           DateTime              @default(now()) @db.Timestamptz(3)
+  accountItemId           String?               @unique
+  accountItem             AccountItem?          @relation(fields: [accountItemId], references: [id], onDelete: SetNull)
+  createdAt               DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime              @updatedAt @db.Timestamptz(3)
+
+  @@unique([bookingId, slotIndex])
+  @@index([clubId, clientId])
 }
 
 model DiscountPolicy {
@@ -1898,6 +1999,8 @@ model ClubSettings {
   membersEnabled            Boolean  @default(false)
   // false = el club cobra solo en el mostrador (sin checkout online)
   onlineCheckoutEnabled     Boolean  @default(true)
+  // Precio del turno por cancha (histórico) o por jugador según su categoría
+  pricingMode               ClubPricingMode @default(PER_COURT)
 
   // Política de confirmación de reservas
   bookingConfirmationMode       BookingConfirmationMode @default(MANUAL)

@@ -13,6 +13,7 @@ import { extractErrorMessage, reportUiError } from '../utils/uiError';
 import { useAuth } from '../contexts/AuthContext';
 import { lockBodyScroll } from '../utils/bodyScrollLock';
 import { createBookingCheckoutDraftId, saveBookingCheckoutDraft } from '../utils/bookingCheckoutDraft';
+import { PlayerPricingService, type ActivityFormat, type ClubPricingMode } from '../services/PlayerPricingService';
 import { ChevronDown, Check, Calendar, Clock, MapPin, Zap, MousePointerClick, Hourglass, Moon, Ban, AlertCircle, Activity, ChevronLeft, ChevronRight, LayoutGrid, Rows3, Info, Mail, Lock, Eye, EyeOff, LogIn, Loader2 } from 'lucide-react';
 
 const apiBase = () => `${getApiUrl()}/api`;
@@ -34,7 +35,21 @@ type CourtSummary = {
   price?: number | null;
   basePrice?: number | null;
   lightsExtraApplied?: number | null;
+  // Precio por jugador (clubes en modo PER_PLAYER): parte de quien mira y precio general.
+  pricePerPlayer?: number | null;
+  generalPricePerPlayer?: number | null;
+  playerCount?: number | null;
+  memberCategoryName?: string | null;
   activityType?: ActivityTypeSummary | null;
+};
+
+// Etiqueta de precio de una cancha: por jugador si el club cobra por jugador, si no por turno.
+const formatCourtPriceLabel = (court: CourtSummary, durationMinutes: number, fallback: string) => {
+  if (court.pricePerPlayer != null) {
+    const memberSuffix = court.memberCategoryName ? ` (precio socio)` : '';
+    return `$${Number(court.pricePerPlayer).toLocaleString()} por jugador${memberSuffix} · ${durationMinutes} min`;
+  }
+  return court.price ? `$${court.price.toLocaleString()} · ${durationMinutes} min` : fallback;
 };
 
 const DEFAULT_DURATION_MINUTES = 90;
@@ -383,7 +398,39 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     return normalizeActivityDurations(matched?.activityType?.scheduleDurations, safeFallback);
   }, [activeCourts, selectedActivityId]);
 
-  const { slotsWithCourts, loading, error, refresh } = useAvailability(selectedDate, selectedActivityId, clubSlug, selectedDuration);
+  // Precio por jugador: modalidades del club (Single / Dobles...) y la elegida para la actividad.
+  const [clubPricing, setClubPricing] = useState<{ pricingMode: ClubPricingMode; onlineCheckoutEnabled: boolean; formats: ActivityFormat[] }>({
+    pricingMode: 'PER_COURT',
+    onlineCheckoutEnabled: true,
+    formats: []
+  });
+  const [selectedFormatId, setSelectedFormatId] = useState('');
+  useEffect(() => {
+    if (!clubSlug) return;
+    PlayerPricingService.getPublicFormats(clubSlug)
+      .then(setClubPricing)
+      .catch(err => reportUiError({ area: 'BookingGrid', action: 'loadActivityFormats' }, err));
+  }, [clubSlug]);
+  const isPerPlayerPricing = clubPricing.pricingMode === 'PER_PLAYER';
+  const activityFormats = useMemo(
+    () => clubPricing.formats.filter(format => Number(format.activityTypeId) === Number(selectedActivityId)),
+    [clubPricing.formats, selectedActivityId]
+  );
+  useEffect(() => {
+    if (!isPerPlayerPricing) return;
+    if (!activityFormats.some(format => format.id === selectedFormatId)) {
+      setSelectedFormatId(activityFormats[0]?.id || '');
+    }
+  }, [activityFormats, isPerPlayerPricing, selectedFormatId]);
+  const selectedFormat = activityFormats.find(format => format.id === selectedFormatId) || null;
+
+  const { slotsWithCourts, loading, error, refresh } = useAvailability(
+    selectedDate,
+    selectedActivityId,
+    clubSlug,
+    selectedDuration,
+    isPerPlayerPricing ? selectedFormatId || null : null
+  );
   const durationOptions = useMemo(() => selectedActivityDurations, [selectedActivityDurations]);
   const activeScheduleViewMode: ScheduleViewMode = isMobileListOnly ? 'list' : scheduleViewMode;
 
@@ -593,6 +640,16 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
       discountAmount: bookingReview.discountAmount,
       lightsExtraApplied: bookingReview.lightsAmount,
       lightsFromHour: bookingReview.lightsFromHour || null,
+      ...(isPerPlayerPricing && selectedFormat
+        ? {
+            activityFormatId: selectedFormat.id,
+            formatName: selectedFormat.name,
+            playerCount: selectedFormat.playerCount,
+            pricePerPlayer: selectedCourt.pricePerPlayer ?? null,
+            memberCategoryName: selectedCourt.memberCategoryName ?? null,
+          }
+        : {}),
+      onlineCheckoutEnabled: clubPricing.onlineCheckoutEnabled,
       createdAt: new Date().toISOString(),
     });
     if (!draftSaved) {
@@ -947,6 +1004,20 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
           />
         </div>
 
+        {/* Modalidad (precio por jugador) */}
+        {isPerPlayerPricing && activityFormats.length > 0 && (
+          <div style={{ position: 'relative', zIndex: 9, minWidth: 0 }}>
+            <div style={labelStyle}><Activity size={12} style={{ color: 'var(--brand)' }} /> Modalidad</div>
+            <CustomSelect
+              value={selectedFormatId}
+              onChange={(val: string) => { setSelectedFormatId(String(val)); setSelectedSlot(null); setSelectedCourt(null); }}
+              placeholder="Modalidad"
+              centerLabel={isMobileListOnly}
+              options={activityFormats.map(format => ({ value: format.id, label: `${format.name} · ${format.playerCount} jugadores` }))}
+            />
+          </div>
+        )}
+
       </div>
 
       {/* View mode */}
@@ -1067,7 +1138,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
                             <div style={{ padding: '10px 14px', minHeight: TIMELINE_ROW_HEIGHT, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRight: `1px solid ${T.borderSubtle}` }}>
                               <span style={{ fontSize: 14, fontWeight: 800, color: T.textPrimary2 }}>{court.name}</span>
                               <span style={{ fontSize: 11, color: T.textMuted, fontWeight: 600 }}>
-                                {court.price ? `$${court.price.toLocaleString()} · ${selectedDuration} min` : `Duración ${selectedDuration} min`}
+                                {formatCourtPriceLabel(court, selectedDuration, `Duración ${selectedDuration} min`)}
                               </span>
                             </div>
 
@@ -1334,7 +1405,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
                   <div>
                     <div className="v-court-name">{court.name}</div>
                     <div className="v-court-meta">
-                      {court.price ? `$${court.price.toLocaleString()} · ${selectedDuration} min` : 'Precio a confirmar'}
+                      {formatCourtPriceLabel(court, selectedDuration, 'Precio a confirmar')}
                     </div>
                   </div>
                   <div className="v-court-dot" />

@@ -31,6 +31,7 @@ import { ClassPassAdminController } from '../controllers/ClassPassAdminControlle
 import { ClassCreditUsageAdminController } from '../controllers/ClassCreditUsageAdminController';
 import { AcademyStudentAdminController } from '../controllers/AcademyStudentAdminController';
 import { MemberController } from '../controllers/MemberController';
+import { PlayerSlotController } from '../controllers/PlayerSlotController';
 
 const router = Router();
 
@@ -42,6 +43,7 @@ const activityRepository = new ActivityTypeRepository();
 const clubRepository = new ClubRepository();
 const productController = new ProductController();
 const memberController = new MemberController();
+const playerSlotController = new PlayerSlotController();
 const cashRepository = new CashRepository();
 const productRepository = new ProductRepository();
 
@@ -824,6 +826,56 @@ router.post('/:slug/admin/clients/:clientId/merge',
     verifyClubAccess,
     requireTenantRole('ADMIN'),
     clubController.mergeClubClients
+);
+
+// ---------- Precio por jugador ----------
+router.get('/:slug/admin/pricing-settings',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    playerSlotController.getPricingSettings
+);
+
+router.put('/:slug/admin/pricing-settings',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    playerSlotController.updatePricingSettings
+);
+
+router.get('/:slug/admin/activity-formats',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    playerSlotController.listFormats
+);
+
+router.post('/:slug/admin/activity-formats',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    playerSlotController.createFormat
+);
+
+router.patch('/:slug/admin/activity-formats/:formatId',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    playerSlotController.updateFormat
+);
+
+router.get('/:slug/admin/player-prices',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    playerSlotController.getPriceTable
+);
+
+router.put('/:slug/admin/player-prices',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    playerSlotController.updatePriceTable
 );
 
 // ---------- Socios (padrón) ----------

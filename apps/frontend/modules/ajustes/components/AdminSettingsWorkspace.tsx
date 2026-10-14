@@ -1,6 +1,8 @@
 import AdminComingSoonPanel from '../../../components/admin/AdminComingSoonPanel';
 import AdminTabCourts from '../../../components/admin/AdminTabCourts';
 import SettingsClubMembersSection from './SettingsClubMembersSection';
+import SettingsActivityFormatsSection from './SettingsActivityFormatsSection';
+import SettingsPerPlayerPricingSection from './SettingsPerPlayerPricingSection';
 import {
   SettingsAuditSection,
   SettingsClubIdentitySection,
@@ -40,17 +42,17 @@ type AdminSettingsWorkspaceProps = {
 export default function AdminSettingsWorkspace({ tab }: AdminSettingsWorkspaceProps) {
   if (tab === 'club') return <SettingsClubIdentitySection />;
   if (tab === 'canchas') return <AdminTabCourts />;
-  if (tab === 'actividades') {
-    return (
-      <AdminComingSoonPanel
-        title={comingSoonLabelByTab.actividades}
-        description="La separación de actividades va a consolidarse como módulo propio, desacoplado de excepciones de agenda."
-      />
-    );
-  }
+  if (tab === 'actividades') return <SettingsActivityFormatsSection />;
   if (tab === 'reservas') return <SettingsReservationsSection />;
   if (tab === 'horarios') return <SettingsSchedulesSection />;
-  if (tab === 'precios') return <SettingsPricingSection />;
+  if (tab === 'precios') {
+    return (
+      <div className="space-y-4">
+        <SettingsPerPlayerPricingSection />
+        <SettingsPricingSection />
+      </div>
+    );
+  }
   if (tab === 'integraciones') return <SettingsIntegrationsWorkspaceSection />;
   if (tab === 'usuarios') return <SettingsMembersSection />;
   if (tab === 'socios') return <SettingsClubMembersSection />;

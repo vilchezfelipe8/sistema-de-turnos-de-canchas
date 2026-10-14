@@ -8,6 +8,11 @@ interface Court {
   price?: number | null;
   basePrice?: number | null;
   lightsExtraApplied?: number | null;
+  // Precio por jugador (clubes en modo PER_PLAYER)
+  pricePerPlayer?: number | null;
+  generalPricePerPlayer?: number | null;
+  playerCount?: number | null;
+  memberCategoryName?: string | null;
 }
 
 interface SlotWithCourts {
@@ -24,7 +29,8 @@ export function useAvailability(
   date: Date | null,
   activityId?: number | null,
   clubSlug?: string,
-  durationMinutes?: number
+  durationMinutes?: number,
+  activityFormatId?: string | null
 ) {
   const [slotsWithCourts, setSlotsWithCourts] = useState<SlotWithCourts[]>([]);
   const [loading, setLoading] = useState(false);
@@ -66,15 +72,18 @@ export function useAvailability(
       const durationParam = Number.isFinite(durationMinutes)
         ? `&durationMinutes=${durationMinutes}`
         : '';
+      const formatParam = activityFormatId ? `&activityFormatId=${encodeURIComponent(activityFormatId)}` : '';
       const headers: Record<string, string> = {
         'Pragma': 'no-cache',
         'Cache-Control': 'no-cache, no-store, must-revalidate'
       };
 
       const res = await fetch(
-        `${apiBase}/bookings/availability-with-courts?activityId=${Number(activityId)}&date=${dateString}&t=${timestamp}${clubParam}${durationParam}`,
+        `${apiBase}/bookings/availability-with-courts?activityId=${Number(activityId)}&date=${dateString}&t=${timestamp}${clubParam}${durationParam}${formatParam}`,
         {
             cache: 'no-store',
+            // La sesión permite mostrar el precio socio de quien mira (precio por jugador).
+            credentials: 'include',
             headers,
             signal: controller.signal
         }

@@ -947,3 +947,45 @@ El DNI es **obligatorio** en el padrón (es la credencial de login). El teléfon
 | P14 | En turnos fijos, ¿juegan siempre los mismos? | Guardar jugadores en la serie. |
 | P15 | Si faltan jugadores por identificar, ¿quién paga esos lugares? | Comportamiento por defecto en Caja. |
 | P18 | ¿Además de tenis y pádel hay otras actividades? ¿Cuántos jugadores tiene cada modalidad? | Carga inicial de modalidades. |
+
+---
+
+## 14. Estado de implementación
+
+### Fase 0 — hecha
+- `PricingService.resolveCourtPriceBreakdown`: única fuente del precio por cancha (regla horaria + duración + luces). Reemplaza las 4 copias de `BookingService`. Tests en `tests/pricingService.test.ts`.
+- `npm run users:dni:audit`: normaliza y reporta DNI duplicados antes del índice único.
+
+### Fase 1a — hecha
+- Migración `20261013180000_add_club_members_and_dni_login`.
+- Padrón: `MemberService`, `MemberController`, Ajustes > Socios, sección Socio y vista Padrón en Clientes, badge en listados y búsquedas.
+- Identidad: login por DNI o email, activación y recuperación con código (`AccountVerificationService`), registro con DNI opcional.
+- Importación: `npm run members:import -- --club=<slug> --file=padron.csv [--apply]`.
+- Plantilla de WhatsApp `customer_account_code_v1` documentada en `whatsapp-meta-template-pack.md` (pendiente de aprobación en Meta).
+
+### Fase 1b — hecha
+- Migración `20261014120000_add_per_player_pricing`.
+- `PlayerSlotService` (precio por jugador, lugares, validación, recálculo, ítems por jugador) y `PlayerSlotController`.
+- Ajustes > Actividades (modalidades) y Ajustes > Precios (modo de precio, cobro solo en mostrador, tabla por jugador).
+- Agenda: modalidad al crear y panel de jugadores (categoría, parte, validar socio, recalcular).
+- App: modalidad y precio por jugador en la grilla, "tu parte" en el checkout, desglose en Mis reservas, invitación por DNI o email.
+
+### Fase 1c — pendiente
+- Bloqueada por P19 (terminal y proveedor del club).
+
+### Diferencias con el diseño original
+
+| Tema | Documento | Implementado | Motivo |
+|---|---|---|---|
+| Lugares de una reserva | Campos en `BookingParticipant` y lugares vacíos como participantes sin cliente | Modelo propio `BookingPlayerSlot` (un lugar por jugador, vinculado opcionalmente al participante y a su ítem de la cuenta) | Los participantes vacíos ensuciaban listas, invitaciones y notificaciones, que asumen que cada participante es una persona. El comportamiento es el mismo. |
+| Ítem por jugador | `AccountItem.bookingParticipantId` | `BookingPlayerSlot.accountItemId` + `AccountItem.clientId` | Consecuencia del punto anterior. |
+| Invitación por DNI | No detallado | `BookingParticipant.invitedUserId` | Los socios importados pueden no tener email; la aceptación valida por usuario o por email. |
+| Teléfono enmascarado al pedir el código de activación (D5) | Se muestra "+54 9 11 ****-**78" | Mensaje genérico | Mostrarlo revelaría que el DNI existe y es de un socio (RN-12). |
+| Titular desde la app | `SELF` siempre | `SELF` solo si su ficha está vinculada a su usuario; si la ficha se encontró por datos declarados queda `PENDING` | Evita precio socio por coincidencia de email/teléfono declarados (D2). |
+| Cotización y grilla desde la app | No detallado | Usan solo la ficha vinculada al usuario, nunca datos enviados en el pedido | Evita consultar el precio socio de otra persona por su DNI. |
+| Vinculación automática de fichas | No detallado | Una ficha de socio no se vincula sola desde autoservicio (`SELF_CLAIM`, `SELF_BOOKING`, `PAYMENT_CLAIM`) | Hueco de seguridad encontrado en `PersonService.ensureClientForUser`. |
+| Badge de socio en Agenda y Caja | Badge del titular | Agenda: badge en búsquedas y panel de jugadores con la categoría de cada uno. Caja: la descripción del ítem incluye la categoría ("Cancha — Juan (Socio Activo)") | Con precio por jugador la categoría es por lugar, no por cuenta. |
+| Vencimiento de códigos del mostrador | 10 minutos | 10 minutos | Igual al documento; si en la práctica resulta corto, se puede ampliar solo para `ADMIN_ISSUED`. |
+
+### Comportamiento previo detectado (no cambiado)
+- Cuando un jugador sin ficha vinculada reserva desde la app, `resolveOrCreateClient` reutiliza como titular la ficha de otra persona que coincida con su email o teléfono declarados. Con esta implementación el precio socio ya no se filtra por esa vía, pero la reserva queda a nombre de esa otra ficha. Conviene revisarlo aparte.

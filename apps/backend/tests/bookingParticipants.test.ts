@@ -4,6 +4,13 @@ import { BookingService } from '../src/services/BookingService';
 import { prisma } from '../src/prisma';
 import { AppError, ErrorCodes } from '../src/errors';
 
+const withPlayerSlotStub = (tx: any) => {
+  // Reservas por cancha: sin lugares por jugador.
+  if (tx && !tx.bookingPlayerSlot) {
+    tx.bookingPlayerSlot = { findMany: async () => [], findFirst: async () => null, count: async () => 0 };
+  }
+  return tx;
+};
 function createService() {
   const service = new BookingService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
   (service as any).accountService = {
@@ -67,7 +74,10 @@ async function withPrismaMocks(
   if (mocks.bookingParticipantFindFirst) (prisma.bookingParticipant as any).findFirst = mocks.bookingParticipantFindFirst;
   if (mocks.bookingParticipantFindUnique) (prisma.bookingParticipant as any).findUnique = mocks.bookingParticipantFindUnique;
   if (mocks.userFindUnique) (prisma.user as any).findUnique = mocks.userFindUnique;
-  if (mocks.transaction) (prisma as any).$transaction = mocks.transaction;
+  if (mocks.transaction) {
+    const transaction = mocks.transaction;
+    (prisma as any).$transaction = async (fn: any) => transaction((tx: any) => fn(withPlayerSlotStub(tx)));
+  }
 
   try {
     await run();

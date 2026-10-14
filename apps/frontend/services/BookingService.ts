@@ -42,7 +42,22 @@ export type BookingFinancialSummary = {
   };
 };
 
+// Desglose de la cotización en clubes con precio por jugador.
+export type PerPlayerQuote = {
+  activityFormatId: string;
+  formatName: string;
+  playerCount: number;
+  generalPricePerPlayer: number;
+  ownerPricePerPlayer: number;
+  ownerMemberCategoryName: string | null;
+  lightsExtra: number;
+  lightsPerSlot: number;
+  estimatedTotal: number;
+  listTotal: number;
+};
+
 export type BookingQuote = {
+  perPlayer?: PerPlayerQuote | null;
   listPrice: number;
   finalPrice: number;
   discountAmount: number;
@@ -235,6 +250,8 @@ export const createBooking = async (
   options?: {
     durationMinutes?: number;
     applyDiscount?: boolean;
+    // Modalidad (clubes con precio por jugador)
+    activityFormatId?: string | null;
     clientId?: string;
     ownerSelection?:
       | {
@@ -278,7 +295,8 @@ export const createBooking = async (
       ...(options?.ownerSelection ? { ownerSelection: options.ownerSelection } : {}),
       ...(options?.client ? { client: options.client } : {}),
       ...(Number.isFinite(options?.durationMinutes) ? { durationMinutes: options?.durationMinutes } : {}),
-      ...(options?.applyDiscount === undefined ? {} : { applyDiscount: options.applyDiscount })
+      ...(options?.applyDiscount === undefined ? {} : { applyDiscount: options.applyDiscount }),
+      ...(options?.activityFormatId ? { activityFormatId: options.activityFormatId } : {})
     }),
   });
 
@@ -300,6 +318,7 @@ export const getBookingQuote = async (input: {
   clientPhone?: string;
   clientDni?: string;
   applyDiscount?: boolean;
+  activityFormatId?: string | null;
 }) => {
   const response = await fetchWithAuth(`${apiBase()}/bookings/quote`, {
     method: 'POST',
@@ -319,7 +338,8 @@ export const getBookingQuote = async (input: {
       ...(input.clientEmail ? { clientEmail: input.clientEmail } : {}),
       ...(input.clientPhone ? { clientPhone: input.clientPhone } : {}),
       ...(input.clientDni ? { clientDni: input.clientDni } : {}),
-      ...(input.applyDiscount === undefined ? {} : { applyDiscount: input.applyDiscount })
+      ...(input.applyDiscount === undefined ? {} : { applyDiscount: input.applyDiscount }),
+      ...(input.activityFormatId ? { activityFormatId: input.activityFormatId } : {})
     })
   });
 
@@ -339,7 +359,8 @@ export const getBookingQuote = async (input: {
           policyName: String(policy.policyName || ''),
           discountAmount: Number(policy.discountAmount || 0)
         }))
-      : []
+      : [],
+    perPlayer: payload?.perPlayer ?? null
   } satisfies BookingQuote;
 };
 
@@ -449,15 +470,17 @@ export const getPlayerBookingCheckout = async (bookingId: number | string): Prom
   return await res.json() as PlayerBookingCheckoutDto;
 };
 
+// Se invita por email o por DNI exacto de una cuenta existente.
 export const inviteBookingParticipant = async (
   bookingId: number | string,
-  input: { email: string; name?: string }
+  input: { email?: string; dni?: string; name?: string }
 ): Promise<PlayerBookingParticipantDto> => {
   const res = await fetchWithAuth(`${apiBase()}/me/bookings/${bookingId}/participants/invite`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      email: String(input?.email || '').trim(),
+      ...(String(input?.email || '').trim() ? { email: String(input.email).trim() } : {}),
+      ...(String(input?.dni || '').trim() ? { dni: String(input.dni).trim() } : {}),
       ...(String(input?.name || '').trim() ? { name: String(input.name).trim() } : {})
     })
   });
@@ -838,6 +861,7 @@ export const createFixedBooking = async (
     everyDays?: number;
     repetitions?: number;
     previewConflictsOnly?: boolean;
+    activityFormatId?: string | null;
   }
 ) => {
   const rawUser = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
@@ -869,7 +893,8 @@ export const createFixedBooking = async (
     ...(Number.isFinite(options?.everyDays) ? { everyDays: Number(options?.everyDays) } : {}),
     ...(Number.isFinite(options?.repetitions) ? { repetitions: Number(options?.repetitions) } : {}),
     ...(options?.previewConflictsOnly ? { previewConflictsOnly: true } : {}),
-    ...(options?.allowOverlappingSeries ? { allowOverlappingSeries: true } : {})
+    ...(options?.allowOverlappingSeries ? { allowOverlappingSeries: true } : {}),
+    ...(options?.activityFormatId ? { activityFormatId: options.activityFormatId } : {})
   });
 };
 

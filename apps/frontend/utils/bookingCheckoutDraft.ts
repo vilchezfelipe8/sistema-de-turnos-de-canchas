@@ -13,6 +13,14 @@ export type BookingCheckoutDraft = {
   discountAmount: number;
   lightsExtraApplied: number;
   lightsFromHour?: string | null;
+  // Precio por jugador: modalidad elegida y parte del titular (el resto se completa en el club).
+  activityFormatId?: string | null;
+  formatName?: string | null;
+  playerCount?: number | null;
+  pricePerPlayer?: number | null;
+  memberCategoryName?: string | null;
+  // false = el club cobra solo en el mostrador
+  onlineCheckoutEnabled?: boolean;
   createdAt: string;
 };
 

@@ -17,7 +17,7 @@ const SETTINGS_TABS: Array<{ value: SettingsTab; label: string; comingSoon?: boo
   { value: 'excepciones', label: 'Excepciones' },
   { value: 'auditoria', label: 'Auditoría' },
   { value: 'resenas', label: 'Reseñas' },
-  { value: 'actividades', label: 'Actividades', comingSoon: true },
+  { value: 'actividades', label: 'Actividades' },
   { value: 'notificaciones', label: 'Notificaciones', comingSoon: true },
 ];
 
