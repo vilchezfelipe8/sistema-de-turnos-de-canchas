@@ -259,6 +259,11 @@ export const createBooking = async (
     applyDiscount?: boolean;
     // Modalidad (clubes con precio por jugador)
     activityFormatId?: string | null;
+    initialParticipants?: Array<{
+      email?: string;
+      dni?: string;
+      name?: string;
+    }>;
     clientId?: string;
     ownerSelection?:
       | {
@@ -303,7 +308,8 @@ export const createBooking = async (
       ...(options?.client ? { client: options.client } : {}),
       ...(Number.isFinite(options?.durationMinutes) ? { durationMinutes: options?.durationMinutes } : {}),
       ...(options?.applyDiscount === undefined ? {} : { applyDiscount: options.applyDiscount }),
-      ...(options?.activityFormatId ? { activityFormatId: options.activityFormatId } : {})
+      ...(options?.activityFormatId ? { activityFormatId: options.activityFormatId } : {}),
+      ...(options?.initialParticipants?.length ? { initialParticipants: options.initialParticipants } : {})
     }),
   });
 

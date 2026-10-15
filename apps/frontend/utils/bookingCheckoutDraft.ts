@@ -1,3 +1,9 @@
+export type BookingCheckoutParticipantDraft = {
+  id: string;
+  identifier: string;
+  name?: string | null;
+};
+
 export type BookingCheckoutDraft = {
   id: string;
   clubSlug?: string | null;
@@ -21,6 +27,7 @@ export type BookingCheckoutDraft = {
   memberCategoryName?: string | null;
   // false = el club cobra solo en el mostrador
   onlineCheckoutEnabled?: boolean;
+  participants?: BookingCheckoutParticipantDraft[];
   createdAt: string;
 };
 
@@ -50,6 +57,16 @@ export const readBookingCheckoutDraft = (id: string): BookingCheckoutDraft | nul
     if (!parsed || String(parsed.id || '') !== safeId) return null;
     if (!Number.isFinite(Number(parsed.courtId)) || !Number.isFinite(Number(parsed.activityId))) return null;
     if (!parsed.date || !parsed.slotTime) return null;
+    const participants = Array.isArray(parsed.participants)
+      ? parsed.participants
+          .map((participant) => ({
+            id: String(participant?.id || '').trim(),
+            identifier: String(participant?.identifier || '').trim(),
+            name: String(participant?.name || '').trim() || null,
+          }))
+          .filter((participant) => participant.id && participant.identifier)
+          .slice(0, 20)
+      : [];
     return {
       ...parsed,
       courtId: Number(parsed.courtId),
@@ -59,6 +76,7 @@ export const readBookingCheckoutDraft = (id: string): BookingCheckoutDraft | nul
       listPrice: Number(parsed.listPrice || parsed.price || 0),
       discountAmount: Number(parsed.discountAmount || 0),
       lightsExtraApplied: Number(parsed.lightsExtraApplied || 0),
+      participants,
     };
   } catch {
     return null;

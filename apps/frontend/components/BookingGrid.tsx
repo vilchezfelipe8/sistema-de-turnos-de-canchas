@@ -329,7 +329,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
         {Number(params.discountAmount || 0) > 0.009 && (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, letterSpacing: '.03em' }}>Descuento</span>
-            <span style={{ fontSize: 14, fontWeight: 800, color: 'var(--brand)' }}>-${Number(params.discountAmount || 0).toLocaleString()}</span>
+            <span style={{ fontSize: 14, fontWeight: 800, color: 'var(--accent-fg)' }}>-${Number(params.discountAmount || 0).toLocaleString()}</span>
           </div>
         )}
         {params.nightSurcharge?.applied && (
@@ -929,7 +929,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
       {/* Header */}
       <div style={{ marginBottom: 28, paddingBottom: 20, borderBottom: `1px solid ${T.borderSubtle}` }}>
         <h2 style={{ fontSize: 22, fontWeight: 800, color: T.textPrimary, letterSpacing: '-.03em', margin: '0 0 4px' }}>
-          Reservar <span style={{ fontStyle: 'italic', color: 'var(--brand)' }}>cancha</span>
+          Reservar <span style={{ fontStyle: 'italic', color: 'var(--accent-fg)' }}>cancha</span>
         </h2>
         <p style={{ fontSize: 12, color: T.textMuted, margin: 0, fontWeight: 500 }}>Elegí deporte, día y horario</p>
       </div>
@@ -939,7 +939,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
 
         {/* Deporte */}
         <div style={{ position: 'relative', zIndex: 20, minWidth: 0 }}>
-          <div style={labelStyle}><Activity size={12} style={{ color: 'var(--brand)' }} /> Deporte</div>
+          <div style={labelStyle}><Activity size={12} style={{ color: 'var(--accent-fg)' }} /> Deporte</div>
           <CustomSelect
             value={selectedActivityFilter}
             onChange={(val: string) => { setSelectedActivityFilter(val); setSelectedSlot(null); setSelectedCourt(null); }}
@@ -951,7 +951,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
 
         {/* Fecha */}
         <div style={{ minWidth: 0 }}>
-          <div style={labelStyle}><Calendar size={12} style={{ color: 'var(--brand)' }} /> Fecha</div>
+          <div style={labelStyle}><Calendar size={12} style={{ color: 'var(--accent-fg)' }} /> Fecha</div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 46, padding: '0 6px', background: T.bg, border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: T.shadow }}>
             <button
               type="button"
@@ -977,7 +977,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
 
         {/* Duración */}
         <div style={{ position: 'relative', zIndex: 10, minWidth: 0 }}>
-          <div style={labelStyle}><Clock size={12} style={{ color: 'var(--brand)' }} /> Duración</div>
+          <div style={labelStyle}><Clock size={12} style={{ color: 'var(--accent-fg)' }} /> Duración</div>
           {formatFixedDuration ? (
             <div style={{ padding: '11px 14px', borderRadius: 12, border: `1px solid ${T.border}`, background: T.bgInput, color: T.textPrimary, fontSize: 14, fontWeight: 700, textAlign: isMobileListOnly ? 'center' : 'left' }}>
               {formatFixedDuration} min · según la modalidad
@@ -996,7 +996,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
         {/* Modalidad (precio por jugador) */}
         {isPerPlayerPricing && activityFormats.length > 0 && (
           <div style={{ position: 'relative', zIndex: 9, minWidth: 0 }}>
-            <div style={labelStyle}><Activity size={12} style={{ color: 'var(--brand)' }} /> Modalidad</div>
+            <div style={labelStyle}><Activity size={12} style={{ color: 'var(--accent-fg)' }} /> Modalidad</div>
             <CustomSelect
               value={selectedFormatId}
               onChange={(val: string) => { setSelectedFormatId(String(val)); setSelectedSlot(null); setSelectedCourt(null); }}
@@ -1045,11 +1045,11 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
       {loading && (
         <div style={{ ...sectionStyle, marginTop: 0 }}>
           <div style={labelStyle}>
-            <Clock size={12} style={{ color: 'var(--brand)' }} />
+            <Clock size={12} style={{ color: 'var(--accent-fg)' }} />
             {activeScheduleViewMode === 'timeline' ? 'Agenda de canchas' : 'Horarios disponibles'}
           </div>
           <div style={{ display: 'flex', justifyContent: 'center', padding: '36px 0', border: `1px dashed ${T.borderSubtle}`, borderRadius: 16, background: T.bgSubtle }}>
-            <div style={{ width: 32, height: 32, border: `3px solid ${T.spinnerTrack}`, borderTopColor: 'var(--brand)', borderRadius: '50%', animation: 'bg-spin .8s linear infinite' }} />
+            <div style={{ width: 32, height: 32, border: `3px solid ${T.spinnerTrack}`, borderTopColor: 'var(--accent-fg)', borderRadius: '50%', animation: 'bg-spin .8s linear infinite' }} />
             <style>{`@keyframes bg-spin{to{transform:rotate(360deg)}}`}</style>
           </div>
         </div>
@@ -1066,7 +1066,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
       {!loading && availableSlots.length > 0 && (
         <div style={sectionStyle}>
           <div style={labelStyle}>
-            <Clock size={12} style={{ color: 'var(--brand)' }} />
+            <Clock size={12} style={{ color: 'var(--accent-fg)' }} />
             {activeScheduleViewMode === 'timeline' ? 'Agenda de canchas' : 'Horarios disponibles'}
           </div>
 
@@ -1354,7 +1354,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
       {/* Courts */}
       {activeScheduleViewMode === 'list' && selectedSlot && (
         <div ref={courtsSectionRef} style={sectionStyle}>
-          <div style={labelStyle}><MapPin size={12} style={{ color: 'var(--brand)' }} /> Elegí una cancha</div>
+          <div style={labelStyle}><MapPin size={12} style={{ color: 'var(--accent-fg)' }} /> Elegí una cancha</div>
           <style>{`
             .v-court-option{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-radius:14px;text-align:left;width:100%;border:1px solid var(--border);background:var(--surface-1);cursor:pointer;transition:background-color .16s ease,border-color .16s ease,box-shadow .16s ease;outline:none;font-family:'Geist',system-ui,sans-serif;}
             .v-court-option:hover{background:var(--accent-bg-faint);border-color:var(--accent-border-subtle);}
@@ -1449,7 +1449,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
       {canConfirm && (
         <div style={{ marginTop: 10, textAlign: 'center', fontSize: 13, color: T.textMuted, fontWeight: 500 }}>
           Precio:{' '}
-          <span style={{ fontWeight: 800, color: 'var(--brand)', fontSize: 15 }}>
+          <span style={{ fontWeight: 800, color: 'var(--accent-fg)', fontSize: 15 }}>
             ${priceInfo.final.toLocaleString()}
           </span>
           {priceInfo.hasLights && clubConfig && (
@@ -1473,7 +1473,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
         >
           <div style={{ width: '100%', maxWidth: 420, background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 24, boxShadow: T.shadowModal, overflow: 'hidden', fontFamily: "'Geist',system-ui,sans-serif" }}>
             <div style={{ padding: '30px 28px 22px', borderBottom: `1px solid ${T.divider}`, textAlign: 'center' }}>
-              <div style={{ width: 52, height: 52, borderRadius: 16, background: 'var(--accent-bg-soft)', border: '1px solid var(--accent-border-subtle)', margin: '0 auto 16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--brand)' }}>
+              <div style={{ width: 52, height: 52, borderRadius: 16, background: 'var(--accent-bg-soft)', border: '1px solid var(--accent-border-subtle)', margin: '0 auto 16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-fg)' }}>
                 <LogIn size={22} />
               </div>
               <h3 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.textPrimary, letterSpacing: '-.03em' }}>
@@ -1493,7 +1493,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
               )}
 
               {signIn.success && (
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', borderRadius: 12, background: 'var(--accent-bg-soft)', border: '1px solid var(--accent-border-subtle)', color: 'var(--brand-hover)', fontSize: 13, fontWeight: 600 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', borderRadius: 12, background: 'var(--accent-bg-soft)', border: '1px solid var(--accent-border-subtle)', color: 'var(--accent-fg)', fontSize: 13, fontWeight: 600 }}>
                   <Check size={15} style={{ marginTop: 1, flexShrink: 0 }} />
                   <span>{signIn.success}</span>
                 </div>
@@ -1676,7 +1676,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
                   type="button"
                   onClick={() => { const from = encodeURIComponent(router.asPath || '/'); void router.push(`/login?mode=register&from=${from}`); }}
                   style={{ background: 'none', border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', color: T.textDisabled, cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'transparent', textUnderlineOffset: '3px', transition: 'color .15s, text-decoration-color .15s' }}
-                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--brand)'; e.currentTarget.style.textDecorationColor = 'var(--brand)'; }}
+                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--accent-fg)'; e.currentTarget.style.textDecorationColor = 'var(--accent-fg)'; }}
                   onMouseLeave={e => { e.currentTarget.style.color = T.textDisabled; e.currentTarget.style.textDecorationColor = 'transparent'; }}
                 >
                   ¿No tenés cuenta? Registrate gratis

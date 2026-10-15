@@ -8,6 +8,7 @@ import UserLoadingState from '../components/UserLoadingState';
 import { ClubService, Club } from '../services/ClubService';
 import { getClubReviewsSummary } from '../services/ClubReviewService';
 import { useUserTheme } from '../contexts/UserThemeContext';
+import { PUBLIC_SPORT_OPTIONS as SPORTS, PUBLIC_SPORT_LABELS as SPORT_LABELS, getPublicClubLocations, matchesPublicClubFilters, normalizePublicSport, PublicSport } from '../utils/publicClubFilters';
 
 /* ── Geocoding (Nominatim, sin API key) ──────────────────────────── */
 const geocode = async (address: string): Promise<{ lat: number; lon: number } | null> => {
@@ -36,7 +37,7 @@ const PAGE_CSS = `
   .vn-h1 { font-size:clamp(28px,4vw,42px); font-weight:800; letter-spacing:-.04em; line-height:1.05; color:var(--text-primary); margin:0 0 10px; }
   .vn-sub { font-size:14px; color:var(--text-muted); font-weight:400; margin:0; line-height:1.6; }
   .vn-toolbar-slot { position:relative; }
-  .vn-toolbar { display:flex; flex-direction:column; gap:14px; padding:16px 18px; border-radius:24px;
+  .vn-toolbar { position:relative; z-index:3; display:flex; flex-direction:column; gap:14px; padding:16px 18px; border-radius:24px;
     background:color-mix(in srgb, var(--surface-1) 88%, transparent); border:1px solid var(--border);
     box-shadow:var(--shadow-md); backdrop-filter:blur(14px); box-sizing:border-box;
     transition: top .28s ease-out, left .28s ease-out, width .28s ease-out, transform .28s ease-out, opacity .22s ease-out, background-color .26s ease, border-color .26s ease;
@@ -229,16 +230,6 @@ const PAGE_CSS = `
   .p-public-root.p-public-theme-light .vn-skel-line { background:var(--border-subtle); }
 `;
 
-const SPORTS = [
-  { value: '', label: 'Todos los deportes' },
-  { value: 'football', label: 'Fútbol' },
-  { value: 'padel', label: 'Pádel' },
-  { value: 'tennis', label: 'Tenis' },
-  { value: 'basketball', label: 'Básquet' },
-  { value: 'volleyball', label: 'Vóley' },
-];
-const SPORT_LABELS: Record<string, string> = { football:'Fútbol', padel:'Pádel', tennis:'Tenis', basketball:'Básquet', volleyball:'Vóley' };
-
 type RatingMap = Record<number, { average: number; total: number }>;
 
 function formatAddr(c: Club) {
@@ -284,7 +275,7 @@ export default function ComplejosPage() {
   const [ratings, setRatings] = useState<RatingMap>({});
   const [search, setSearch] = useState('');
   const [zone, setZone] = useState('');
-  const [sport, setSport] = useState('');
+  const [sport, setSport] = useState<PublicSport>('');
   const [showZoneDropdown, setShowZoneDropdown] = useState(false);
   const [showSportDropdown, setShowSportDropdown] = useState(false);
   const [toolbarStuck, setToolbarStuck] = useState(false);
@@ -306,7 +297,7 @@ export default function ComplejosPage() {
     if (!router.isReady || paramsRead) return;
     if (router.query.q) setSearch(String(router.query.q));
     if (router.query.zone) setZone(String(router.query.zone));
-    if (router.query.sport) setSport(String(router.query.sport));
+    if (router.query.sport) setSport(normalizePublicSport(String(router.query.sport)));
     setParamsRead(true);
   }, [router.isReady, paramsRead, router.query.q, router.query.zone, router.query.sport]);
 
@@ -537,19 +528,14 @@ export default function ComplejosPage() {
   }, [isLight]);
 
   const zones = useMemo(
-    () => [...new Set(clubs.map(c => c.city).filter((c): c is string => Boolean(c)))].sort(),
+    () => getPublicClubLocations(clubs).map(location => location.city),
     [clubs]
   );
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return clubs.filter(c => {
-      if (q && !`${c.name} ${c.city} ${c.province} ${c.addressLine} ${c.description || ''}`.toLowerCase().includes(q)) return false;
-      if (zone && c.city !== zone) return false;
-      if (sport && !(Array.isArray(c.publicSports) && c.publicSports.includes(sport))) return false;
-      return true;
-    });
-  }, [clubs, search, zone, sport]);
+  const filtered = useMemo(
+    () => clubs.filter(club => matchesPublicClubFilters(club, { search, zone, sport })),
+    [clubs, search, zone, sport],
+  );
 
   const hasFilters = search || zone || sport;
   const activeFilterParts = [

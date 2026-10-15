@@ -10,7 +10,10 @@ import {
   MapPin,
   ShieldCheck,
   Ticket,
+  UserPlus,
+  Users,
   WalletCards,
+  X,
 } from 'lucide-react';
 import DarkPageLayout from '../components/DarkPageLayout';
 import UserLoadingState from '../components/UserLoadingState';
@@ -18,10 +21,13 @@ import { createBooking } from '../services/BookingService';
 import { getPendingLogoutRedirect } from '../services/AuthService';
 import { useValidateAuth } from '../hooks/useValidateAuth';
 import { extractErrorMessage, reportUiError } from '../utils/uiError';
+import { normalizeApiError } from '../utils/apiError';
 import {
   readBookingCheckoutDraft,
   removeBookingCheckoutDraft,
+  saveBookingCheckoutDraft,
   type BookingCheckoutDraft,
+  type BookingCheckoutParticipantDraft,
 } from '../utils/bookingCheckoutDraft';
 
 const CHECKOUT_CSS = `
@@ -44,10 +50,33 @@ const CHECKOUT_CSS = `
   .checkout-detail { min-height:88px; border-radius:18px; background:var(--surface-2); border:1px solid var(--border-subtle); padding:14px; }
   .checkout-label { display:flex; align-items:center; gap:7px; color:var(--text-muted); font-size:10px; font-weight:900; letter-spacing:.03em; margin-bottom:9px; }
   .checkout-value { margin:0; color:var(--text-primary); font-size:14px; line-height:1.35; font-weight:850; }
+  .checkout-participants { padding:24px; border-top:1px solid var(--border); }
+  .checkout-participants-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:16px; }
+  .checkout-participants-title { display:flex; align-items:center; gap:8px; margin:0; color:var(--text-primary); font-size:15px; font-weight:900; }
+  .checkout-participants-copy { margin:5px 0 0; color:var(--text-muted); font-size:12px; line-height:1.45; font-weight:600; }
+  .checkout-places { flex-shrink:0; border-radius:999px; padding:6px 9px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary); font-size:10px; font-weight:850; }
+  .checkout-player-list { display:grid; gap:8px; margin-bottom:12px; }
+  .checkout-player { display:flex; align-items:center; gap:10px; min-height:48px; padding:9px 11px; border-radius:15px; background:var(--surface-2); border:1px solid var(--border-subtle); }
+  .checkout-player-icon { width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; border-radius:11px; background:var(--positive-bg); color:var(--accent-fg); }
+  .checkout-player-info { min-width:0; flex:1; }
+  .checkout-player-name { margin:0; color:var(--text-primary); font-size:12px; line-height:1.35; font-weight:850; overflow-wrap:anywhere; }
+  .checkout-player-status { margin:2px 0 0; color:var(--text-muted); font-size:10px; line-height:1.35; font-weight:650; overflow-wrap:anywhere; }
+  .checkout-player-remove { width:34px; height:34px; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; border:0; border-radius:11px; background:transparent; color:var(--text-muted); cursor:pointer; }
+  .checkout-player-remove:hover { background:var(--error-bg); color:var(--error-fg); }
+  .checkout-participant-form { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,.85fr) auto; gap:9px; align-items:end; }
+  .checkout-form-field { display:grid; gap:6px; }
+  .checkout-form-label { color:var(--text-secondary); font-size:10px; font-weight:850; }
+  .checkout-form-input { width:100%; height:42px; border-radius:13px; border:1px solid var(--border); background:var(--surface-1); color:var(--text-primary); padding:0 12px; font-family:var(--font-sans); font-size:12px; font-weight:650; outline:none; }
+  .checkout-form-input:focus { border-color:var(--accent-border-strong); box-shadow:0 0 0 3px var(--accent-bg-soft); }
+  .checkout-add-player { height:42px; border-radius:13px; border:1px solid var(--border); background:var(--surface-1); color:var(--text-primary); padding:0 14px; display:inline-flex; align-items:center; justify-content:center; gap:7px; font-family:var(--font-sans); font-size:11px; font-weight:900; cursor:pointer; white-space:nowrap; }
+  .checkout-add-player:hover { border-color:var(--accent-border-strong); background:var(--accent-bg-soft); }
+  .checkout-field-error { margin:8px 0 0; color:var(--error-fg); font-size:11px; font-weight:700; }
+  .checkout-participants-note { margin:10px 0 0; color:var(--text-muted); font-size:10px; line-height:1.45; font-weight:600; }
   .checkout-summary { position:sticky; top:88px; }
   .checkout-price { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:22px; border-bottom:1px solid var(--border); background:linear-gradient(135deg, var(--accent-bg-soft), transparent); }
   .checkout-price-label { margin:0; color:var(--text-muted); font-size:10px; font-weight:900; letter-spacing:.03em; }
   .checkout-price-value { margin:5px 0 0; color:var(--accent-fg); font-size:34px; font-weight:900; letter-spacing:-.06em; }
+  .checkout-price-notes { flex-shrink:0; text-align:right; color:var(--text-muted); font-size:12px; line-height:1.55; font-weight:650; }
   .payment-option { display:flex; align-items:flex-start; gap:12px; border-radius:18px; padding:14px; border:1px solid var(--border); background:var(--surface-2); }
   .payment-option.active { border-color:var(--accent-border-strong); background:var(--accent-bg-soft); }
   .payment-option.disabled { opacity:.55; }
@@ -57,7 +86,7 @@ const CHECKOUT_CSS = `
   .payment-copy { margin:4px 0 0; color:var(--text-muted); font-size:12px; line-height:1.45; font-weight:600; }
   .checkout-error { border:1px solid var(--error-bg); background:var(--error-bg); color:var(--error-fg); border-radius:16px; padding:13px 14px; font-size:13px; font-weight:700; line-height:1.45; }
   .checkout-actions { display:flex; gap:10px; padding-top:16px; }
-  .checkout-secondary,.checkout-primary { height:48px; border-radius:15px; font-family:var(--font-sans); font-size:12px; font-weight:900; letter-spacing:.01em; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:8px; text-decoration:none; padding:0 18px; }
+  .checkout-secondary,.checkout-primary { height:48px; min-height:48px; border-radius:15px; font-family:var(--font-sans); font-size:12px; font-weight:900; letter-spacing:.01em; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:8px; text-decoration:none; padding:0 18px; }
   .checkout-secondary { flex:0 0 auto; min-width:154px; border:1px solid var(--border); background:var(--surface-1); color:var(--text-secondary); }
   .checkout-primary { flex:1; border:1px solid var(--brand); background:var(--brand); color:var(--brand-on); }
   .checkout-primary:hover { border-color:var(--brand-hover); background:var(--brand-hover); color:var(--brand-on); }
@@ -71,8 +100,15 @@ const CHECKOUT_CSS = `
   @media(max-width:620px){
     .checkout-top { align-items:flex-start; flex-direction:column; }
     .checkout-grid { grid-template-columns:1fr; }
+    .checkout-price { flex-direction:column; gap:12px; padding:20px; }
+    .checkout-price-notes { text-align:left; }
+    .checkout-card-pad { padding:20px; }
+    .checkout-participants { padding:20px; }
+    .checkout-participants-head { flex-direction:column; gap:10px; }
+    .checkout-participant-form { grid-template-columns:1fr; }
+    .checkout-add-player { width:100%; }
     .checkout-actions { flex-direction:column; }
-    .checkout-secondary { width:100%; }
+    .checkout-actions > .checkout-secondary,.checkout-actions > .checkout-primary { flex:none; width:100%; }
   }
   .p-public-root.p-public-theme-light .checkout-card { background:var(--surface-1); border-color:var(--border); box-shadow:0 12px 30px var(--border); }
   .p-public-root.p-public-theme-light .checkout-hero { border-bottom-color:var(--border-subtle); }
@@ -148,11 +184,17 @@ export default function CheckoutPage() {
   const [submitError, setSubmitError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [confirmedBookingId, setConfirmedBookingId] = useState<string | null>(null);
+  const [participants, setParticipants] = useState<BookingCheckoutParticipantDraft[]>([]);
+  const [participantIdentifier, setParticipantIdentifier] = useState('');
+  const [participantName, setParticipantName] = useState('');
+  const [participantError, setParticipantError] = useState('');
 
   useEffect(() => {
     if (!router.isReady) return;
     const draftId = typeof router.query.draft === 'string' ? router.query.draft : '';
-    setDraft(readBookingCheckoutDraft(draftId));
+    const loadedDraft = readBookingCheckoutDraft(draftId);
+    setDraft(loadedDraft);
+    setParticipants(loadedDraft?.participants || []);
     setDraftLoaded(true);
   }, [router.isReady, router.query.draft]);
 
@@ -165,6 +207,9 @@ export default function CheckoutPage() {
   const dateLabels = useMemo(() => (draft ? getDraftDateLabels(draft) : null), [draft]);
   const timeRange = useMemo(() => (draft ? getTimeRange(draft) : ''), [draft]);
   const backHref = draft?.clubSlug ? `/club/${draft.clubSlug}` : '/';
+  const maxParticipants = draft?.playerCount ? Math.max(0, draft.playerCount - 1) : 20;
+  const participantLimitReached = participants.length >= maxParticipants;
+  const ownerName = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() || 'Vos';
   const checkoutBreadcrumbs = useMemo(() => {
     const items: Array<{ label: string; href?: string }> = [{ label: 'Inicio', href: '/' }];
     if (draft?.clubSlug) {
@@ -174,6 +219,67 @@ export default function CheckoutPage() {
     items.push({ label: confirmedBookingId !== null ? 'Confirmación' : 'Checkout' });
     return items;
   }, [confirmedBookingId, draft?.clubSlug]);
+
+  const persistParticipants = (nextParticipants: BookingCheckoutParticipantDraft[]) => {
+    setParticipants(nextParticipants);
+    setDraft((currentDraft) => {
+      if (!currentDraft) return currentDraft;
+      const updatedDraft = { ...currentDraft, participants: nextParticipants };
+      saveBookingCheckoutDraft(updatedDraft);
+      return updatedDraft;
+    });
+  };
+
+  const handleAddParticipant = () => {
+    if (participantLimitReached) return;
+    const identifier = participantIdentifier.trim();
+    const isEmail = identifier.includes('@');
+    const normalizedIdentifier = isEmail
+      ? identifier.toLowerCase()
+      : identifier.replace(/\D/g, '');
+    if (!identifier) {
+      setParticipantError('Ingresá el DNI o email del jugador.');
+      return;
+    }
+    if (isEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier)) {
+      setParticipantError('Ingresá un email válido.');
+      return;
+    }
+    if (!isEmail && (normalizedIdentifier.length < 6 || normalizedIdentifier.length > 9)) {
+      setParticipantError('Ingresá un DNI válido.');
+      return;
+    }
+    if (isEmail && normalizedIdentifier === String(user?.email || '').trim().toLowerCase()) {
+      setParticipantError('Vos ya sos el titular de la reserva.');
+      return;
+    }
+    const alreadyAdded = participants.some((participant) => {
+      const current = participant.identifier.includes('@')
+        ? participant.identifier.trim().toLowerCase()
+        : participant.identifier.replace(/\D/g, '');
+      return current === normalizedIdentifier;
+    });
+    if (alreadyAdded) {
+      setParticipantError('Ese jugador ya está agregado.');
+      return;
+    }
+    persistParticipants([
+      ...participants,
+      {
+        id: `participant_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        identifier,
+        name: participantName.trim() || null,
+      },
+    ]);
+    setParticipantIdentifier('');
+    setParticipantName('');
+    setParticipantError('');
+  };
+
+  const handleRemoveParticipant = (participantId: string) => {
+    persistParticipants(participants.filter((participant) => participant.id !== participantId));
+    setParticipantError('');
+  };
 
   const handleConfirm = async () => {
     if (!draft || submitting) return;
@@ -186,10 +292,17 @@ export default function CheckoutPage() {
     try {
       setSubmitting(true);
       setSubmitError('');
+      setParticipantError('');
       const result = await createBooking(draft.courtId, draft.activityId, date, draft.slotTime, {
         durationMinutes: draft.durationMinutes,
         applyDiscount: false,
         ...(draft.activityFormatId ? { activityFormatId: draft.activityFormatId } : {}),
+        initialParticipants: participants.map((participant) => ({
+          ...(participant.identifier.includes('@')
+            ? { email: participant.identifier.trim().toLowerCase() }
+            : { dni: participant.identifier.replace(/\D/g, '') }),
+          ...(participant.name ? { name: participant.name } : {}),
+        })),
       });
       const booking = (result as any)?.booking || result;
       const bookingId = String(booking?.id || (result as any)?.bookingId || '').trim();
@@ -197,6 +310,19 @@ export default function CheckoutPage() {
       setConfirmedBookingId(bookingId || 'created');
     } catch (error) {
       const message = extractErrorMessage(error, 'No pudimos confirmar la reserva. Intentá nuevamente.');
+      const apiError = normalizeApiError(error, message);
+      const participantMessage = apiError.fieldErrors?.email
+        || apiError.fieldErrors?.dni
+        || apiError.fieldErrors?.name;
+      if (
+        participants.length > 0
+        && (participantMessage
+          || apiError.code === 'BOOKING_FULL'
+          || apiError.code === 'BOOKING_PARTICIPANT_ALREADY_EXISTS'
+          || apiError.code === 'USER_NOT_FOUND')
+      ) {
+        setParticipantError(participantMessage || message);
+      }
       reportUiError({ area: 'CheckoutPage', action: 'confirmBooking' }, error);
       if (message.toLowerCase().includes('sesión expirada')) {
         void router.replace(`/login?from=${encodeURIComponent(router.asPath || '/checkout')}`);
@@ -269,6 +395,27 @@ export default function CheckoutPage() {
                 </div>
               </div>
             </div>
+            {participants.length > 0 && (
+              <div className="checkout-card" style={{ textAlign: 'left', marginBottom: 20 }}>
+                <div className="checkout-card-pad">
+                  <h2 className="checkout-participants-title"><Users size={17} /> Participantes invitados</h2>
+                  <p className="checkout-participants-copy" style={{ marginBottom: 12 }}>
+                    Los agregamos al turno. Quedarán confirmados cuando acepten la invitación.
+                  </p>
+                  <div className="checkout-player-list" style={{ marginBottom: 0 }}>
+                    {participants.map((participant) => (
+                      <div className="checkout-player" key={participant.id}>
+                        <span className="checkout-player-icon"><UserPlus size={15} /></span>
+                        <div className="checkout-player-info">
+                          <p className="checkout-player-name">{participant.name || participant.identifier}</p>
+                          <p className="checkout-player-status">Invitación pendiente</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="checkout-actions">
               <Link href={backHref} className="checkout-secondary" style={{ minWidth: 236 }}>Reservar otro</Link>
               <Link href="/bookings" className="checkout-primary">Ver mis reservas</Link>
@@ -328,6 +475,95 @@ export default function CheckoutPage() {
                   </div>
                 </div>
               </div>
+
+              <div className="checkout-participants">
+                <div className="checkout-participants-head">
+                  <div>
+                    <h2 className="checkout-participants-title"><Users size={17} /> ¿Con quién jugás?</h2>
+                    <p className="checkout-participants-copy">Podés agregar participantes ahora o completar el equipo más adelante.</p>
+                  </div>
+                  <span className="checkout-places">
+                    {draft.playerCount
+                      ? `${participants.length + 1} de ${draft.playerCount} lugares`
+                      : `${participants.length + 1} ${participants.length === 0 ? 'jugador' : 'jugadores'}`}
+                  </span>
+                </div>
+
+                <div className="checkout-player-list">
+                  <div className="checkout-player">
+                    <span className="checkout-player-icon"><Users size={15} /></span>
+                    <div className="checkout-player-info">
+                      <p className="checkout-player-name">{ownerName}</p>
+                      <p className="checkout-player-status">Titular · Vos</p>
+                    </div>
+                  </div>
+                  {participants.map((participant) => (
+                    <div className="checkout-player" key={participant.id}>
+                      <span className="checkout-player-icon"><UserPlus size={15} /></span>
+                      <div className="checkout-player-info">
+                        <p className="checkout-player-name">{participant.name || participant.identifier}</p>
+                        <p className="checkout-player-status">
+                          {participant.name ? `${participant.identifier} · ` : ''}Quedará invitado
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="checkout-player-remove"
+                        aria-label={`Quitar a ${participant.name || participant.identifier}`}
+                        onClick={() => handleRemoveParticipant(participant.id)}
+                      >
+                        <X size={15} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {!participantLimitReached ? (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      handleAddParticipant();
+                    }}
+                  >
+                    <div className="checkout-participant-form">
+                      <label className="checkout-form-field">
+                        <span className="checkout-form-label">DNI o email</span>
+                        <input
+                          className="checkout-form-input"
+                          type="text"
+                          value={participantIdentifier}
+                          onChange={(event) => {
+                            setParticipantIdentifier(event.target.value);
+                            setParticipantError('');
+                          }}
+                          placeholder="35123456 o jugador@email.com"
+                          autoComplete="off"
+                        />
+                      </label>
+                      <label className="checkout-form-field">
+                        <span className="checkout-form-label">Nombre (opcional)</span>
+                        <input
+                          className="checkout-form-input"
+                          type="text"
+                          value={participantName}
+                          onChange={(event) => setParticipantName(event.target.value)}
+                          placeholder="Ej. Leo"
+                          maxLength={120}
+                        />
+                      </label>
+                      <button type="submit" className="checkout-add-player">
+                        <UserPlus size={14} /> Agregar
+                      </button>
+                    </div>
+                    {participantError && <p className="checkout-field-error" role="alert">{participantError}</p>}
+                  </form>
+                ) : (
+                  <p className="checkout-participants-note">Ya completaste todos los lugares de esta modalidad.</p>
+                )}
+                <p className="checkout-participants-note">
+                  Las personas agregadas deberán aceptar la invitación desde su cuenta. Su precio de socio se aplica después de aceptarla o cuando el club lo valida.
+                </p>
+              </div>
             </section>
 
             <aside className="checkout-card checkout-summary">
@@ -348,7 +584,7 @@ export default function CheckoutPage() {
                     <p className="checkout-price-value">{formatMoney(draft.price)}</p>
                   </div>
                 )}
-                <div style={{ textAlign: 'right', color: 'var(--text-muted)', fontSize: 12, lineHeight: 1.55, fontWeight: 650 }}>
+                <div className="checkout-price-notes">
                   {draft.lightsExtraApplied > 0.009 && (
                     <div>Luces +{formatMoney(draft.lightsExtraApplied)}{draft.lightsFromHour ? ` desde ${draft.lightsFromHour}` : ''}</div>
                   )}

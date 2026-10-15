@@ -3,7 +3,7 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { ClubService, Club } from '../services/ClubService';
 import { getApiUrl } from '../utils/apiUrl';
-import { LocationService, Location } from '../services/LocationService';
+import { PUBLIC_SPORT_OPTIONS, PUBLIC_SPORT_LABELS, PublicSport, getPublicClubLocations, normalizeFilterText as normalizeText } from '../utils/publicClubFilters';
 import DatePickerDark from '../components/ui/DatePickerDark';
 import { Search, MapPin, Calendar, TrendingUp, ArrowRight, X, Phone, Mail, Instagram, Activity, ChevronRight, ChevronLeft, MousePointerClick, CalendarCheck, PlayCircle, Coffee, Droplets, Lightbulb, Trophy, ChevronDown, Check, MessageSquare, Calculator, Heart } from 'lucide-react';
 import Link from 'next/link';
@@ -82,25 +82,6 @@ const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
 const LOCATION_LIMIT = 6;
 const DEFAULT_RADIUS_KM = 20;
 
-const normalizeText = (text: string) =>
-  text
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim();
-
-const sportAliases: Record<string, string[]> = {
-  padel: ['padel'],
-  tenis: ['tenis', 'tennis'],
-  futbol: ['futbol', 'football']
-};
-
-const matchesSport = (activityName: string, sport: string) => {
-  const normalizedActivity = normalizeText(activityName);
-  const aliases = sportAliases[sport] || [sport];
-  return aliases.some((alias) => normalizedActivity.includes(normalizeText(alias)));
-};
-
 const fetchLocations = async (
   query: string,
   limit = LOCATION_LIMIT,
@@ -154,8 +135,6 @@ export default function Home() {
   const { isLight } = useUserTheme();
   const [clubs, setClubs] = useState<Club[]>([]);
   const [loadingClubs, setLoadingClubs] = useState(true);
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [loadingLocations, setLoadingLocations] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [showContact, setShowContact] = useState(false);
   const [favoriteClubIds, setFavoriteClubIds] = useState<Set<number>>(new Set());
@@ -166,11 +145,11 @@ export default function Home() {
     if (!clubs.length) return { futbol: 0, padel: 0, tenis: 0, otros: 0 };
     const counts = { futbol: 0, padel: 0, tenis: 0, otros: 0 };
     for (const club of clubs) {
-      const keys = club.fixedBookingSettingsByActivity ? Object.keys(club.fixedBookingSettingsByActivity) : [];
-      if (keys.some(k => matchesSport(k, 'futbol'))) counts.futbol++;
-      if (keys.some(k => matchesSport(k, 'padel'))) counts.padel++;
-      if (keys.some(k => matchesSport(k, 'tenis'))) counts.tenis++;
-      if (!keys.length || keys.every(k => !matchesSport(k, 'futbol') && !matchesSport(k, 'padel') && !matchesSport(k, 'tenis'))) counts.otros++;
+      const sports = club.publicSports || [];
+      if (sports.includes('football')) counts.futbol++;
+      if (sports.includes('padel')) counts.padel++;
+      if (sports.includes('tennis')) counts.tenis++;
+      if (sports.every(sport => !['football', 'padel', 'tennis'].includes(sport))) counts.otros++;
     }
     return counts;
   }, [clubs]);
@@ -296,7 +275,7 @@ export default function Home() {
   const [isSearching, setIsSearching] = useState(false);
   const [clubCoords, setClubCoords] = useState<Record<number, { lat: number; lon: number } | null>>({});
 
-  const [searchSport, setSearchSport] = useState('padel');
+  const [searchSport, setSearchSport] = useState<PublicSport>('padel');
   const [showSportDropdown, setShowSportDropdown] = useState(false);
   // Fecha seleccionada en formato YYYY-MM-DD. Por defecto, el dia de hoy.
   const getEffectiveToday = () => {
@@ -385,11 +364,8 @@ export default function Home() {
     setContactMenu(null);
   };
 
-  const sportOptions = useMemo(() => ([
-  {
-    value: 'padel',
-    label: 'Padel',
-    icon: (
+  const sportIcons: Partial<Record<PublicSport, React.ReactNode>> = {
+    padel: (
       <svg viewBox="0 0 20 20" className="h-5 w-5" aria-hidden="true">
         <g>
           <circle cx="12.41" cy="3.19" r="0.62" fill="currentColor" />
@@ -407,19 +383,14 @@ export default function Home() {
           />
         </g>
       </svg>
-    )
-  },
-  {
-    value: 'futbol',
-    label: 'Futbol',
-    icon: <IoFootballOutline className="h-5 w-5" /> // Dejs la de la libreria que estaba buena
-  },
-  {
-    value: 'tenis',
-    label: 'Tenis',
-    icon: <IoTennisballOutline className="h-5 w-5" /> // Dejs la de la libreria
-  }
-]), []);
+    ),
+    football: <IoFootballOutline className="h-5 w-5" />,
+    tennis: <IoTennisballOutline className="h-5 w-5" />,
+  };
+  const sportOptions = PUBLIC_SPORT_OPTIONS.map(option => ({
+    ...option,
+    icon: sportIcons[option.value] || <Activity className="h-5 w-5" />,
+  }));
 
   const selectedSport = sportOptions.find((sport) => sport.value === searchSport) || sportOptions[0];
 
@@ -434,18 +405,7 @@ export default function Home() {
         setLoadingClubs(false);
       }
     };
-    const loadLocations = async () => {
-      try {
-        const allLocations = await LocationService.getAllLocations();
-        setLocations(allLocations);
-      } catch (error) {
-        reportUiError({ area: 'HomePage', action: 'loadLocations' }, error);
-      } finally {
-        setLoadingLocations(false);
-      }
-    };
     loadClubs();
-    loadLocations();
   }, []);
 
   useEffect(() => {
@@ -536,22 +496,7 @@ export default function Home() {
     setDisplayedClubs(clubs);
   }, [clubs]);
 
-  const locationOptions = useMemo(() => {
-    const map = new Map<string, LocationSuggestion>();
-    locations.forEach((location) => {
-      const city = location.city?.trim();
-      const province = location.province?.trim();
-      const country = location.country?.trim();
-      if (!city || !province || !country) return;
-      const label = `${city}, ${province}`;
-      const query = [city, province, country].filter(Boolean).join(', ');
-      const key = normalizeText(query);
-      if (!map.has(key)) {
-        map.set(key, { label, query, city, province, country });
-      }
-    });
-    return Array.from(map.values());
-  }, [locations]);
+  const locationOptions = useMemo(() => getPublicClubLocations(clubs), [clubs]);
 
   useEffect(() => {
     if (!searchCity.trim()) {
@@ -1149,7 +1094,7 @@ export default function Home() {
                   <div className="p-home-dropdown" style={{ minWidth: 280 }} onClick={e => e.stopPropagation()}>
                     <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', fontSize: 10, fontWeight: 700, letterSpacing: '.04em', color: 'var(--text-muted)' }}>Lugares disponibles</div>
                     <ul style={{ maxHeight: 220, overflowY: 'auto', margin: 0, padding: 0, listStyle: 'none' }}>
-                      {loadingLocations ? (
+                      {loadingClubs ? (
                         <li style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Cargando...</li>
                       ) : locationSuggestions.length > 0 ? (
                         locationSuggestions.map((loc, i) => (
@@ -1242,9 +1187,9 @@ export default function Home() {
         <div className="p-home-sports-grid">
           {[
             {
-              name: 'Fútbol',
+              name: PUBLIC_SPORT_LABELS.football,
               sub: 'F5 · F7 · F11',
-              sport: 'futbol',
+              sport: 'football',
               bg: 'linear-gradient(135deg,var(--ink-900),var(--lima-900))',
               photo: 'https://images.pexels.com/photos/27394466/pexels-photo-27394466.jpeg?auto=compress&cs=tinysrgb&w=1600',
               bgPosition: 'center 52%',
@@ -1252,7 +1197,7 @@ export default function Home() {
               countKey: 'futbol' as const
             },
             {
-              name: 'Pádel',
+              name: PUBLIC_SPORT_LABELS.padel,
               sub: 'Cubierto & Panorámico',
               sport: 'padel',
               bg: 'linear-gradient(135deg,var(--ink-900),var(--ink-700))',
@@ -1262,9 +1207,9 @@ export default function Home() {
               countKey: 'padel' as const
             },
             {
-              name: 'Tenis',
+              name: PUBLIC_SPORT_LABELS.tennis,
               sub: 'Polvo & cemento',
-              sport: 'tenis',
+              sport: 'tennis',
               bg: 'linear-gradient(135deg,var(--ink-900),var(--lima-900))',
               photo: 'https://images.pexels.com/photos/19872965/pexels-photo-19872965.jpeg?auto=compress&cs=tinysrgb&w=1600',
               bgPosition: 'center 54%',

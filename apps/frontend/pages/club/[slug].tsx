@@ -31,6 +31,7 @@ const formatRatingLabel = (value: number) => {
 };
 
 const PAGE_CSS = `
+  .p-public-theme-light .cl-page { --accent-fg:var(--positive-fg); }
   .cl-hero { position:relative; border-radius:24px; overflow:hidden; border:1px solid var(--border); margin-bottom:32px; }
   .cl-hero-bg { position:absolute; inset:0; background:linear-gradient(135deg,var(--brand-on) 0%,var(--ink-900) 50%,var(--positive-bg) 100%); }
   .cl-hero-img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
@@ -84,7 +85,7 @@ const PAGE_CSS = `
   .cl-review-primary { flex:1; height:46px; border-radius:12px; background:var(--brand); border:none; color:var(--brand-on); font-family:inherit; font-size:12px; font-weight:800; letter-spacing:.01em; cursor:pointer; }
   .cl-review-primary:disabled { opacity:.5; cursor:not-allowed; }
   /* Feedback toast */
-  .cl-feedback { padding:10px 16px; border-radius:12px; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); font-size:12px; font-weight:700; color:var(--brand-hover); margin-top:12px; }
+  .cl-feedback { padding:10px 16px; border-radius:12px; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); font-size:12px; font-weight:700; color:var(--accent-fg); margin-top:12px; }
   /* Loading/error */
   .cl-loading { min-height:60vh; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:16px; }
   @media(max-width:900px){
@@ -428,8 +429,8 @@ export default function ClubPage() {
             <div className="cl-hero-info">
               {reviewsSummary.count > 0 && (
                 <div className="cl-hero-rating">
-                  <Star size={13} style={{ color: 'var(--brand)', fill: 'var(--brand)' }} />
-                  <span style={{ color: 'var(--brand)', fontWeight: 800 }}>{formatRatingLabel(reviewsSummary.averageRating)}</span>
+                  <Star size={13} style={{ color: 'var(--accent-fg)', fill: 'var(--accent-fg)' }} />
+                  <span style={{ color: 'var(--accent-fg)', fontWeight: 800 }}>{formatRatingLabel(reviewsSummary.averageRating)}</span>
                   <span style={{ color: 'var(--text-muted)' }}>({reviewsSummary.count} reseñas)</span>
                 </div>
               )}
@@ -437,7 +438,7 @@ export default function ClubPage() {
               <div className="cl-hero-meta">
                 {(club.addressLine || club.city) && (
                   <span className="cl-hero-meta-item">
-                    <MapPin size={14} style={{ color: 'var(--brand)', flexShrink: 0 }} />
+                    <MapPin size={14} style={{ color: 'var(--accent-fg)', flexShrink: 0 }} />
                     {[club.addressLine, club.city].filter(Boolean).join(', ')}
                   </span>
                 )}
@@ -449,7 +450,7 @@ export default function ClubPage() {
                     className="cl-hero-meta-item"
                     style={{ textDecoration: 'none', transition: 'color .15s' }}
                   >
-                    <Instagram size={14} style={{ color: 'var(--brand)', flexShrink: 0 }} />
+                    <Instagram size={14} style={{ color: 'var(--accent-fg)', flexShrink: 0 }} />
                     @{club.instagramUrl.replace(/\/$/, '').split('/').pop() || 'Instagram'}
                   </a>
                 )}
@@ -465,7 +466,7 @@ export default function ClubPage() {
                 title={isFavorite ? 'Quitar de favoritos' : 'Guardar en favoritos'}
                 aria-label={isFavorite ? 'Quitar de favoritos' : 'Guardar en favoritos'}
               >
-                <Heart size={20} style={{ fill: isFavorite ? 'var(--brand)' : 'none', transition: 'fill .2s' }} />
+                <Heart size={20} style={{ fill: isFavorite ? 'var(--accent-fg)' : 'none', transition: 'fill .2s' }} />
               </button>
               <button className="cl-icon-btn" onClick={handleShare} title="Copiar enlace">
                 <Share2 size={20} />
@@ -549,7 +550,7 @@ export default function ClubPage() {
                 <div className="cl-panel-h">Reseñas</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border-subtle)' }}>
                   <div>
-                    <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--brand)', letterSpacing: '-.03em', lineHeight: 1 }}>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--accent-fg)', letterSpacing: '-.03em', lineHeight: 1 }}>
                       {formatRatingLabel(reviewsSummary.averageRating)}
                     </div>
                     <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '.03em', marginTop: 4 }}>
@@ -558,7 +559,7 @@ export default function ClubPage() {
                   </div>
                   <div style={{ display: 'flex', gap: 3 }}>
                     {[1, 2, 3, 4, 5].map(v => (
-                      <Star key={v} size={14} style={{ color: v <= Math.round(reviewsSummary.averageRating) ? 'var(--brand)' : 'var(--border-strong)', fill: v <= Math.round(reviewsSummary.averageRating) ? 'var(--brand)' : 'none' }} />
+                      <Star key={v} size={14} style={{ color: v <= Math.round(reviewsSummary.averageRating) ? 'var(--accent-fg)' : 'var(--border-strong)', fill: v <= Math.round(reviewsSummary.averageRating) ? 'var(--accent-fg)' : 'none' }} />
                     ))}
                   </div>
                 </div>
@@ -568,7 +569,7 @@ export default function ClubPage() {
                       <div className="cl-review-head">
                         <span className="cl-review-name">{review.user.name}</span>
                         <span className="cl-review-score">
-                          <Star size={11} style={{ fill: 'var(--brand)' }} />
+                          <Star size={11} style={{ fill: 'var(--accent-fg)' }} />
                           {formatRatingLabel(Number(review.rating || 0))}
                         </span>
                       </div>
@@ -598,7 +599,7 @@ export default function ClubPage() {
                     type="button"
                     onClick={handleOpenReviewModal}
                     disabled={reviewLoading || reviewSaving}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '11px 16px', background: 'var(--positive-bg)', border: '1px solid var(--accent-border-subtle)', borderRadius: 12, color: 'var(--brand)', fontSize: 12, fontWeight: 800, letterSpacing: '.01em', cursor: reviewLoading || reviewSaving ? 'not-allowed' : 'pointer', opacity: reviewLoading || reviewSaving ? .6 : 1, fontFamily: 'inherit', transition: 'background .15s' }}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '11px 16px', background: 'var(--positive-bg)', border: '1px solid var(--accent-border-subtle)', borderRadius: 12, color: 'var(--accent-fg)', fontSize: 12, fontWeight: 800, letterSpacing: '.01em', cursor: reviewLoading || reviewSaving ? 'not-allowed' : 'pointer', opacity: reviewLoading || reviewSaving ? .6 : 1, fontFamily: 'inherit', transition: 'background .15s' }}
                   >
                     <ChevronRight size={14} />
                     {hasExistingClubReview ? 'Editar mi reseña' : 'Dejar mi reseña'}

@@ -78,6 +78,11 @@ type CreateBookingOptions = {
         personKey: string;
         searchQuery: string;
     } | null;
+    initialParticipants?: Array<{
+        email?: string | null;
+        dni?: string | null;
+        name?: string | null;
+    }>;
 };
 
 type CreateFixedBookingOptions = {
@@ -3641,6 +3646,25 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     saved = { ...saved, listPrice: updatedTotals.listPrice, price: updatedTotals.price };
                 }
 
+                for (const participant of options?.initialParticipants || []) {
+                    await this.createPlayerBookingInvitationTx(tx, {
+                        bookingId: saved.id,
+                        clubId: bookingClubId,
+                        ownerUserId: Number(resolvedBookingUserId || 0),
+                        ownerEmail: bookingOwnerUser?.email ?? null,
+                        invitedEmail: participant.email,
+                        invitedDni: participant.dni,
+                        invitedName: participant.name
+                    });
+                }
+                if (options?.initialParticipants?.length) {
+                    const refreshed = await tx.booking.findUnique({
+                        where: { id: saved.id },
+                        include: { user: true, client: true, court: { include: { club: true } }, activity: true }
+                    });
+                    if (refreshed) saved = refreshed;
+                }
+
                 // Estrategia lazy: para turnos simples no abrimos cuenta al crear.
                 // Solo se crea al confirmar, agregar consumos o registrar pagos.
                 if (initialStatus === 'CONFIRMED' || options?.skipAccountCreation === false) {
@@ -6018,18 +6042,18 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         return { success: true };
     }
 
-    async invitePlayerBookingParticipant(input: {
+    private async createPlayerBookingInvitationTx(tx: Prisma.TransactionClient, input: {
         bookingId: number;
+        clubId: number;
         ownerUserId: number;
-        // Email o DNI exacto (la búsqueda por DNI no acepta nombres parciales para no enumerar usuarios).
+        ownerEmail?: string | null;
         invitedEmail?: string | null;
         invitedDni?: string | null;
         invitedName?: string | null;
-    }): Promise<PlayerBookingParticipantDto> {
+    }) {
         if (!Number.isInteger(input.ownerUserId) || input.ownerUserId <= 0) {
             throw this.bookingForbidden();
         }
-
         const rawDni = String(input.invitedDni || '').trim();
         let invitedUser: { id: number; email: string | null; firstName: string; lastName: string } | null = null;
         if (rawDni) {
@@ -6042,7 +6066,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     fieldErrors: { dni: 'Ingresá un DNI válido.' }
                 });
             }
-            invitedUser = await prisma.user.findUnique({
+            invitedUser = await tx.user.findUnique({
                 where: { dni },
                 select: { id: true, email: true, firstName: true, lastName: true }
             });
@@ -6050,7 +6074,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 throw new AppError({
                     statusCode: 404,
                     code: ErrorCodes.USER_NOT_FOUND,
-                    message: 'No encontramos una cuenta con ese DNI. Podés sumarlo como invitado con su nombre o por email.',
+                    message: 'No encontramos una cuenta con ese DNI. Podés invitarlo por email.',
                     fieldErrors: { dni: 'No hay una cuenta con ese DNI.' }
                 });
             }
@@ -6064,37 +6088,120 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 statusCode: 400,
                 code: ErrorCodes.INVALID_INPUT,
                 message: 'Revisá los campos marcados.',
-                fieldErrors: {
-                    email: 'Ingresá un email válido.'
-                }
+                fieldErrors: { email: 'Ingresá un email válido.' }
             });
         }
         if (!invitedUser && invitedEmail) {
-            invitedUser = await prisma.user.findUnique({
+            invitedUser = await tx.user.findUnique({
                 where: { email: invitedEmail },
                 select: { id: true, email: true, firstName: true, lastName: true }
             });
         }
-        // A los demás jugadores solo se les muestra el nombre abreviado (P13).
         const invitedName = String(input.invitedName || '').trim()
             || (invitedUser ? `${invitedUser.firstName} ${String(invitedUser.lastName || '').charAt(0)}.`.trim() : null);
+
+        if (
+            (invitedEmail && normalizeEmail(String(input.ownerEmail || '')) === invitedEmail) ||
+            (invitedUser && invitedUser.id === input.ownerUserId)
+        ) {
+            throw this.bookingParticipantAlreadyExists('No hace falta invitar al titular de la reserva.');
+        }
+
+        const participants = await tx.bookingParticipant.findMany({
+            where: { bookingId: input.bookingId, status: { in: ['INVITED', 'JOINED'] } },
+            select: { userId: true, invitedEmail: true, invitedUserId: true }
+        });
+        const duplicated = participants.some((participant) => {
+            const sameEmail = Boolean(invitedEmail)
+                && normalizeEmail(String(participant.invitedEmail || '')) === invitedEmail;
+            const sameUser = Boolean(invitedUser)
+                && (participant.userId === invitedUser!.id || participant.invitedUserId === invitedUser!.id);
+            return sameEmail || sameUser;
+        });
+        if (duplicated) throw this.bookingParticipantAlreadyExists();
+
+        await this.playerSlotService.assertHasFreeSlotTx(tx, input.bookingId);
+        const participant = await tx.bookingParticipant.create({
+            data: {
+                bookingId: input.bookingId,
+                clientId: null,
+                displayName: invitedName,
+                email: invitedEmail,
+                phone: null,
+                invitedEmail,
+                invitedName,
+                invitedUserId: invitedUser?.id ?? null,
+                invitedByUserId: input.ownerUserId,
+                status: 'INVITED',
+                role: 'PARTICIPANT'
+            },
+            include: {
+                user: { select: { id: true, firstName: true, lastName: true, email: true } }
+            }
+        });
+
+        await this.appendBookingHistoryEntryTx(tx, {
+            bookingId: input.bookingId,
+            clubId: input.clubId,
+            action: 'BOOKING_PARTICIPANT_ADDED',
+            category: 'PARTICIPANT',
+            source: 'PLAYER',
+            summary: 'Participante agregado',
+            actorUserId: input.ownerUserId,
+            bookingParticipantId: participant.id,
+            detail: { invitedEmail, invitedName, status: 'INVITED', role: 'PARTICIPANT' },
+            nextState: { status: 'INVITED', role: 'PARTICIPANT', invitedEmail, invitedName }
+        });
+        await tx.auditLog.create({
+            data: {
+                clubId: input.clubId,
+                userId: input.ownerUserId,
+                entity: 'BookingParticipant',
+                entityId: participant.id,
+                action: 'BOOKING_PARTICIPANT_INVITED',
+                payload: {
+                    bookingId: input.bookingId,
+                    invitedEmail,
+                    invitedName,
+                    invitedUserId: invitedUser?.id ?? null
+                }
+            }
+        });
+
+        const invitedClient = invitedUser
+            ? await tx.client.findFirst({
+                where: { clubId: input.clubId, userId: invitedUser.id },
+                select: { id: true }
+            })
+            : null;
+        await this.playerSlotService.assignParticipantTx(tx, {
+            bookingId: input.bookingId,
+            participantId: participant.id,
+            clientId: invitedClient?.id ?? null,
+            userId: invitedUser?.id ?? null,
+            displayName: invitedName,
+            actorUserId: input.ownerUserId
+        });
+        return participant;
+    }
+
+    async invitePlayerBookingParticipant(input: {
+        bookingId: number;
+        ownerUserId: number;
+        // Email o DNI exacto (la búsqueda por DNI no acepta nombres parciales para no enumerar usuarios).
+        invitedEmail?: string | null;
+        invitedDni?: string | null;
+        invitedName?: string | null;
+    }): Promise<PlayerBookingParticipantDto> {
+        if (!Number.isInteger(input.ownerUserId) || input.ownerUserId <= 0) {
+            throw this.bookingForbidden();
+        }
 
         const booking = await prisma.booking.findUnique({
             where: { id: input.bookingId },
             include: {
-                client: {
-                    select: { userId: true }
-                },
-                participants: {
-                    select: {
-                        id: true,
-                        userId: true,
-                        invitedEmail: true,
-                        invitedUserId: true,
-                        status: true,
-                        role: true
-                    }
-                }
+                client: { select: { userId: true } },
+                participants: true
             }
         });
 
@@ -6110,106 +6217,15 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             where: { id: input.ownerUserId },
             select: { email: true }
         });
-        if (
-            (invitedEmail && normalizeEmail(String(ownerUser?.email || '')) === invitedEmail) ||
-            (invitedUser && invitedUser.id === input.ownerUserId)
-        ) {
-            throw this.bookingParticipantAlreadyExists('No hace falta invitar al titular de la reserva.');
-        }
-
-        const duplicated = booking.participants.find((participant) => {
-            const sameEmail = Boolean(invitedEmail) && normalizeEmail(String(participant.invitedEmail || '')) === invitedEmail;
-            const sameUser = Boolean(invitedUser) &&
-                (participant.userId === invitedUser!.id || participant.invitedUserId === invitedUser!.id);
-            const activeStatus = participant.status === 'INVITED' || participant.status === 'JOINED';
-            return (sameEmail || sameUser) && activeStatus;
-        });
-        if (duplicated) {
-            throw this.bookingParticipantAlreadyExists();
-        }
-
-        const created = await prisma.$transaction(async (tx) => {
-            await this.playerSlotService.assertHasFreeSlotTx(tx, booking.id);
-            const participant = await tx.bookingParticipant.create({
-                data: {
-                    bookingId: booking.id,
-                    clientId: null,
-                    displayName: invitedName,
-                    email: invitedEmail,
-                    phone: null,
-                    invitedEmail,
-                    invitedName,
-                    invitedUserId: invitedUser?.id ?? null,
-                    invitedByUserId: input.ownerUserId,
-                    status: 'INVITED',
-                    role: 'PARTICIPANT'
-                },
-                include: {
-                    user: {
-                        select: {
-                            id: true,
-                            firstName: true,
-                            lastName: true,
-                            email: true
-                        }
-                    }
-                }
-            });
-
-            await this.appendBookingHistoryEntryTx(tx, {
-                bookingId: booking.id,
-                clubId: booking.clubId,
-                action: 'BOOKING_PARTICIPANT_ADDED',
-                category: 'PARTICIPANT',
-                source: 'PLAYER',
-                summary: 'Participante agregado',
-                actorUserId: input.ownerUserId,
-                bookingParticipantId: participant.id,
-                detail: {
-                    invitedEmail,
-                    invitedName,
-                    status: 'INVITED',
-                    role: 'PARTICIPANT',
-                },
-                nextState: {
-                    status: 'INVITED',
-                    role: 'PARTICIPANT',
-                    invitedEmail,
-                    invitedName,
-                },
-            });
-
-            await tx.auditLog.create({
-                data: {
-                    clubId: booking.clubId,
-                    userId: input.ownerUserId,
-                    entity: 'BookingParticipant',
-                    entityId: participant.id,
-                    action: 'BOOKING_PARTICIPANT_INVITED',
-                    payload: {
-                        bookingId: booking.id,
-                        invitedEmail,
-                        invitedName,
-                        invitedUserId: invitedUser?.id ?? null
-                    }
-                }
-            });
-
-            // Precio por jugador: el invitado ocupa un lugar y paga como no socio hasta aceptar (D9).
-            const invitedClient = invitedUser
-                ? await tx.client.findFirst({ where: { clubId: booking.clubId, userId: invitedUser.id }, select: { id: true } })
-                : null;
-            await this.playerSlotService.assignParticipantTx(tx, {
-                bookingId: booking.id,
-                participantId: participant.id,
-                clientId: invitedClient?.id ?? null,
-                userId: invitedUser?.id ?? null,
-                displayName: invitedName,
-                actorUserId: input.ownerUserId
-            });
-
-            return participant;
-        });
+        const created = await prisma.$transaction((tx) => this.createPlayerBookingInvitationTx(tx, {
+            bookingId: booking.id,
+            clubId: booking.clubId,
+            ownerUserId: input.ownerUserId,
+            ownerEmail: ownerUser?.email ?? null,
+            invitedEmail: input.invitedEmail,
+            invitedDni: input.invitedDni,
+            invitedName: input.invitedName
+        }));
 
         return {
             id: created.id,

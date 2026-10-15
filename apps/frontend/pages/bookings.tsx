@@ -45,11 +45,15 @@ const PAGE_CSS = `
   .bk-list-body::-webkit-scrollbar { width:4px; }
   .bk-list-body::-webkit-scrollbar-track { background:transparent; }
   .bk-list-body::-webkit-scrollbar-thumb { background:var(--surface-2); border-radius:4px; }
-  .bk-card { display:flex; align-items:center; gap:16px; padding:16px 18px; background:var(--surface-1); border:1px solid var(--border-subtle); border-radius:16px; cursor:pointer; transition:border-color .2s,background .2s; }
-  .bk-card:hover { border-color:var(--accent-border-subtle); background:var(--surface-2); }
-  .bk-card.bk-selected { border-color:var(--accent-border-strong); background:var(--positive-bg); }
+  .bk-card { display:flex; align-items:center; gap:16px; padding:16px 18px; background:var(--surface-1); border:1px solid var(--border-strong); border-radius:16px; cursor:pointer; outline:none; transition:border-color .2s,background .2s,box-shadow .2s; }
+  .bk-card:hover { border-color:var(--text-muted); background:var(--surface-2); }
+  .bk-card:focus-visible { border-color:var(--accent-fg); box-shadow:var(--shadow-focus); }
+  .bk-card.bk-selected { border-color:var(--accent-fg); background:var(--positive-bg); box-shadow:var(--shadow-card); }
   .bk-date-box { width:48px; height:48px; border-radius:12px; display:flex; flex-direction:column; align-items:center; justify-content:center; flex-shrink:0; }
-  .bk-date-box-active { background:var(--positive-bg); border:1px solid var(--accent-border-subtle); }
+  .bk-date-box-active { background:var(--positive-bg); border:1px solid var(--accent-border-strong); }
+  .bk-card.bk-selected .bk-date-box-active { background:var(--brand); border-color:var(--accent-fg); }
+  .bk-card.bk-selected .bk-date-box-active .bk-date-day,
+  .bk-card.bk-selected .bk-date-box-active .bk-date-month { color:var(--brand-on)!important; }
   .bk-date-box-past { background:var(--surface-2); border:1px solid var(--border); }
   .bk-date-box-cancelled { background:var(--error-bg); border:1px solid var(--error-bg); }
   .bk-date-day { font-size:20px; font-weight:800; line-height:1; color:var(--text-primary); }
@@ -121,9 +125,10 @@ const PAGE_CSS = `
   }
   .p-public-root.p-public-theme-light .bk-list-panel,
   .p-public-root.p-public-theme-light .bk-detail { background:var(--surface-1); border-color:var(--border); box-shadow:0 12px 28px var(--border); }
-  .p-public-root.p-public-theme-light .bk-card { background:var(--surface-1); border-color:var(--border); }
-  .p-public-root.p-public-theme-light .bk-card:hover { border-color:var(--accent-border); background:var(--surface-2); }
-  .p-public-root.p-public-theme-light .bk-card.bk-selected { border-color:var(--accent-border-strong); background:var(--positive-bg); }
+  .p-public-root.p-public-theme-light .bk-card { background:var(--surface-1); border-color:var(--border-strong); }
+  .p-public-root.p-public-theme-light .bk-card:hover { border-color:var(--text-muted); background:var(--surface-2); }
+  .p-public-root.p-public-theme-light .bk-card:focus-visible { border-color:var(--accent-fg); }
+  .p-public-root.p-public-theme-light .bk-card.bk-selected { border-color:var(--accent-fg); background:var(--positive-bg); }
   .p-public-root.p-public-theme-light .bk-date-box-past { background:var(--surface-2); border-color:var(--border); }
   .p-public-root.p-public-theme-light .bk-date-day,
   .p-public-root.p-public-theme-light .bk-card-club,
@@ -147,7 +152,8 @@ const PAGE_CSS = `
   .p-public-root.p-public-theme-light .bk-review-star { border-color:var(--border-strong); background:var(--surface-2); color:var(--text-muted); }
   .p-public-root.p-public-theme-light .bk-review-textarea { background:var(--surface-1); border-color:var(--border); color:var(--text-primary); }
   .p-public-root.p-public-theme-light .bk-review-textarea:focus { border-color:var(--accent-border); }
-  .p-public-root.p-public-theme-light .bk-date-box-active { background:var(--positive-bg); border-color:var(--accent-border-subtle); }
+  .p-public-root.p-public-theme-light .bk-date-box-active { background:var(--positive-bg); border-color:var(--accent-border-strong); }
+  .p-public-root.p-public-theme-light .bk-card.bk-selected .bk-date-box-active { background:var(--brand); border-color:var(--accent-fg); }
   .p-public-root.p-public-theme-light .bk-date-box-cancelled { background:var(--error-bg); border-color:var(--error-bg); }
   .p-public-root.p-public-theme-light .bk-ticket-label { background:var(--positive-bg); border-color:var(--accent-border-subtle); color:var(--accent-fg); }
   .p-public-root.p-public-theme-light .bk-detail-activity { color:var(--text-muted); }
@@ -1008,14 +1014,21 @@ export default function MyBookingsPage() {
                   const dateBox = getDateBoxParts(date, bookingTimeZone);
                   const isSelected = selectedBooking?.id === booking.id;
                   const boxClass = activeTab === 'ACTIVE' ? 'bk-date-box-active' : activeTab === 'CANCELLED' ? 'bk-date-box-cancelled' : 'bk-date-box-past';
-                  const dayColor = activeTab === 'ACTIVE' ? 'var(--brand)' : activeTab === 'CANCELLED' ? 'var(--error-fg)' : 'var(--text-muted)';
+                  const dayColor = activeTab === 'ACTIVE' ? 'var(--positive-fg)' : activeTab === 'CANCELLED' ? 'var(--error-fg)' : 'var(--text-muted)';
                   return (
                     <div
                       key={booking.id}
                       ref={el => { bookingRefs.current[Number(booking.id)] = el; }}
-                      tabIndex={-1}
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={isSelected}
                       className={`bk-card${isSelected ? ' bk-selected' : ''}`}
                       onClick={() => setSelectedBooking(booking)}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') return;
+                        event.preventDefault();
+                        setSelectedBooking(booking);
+                      }}
                     >
                       <div className={`bk-date-box ${boxClass}`}>
                         <span className="bk-date-day" style={{ color: dayColor }}>{dateBox.day}</span>
@@ -1044,7 +1057,11 @@ export default function MyBookingsPage() {
                           )}
                         </div>
                       </div>
-                      <ArrowRight size={16} style={{ color: isSelected ? 'var(--brand)' : 'var(--text-muted)', flexShrink: 0, transition: 'color .2s' }} />
+                      <ArrowRight
+                        size={16}
+                        style={{ color: isSelected ? 'var(--positive-fg)' : 'var(--text-muted)', flexShrink: 0, transition: 'color .2s' }}
+                        aria-hidden="true"
+                      />
                     </div>
                   );
                 })

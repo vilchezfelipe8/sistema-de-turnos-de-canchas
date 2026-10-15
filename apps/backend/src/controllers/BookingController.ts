@@ -321,7 +321,17 @@ export class BookingController {
                 ]).optional(),
                 applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional()),
                 // Modalidad (clubes con precio por jugador)
-                activityFormatId: z.string().trim().min(1).max(64).optional()
+                activityFormatId: z.string().trim().min(1).max(64).optional(),
+                initialParticipants: z.array(z.object({
+                    email: z.preprocess(
+                        (v) => typeof v === 'string' && v.trim().length === 0 ? undefined : v,
+                        z.string().trim().email().optional()
+                    ),
+                    dni: optionalTrimmedString(),
+                    name: optionalTrimmedString()
+                }).refine((participant) => Boolean(participant.email || participant.dni), {
+                    message: 'Ingresá el email o el DNI del jugador.'
+                })).max(20).optional()
             });
 
             const dataToValidate = {
@@ -334,7 +344,7 @@ export class BookingController {
                 return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
 
-            let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, clientId, client, ownerSelection, applyDiscount, activityFormatId } = parsed.data;
+            let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, clientId, client, ownerSelection, applyDiscount, activityFormatId, initialParticipants } = parsed.data;
             clientId = clientId ? sanitizeString(clientId, 64) : undefined;
             if (ownerSelection?.kind === 'clubClient') {
                 clientId = sanitizeString(String(ownerSelection.clientId || ''), 64) || clientId;
@@ -484,7 +494,14 @@ export class BookingController {
                     activityFormatId: activityFormatId || null,
                     clientId: clientId || null,
                     clientDraft: useAdminClientMode && adminClientDraft?.name ? adminClientDraft : null,
-                    ownerUserSelection: useAdminClientMode ? adminOwnerUserSelection : null
+                    ownerUserSelection: useAdminClientMode ? adminOwnerUserSelection : null,
+                    initialParticipants: useAdminClientMode
+                        ? []
+                        : (initialParticipants || []).map((participant) => ({
+                            email: participant.email ? sanitizeString(participant.email, 254) : null,
+                            dni: participant.dni ? sanitizeString(participant.dni, 20) : null,
+                            name: participant.name ? sanitizeString(participant.name, 120) : null
+                        }))
                 }
             );
 
