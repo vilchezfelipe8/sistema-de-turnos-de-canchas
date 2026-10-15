@@ -2353,22 +2353,40 @@ export default function AdminClientesPlayground2Page() {
               {!linkSearchLoading && linkSearchTerm.trim().length >= 2 && linkSearchResults.length === 0 ? (
                 <p className="text-[12px] text-p-text-muted">No se encontraron usuarios permitidos para vincular con esa búsqueda.</p>
               ) : null}
+              {linkSearchResults.length > 0 ? (
+                <p className="pb-0.5 text-[11px] font-semibold uppercase tracking-wide text-p-text-muted">Usuarios encontrados</p>
+              ) : null}
               {linkSearchResults.map((row) => {
                 const selected = Number(linkSelectedUser?.userId || 0) === Number(row?.userId || 0);
                 return (
                   <button
                     key={String(row?.personKey || row?.userId)}
                     type="button"
+                    aria-pressed={selected}
                     onClick={() => setLinkSelectedUser(row)}
-                    className={`w-full rounded-xl border p-3 text-left text-[13px] transition ${
-                      selected ? 'border-p-accent bg-p-positive-bg' : 'border-p-border bg-p-surface-2 hover:bg-p-surface'
+                    className={`w-full cursor-pointer rounded-xl border p-3 text-left text-[13px] transition-[background-color,border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lima-300/50 active:bg-[var(--accent-bg-strong)] active:shadow-none ${
+                      selected
+                        ? 'border-lima-400 bg-p-positive-bg shadow-p-card'
+                        : 'border-p-border-strong bg-p-surface hover:border-lima-300 hover:bg-p-positive-bg hover:shadow-p-card'
                     }`}
                   >
-                    <p className="font-semibold text-p-text">{String(row?.displayName || `Usuario ${row?.userId || ''}`)}</p>
-                    <p className="mt-0.5 text-p-text-muted">{String(row?.email || row?.phone || '-')}</p>
-                    {Array.isArray(row?.badges) && row.badges.length > 0 ? (
-                      <p className="mt-1 text-[11px] text-p-text-muted">{row.badges.join(' · ')}</p>
-                    ) : null}
+                    <span className="flex items-center justify-between gap-3">
+                      <span className="min-w-0">
+                        <span className="block truncate font-semibold text-p-text">{String(row?.displayName || `Usuario ${row?.userId || ''}`)}</span>
+                        <span className="mt-0.5 block truncate text-p-text-muted">{String(row?.email || row?.phone || '-')}</span>
+                        {Array.isArray(row?.badges) && row.badges.length > 0 ? (
+                          <span className="mt-1 block text-[11px] text-p-text-muted">{row.badges.join(' · ')}</span>
+                        ) : null}
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 bg-p-surface transition-colors ${
+                          selected ? 'border-p-accent' : 'border-p-border-strong'
+                        }`}
+                      >
+                        <span className={`h-2 w-2 rounded-full transition-colors ${selected ? 'bg-p-accent' : 'bg-transparent'}`} />
+                      </span>
+                    </span>
                   </button>
                 );
               })}

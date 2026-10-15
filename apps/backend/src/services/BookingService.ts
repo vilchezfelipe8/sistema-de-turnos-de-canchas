@@ -2786,9 +2786,21 @@ export class BookingService {
                 phone: safePhone || null,
                 email: safeEmail || null,
                 dni: safeDni || null,
-                userId: null
+                // La ficha nace por una acción autenticada de ese usuario. Vincularla acá evita
+                // crear dos identidades separadas que después requieren intervención del club.
+                userId: safeUserId
             }
         });
+
+        if (safeUserId) {
+            await recordUserClientLinkAuditTx(tx, {
+                clubId: input.clubId,
+                userId: safeUserId,
+                clientId: String(created.id),
+                reason: 'CREATED_CLIENT',
+                source: 'BOOKING'
+            });
+        }
         return created;
     }
 
