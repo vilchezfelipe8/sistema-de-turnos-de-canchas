@@ -6054,6 +6054,45 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         return { success: true };
     }
 
+    // Busca a quién se va a invitar antes de confirmar el checkout, con las mismas reglas que la invitación.
+    // Solo devuelve nombre e inicial del apellido: no expone datos ni la condición de socio de terceros.
+    async lookupPlayerForInvitation(input: { userId: number; dni?: string | null; email?: string | null }): Promise<{
+        status: 'FOUND' | 'SELF' | 'DNI_NOT_FOUND' | 'EMAIL_WITHOUT_ACCOUNT';
+        displayName: string | null;
+    }> {
+        const select = { id: true, firstName: true, lastName: true } as const;
+        let invitedUser: { id: number; firstName: string; lastName: string } | null = null;
+        const rawDni = String(input.dni || '').trim();
+        if (rawDni) {
+            const dni = normalizeDni(rawDni);
+            if (!dni) {
+                throw new AppError({
+                    statusCode: 400,
+                    code: ErrorCodes.INVALID_INPUT,
+                    message: 'Revisá los campos marcados.',
+                    fieldErrors: { dni: 'Ingresá un DNI válido.' }
+                });
+            }
+            invitedUser = await prisma.user.findUnique({ where: { dni }, select });
+            if (!invitedUser) return { status: 'DNI_NOT_FOUND', displayName: null };
+        } else {
+            const email = normalizeEmail(String(input.email || ''));
+            if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                throw new AppError({
+                    statusCode: 400,
+                    code: ErrorCodes.INVALID_INPUT,
+                    message: 'Revisá los campos marcados.',
+                    fieldErrors: { email: 'Ingresá un email válido.' }
+                });
+            }
+            invitedUser = await prisma.user.findUnique({ where: { email }, select });
+            if (!invitedUser) return { status: 'EMAIL_WITHOUT_ACCOUNT', displayName: null };
+        }
+        const displayName = `${invitedUser.firstName} ${String(invitedUser.lastName || '').charAt(0)}.`.trim();
+        if (invitedUser.id === input.userId) return { status: 'SELF', displayName };
+        return { status: 'FOUND', displayName };
+    }
+
     private async createPlayerBookingInvitationTx(tx: Prisma.TransactionClient, input: {
         bookingId: number;
         clubId: number;

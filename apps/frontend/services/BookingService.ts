@@ -537,6 +537,28 @@ export const createMercadoPagoCheckout = async (
 // Se dispara al aceptar o rechazar una invitación para que la barra actualice el aviso.
 export const BOOKING_INVITATIONS_CHANGED_EVENT = 'booking-invitations:changed';
 
+export type PlayerLookupResult = {
+  status: 'FOUND' | 'SELF' | 'DNI_NOT_FOUND' | 'EMAIL_WITHOUT_ACCOUNT';
+  displayName: string | null;
+};
+
+// Busca al jugador por DNI o email antes de invitarlo (devuelve nombre e inicial del apellido).
+export const lookupPlayerForInvitation = async (
+  identity: { dni: string } | { email: string }
+): Promise<PlayerLookupResult> => {
+  const res = await fetchWithAuth(`${apiBase()}/me/players/lookup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(identity)
+  });
+
+  if (!res.ok) {
+    await throwApiErrorFromResponse(res, 'No pudimos buscar al jugador.');
+  }
+
+  return res.json();
+};
+
 export const getMyBookingInvitations = async (): Promise<PlayerBookingInvitationDto[]> => {
   const res = await fetchWithAuth(`${apiBase()}/me/booking-invitations`, {
     method: 'GET',

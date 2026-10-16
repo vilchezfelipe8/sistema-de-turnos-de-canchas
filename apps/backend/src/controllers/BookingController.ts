@@ -1147,6 +1147,36 @@ export class BookingController {
         }
     }
 
+    lookupPlayerForInvitation = async (req: Request, res: Response) => {
+        try {
+            const bodySchema = z.object({
+                email: z.string().trim().max(254).optional(),
+                dni: z.string().trim().min(6).max(20).optional()
+            }).refine((value) => Boolean(value.email || value.dni), {
+                path: ['email'],
+                message: 'Ingresá el email o el DNI del jugador.'
+            });
+            const parsed = bodySchema.safeParse(req.body || {});
+            if (!parsed.success) {
+                return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
+            }
+
+            const userId = Number((req as any)?.user?.userId || 0);
+            if (!Number.isInteger(userId) || userId <= 0) {
+                return sendAuthError(res, 401, ErrorCodes.AUTH_MISSING, 'Necesitás iniciar sesión para invitar jugadores.');
+            }
+
+            const result = await this.bookingService.lookupPlayerForInvitation({
+                userId,
+                dni: parsed.data.dni || null,
+                email: parsed.data.email || null
+            });
+            return res.json(result);
+        } catch (error: any) {
+            return sendAppError(res, error, 'No pudimos buscar al jugador.');
+        }
+    }
+
     removeMyBookingParticipant = async (req: Request, res: Response) => {
         try {
             const bookingId = Number(req.params.id);

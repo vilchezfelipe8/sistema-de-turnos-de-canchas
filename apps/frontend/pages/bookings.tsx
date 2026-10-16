@@ -27,6 +27,7 @@ import { getPendingLogoutRedirect } from '../services/AuthService';
 import Link from 'next/link';
 import UserLoadingState from '../components/UserLoadingState';
 import PlayerSlotsBreakdown from '../components/PlayerSlotsBreakdown';
+import { downloadCalendarEvent } from '../utils/calendarInvite';
 import { Calendar, Clock, MapPin, Ticket, ArrowRight, Search, XCircle, CheckCircle2, Star, MessageSquare, X, Users, UserPlus, Mail, LogOut, Trash2, ChevronDown } from 'lucide-react';
 import { getApiFieldErrors, normalizeApiError } from '../utils/apiError';
 
@@ -37,6 +38,34 @@ const PAGE_CSS = `
   .bk-page.bk-page-empty { padding-bottom:8px!important; }
   .bk-page-head { margin-bottom:28px; display:flex; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:12px; padding-bottom:22px; border-bottom:1px solid var(--border-subtle); }
   .bk-tabs-wrap { margin-bottom:18px; }
+  .bk-invite-section { margin-bottom:22px; display:grid; gap:10px; scroll-margin-top:90px; }
+  .bk-invite-heading { margin:0; display:flex; align-items:center; gap:8px; color:var(--text-primary); font-size:14px; font-weight:900; }
+  .bk-invite-dot { width:8px; height:8px; border-radius:999px; background:var(--brand); }
+  .bk-invite-card { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:18px; align-items:center; padding:18px; border-radius:20px; background:var(--surface-1); border:1px solid var(--accent-border); }
+  .bk-invite-date { width:58px; height:64px; border-radius:15px; }
+  .bk-invite-body { min-width:0; display:grid; gap:4px; }
+  .bk-invite-title { margin:0; color:var(--text-primary); font-size:16px; font-weight:900; line-height:1.3; }
+  .bk-invite-line { margin:0; color:var(--text-secondary); font-size:13px; font-weight:600; line-height:1.45; }
+  .bk-invite-meta { margin-top:6px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .bk-invite-share { padding:4px 10px; border-radius:999px; background:var(--positive-bg); color:var(--accent-fg); font-size:12px; font-weight:900; }
+  .bk-invite-pay { color:var(--text-muted); font-size:12px; font-weight:650; }
+  .bk-invite-actions { display:grid; gap:6px; min-width:180px; }
+  .bk-invite-decline { height:38px; border:0; border-radius:12px; background:transparent; color:var(--text-muted); font-family:var(--font-sans); font-size:12px; font-weight:800; cursor:pointer; }
+  .bk-invite-decline:hover { background:var(--surface-2); color:var(--text-primary); }
+  .bk-invite-decline:disabled, .bk-invite-actions .bk-action-btn:disabled { opacity:.6; cursor:not-allowed; }
+  .bk-invite-done { display:grid; gap:12px; text-align:left; }
+  .bk-invite-done-card { display:grid; gap:12px; padding:14px; border-radius:16px; background:var(--surface-2); border:1px solid var(--border-subtle); }
+  .bk-invite-done-row { display:flex; align-items:center; gap:12px; }
+  .bk-invite-done-title { color:var(--text-primary); font-size:14px; font-weight:850; }
+  .bk-invite-done-sub { margin-top:2px; color:var(--text-muted); font-size:12px; font-weight:650; }
+  .bk-invite-done-share { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-top:10px; border-top:1px solid var(--border); color:var(--text-secondary); font-size:12px; font-weight:700; }
+  .bk-invite-done-share strong { color:var(--text-primary); font-size:15px; font-weight:900; }
+  .bk-invite-calendar { height:44px; display:inline-flex; align-items:center; justify-content:center; gap:8px; border-radius:14px; border:1px solid var(--border); background:var(--surface-1); color:var(--text-primary); font-family:var(--font-sans); font-size:13px; font-weight:800; cursor:pointer; }
+  .bk-invite-calendar:hover { background:var(--surface-2); }
+  @media(max-width:620px){
+    .bk-invite-card { grid-template-columns:auto minmax(0,1fr); }
+    .bk-invite-actions { grid-column:1 / -1; min-width:0; }
+  }
   .bk-layout { display:grid; grid-template-columns:1.4fr 1fr; gap:20px; align-items:start; }
   .bk-layout.bk-layout-empty { align-items:stretch; }
   .bk-list-panel { background:var(--surface-1); border:1px solid var(--border); border-radius:24px; overflow:hidden; }
@@ -639,14 +668,83 @@ export default function MyBookingsPage() {
     });
   };
 
-  const handleAcceptInvitation = async (invitationId: string) => {
+  const getInvitationLabels = (invitation: PlayerBookingInvitationDto) => {
+    const start = new Date(invitation.startDateTime);
+    const end = new Date(invitation.endDateTime);
+    const timeZone = invitation.club.timeZone;
+    const longDate = start
+      .toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', ...(timeZone ? { timeZone } : {}) })
+      .replace(',', '');
+    return {
+      start,
+      end,
+      dateBox: getDateBoxParts(start, timeZone),
+      longDate: longDate.charAt(0).toUpperCase() + longDate.slice(1),
+      timeRange: `${formatTime(start, timeZone)} – ${formatTime(end, timeZone)}`,
+      activity: [invitation.activityName, invitation.formatName].filter(Boolean).join(' '),
+      inviter: String(invitation.invitedByName || '').trim(),
+    };
+  };
+
+  const handleAcceptInvitation = async (invitation: PlayerBookingInvitationDto) => {
     if (invitationActionId) return;
-    setInvitationActionId(invitationId);
+    setInvitationActionId(invitation.id);
     try {
-      await acceptBookingInvitation(invitationId);
+      await acceptBookingInvitation(invitation.id);
       if (typeof window !== 'undefined') window.dispatchEvent(new Event(BOOKING_INVITATIONS_CHANGED_EVENT));
       await loadData();
-      flashSuccess('Invitación aceptada.');
+      const labels = getInvitationLabels(invitation);
+      const inviterFirstName = labels.inviter.split(' ')[0];
+      setModalState({
+        show: true,
+        title: '¡Listo, estás anotado!',
+        isWarning: false,
+        cancelText: '',
+        confirmText: 'Listo',
+        message: (
+          <div className="bk-invite-done">
+            <p style={{ margin: 0 }}>
+              Ya está en tus reservas activas.{inviterFirstName ? ` ${inviterFirstName} lo ve en su reserva.` : ''}
+            </p>
+            <div className="bk-invite-done-card">
+              <div className="bk-invite-done-row">
+                <div className="bk-date-box bk-date-box-active">
+                  <span className="bk-date-day" style={{ color: 'var(--accent-fg)' }}>{labels.dateBox.day}</span>
+                  <span className="bk-date-month">{labels.dateBox.month}</span>
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div className="bk-invite-done-title">{labels.longDate} · {labels.timeRange}</div>
+                  <div className="bk-invite-done-sub">
+                    {[labels.activity, invitation.court.name, invitation.club.name].filter(Boolean).join(' · ')}
+                  </div>
+                </div>
+              </div>
+              {invitation.myShareAmount != null && (
+                <div className="bk-invite-done-share">
+                  <span>Tu parte · se paga en el club</span>
+                  <strong>{formatMoney(Number(invitation.myShareAmount))}</strong>
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              className="bk-invite-calendar"
+              onClick={() => downloadCalendarEvent({
+                uid: `booking-${invitation.bookingId}`,
+                title: [labels.activity || 'Partido', invitation.club.name].join(' · '),
+                start: labels.start,
+                end: labels.end,
+                location: `${invitation.club.name} · ${invitation.court.name}`,
+                description: labels.inviter ? `Te invitó ${labels.inviter}.` : null,
+              })}
+            >
+              <Calendar size={15} />
+              Agregar a mi calendario
+            </button>
+          </div>
+        ),
+        onConfirm: () => closeModal(),
+      });
     } catch (error) {
       showError(toPublicBookingErrorMessage(error, 'No pudimos aceptar la invitación.'));
     } finally {
@@ -654,19 +752,30 @@ export default function MyBookingsPage() {
     }
   };
 
-  const handleDeclineInvitation = async (invitationId: string) => {
+  // "No puedo": pide confirmación antes de rechazar, para no perder la invitación por un toque sin querer.
+  const handleDeclineInvitation = (invitation: PlayerBookingInvitationDto) => {
     if (invitationActionId) return;
-    setInvitationActionId(invitationId);
-    try {
-      await declineBookingInvitation(invitationId);
-      if (typeof window !== 'undefined') window.dispatchEvent(new Event(BOOKING_INVITATIONS_CHANGED_EVENT));
-      await loadData();
-      flashSuccess('Invitación rechazada.');
-    } catch (error) {
-      showError(toPublicBookingErrorMessage(error, 'No pudimos rechazar la invitación.'));
-    } finally {
-      setInvitationActionId(null);
-    }
+    const inviterFirstName = getInvitationLabels(invitation).inviter.split(' ')[0];
+    showConfirm({
+      title: '¿No podés ir?',
+      message: `Vas a rechazar la invitación y tu lugar queda libre${inviterFirstName ? ` para que ${inviterFirstName} invite a otra persona` : ''}.`,
+      confirmText: 'Rechazar invitación',
+      cancelText: 'Volver',
+      isWarning: true,
+      onConfirm: async () => {
+        setInvitationActionId(invitation.id);
+        try {
+          await declineBookingInvitation(invitation.id);
+          if (typeof window !== 'undefined') window.dispatchEvent(new Event(BOOKING_INVITATIONS_CHANGED_EVENT));
+          await loadData();
+          flashSuccess('Invitación rechazada.');
+        } catch (error) {
+          showError(toPublicBookingErrorMessage(error, 'No pudimos rechazar la invitación.'));
+        } finally {
+          setInvitationActionId(null);
+        }
+      }
+    });
   };
 
   const handleLeaveBooking = (booking: PlayerBookingDto) => {
@@ -861,75 +970,61 @@ export default function MyBookingsPage() {
         {/* ── TABS ── */}
         <div className="bk-tabs-wrap">
           {pendingInvitations.length > 0 && (
-            <div id="invitaciones" style={{ marginBottom: 18, display: 'grid', gap: 10, scrollMarginTop: 90 }}>
+            <section id="invitaciones" className="bk-invite-section">
+              <h2 className="bk-invite-heading">
+                <span className="bk-invite-dot" aria-hidden="true" />
+                Te invitaron a jugar
+              </h2>
               {pendingInvitations.map((invitation) => {
                 const busy = invitationActionId === invitation.id;
+                const labels = getInvitationLabels(invitation);
                 return (
-                  <div
-                    key={invitation.id}
-                    style={{
-                      padding: '14px 16px',
-                      borderRadius: 16,
-                      background: 'var(--surface-1)',
-                      border: '1px solid var(--accent-border-subtle)',
-                      display: 'grid',
-                      gap: 10
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)' }}>
-                          Invitación pendiente para {invitation.club.name}
-                        </div>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                          {invitation.court.name} · {formatWeekday(new Date(invitation.startDateTime), invitation.club.timeZone)} · {formatTime(new Date(invitation.startDateTime), invitation.club.timeZone)} – {formatTime(new Date(invitation.endDateTime), invitation.club.timeZone)}
-                        </div>
-                        {(invitation.activityName || invitation.formatName) && (
-                          <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 700 }}>
-                            {[invitation.activityName, invitation.formatName].filter(Boolean).join(' · ')}
-                            {invitation.playerCount ? ` (${invitation.playerCount} jugadores)` : ''}
-                          </div>
-                        )}
-                        {invitation.invitedByName && (
-                          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Te invitó {invitation.invitedByName}</div>
-                        )}
-                        {invitation.myShareAmount != null && (
-                          <div style={{ marginTop: 2, fontSize: 13, fontWeight: 800, color: 'var(--text-primary)' }}>
-                            Tu parte: ${Number(invitation.myShareAmount).toLocaleString('es-AR')}
-                            {invitation.myMemberCategoryName ? ' con precio socio' : ''}
-                          </div>
-                        )}
-                      </div>
-                      <span className="bk-card-chip" style={{ background: 'var(--positive-bg)', color: 'var(--accent-fg)' }}>
-                        Invitación
-                      </span>
+                  <article key={invitation.id} className="bk-invite-card">
+                    <div className="bk-date-box bk-date-box-active bk-invite-date">
+                      <span className="bk-date-day" style={{ color: 'var(--accent-fg)' }}>{labels.dateBox.day}</span>
+                      <span className="bk-date-month">{labels.dateBox.month}</span>
                     </div>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <div className="bk-invite-body">
+                      <p className="bk-invite-title">
+                        {labels.inviter ? `${labels.inviter} te invitó a jugar` : 'Te invitaron a jugar'}
+                      </p>
+                      <p className="bk-invite-line">
+                        {[labels.longDate, labels.timeRange, labels.activity, invitation.court.name].filter(Boolean).join(' · ')}
+                      </p>
+                      <p className="bk-invite-line">{invitation.club.name}</p>
+                      {invitation.myShareAmount != null && (
+                        <div className="bk-invite-meta">
+                          <span className="bk-invite-share">
+                            Tu parte {formatMoney(Number(invitation.myShareAmount))}
+                            {invitation.myMemberCategoryName ? ' · precio socio' : ''}
+                          </span>
+                          <span className="bk-invite-pay">Se paga en el club</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="bk-invite-actions">
                       <button
                         type="button"
                         className="bk-action-btn bk-action-rebook"
-                        style={{ width: 'auto', padding: '10px 14px' }}
                         disabled={busy}
-                        onClick={() => handleAcceptInvitation(invitation.id)}
+                        onClick={() => handleAcceptInvitation(invitation)}
                       >
-                        <CheckCircle2 size={14} />
-                        {busy ? 'Procesando...' : 'Aceptar'}
+                        <CheckCircle2 size={15} />
+                        {busy ? 'Procesando...' : 'Sumarme'}
                       </button>
                       <button
                         type="button"
-                        className="bk-action-btn bk-action-cancel"
-                        style={{ width: 'auto', padding: '10px 14px' }}
+                        className="bk-invite-decline"
                         disabled={busy}
-                        onClick={() => handleDeclineInvitation(invitation.id)}
+                        onClick={() => handleDeclineInvitation(invitation)}
                       >
-                        <XCircle size={14} />
-                        Rechazar
+                        No puedo
                       </button>
                     </div>
-                  </div>
+                  </article>
                 );
               })}
-            </div>
+            </section>
           )}
           <div className="p-public-tabs" style={{ display: 'inline-flex' }}>
             {(['ACTIVE', 'PAST', 'CANCELLED'] as const).map(tab => (

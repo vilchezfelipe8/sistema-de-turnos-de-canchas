@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import {
   Calendar,
   CheckCircle2,
   Clock,
-  CreditCard,
   Loader2,
   MapPin,
   ShieldCheck,
@@ -17,7 +16,7 @@ import {
 } from 'lucide-react';
 import DarkPageLayout from '../components/DarkPageLayout';
 import UserLoadingState from '../components/UserLoadingState';
-import { createBooking } from '../services/BookingService';
+import { createBooking, lookupPlayerForInvitation, type PlayerLookupResult } from '../services/BookingService';
 import { getPendingLogoutRedirect } from '../services/AuthService';
 import { useValidateAuth } from '../hooks/useValidateAuth';
 import { extractErrorMessage, reportUiError } from '../utils/uiError';
@@ -137,6 +136,46 @@ const CHECKOUT_CSS = `
   .p-public-root.p-public-theme-light .checkout-success-icon { background:var(--positive-bg); border-color:var(--accent-border-subtle); color:var(--accent-fg); }
   .p-public-root:not(.p-public-theme-light) .checkout-success .checkout-primary { background:linear-gradient(135deg, var(--brand) 0%, var(--brand-hover) 100%); border-color:var(--brand-hover); color:var(--brand-on); box-shadow:0 14px 28px rgba(182,243,106,.18); }
   .p-public-root:not(.p-public-theme-light) .checkout-success .checkout-primary:hover { background:linear-gradient(135deg, var(--brand-hover) 0%, var(--brand) 100%); border-color:var(--brand); color:var(--brand-on); }
+  .checkout-player-icon.is-pending { background:var(--warn-bg); color:var(--warn-fg); }
+  .checkout-player-icon.is-empty { background:transparent; border:1px dashed var(--border-strong); color:var(--text-muted); }
+  .checkout-player-index { font-size:11px; font-weight:900; }
+  .checkout-player-status.is-accent { color:var(--accent-fg); }
+  .checkout-player-status.is-warn { color:var(--warn-fg); }
+  .checkout-player-name.is-muted { color:var(--text-secondary); }
+  .checkout-player-amount { flex-shrink:0; color:var(--text-primary); font-size:13px; font-weight:850; white-space:nowrap; }
+  .checkout-player-amount.is-muted { color:var(--text-secondary); }
+  .checkout-invite-box { display:grid; gap:12px; padding:13px; border-radius:15px; background:var(--surface-2); border:1px solid var(--accent-border); }
+  .checkout-invite-head { display:flex; align-items:center; gap:10px; }
+  .checkout-invite-title { margin:0; flex:1; color:var(--text-primary); font-size:12px; font-weight:850; }
+  .checkout-link-btn { border:0; background:transparent; color:var(--text-muted); padding:6px 4px; font-family:var(--font-sans); font-size:11px; font-weight:800; cursor:pointer; }
+  .checkout-link-btn:hover { color:var(--text-primary); }
+  .checkout-lookup { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:13px; background:var(--surface-1); }
+  .checkout-lookup-avatar { width:32px; height:32px; border-radius:999px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:var(--surface-3); color:var(--text-primary); font-size:11px; font-weight:900; }
+  .checkout-lookup-info { min-width:0; flex:1; }
+  .checkout-lookup-name { margin:0; color:var(--text-primary); font-size:13px; font-weight:850; overflow-wrap:anywhere; }
+  .checkout-lookup-copy { margin:2px 0 0; color:var(--text-muted); font-size:11px; line-height:1.4; font-weight:650; }
+  .checkout-lookup-action { height:38px; flex-shrink:0; border-radius:12px; border:1px solid var(--brand); background:var(--brand); color:var(--brand-on); padding:0 14px; display:inline-flex; align-items:center; gap:6px; font-family:var(--font-sans); font-size:12px; font-weight:900; cursor:pointer; }
+  .checkout-lookup-action:hover { background:var(--brand-hover); border-color:var(--brand-hover); }
+  .checkout-lookup-warn { padding:11px 12px; border-radius:13px; background:var(--warn-bg); }
+  .checkout-lookup-warn-title { margin:0; color:var(--warn-fg); font-size:12px; font-weight:850; }
+  .checkout-lookup-hint { margin:0; display:flex; align-items:center; gap:6px; color:var(--text-muted); font-size:11px; font-weight:650; }
+  .checkout-breakdown { display:grid; gap:10px; padding:20px 22px; border-bottom:1px solid var(--border); }
+  .checkout-breakdown-row { display:flex; align-items:baseline; justify-content:space-between; gap:12px; font-size:13px; }
+  .checkout-breakdown-label { color:var(--text-secondary); font-weight:650; }
+  .checkout-breakdown-amount { color:var(--text-primary); font-weight:850; white-space:nowrap; }
+  .checkout-breakdown-note { margin:0; color:var(--text-muted); font-size:11px; line-height:1.5; font-weight:600; }
+  .checkout-value-sub { margin:4px 0 0; color:var(--text-muted); font-size:12px; font-weight:650; }
+  .checkout-status-chip { flex-shrink:0; border-radius:999px; padding:4px 9px; font-size:10px; font-weight:900; white-space:nowrap; }
+  .checkout-status-chip.is-confirmed { background:var(--positive-bg); color:var(--accent-fg); }
+  .checkout-status-chip.is-pending { background:var(--warn-bg); color:var(--warn-fg); }
+  .checkout-success-pay { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:20px; padding:14px 16px; border-radius:18px; background:var(--accent-bg-soft); border:1px solid var(--accent-border-subtle); text-align:left; }
+  .checkout-success-pay-amount { margin:2px 0 0; color:var(--accent-fg); font-size:24px; font-weight:900; letter-spacing:-.05em; text-align:right; }
+  @media(max-width:620px){
+    .checkout-lookup { flex-wrap:wrap; }
+    .checkout-lookup-action { width:100%; justify-content:center; }
+    .checkout-success-pay { flex-direction:column; align-items:flex-start; }
+    .checkout-success-pay-amount { text-align:left; }
+  }
 `;
 
 const formatMoney = (value: number) => `$${Number(value || 0).toLocaleString('es-AR')}`;
@@ -153,10 +192,45 @@ const getDraftDateLabels = (draft: BookingCheckoutDraft) => {
   if (!date) {
     return { longDate: draft.date, shortDate: draft.date };
   }
+  // "jueves, 15 de octubre" → "Jueves 15 de octubre" (solo la primera letra en mayúscula).
+  const longDate = date
+    .toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })
+    .replace(',', '');
   return {
-    longDate: date.toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: 'long' }),
+    longDate: longDate.charAt(0).toUpperCase() + longDate.slice(1),
     shortDate: date.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }),
   };
+};
+
+const formatDurationLabel = (minutes: number) => {
+  const safeMinutes = Math.max(0, Math.round(Number(minutes || 0)));
+  const hours = Math.floor(safeMinutes / 60);
+  const rest = safeMinutes % 60;
+  if (hours === 0) return `${rest} min`;
+  return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
+};
+
+const getInitials = (value: string) =>
+  String(value || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((chunk) => chunk.charAt(0).toUpperCase())
+    .join('') || '?';
+
+// Valida lo que se escribió en "DNI o email" y lo deja listo para buscar o enviar.
+const parseParticipantIdentifier = (raw: string):
+  | { kind: 'dni' | 'email'; value: string }
+  | { error: string } => {
+  const identifier = String(raw || '').trim();
+  if (!identifier) return { error: 'Ingresá el DNI o email del jugador.' };
+  if (identifier.includes('@')) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier)) return { error: 'Ingresá un email válido.' };
+    return { kind: 'email', value: identifier.toLowerCase() };
+  }
+  const digits = identifier.replace(/\D/g, '');
+  if (digits.length < 6 || digits.length > 9) return { error: 'Ingresá un DNI válido.' };
+  return { kind: 'dni', value: digits };
 };
 
 const getTimeRange = (draft: BookingCheckoutDraft) => {
@@ -166,7 +240,7 @@ const getTimeRange = (draft: BookingCheckoutDraft) => {
   const start = new Date(2000, 0, 1, hour, minute);
   const end = new Date(start.getTime() + minutes * 60000);
   const format = (date: Date) => date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
-  return `${format(start)} - ${format(end)}`;
+  return `${format(start)} – ${format(end)}`;
 };
 
 const formatSlugLabel = (value: string) =>
@@ -186,8 +260,15 @@ export default function CheckoutPage() {
   const [confirmedBookingId, setConfirmedBookingId] = useState<string | null>(null);
   const [participants, setParticipants] = useState<BookingCheckoutParticipantDraft[]>([]);
   const [participantIdentifier, setParticipantIdentifier] = useState('');
-  const [participantName, setParticipantName] = useState('');
   const [participantError, setParticipantError] = useState('');
+  // Invitar: el editor se abre sobre el primer lugar libre y busca al jugador antes de agregarlo.
+  const [inviteEditorOpen, setInviteEditorOpen] = useState(false);
+  const [participantLookup, setParticipantLookup] = useState<{
+    key: string;
+    loading: boolean;
+    result: PlayerLookupResult | null;
+  } | null>(null);
+  const lookupSeqRef = useRef(0);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -210,6 +291,18 @@ export default function CheckoutPage() {
   const maxParticipants = draft?.playerCount ? Math.max(0, draft.playerCount - 1) : 20;
   const participantLimitReached = participants.length >= maxParticipants;
   const ownerName = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() || 'Vos';
+  const durationLabel = formatDurationLabel(Number(draft?.durationMinutes || 0));
+  const activityLabel = [draft?.activityName, draft?.formatName].filter(Boolean).join(' · ');
+  const openSlotCount = draft?.playerCount ? Math.max(0, draft.playerCount - 1 - participants.length) : 0;
+  // Precio por jugador: parte del titular y de cada lugar sin asignar (precio general, con luces).
+  const isPerPlayer = Boolean(draft?.activityFormatId && draft?.pricePerPlayer != null);
+  const ownerShare = Number(draft?.pricePerPlayer || 0);
+  const otherSlotsCount = draft?.playerCount ? Math.max(0, draft.playerCount - 1) : 0;
+  const generalShare = draft?.generalPricePerPlayer != null
+    ? Number(draft.generalPricePerPlayer)
+    : otherSlotsCount > 0
+      ? Math.max(0, (Number(draft?.price || 0) - ownerShare) / otherSlotsCount)
+      : 0;
   const checkoutBreadcrumbs = useMemo(() => {
     const items: Array<{ label: string; href?: string }> = [{ label: 'Inicio', href: '/' }];
     if (draft?.clubSlug) {
@@ -230,50 +323,100 @@ export default function CheckoutPage() {
     });
   };
 
-  const handleAddParticipant = () => {
-    if (participantLimitReached) return;
-    const identifier = participantIdentifier.trim();
-    const isEmail = identifier.includes('@');
-    const normalizedIdentifier = isEmail
-      ? identifier.toLowerCase()
-      : identifier.replace(/\D/g, '');
-    if (!identifier) {
-      setParticipantError('Ingresá el DNI o email del jugador.');
-      return;
-    }
-    if (isEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier)) {
-      setParticipantError('Ingresá un email válido.');
-      return;
-    }
-    if (!isEmail && (normalizedIdentifier.length < 6 || normalizedIdentifier.length > 9)) {
-      setParticipantError('Ingresá un DNI válido.');
-      return;
-    }
-    if (isEmail && normalizedIdentifier === String(user?.email || '').trim().toLowerCase()) {
-      setParticipantError('Vos ya sos el titular de la reserva.');
-      return;
+  // Valida el identificador escrito: formato, que no sea el titular y que no esté ya agregado.
+  const validateParticipantIdentifier = useCallback((raw: string) => {
+    const parsed = parseParticipantIdentifier(raw);
+    if ('error' in parsed) return parsed;
+    if (parsed.kind === 'email' && parsed.value === String(user?.email || '').trim().toLowerCase()) {
+      return { error: 'Vos ya sos el titular de la reserva.' };
     }
     const alreadyAdded = participants.some((participant) => {
       const current = participant.identifier.includes('@')
         ? participant.identifier.trim().toLowerCase()
         : participant.identifier.replace(/\D/g, '');
-      return current === normalizedIdentifier;
+      return current === parsed.value;
     });
-    if (alreadyAdded) {
-      setParticipantError('Ese jugador ya está agregado.');
+    if (alreadyAdded) return { error: 'Ese jugador ya está agregado.' };
+    return parsed;
+  }, [participants, user?.email]);
+
+  const runParticipantLookup = useCallback(async (parsed: { kind: 'dni' | 'email'; value: string }) => {
+    const key = `${parsed.kind}:${parsed.value}`;
+    const seq = ++lookupSeqRef.current;
+    setParticipantLookup({ key, loading: true, result: null });
+    try {
+      const result = await lookupPlayerForInvitation(
+        parsed.kind === 'dni' ? { dni: parsed.value } : { email: parsed.value }
+      );
+      if (seq !== lookupSeqRef.current) return;
+      setParticipantLookup({ key, loading: false, result });
+    } catch (error) {
+      if (seq !== lookupSeqRef.current) return;
+      reportUiError({ area: 'CheckoutPage', action: 'lookupParticipant' }, error);
+      // Se guarda la clave para no reintentar solo; con Enter se puede volver a buscar.
+      setParticipantLookup({ key, loading: false, result: null });
+      setParticipantError(extractErrorMessage(error, 'No pudimos buscar al jugador. Intentá de nuevo.'));
+    }
+  }, []);
+
+  // Busca solo cuando el DNI o email ya es válido, con una pequeña espera mientras se escribe.
+  useEffect(() => {
+    if (!inviteEditorOpen) return;
+    const parsed = parseParticipantIdentifier(participantIdentifier);
+    if ('error' in parsed) return;
+    const validated = validateParticipantIdentifier(participantIdentifier);
+    if ('error' in validated) return;
+    const key = `${parsed.kind}:${parsed.value}`;
+    if (participantLookup?.key === key) return;
+    const timer = window.setTimeout(() => { void runParticipantLookup(parsed); }, 450);
+    return () => window.clearTimeout(timer);
+  }, [inviteEditorOpen, participantIdentifier, participantLookup?.key, runParticipantLookup, validateParticipantIdentifier]);
+
+  const resetInviteEditor = () => {
+    lookupSeqRef.current += 1;
+    setInviteEditorOpen(false);
+    setParticipantIdentifier('');
+    setParticipantLookup(null);
+    setParticipantError('');
+  };
+
+  const currentLookupKey = (() => {
+    const parsed = parseParticipantIdentifier(participantIdentifier);
+    return 'error' in parsed ? '' : `${parsed.kind}:${parsed.value}`;
+  })();
+  const currentLookup = participantLookup && participantLookup.key === currentLookupKey ? participantLookup : null;
+
+  const handleAddParticipant = () => {
+    if (participantLimitReached) return;
+    const validated = validateParticipantIdentifier(participantIdentifier);
+    if ('error' in validated) {
+      setParticipantError(validated.error);
+      return;
+    }
+    // Enter antes de que termine la búsqueda: buscar ahora y esperar a que confirme con "Invitar".
+    if (!currentLookup || currentLookup.loading || !currentLookup.result) {
+      if (!currentLookup?.loading) void runParticipantLookup(validated);
+      return;
+    }
+    const { status, displayName } = currentLookup.result;
+    if (status === 'SELF') {
+      setParticipantError('Vos ya sos el titular de la reserva.');
+      return;
+    }
+    if (status === 'DNI_NOT_FOUND') {
+      setParticipantError('No encontramos una cuenta con ese DNI. Probá con su email.');
       return;
     }
     persistParticipants([
       ...participants,
       {
         id: `participant_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        identifier,
-        name: participantName.trim() || null,
+        identifier: participantIdentifier.trim(),
+        name: status === 'FOUND' ? displayName : null,
+        lookupStatus: status,
       },
     ]);
-    setParticipantIdentifier('');
-    setParticipantName('');
-    setParticipantError('');
+    resetInviteEditor();
   };
 
   const handleRemoveParticipant = (participantId: string) => {
@@ -373,49 +516,81 @@ export default function CheckoutPage() {
             </span>
             <h1 className="checkout-title">Tu turno quedó reservado</h1>
             <p className="checkout-copy" style={{ margin: '0 auto 22px' }}>
-              Guardamos la reserva en el club. Podés verla desde Mis Reservas cuando necesites revisar el horario.
+              Te esperamos en el club. La tenés en Mis reservas para revisarla cuando quieras.
             </p>
-            <div className="checkout-card" style={{ textAlign: 'left', marginBottom: 20 }}>
-              <div className="checkout-card-pad checkout-grid">
-                <div className="checkout-detail">
-                  <div className="checkout-label"><Calendar size={14} /> Fecha</div>
-                  <p className="checkout-value" style={{ textTransform: 'capitalize' }}>{dateLabels?.longDate}</p>
-                </div>
-                <div className="checkout-detail">
-                  <div className="checkout-label"><Clock size={14} /> Horario</div>
-                  <p className="checkout-value">{timeRange}</p>
-                </div>
-                <div className="checkout-detail">
-                  <div className="checkout-label"><MapPin size={14} /> Cancha</div>
-                  <p className="checkout-value">{draft.courtName}</p>
-                </div>
-                <div className="checkout-detail">
-                  <div className="checkout-label"><Ticket size={14} /> Total</div>
-                  <p className="checkout-value">{formatMoney(draft.price)}</p>
-                </div>
+            <div className="checkout-grid" style={{ textAlign: 'left', marginBottom: 14 }}>
+              <div className="checkout-detail">
+                <div className="checkout-label"><Calendar size={14} /> Cuándo</div>
+                <p className="checkout-value">{dateLabels?.longDate}</p>
+                <p className="checkout-value-sub">{timeRange} · {durationLabel}</p>
+              </div>
+              <div className="checkout-detail">
+                <div className="checkout-label"><MapPin size={14} /> Dónde</div>
+                <p className="checkout-value">{draft.courtName}</p>
+                <p className="checkout-value-sub">{activityLabel}</p>
               </div>
             </div>
-            {participants.length > 0 && (
-              <div className="checkout-card" style={{ textAlign: 'left', marginBottom: 20 }}>
+            {(participants.length > 0 || openSlotCount > 0) && (
+              <div className="checkout-card" style={{ textAlign: 'left', marginBottom: 14 }}>
                 <div className="checkout-card-pad">
-                  <h2 className="checkout-participants-title"><Users size={17} /> Participantes invitados</h2>
-                  <p className="checkout-participants-copy" style={{ marginBottom: 12 }}>
-                    Los agregamos al turno. Quedarán confirmados cuando acepten la invitación.
-                  </p>
+                  <div className="checkout-participants-head" style={{ marginBottom: 12 }}>
+                    <h2 className="checkout-participants-title"><Users size={17} /> Jugadores</h2>
+                    {participants.length > 0 && (
+                      <span className="checkout-places">
+                        1 confirmado · {participants.length} {participants.length === 1 ? 'pendiente' : 'pendientes'}
+                      </span>
+                    )}
+                  </div>
                   <div className="checkout-player-list" style={{ marginBottom: 0 }}>
+                    <div className="checkout-player">
+                      <span className="checkout-player-icon"><span className="checkout-player-index">{getInitials(ownerName)}</span></span>
+                      <div className="checkout-player-info">
+                        <p className="checkout-player-name">{ownerName} · Vos</p>
+                        {isPerPlayer && (
+                          <p className="checkout-player-status">
+                            {draft.memberCategoryName ? 'Socio · ' : ''}tu parte {formatMoney(Number(draft.pricePerPlayer || 0))}
+                          </p>
+                        )}
+                      </div>
+                      <span className="checkout-status-chip is-confirmed">Confirmado</span>
+                    </div>
                     {participants.map((participant) => (
                       <div className="checkout-player" key={participant.id}>
-                        <span className="checkout-player-icon"><UserPlus size={15} /></span>
+                        <span className="checkout-player-icon is-pending">
+                          <span className="checkout-player-index">{getInitials(participant.name || participant.identifier)}</span>
+                        </span>
                         <div className="checkout-player-info">
                           <p className="checkout-player-name">{participant.name || participant.identifier}</p>
-                          <p className="checkout-player-status">Invitación pendiente</p>
+                          <p className="checkout-player-status">
+                            {participant.lookupStatus === 'EMAIL_WITHOUT_ACCOUNT'
+                              ? 'La verá cuando se registre con ese email'
+                              : 'Le avisamos en la app para que acepte'}
+                          </p>
                         </div>
+                        <span className="checkout-status-chip is-pending">Esperando respuesta</span>
                       </div>
                     ))}
                   </div>
+                  {openSlotCount > 0 && (
+                    <p className="checkout-participants-note">
+                      {openSlotCount === 1 ? 'Queda 1 lugar libre' : `Quedan ${openSlotCount} lugares libres`}. Podés invitar desde Mis reservas.
+                    </p>
+                  )}
                 </div>
               </div>
             )}
+            <div className="checkout-success-pay">
+              <div>
+                <p className="payment-title">Se paga en el club</p>
+                <p className="payment-copy">
+                  {isPerPlayer ? 'Cada uno abona su parte en el mostrador.' : 'Lo abonás en el mostrador del club.'}
+                </p>
+              </div>
+              <div>
+                <p className="checkout-price-label" style={{ textAlign: 'inherit' }}>Total del turno</p>
+                <p className="checkout-success-pay-amount">{formatMoney(draft.price)}</p>
+              </div>
+            </div>
             <div className="checkout-actions">
               <Link href={backHref} className="checkout-secondary" style={{ minWidth: 236 }}>Reservar otro</Link>
               <Link href="/bookings" className="checkout-primary">Ver mis reservas</Link>
@@ -436,11 +611,11 @@ export default function CheckoutPage() {
                 <div className="checkout-hero-content">
                   <span className="checkout-pill">
                     <ShieldCheck size={13} />
-                    Revisá antes de pagar
+                    Último paso
                   </span>
-                  <h1 className="checkout-title">Ya casi terminamos</h1>
+                  <h1 className="checkout-title">Confirmá tu reserva</h1>
                   <p className="checkout-copy">
-                    Confirmá que los datos del turno sean correctos.
+                    Revisá los datos del turno y, si querés, sumá a tus compañeros.
                   </p>
                 </div>
               </div>
@@ -451,27 +626,22 @@ export default function CheckoutPage() {
                     <Ticket size={19} />
                   </div>
                   <div>
-                    <p className="checkout-activity-name">{draft.activityName}</p>
-                    <p className="checkout-activity-court">{draft.courtName}</p>
+                    <p className="checkout-activity-name">{activityLabel}</p>
+                    <p className="checkout-activity-court">
+                      {draft.courtName}
+                      {draft.playerCount ? ` · ${draft.playerCount} jugadores` : ''}
+                    </p>
                   </div>
                 </div>
 
                 <div className="checkout-grid">
                   <div className="checkout-detail">
                     <div className="checkout-label"><Calendar size={14} /> Fecha</div>
-                    <p className="checkout-value" style={{ textTransform: 'capitalize' }}>{dateLabels?.longDate}</p>
+                    <p className="checkout-value">{dateLabels?.longDate}</p>
                   </div>
                   <div className="checkout-detail">
                     <div className="checkout-label"><Clock size={14} /> Horario</div>
-                    <p className="checkout-value">{timeRange}</p>
-                  </div>
-                  <div className="checkout-detail">
-                    <div className="checkout-label"><MapPin size={14} /> Cancha</div>
-                    <p className="checkout-value">{draft.courtName}</p>
-                  </div>
-                  <div className="checkout-detail">
-                    <div className="checkout-label"><Ticket size={14} /> Duración</div>
-                    <p className="checkout-value">{draft.durationMinutes} min</p>
+                    <p className="checkout-value">{timeRange} · {durationLabel}</p>
                   </div>
                 </div>
               </div>
@@ -480,7 +650,7 @@ export default function CheckoutPage() {
                 <div className="checkout-participants-head">
                   <div>
                     <h2 className="checkout-participants-title"><Users size={17} /> ¿Con quién jugás?</h2>
-                    <p className="checkout-participants-copy">Podés agregar participantes ahora o completar el equipo más adelante.</p>
+                    <p className="checkout-participants-copy">Opcional. También podés invitar después desde Mis reservas.</p>
                   </div>
                   <span className="checkout-places">
                     {draft.playerCount
@@ -489,23 +659,30 @@ export default function CheckoutPage() {
                   </span>
                 </div>
 
-                <div className="checkout-player-list">
+                <div className="checkout-player-list" style={{ marginBottom: 0 }}>
                   <div className="checkout-player">
-                    <span className="checkout-player-icon"><Users size={15} /></span>
+                    <span className="checkout-player-icon"><span className="checkout-player-index">1</span></span>
                     <div className="checkout-player-info">
-                      <p className="checkout-player-name">{ownerName}</p>
-                      <p className="checkout-player-status">Titular · Vos</p>
+                      <p className="checkout-player-name">{ownerName} · Vos</p>
+                      <p className={`checkout-player-status${draft.memberCategoryName ? ' is-accent' : ''}`}>
+                        {draft.memberCategoryName ? 'Socio · precio socio' : 'Titular'}
+                      </p>
                     </div>
+                    {isPerPlayer && <span className="checkout-player-amount">{formatMoney(ownerShare)}</span>}
                   </div>
-                  {participants.map((participant) => (
+
+                  {participants.map((participant, index) => (
                     <div className="checkout-player" key={participant.id}>
-                      <span className="checkout-player-icon"><UserPlus size={15} /></span>
+                      <span className="checkout-player-icon is-pending"><span className="checkout-player-index">{index + 2}</span></span>
                       <div className="checkout-player-info">
                         <p className="checkout-player-name">{participant.name || participant.identifier}</p>
-                        <p className="checkout-player-status">
-                          {participant.name ? `${participant.identifier} · ` : ''}Quedará invitado
+                        <p className="checkout-player-status is-warn">
+                          {participant.lookupStatus === 'EMAIL_WITHOUT_ACCOUNT'
+                            ? 'Sin cuenta todavía · la invitación lo espera'
+                            : 'Le llega la invitación al confirmar'}
                         </p>
                       </div>
+                      {isPerPlayer && <span className="checkout-player-amount is-muted">{formatMoney(generalShare)}</span>}
                       <button
                         type="button"
                         className="checkout-player-remove"
@@ -516,97 +693,170 @@ export default function CheckoutPage() {
                       </button>
                     </div>
                   ))}
-                </div>
 
-                {!participantLimitReached ? (
-                  <form
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      handleAddParticipant();
-                    }}
-                  >
-                    <div className="checkout-participant-form">
-                      <label className="checkout-form-field">
-                        <span className="checkout-form-label">DNI o email</span>
-                        <input
-                          className="checkout-form-input"
-                          type="text"
-                          value={participantIdentifier}
-                          onChange={(event) => {
-                            setParticipantIdentifier(event.target.value);
-                            setParticipantError('');
+                  {(draft.playerCount
+                    ? Array.from({ length: openSlotCount }, (_, offset) => participants.length + 2 + offset)
+                    : participantLimitReached ? [] : [participants.length + 2]
+                  ).map((slotNumber, offset) => {
+                    const isFirstOpen = offset === 0;
+                    if (isFirstOpen && inviteEditorOpen) {
+                      return (
+                        <form
+                          key={`slot-${slotNumber}`}
+                          className="checkout-invite-box"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            handleAddParticipant();
                           }}
-                          placeholder="35123456 o jugador@email.com"
-                          autoComplete="off"
-                        />
-                      </label>
-                      <label className="checkout-form-field">
-                        <span className="checkout-form-label">Nombre (opcional)</span>
-                        <input
-                          className="checkout-form-input"
-                          type="text"
-                          value={participantName}
-                          onChange={(event) => setParticipantName(event.target.value)}
-                          placeholder="Ej. Leo"
-                          maxLength={120}
-                        />
-                      </label>
-                      <button type="submit" className="checkout-add-player">
-                        <UserPlus size={14} /> Agregar
-                      </button>
-                    </div>
-                    {participantError && <p className="checkout-field-error" role="alert">{participantError}</p>}
-                  </form>
-                ) : (
+                        >
+                          <div className="checkout-invite-head">
+                            <span className="checkout-player-icon is-empty"><span className="checkout-player-index">{slotNumber}</span></span>
+                            <p className="checkout-invite-title">
+                              {draft.playerCount ? `Invitar al lugar ${slotNumber}` : 'Invitar a un jugador'}
+                            </p>
+                            <button type="button" className="checkout-link-btn" onClick={resetInviteEditor}>Cancelar</button>
+                          </div>
+                          <label className="checkout-form-field">
+                            <span className="checkout-form-label">DNI o email del jugador</span>
+                            <input
+                              className="checkout-form-input"
+                              type="text"
+                              value={participantIdentifier}
+                              onChange={(event) => {
+                                setParticipantIdentifier(event.target.value);
+                                setParticipantError('');
+                              }}
+                              placeholder="35123456 o jugador@email.com"
+                              autoComplete="off"
+                              autoFocus
+                            />
+                          </label>
+                          {participantError ? (
+                            <p className="checkout-field-error" role="alert" style={{ margin: 0 }}>{participantError}</p>
+                          ) : currentLookup?.loading ? (
+                            <p className="checkout-lookup-hint">
+                              <Loader2 size={13} style={{ animation: 'p-public-spin .8s linear infinite' }} />
+                              Buscando…
+                            </p>
+                          ) : currentLookup?.result?.status === 'FOUND' ? (
+                            <div className="checkout-lookup">
+                              <span className="checkout-lookup-avatar">{getInitials(currentLookup.result.displayName || '')}</span>
+                              <div className="checkout-lookup-info">
+                                <p className="checkout-lookup-name">{currentLookup.result.displayName}</p>
+                                <p className="checkout-lookup-copy">Tiene cuenta en pique · le llega la invitación en la app</p>
+                              </div>
+                              <button type="submit" className="checkout-lookup-action">
+                                <UserPlus size={14} /> Invitar
+                              </button>
+                            </div>
+                          ) : currentLookup?.result?.status === 'EMAIL_WITHOUT_ACCOUNT' ? (
+                            <div className="checkout-lookup">
+                              <span className="checkout-lookup-avatar">@</span>
+                              <div className="checkout-lookup-info">
+                                <p className="checkout-lookup-name">{participantIdentifier.trim().toLowerCase()}</p>
+                                <p className="checkout-lookup-copy">Todavía no tiene cuenta. La invitación lo espera cuando se registre con este email.</p>
+                              </div>
+                              <button type="submit" className="checkout-lookup-action">
+                                <UserPlus size={14} /> Invitar igual
+                              </button>
+                            </div>
+                          ) : currentLookup?.result?.status === 'DNI_NOT_FOUND' ? (
+                            <div className="checkout-lookup-warn">
+                              <p className="checkout-lookup-warn-title">No encontramos una cuenta con ese DNI</p>
+                              <p className="checkout-lookup-copy">Probá con su email: si todavía no tiene cuenta, la invitación lo espera cuando se registre.</p>
+                            </div>
+                          ) : currentLookup?.result?.status === 'SELF' ? (
+                            <p className="checkout-field-error" role="alert" style={{ margin: 0 }}>Vos ya sos el titular de la reserva.</p>
+                          ) : (
+                            <p className="checkout-lookup-hint">Escribí el DNI o el email de tu compañero.</p>
+                          )}
+                        </form>
+                      );
+                    }
+                    return (
+                      <div className="checkout-player" key={`slot-${slotNumber}`}>
+                        <span className="checkout-player-icon is-empty"><span className="checkout-player-index">{slotNumber}</span></span>
+                        <div className="checkout-player-info">
+                          <p className="checkout-player-name is-muted">{draft.playerCount ? 'Lugar libre' : 'Sumar otro jugador'}</p>
+                          <p className="checkout-player-status">
+                            {isPerPlayer ? 'Se cobra como no socio hasta que alguien lo ocupe' : 'Opcional'}
+                          </p>
+                        </div>
+                        {isPerPlayer && <span className="checkout-player-amount is-muted">{formatMoney(generalShare)}</span>}
+                        {isFirstOpen && (
+                          <button
+                            type="button"
+                            className="checkout-add-player"
+                            onClick={() => {
+                              setInviteEditorOpen(true);
+                              setParticipantError('');
+                            }}
+                          >
+                            <UserPlus size={14} /> Invitar
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {draft.playerCount && openSlotCount === 0 ? (
                   <p className="checkout-participants-note">Ya completaste todos los lugares de esta modalidad.</p>
-                )}
-                <p className="checkout-participants-note">
-                  Las personas agregadas deberán aceptar la invitación desde su cuenta. Su precio de socio se aplica después de aceptarla o cuando el club lo valida.
-                </p>
+                ) : null}
               </div>
             </section>
 
             <aside className="checkout-card checkout-summary">
               <div className="checkout-price">
-                {draft.activityFormatId && draft.pricePerPlayer != null ? (
-                  <div>
-                    <p className="checkout-price-label">Tu parte · {draft.formatName} ({draft.playerCount} jugadores)</p>
-                    <p className="checkout-price-value">{formatMoney(draft.pricePerPlayer)}</p>
-                    <p style={{ margin: '6px 0 0', color: 'var(--text-muted)', fontSize: 12, fontWeight: 650 }}>
-                      {draft.memberCategoryName ? `Precio socio ${draft.memberCategoryName}. ` : ''}
-                      Cada jugador paga su parte según sea socio o no. Total estimado {formatMoney(draft.price)}.
-                      {draft.onlineCheckoutEnabled === false ? ' Se abona en el club.' : ''}
-                    </p>
-                  </div>
-                ) : (
-                  <div>
-                    <p className="checkout-price-label">Total del turno</p>
-                    <p className="checkout-price-value">{formatMoney(draft.price)}</p>
+                <div>
+                  <p className="checkout-price-label">Total del turno</p>
+                  <p className="checkout-price-value">{formatMoney(draft.price)}</p>
+                </div>
+                {!isPerPlayer && (
+                  <div className="checkout-price-notes">
+                    {draft.lightsExtraApplied > 0.009 && (
+                      <div>Luces +{formatMoney(draft.lightsExtraApplied)}{draft.lightsFromHour ? ` desde ${draft.lightsFromHour}` : ''}</div>
+                    )}
+                    {draft.discountAmount > 0.009 && <div style={{ color: 'var(--accent-fg)' }}>Descuento -{formatMoney(draft.discountAmount)}</div>}
                   </div>
                 )}
-                <div className="checkout-price-notes">
-                  {draft.lightsExtraApplied > 0.009 && (
-                    <div>Luces +{formatMoney(draft.lightsExtraApplied)}{draft.lightsFromHour ? ` desde ${draft.lightsFromHour}` : ''}</div>
-                  )}
-                  {draft.discountAmount > 0.009 && <div style={{ color: 'var(--accent-fg)' }}>Descuento -{formatMoney(draft.discountAmount)}</div>}
-                  {draft.lightsExtraApplied <= 0.009 && draft.discountAmount <= 0.009 && <div>Pago en el club</div>}
-                </div>
               </div>
+
+              {isPerPlayer && (
+                <div className="checkout-breakdown">
+                  <div className="checkout-breakdown-row">
+                    <span className="checkout-breakdown-label">Vos{draft.memberCategoryName ? ' · socio' : ''}</span>
+                    <span className="checkout-breakdown-amount">{formatMoney(ownerShare)}</span>
+                  </div>
+                  {Array.from({ length: otherSlotsCount }, (_, index) => {
+                    const participant = participants[index];
+                    return (
+                      <div className="checkout-breakdown-row" key={`share-${index}`}>
+                        <span className="checkout-breakdown-label">
+                          {participant ? (participant.name || participant.identifier) : `Lugar ${index + 2} · sin asignar`}
+                        </span>
+                        <span className="checkout-breakdown-amount">{formatMoney(generalShare)}</span>
+                      </div>
+                    );
+                  })}
+                  <p className="checkout-breakdown-note">
+                    {otherSlotsCount > 0 ? 'Si un invitado es socio y acepta, su parte baja a precio socio. ' : ''}
+                    {draft.lightsExtraApplied > 0.009
+                      ? `Incluye luces${draft.lightsFromHour ? ` desde ${draft.lightsFromHour}` : ''}, divididas entre los jugadores.`
+                      : ''}
+                  </p>
+                </div>
+              )}
 
               <div className="checkout-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div className="payment-option active">
                   <div className="payment-icon"><WalletCards size={18} /></div>
                   <div>
-                    <p className="payment-title">Pago en el club</p>
-                    <p className="payment-copy">Confirmás el turno ahora y el club gestiona el cobro en caja.</p>
-                  </div>
-                </div>
-
-                <div className="payment-option disabled">
-                  <div className="payment-icon"><CreditCard size={18} /></div>
-                  <div>
-                    <p className="payment-title">Seña online (próximamente)</p>
-                    <p className="payment-copy">Esta opción todavía no está disponible. Por ahora, el pago se realiza en el club.</p>
+                    <p className="payment-title">Se paga en el club</p>
+                    <p className="payment-copy">
+                      {isPerPlayer
+                        ? 'Cada jugador abona su parte en el mostrador.'
+                        : 'Confirmás el turno ahora y lo abonás en el mostrador del club.'}
+                    </p>
                   </div>
                 </div>
 
@@ -628,7 +878,9 @@ export default function CheckoutPage() {
                     ) : (
                       <>
                         <ShieldCheck size={15} />
-                        Confirmar reserva
+                        {participants.length > 0
+                          ? `Confirmar y enviar ${participants.length === 1 ? 'invitación' : 'invitaciones'}`
+                          : 'Confirmar reserva'}
                       </>
                     )}
                   </button>

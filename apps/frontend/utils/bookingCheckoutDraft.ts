@@ -2,6 +2,8 @@ export type BookingCheckoutParticipantDraft = {
   id: string;
   identifier: string;
   name?: string | null;
+  // Resultado de la búsqueda previa: con cuenta o invitado por email sin cuenta todavía.
+  lookupStatus?: 'FOUND' | 'EMAIL_WITHOUT_ACCOUNT' | null;
 };
 
 export type BookingCheckoutDraft = {
@@ -24,6 +26,8 @@ export type BookingCheckoutDraft = {
   formatName?: string | null;
   playerCount?: number | null;
   pricePerPlayer?: number | null;
+  // Parte de cada lugar sin asignar o no socio (con luces), para mostrar el detalle por jugador.
+  generalPricePerPlayer?: number | null;
   memberCategoryName?: string | null;
   // false = el club cobra solo en el mostrador
   onlineCheckoutEnabled?: boolean;
@@ -63,6 +67,10 @@ export const readBookingCheckoutDraft = (id: string): BookingCheckoutDraft | nul
             id: String(participant?.id || '').trim(),
             identifier: String(participant?.identifier || '').trim(),
             name: String(participant?.name || '').trim() || null,
+            lookupStatus:
+              participant?.lookupStatus === 'FOUND' || participant?.lookupStatus === 'EMAIL_WITHOUT_ACCOUNT'
+                ? participant.lookupStatus
+                : null,
           }))
           .filter((participant) => participant.id && participant.identifier)
           .slice(0, 20)

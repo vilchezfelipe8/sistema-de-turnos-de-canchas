@@ -68,6 +68,15 @@ export const paymentLimiter = rateLimit({
   legacyHeaders: false
 });
 
+/** 20 búsquedas de jugador por minuto (evita recorrer DNIs/emails) */
+export const playerLookupLimiter = rateLimit({
+  windowMs: parseWindowMs('RATE_LIMIT_PLAYER_LOOKUP_WINDOW_MS', 60_000),
+  max: parseMax('RATE_LIMIT_PLAYER_LOOKUP_MAX', 20),
+  message: { error: 'Demasiadas búsquedas. Esperá un momento e intentá de nuevo.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 /** 10 reservas por minuto (spam reservas, bots) */
 export const bookingLimiter = rateLimit({
   windowMs: parseWindowMs('RATE_LIMIT_BOOKING_WINDOW_MS', 60_000),

@@ -629,6 +629,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
             formatName: selectedFormat.name,
             playerCount: selectedFormat.playerCount,
             pricePerPlayer: selectedCourt.pricePerPlayer ?? null,
+            generalPricePerPlayer: selectedCourt.generalPricePerPlayer ?? null,
             memberCategoryName: selectedCourt.memberCategoryName ?? null,
           }
         : {}),
