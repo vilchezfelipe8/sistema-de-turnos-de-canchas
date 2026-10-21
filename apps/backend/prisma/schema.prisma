@@ -2003,6 +2003,9 @@ model ClubSettings {
   onlineCheckoutEnabled     Boolean  @default(true)
   // Precio del turno por cancha (histórico) o por jugador según su categoría
   pricingMode               ClubPricingMode @default(PER_COURT)
+  // Ventanas de reserva desde la app: hora de apertura para socios y no socios, días hacia adelante y cierre.
+  // null o enabled=false = sin restricción (comportamiento histórico).
+  bookingReleasePolicy      Json?
 
   // Política de confirmación de reservas
   bookingConfirmationMode       BookingConfirmationMode @default(MANUAL)

@@ -994,3 +994,14 @@ El DNI es **obligatorio** en el padrón (es la credencial de login). El teléfon
 - **Login en el modal de la grilla:** la lógica de ingreso (DNI o email, activación de socios, olvidé mi contraseña, enlace por email) vive en el hook `usePlayerSignIn` y la usan tanto `/login` como el modal que aparece al reservar sin sesión.
 - **Duración por modalidad:** `ActivityFormat.durationMinutes` (opcional). Si está cargada, el turno dura eso (ej. Single 60, Dobles 120) y pedir otra duración da error; si está vacía, se usan las duraciones de la actividad. En horario **fijo**, los turnos se definen con su duración, así que tienen que existir turnos de esa duración en Ajustes > Horarios (Ajustes > Actividades avisa si faltan). En horario por **rango** funciona directamente.
 - **Precio al cambiar de modalidad en la app:** la grilla no volvía a pedir precios al cambiar Single/Dobles; corregido.
+
+### Ventanas de reserva y prioridad de socios (2026-10-19)
+Pedido del club: los socios reservan desde las 08:00 y el resto desde las 11:00, solo para hoy y mañana; entre las 00:00 y las 08:00 nadie reserva. Responde en parte P5 (beneficios que no son de precio).
+
+- **Regla (por día, en la hora del club):** de 00:00 a la apertura de socios nadie reserva; hasta la apertura general reservan solo socios vigentes (RN-01, ficha vinculada a su usuario); después reservan todos, hasta la hora de cierre (`00:00` = medianoche). Solo se puede reservar para hoy y los próximos N días (`daysAhead`, 1 = hoy y mañana).
+- **Rige el día en que se reserva**, no el del turno: el sábado manda el horario del fin de semana aunque el turno sea el domingo.
+- **Fin de semana:** igual que en la semana, otros horarios o sin prioridad (todos a la misma hora). Pendiente que el club confirme cómo funciona.
+- **Alcance:** solo reservas que hace el jugador desde la app. El mostrador y los turnos fijos no se ven afectados. Un socio que reservó con prioridad puede invitar a un no socio.
+- **App:** fuera de su horario el jugador no ve los turnos: la grilla muestra un aviso con los horarios (y "Ingresar con DNI" si no inició sesión). El socio, mientras tiene prioridad, ve "Prioridad socio · hasta las 11:00 reservan solo socios". El selector de fecha no pasa de los días habilitados.
+- **Datos:** `ClubSettings.bookingReleasePolicy` (JSON, migración `20261019120000_add_booking_release_policy`). Apagado por defecto: los demás clubes no cambian.
+- **Código:** `BookingReleaseService` (evaluación y validación; se valida en `createBooking` con el error `BOOKING_WINDOW_CLOSED`), `GET /api/clubs/slug/:slug/booking-window` (público, sesión opcional), `GET/PUT /api/clubs/:slug/admin/booking-window`, Ajustes > Reservas > Ventanas de reserva. Tests en `tests/bookingRelease.test.ts`.

@@ -3,6 +3,7 @@ import AdminTabCourts from '../../../components/admin/AdminTabCourts';
 import SettingsClubMembersSection from './SettingsClubMembersSection';
 import SettingsActivityFormatsSection from './SettingsActivityFormatsSection';
 import SettingsPerPlayerPricingSection from './SettingsPerPlayerPricingSection';
+import SettingsBookingWindowSection from './SettingsBookingWindowSection';
 import {
   SettingsAuditSection,
   SettingsClubIdentitySection,
@@ -43,7 +44,14 @@ export default function AdminSettingsWorkspace({ tab }: AdminSettingsWorkspacePr
   if (tab === 'club') return <SettingsClubIdentitySection />;
   if (tab === 'canchas') return <AdminTabCourts />;
   if (tab === 'actividades') return <SettingsActivityFormatsSection />;
-  if (tab === 'reservas') return <SettingsReservationsSection />;
+  if (tab === 'reservas') {
+    return (
+      <div className="space-y-4">
+        <SettingsBookingWindowSection />
+        <SettingsReservationsSection />
+      </div>
+    );
+  }
   if (tab === 'horarios') return <SettingsSchedulesSection />;
   if (tab === 'precios') {
     return (

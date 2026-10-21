@@ -18,6 +18,7 @@ import { buildSlotsFromSchedule, normalizeSchedule } from '../utils/ActivitySche
 import { getUserClubContext } from '../utils/getUserClubContext';
 import { PricingService } from './PricingService';
 import { PlayerSlotService, type PerPlayerQuote } from './PlayerSlotService';
+import { BookingReleaseService } from './BookingReleaseService';
 import { normalizeDni } from '../utils/dni';
 import { EventService } from './EventService';
 import { AuditLogService } from './AuditLogService';
@@ -317,6 +318,7 @@ type PersistedBillingAssignmentsJson = {
 export class BookingService {
     private readonly pricingService = new PricingService();
     private readonly playerSlotService = new PlayerSlotService();
+    private readonly bookingReleaseService = new BookingReleaseService();
     private readonly eventService = new EventService();
     private readonly auditLogService = new AuditLogService();
     private readonly bookingHistoryService = new BookingHistoryService();
@@ -3406,6 +3408,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         // Verificar días de apertura del club (en la zona horaria del club)
         if (!this.isClubOpenOnLocalDate(clubConfig, startDateTime, clubTimeZone)) {
             throw this.bookingSlotUnavailable('El club está cerrado ese día');
+        }
+
+        // Ventanas de reserva (prioridad de socios): solo para reservas hechas por el jugador desde la app.
+        if (!createdByAdmin && !options?.skipAdvanceLimit) {
+            await this.bookingReleaseService.assertCanBook({ clubId: bookingClubId, userId, startDateTime });
         }
 
         // Política de anticipación para reservas simples.

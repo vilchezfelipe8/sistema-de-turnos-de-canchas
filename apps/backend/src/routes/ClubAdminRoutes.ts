@@ -32,6 +32,7 @@ import { ClassCreditUsageAdminController } from '../controllers/ClassCreditUsage
 import { AcademyStudentAdminController } from '../controllers/AcademyStudentAdminController';
 import { MemberController } from '../controllers/MemberController';
 import { PlayerSlotController } from '../controllers/PlayerSlotController';
+import { BookingReleaseController } from '../controllers/BookingReleaseController';
 
 const router = Router();
 
@@ -44,6 +45,7 @@ const clubRepository = new ClubRepository();
 const productController = new ProductController();
 const memberController = new MemberController();
 const playerSlotController = new PlayerSlotController();
+const bookingReleaseController = new BookingReleaseController();
 const cashRepository = new CashRepository();
 const productRepository = new ProductRepository();
 
@@ -826,6 +828,21 @@ router.post('/:slug/admin/clients/:clientId/merge',
     verifyClubAccess,
     requireTenantRole('ADMIN'),
     clubController.mergeClubClients
+);
+
+// ---------- Ventanas de reserva (prioridad de socios) ----------
+router.get('/:slug/admin/booking-window',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    bookingReleaseController.getPolicy
+);
+
+router.put('/:slug/admin/booking-window',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    bookingReleaseController.updatePolicy
 );
 
 // ---------- Precio por jugador ----------

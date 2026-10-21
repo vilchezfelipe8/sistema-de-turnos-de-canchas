@@ -14,7 +14,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { lockBodyScroll } from '../utils/bodyScrollLock';
 import { createBookingCheckoutDraftId, saveBookingCheckoutDraft } from '../utils/bookingCheckoutDraft';
 import { PlayerPricingService, type ActivityFormat, type ClubPricingMode } from '../services/PlayerPricingService';
-import { ChevronDown, Check, Calendar, Clock, MapPin, Zap, MousePointerClick, Hourglass, Moon, Ban, AlertCircle, Activity, ChevronLeft, ChevronRight, LayoutGrid, Rows3, Info, Mail, Lock, Eye, EyeOff, LogIn, Loader2 } from 'lucide-react';
+import { BookingWindowService, type BookingWindowEvaluation } from '../services/BookingWindowService';
+import { ChevronDown, Check, Calendar, Clock, MapPin, Zap, MousePointerClick, Hourglass, Moon, Ban, AlertCircle, Activity, ChevronLeft, ChevronRight, LayoutGrid, Rows3, Info, Mail, Lock, Eye, EyeOff, LogIn, Loader2, ShieldCheck } from 'lucide-react';
 
 const apiBase = () => `${getApiUrl()}/api`;
 
@@ -383,6 +384,38 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
       .catch(err => reportUiError({ area: 'BookingGrid', action: 'loadActivityFormats' }, err));
   }, [clubSlug]);
   const isPerPlayerPricing = clubPricing.pricingMode === 'PER_PLAYER';
+
+  // Ventanas de reserva: desde qué hora puede reservar quien mira (socios primero). Se vuelve a pedir
+  // al iniciar o cerrar sesión, al volver a la pestaña y cada minuto, para habilitar la grilla a horario.
+  const [bookingWindow, setBookingWindow] = useState<BookingWindowEvaluation | null>(null);
+  const loadBookingWindow = useCallback(async () => {
+    if (!clubSlug) { setBookingWindow(null); return; }
+    try {
+      setBookingWindow(await BookingWindowService.getPublicWindow(clubSlug));
+    } catch (err) {
+      reportUiError({ area: 'BookingGrid', action: 'loadBookingWindow' }, err);
+      setBookingWindow(null);
+    }
+  }, [clubSlug]);
+  useEffect(() => { void loadBookingWindow(); }, [loadBookingWindow, hasAuthSession]);
+  const bookingWindowEnabled = Boolean(bookingWindow?.enabled);
+  useEffect(() => {
+    if (!bookingWindowEnabled || typeof window === 'undefined') return;
+    const onFocus = () => { void loadBookingWindow(); };
+    const interval = window.setInterval(onFocus, 60_000);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [bookingWindowEnabled, loadBookingWindow]);
+  const activeBookingWindow = bookingWindow && bookingWindow.enabled ? bookingWindow : null;
+  const bookingWindowBlocked = Boolean(activeBookingWindow && !activeBookingWindow.canBookNow);
+  useEffect(() => {
+    if (!bookingWindowBlocked) return;
+    setSelectedSlot(null);
+    setSelectedCourt(null);
+  }, [bookingWindowBlocked]);
   const activityFormats = useMemo(
     () => clubPricing.formats.filter(format => Number(format.activityTypeId) === Number(selectedActivityId)),
     [clubPricing.formats, selectedActivityId]
@@ -455,10 +488,12 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     ClubService.getClubBySlug(clubSlug).then(setClubConfig).catch(err => { reportUiError({ area: 'BookingGrid', action: 'loadClubConfig' }, err); setClubConfig(null); });
   }, [clubSlug]);
 
+  const windowDaysAhead = activeBookingWindow ? activeBookingWindow.daysAhead : null;
   const bookingAdvanceLimitDays = useMemo(() => {
     const raw = Number(clubConfig?.bookingSimpleAdvanceDaysUser);
-    return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 30;
-  }, [clubConfig?.bookingSimpleAdvanceDaysUser]);
+    const configured = Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 30;
+    return windowDaysAhead != null ? Math.min(configured, windowDaysAhead) : configured;
+  }, [clubConfig?.bookingSimpleAdvanceDaysUser, windowDaysAhead]);
 
   const maxAllowedDate = useMemo(() => {
     const today = getTodayDate();
@@ -933,6 +968,13 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
           Reservar <span style={{ fontStyle: 'italic', color: 'var(--accent-fg)' }}>cancha</span>
         </h2>
         <p style={{ fontSize: 12, color: T.textMuted, margin: 0, fontWeight: 500 }}>Elegí deporte, día y horario</p>
+        {activeBookingWindow?.memberPriorityActive && (
+          <p style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 12, color: T.textMuted, margin: '10px 0 0', fontWeight: 600 }}>
+            <ShieldCheck size={13} style={{ color: 'var(--accent-fg)' }} />
+            <span style={{ color: 'var(--accent-fg)', fontWeight: 800 }}>Prioridad socio</span>
+            · hasta las {activeBookingWindow.publicOpensAt} reservan solo socios
+          </p>
+        )}
       </div>
 
       {/* Filters row */}
@@ -1010,6 +1052,51 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
 
       </div>
 
+      {bookingWindowBlocked && activeBookingWindow ? (() => {
+        const w = activeBookingWindow;
+        const rangeLabel = w.daysAhead === 0 ? 'hoy' : w.daysAhead === 1 ? 'hoy y mañana' : `los próximos ${w.daysAhead} días`;
+        const scheduleLine = w.hasMemberPriority
+          ? `Socios desde las ${w.memberOpensAt} · resto desde las ${w.publicOpensAt}`
+          : `Todos desde las ${w.publicOpensAt}`;
+        const isMembersOnly = w.state === 'MEMBERS_ONLY';
+        const isGuest = !w.isAuthenticated;
+        const title = w.state === 'CLOSED_FOR_TODAY'
+          ? 'Las reservas ya cerraron por hoy'
+          : w.state === 'NOT_OPEN_YET'
+            ? `Las reservas abren a las ${w.hasMemberPriority ? w.memberOpensAt : w.publicOpensAt}`
+            : isGuest
+              ? 'Los socios reservan primero'
+              : `Podés reservar desde las ${w.publicOpensAt}`;
+        const body = w.state === 'CLOSED_FOR_TODAY'
+          ? `Vuelven a abrir a las ${w.viewerOpensAt}. ${scheduleLine}.`
+          : w.state === 'NOT_OPEN_YET'
+            ? `${scheduleLine} · para ${rangeLabel}.`
+            : isGuest
+              ? `${scheduleLine}. Si sos socio, ingresá con tu DNI para ver los horarios.`
+              : `Hasta esa hora reservan solo los socios del club. Volvé a las ${w.publicOpensAt} para ver los horarios libres de ${rangeLabel}.`;
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '36px 24px', background: T.bgSubtle, border: `1px dashed ${T.borderSubtle}`, borderRadius: 16, textAlign: 'center' }}>
+            {w.state === 'CLOSED_FOR_TODAY' || w.state === 'NOT_OPEN_YET'
+              ? <Moon size={20} style={{ color: T.textMuted }} />
+              : <Clock size={20} style={{ color: T.textMuted }} />}
+            <p style={{ margin: 0, fontSize: 15, fontWeight: 800, color: T.textPrimary }}>{title}</p>
+            <p style={{ margin: 0, maxWidth: 440, fontSize: 13, lineHeight: 1.5, fontWeight: 600, color: T.textMuted }}>{body}</p>
+            {isMembersOnly && isGuest && (
+              <button
+                type="button"
+                onClick={() => openLoginModal(() => { void loadBookingWindow(); })}
+                style={{ marginTop: 8, height: 42, padding: '0 18px', borderRadius: 13, border: 'none', background: 'var(--brand)', color: 'var(--brand-on)', fontSize: 13, fontWeight: 900, fontFamily: "'Geist',system-ui,sans-serif", cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+              >
+                <LogIn size={15} /> Ingresar con DNI
+              </button>
+            )}
+            {isMembersOnly && !isGuest && (
+              <p style={{ margin: '6px 0 0', fontSize: 11, fontWeight: 600, color: T.textMuted }}>¿Sos socio? Consultá en el club para vincular tu cuenta.</p>
+            )}
+          </div>
+        );
+      })() : (
+      <>
       {/* View mode */}
       {!isMobileListOnly && (
         <div style={{ marginBottom: 16 }}>
@@ -1445,6 +1532,8 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
           </>
         )}
       </button>
+      </>
+      )}
 
       {/* Price info */}
       {canConfirm && (
