@@ -206,10 +206,18 @@ const PAGE_CSS = `
   .p-public-root:not(.p-public-theme-light) .bk-action-rebook:hover { background:linear-gradient(135deg, var(--brand-hover) 0%, var(--brand) 100%); }
 `;
 
+// Última carga de Mis reservas en esta visita (solo navegador): al volver a la página se muestra
+// al instante y se actualiza por detrás, sin pasar por "Cargando reservas...".
+let bookingsPageCache: { userId: number; bookings: PlayerBookingDto[]; invitations: PlayerBookingInvitationDto[] } | null = null;
+const readBookingsPageCache = (userId: number | undefined) =>
+  typeof window !== 'undefined' && bookingsPageCache && userId && bookingsPageCache.userId === Number(userId)
+    ? bookingsPageCache
+    : null;
+
 export default function MyBookingsPage() {
   const router = useRouter();
   const { authChecked, user } = useValidateAuth();
-  const [bookings, setBookings] = useState<PlayerBookingDto[]>([]);
+  const [bookings, setBookings] = useState<PlayerBookingDto[]>(() => readBookingsPageCache(user?.id)?.bookings ?? []);
   const [activeTab, setActiveTab] = useState<'ACTIVE' | 'PAST' | 'CANCELLED'>('ACTIVE');
   const [selectedBooking, setSelectedBooking] = useState<PlayerBookingDto | null>(null);
   const selectedDetailRef = useRef<HTMLDivElement | null>(null);
@@ -217,7 +225,7 @@ export default function MyBookingsPage() {
   const listBodyRef = useRef<HTMLDivElement | null>(null);
   const pendingTabScrollRestoreRef = useRef<{ windowY: number; listScrollTop: number } | null>(null);
   const bookingRefs = useRef<Record<number, HTMLDivElement | null>>({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !readBookingsPageCache(user?.id));
   const [error, setError] = useState('');
   const [modalState, setModalState] = useState<{
     show: boolean;
@@ -232,7 +240,7 @@ export default function MyBookingsPage() {
     closeOnEscape?: boolean;
   }>({ show: false });
   const [cancellingBooking, setCancellingBooking] = useState(false);
-  const [pendingInvitations, setPendingInvitations] = useState<PlayerBookingInvitationDto[]>([]);
+  const [pendingInvitations, setPendingInvitations] = useState<PlayerBookingInvitationDto[]>(() => readBookingsPageCache(user?.id)?.invitations ?? []);
   // Llegando desde el aviso de la barra (/bookings#invitaciones): ir a las invitaciones cuando cargan.
   useEffect(() => {
     if (pendingInvitations.length === 0 || typeof window === 'undefined') return;
@@ -365,6 +373,7 @@ export default function MyBookingsPage() {
       const sortedBookings = data.sort((a, b) => new Date(b.startDateTime).getTime() - new Date(a.startDateTime).getTime());
       setBookings(sortedBookings);
       setPendingInvitations(invitations);
+      bookingsPageCache = { userId: Number(user.id), bookings: sortedBookings, invitations };
       setError('');
       return sortedBookings;
     } catch (err: unknown) {
@@ -373,7 +382,8 @@ export default function MyBookingsPage() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   useEffect(() => { if (authChecked && user) loadData(); }, [authChecked, user, loadData]);
 

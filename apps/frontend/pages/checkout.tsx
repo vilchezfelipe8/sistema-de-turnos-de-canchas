@@ -23,6 +23,7 @@ import { extractErrorMessage, reportUiError } from '../utils/uiError';
 import { normalizeApiError } from '../utils/apiError';
 import {
   readBookingCheckoutDraft,
+  readCheckoutReturn,
   removeBookingCheckoutDraft,
   saveBookingCheckoutDraft,
   type BookingCheckoutDraft,
@@ -288,6 +289,17 @@ export default function CheckoutPage() {
   const dateLabels = useMemo(() => (draft ? getDraftDateLabels(draft) : null), [draft]);
   const timeRange = useMemo(() => (draft ? getTimeRange(draft) : ''), [draft]);
   const backHref = draft?.clubSlug ? `/club/${draft.clubSlug}` : '/';
+  // Volver a la grilla: con el historial si venimos de ahí (conserva día, horario y scroll);
+  // si se entró directo al checkout, reemplaza por la página del club.
+  const goBackToClub = () => {
+    const returnPath = readCheckoutReturn();
+    const cameFromClub = Boolean(returnPath && returnPath.split('?')[0] === backHref);
+    if (cameFromClub && typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    void router.replace(returnPath && returnPath.split('?')[0] === backHref ? returnPath : backHref);
+  };
   const maxParticipants = draft?.playerCount ? Math.max(0, draft.playerCount - 1) : 20;
   const participantLimitReached = participants.length >= maxParticipants;
   const ownerName = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() || 'Vos';
@@ -592,8 +604,8 @@ export default function CheckoutPage() {
               </div>
             </div>
             <div className="checkout-actions">
-              <Link href={backHref} className="checkout-secondary" style={{ minWidth: 236 }}>Reservar otro</Link>
-              <Link href="/bookings" className="checkout-primary">Ver mis reservas</Link>
+              <button type="button" className="checkout-secondary" style={{ minWidth: 236 }} onClick={goBackToClub}>Reservar otro</button>
+              <Link href="/bookings" replace className="checkout-primary">Ver mis reservas</Link>
             </div>
           </section>
         </main>
@@ -863,7 +875,7 @@ export default function CheckoutPage() {
                 {submitError && <div className="checkout-error">{submitError}</div>}
 
                 <div className="checkout-actions">
-                  <Link href={backHref} className="checkout-secondary">Volver</Link>
+                  <button type="button" className="checkout-secondary" onClick={goBackToClub}>Volver</button>
                   <button
                     type="button"
                     className="checkout-primary"

@@ -101,3 +101,25 @@ export const removeBookingCheckoutDraft = (id: string) => {
     // noop
   }
 };
+
+// De dónde se abrió el checkout (la grilla con la selección en la dirección): "Volver" regresa ahí
+// con el historial del navegador en lugar de abrir la página del club como si fuera nueva.
+const CHECKOUT_RETURN_KEY = 'bookingCheckoutReturn';
+
+export const rememberCheckoutReturn = (path: string) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(CHECKOUT_RETURN_KEY, path);
+  } catch {
+    // noop
+  }
+};
+
+export const readCheckoutReturn = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.sessionStorage.getItem(CHECKOUT_RETURN_KEY);
+  } catch {
+    return null;
+  }
+};

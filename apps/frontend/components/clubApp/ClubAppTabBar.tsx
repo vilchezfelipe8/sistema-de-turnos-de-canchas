@@ -26,7 +26,7 @@ export default function ClubAppTabBar({ slug }: { slug: string }) {
   const [invitationsCount, setInvitationsCount] = useState(0);
 
   useEffect(() => {
-    if (!user) {
+    if (!user?.id) {
       setInvitationsCount(0);
       return;
     }
@@ -48,7 +48,7 @@ export default function ClubAppTabBar({ slug }: { slug: string }) {
       window.removeEventListener('focus', onChange);
       window.removeEventListener(BOOKING_INVITATIONS_CHANGED_EVENT, onChange);
     };
-  }, [user]);
+  }, [user?.id]);
 
   const onClubPage = router.pathname === '/club/[slug]' && router.query.slug === slug;
   const isBooking = onClubPage && router.query.view === 'reservar';
@@ -71,7 +71,17 @@ export default function ClubAppTabBar({ slug }: { slug: string }) {
       <nav className="p-clubapp-tabbar" aria-label="Secciones del club">
         <div className="p-clubapp-tabbar-inner">
           {tabs.map((tab) => (
-            <Link key={tab.key} href={tab.href} className="p-clubapp-tab" aria-current={tab.active ? 'page' : undefined}>
+            // Las pestañas reemplazan la página (no se suman al historial, como en una app) y entre
+            // Inicio y Reservar del mismo club no vuelven a pasar por el servidor.
+            <Link
+              key={tab.key}
+              href={tab.href}
+              replace
+              shallow={onClubPage && tab.key !== 'reservas'}
+              scroll
+              className="p-clubapp-tab"
+              aria-current={tab.active ? 'page' : undefined}
+            >
               <span className="p-clubapp-tab-icon">
                 {tab.icon}
                 {tab.badge ? <span className="p-clubapp-tab-badge">{tab.badge > 9 ? '9+' : tab.badge}</span> : null}

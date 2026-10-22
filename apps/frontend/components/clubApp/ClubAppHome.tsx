@@ -188,7 +188,7 @@ export default function ClubAppHome({ club, slug, user, loginHref }: Props) {
             <p className="ca-book-sub">{rangeLabel}</p>
           </div>
           {user ? (
-            <Link href={`/club/${slug}?view=reservar`} className="ca-primary">
+            <Link href={`/club/${slug}?view=reservar`} shallow className="ca-primary">
               <Zap size={15} /> Ver horarios
             </Link>
           ) : (

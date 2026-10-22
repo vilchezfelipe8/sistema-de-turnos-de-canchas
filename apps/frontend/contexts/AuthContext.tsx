@@ -90,13 +90,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const applyAuthenticated = useCallback((nextUser: AuthUser) => {
     const normalized = normalizeSessionUser(nextUser as any) as AuthUser | null;
-    if (normalized) {
-      persistSessionUser(normalized as any);
-      setUser(normalized);
-    } else {
-      persistSessionUser(nextUser as any);
-      setUser(nextUser);
-    }
+    const resolved = (normalized || nextUser) as AuthUser;
+    persistSessionUser(resolved as any);
+    // Al revalidar la sesión (ej. al volver a la app) solo se avisa si el usuario cambió: si no,
+    // todas las pantallas que dependen de él volverían a pedir sus datos y se notaría un parpadeo.
+    setUser((prev) => (prev && JSON.stringify(prev) === JSON.stringify(resolved) ? prev : resolved));
     setStatus('authenticated');
   }, []);
 

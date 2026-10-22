@@ -12,7 +12,7 @@ import { ClubService, Club } from '../services/ClubService';
 import { extractErrorMessage, reportUiError } from '../utils/uiError';
 import { useAuth } from '../contexts/AuthContext';
 import { lockBodyScroll } from '../utils/bodyScrollLock';
-import { createBookingCheckoutDraftId, saveBookingCheckoutDraft } from '../utils/bookingCheckoutDraft';
+import { createBookingCheckoutDraftId, rememberCheckoutReturn, saveBookingCheckoutDraft } from '../utils/bookingCheckoutDraft';
 import { PlayerPricingService, type ActivityFormat, type ClubPricingMode } from '../services/PlayerPricingService';
 import { BookingWindowService, type BookingWindowEvaluation } from '../services/BookingWindowService';
 import { ChevronDown, Check, Calendar, Clock, MapPin, Zap, MousePointerClick, Hourglass, Moon, Ban, AlertCircle, Activity, ChevronLeft, ChevronRight, LayoutGrid, Rows3, Info, Mail, Lock, Eye, EyeOff, LogIn, Loader2, ShieldCheck } from 'lucide-react';
@@ -691,7 +691,22 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
       showError('No pudimos preparar el checkout. Intentá nuevamente.');
       return;
     }
-    void router.push(`/checkout?draft=${encodeURIComponent(draftId)}`);
+    // Guardar la selección en la dirección de esta página (sin recargar): al volver del checkout
+    // la grilla se abre con el mismo día, deporte y horario.
+    const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+    params.set('date', formatLocalDate(selectedDate));
+    params.set('time', selectedSlot);
+    if (selectedActivityFilter) params.set('sport', selectedActivityFilter);
+    const returnUrl = `${router.asPath.split('?')[0].split('#')[0]}?${params.toString()}`;
+    void (async () => {
+      try {
+        await router.replace(returnUrl, undefined, { shallow: true, scroll: false });
+      } catch {
+        // Si no se pudo guardar la selección, se sigue igual al checkout.
+      }
+      rememberCheckoutReturn(returnUrl);
+      await router.push(`/checkout?draft=${encodeURIComponent(draftId)}`);
+    })();
   };
 
   const handleBooking = () => {
