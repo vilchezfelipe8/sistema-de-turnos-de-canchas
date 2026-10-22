@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
+import Head from 'next/head';
 import { useRouter } from 'next/router';
 import BookingGrid from '../../components/BookingGrid';
 import DarkPageLayout from '../../components/DarkPageLayout';
@@ -17,6 +18,10 @@ import { useValidateAuth } from '../../hooks/useValidateAuth';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import { isAuthSessionInvalidatedError } from '../../utils/apiClient';
 import { MapPin, Calendar, Phone, Instagram, Share2, Trophy, Star, Heart, ChevronRight, X } from 'lucide-react';
+import ClubAppHome from '../../components/clubApp/ClubAppHome';
+import ClubInstallButton from '../../components/clubApp/ClubInstallButton';
+import { useClubApp } from '../../hooks/useClubApp';
+import { clubIconHref, clubManifestHref, updateClubAppIdentity } from '../../utils/clubApp';
 
 const APP_NOTICE_EVENT = 'app:notice';
 type AppNoticeTone = 'success' | 'error' | 'info' | 'warning';
@@ -154,6 +159,9 @@ export default function ClubPage() {
   const [reviewSaving, setReviewSaving] = useState(false);
   const [reviewFeedback, setReviewFeedback] = useState<string | null>(null);
   const reviewBackdropMouseDownRef = useRef(false);
+  // App instalada de este club: inicio simplificado y reserva a pantalla completa.
+  const clubApp = useClubApp();
+  const isClubAppMode = Boolean(clubApp && clubApp.slug === slug);
 
   useEffect(() => {
     const loadClub = async () => {
@@ -171,6 +179,11 @@ export default function ClubPage() {
     };
     loadClub();
   }, [slug]);
+
+  useEffect(() => {
+    if (!club || typeof slug !== 'string') return;
+    updateClubAppIdentity({ slug, name: club.name, logoUrl: club.logoUrl || null });
+  }, [club, slug]);
 
   const loadReviews = useCallback(async (clubSlug: string) => {
     try {
@@ -389,8 +402,35 @@ export default function ClubPage() {
 
   const DAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
+  // Manifest propio del club: el acceso directo abre esta página y se instala con su nombre e ícono.
+  const clubAppHead = (
+    <Head>
+      <link rel="manifest" href={clubManifestHref(slug as string, club.name)} key="manifest" />
+      <link rel="apple-touch-icon" href={clubIconHref(slug as string, club.name, 180)} key="apple-touch-icon" />
+      <meta name="apple-mobile-web-app-capable" content="yes" />
+      <meta name="apple-mobile-web-app-title" content={club.name} />
+    </Head>
+  );
+
+  if (isClubAppMode) {
+    const loginHref = `/login?from=${encodeURIComponent(router.asPath || `/club/${slug}`)}`;
+    return (
+      <DarkPageLayout title={pageTitle} extraCss={PAGE_CSS}>
+        {clubAppHead}
+        {router.query.view === 'reservar' ? (
+          <div style={{ maxWidth: 760, width: '100%', margin: '0 auto', padding: '20px 12px 12px' }}>
+            <BookingGrid clubSlug={slug as string} variant="clubApp" />
+          </div>
+        ) : (
+          <ClubAppHome club={club} slug={slug as string} user={user as any} loginHref={loginHref} />
+        )}
+      </DarkPageLayout>
+    );
+  }
+
   return (
     <DarkPageLayout title={pageTitle} extraCss={PAGE_CSS} breadcrumbs={clubBreadcrumbs}>
+      {clubAppHead}
       <div className="p-public-page cl-page" style={{ paddingTop: 32 }}>
 
         {/* ── HERO ── */}
@@ -471,6 +511,7 @@ export default function ClubPage() {
               <button className="cl-icon-btn" onClick={handleShare} title="Copiar enlace">
                 <Share2 size={20} />
               </button>
+              <ClubInstallButton clubName={club.name} logoUrl={club.logoUrl || null} />
             </div>
 
           </div>

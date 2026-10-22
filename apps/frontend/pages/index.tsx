@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { normalizeSessionUser } from '../utils/session';
 import { reportUiError } from '../utils/uiError';
 import { useAuth } from '../contexts/AuthContext';
+import MyClubsSection from '../components/home/MyClubsSection';
 import { useUserTheme } from '../contexts/UserThemeContext';
 import { isAuthSessionInvalidatedError } from '../utils/apiClient';
 import PiqueLogo from '../components/PiqueLogo';
@@ -1164,6 +1165,9 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* ── MIS CLUBES (con sesión) ── */}
+      {authUser?.id ? <MyClubsSection userId={Number(authUser.id)} /> : null}
 
       {/* ── MARQUEE STRIP ── */}
       {!loadingClubs && clubs.length > 0 && (

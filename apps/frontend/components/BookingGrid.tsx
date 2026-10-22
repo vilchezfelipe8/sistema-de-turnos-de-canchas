@@ -21,7 +21,25 @@ const apiBase = () => `${getApiUrl()}/api`;
 
 interface BookingGridProps {
   clubSlug?: string;
+  // clubApp = app instalada del club: días como botones grandes, horarios más grandes y siempre en lista.
+  variant?: 'default' | 'clubApp';
 }
+
+const CLUB_APP_GRID_CSS = `
+  .bg-days { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(92px, 1fr); gap:8px; padding:5px; margin-bottom:20px; border-radius:16px; background:var(--surface-2); border:1px solid var(--border); overflow-x:auto; }
+  .bg-day { min-height:56px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; border:0; border-radius:12px; background:transparent; color:var(--text-primary); font-family:'Geist',system-ui,sans-serif; cursor:pointer; transition:background .15s,color .15s; }
+  .bg-day:hover { background:var(--surface-1); }
+  .bg-day-label { font-size:16px; font-weight:800; letter-spacing:-.01em; }
+  .bg-day-sub { font-size:11px; font-weight:700; color:var(--text-muted); }
+  .bg-day[aria-pressed="true"] { background:var(--brand); color:var(--brand-on); }
+  .bg-day[aria-pressed="true"] .bg-day-label,
+  .bg-day[aria-pressed="true"] .bg-day-sub { color:var(--brand-on); }
+  .bg-clubapp .v-slot-grid { grid-template-columns:repeat(auto-fill, minmax(96px, 1fr)); gap:10px; }
+  .bg-clubapp .v-slot { padding:14px 10px; font-size:17px; font-weight:800; border-radius:14px; }
+  .bg-clubapp .v-court-option { padding:16px 18px; border-radius:16px; }
+  .bg-clubapp .v-court-name { font-size:16px; }
+  .bg-clubapp .v-court-meta { font-size:13px; }
+`;
 
 type ActivityTypeSummary = {
   id: number;
@@ -164,7 +182,8 @@ const CustomSelect = ({ value, options, onChange, placeholder, centerLabel = fal
   );
 };
 
-export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
+export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGridProps = {}) {
+  const isClubAppVariant = variant === 'clubApp';
   const router = useRouter();
   const { isAuthenticated: hasAuthSession } = useAuth();
 
@@ -445,7 +464,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     isPerPlayerPricing ? selectedFormatId || null : null
   );
   const durationOptions = useMemo(() => selectedActivityDurations, [selectedActivityDurations]);
-  const activeScheduleViewMode: ScheduleViewMode = isMobileListOnly ? 'list' : scheduleViewMode;
+  const activeScheduleViewMode: ScheduleViewMode = isMobileListOnly || isClubAppVariant ? 'list' : scheduleViewMode;
 
   useEffect(() => { setIsAuthenticated(Boolean(hasAuthSession)); }, [hasAuthSession]);
 
@@ -797,6 +816,23 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
     setSelectedDate(next);
   };
 
+  // App del club: los días habilitados como botones ("Hoy", "Mañana", "Vie 24"…), hasta 7.
+  const clubAppDays = useMemo(() => {
+    if (!isClubAppVariant) return [];
+    const today = getTodayDate();
+    const total = Math.min(7, Math.max(1, bookingAdvanceLimitDays + 1));
+    const weekdays = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    return Array.from({ length: total }, (_, offset) => {
+      const date = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offset);
+      const label = offset === 0 ? 'Hoy' : offset === 1 ? 'Mañana' : `${weekdays[date.getDay()]} ${date.getDate()}`;
+      const sub = offset <= 1
+        ? `${weekdays[date.getDay()].toLowerCase()} ${date.getDate()}/${date.getMonth() + 1}`
+        : `${date.getDate()}/${date.getMonth() + 1}`;
+      return { key: formatLocalDate(date), date, label, sub };
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isClubAppVariant, bookingAdvanceLimitDays]);
+
   const getFormattedDate = (date: Date) => {
     const days = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
     const months = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
@@ -960,7 +996,8 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
   const sectionStyle: React.CSSProperties = { marginBottom: 28 };
 
   return (
-    <div style={{ width: '100%', minWidth: 0, background: T.bg, border: `1px solid ${T.borderSubtle}`, borderRadius: 24, padding: isMobileListOnly ? '24px 20px 20px' : '28px 28px 24px', fontFamily: "'Geist',system-ui,sans-serif", boxSizing: 'border-box', boxShadow: T.shadow, overflow: 'hidden' }}>
+    <div className={isClubAppVariant ? 'bg-clubapp' : undefined} style={{ width: '100%', minWidth: 0, background: T.bg, border: `1px solid ${T.borderSubtle}`, borderRadius: 24, padding: isMobileListOnly ? '24px 20px 20px' : '28px 28px 24px', fontFamily: "'Geist',system-ui,sans-serif", boxSizing: 'border-box', boxShadow: T.shadow, overflow: 'hidden' }}>
+      {isClubAppVariant && <style>{CLUB_APP_GRID_CSS}</style>}
 
       {/* Header */}
       <div style={{ marginBottom: 28, paddingBottom: 20, borderBottom: `1px solid ${T.borderSubtle}` }}>
@@ -977,8 +1014,29 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
         )}
       </div>
 
+      {/* Días (app del club) */}
+      {isClubAppVariant && clubAppDays.length > 0 && (
+        <div className="bg-days" role="group" aria-label="Día">
+          {clubAppDays.map((day) => {
+            const isSelected = Boolean(selectedDate) && formatLocalDate(selectedDate as Date) === day.key;
+            return (
+              <button
+                key={day.key}
+                type="button"
+                className="bg-day"
+                aria-pressed={isSelected}
+                onClick={() => { setSelectedDate(day.date); setSelectedSlot(null); setSelectedCourt(null); }}
+              >
+                <span className="bg-day-label">{day.label}</span>
+                <span className="bg-day-sub">{day.sub}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Filters row */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobileListOnly ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: 14, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobileListOnly ? '1fr' : isClubAppVariant ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))', gap: 14, marginBottom: 24 }}>
 
         {/* Deporte */}
         <div style={{ position: 'relative', zIndex: 20, minWidth: 0 }}>
@@ -993,6 +1051,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
         </div>
 
         {/* Fecha */}
+        {!isClubAppVariant && (
         <div style={{ minWidth: 0 }}>
           <div style={labelStyle}><Calendar size={12} style={{ color: 'var(--accent-fg)' }} /> Fecha</div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 46, padding: '0 6px', background: T.bg, border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: T.shadow }}>
@@ -1017,6 +1076,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
             </button>
           </div>
         </div>
+        )}
 
         {/* Duración */}
         <div style={{ position: 'relative', zIndex: 10, minWidth: 0 }}>
@@ -1098,7 +1158,7 @@ export default function BookingGrid({ clubSlug }: BookingGridProps = {}) {
       })() : (
       <>
       {/* View mode */}
-      {!isMobileListOnly && (
+      {!isMobileListOnly && !isClubAppVariant && (
         <div style={{ marginBottom: 16 }}>
           <style>{`
             .v-view-toggle-group{display:inline-flex;padding:4px;border-radius:12px;border:1px solid var(--border);background:var(--surface-2);gap:4px;}

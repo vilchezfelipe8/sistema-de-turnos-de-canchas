@@ -8,6 +8,8 @@ import { X, Phone, Mail, Instagram } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserTheme } from '../contexts/UserThemeContext';
 import { reportUiError } from '../utils/uiError';
+import { useClubApp } from '../hooks/useClubApp';
+import ClubAppTabBar from './clubApp/ClubAppTabBar';
 
 
 // Extra scoped styles for layout internals that can't easily use Tailwind
@@ -17,6 +19,8 @@ const LAYOUT_CSS = `
   .pique-layout a { color:inherit; text-decoration:none; }
   .pique-layout ::selection { background:var(--brand); color:var(--brand-on); }
   .pique-layout .p-footer { margin-top:auto; }
+  /* App instalada del club: espacio para la barra de pestañas de abajo */
+  .pique-layout.pique-layout-clubapp { padding-bottom:calc(84px + env(safe-area-inset-bottom)); }
   .p-legal-footer { border-top:1px solid var(--border); background:var(--surface-1); }
   .p-legal-footer-inner { max-width:1360px; margin:0 auto; padding:22px 24px 24px; display:flex; align-items:flex-start; justify-content:space-between; gap:22px; flex-wrap:wrap; }
   .p-legal-footer-brand { display:flex; flex-direction:column; gap:8px; min-width:220px; }
@@ -53,6 +57,9 @@ export default function DarkPageLayout({ title, children, extraCss = '', breadcr
   const router = useRouter();
   const { user } = useAuth();
   const { isLight } = useUserTheme();
+  // App instalada del club: sin migas ni footer, con pestañas abajo (salvo en el checkout, para no distraer).
+  const clubApp = useClubApp();
+  const showClubAppTabBar = Boolean(clubApp) && router.pathname !== '/checkout';
 
   const [showContact, setShowContact] = useState(false);
   const [contactMenu, setContactMenu] = useState<{ type: 'whatsapp' | 'email' | 'instagram'; top: number; left: number; href: string; copyText: string } | null>(null);
@@ -125,11 +132,11 @@ export default function DarkPageLayout({ title, children, extraCss = '', breadcr
       </Head>
       <style dangerouslySetInnerHTML={{ __html: LAYOUT_CSS + (extraCss ? '\n' + extraCss : '') }} />
 
-      <div className={`pique-layout pique-root p-public-root${isLight ? ' p-public-theme-light' : ''}`}>
+      <div className={`pique-layout pique-root p-public-root${isLight ? ' p-public-theme-light' : ''}${showClubAppTabBar ? ' pique-layout-clubapp' : ''}`}>
         <NavBar onContactClick={() => setShowContact(true)} onNavbarInteract={handleNavbarInteract} showContactLink={false} />
 
         {/* Breadcrumbs */}
-        {breadcrumbs.length > 0 && (
+        {!clubApp && breadcrumbs.length > 0 && (
           <nav className="p-breadcrumbs-wrap" aria-label="Breadcrumb">
             <div className="p-breadcrumbs">
               <div className="p-breadcrumbs-cloud">
@@ -155,6 +162,7 @@ export default function DarkPageLayout({ title, children, extraCss = '', breadcr
         {children}
 
         {/* ── FOOTER ── */}
+        {clubApp ? null : (
         <footer className="p-legal-footer">
           <div className="p-legal-footer-inner">
             <div className="p-legal-footer-brand">
@@ -203,6 +211,9 @@ export default function DarkPageLayout({ title, children, extraCss = '', breadcr
             </div>
           </div>
         </footer>
+        )}
+
+        {showClubAppTabBar && clubApp ? <ClubAppTabBar slug={clubApp.slug} /> : null}
 
         {/* ── CONTACT SIDEBAR OVERLAY ── */}
         <div

@@ -110,6 +110,7 @@ export type PlayerBookingDto = {
     name: string;
     slug: string;
     timeZone: string;
+    logoUrl?: string | null;
   };
   court: {
     name: string;

@@ -122,6 +122,7 @@ export type PlayerBookingDto = {
         name: string;
         slug: string;
         timeZone: string;
+        logoUrl: string | null;
     };
     court: {
         name: string;
@@ -4996,7 +4997,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     id: String(booking.court.club.id),
                     name: String(booking.court.club.name || 'Club'),
                     slug: String(booking.court.club.slug || ''),
-                    timeZone: String(booking.court.club.settings?.timeZone || 'America/Argentina/Buenos_Aires')
+                    timeZone: String(booking.court.club.settings?.timeZone || 'America/Argentina/Buenos_Aires'),
+                    logoUrl: booking.court.club.logoUrl ?? null
                 },
                 court: {
                     name: String(booking.court.name || 'Cancha')

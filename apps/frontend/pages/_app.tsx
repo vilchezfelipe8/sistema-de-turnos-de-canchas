@@ -1,12 +1,14 @@
 import type { AppProps } from 'next/app';
 import Head from 'next/head';
 import { useEffect, useRef, useState } from 'react';
-import Router from 'next/router';
+import Router, { useRouter } from 'next/router';
 import { ActiveClubProvider } from '../contexts/ActiveClubContext';
 import { AuthProvider } from '../contexts/AuthContext';
 import { UserThemeProvider, useUserTheme } from '../contexts/UserThemeContext';
 import { AUTH_LOGOUT_EVENT, clearPendingLogoutRedirect, type AuthLogoutEventDetail } from '../services/AuthService';
 import { isAuthSessionInvalidatedError } from '../utils/apiClient';
+import { detectClubAppLaunch } from '../utils/clubApp';
+import { startPwaInstallCapture } from '../utils/pwaInstall';
 
 import '../styles/globals.css';
 import '../styles/playground.css';
@@ -110,6 +112,16 @@ export default function MyApp({ Component, pageProps }: AppProps) {
   const noticeIdRef = useRef(1);
   const noticeTimeoutsRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   const lastLogoutNoticeAtRef = useRef(0);
+  const router = useRouter();
+
+  // App instalada: capturar el aviso de instalación y detectar si se abrió desde el ícono de un club.
+  useEffect(() => {
+    startPwaInstallCapture();
+  }, []);
+  useEffect(() => {
+    if (!router.isReady) return;
+    detectClubAppLaunch(router.pathname, router.query);
+  }, [router.isReady, router.pathname, router.query]);
 
   useEffect(() => {
     const preventNumberInputWheel = (event: WheelEvent) => {
@@ -261,8 +273,8 @@ export default function MyApp({ Component, pageProps }: AppProps) {
         <title>Pique</title>
         <link rel="icon" href={MARK_PATH} type="image/svg+xml" />
         <link rel="shortcut icon" href="/favicon.ico" />
-        <link rel="manifest" href="/site.webmanifest" />
-        <link rel="apple-touch-icon" href={APPLE_ICON_PATH} />
+        <link rel="manifest" href="/site.webmanifest" key="manifest" />
+        <link rel="apple-touch-icon" href={APPLE_ICON_PATH} key="apple-touch-icon" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="Pique" />
