@@ -34,8 +34,9 @@ const HOME_CSS = `
   .ca-book-title { margin:0 0 4px; color:var(--text-primary); font-size:22px; font-weight:800; letter-spacing:-.03em; }
   .ca-book-title i { font-style:italic; color:var(--accent-fg); }
   .ca-book-sub { margin:0; color:var(--text-muted); font-size:12px; font-weight:500; }
-  .ca-primary { height:50px; display:flex; align-items:center; justify-content:center; gap:8px; border-radius:16px; background:var(--brand); color:var(--brand-on); font-size:14px; font-weight:800; letter-spacing:.01em; text-decoration:none; transition:background .15s; }
-  .ca-primary:hover { background:var(--brand-hover); color:var(--brand-on); }
+  /* "a.ca-primary" dentro de .ca-home: le gana a la regla general del layout que hereda el color en los links. */
+  .ca-home a.ca-primary { height:50px; display:flex; align-items:center; justify-content:center; gap:8px; border-radius:16px; background:var(--brand); color:var(--brand-on); font-size:14px; font-weight:800; letter-spacing:.01em; text-decoration:none; transition:background .15s; }
+  .ca-home a.ca-primary:hover { background:var(--brand-hover); color:var(--brand-on); }
   .ca-line { margin:0; display:flex; align-items:center; gap:6px; color:var(--text-muted); font-size:11px; font-weight:600; line-height:1.4; }
   .ca-section { display:flex; flex-direction:column; gap:10px; }
   .ca-eyebrow { display:inline-flex; align-items:center; gap:10px; color:var(--accent-fg); font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }

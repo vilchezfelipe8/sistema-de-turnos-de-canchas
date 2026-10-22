@@ -284,7 +284,9 @@ export default function MyApp({ Component, pageProps }: AppProps) {
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
         <meta name="twitter:image" content={OG_IMAGE_URL} />
-        <meta name="theme-color" content="#B6F36A" />
+        <meta name="theme-color" content="#B6F36A" key="theme-color" />
+        {/* viewport-fit=cover: en iPhone permite respetar la zona de la barra de inicio (env(safe-area-inset-*)). */}
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" key="viewport" />
         <script
           type="application/ld+json"
           // JSON-LD must be a string

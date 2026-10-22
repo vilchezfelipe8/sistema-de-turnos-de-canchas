@@ -129,6 +129,8 @@ export default function DarkPageLayout({ title, children, extraCss = '', breadcr
     <>
       <Head>
         <title>{title}</title>
+        {/* App del club: la franja del sistema (hora, batería) toma el color de la barra de arriba. */}
+        {clubApp ? <meta name="theme-color" content={isLight ? '#FFFFFF' : '#161A21'} key="theme-color" /> : null}
       </Head>
       <style dangerouslySetInnerHTML={{ __html: LAYOUT_CSS + (extraCss ? '\n' + extraCss : '') }} />
 
