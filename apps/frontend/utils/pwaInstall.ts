@@ -45,10 +45,15 @@ export const promptPwaInstall = async (): Promise<'accepted' | 'dismissed' | 'un
   return choice.outcome;
 };
 
-export const isIosSafari = () => {
-  if (typeof window === 'undefined') return false;
+// Navegador del iPhone/iPad (null = no es iOS). Desde iOS 16.4 Safari, Chrome y otros permiten
+// "Agregar a inicio"; lo que cambia es dónde está el botón Compartir.
+export type IosBrowser = 'safari' | 'chrome' | 'other';
+export const getIosBrowser = (): IosBrowser | null => {
+  if (typeof window === 'undefined') return null;
   const ua = window.navigator.userAgent || '';
   const isIos = /iphone|ipad|ipod/i.test(ua) || (/macintosh/i.test(ua) && 'ontouchend' in document);
-  // En iPhone solo Safari permite "Agregar a inicio".
-  return isIos && !/crios|fxios|edgios/i.test(ua);
+  if (!isIos) return null;
+  if (/crios/i.test(ua)) return 'chrome';
+  if (/fxios|edgios|opios/i.test(ua)) return 'other';
+  return 'safari';
 };

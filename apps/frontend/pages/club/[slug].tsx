@@ -21,7 +21,19 @@ import { MapPin, Calendar, Phone, Instagram, Share2, Trophy, Star, Heart, Chevro
 import ClubAppHome from '../../components/clubApp/ClubAppHome';
 import ClubInstallButton from '../../components/clubApp/ClubInstallButton';
 import { useClubApp } from '../../hooks/useClubApp';
-import { clubIconHref, clubManifestHref, updateClubAppIdentity } from '../../utils/clubApp';
+import { clubIconHref, clubManifestHref, isValidClubSlug, updateClubAppIdentity } from '../../utils/clubApp';
+import type { GetServerSideProps } from 'next';
+import { fetchClubBasics, resolveRequestOrigin } from '../../utils/serverClubLookup';
+
+type ClubPageProps = { appSlug: string | null; appName: string | null };
+
+// El manifest y el ícono del club tienen que venir en la primera carga: iPhone (Safari y Chrome)
+// toma el manifest que trae la página y no el que se cambia después en el navegador.
+export const getServerSideProps: GetServerSideProps<ClubPageProps> = async ({ params, req }) => {
+  const slug = typeof params?.slug === 'string' && isValidClubSlug(params.slug) ? params.slug : null;
+  const basics = slug ? await fetchClubBasics(slug, resolveRequestOrigin(req)) : null;
+  return { props: { appSlug: slug, appName: basics?.name ?? null } };
+};
 
 const APP_NOTICE_EVENT = 'app:notice';
 type AppNoticeTone = 'success' | 'error' | 'info' | 'warning';
@@ -138,7 +150,7 @@ const PAGE_CSS = `
   .p-public-root.p-public-theme-light .cl-login-btn:hover { background:var(--brand-hover); border-color:var(--accent-border-strong); color:var(--brand-on); }
 `;
 
-export default function ClubPage() {
+export default function ClubPage({ appSlug, appName }: ClubPageProps) {
   const router = useRouter();
   const { slug } = router.query;
   const { authChecked, user } = useValidateAuth({ allowGuest: true });
@@ -368,10 +380,25 @@ export default function ClubPage() {
     { label: club?.name || 'Club' },
   ];
 
+  // Manifest propio del club: el acceso directo abre esta página y se instala con su nombre e ícono.
+  // Solo depende de datos del servidor (slug y nombre) para que esté igual desde la primera carga.
+  const headSlug = appSlug || (typeof slug === 'string' ? slug : '');
+  const headName = appName || club?.name || '';
+  const clubAppHead = headSlug ? (
+    <Head>
+      <link rel="manifest" href={clubManifestHref(headSlug, headName)} key="manifest" />
+      <link rel="apple-touch-icon" href={clubIconHref(headSlug, headName, 180)} key="apple-touch-icon" />
+      <meta name="apple-mobile-web-app-capable" content="yes" key="apple-capable" />
+      <meta name="mobile-web-app-capable" content="yes" key="mobile-capable" />
+      {headName ? <meta name="apple-mobile-web-app-title" content={headName} key="apple-title" /> : null}
+    </Head>
+  ) : null;
+
   // ── LOADING STATE ──
   if (stillLoading) {
     return (
       <DarkPageLayout title={pageTitle} extraCss={PAGE_CSS} breadcrumbs={clubBreadcrumbs}>
+        {clubAppHead}
         <div className="cl-loading">
           <UserLoadingState mode="inline" message="Cargando club..." />
         </div>
@@ -383,6 +410,7 @@ export default function ClubPage() {
   if (error || !club) {
     return (
       <DarkPageLayout title={pageTitle} extraCss={PAGE_CSS} breadcrumbs={clubBreadcrumbs}>
+        {clubAppHead}
         <div className="cl-loading" style={{ textAlign: 'center', gap: 20 }}>
           <div style={{ fontSize: 48, color: 'var(--text-muted)' }}>⚽</div>
           <div>
@@ -401,16 +429,6 @@ export default function ClubPage() {
   }
 
   const DAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-
-  // Manifest propio del club: el acceso directo abre esta página y se instala con su nombre e ícono.
-  const clubAppHead = (
-    <Head>
-      <link rel="manifest" href={clubManifestHref(slug as string, club.name)} key="manifest" />
-      <link rel="apple-touch-icon" href={clubIconHref(slug as string, club.name, 180)} key="apple-touch-icon" />
-      <meta name="apple-mobile-web-app-capable" content="yes" />
-      <meta name="apple-mobile-web-app-title" content={club.name} />
-    </Head>
-  );
 
   if (isClubAppMode) {
     const loginHref = `/login?from=${encodeURIComponent(router.asPath || `/club/${slug}`)}`;

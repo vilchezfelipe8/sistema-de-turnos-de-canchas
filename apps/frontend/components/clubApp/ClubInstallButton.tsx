@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { createPortal } from 'react-dom';
 import { Share, Smartphone, SquarePlus } from 'lucide-react';
-import { canPromptPwaInstall, isIosSafari, promptPwaInstall, subscribePwaInstall } from '../../utils/pwaInstall';
+import { canPromptPwaInstall, getIosBrowser, promptPwaInstall, subscribePwaInstall, type IosBrowser } from '../../utils/pwaInstall';
 import { clubInitials, isStandaloneDisplay } from '../../utils/clubApp';
 import { lockBodyScroll } from '../../utils/bodyScrollLock';
 import { reportUiError } from '../../utils/uiError';
@@ -32,12 +32,12 @@ type Props = { clubName: string; logoUrl?: string | null };
 // permite instalar (Android/computadora) o en iPhone (con los dos pasos), y nunca dentro de la app instalada.
 export default function ClubInstallButton({ clubName, logoUrl }: Props) {
   const [canPrompt, setCanPrompt] = useState(false);
-  const [iosSafari, setIosSafari] = useState(false);
+  const [iosBrowser, setIosBrowser] = useState<IosBrowser | null>(null);
   const [iosSheetOpen, setIosSheetOpen] = useState(false);
 
   useEffect(() => {
     if (isStandaloneDisplay()) return;
-    setIosSafari(isIosSafari());
+    setIosBrowser(getIosBrowser());
     const sync = () => setCanPrompt(canPromptPwaInstall());
     sync();
     return subscribePwaInstall(sync);
@@ -54,10 +54,10 @@ export default function ClubInstallButton({ clubName, logoUrl }: Props) {
     };
   }, [iosSheetOpen]);
 
-  if (!canPrompt && !iosSafari) return null;
+  if (!canPrompt && !iosBrowser) return null;
 
   const handleInstall = async () => {
-    if (iosSafari) {
+    if (iosBrowser) {
       setIosSheetOpen(true);
       return;
     }
@@ -98,12 +98,18 @@ export default function ClubInstallButton({ clubName, logoUrl }: Props) {
             </div>
             <div className="ci-step">
               <span className="ci-step-num">1</span>
-              <p className="ci-step-text">Tocá el botón <strong>Compartir</strong> de abajo de la pantalla</p>
+              <p className="ci-step-text">
+                {iosBrowser === 'chrome'
+                  ? <>Tocá el botón <strong>Compartir</strong> de arriba, al lado de la dirección</>
+                  : iosBrowser === 'other'
+                    ? <>Abrí el menú del navegador y tocá <strong>Compartir</strong></>
+                    : <>Tocá el botón <strong>Compartir</strong> de abajo de la pantalla</>}
+              </p>
               <span className="ci-step-icon" aria-hidden="true"><Share size={20} /></span>
             </div>
             <div className="ci-step">
               <span className="ci-step-num">2</span>
-              <p className="ci-step-text">Elegí <strong>Agregar a inicio</strong> y después <strong>Agregar</strong></p>
+              <p className="ci-step-text">Elegí <strong>Agregar a inicio</strong> (o <strong>Agregar a pantalla de inicio</strong>) y después <strong>Agregar</strong></p>
               <span className="ci-step-icon" aria-hidden="true"><SquarePlus size={20} /></span>
             </div>
             <p className="ci-note">Vas a ver el ícono de {clubName} en tu pantalla, como cualquier otra app.</p>
