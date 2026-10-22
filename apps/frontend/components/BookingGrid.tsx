@@ -26,19 +26,16 @@ interface BookingGridProps {
 }
 
 const CLUB_APP_GRID_CSS = `
-  .bg-days { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(92px, 1fr); gap:8px; padding:5px; margin-bottom:20px; border-radius:16px; background:var(--surface-2); border:1px solid var(--border); overflow-x:auto; }
-  .bg-day { min-height:56px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; border:0; border-radius:12px; background:transparent; color:var(--text-primary); font-family:'Geist',system-ui,sans-serif; cursor:pointer; transition:background .15s,color .15s; }
-  .bg-day:hover { background:var(--surface-1); }
-  .bg-day-label { font-size:16px; font-weight:800; letter-spacing:-.01em; }
-  .bg-day-sub { font-size:11px; font-weight:700; color:var(--text-muted); }
-  .bg-day[aria-pressed="true"] { background:var(--brand); color:var(--brand-on); }
-  .bg-day[aria-pressed="true"] .bg-day-label,
-  .bg-day[aria-pressed="true"] .bg-day-sub { color:var(--brand-on); }
-  .bg-clubapp .v-slot-grid { grid-template-columns:repeat(auto-fill, minmax(96px, 1fr)); gap:10px; }
-  .bg-clubapp .v-slot { padding:14px 10px; font-size:17px; font-weight:800; border-radius:14px; }
-  .bg-clubapp .v-court-option { padding:16px 18px; border-radius:16px; }
-  .bg-clubapp .v-court-name { font-size:16px; }
-  .bg-clubapp .v-court-meta { font-size:13px; }
+  .bg-days-label { font-size:10px; font-weight:700; letter-spacing:.03em; color:var(--text-muted); display:flex; align-items:center; gap:6px; margin-bottom:8px; }
+  .bg-days { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(96px, 1fr); gap:4px; padding:4px; margin-bottom:20px; border-radius:12px; background:var(--surface-2); border:1px solid var(--border); overflow-x:auto; }
+  .bg-day { min-height:46px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; border:1px solid transparent; border-radius:9px; background:transparent; color:var(--text-secondary); font-family:'Geist',system-ui,sans-serif; cursor:pointer; transition:background .16s,border-color .16s,color .16s; }
+  .bg-day:hover { background:var(--surface-1); border-color:var(--border); color:var(--text-primary); }
+  .bg-day:focus-visible { outline:none; box-shadow:var(--shadow-focus); }
+  .bg-day-label { font-size:14px; font-weight:800; }
+  .bg-day-sub { font-size:10px; font-weight:700; opacity:.8; }
+  .bg-day[aria-pressed="true"] { background:var(--surface-1); border-color:var(--accent-border); color:var(--accent-fg); }
+  .bg-clubapp .v-slot-grid { grid-template-columns:repeat(auto-fill, minmax(76px, 1fr)); gap:8px; }
+  .bg-clubapp .v-slot { min-height:44px; font-size:14px; }
 `;
 
 type ActivityTypeSummary = {
@@ -1016,6 +1013,8 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
 
       {/* Días (app del club) */}
       {isClubAppVariant && clubAppDays.length > 0 && (
+        <>
+        <div className="bg-days-label"><Calendar size={12} style={{ color: 'var(--accent-fg)' }} /> Fecha</div>
         <div className="bg-days" role="group" aria-label="Día">
           {clubAppDays.map((day) => {
             const isSelected = Boolean(selectedDate) && formatLocalDate(selectedDate as Date) === day.key;
@@ -1033,6 +1032,7 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
             );
           })}
         </div>
+        </>
       )}
 
       {/* Filters row */}

@@ -64,7 +64,8 @@ const PAGE_CSS = `
   .bk-invite-calendar:hover { background:var(--surface-2); }
   @media(max-width:620px){
     .bk-invite-card { grid-template-columns:auto minmax(0,1fr); }
-    .bk-invite-actions { grid-column:1 / -1; min-width:0; }
+    .bk-invite-actions { grid-column:1 / -1; min-width:0; grid-template-columns:minmax(0, 2fr) minmax(0, 1fr); }
+    .bk-invite-decline { height:auto; }
   }
   .bk-layout { display:grid; grid-template-columns:1.4fr 1fr; gap:20px; align-items:start; }
   .bk-layout.bk-layout-empty { align-items:stretch; }
