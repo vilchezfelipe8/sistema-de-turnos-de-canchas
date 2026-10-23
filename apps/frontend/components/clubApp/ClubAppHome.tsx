@@ -200,7 +200,7 @@ export default function ClubAppHome({ club, slug, user, loginHref }: Props) {
             <p className="ca-line">
               <Clock size={12} />
               {windowInfo.hasMemberPriority
-                ? `Socios desde las ${windowInfo.memberOpensAt} · resto desde las ${windowInfo.publicOpensAt}`
+                ? `Socios desde las ${windowInfo.memberOpensAt} · No socios desde las ${windowInfo.publicOpensAt}`
                 : `Reservas desde las ${windowInfo.publicOpensAt}`}
             </p>
           ) : null}

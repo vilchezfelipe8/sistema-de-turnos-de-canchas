@@ -1131,7 +1131,7 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
         const w = activeBookingWindow;
         const rangeLabel = w.daysAhead === 0 ? 'hoy' : w.daysAhead === 1 ? 'hoy y mañana' : `los próximos ${w.daysAhead} días`;
         const scheduleLine = w.hasMemberPriority
-          ? `Socios desde las ${w.memberOpensAt} · resto desde las ${w.publicOpensAt}`
+          ? `Socios desde las ${w.memberOpensAt} · No socios desde las ${w.publicOpensAt}`
           : `Todos desde las ${w.publicOpensAt}`;
         const isMembersOnly = w.state === 'MEMBERS_ONLY';
         const isGuest = !w.isAuthenticated;
