@@ -15,6 +15,8 @@ import { useUserTheme } from '../contexts/UserThemeContext';
 import { isAuthSessionInvalidatedError } from '../utils/apiClient';
 import PiqueLogo from '../components/PiqueLogo';
 import NavBar from '../components/NavBar';
+import ClubAppTabBar from '../components/clubApp/ClubAppTabBar';
+import { useClubApp } from '../hooks/useClubApp';
 // Importamos los iconos de la libreria
 import { FaTableTennis } from "react-icons/fa"; // Paleta (Perfecta para Padel)
 import { IoFootballOutline } from "react-icons/io5"; // Pelota de futbol limpia
@@ -131,6 +133,8 @@ const formatClubAddress = (club: Club) => {
 };
 
 export default function Home() {
+  // En la app instalada de un club, el home de Pique mantiene la barra del club para poder volver.
+  const clubApp = useClubApp();
   const router = useRouter();
   const { user: authUser } = useAuth();
   const { isLight } = useUserTheme();
@@ -623,6 +627,7 @@ export default function Home() {
   };
 
   const homeCss = `
+    .p-home-root.p-home-clubapp { padding-bottom:calc(84px + env(safe-area-inset-bottom)); }
     .p-home-root { min-height:100vh; background:var(--bg); color:var(--text-primary); font-family:var(--font-sans); -webkit-font-smoothing:antialiased; overflow-x:clip; --p-home-bg-a:var(--bg); --p-home-bg-b:var(--surface-1); --p-home-bg-c:var(--surface-2); }
     .p-home-root *,.p-home-root *::before,.p-home-root *::after { box-sizing:border-box; }
     .p-home-root a { color:inherit; text-decoration:none; }
@@ -1023,7 +1028,7 @@ export default function Home() {
       </Head>
       <style dangerouslySetInnerHTML={{ __html: homeCss }} />
       {/* eslint-disable-next-line @next/next/no-css-tags */}
-      <div className={`p-home-root${isLight ? ' p-home-theme-light' : ''}`} onClick={() => {
+      <div className={`p-home-root${isLight ? ' p-home-theme-light' : ''}${clubApp ? ' p-home-clubapp' : ''}`} onClick={() => {
         setShowCityDropdown(false);
         setShowSportDropdown(false);
         }}>
@@ -1484,6 +1489,7 @@ export default function Home() {
       </div>
 
 
+      {clubApp ? <ClubAppTabBar slug={clubApp.slug} /> : null}
       </div>{/* end p-home-root */}
     </>
   );

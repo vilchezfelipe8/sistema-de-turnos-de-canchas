@@ -1,4 +1,3 @@
-import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -14,7 +13,6 @@ import { isAuthSessionInvalidatedError } from '../utils/apiClient';
 import AppModal from './AppModal';
 import PiqueLogo from './PiqueLogo';
 import { useClubApp } from '../hooks/useClubApp';
-import { clubInitials } from '../utils/clubApp';
 
 interface NavbarProps {
   onContactClick?: () => void;
@@ -101,12 +99,6 @@ const NAV_CSS = `
   .p-player-menu-item-main { display:inline-flex; align-items:center; gap:10px; min-width:0; }
   .p-player-menu-danger { color:var(--error-fg); }
   .p-player-menu-danger:hover { background:var(--error-bg); color:var(--error-fg); }
-  .p-clubapp-brand { display:flex; align-items:center; gap:10px; min-width:0; color:var(--text-primary); text-decoration:none; }
-  .p-clubapp-mark { position:relative; width:42px; height:42px; flex-shrink:0; border-radius:13px; overflow:hidden; background:var(--brand-on); color:var(--brand); display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:900; letter-spacing:-.02em; border:1px solid var(--accent-border-subtle); }
-  .p-clubapp-mark img { background:var(--surface-1); }
-  .p-clubapp-name { min-width:0; display:flex; flex-direction:column; }
-  .p-clubapp-name strong { font-size:16px; font-weight:800; letter-spacing:-.02em; line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:52vw; }
-  .p-clubapp-name span { margin-top:2px; color:var(--text-muted); font-size:11px; font-weight:700; }
   @media(max-width:760px){
     .p-player-nav .p-header-inner { padding-inline:16px; }
     .p-player-shortcuts-wrap { display:none; }
@@ -137,9 +129,8 @@ export default function Navbar({
   const user = rawUser ? normalizeSessionUser(rawUser as any) : null;
   const isAdmin = user ? hasOperatorAccess(user) : false;
   const [navHidden, setNavHidden] = useState(false);
-  // App instalada del club: la barra muestra al club y queda siempre fija.
+  // App instalada del club: la barra queda siempre fija.
   const clubApp = useClubApp();
-  const clubAppName = clubApp?.name || 'Mi club';
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [activeBookingsCount, setActiveBookingsCount] = useState(0);
@@ -365,26 +356,13 @@ export default function Navbar({
       >
         <div className="p-header-inner">
           <div className="p-player-brand">
-            {clubApp ? (
-              <Link href={`/club/${clubApp.slug}`} aria-label={`${clubAppName} - Inicio`} className="p-clubapp-brand">
-                <span className="p-clubapp-mark">
-                  {clubApp.logoUrl
-                    ? <Image src={clubApp.logoUrl} alt="" fill sizes="42px" style={{ objectFit: 'contain' }} unoptimized />
-                    : clubInitials(clubAppName)}
-                </span>
-                <span className="p-clubapp-name">
-                  <strong>{clubAppName}</strong>
-                  <span>Reservas</span>
-                </span>
-              </Link>
-            ) : (
-              <Link href="/" aria-label="Pique - Inicio" onClick={handleLogoClick} style={{ display: 'flex', alignItems: 'center' }}>
-                <PiqueLogo
-                  variant={isLight ? 'horizontal' : 'horizontalDark'}
-                  style={{ width: 123, height: 'auto', display: 'block' }}
-                />
-              </Link>
-            )}
+            {/* Siempre la marca Pique (también en la app instalada del club): lleva al home. */}
+            <Link href="/" aria-label="Pique - Inicio" onClick={handleLogoClick} style={{ display: 'flex', alignItems: 'center' }}>
+              <PiqueLogo
+                variant={isLight ? 'horizontal' : 'horizontalDark'}
+                style={{ width: 123, height: 'auto', display: 'block' }}
+              />
+            </Link>
           </div>
 
           {showHomeShortcuts && (
