@@ -2,6 +2,7 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ChevronLeft,
   Link2,
   DollarSign,
   Pencil,
@@ -1048,7 +1049,8 @@ export default function AdminClientesPlayground2Page() {
       </Head>
 
       <AdminPlaygroundShell activeItem="Clientes" user={user} contentMuted={sidebarOpen}>
-        <div className="flex h-full min-h-0 flex-col gap-4 p-4 lg:p-6">
+        <div className="flex h-full min-h-0 flex-col gap-3 p-3.5 lg:gap-4 lg:p-6">
+              <h1 className="text-[22px] font-extrabold tracking-[-0.03em] text-p-text lg:hidden">Clientes</h1>
               <AdminSegmentedControl
                 ariaLabel="Vistas de clientes"
                 value={activeView}
@@ -1125,7 +1127,7 @@ export default function AdminClientesPlayground2Page() {
                 {activeView === 'debt' && (
                   <div className="grid h-full grid-cols-1 gap-4 xl:grid-cols-[360px_1fr]">
                     {/* Left: debtor list with search + count badge */}
-                    <article className="flex min-h-0 flex-col rounded-xl border border-p-border bg-p-surface">
+                    <article className={`flex min-h-0 flex-col rounded-xl border border-p-border bg-p-surface ${selectedClient ? 'max-lg:hidden' : ''}`}>
                       <div className="p-4 pb-3">
                         <div className="flex items-center justify-between">
                           <h2 className="text-[13px] font-semibold text-p-text">Clientes con deuda</h2>
@@ -1186,7 +1188,19 @@ export default function AdminClientesPlayground2Page() {
                     </article>
 
                     {/* Right: pending accounts for selected debtor */}
-                    <article className="flex min-h-0 flex-col rounded-xl border border-p-border bg-p-surface">
+                    <article className={`flex min-h-0 flex-col rounded-xl border border-p-border bg-p-surface ${selectedClient ? '' : 'max-lg:hidden'}`}>
+                      {selectedClient && (
+                        <div className="px-4 pt-3 lg:hidden">
+                          <button
+                          type="button"
+                          onClick={() => setSelectedClientId('')}
+                          className="mb-1 inline-flex items-center gap-1 text-[12px] font-bold text-p-accent lg:hidden"
+                        >
+                          <ChevronLeft size={15} />
+                          Volver a la lista
+                        </button>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between p-4 pb-3">
                         <h2 className="text-[13px] font-semibold text-p-text">Cuentas pendientes</h2>
                         {selectedClient && (
@@ -1250,7 +1264,7 @@ export default function AdminClientesPlayground2Page() {
                 {activeView === 'history' && (
                   <div className="grid h-full grid-cols-1 gap-4 xl:grid-cols-[320px_1fr]">
                     {/* Left: client list with search + debt badge */}
-                    <article className="flex min-h-0 flex-col rounded-xl border border-p-border bg-p-surface">
+                    <article className={`flex min-h-0 flex-col rounded-xl border border-p-border bg-p-surface ${selectedClient ? 'max-lg:hidden' : ''}`}>
                       <div className="p-4 pb-3">
                         <h2 className="text-[13px] font-semibold text-p-text">Clientes</h2>
                         <div className="relative mt-3">
@@ -1301,7 +1315,19 @@ export default function AdminClientesPlayground2Page() {
                     </article>
 
                     {/* Right: Perfil panel */}
-                    <article className="flex min-h-0 flex-col overflow-auto rounded-xl border border-p-border bg-p-surface">
+                    <article className={`flex min-h-0 flex-col overflow-auto rounded-xl border border-p-border bg-p-surface ${selectedClient ? '' : 'max-lg:hidden'}`}>
+                      {selectedClient && (
+                        <div className="px-4 pt-3 lg:hidden">
+                          <button
+                          type="button"
+                          onClick={() => setSelectedClientId('')}
+                          className="mb-1 inline-flex items-center gap-1 text-[12px] font-bold text-p-accent lg:hidden"
+                        >
+                          <ChevronLeft size={15} />
+                          Volver a la lista
+                        </button>
+                        </div>
+                      )}
                       {!selectedClient ? (
                         <div className="p-8 text-center text-[13px] text-p-text-muted">
                           Selecciona un cliente para ver su perfil.
@@ -1309,8 +1335,8 @@ export default function AdminClientesPlayground2Page() {
                       ) : (
                         <>
                           {/* Hero */}
-                          <div className="flex items-start justify-between gap-4 border-b border-p-border p-5">
-                            <div className="min-w-0">
+                          <div className="flex flex-wrap items-start justify-between gap-2 border-b border-p-border p-4 lg:flex-nowrap lg:gap-4 lg:p-5">
+                            <div className="min-w-0 basis-full lg:basis-auto">
                               <div className="flex flex-wrap items-center gap-2">
                                 <h2 className="text-[18px] font-bold text-p-text">{getClientName(selectedClient)}</h2>
                                 {selectedClient.isProfessor && (

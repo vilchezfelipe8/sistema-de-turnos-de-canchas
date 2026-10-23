@@ -7,6 +7,9 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  HelpCircle,
+  LayoutGrid,
+  LogOut,
   ShieldCheck,
   MapPin,
   Calendar,
@@ -26,8 +29,13 @@ type AdminPlaygroundShellProps = {
   activeItem: string;
   children: ReactNode;
   contentMuted?: boolean;
+  /** Oculta la barra inferior en mobile (p. ej. con un panel a pantalla completa abierto). */
+  mobileNavHidden?: boolean;
   user: any;
 };
+
+const MOBILE_PRIMARY_LABELS = ['Calendario', 'Caja', 'Clientes'];
+const MOBILE_MAX_PRIMARY_ITEMS = 3;
 
 const HELP_WHATSAPP_URL = 'https://wa.me/5493513436163';
 const HELP_EMAIL_URL = 'mailto:soporte.pique@gmail.com';
@@ -94,6 +102,7 @@ export default function AdminPlaygroundShell({
   activeItem,
   children,
   contentMuted = false,
+  mobileNavHidden = false,
   user,
 }: AdminPlaygroundShellProps) {
   const router = useRouter();
@@ -103,6 +112,7 @@ export default function AdminPlaygroundShell({
   const [helpOpen, setHelpOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [selectedClubId, setSelectedClubId] = useState<number>(0);
   const clubMenuRef = useRef<HTMLDivElement | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
@@ -119,6 +129,19 @@ export default function AdminPlaygroundShell({
       return hasOperatorPrivileges;
     });
   }, [hasAdminPrivileges, hasOperatorPrivileges, adminClubSlug]);
+  const mobileNavigation = useMemo(() => {
+    const enabledItems = visibleSidebarItems.filter((item) => !item.disabled);
+    if (enabledItems.length <= MOBILE_MAX_PRIMARY_ITEMS + 1) {
+      return { primary: enabledItems, more: [] as typeof enabledItems };
+    }
+    const preferred = MOBILE_PRIMARY_LABELS
+      .map((label) => enabledItems.find((item) => item.label === label))
+      .filter((item): item is (typeof enabledItems)[number] => Boolean(item));
+    const fillers = enabledItems.filter((item) => !preferred.includes(item));
+    const primary = [...preferred, ...fillers].slice(0, MOBILE_MAX_PRIMARY_ITEMS);
+    return { primary, more: enabledItems.filter((item) => !primary.includes(item)) };
+  }, [visibleSidebarItems]);
+  const isMobileMoreActive = mobileNavigation.more.some((item) => item.label === activeItem);
   const clubOptions = useMemo(
     () =>
       Array.isArray(normalizedUser?.memberships)
@@ -190,6 +213,20 @@ export default function AdminPlaygroundShell({
   }, [profileMenuOpen]);
 
   useEffect(() => {
+    if (!mobileMoreOpen) return;
+    const onDocumentKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileMoreOpen(false);
+    };
+    const closeOnRoute = () => setMobileMoreOpen(false);
+    document.addEventListener('keydown', onDocumentKeyDown);
+    router.events.on('routeChangeStart', closeOnRoute);
+    return () => {
+      document.removeEventListener('keydown', onDocumentKeyDown);
+      router.events.off('routeChangeStart', closeOnRoute);
+    };
+  }, [mobileMoreOpen, router.events]);
+
+  useEffect(() => {
     if (!helpOpen) return;
     const onDocumentKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setHelpOpen(false);
@@ -229,9 +266,9 @@ export default function AdminPlaygroundShell({
   };
 
   return (
-    <div className="h-screen w-full overflow-hidden bg-p-bg text-p-text pique-root">
+    <div className="h-screen supports-[height:100dvh]:h-[100dvh] w-full overflow-hidden bg-p-bg text-p-text pique-root">
       <div className="flex h-full w-full flex-col">
-        <header className="relative flex h-16 items-center overflow-visible bg-p-surface border-b border-p-border px-4 lg:px-6" style={{ zIndex: ADMIN_Z_INDEX.shellHeader }}>
+        <header className="relative flex h-14 lg:h-16 items-center overflow-visible bg-p-surface border-b border-p-border px-3.5 lg:px-6" style={{ zIndex: ADMIN_Z_INDEX.shellHeader }}>
           <div className="hidden w-[168px] items-center gap-2 overflow-hidden transition-[width] duration-200 ease-out lg:flex">
             <Link
               href="/"
@@ -253,7 +290,8 @@ export default function AdminPlaygroundShell({
               aria-label="Ir al inicio"
               className="inline-flex items-center"
             >
-              <PiqueLogo variant={isLight ? 'horizontal' : 'horizontalDark'} className="h-9 w-auto" />
+              <PiqueLogo variant={isLight ? 'isotipo' : 'isotipoDark'} className="h-8 w-8 sm:hidden" />
+              <PiqueLogo variant={isLight ? 'horizontal' : 'horizontalDark'} className="hidden h-9 w-auto sm:block" />
             </Link>
           </div>
 
@@ -261,7 +299,7 @@ export default function AdminPlaygroundShell({
             <button
               type="button"
               onClick={toggleTheme}
-              className="grid h-9 w-9 place-items-center rounded-lg border border-p-border bg-p-surface text-p-text-secondary transition hover:border-p-border-strong hover:bg-p-surface-2 hover:text-p-text"
+              className="hidden h-9 w-9 place-items-center lg:grid rounded-lg border border-p-border bg-p-surface text-p-text-secondary transition hover:border-p-border-strong hover:bg-p-surface-2 hover:text-p-text"
               title={isLight ? 'Activar modo oscuro' : 'Activar modo claro'}
               aria-label={isLight ? 'Activar modo oscuro' : 'Activar modo claro'}
             >
@@ -271,7 +309,7 @@ export default function AdminPlaygroundShell({
             <button
               type="button"
               onClick={() => setHelpOpen(true)}
-              className="h-9 rounded-lg px-3 text-sm font-semibold text-p-accent hover:bg-p-surface-2"
+              className="hidden h-9 rounded-lg px-3 text-sm font-semibold text-p-accent hover:bg-p-surface-2 lg:block"
             >
               Ayuda
             </button>
@@ -291,7 +329,7 @@ export default function AdminPlaygroundShell({
                 }}
                 aria-haspopup="menu"
                 aria-expanded={clubMenuOpen}
-                className={`inline-flex h-9 min-w-[180px] items-center justify-between gap-2 rounded-lg border bg-p-surface px-3 text-sm font-semibold shadow-sm transition outline-none focus:outline-none focus-visible:ring-2 focus-visible:ring-lima-300/40 focus-visible:ring-offset-0 ${
+                className={`inline-flex h-9 max-w-[200px] sm:max-w-none sm:min-w-[180px] items-center justify-between gap-2 rounded-lg border bg-p-surface px-3 text-sm font-semibold shadow-sm transition outline-none focus:outline-none focus-visible:ring-2 focus-visible:ring-lima-300/40 focus-visible:ring-offset-0 ${
                   clubMenuOpen
                     ? 'border-p-border-strong text-p-text ring-2 ring-lima-300/25'
                     : 'border-p-border text-p-text-secondary hover:border-p-border-strong'
@@ -305,7 +343,7 @@ export default function AdminPlaygroundShell({
               </button>
 
               {clubMenuOpen && (
-                <div className="absolute right-0 mt-2 w-[240px] rounded-xl border border-p-border bg-p-surface p-1 shadow-p-lg" style={{ zIndex: ADMIN_Z_INDEX.dropdown }}>
+                <div className="absolute right-0 mt-2 w-[240px] max-w-[calc(100vw-1.5rem)] rounded-xl border border-p-border bg-p-surface p-1 shadow-p-lg" style={{ zIndex: ADMIN_Z_INDEX.dropdown }}>
                   {clubOptions.length === 0 ? (
                     <div className="px-3 py-2 text-[13px] text-p-text-muted">Sin clubes disponibles</div>
                   ) : (
@@ -501,35 +539,136 @@ export default function AdminPlaygroundShell({
             {children}
           </main>
         </div>
-        <nav className="flex h-[62px] shrink-0 items-center gap-1 overflow-x-auto border-t border-p-border bg-p-surface px-2 lg:hidden">
-          {visibleSidebarItems.map(({ label, icon: Icon, href, disabled }) => {
-            const active = !disabled && label === activeItem;
+        <nav
+          aria-label="Secciones"
+          className={`${mobileNavHidden ? 'hidden' : 'grid'} shrink-0 items-center gap-1 border-t border-p-border bg-p-surface px-1.5 pt-[7px] pb-[max(7px,env(safe-area-inset-bottom))] lg:hidden`}
+          style={{
+            gridTemplateColumns: `repeat(${mobileNavigation.primary.length + (mobileNavigation.more.length > 0 ? 1 : 0)}, minmax(0, 1fr))`,
+          }}
+        >
+          {mobileNavigation.primary.map(({ label, icon: Icon, href }) => {
+            const active = label === activeItem && !mobileMoreOpen;
             return (
               <button
                 key={`mobile-${label}`}
                 type="button"
-                disabled={disabled}
                 onClick={() => {
-                  if (!disabled && router.pathname !== href) void router.push(href);
+                  setMobileMoreOpen(false);
+                  if (router.pathname !== href) void router.push(href);
                 }}
-                className={`flex h-12 min-w-[76px] flex-col items-center justify-center rounded-xl px-2 text-[10px] font-semibold transition ${
-                  disabled
-                    ? 'cursor-not-allowed opacity-40 text-p-text-muted'
-                    : active
-                      ? 'bg-p-brand text-p-brand-on'
-                      : 'text-p-text-muted hover:bg-p-surface-2'
+                className={`flex h-[52px] min-w-0 flex-col items-center justify-center gap-[3px] rounded-[14px] px-1 text-[10px] transition ${
+                  active ? 'bg-p-brand font-extrabold text-p-brand-on' : 'font-bold text-p-text-muted hover:bg-p-surface-2'
                 }`}
-                title={disabled ? 'Disponible más adelante' : label}
-                aria-label={disabled ? `${label} — Disponible más adelante` : label}
-                aria-disabled={disabled}
+                aria-current={active ? 'page' : undefined}
               >
-                <Icon size={15} />
-                <span className="mt-1 max-w-[68px] truncate">{label}</span>
+                <Icon size={18} />
+                <span className="max-w-full truncate">{label}</span>
               </button>
             );
           })}
+          {mobileNavigation.more.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setMobileMoreOpen((previous) => !previous)}
+              aria-haspopup="dialog"
+              aria-expanded={mobileMoreOpen}
+              className={`flex h-[52px] min-w-0 flex-col items-center justify-center gap-[3px] rounded-[14px] px-1 text-[10px] transition ${
+                mobileMoreOpen || isMobileMoreActive
+                  ? 'bg-p-brand font-extrabold text-p-brand-on'
+                  : 'font-bold text-p-text-muted hover:bg-p-surface-2'
+              }`}
+            >
+              <LayoutGrid size={18} />
+              <span>Más</span>
+            </button>
+          )}
         </nav>
       </div>
+      {mobileMoreOpen && !mobileNavHidden && (
+        <div className="fixed inset-0 lg:hidden" style={{ zIndex: ADMIN_Z_INDEX.dropdown }}>
+          <button
+            type="button"
+            aria-label="Cerrar menú"
+            className="absolute inset-0 bg-ink-900/55"
+            onClick={() => setMobileMoreOpen(false)}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Más secciones"
+            className="absolute inset-x-0 bottom-[calc(66px+env(safe-area-inset-bottom))] max-h-[calc(100%-140px)] overflow-y-auto rounded-t-3xl border border-b-0 border-p-border bg-p-surface px-4 pb-4 pt-2.5 shadow-p-lg"
+          >
+            <span className="mx-auto mb-3.5 block h-1 w-10 rounded-full bg-p-border-strong" />
+            <div className="grid grid-cols-3 gap-2">
+              {mobileNavigation.more.map(({ label, icon: Icon, href }) => {
+                const active = label === activeItem;
+                return (
+                  <button
+                    key={`mobile-more-${label}`}
+                    type="button"
+                    onClick={() => {
+                      setMobileMoreOpen(false);
+                      if (router.pathname !== href) void router.push(href);
+                    }}
+                    className={`flex h-[82px] flex-col items-center justify-center gap-2 rounded-2xl border text-[12px] font-bold transition ${
+                      active
+                        ? 'border-lima-300/60 bg-p-positive-bg text-p-text'
+                        : 'border-p-border bg-p-surface-2 text-p-text hover:border-p-border-strong'
+                    }`}
+                  >
+                    <Icon size={20} className="text-p-accent" />
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-3.5 overflow-hidden rounded-2xl border border-p-border">
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="flex min-h-[50px] w-full items-center justify-between border-b border-p-border px-3.5 text-left text-[14px] font-semibold text-p-text"
+              >
+                <span className="inline-flex items-center gap-2.5">
+                  {isLight ? <Moon size={16} className="text-p-text-muted" /> : <Sun size={16} className="text-p-text-muted" />}
+                  Modo oscuro
+                </span>
+                <span
+                  className={`flex h-6 w-[42px] items-center rounded-full p-[3px] transition ${
+                    isLight ? 'justify-start bg-p-surface-3' : 'justify-end bg-p-brand'
+                  }`}
+                >
+                  <span className={`h-[18px] w-[18px] rounded-full ${isLight ? 'bg-p-text-muted' : 'bg-p-brand-on'}`} />
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMoreOpen(false);
+                  setHelpOpen(true);
+                }}
+                className="flex min-h-[50px] w-full items-center justify-between border-b border-p-border px-3.5 text-left text-[14px] font-semibold text-p-text"
+              >
+                <span className="inline-flex items-center gap-2.5">
+                  <HelpCircle size={16} className="text-p-text-muted" />
+                  Ayuda
+                </span>
+                <ChevronRight size={16} className="text-p-text-muted" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMoreOpen(false);
+                  setLogoutConfirmOpen(true);
+                }}
+                className="flex min-h-[50px] w-full items-center gap-2.5 px-3.5 text-left text-[14px] font-semibold text-p-error"
+              >
+                <LogOut size={16} />
+                Cerrar sesión
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {helpOpen && (
         <div
           className="fixed inset-0 bg-ink-900/55 backdrop-blur-[1px] flex items-center justify-center p-4"
