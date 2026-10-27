@@ -107,6 +107,9 @@ const CHECKOUT_CSS = `
     .checkout-participants-head { flex-direction:column; gap:10px; }
     .checkout-participant-form { grid-template-columns:1fr; }
     .checkout-add-player { width:100%; }
+    /* En la fila de un lugar libre, el botón Invitar baja a su propia línea para no aplastar el texto. */
+    .checkout-player { flex-wrap:wrap; }
+    .checkout-player > .checkout-add-player { flex:1 0 100%; }
     .checkout-actions { flex-direction:column; }
     .checkout-actions > .checkout-secondary,.checkout-actions > .checkout-primary { flex:none; width:100%; }
   }
