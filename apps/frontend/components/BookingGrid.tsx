@@ -4,18 +4,16 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import type { ReactNode } from 'react';
 import { useAvailability } from '../hooks/useAvailability';
-import { normalizeDniInput, usePlayerSignIn } from '../hooks/usePlayerSignIn';
 import AppModal from './AppModal';
 
 import { getApiUrl } from '../utils/apiUrl';
 import { ClubService, Club } from '../services/ClubService';
 import { extractErrorMessage, reportUiError } from '../utils/uiError';
 import { useAuth } from '../contexts/AuthContext';
-import { lockBodyScroll } from '../utils/bodyScrollLock';
 import { createBookingCheckoutDraftId, rememberCheckoutReturn, saveBookingCheckoutDraft } from '../utils/bookingCheckoutDraft';
 import { PlayerPricingService, type ActivityFormat, type ClubPricingMode } from '../services/PlayerPricingService';
 import { BookingWindowService, type BookingWindowEvaluation } from '../services/BookingWindowService';
-import { ChevronDown, Check, Calendar, Clock, MapPin, Zap, MousePointerClick, Hourglass, Moon, Ban, AlertCircle, Activity, ChevronLeft, ChevronRight, LayoutGrid, Rows3, Info, Mail, Lock, Eye, EyeOff, LogIn, Loader2, ShieldCheck } from 'lucide-react';
+import { ChevronDown, Check, Calendar, Clock, MapPin, Zap, MousePointerClick, Hourglass, Moon, Ban, AlertCircle, Activity, ChevronLeft, ChevronRight, LayoutGrid, Rows3, Info, LogIn, ShieldCheck } from 'lucide-react';
 
 const apiBase = () => `${getApiUrl()}/api`;
 
@@ -224,9 +222,6 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
     onConfirm?: () => void; onCancel?: () => void; confirmDisabled?: boolean;
     closeOnBackdrop?: boolean; closeOnEscape?: boolean; blockManualClose?: boolean;
   }>({ show: false });
-  const pendingAfterLoginActionRef = useRef<null | (() => void)>(null);
-  const [loginModalShowPassword, setLoginModalShowPassword] = useState(false);
-  const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
 
   // Theme tokens — avoids repeating ternaries throughout the JSX
   const T = useMemo(() => ({
@@ -255,42 +250,6 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
     setModalState(p => ({ ...p, show: false }));
   }, []);
 
-  const loginModalLabelStyle = { fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: T.textMuted } as const;
-  const loginModalInputStyle = { width: '100%', padding: '11px 14px', background: T.bgInput, border: `1px solid ${T.border}`, borderRadius: 12, color: T.textPrimary, fontSize: 14, fontWeight: 600, outline: 'none' } as const;
-  const loginModalLinkStyle = { background: 'none', border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, color: T.textMuted, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '3px', padding: 0 } as const;
-  const loginModalPrimaryButtonStyle = (disabled: boolean) => ({
-    marginTop: 4, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '13px 20px',
-    borderRadius: 12, border: 'none', background: 'var(--brand)', color: 'var(--brand-on)', fontSize: 13, fontWeight: 800,
-    letterSpacing: '.01em', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1
-  } as const);
-
-  // Misma lógica de ingreso que /login: DNI o email, activación de socios y recuperación de contraseña.
-  const signIn = usePlayerSignIn({
-    onAuthenticated: () => {
-      setIsAuthenticated(true);
-      setIsLoginPromptOpen(false);
-      signIn.reset();
-      setLoginModalShowPassword(false);
-      const pendingAction = pendingAfterLoginActionRef.current;
-      pendingAfterLoginActionRef.current = null;
-      if (pendingAction) { try { pendingAction(); } catch (err) { reportUiError({ area: 'BookingGrid', action: 'postLoginPendingAction' }, err); } }
-    }
-  });
-  const loginModalLoading = signIn.loading;
-  const loginModalMagicLoading = signIn.magicLoading;
-
-  const resetLoginModalState = useCallback(() => {
-    signIn.reset();
-    setLoginModalShowPassword(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signIn.reset]);
-
-  const closeLoginPromptModal = useCallback(() => {
-    setIsLoginPromptOpen(false);
-    resetLoginModalState();
-    pendingAfterLoginActionRef.current = null;
-  }, [resetLoginModalState]);
-
   const showInfo = useCallback((message: ReactNode, title = 'Información') => {
     setModalState({ show: true, title, message, cancelText: '', confirmText: 'OK', onConfirm: closeModal, closeOnBackdrop: true, closeOnEscape: true, blockManualClose: false });
   }, [closeModal]);
@@ -299,28 +258,28 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
     setModalState({ show: true, title: 'Error', message, isWarning: true, cancelText: '', confirmText: 'Aceptar', onConfirm: closeModal, closeOnBackdrop: true, closeOnEscape: true, blockManualClose: false });
   }, [closeModal]);
 
-  const openLoginModal = (afterLoginAction?: () => void) => {
-    pendingAfterLoginActionRef.current = afterLoginAction || null;
-    resetLoginModalState();
-    setIsLoginPromptOpen(true);
-  };
-
-  useEffect(() => {
-    if (!isLoginPromptOpen) return;
-    const release = lockBodyScroll();
-    return () => release();
-  }, [isLoginPromptOpen]);
-
-  useEffect(() => {
-    if (!isLoginPromptOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !loginModalLoading && !loginModalMagicLoading) {
-        closeLoginPromptModal();
+  // Sin sesión se usa el mismo login de toda la app. Antes se guarda la selección en la dirección
+  // de esta página: al volver de ingresar, la grilla se abre con el mismo día, deporte y horario.
+  const goToLogin = (options?: { keepSelection?: boolean }) => {
+    const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+    if (options?.keepSelection && selectedDate && selectedSlot) {
+      params.set('date', formatLocalDate(selectedDate));
+      params.set('time', selectedSlot);
+      if (selectedActivityFilter) params.set('sport', selectedActivityFilter);
+    }
+    const query = params.toString();
+    const returnUrl = `${router.asPath.split('?')[0].split('#')[0]}${query ? `?${query}` : ''}`;
+    void (async () => {
+      if (options?.keepSelection) {
+        try {
+          await router.replace(returnUrl, undefined, { shallow: true, scroll: false });
+        } catch {
+          // Si no se pudo guardar la selección, se sigue igual al login.
+        }
       }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [closeLoginPromptModal, isLoginPromptOpen, loginModalLoading, loginModalMagicLoading]);
+      await router.push(`/login?from=${encodeURIComponent(returnUrl)}`);
+    })();
+  };
 
   const buildBookingSummaryMessage = (params: {
     courtName: string; activityName: string; start: Date; end: Date;
@@ -713,7 +672,7 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
     if (!selectedDate || !selectedSlot || !selectedCourt) return;
     if (!hasAuthSession || !isAuthenticated) {
       setIsAuthenticated(false);
-      openLoginModal(() => { openCheckout(); });
+      goToLogin({ keepSelection: true });
       return;
     }
     setIsAuthenticated(true);
@@ -1159,7 +1118,7 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
             {isMembersOnly && isGuest && (
               <button
                 type="button"
-                onClick={() => openLoginModal(() => { void loadBookingWindow(); })}
+                onClick={() => goToLogin()}
                 style={{ marginTop: 8, height: 42, padding: '0 18px', borderRadius: 13, border: 'none', background: 'var(--brand)', color: 'var(--brand-on)', fontSize: 13, fontWeight: 900, fontFamily: "'Geist',system-ui,sans-serif", cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}
               >
                 <LogIn size={15} /> Ingresar con DNI
@@ -1622,233 +1581,6 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
               (incluye luces +${priceInfo.extra.toLocaleString()}{clubConfig.lightsFromHour ? ` desde ${clubConfig.lightsFromHour}` : ''})
             </span>
           )}
-        </div>
-      )}
-
-      {isLoginPromptOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          style={{ position: 'fixed', inset: 0, background: T.backdrop, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 2147483201 }}
-          onMouseDown={event => {
-            if (event.target !== event.currentTarget) return;
-            if (loginModalLoading || loginModalMagicLoading) return;
-            closeLoginPromptModal();
-          }}
-        >
-          <div style={{ width: '100%', maxWidth: 420, background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 24, boxShadow: T.shadowModal, overflow: 'hidden', fontFamily: "'Geist',system-ui,sans-serif" }}>
-            <div style={{ padding: '30px 28px 22px', borderBottom: `1px solid ${T.divider}`, textAlign: 'center' }}>
-              <div style={{ width: 52, height: 52, borderRadius: 16, background: 'var(--accent-bg-soft)', border: '1px solid var(--accent-border-subtle)', margin: '0 auto 16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-fg)' }}>
-                <LogIn size={22} />
-              </div>
-              <h3 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.textPrimary, letterSpacing: '-.03em' }}>
-                {signIn.recoveryMode === 'activate' ? 'Activá tu cuenta' : signIn.recoveryMode === 'reset' ? 'Recuperá tu contraseña' : 'Bienvenido'}
-              </h3>
-              <p style={{ margin: '6px 0 0', fontSize: 11, fontWeight: 600, letterSpacing: '.03em', color: T.textDisabled }}>
-                {signIn.recoveryMode === 'activate' ? 'Primer ingreso de socios' : signIn.recoveryMode === 'reset' ? 'Te enviamos un código' : 'Ingresá con tu DNI o email'}
-              </p>
-            </div>
-
-            <div style={{ padding: '22px 28px 28px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {signIn.error && (
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', borderRadius: 12, background: 'var(--error-bg)', border: '1px solid var(--error-bg)', color: 'var(--error-fg)', fontSize: 13, fontWeight: 600 }}>
-                  <AlertCircle size={15} style={{ marginTop: 1, flexShrink: 0 }} />
-                  <span>{signIn.error}</span>
-                </div>
-              )}
-
-              {signIn.success && (
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', borderRadius: 12, background: 'var(--accent-bg-soft)', border: '1px solid var(--accent-border-subtle)', color: 'var(--accent-fg)', fontSize: 13, fontWeight: 600 }}>
-                  <Check size={15} style={{ marginTop: 1, flexShrink: 0 }} />
-                  <span>{signIn.success}</span>
-                </div>
-              )}
-
-              {signIn.recoveryMode ? (
-                <>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <label style={loginModalLabelStyle}>{signIn.recoveryMode === 'activate' ? 'DNI' : 'DNI o email'}</label>
-                    <input
-                      type="text"
-                      inputMode={signIn.recoveryMode === 'activate' ? 'numeric' : 'text'}
-                      value={signIn.recoveryIdentifier}
-                      disabled={signIn.recoveryStep === 'confirm'}
-                      onChange={event => signIn.setRecoveryIdentifier(signIn.recoveryMode === 'activate' ? normalizeDniInput(event.target.value) : event.target.value)}
-                      style={loginModalInputStyle}
-                      placeholder={signIn.recoveryMode === 'activate' ? 'Ej: 35123456' : 'DNI o tu@email.com'}
-                    />
-                  </div>
-                  {signIn.recoveryStep === 'request' ? (
-                    <button
-                      type="button"
-                      onClick={() => { void signIn.requestRecoveryCode(signIn.recoveryMode!, signIn.recoveryIdentifier); }}
-                      disabled={loginModalLoading || !signIn.recoveryIdentifier.trim()}
-                      style={loginModalPrimaryButtonStyle(loginModalLoading || !signIn.recoveryIdentifier.trim())}
-                    >
-                      {loginModalLoading ? 'Enviando...' : 'Enviarme el código'}
-                    </button>
-                  ) : (
-                    <>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <label style={loginModalLabelStyle}>Código</label>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          autoComplete="one-time-code"
-                          maxLength={6}
-                          value={signIn.recoveryCode}
-                          onChange={event => signIn.setRecoveryCode(event.target.value.replace(/[^\d]/g, ''))}
-                          style={loginModalInputStyle}
-                          placeholder="6 dígitos"
-                        />
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <label style={loginModalLabelStyle}>{signIn.recoveryMode === 'activate' ? 'Elegí tu contraseña' : 'Nueva contraseña'}</label>
-                        <input
-                          type="password"
-                          value={signIn.recoveryPassword}
-                          onChange={event => signIn.setRecoveryPassword(event.target.value)}
-                          style={loginModalInputStyle}
-                          placeholder="Mínimo 6 caracteres"
-                          autoComplete="new-password"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => { void signIn.confirmRecovery(); }}
-                        disabled={loginModalLoading || signIn.recoveryCode.length < 6 || signIn.recoveryPassword.length < 6}
-                        style={loginModalPrimaryButtonStyle(loginModalLoading || signIn.recoveryCode.length < 6 || signIn.recoveryPassword.length < 6)}
-                      >
-                        {loginModalLoading ? 'Validando...' : signIn.recoveryMode === 'activate' ? 'Activar e ingresar' : 'Guardar e ingresar'}
-                      </button>
-                      <button type="button" onClick={() => { void signIn.requestRecoveryCode(signIn.recoveryMode!, signIn.recoveryIdentifier); }} disabled={loginModalLoading} style={loginModalLinkStyle}>
-                        Reenviar código
-                      </button>
-                    </>
-                  )}
-                  <button type="button" onClick={signIn.closeRecovery} style={loginModalLinkStyle}>
-                    Volver a iniciar sesión
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <label style={loginModalLabelStyle}>DNI o email</label>
-                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                      <span style={{ position: 'absolute', left: 13, color: T.textDisabled, display: 'flex', pointerEvents: 'none' }}><Mail size={14} /></span>
-                      <input
-                        type="text"
-                        value={signIn.identifier}
-                        onChange={event => signIn.setIdentifier(event.target.value)}
-                        style={{ ...loginModalInputStyle, padding: '11px 14px 11px 38px' }}
-                        placeholder="35123456 o tu@email.com"
-                        autoComplete="username"
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <label style={loginModalLabelStyle}>Contraseña</label>
-                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                      <span style={{ position: 'absolute', left: 13, color: T.textDisabled, display: 'flex', pointerEvents: 'none' }}><Lock size={14} /></span>
-                      <input
-                        type={loginModalShowPassword ? 'text' : 'password'}
-                        value={signIn.password}
-                        onChange={event => signIn.setPassword(event.target.value)}
-                        onKeyDown={event => {
-                          if (event.key === 'Enter' && !loginModalLoading) {
-                            event.preventDefault();
-                            void signIn.submitLogin();
-                          }
-                        }}
-                        style={{ ...loginModalInputStyle, padding: '11px 44px 11px 38px' }}
-                        placeholder="••••••••"
-                        autoComplete="current-password"
-                      />
-                      <button
-                        type="button"
-                        onMouseDown={() => setLoginModalShowPassword(true)}
-                        onMouseUp={() => setLoginModalShowPassword(false)}
-                        onMouseLeave={() => setLoginModalShowPassword(false)}
-                        onTouchStart={() => setLoginModalShowPassword(true)}
-                        onTouchEnd={() => setLoginModalShowPassword(false)}
-                        style={{ position: 'absolute', right: 12, background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer', display: 'flex', alignItems: 'center', padding: 4 }}
-                        aria-label="Ver contraseña"
-                      >
-                        {loginModalShowPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => { void signIn.submitLogin(); }}
-                    disabled={loginModalLoading || !signIn.identifier.trim() || !signIn.password}
-                    style={loginModalPrimaryButtonStyle(loginModalLoading || !signIn.identifier.trim() || !signIn.password)}
-                  >
-                    {loginModalLoading ? (
-                      <>
-                        <Loader2 size={15} style={{ animation: 'bg-spin .8s linear infinite' }} />
-                        Procesando...
-                      </>
-                    ) : (
-                      <>
-                        <LogIn size={15} />
-                        Ingresar
-                      </>
-                    )}
-                  </button>
-
-                  <div style={{ display: 'flex', justifyContent: 'center', gap: 14, flexWrap: 'wrap' }}>
-                    <button type="button" onClick={() => signIn.openRecovery('activate', signIn.identifier)} style={loginModalLinkStyle}>
-                      ¿Sos socio y es tu primera vez? Activá tu cuenta
-                    </button>
-                    <button type="button" onClick={() => signIn.openRecovery('reset', signIn.identifier)} style={loginModalLinkStyle}>
-                      Olvidé mi contraseña
-                    </button>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ flex: 1, height: 1, background: T.divider }} />
-                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: T.textDisabled }}>o</span>
-                    <div style={{ flex: 1, height: 1, background: T.divider }} />
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => { void signIn.requestMagicLink(); }}
-                    disabled={loginModalMagicLoading || loginModalLoading || !signIn.canRequestMagicLink}
-                    title={signIn.canRequestMagicLink ? undefined : 'Ingresá tu email para recibir el enlace'}
-                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '13px 20px', borderRadius: 12, background: T.bgSubtle2, border: `1px solid ${T.border}`, color: T.textMuted, fontSize: 13, fontWeight: 800, letterSpacing: '.01em', cursor: loginModalMagicLoading || loginModalLoading || !signIn.canRequestMagicLink ? 'not-allowed' : 'pointer', opacity: loginModalMagicLoading || loginModalLoading || !signIn.canRequestMagicLink ? 0.6 : 1 }}
-                  >
-                    {loginModalMagicLoading ? (
-                      <>
-                        <Loader2 size={15} style={{ animation: 'bg-spin .8s linear infinite' }} />
-                        Enviando...
-                      </>
-                    ) : (
-                      <>
-                        <Zap size={15} />
-                        Enviar enlace de acceso
-                      </>
-                    )}
-                  </button>
-                </>
-              )}
-
-              <div style={{ textAlign: 'center', paddingTop: 14, borderTop: `1px solid ${T.divider}` }}>
-                <button
-                  type="button"
-                  onClick={() => { const from = encodeURIComponent(router.asPath || '/'); void router.push(`/login?mode=register&from=${from}`); }}
-                  style={{ background: 'none', border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', color: T.textDisabled, cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'transparent', textUnderlineOffset: '3px', transition: 'color .15s, text-decoration-color .15s' }}
-                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--accent-fg)'; e.currentTarget.style.textDecorationColor = 'var(--accent-fg)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.color = T.textDisabled; e.currentTarget.style.textDecorationColor = 'transparent'; }}
-                >
-                  ¿No tenés cuenta? Registrate gratis
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
       )}
 

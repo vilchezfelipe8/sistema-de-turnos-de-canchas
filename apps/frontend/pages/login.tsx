@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { beginAppleOAuthLogin, beginFacebookOAuthLogin, beginGoogleOAuthLogin, register, verifyMagicLink } from '../services/AuthService';
 import { normalizeDniInput, usePlayerSignIn } from '../hooks/usePlayerSignIn';
 import { ClubService } from '../services/ClubService';
-import { Mail, Lock, User, Phone, UserPlus, LogIn, AlertCircle, Loader2, IdCard, CheckCircle, Eye, EyeOff, Zap, Moon, Sun, ArrowLeft } from 'lucide-react';
+import { Mail, Lock, User, Phone, UserPlus, LogIn, AlertCircle, Loader2, IdCard, CheckCircle, Eye, EyeOff, Moon, Sun, ArrowLeft, KeyRound } from 'lucide-react';
 import { getActiveClubSlug, hasOperatorAccess, normalizeSessionUser } from '../utils/session';
 import { buildCanonicalPhone, DEFAULT_PHONE_COUNTRY_ISO2, normalizePhoneCountryIso2, PHONE_COUNTRY_OPTIONS, resolveCallingCodeByIso2 } from '../utils/phone';
 import { useAuth } from '../contexts/AuthContext';
@@ -13,6 +13,7 @@ import { useUserTheme } from '../contexts/UserThemeContext';
 import PiqueLogo from '../components/PiqueLogo';
 import { extractErrorMessage } from '../utils/uiError';
 import { normalizeApiError } from '../utils/apiError';
+import { AUTH_REQUIRED_PATHS, getPreviousInAppPath } from '../utils/navigationHistory';
 
 type PostLoginRedirectIntent = { sourceUser?: any };
 
@@ -20,7 +21,7 @@ const FONT = "var(--font-sans)";
 
 function GoogleMark() {
   return (
-    <svg width="15" height="15" viewBox="0 0 48 48" aria-hidden="true">
+    <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
       <path fill="#EA4335" d="M24 9.5c3.54 0 6.72 1.22 9.23 3.61l6.9-6.9C35.95 2.34 30.45 0 24 0 14.64 0 6.55 5.38 2.56 13.22l8.04 6.24C12.5 13.63 17.77 9.5 24 9.5z" />
       <path fill="#4285F4" d="M46.5 24.55c0-1.64-.15-3.21-.41-4.73H24v8.95h12.64c-.55 2.96-2.23 5.46-4.75 7.14l7.31 5.68C43.84 37.31 46.5 31.54 46.5 24.55z" />
       <path fill="#FBBC05" d="M10.6 28.54A14.36 14.36 0 0 1 9.84 24c0-1.58.27-3.11.76-4.54l-8.04-6.24A24.03 24.03 0 0 0 0 24c0 3.87.93 7.53 2.56 10.78l8.04-6.24z" />
@@ -31,7 +32,7 @@ function GoogleMark() {
 
 function AppleMark() {
   return (
-    <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true">
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
       <path
         fill="currentColor"
         d="M16.02 12.85c.03 3.18 2.8 4.24 2.83 4.26-.02.07-.44 1.51-1.45 2.99-.87 1.28-1.77 2.55-3.2 2.58-1.4.03-1.85-.83-3.45-.83-1.61 0-2.1.8-3.42.86-1.38.05-2.43-1.39-3.31-2.66-1.8-2.6-3.17-7.34-1.33-10.54.91-1.59 2.54-2.6 4.3-2.63 1.34-.03 2.61.91 3.45.91.84 0 2.41-1.12 4.07-.96.69.03 2.64.28 3.88 2.1-.1.06-2.32 1.35-2.37 3.92ZM13.73 5.31c.73-.88 1.23-2.1 1.1-3.31-1.05.04-2.31.7-3.06 1.58-.67.78-1.26 2.02-1.1 3.21 1.17.09 2.34-.59 3.06-1.48Z"
@@ -42,10 +43,14 @@ function AppleMark() {
 
 function FacebookMark() {
   return (
-    <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true">
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
       <path
-        fill="currentColor"
+        fill="#1877F2"
         d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07c0 6.03 4.39 11.03 10.13 11.93v-8.44H7.08v-3.49h3.05V9.41c0-3.03 1.79-4.7 4.54-4.7 1.31 0 2.68.24 2.68.24v2.98h-1.51c-1.49 0-1.95.93-1.95 1.88v2.26h3.32l-.53 3.49h-2.79V24C19.61 23.1 24 18.1 24 12.07Z"
+      />
+      <path
+        fill="#FFFFFF"
+        d="M16.67 15.56l.53-3.49h-3.32V9.81c0-.95.46-1.88 1.95-1.88h1.51V4.95s-1.37-.24-2.68-.24c-2.75 0-4.54 1.67-4.54 4.7v2.66H7.08v3.49h3.05V24a12.1 12.1 0 0 0 3.75 0v-8.44h2.79Z"
       />
     </svg>
   );
@@ -100,13 +105,34 @@ const LOGIN_CSS = `
   .lg-btn-ghost { background:var(--surface-2); border:1px solid var(--border)!important; color:var(--text-muted); }
   .lg-btn-ghost:hover:not(:disabled) { background:var(--surface-3); color:var(--text-secondary); }
   .lg-btn-social { justify-content:flex-start; padding-left:16px; letter-spacing:.03em; text-transform:none; font-size:14px; }
-  .lg-btn-google-mark { width:30px; height:30px; border-radius:10px; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; background:rgba(255,255,255,.92); border:1px solid rgba(255,255,255,.68); box-shadow:0 1px 0 rgba(255,255,255,.35) inset; }
+  .lg-btn-google-mark { width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .lg-btn-ghost.lg-btn-loading { min-height:46px; }
   .lg-form { display:flex; flex-direction:column; gap:12px; }
   .lg-toggle { text-align:center; padding-top:14px; border-top:1px solid var(--border-subtle); }
   .lg-toggle-btn { background:none; border:none; font-family:${FONT}; font-size:11px; font-weight:700; letter-spacing:.03em; color:var(--text-muted); cursor:pointer; transition:color .15s; text-decoration:underline; text-decoration-color:transparent; text-underline-offset:3px; }
   .lg-toggle-btn:hover { color:var(--accent-fg); text-decoration-color:var(--accent-fg); }
   .lg-theme-toggle { position:absolute; top:18px; right:20px; width:38px; height:38px; display:grid; place-items:center; border:1px solid var(--border); background:var(--surface-2); color:var(--text-secondary); border-radius:999px; padding:0; cursor:pointer; z-index:2; transition:background .15s,border-color .15s,color .15s; }
   .lg-theme-toggle:hover { background:var(--surface-3); color:var(--text-primary); border-color:var(--border-strong); }
+  .lg-modal-backdrop { position:fixed; inset:0; z-index:50; background:var(--overlay); display:flex; align-items:center; justify-content:center; padding:20px; animation:lg-fadein .18s ease; }
+  .lg-modal { width:100%; max-width:320px; background:var(--surface-1); border:1px solid var(--border); border-radius:20px; padding:20px 20px 16px; box-shadow:var(--shadow-lg); animation:lg-scalein .2s ease; }
+  .lg-modal-head { display:flex; align-items:center; gap:10px; }
+  .lg-modal-check { width:28px; height:28px; border-radius:999px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:var(--positive-bg); border:1px solid var(--accent-bg-muted); color:var(--accent-fg); }
+  .lg-modal-title { margin:0; font-size:17px; font-weight:800; letter-spacing:-.02em; color:var(--text-primary); }
+  .lg-modal-copy { margin:10px 0 16px; font-size:13px; line-height:1.5; font-weight:600; color:var(--text-secondary); }
+  @keyframes lg-fadein { from{opacity:0} to{opacity:1} }
+  .lg-social-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .lg-label-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .lg-inline-link { background:none; border:none; padding:0; font-family:${FONT}; font-size:11px; font-weight:700; color:var(--accent-fg); cursor:pointer; }
+  .lg-inline-link:hover { text-decoration:underline; text-underline-offset:3px; }
+  .lg-help-option { display:flex; align-items:center; gap:12px; width:100%; padding:13px; border-radius:14px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); font-family:${FONT}; text-align:left; cursor:pointer; transition:border-color .15s, background .15s; }
+  .lg-help-option:hover:not(:disabled) { border-color:var(--accent-border-strong); }
+  .lg-help-option:disabled { opacity:.6; cursor:not-allowed; }
+  .lg-help-option-main { border-color:var(--accent-bg-muted); background:var(--accent-bg-soft); }
+  .lg-help-icon { width:34px; height:34px; border-radius:11px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:var(--surface-1); color:var(--text-secondary); }
+  .lg-help-option-main .lg-help-icon { background:var(--positive-bg); color:var(--accent-fg); }
+  .lg-help-text { display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .lg-help-text strong { font-size:13px; font-weight:800; }
+  .lg-help-text span { font-size:11px; font-weight:600; color:var(--text-muted); line-height:1.4; }
   .lg-root.lg-theme-light { background:var(--bg); }
   .lg-root.lg-theme-light::before { background:radial-gradient(ellipse 70% 60% at 20% 110%,var(--accent-bg-muted),transparent 65%), radial-gradient(ellipse 50% 40% at 85% -10%,var(--accent-bg-faint),transparent 60%); }
   .lg-root.lg-theme-light .lg-card { background:var(--surface-1); border-color:var(--border); box-shadow:var(--shadow-lg); }
@@ -127,11 +153,15 @@ const LOGIN_CSS = `
   .lg-root.lg-theme-light .lg-divider-text { color:var(--text-muted); }
   .lg-root.lg-theme-light .lg-btn-ghost { background:var(--surface-2); border-color:var(--border)!important; color:var(--text-secondary); }
   .lg-root.lg-theme-light .lg-btn-ghost:hover:not(:disabled) { background:var(--border-subtle); color:var(--text-primary); }
-  .lg-root.lg-theme-light .lg-btn-google-mark { background:#fff; border-color:#ece9e1; box-shadow:0 1px 0 rgba(255,255,255,.7) inset; }
   .lg-root.lg-theme-light .lg-toggle { border-top-color:var(--border-subtle); }
   .lg-root.lg-theme-light .lg-toggle-btn { color:var(--text-secondary); }
   .lg-root.lg-theme-light .lg-theme-toggle { border-color:var(--border); background:var(--surface-1); color:var(--text-secondary); }
   .lg-root.lg-theme-light .lg-theme-toggle:hover { background:var(--surface-1); color:var(--text-primary); border-color:var(--border-strong); }
+  @media(max-width:480px) {
+    .lg-input, .lg-phone-input, .lg-phone-select { font-size:16px; }
+    .lg-inline-link { padding:8px 0 8px 12px; margin:-8px 0; }
+    .lg-toggle-btn { padding:8px 6px; }
+  }
   @media(max-width:480px) { .lg-root { padding:60px 16px 16px; } .lg-screen-nav { top:18px; left:16px; } .lg-grid2 { grid-template-columns:1fr; } .lg-header { padding:22px 24px 18px; } .lg-brand-link { margin-bottom:12px; } .lg-body { padding:18px 24px 22px; gap:12px; } .lg-form { gap:10px; } }
   @media(max-height:820px) and (min-width:481px) { .lg-root { padding-top:48px; padding-bottom:16px; } .lg-screen-nav { top:16px; } .lg-header { padding:20px 24px 18px; } .lg-brand-link { margin-bottom:12px; } .lg-title { font-size:20px; } .lg-body { padding:18px 24px 22px; gap:12px; } .lg-form { gap:10px; } .lg-grid2 { gap:8px 10px; } .lg-field { gap:4px; } .lg-input { padding-top:9px; padding-bottom:9px; } .lg-phone-input { padding-top:9px; padding-bottom:9px; } .lg-toggle { padding-top:12px; } }
 `;
@@ -162,8 +192,32 @@ export default function LoginPage() {
   const [oauthLoading, setOauthLoading] = useState<'google' | 'apple' | 'facebook' | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [redirectIntent, setRedirectIntent] = useState<PostLoginRedirectIntent | null>(null);
+  // Al registrarse: aviso en un modal simple (en vez del cartel dentro del login).
+  const [registeredModalOpen, setRegisteredModalOpen] = useState(false);
+  // "¿La olvidaste?": todas las ayudas para entrar en una sola pantalla (link por email, nueva contraseña, socio nuevo).
+  const [loginHelpOpen, setLoginHelpOpen] = useState(false);
+  // "Volver": a la pantalla anterior dentro de la app; si se entró directo, al inicio.
+  const [hasPreviousScreen, setHasPreviousScreen] = useState(false);
 
-  // Ingreso por DNI o email, activación de socios y recuperación: misma lógica que el modal de la grilla.
+  // Pantalla a la que vuelve "Volver": la última visitada que se pueda ver sin sesión
+  // (las que piden sesión, como Mis reservas, volverían a mandar al login).
+  const resolveBackTarget = useCallback(() => getPreviousInAppPath({ skipPaths: AUTH_REQUIRED_PATHS }), []);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    setHasPreviousScreen(Boolean(resolveBackTarget()));
+  }, [router.isReady, resolveBackTarget]);
+
+  useEffect(() => {
+    if (!registeredModalOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setRegisteredModalOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [registeredModalOpen]);
+
+  // Ingreso por DNI o email, activación de socios y recuperación (único login de la app: la grilla también manda acá).
   const signIn = usePlayerSignIn({
     onAuthenticated: async (data) => {
       await revalidateSession();
@@ -350,7 +404,7 @@ export default function LoginPage() {
         const safeDni = normalizeDniInput(dni);
         if (safeDni && (safeDni.length < 6 || safeDni.length > 9)) { setError('Si cargás DNI, ingresá solo los números (6 a 9 dígitos).'); return; }
         await register(firstName, lastName, email, password, fullPhone, 'MEMBER', safeDni || undefined, resolveCallingCodeByIso2(phoneCountryIso2), localPhone);
-        setSuccessMessage('Usuario registrado exitosamente. Ahora podés iniciar sesión.');
+        setRegisteredModalOpen(true);
         setIsLogin(true);
         setFirstName(''); setLastName(''); setPhoneNumber(''); setDni('');
       }
@@ -399,9 +453,19 @@ export default function LoginPage() {
       <style dangerouslySetInnerHTML={{ __html: LOGIN_CSS }} />
 
       <div className={`lg-root${isLight ? ' lg-theme-light' : ''}`}>
-        <Link href="/" className="lg-screen-nav">
+        <Link
+          href="/"
+          className="lg-screen-nav"
+          onClick={(event) => {
+            const target = resolveBackTarget();
+            if (!target) return; // sin pantalla anterior: el link va al inicio
+            event.preventDefault();
+            // Reemplaza el login: no depende del historial del navegador (las pestañas de la app lo reemplazan).
+            void router.replace(target);
+          }}
+        >
           <ArrowLeft size={13} />
-          <span>Volver al inicio</span>
+          <span>{hasPreviousScreen ? 'Volver' : 'Volver al inicio'}</span>
         </Link>
         <button
           type="button"
@@ -424,14 +488,14 @@ export default function LoginPage() {
               />
             </Link>
             <h1 className="lg-title">
-              {recoveryMode === 'activate' ? 'Activá tu cuenta' : recoveryMode === 'reset' ? 'Recuperá tu contraseña' : isLogin ? 'Bienvenido' : 'Crear cuenta'}
+              {recoveryMode === 'activate' ? 'Activá tu cuenta' : recoveryMode === 'reset' ? 'Recuperá tu contraseña' : loginHelpOpen && isLogin ? '¿No podés ingresar?' : isLogin ? 'Bienvenido' : 'Crear cuenta'}
             </h1>
             <p className="lg-sub">
               {recoveryMode === 'activate'
                 ? 'Primer ingreso de socios: elegí tu contraseña'
                 : recoveryMode === 'reset'
                 ? 'Te enviamos un código para elegir una nueva'
-                : isLogin ? 'Ingresá a tu cuenta' : 'Sumate en segundos'}
+                : loginHelpOpen && isLogin ? 'Elegí cómo querés entrar' : isLogin ? 'Ingresá a tu cuenta' : 'Sumate en segundos'}
             </p>
           </div>
 
@@ -533,69 +597,54 @@ export default function LoginPage() {
                   </>
                 )}
               </form>
+            ) : loginHelpOpen && isLogin ? (
+              <div className="lg-form">
+                <div className="lg-field">
+                  <label className="lg-label">DNI o email</label>
+                  <div className="lg-input-wrap">
+                    <span className="lg-input-icon"><User size={14} /></span>
+                    <input type="text" value={identifier} onChange={e => setIdentifier(e.target.value)} className="lg-input" placeholder="35123456 o tu@email.com" autoComplete="username" />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="lg-help-option lg-help-option-main"
+                  onClick={handleRequestMagicLink}
+                  disabled={magicLoading || loading || Boolean(oauthLoading)}
+                >
+                  <span className="lg-help-icon">
+                    {magicLoading ? <Loader2 size={16} style={{ animation: 'lg-spin .8s linear infinite' }} /> : <Mail size={16} />}
+                  </span>
+                  <span className="lg-help-text">
+                    <strong>{magicLoading ? 'Enviando...' : 'Recibir un link para entrar'}</strong>
+                    <span>Te lo mandamos por email. Sin contraseña.</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="lg-help-option"
+                  onClick={() => { setLoginHelpOpen(false); openRecovery('reset', identifier); }}
+                >
+                  <span className="lg-help-icon"><KeyRound size={16} /></span>
+                  <span className="lg-help-text">
+                    <strong>Elegir una contraseña nueva</strong>
+                    <span>Te enviamos un código para cambiarla.</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="lg-help-option"
+                  onClick={() => { setLoginHelpOpen(false); openRecovery('activate', identifier); }}
+                >
+                  <span className="lg-help-icon"><IdCard size={16} /></span>
+                  <span className="lg-help-text">
+                    <strong>Soy socio y es mi primera vez</strong>
+                    <span>Activá tu cuenta con tu DNI.</span>
+                  </span>
+                </button>
+              </div>
             ) : (
             <form onSubmit={handleSubmit} className="lg-form">
-
-              {isLogin && (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleFacebookLogin}
-                    disabled={loading || magicLoading || Boolean(oauthLoading)}
-                    className="lg-btn lg-btn-ghost lg-btn-loading"
-                  >
-                    <span className="lg-btn-loading-content" aria-hidden={oauthLoading === 'facebook'}>
-                      <span className="lg-btn-google-mark" style={{ color: '#1877F2' }}><FacebookMark /></span>
-                      <span>Continuar con Facebook</span>
-                    </span>
-                    {oauthLoading === 'facebook' && (
-                      <span className="lg-btn-loading-indicator">
-                        <Loader2 size={15} style={{ animation: 'lg-spin .8s linear infinite' }} />
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleAppleLogin}
-                    disabled={loading || magicLoading || Boolean(oauthLoading)}
-                    className="lg-btn lg-btn-ghost lg-btn-loading"
-                  >
-                    <span className="lg-btn-loading-content" aria-hidden={oauthLoading === 'apple'}>
-                      <span className="lg-btn-google-mark" style={{ color: 'var(--text-primary)' }}><AppleMark /></span>
-                      <span>Continuar con Apple</span>
-                    </span>
-                    {oauthLoading === 'apple' && (
-                      <span className="lg-btn-loading-indicator">
-                        <Loader2 size={15} style={{ animation: 'lg-spin .8s linear infinite' }} />
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleGoogleLogin}
-                    disabled={loading || magicLoading || Boolean(oauthLoading)}
-                    className="lg-btn lg-btn-ghost lg-btn-loading"
-                  >
-                    <span className="lg-btn-loading-content" aria-hidden={oauthLoading === 'google'}>
-                      <span className="lg-btn-google-mark"><GoogleMark /></span>
-                      <span>Continuar con Google</span>
-                    </span>
-                    {oauthLoading === 'google' && (
-                      <span className="lg-btn-loading-indicator">
-                        <Loader2 size={15} style={{ animation: 'lg-spin .8s linear infinite' }} />
-                      </span>
-                    )}
-                  </button>
-
-                  <div className="lg-divider">
-                    <div className="lg-divider-line" />
-                    <span className="lg-divider-text">o con tu DNI o email</span>
-                    <div className="lg-divider-line" />
-                  </div>
-                </>
-              )}
 
               {/* Register fields */}
               {!isLogin && (
@@ -678,7 +727,18 @@ export default function LoginPage() {
 
               {/* Password */}
               <div className="lg-field">
-                <label className="lg-label">Contraseña</label>
+                <div className="lg-label-row">
+                  <label className="lg-label">Contraseña</label>
+                  {isLogin && (
+                    <button
+                      type="button"
+                      className="lg-inline-link"
+                      onClick={() => { setError(''); setSuccessMessage(''); setLoginHelpOpen(true); }}
+                    >
+                      ¿La olvidaste?
+                    </button>
+                  )}
+                </div>
                 <div className="lg-input-wrap">
                   <span className="lg-input-icon"><Lock size={14} /></span>
                   <input
@@ -716,36 +776,64 @@ export default function LoginPage() {
                 }
               </button>
 
-              {isLogin && (
-                <div className="lg-toggle" style={{ marginTop: 0, display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
-                  <button type="button" className="lg-toggle-btn" onClick={() => openRecovery('activate', identifier)}>
-                    ¿Sos socio y es tu primera vez? Activá tu cuenta
-                  </button>
-                  <button type="button" className="lg-toggle-btn" onClick={() => openRecovery('reset', identifier)}>
-                    Olvidé mi contraseña
-                  </button>
-                </div>
-              )}
-
-              {/* Magic link (login only) */}
+              {/* Redes: debajo del ingreso con DNI o email */}
               {isLogin && (
                 <>
                   <div className="lg-divider">
                     <div className="lg-divider-line" />
-                    <span className="lg-divider-text">o</span>
+                    <span className="lg-divider-text">o continuá con</span>
                     <div className="lg-divider-line" />
                   </div>
                   <button
                     type="button"
-                    onClick={handleRequestMagicLink}
-                    disabled={magicLoading || loading || Boolean(oauthLoading) || !String(identifier || '').includes('@')}
-                    className="lg-btn lg-btn-ghost"
+                    onClick={handleGoogleLogin}
+                    disabled={loading || magicLoading || Boolean(oauthLoading)}
+                    className="lg-btn lg-btn-ghost lg-btn-loading"
                   >
-                    {magicLoading
-                      ? <><Loader2 size={15} style={{ animation: 'lg-spin .8s linear infinite' }} /> Enviando...</>
-                      : <><Zap size={15} /> Enviar enlace de acceso</>
-                    }
+                    <span className="lg-btn-loading-content" aria-hidden={oauthLoading === 'google'}>
+                      <span className="lg-btn-google-mark"><GoogleMark /></span>
+                      <span>Continuar con Google</span>
+                    </span>
+                    {oauthLoading === 'google' && (
+                      <span className="lg-btn-loading-indicator">
+                        <Loader2 size={15} style={{ animation: 'lg-spin .8s linear infinite' }} />
+                      </span>
+                    )}
                   </button>
+                  <div className="lg-social-row">
+                    <button
+                      type="button"
+                      onClick={handleAppleLogin}
+                      disabled={loading || magicLoading || Boolean(oauthLoading)}
+                      className="lg-btn lg-btn-ghost lg-btn-loading"
+                    >
+                      <span className="lg-btn-loading-content" aria-hidden={oauthLoading === 'apple'}>
+                        <span className="lg-btn-google-mark" style={{ color: 'var(--text-primary)' }}><AppleMark /></span>
+                        <span>Apple</span>
+                      </span>
+                      {oauthLoading === 'apple' && (
+                        <span className="lg-btn-loading-indicator">
+                          <Loader2 size={15} style={{ animation: 'lg-spin .8s linear infinite' }} />
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleFacebookLogin}
+                      disabled={loading || magicLoading || Boolean(oauthLoading)}
+                      className="lg-btn lg-btn-ghost lg-btn-loading"
+                    >
+                      <span className="lg-btn-loading-content" aria-hidden={oauthLoading === 'facebook'}>
+                        <span className="lg-btn-google-mark"><FacebookMark /></span>
+                        <span>Facebook</span>
+                      </span>
+                      {oauthLoading === 'facebook' && (
+                        <span className="lg-btn-loading-indicator">
+                          <Loader2 size={15} style={{ animation: 'lg-spin .8s linear infinite' }} />
+                        </span>
+                      )}
+                    </button>
+                  </div>
                 </>
               )}
 
@@ -758,11 +846,15 @@ export default function LoginPage() {
                 <button type="button" className="lg-toggle-btn" onClick={closeRecovery}>
                   Volver a iniciar sesión
                 </button>
+              ) : loginHelpOpen && isLogin ? (
+                <button type="button" className="lg-toggle-btn" onClick={() => { setLoginHelpOpen(false); setError(''); setSuccessMessage(''); }}>
+                  Volver a iniciar sesión
+                </button>
               ) : (
                 <button
                   type="button"
                   className="lg-toggle-btn"
-                  onClick={() => { setIsLogin(!isLogin); setError(''); setSuccessMessage(''); }}
+                  onClick={() => { setIsLogin(!isLogin); setLoginHelpOpen(false); setError(''); setSuccessMessage(''); }}
                 >
                   {isLogin ? '¿No tenés cuenta? Registrate gratis' : '¿Ya tenés cuenta? Iniciá sesión'}
                 </button>
@@ -778,6 +870,33 @@ export default function LoginPage() {
         </div>
 
         <style>{`@keyframes lg-spin { to { transform: rotate(360deg) } }`}</style>
+
+        {registeredModalOpen && (
+          <div className="lg-modal-backdrop" role="presentation" onClick={() => setRegisteredModalOpen(false)}>
+            <div
+              className="lg-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="lg-registered-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="lg-modal-head">
+                <span className="lg-modal-check"><CheckCircle size={15} strokeWidth={2.5} /></span>
+                <h2 id="lg-registered-title" className="lg-modal-title">Cuenta creada</h2>
+              </div>
+              <p className="lg-modal-copy">Ya podés iniciar sesión con tu email y contraseña.</p>
+              <button
+                type="button"
+                className="lg-btn lg-btn-primary"
+                style={{ height: 42 }}
+                onClick={() => setRegisteredModalOpen(false)}
+                autoFocus
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

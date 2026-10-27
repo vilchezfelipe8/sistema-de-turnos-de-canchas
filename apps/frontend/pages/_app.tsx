@@ -8,6 +8,7 @@ import { UserThemeProvider, useUserTheme } from '../contexts/UserThemeContext';
 import { AUTH_LOGOUT_EVENT, clearPendingLogoutRedirect, type AuthLogoutEventDetail } from '../services/AuthService';
 import { isAuthSessionInvalidatedError } from '../utils/apiClient';
 import { detectClubAppLaunch } from '../utils/clubApp';
+import { initNavigationHistory, trackRouteChange } from '../utils/navigationHistory';
 import { startPwaInstallCapture } from '../utils/pwaInstall';
 
 import '../styles/globals.css';
@@ -122,6 +123,16 @@ export default function MyApp({ Component, pageProps }: AppProps) {
     if (!router.isReady) return;
     detectClubAppLaunch(router.pathname, router.query);
   }, [router.isReady, router.pathname, router.query]);
+
+  // Pantalla anterior dentro de la app (para los botones "Volver").
+  useEffect(() => {
+    initNavigationHistory(`${window.location.pathname}${window.location.search}`);
+    const onRouteChangeComplete = (url: string) => trackRouteChange(url);
+    Router.events.on('routeChangeComplete', onRouteChangeComplete);
+    return () => {
+      Router.events.off('routeChangeComplete', onRouteChangeComplete);
+    };
+  }, []);
 
   useEffect(() => {
     const preventNumberInputWheel = (event: WheelEvent) => {
