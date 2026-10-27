@@ -27,8 +27,9 @@ import { getPendingLogoutRedirect } from '../services/AuthService';
 import Link from 'next/link';
 import UserLoadingState from '../components/UserLoadingState';
 import PlayerSlotsBreakdown from '../components/PlayerSlotsBreakdown';
+import PlayerInviteSearch, { type PickedInvitePlayer } from '../components/players/PlayerInviteSearch';
 import { downloadCalendarEvent } from '../utils/calendarInvite';
-import { Calendar, Clock, MapPin, Ticket, ArrowRight, Search, XCircle, CheckCircle2, Star, MessageSquare, X, Users, UserPlus, Mail, LogOut, Trash2, ChevronDown } from 'lucide-react';
+import { Calendar, Clock, MapPin, Ticket, ArrowRight, Search, XCircle, CheckCircle2, Star, MessageSquare, X, Users, UserPlus, LogOut, Trash2, ChevronDown } from 'lucide-react';
 import { getApiFieldErrors, normalizeApiError } from '../utils/apiError';
 
 const APP_NOTICE_EVENT = 'app:notice';
@@ -257,11 +258,10 @@ export default function MyBookingsPage() {
   const [checkoutSubmitting, setCheckoutSubmitting] = useState(false);
   const [participantsExpanded, setParticipantsExpanded] = useState(false);
   const [paymentExpanded, setPaymentExpanded] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteName, setInviteName] = useState('');
-  const [inviteFieldErrors, setInviteFieldErrors] = useState<Record<string, string>>({});
   const [inviteBannerError, setInviteBannerError] = useState('');
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
+  // Cambia después de invitar para vaciar el buscador.
+  const [inviteSearchKey, setInviteSearchKey] = useState(0);
   const [participantActionId, setParticipantActionId] = useState<string | null>(null);
   const [paymentBanner, setPaymentBanner] = useState<{ tone: 'success' | 'info' | 'error'; message: string } | null>(null);
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
@@ -424,7 +424,6 @@ export default function MyBookingsPage() {
       setCheckoutError('');
       setCheckoutLoading(false);
       setInviteBannerError('');
-      setInviteFieldErrors({});
       setParticipantsExpanded(false);
       setPaymentExpanded(false);
       return;
@@ -437,7 +436,6 @@ export default function MyBookingsPage() {
     setParticipantsLoading(true);
     setParticipantsError('');
     setInviteBannerError('');
-    setInviteFieldErrors({});
     void getBookingParticipants(selectedBooking.id)
       .then((items) => {
         if (cancelled) return;
@@ -813,29 +811,27 @@ export default function MyBookingsPage() {
     });
   };
 
-  const handleInviteParticipant = async () => {
+  const handleInvitePicked = async (picked: PickedInvitePlayer) => {
     if (!selectedBooking || inviteSubmitting) return;
     setInviteSubmitting(true);
-    setInviteFieldErrors({});
     setInviteBannerError('');
     try {
-      // Un solo campo: con @ es email; si no, DNI.
-      const inviteTarget = inviteEmail.trim();
-      await inviteBookingParticipant(selectedBooking.id, {
-        ...(inviteTarget.includes('@') ? { email: inviteTarget } : { dni: inviteTarget }),
-        name: inviteName
-      });
-      setInviteEmail('');
-      setInviteName('');
+      await inviteBookingParticipant(
+        selectedBooking.id,
+        picked.kind === 'token'
+          ? { inviteToken: picked.inviteToken, name: picked.displayName }
+          : {
+              ...(picked.kind === 'email' ? { email: picked.value } : { dni: picked.value }),
+              ...(picked.displayName ? { name: picked.displayName } : {})
+            }
+      );
+      setInviteSearchKey((current) => current + 1);
       await refreshSelectedParticipants();
       await loadData();
     } catch (error) {
       const fieldErrors = getApiFieldErrors(error);
-      setInviteFieldErrors(fieldErrors);
-      const message = toPublicBookingErrorMessage(error, 'No pudimos enviar la invitación.');
-      if (Object.keys(fieldErrors).length === 0) {
-        setInviteBannerError(message);
-      }
+      const fieldMessage = fieldErrors.email || fieldErrors.dni || fieldErrors.name;
+      setInviteBannerError(fieldMessage || toPublicBookingErrorMessage(error, 'No pudimos enviar la invitación.'));
     } finally {
       setInviteSubmitting(false);
     }
@@ -1315,44 +1311,17 @@ export default function MyBookingsPage() {
                             {inviteBannerError}
                           </div>
                         )}
-                        <div style={{ display: 'grid', gap: 10 }}>
-                          <div>
-                            <div style={{ position: 'relative' }}>
-                              <Mail size={14} style={{ position: 'absolute', left: 12, top: 12, color: 'var(--text-muted)' }} />
-                              <input
-                                type="text"
-                                value={inviteEmail}
-                                onChange={(e) => setInviteEmail(e.target.value)}
-                                placeholder="DNI o email del jugador"
-                                style={{ width: '100%', padding: '10px 12px 10px 34px', borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-primary)' }}
-                              />
-                            </div>
-                            {(inviteFieldErrors.email || inviteFieldErrors.dni) && (
-                              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--error-fg)' }}>{inviteFieldErrors.email || inviteFieldErrors.dni}</div>
-                            )}
-                          </div>
-                          <div>
-                            <input
-                              type="text"
-                              value={inviteName}
-                              onChange={(e) => setInviteName(e.target.value)}
-                              placeholder="Nombre (opcional)"
-                              style={{ width: '100%', padding: '10px 12px', borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-primary)' }}
-                            />
-                            {inviteFieldErrors.name && (
-                              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--error-fg)' }}>{inviteFieldErrors.name}</div>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            className="bk-action-btn bk-action-rebook"
-                            onClick={handleInviteParticipant}
-                            disabled={inviteSubmitting}
-                          >
-                            <UserPlus size={15} />
-                            {inviteSubmitting ? 'Enviando...' : 'Invitar jugador'}
-                          </button>
-                        </div>
+                        <PlayerInviteSearch
+                          key={`${selectedBooking.id}-${inviteSearchKey}`}
+                          bookingId={selectedBooking.id}
+                          clubLabel={selectedBooking.club?.name || null}
+                          busy={inviteSubmitting}
+                          autoFocus={false}
+                          onPick={handleInvitePicked}
+                        />
+                        {inviteSubmitting && (
+                          <div style={{ fontSize: 12, fontWeight: 650, color: 'var(--text-muted)' }}>Enviando invitación…</div>
+                        )}
                       </div>
                     )}
                   </div>

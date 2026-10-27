@@ -77,6 +77,15 @@ export const playerLookupLimiter = rateLimit({
   legacyHeaders: false
 });
 
+/** 60 búsquedas por nombre por minuto (autocompletado al invitar; acotado al club y sin datos de contacto) */
+export const playerSearchLimiter = rateLimit({
+  windowMs: parseWindowMs('RATE_LIMIT_PLAYER_SEARCH_WINDOW_MS', 60_000),
+  max: parseMax('RATE_LIMIT_PLAYER_SEARCH_MAX', 60),
+  message: { error: 'Demasiadas búsquedas. Esperá un momento e intentá de nuevo.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 /** 10 reservas por minuto (spam reservas, bots) */
 export const bookingLimiter = rateLimit({
   windowMs: parseWindowMs('RATE_LIMIT_BOOKING_WINDOW_MS', 60_000),

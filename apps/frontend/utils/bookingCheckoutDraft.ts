@@ -4,6 +4,9 @@ export type BookingCheckoutParticipantDraft = {
   name?: string | null;
   // Resultado de la búsqueda previa: con cuenta o invitado por email sin cuenta todavía.
   lookupStatus?: 'FOUND' | 'EMAIL_WITHOUT_ACCOUNT' | null;
+  // Elegido en la búsqueda por nombre: se invita con el token firmado del servidor (sin DNI ni email).
+  inviteToken?: string | null;
+  ref?: string | null;
 };
 
 export type BookingCheckoutDraft = {

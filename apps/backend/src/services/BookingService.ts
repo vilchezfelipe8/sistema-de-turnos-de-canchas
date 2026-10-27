@@ -20,6 +20,7 @@ import { PricingService } from './PricingService';
 import { PlayerSlotService, type PerPlayerQuote } from './PlayerSlotService';
 import { BookingReleaseService } from './BookingReleaseService';
 import { normalizeDni } from '../utils/dni';
+import { verifyPlayerInviteToken } from '../utils/playerInviteToken';
 import { EventService } from './EventService';
 import { AuditLogService } from './AuditLogService';
 import { AccountingService } from './AccountingService';
@@ -83,6 +84,8 @@ type CreateBookingOptions = {
         email?: string | null;
         dni?: string | null;
         name?: string | null;
+        // Jugador elegido desde la búsqueda por nombre (token firmado, atado a quien reserva).
+        inviteToken?: string | null;
     }>;
 };
 
@@ -3674,7 +3677,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         ownerEmail: bookingOwnerUser?.email ?? null,
                         invitedEmail: participant.email,
                         invitedDni: participant.dni,
-                        invitedName: participant.name
+                        invitedName: participant.name,
+                        invitedUserToken: participant.inviteToken
                     });
                 }
                 if (options?.initialParticipants?.length) {
@@ -6110,13 +6114,32 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         invitedEmail?: string | null;
         invitedDni?: string | null;
         invitedName?: string | null;
+        invitedUserToken?: string | null;
     }) {
         if (!Number.isInteger(input.ownerUserId) || input.ownerUserId <= 0) {
             throw this.bookingForbidden();
         }
         const rawDni = String(input.invitedDni || '').trim();
+        const rawToken = String(input.invitedUserToken || '').trim();
         let invitedUser: { id: number; email: string | null; firstName: string; lastName: string } | null = null;
-        if (rawDni) {
+        if (rawToken) {
+            // Elegido desde la búsqueda por nombre: el token solo vale para quien hizo la búsqueda.
+            const invitedUserId = verifyPlayerInviteToken(rawToken, input.ownerUserId);
+            invitedUser = invitedUserId
+                ? await tx.user.findUnique({
+                    where: { id: invitedUserId },
+                    select: { id: true, email: true, firstName: true, lastName: true }
+                })
+                : null;
+            if (!invitedUser) {
+                throw new AppError({
+                    statusCode: 400,
+                    code: ErrorCodes.INVALID_INPUT,
+                    message: 'No pudimos invitar a ese jugador. Buscalo de nuevo.',
+                    fieldErrors: { name: 'Buscalo de nuevo para invitarlo.' }
+                });
+            }
+        } else if (rawDni) {
             const dni = normalizeDni(rawDni);
             if (!dni) {
                 throw new AppError({
@@ -6248,10 +6271,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
     async invitePlayerBookingParticipant(input: {
         bookingId: number;
         ownerUserId: number;
-        // Email o DNI exacto (la búsqueda por DNI no acepta nombres parciales para no enumerar usuarios).
+        // Email o DNI exacto, o el token de un jugador elegido en la búsqueda por nombre (acotada al club).
         invitedEmail?: string | null;
         invitedDni?: string | null;
         invitedName?: string | null;
+        invitedUserToken?: string | null;
     }): Promise<PlayerBookingParticipantDto> {
         if (!Number.isInteger(input.ownerUserId) || input.ownerUserId <= 0) {
             throw this.bookingForbidden();
@@ -6284,7 +6308,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             ownerEmail: ownerUser?.email ?? null,
             invitedEmail: input.invitedEmail,
             invitedDni: input.invitedDni,
-            invitedName: input.invitedName
+            invitedName: input.invitedName,
+            invitedUserToken: input.invitedUserToken
         }));
 
         return {

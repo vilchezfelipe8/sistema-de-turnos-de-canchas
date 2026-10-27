@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import {
@@ -16,7 +16,8 @@ import {
 } from 'lucide-react';
 import DarkPageLayout from '../components/DarkPageLayout';
 import UserLoadingState from '../components/UserLoadingState';
-import { createBooking, lookupPlayerForInvitation, type PlayerLookupResult } from '../services/BookingService';
+import { createBooking } from '../services/BookingService';
+import PlayerInviteSearch, { type PickedInvitePlayer } from '../components/players/PlayerInviteSearch';
 import { getPendingLogoutRedirect } from '../services/AuthService';
 import { useValidateAuth } from '../hooks/useValidateAuth';
 import { extractErrorMessage, reportUiError } from '../utils/uiError';
@@ -222,21 +223,6 @@ const getInitials = (value: string) =>
     .map((chunk) => chunk.charAt(0).toUpperCase())
     .join('') || '?';
 
-// Valida lo que se escribió en "DNI o email" y lo deja listo para buscar o enviar.
-const parseParticipantIdentifier = (raw: string):
-  | { kind: 'dni' | 'email'; value: string }
-  | { error: string } => {
-  const identifier = String(raw || '').trim();
-  if (!identifier) return { error: 'Ingresá el DNI o email del jugador.' };
-  if (identifier.includes('@')) {
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier)) return { error: 'Ingresá un email válido.' };
-    return { kind: 'email', value: identifier.toLowerCase() };
-  }
-  const digits = identifier.replace(/\D/g, '');
-  if (digits.length < 6 || digits.length > 9) return { error: 'Ingresá un DNI válido.' };
-  return { kind: 'dni', value: digits };
-};
-
 const getTimeRange = (draft: BookingCheckoutDraft) => {
   const minutes = Number(draft.durationMinutes || 0);
   const [hour, minute] = String(draft.slotTime || '').split(':').map(Number);
@@ -263,16 +249,9 @@ export default function CheckoutPage() {
   const [submitting, setSubmitting] = useState(false);
   const [confirmedBookingId, setConfirmedBookingId] = useState<string | null>(null);
   const [participants, setParticipants] = useState<BookingCheckoutParticipantDraft[]>([]);
-  const [participantIdentifier, setParticipantIdentifier] = useState('');
   const [participantError, setParticipantError] = useState('');
-  // Invitar: el editor se abre sobre el primer lugar libre y busca al jugador antes de agregarlo.
+  // Invitar: el editor se abre sobre el primer lugar libre (buscador por nombre, DNI o email).
   const [inviteEditorOpen, setInviteEditorOpen] = useState(false);
-  const [participantLookup, setParticipantLookup] = useState<{
-    key: string;
-    loading: boolean;
-    result: PlayerLookupResult | null;
-  } | null>(null);
-  const lookupSeqRef = useRef(0);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -338,98 +317,31 @@ export default function CheckoutPage() {
     });
   };
 
-  // Valida el identificador escrito: formato, que no sea el titular y que no esté ya agregado.
-  const validateParticipantIdentifier = useCallback((raw: string) => {
-    const parsed = parseParticipantIdentifier(raw);
-    if ('error' in parsed) return parsed;
-    if (parsed.kind === 'email' && parsed.value === String(user?.email || '').trim().toLowerCase()) {
-      return { error: 'Vos ya sos el titular de la reserva.' };
-    }
-    const alreadyAdded = participants.some((participant) => {
-      const current = participant.identifier.includes('@')
-        ? participant.identifier.trim().toLowerCase()
-        : participant.identifier.replace(/\D/g, '');
-      return current === parsed.value;
-    });
-    if (alreadyAdded) return { error: 'Ese jugador ya está agregado.' };
-    return parsed;
-  }, [participants, user?.email]);
-
-  const runParticipantLookup = useCallback(async (parsed: { kind: 'dni' | 'email'; value: string }) => {
-    const key = `${parsed.kind}:${parsed.value}`;
-    const seq = ++lookupSeqRef.current;
-    setParticipantLookup({ key, loading: true, result: null });
-    try {
-      const result = await lookupPlayerForInvitation(
-        parsed.kind === 'dni' ? { dni: parsed.value } : { email: parsed.value }
-      );
-      if (seq !== lookupSeqRef.current) return;
-      setParticipantLookup({ key, loading: false, result });
-    } catch (error) {
-      if (seq !== lookupSeqRef.current) return;
-      reportUiError({ area: 'CheckoutPage', action: 'lookupParticipant' }, error);
-      // Se guarda la clave para no reintentar solo; con Enter se puede volver a buscar.
-      setParticipantLookup({ key, loading: false, result: null });
-      setParticipantError(extractErrorMessage(error, 'No pudimos buscar al jugador. Intentá de nuevo.'));
-    }
-  }, []);
-
-  // Busca solo cuando el DNI o email ya es válido, con una pequeña espera mientras se escribe.
-  useEffect(() => {
-    if (!inviteEditorOpen) return;
-    const parsed = parseParticipantIdentifier(participantIdentifier);
-    if ('error' in parsed) return;
-    const validated = validateParticipantIdentifier(participantIdentifier);
-    if ('error' in validated) return;
-    const key = `${parsed.kind}:${parsed.value}`;
-    if (participantLookup?.key === key) return;
-    const timer = window.setTimeout(() => { void runParticipantLookup(parsed); }, 450);
-    return () => window.clearTimeout(timer);
-  }, [inviteEditorOpen, participantIdentifier, participantLookup?.key, runParticipantLookup, validateParticipantIdentifier]);
-
   const resetInviteEditor = () => {
-    lookupSeqRef.current += 1;
     setInviteEditorOpen(false);
-    setParticipantIdentifier('');
-    setParticipantLookup(null);
     setParticipantError('');
   };
 
-  const currentLookupKey = (() => {
-    const parsed = parseParticipantIdentifier(participantIdentifier);
-    return 'error' in parsed ? '' : `${parsed.kind}:${parsed.value}`;
-  })();
-  const currentLookup = participantLookup && participantLookup.key === currentLookupKey ? participantLookup : null;
-
-  const handleAddParticipant = () => {
+  const handlePickPlayer = (picked: PickedInvitePlayer) => {
     if (participantLimitReached) return;
-    const validated = validateParticipantIdentifier(participantIdentifier);
-    if ('error' in validated) {
-      setParticipantError(validated.error);
-      return;
-    }
-    // Enter antes de que termine la búsqueda: buscar ahora y esperar a que confirme con "Invitar".
-    if (!currentLookup || currentLookup.loading || !currentLookup.result) {
-      if (!currentLookup?.loading) void runParticipantLookup(validated);
-      return;
-    }
-    const { status, displayName } = currentLookup.result;
-    if (status === 'SELF') {
-      setParticipantError('Vos ya sos el titular de la reserva.');
-      return;
-    }
-    if (status === 'DNI_NOT_FOUND') {
-      setParticipantError('No encontramos una cuenta con ese DNI. Probá con su email.');
-      return;
-    }
+    const id = `participant_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     persistParticipants([
       ...participants,
-      {
-        id: `participant_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        identifier: participantIdentifier.trim(),
-        name: status === 'FOUND' ? displayName : null,
-        lookupStatus: status,
-      },
+      picked.kind === 'token'
+        ? {
+            id,
+            identifier: picked.displayName,
+            name: picked.displayName,
+            lookupStatus: 'FOUND',
+            inviteToken: picked.inviteToken,
+            ref: picked.ref,
+          }
+        : {
+            id,
+            identifier: picked.value,
+            name: picked.displayName,
+            lookupStatus: picked.lookupStatus,
+          },
     ]);
     resetInviteEditor();
   };
@@ -456,9 +368,11 @@ export default function CheckoutPage() {
         applyDiscount: false,
         ...(draft.activityFormatId ? { activityFormatId: draft.activityFormatId } : {}),
         initialParticipants: participants.map((participant) => ({
-          ...(participant.identifier.includes('@')
-            ? { email: participant.identifier.trim().toLowerCase() }
-            : { dni: participant.identifier.replace(/\D/g, '') }),
+          ...(participant.inviteToken
+            ? { inviteToken: participant.inviteToken }
+            : participant.identifier.includes('@')
+              ? { email: participant.identifier.trim().toLowerCase() }
+              : { dni: participant.identifier.replace(/\D/g, '') }),
           ...(participant.name ? { name: participant.name } : {}),
         })),
       });
@@ -716,14 +630,7 @@ export default function CheckoutPage() {
                     const isFirstOpen = offset === 0;
                     if (isFirstOpen && inviteEditorOpen) {
                       return (
-                        <form
-                          key={`slot-${slotNumber}`}
-                          className="checkout-invite-box"
-                          onSubmit={(event) => {
-                            event.preventDefault();
-                            handleAddParticipant();
-                          }}
-                        >
+                        <div key={`slot-${slotNumber}`} className="checkout-invite-box">
                           <div className="checkout-invite-head">
                             <span className="checkout-player-icon is-empty"><span className="checkout-player-index">{slotNumber}</span></span>
                             <p className="checkout-invite-title">
@@ -731,61 +638,20 @@ export default function CheckoutPage() {
                             </p>
                             <button type="button" className="checkout-link-btn" onClick={resetInviteEditor}>Cancelar</button>
                           </div>
-                          <label className="checkout-form-field">
-                            <span className="checkout-form-label">DNI o email del jugador</span>
-                            <input
-                              className="checkout-form-input"
-                              type="text"
-                              value={participantIdentifier}
-                              onChange={(event) => {
-                                setParticipantIdentifier(event.target.value);
-                                setParticipantError('');
-                              }}
-                              placeholder="35123456 o jugador@email.com"
-                              autoComplete="off"
-                              autoFocus
-                            />
-                          </label>
-                          {participantError ? (
+                          <PlayerInviteSearch
+                            clubSlug={draft.clubSlug}
+                            clubLabel={formatSlugLabel(draft.clubSlug || '') || null}
+                            ownerEmail={user?.email || null}
+                            excludedRefs={participants.map((participant) => participant.ref || '').filter(Boolean)}
+                            excludedIdentifiers={participants
+                              .filter((participant) => !participant.inviteToken)
+                              .map((participant) => participant.identifier)}
+                            onPick={handlePickPlayer}
+                          />
+                          {participantError && (
                             <p className="checkout-field-error" role="alert" style={{ margin: 0 }}>{participantError}</p>
-                          ) : currentLookup?.loading ? (
-                            <p className="checkout-lookup-hint">
-                              <Loader2 size={13} style={{ animation: 'p-public-spin .8s linear infinite' }} />
-                              Buscando…
-                            </p>
-                          ) : currentLookup?.result?.status === 'FOUND' ? (
-                            <div className="checkout-lookup">
-                              <span className="checkout-lookup-avatar">{getInitials(currentLookup.result.displayName || '')}</span>
-                              <div className="checkout-lookup-info">
-                                <p className="checkout-lookup-name">{currentLookup.result.displayName}</p>
-                                <p className="checkout-lookup-copy">Tiene cuenta en pique · le llega la invitación en la app</p>
-                              </div>
-                              <button type="submit" className="checkout-lookup-action">
-                                <UserPlus size={14} /> Invitar
-                              </button>
-                            </div>
-                          ) : currentLookup?.result?.status === 'EMAIL_WITHOUT_ACCOUNT' ? (
-                            <div className="checkout-lookup">
-                              <span className="checkout-lookup-avatar">@</span>
-                              <div className="checkout-lookup-info">
-                                <p className="checkout-lookup-name">{participantIdentifier.trim().toLowerCase()}</p>
-                                <p className="checkout-lookup-copy">Todavía no tiene cuenta. La invitación lo espera cuando se registre con este email.</p>
-                              </div>
-                              <button type="submit" className="checkout-lookup-action">
-                                <UserPlus size={14} /> Invitar igual
-                              </button>
-                            </div>
-                          ) : currentLookup?.result?.status === 'DNI_NOT_FOUND' ? (
-                            <div className="checkout-lookup-warn">
-                              <p className="checkout-lookup-warn-title">No encontramos una cuenta con ese DNI</p>
-                              <p className="checkout-lookup-copy">Probá con su email: si todavía no tiene cuenta, la invitación lo espera cuando se registre.</p>
-                            </div>
-                          ) : currentLookup?.result?.status === 'SELF' ? (
-                            <p className="checkout-field-error" role="alert" style={{ margin: 0 }}>Vos ya sos el titular de la reserva.</p>
-                          ) : (
-                            <p className="checkout-lookup-hint">Escribí el DNI o el email de tu compañero.</p>
                           )}
-                        </form>
+                        </div>
                       );
                     }
                     return (
