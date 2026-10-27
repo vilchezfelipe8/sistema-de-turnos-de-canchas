@@ -25,7 +25,7 @@ export class PlayerInviteSearchController {
     constructor(private readonly service = new PlayerInviteSearchService()) {}
 
     private requesterId(req: Request) {
-        const userId = Number((req as any)?.user?.userId || 0);
+        const userId = Number((req as Request & { user?: { userId?: number } }).user?.userId || 0);
         return Number.isInteger(userId) && userId > 0 ? userId : null;
     }
 
@@ -42,7 +42,7 @@ export class PlayerInviteSearchController {
                 bookingId: parsed.data.bookingId || null
             });
             return res.json({ items });
-        } catch (error: any) {
+        } catch (error: unknown) {
             return sendAppError(res, error, 'No pudimos buscar jugadores.');
         }
     };
@@ -53,7 +53,7 @@ export class PlayerInviteSearchController {
             if (!userId) return sendAuthError(res, 401, ErrorCodes.AUTH_MISSING, 'Necesitás iniciar sesión para invitar jugadores.');
             const items = await this.service.frequentPlayers({ requesterUserId: userId });
             return res.json({ items });
-        } catch (error: any) {
+        } catch (error: unknown) {
             return sendAppError(res, error, 'No pudimos cargar tus compañeros frecuentes.');
         }
     };

@@ -29,6 +29,7 @@ import {
   resolveCallingCodeByIso2,
   splitCanonicalPhone
 } from '../utils/phone';
+import NotificationPreferencesSection from '../components/push/NotificationPreferencesSection';
 
 const PAGE_CSS = `
   .pf-page { padding-top:16px!important; padding-bottom:28px!important; }
@@ -487,6 +488,8 @@ export default function PerfilPage() {
 
           </form>
         </div>
+
+        <NotificationPreferencesSection />
 
         <div className="pf-zone">
           <div className="pf-zone-title" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-muted)', marginBottom: 16 }}>Perfiles en clubes</div>

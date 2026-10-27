@@ -28,6 +28,7 @@ import Link from 'next/link';
 import UserLoadingState from '../components/UserLoadingState';
 import PlayerSlotsBreakdown from '../components/PlayerSlotsBreakdown';
 import PlayerInviteSearch, { type PickedInvitePlayer } from '../components/players/PlayerInviteSearch';
+import PushOptInCard from '../components/push/PushOptInCard';
 import { downloadCalendarEvent } from '../utils/calendarInvite';
 import { Calendar, Clock, MapPin, Ticket, ArrowRight, Search, XCircle, CheckCircle2, Star, MessageSquare, X, Users, UserPlus, LogOut, Trash2, ChevronDown } from 'lucide-react';
 import { getApiFieldErrors, normalizeApiError } from '../utils/apiError';
@@ -249,6 +250,20 @@ export default function MyBookingsPage() {
     document.getElementById('invitaciones')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [pendingInvitations.length]);
   const [invitationActionId, setInvitationActionId] = useState<string | null>(null);
+  // Llegando desde un aviso push (/bookings?booking=123): abrir esa reserva cuando cargan.
+  const deepLinkedBookingRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!router.isReady) return;
+    const requested = typeof router.query.booking === 'string' ? router.query.booking : '';
+    if (!requested || deepLinkedBookingRef.current === requested) return;
+    const match = bookings.find((booking) => String(booking.id) === requested);
+    if (!match) return;
+    deepLinkedBookingRef.current = requested;
+    setSelectedBooking(match);
+    const restQuery = { ...router.query };
+    delete restQuery.booking;
+    void router.replace({ pathname: router.pathname, query: restQuery }, undefined, { shallow: true, scroll: false });
+  }, [bookings, router]);
   const [participants, setParticipants] = useState<PlayerBookingParticipantDto[]>([]);
   const [participantsLoading, setParticipantsLoading] = useState(false);
   const [participantsError, setParticipantsError] = useState('');
@@ -973,6 +988,8 @@ export default function MyBookingsPage() {
             + Nueva reserva
           </Link>
         </div>
+
+        <PushOptInCard />
 
         {/* ── TABS ── */}
         <div className="bk-tabs-wrap">

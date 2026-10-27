@@ -715,7 +715,9 @@ export class BookingController {
                     executeNow: z.boolean().optional(),
                     reasonType: z.enum(['FULL', 'PARTIAL_COMMERCIAL', 'PARTIAL_SERVICE_FAILURE', 'PARTIAL_PRICING_ERROR', 'OTHER']).optional(),
                     executionNotes: z.string().trim().max(500).optional()
-                }).optional()
+                }).optional(),
+                // Motivo para los jugadores (se muestra en el aviso de cancelación).
+                reasonText: z.string().trim().max(120).optional()
             });
             const parsed = cancelSchema.safeParse(req.body);
             if (!parsed.success) {
@@ -725,6 +727,7 @@ export class BookingController {
             const user = (req as any).user;
             const clubId = (req as any).clubId;
             const result = await this.bookingService.cancelBooking(Number(bookingId), user?.userId, clubId, {
+                playerReasonText: parsed.data.reasonText || null,
                 refund: parsed.data.refund
                     ? {
                         amount: parsed.data.refund.amount,

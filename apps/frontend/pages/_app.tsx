@@ -9,6 +9,7 @@ import { AUTH_LOGOUT_EVENT, clearPendingLogoutRedirect, type AuthLogoutEventDeta
 import { isAuthSessionInvalidatedError } from '../utils/apiClient';
 import { detectClubAppLaunch } from '../utils/clubApp';
 import { initNavigationHistory, trackRouteChange } from '../utils/navigationHistory';
+import PushSubscriptionSync from '../components/push/PushSubscriptionSync';
 import { startPwaInstallCapture } from '../utils/pwaInstall';
 
 import '../styles/globals.css';
@@ -309,6 +310,7 @@ export default function MyApp({ Component, pageProps }: AppProps) {
           <UserThemeProvider>
             <Component {...pageProps} />
             <AppNoticeViewport notices={notices} />
+            <PushSubscriptionSync />
           </UserThemeProvider>
         </AuthProvider>
       </ActiveClubProvider>

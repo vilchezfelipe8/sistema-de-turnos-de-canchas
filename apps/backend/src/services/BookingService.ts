@@ -21,6 +21,7 @@ import { PlayerSlotService, type PerPlayerQuote } from './PlayerSlotService';
 import { BookingReleaseService } from './BookingReleaseService';
 import { normalizeDni } from '../utils/dni';
 import { verifyPlayerInviteToken } from '../utils/playerInviteToken';
+import { PushMessages, loadBookingPushContext, pushNotificationService, shortUserName } from './PushNotificationService';
 import { EventService } from './EventService';
 import { AuditLogService } from './AuditLogService';
 import { AccountingService } from './AccountingService';
@@ -49,6 +50,8 @@ import { AppError, ErrorCodes, badRequest, conflict, forbidden, notFound } from 
 type CancelBookingReason = 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED';
 type CancelBookingOptions = {
     reason?: CancelBookingReason;
+    // Motivo para el jugador (ej. "lluvia"): se incluye en el aviso de cancelación.
+    playerReasonText?: string | null;
     triggeredBy?: 'USER' | 'ADMIN' | 'SYSTEM';
     skipAccessValidation?: boolean;
     now?: Date;
@@ -4322,6 +4325,17 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             if (account) {
                 await this.projectionService.refreshAccountSummary(account.id, tx);
             }
+            // Solo cuando cancela el club (desde el admin) o el sistema; si cancela el propio jugador, no.
+            if (clubId != null || isAutoCancel) {
+                await this.enqueueBookingCancelledPushTx(tx, {
+                    bookingId,
+                    clubId: booking.court.club.id,
+                    ownerUserId: currentBooking.userId ?? null,
+                    actorUserId: isAutoCancel ? null : cancelledByUserId,
+                    reasonText: options?.playerReasonText ?? null,
+                    autoCancel: isAutoCancel
+                });
+            }
             wasCancelled = true;
         });
 
@@ -6251,6 +6265,22 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             }
         });
 
+        if (invitedUser && invitedUser.id !== input.ownerUserId) {
+            const [pushContext, inviter] = await Promise.all([
+                loadBookingPushContext(tx, input.bookingId),
+                tx.user.findUnique({ where: { id: input.ownerUserId }, select: { firstName: true, lastName: true } })
+            ]);
+            if (pushContext) {
+                await pushNotificationService.enqueue(tx, {
+                    clubId: input.clubId,
+                    userId: invitedUser.id,
+                    kind: 'INVITATION',
+                    aggregateId: String(input.bookingId),
+                    content: PushMessages.invitation(pushContext, shortUserName(inviter))
+                });
+            }
+        }
+
         const invitedClient = invitedUser
             ? await tx.client.findFirst({
                 where: { clubId: input.clubId, userId: invitedUser.id },
@@ -6524,6 +6554,76 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         }));
     }
 
+    // Aviso push a quien invitó cuando el invitado acepta o rechaza.
+    private async enqueueInvitationResponsePushTx(tx: Prisma.TransactionClient, input: {
+        bookingId: number;
+        clubId: number;
+        recipientUserId: number;
+        responderUserId: number;
+        accepted: boolean;
+    }) {
+        if (!Number.isInteger(input.recipientUserId) || input.recipientUserId <= 0) return;
+        if (input.recipientUserId === input.responderUserId) return;
+        const [pushContext, responder] = await Promise.all([
+            loadBookingPushContext(tx, input.bookingId),
+            tx.user.findUnique({ where: { id: input.responderUserId }, select: { firstName: true, lastName: true } })
+        ]);
+        if (!pushContext) return;
+        let content;
+        if (input.accepted) {
+            // Jugadores confirmados: titular + participantes que se sumaron.
+            const joined = await tx.bookingParticipant.findMany({
+                where: { bookingId: input.bookingId, status: 'JOINED' },
+                select: { userId: true, role: true }
+            });
+            const ownerCounted = joined.some((participant) =>
+                participant.role === 'ORGANIZER' || (pushContext.ownerUserId && participant.userId === pushContext.ownerUserId)
+            );
+            const joinedCount = joined.length + (ownerCounted ? 0 : 1);
+            content = PushMessages.invitationAccepted(pushContext, shortUserName(responder), joinedCount);
+        } else {
+            content = PushMessages.invitationDeclined(pushContext, shortUserName(responder));
+        }
+        await pushNotificationService.enqueue(tx, {
+            clubId: input.clubId,
+            userId: input.recipientUserId,
+            kind: 'INVITATION_RESPONSE',
+            aggregateId: String(input.bookingId),
+            content
+        });
+    }
+
+    // Aviso push a los jugadores cuando el club (o el sistema) cancela la reserva.
+    private async enqueueBookingCancelledPushTx(tx: Prisma.TransactionClient, input: {
+        bookingId: number;
+        clubId: number;
+        ownerUserId: number | null;
+        actorUserId: number | null;
+        reasonText?: string | null;
+        autoCancel: boolean;
+    }) {
+        const pushContext = await loadBookingPushContext(tx, input.bookingId);
+        if (!pushContext) return;
+        const joined = await tx.bookingParticipant.findMany({
+            where: { bookingId: input.bookingId, status: 'JOINED', userId: { not: null } },
+            select: { userId: true }
+        });
+        const recipients = new Set<number>();
+        if (input.ownerUserId) recipients.add(input.ownerUserId);
+        joined.forEach((participant) => { if (participant.userId) recipients.add(participant.userId); });
+        if (input.actorUserId) recipients.delete(input.actorUserId);
+        const content = PushMessages.cancelledByClub(pushContext, { text: input.reasonText, autoCancel: input.autoCancel });
+        for (const userId of recipients) {
+            await pushNotificationService.enqueue(tx, {
+                clubId: input.clubId,
+                userId,
+                kind: 'BOOKING_CANCELLED',
+                aggregateId: String(input.bookingId),
+                content
+            });
+        }
+    }
+
     async acceptBookingInvitation(invitationId: string, userId: number) {
         if (!Number.isInteger(userId) || userId <= 0) {
             throw this.bookingForbidden();
@@ -6632,6 +6732,14 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 actorUserId: userId
             });
 
+            await this.enqueueInvitationResponsePushTx(tx, {
+                bookingId: invitation.bookingId,
+                clubId: invitation.booking.clubId,
+                recipientUserId: Number(invitation.invitedByUserId || invitation.booking.userId || 0),
+                responderUserId: userId,
+                accepted: true
+            });
+
             return participant;
         });
 
@@ -6656,6 +6764,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     select: {
                         id: true,
                         clubId: true,
+                        userId: true,
                         status: true,
                         startDateTime: true
                     }
@@ -6708,6 +6817,14 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         bookingId: invitation.booking.id
                     }
                 }
+            });
+
+            await this.enqueueInvitationResponsePushTx(tx, {
+                bookingId: invitation.booking.id,
+                clubId: invitation.booking.clubId,
+                recipientUserId: Number(invitation.invitedByUserId || invitation.booking.userId || 0),
+                responderUserId: userId,
+                accepted: false
             });
         });
 

@@ -11,6 +11,7 @@ import { CashRepository } from '../repositories/CashRepository';
 import { ProductRepository } from '../repositories/ProductRepository';
 import { PlayerSlotController } from '../controllers/PlayerSlotController';
 import { PlayerInviteSearchController } from '../controllers/PlayerInviteSearchController';
+import { PushController } from '../controllers/PushController';
 
 const router = Router();
 
@@ -50,5 +51,13 @@ router.get('/players/frequent', authMiddleware, playerSearchLimiter, (req, res) 
 router.get('/booking-invitations', authMiddleware, (req, res) => bookingController.getMyBookingInvitations(req, res));
 router.post('/booking-invitations/:id/accept', authMiddleware, (req, res) => bookingController.acceptMyBookingInvitation(req, res));
 router.post('/booking-invitations/:id/decline', authMiddleware, (req, res) => bookingController.declineMyBookingInvitation(req, res));
+
+// Avisos push: configuración, suscripción por dispositivo y preferencias.
+const pushController = new PushController();
+router.get('/push/config', authMiddleware, (req, res) => pushController.config(req, res));
+router.post('/push/subscriptions', authMiddleware, (req, res) => pushController.saveSubscription(req, res));
+router.post('/push/subscriptions/remove', authMiddleware, (req, res) => pushController.removeSubscription(req, res));
+router.get('/notification-preferences', authMiddleware, (req, res) => pushController.getPreferences(req, res));
+router.put('/notification-preferences', authMiddleware, (req, res) => pushController.updatePreferences(req, res));
 
 export default router;
