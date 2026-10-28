@@ -12,6 +12,9 @@ export type BookingCheckoutParticipantDraft = {
 export type BookingCheckoutDraft = {
   id: string;
   clubSlug?: string | null;
+  // Nombre real del club y si confirma las reservas a mano (para mostrarlo antes y después de confirmar).
+  clubName?: string | null;
+  bookingConfirmationMode?: 'AUTOMATIC' | 'MANUAL' | 'DEPOSIT_REQUIRED' | null;
   courtId: number;
   courtName: string;
   activityId: number;

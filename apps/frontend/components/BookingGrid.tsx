@@ -621,6 +621,8 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
     const draftSaved = saveBookingCheckoutDraft({
       id: draftId,
       clubSlug: clubSlug || null,
+      clubName: clubConfig?.name || null,
+      bookingConfirmationMode: clubConfig?.bookingConfirmationMode ?? null,
       courtId: Number(selectedCourt.id),
       courtName: bookingReview.courtName,
       activityId: bookingActivityId,

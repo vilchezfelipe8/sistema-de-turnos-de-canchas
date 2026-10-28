@@ -4734,6 +4734,9 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             });
 
             const nextStatus = await this.bookingDomainService.confirmBookingManuallyTx(tx, { bookingId, clubId });
+            if (nextStatus === 'CONFIRMED') {
+                await this.enqueueBookingConfirmedPushTx(tx, { bookingId, clubId, actorUserId });
+            }
             await this.eventService.bookingConfirmed(clubId, {
                 bookingId,
                 actorUserId,
@@ -6591,6 +6594,34 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             aggregateId: String(input.bookingId),
             content
         });
+    }
+
+    // Aviso push al titular y a los jugadores confirmados cuando el club confirma una reserva pendiente.
+    private async enqueueBookingConfirmedPushTx(tx: Prisma.TransactionClient, input: {
+        bookingId: number;
+        clubId: number;
+        actorUserId: number | null;
+    }) {
+        const pushContext = await loadBookingPushContext(tx, input.bookingId);
+        if (!pushContext) return;
+        const joined = await tx.bookingParticipant.findMany({
+            where: { bookingId: input.bookingId, status: 'JOINED', userId: { not: null } },
+            select: { userId: true }
+        });
+        const recipients = new Set<number>();
+        if (pushContext.ownerUserId) recipients.add(pushContext.ownerUserId);
+        joined.forEach((participant) => { if (participant.userId) recipients.add(participant.userId); });
+        if (input.actorUserId) recipients.delete(input.actorUserId);
+        const content = PushMessages.confirmedByClub(pushContext);
+        for (const userId of recipients) {
+            await pushNotificationService.enqueue(tx, {
+                clubId: input.clubId,
+                userId,
+                kind: 'BOOKING_CONFIRMED',
+                aggregateId: String(input.bookingId),
+                content
+            });
+        }
     }
 
     // Aviso push a los jugadores cuando el club (o el sistema) cancela la reserva.

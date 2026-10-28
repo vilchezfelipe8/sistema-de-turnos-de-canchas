@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import {
-  Calendar,
-  CheckCircle2,
-  Clock,
+  CalendarPlus,
+  ChevronDown,
+  ChevronLeft,
+  Hourglass,
   Loader2,
-  MapPin,
   ShieldCheck,
   Ticket,
   UserPlus,
@@ -22,6 +22,7 @@ import { getPendingLogoutRedirect } from '../services/AuthService';
 import { useValidateAuth } from '../hooks/useValidateAuth';
 import { extractErrorMessage, reportUiError } from '../utils/uiError';
 import { normalizeApiError } from '../utils/apiError';
+import { downloadCalendarEvent } from '../utils/calendarInvite';
 import {
   readBookingCheckoutDraft,
   readCheckoutReturn,
@@ -32,6 +33,85 @@ import {
 } from '../utils/bookingCheckoutDraft';
 
 const CHECKOUT_CSS = `
+  /* ── Confirmar: encabezado y resumen compactos ── */
+  .ck-head { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+  .ck-back { width:38px; height:38px; flex-shrink:0; border-radius:12px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-secondary); display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
+  .ck-back:hover { color:var(--text-primary); border-color:var(--border-strong); }
+  .ck-eyebrow { margin:0; color:var(--accent-fg); font-size:11px; font-weight:900; letter-spacing:.03em; }
+  .ck-title { margin:2px 0 0; color:var(--text-primary); font-size:24px; line-height:1.1; font-weight:900; letter-spacing:-.04em; }
+  .ck-summary { display:flex; gap:14px; align-items:center; padding:14px; border-radius:18px; background:var(--surface-2); border:1px solid var(--border-subtle); }
+  .ck-date { width:56px; flex-shrink:0; border-radius:15px; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); text-align:center; padding:8px 0; }
+  .ck-date small { display:block; color:var(--accent-fg); font-size:10px; font-weight:900; letter-spacing:.04em; }
+  .ck-date b { display:block; color:var(--text-primary); font-size:21px; font-weight:900; line-height:1.1; }
+  .ck-sum-main { margin:0; color:var(--text-primary); font-size:16px; font-weight:900; }
+  .ck-sum-sub { margin:3px 0 0; color:var(--text-muted); font-size:12px; font-weight:650; line-height:1.35; }
+  .ck-sum-club { margin:3px 0 0; color:var(--text-secondary); font-size:12px; font-weight:750; }
+  .ck-cal { margin-top:12px; padding:11px 0 0; border:0; border-top:1px solid var(--border-subtle); width:100%; background:transparent; display:flex; align-items:center; justify-content:space-between; color:var(--accent-fg); font-family:var(--font-sans); font-size:12px; font-weight:800; cursor:pointer; }
+  .ck-hint { display:flex; gap:10px; align-items:flex-start; padding:11px 13px; border-radius:14px; background:var(--warn-bg); color:var(--text-secondary); font-size:12px; line-height:1.45; font-weight:600; }
+  .ck-hint b { color:var(--warn-fg); }
+  .ck-hint svg { flex-shrink:0; color:var(--warn-fg); margin-top:1px; }
+  .ck-price-toggle { display:none; }
+  .ck-sticky { display:none; }
+  /* Espacio al final para que la barra fija no tape el contenido (solo celular). */
+  .ck-bar-spacer { display:none; }
+  .ck-sticky-amount small { display:block; color:var(--text-muted); font-size:10px; font-weight:900; letter-spacing:.03em; }
+  .ck-sticky-amount b { display:block; color:var(--accent-fg); font-size:20px; font-weight:900; letter-spacing:-.04em; line-height:1.15; }
+  .ck-sticky-amount em { display:block; font-style:normal; color:var(--text-muted); font-size:10px; font-weight:700; }
+  .ck-sticky-error { margin:0 0 8px; color:var(--error-fg); font-size:12px; font-weight:700; }
+  @media(max-width:920px){
+    .ck-desktop-actions { display:none!important; }
+    .ck-price-toggle { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; padding:16px 20px; border:0; background:transparent; color:var(--text-primary); font-family:var(--font-sans); cursor:pointer; text-align:left; }
+    .ck-price-toggle-title { display:block; font-size:14px; font-weight:900; }
+    .ck-price-toggle-sub { display:block; margin-top:2px; color:var(--text-muted); font-size:12px; font-weight:650; }
+    .ck-price-toggle-action { display:inline-flex; align-items:center; gap:4px; color:var(--accent-fg); font-size:12px; font-weight:800; white-space:nowrap; }
+    .ck-price-toggle-action svg { transition:transform .2s; }
+    .ck-price-toggle.is-open .ck-price-toggle-action svg { transform:rotate(180deg); }
+    .ck-price-detail { display:none; }
+    .ck-price-detail.is-open { display:block; }
+    .ck-sticky { display:block; position:fixed; left:12px; right:12px; bottom:calc(10px + env(safe-area-inset-bottom)); z-index:40; padding:12px 14px; border-radius:18px; background:var(--surface-1); border:1px solid var(--border); box-shadow:0 -6px 30px rgba(0,0,0,.28); }
+    .ck-sticky-row { display:flex; align-items:center; gap:12px; }
+    .ck-sticky-row .checkout-primary, .ck-sticky-row .checkout-secondary { flex:1; min-width:0; }
+    .ck-sticky-row .checkout-secondary { flex:0 0 auto; min-width:0; }
+    .pique-layout-clubapp .ck-sticky { bottom:calc(78px + env(safe-area-inset-bottom)); }
+    .ck-bar-spacer { display:block; height:110px; }
+  }
+
+  /* ── ¡Listo! ── */
+  .ck-done { max-width:560px; margin:0 auto; display:flex; flex-direction:column; gap:12px; }
+  .ck-done-hero { display:flex; flex-direction:column; align-items:center; text-align:center; gap:10px; padding:6px 0 4px; }
+  .ck-mark { position:relative; width:88px; height:88px; }
+  .ck-mark svg { position:absolute; inset:0; overflow:visible; }
+  .ck-ring { fill:none; stroke-width:5; stroke-linecap:round; stroke-dasharray:240; stroke-dashoffset:240; transform:rotate(-90deg); transform-origin:44px 44px; animation:ck-ring .55s cubic-bezier(.65,0,.35,1) forwards; }
+  .ck-disc { transform-origin:44px 44px; transform:scale(0); animation:ck-pop .45s cubic-bezier(.34,1.56,.64,1) .45s forwards; }
+  .ck-tick { fill:none; stroke-width:6; stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:60; stroke-dashoffset:60; animation:ck-tick .35s ease-out .8s forwards; }
+  .ck-conf { position:absolute; left:50%; top:50%; width:7px; height:11px; border-radius:2px; opacity:0; animation:ck-conf 1s cubic-bezier(.2,.7,.3,1) .85s forwards; }
+  .ck-pulse { position:absolute; inset:2px; border-radius:999px; border:2px solid var(--warn-fg); opacity:0; animation:ck-pulse 1.6s ease-out 1s 2; }
+  .ck-rise { opacity:0; animation:ck-rise .4s ease-out forwards; }
+  @keyframes ck-ring { to { stroke-dashoffset:0; } }
+  @keyframes ck-pop { 0% { transform:scale(0); } 60% { transform:scale(1.12); } 100% { transform:scale(1); } }
+  @keyframes ck-tick { to { stroke-dashoffset:0; } }
+  @keyframes ck-conf { 0% { opacity:0; transform:translate(-50%,-50%) rotate(0) scale(.6); } 10% { opacity:1; } 70% { opacity:1; } 100% { opacity:0; transform:translate(var(--x),var(--y)) rotate(var(--r)) scale(1); } }
+  @keyframes ck-pulse { 0% { opacity:.8; transform:scale(1); } 100% { opacity:0; transform:scale(1.45); } }
+  @keyframes ck-rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+  @media (prefers-reduced-motion: reduce) {
+    .ck-ring, .ck-tick { animation:none; stroke-dashoffset:0; }
+    .ck-disc { animation:none; transform:none; }
+    .ck-rise { animation:none; opacity:1; }
+    .ck-conf, .ck-pulse { display:none; }
+  }
+  .ck-done-pill { display:inline-flex; align-items:center; gap:7px; height:28px; padding:0 11px; border-radius:999px; font-size:11px; font-weight:900; }
+  .ck-done-pill.is-confirmed { background:var(--positive-bg); color:var(--accent-fg); border:1px solid var(--accent-border-subtle); }
+  .ck-done-pill.is-pending { background:var(--warn-bg); color:var(--warn-fg); }
+  .ck-done-title { margin:0; color:var(--text-primary); font-size:28px; line-height:1.05; font-weight:900; letter-spacing:-.05em; }
+  .ck-done-copy { margin:0; max-width:340px; color:var(--text-secondary); font-size:13px; line-height:1.5; font-weight:600; }
+  .ck-done-card { border-radius:20px; background:var(--surface-1); border:1px solid var(--border); padding:14px; }
+  .ck-done-actions { display:flex; gap:10px; }
+  .ck-done-actions .checkout-primary { flex:1; }
+  @media(max-width:920px){
+    .ck-done-actions { position:fixed; left:12px; right:12px; bottom:calc(10px + env(safe-area-inset-bottom)); z-index:40; padding:12px; border-radius:18px; background:var(--surface-1); border:1px solid var(--border); box-shadow:0 -6px 30px rgba(0,0,0,.28); }
+    .ck-done-actions .checkout-secondary { flex:0 0 auto; min-width:0; }
+    .pique-layout-clubapp .ck-done-actions { bottom:calc(78px + env(safe-area-inset-bottom)); }
+  }
   .checkout-shell { max-width:1120px; margin:0 auto; }
   .checkout-top { margin-bottom:22px; }
   .checkout-layout { display:grid; grid-template-columns:minmax(0,1.1fr) 380px; gap:22px; align-items:start; }
@@ -92,6 +172,9 @@ const CHECKOUT_CSS = `
   .checkout-primary { flex:1; border:1px solid var(--brand); background:var(--brand); color:var(--brand-on); }
   .checkout-primary:hover { border-color:var(--brand-hover); background:var(--brand-hover); color:var(--brand-on); }
   .checkout-primary:disabled { cursor:not-allowed; opacity:.65; }
+  /* Botones que son links: el layout pone "a { color:inherit }" y dejaba el texto ilegible sobre el lima. */
+  .pique-layout a.checkout-primary, .pique-layout a.checkout-primary:hover { color:var(--brand-on); }
+  .pique-layout a.checkout-secondary { color:var(--text-secondary); }
   .checkout-success { max-width:720px; margin:0 auto; text-align:center; }
   .checkout-success-icon { width:68px; height:68px; border-radius:22px; margin:0 auto 18px; display:flex; align-items:center; justify-content:center; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); color:var(--accent-fg); }
   @media(max-width:920px){
@@ -192,21 +275,6 @@ const parseDraftDate = (date: string) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
-const getDraftDateLabels = (draft: BookingCheckoutDraft) => {
-  const date = parseDraftDate(draft.date);
-  if (!date) {
-    return { longDate: draft.date, shortDate: draft.date };
-  }
-  // "jueves, 15 de octubre" → "Jueves 15 de octubre" (solo la primera letra en mayúscula).
-  const longDate = date
-    .toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })
-    .replace(',', '');
-  return {
-    longDate: longDate.charAt(0).toUpperCase() + longDate.slice(1),
-    shortDate: date.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }),
-  };
-};
-
 const formatDurationLabel = (minutes: number) => {
   const safeMinutes = Math.max(0, Math.round(Number(minutes || 0)));
   const hours = Math.floor(safeMinutes / 60);
@@ -248,6 +316,10 @@ export default function CheckoutPage() {
   const [submitError, setSubmitError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [confirmedBookingId, setConfirmedBookingId] = useState<string | null>(null);
+  // Estado real de la reserva creada: el club puede confirmarla a mano (queda pendiente).
+  const [confirmedStatus, setConfirmedStatus] = useState<'CONFIRMED' | 'PENDING'>('PENDING');
+  // Detalle del precio: en el celular arranca cerrado.
+  const [priceDetailOpen, setPriceDetailOpen] = useState(false);
   const [participants, setParticipants] = useState<BookingCheckoutParticipantDraft[]>([]);
   const [participantError, setParticipantError] = useState('');
   // Invitar: el editor se abre sobre el primer lugar libre (buscador por nombre, DNI o email).
@@ -268,7 +340,6 @@ export default function CheckoutPage() {
     void router.replace(`/login?from=${encodeURIComponent(router.asPath || '/checkout')}`);
   }, [authChecked, router, user]);
 
-  const dateLabels = useMemo(() => (draft ? getDraftDateLabels(draft) : null), [draft]);
   const timeRange = useMemo(() => (draft ? getTimeRange(draft) : ''), [draft]);
   const backHref = draft?.clubSlug ? `/club/${draft.clubSlug}` : '/';
   // Volver a la grilla: con el historial si venimos de ahí (conserva día, horario y scroll);
@@ -378,8 +449,32 @@ export default function CheckoutPage() {
       });
       const booking = (result as any)?.booking || result;
       const bookingId = String(booking?.id || (result as any)?.bookingId || '').trim();
+      const rawStatus = String(booking?.status || '').toUpperCase();
+      const isConfirmed = rawStatus
+        ? rawStatus === 'CONFIRMED'
+        : draft.bookingConfirmationMode === 'AUTOMATIC';
       removeBookingCheckoutDraft(draft.id);
+      setConfirmedStatus(isConfirmed ? 'CONFIRMED' : 'PENDING');
       setConfirmedBookingId(bookingId || 'created');
+      // La confirmación se ve desde arriba (en el celular el botón estaba al final de la página).
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'auto' });
+        if (isConfirmed) {
+          try {
+            window.navigator.vibrate?.(35);
+          } catch {
+            // Vibrar es opcional.
+          }
+        }
+      }
+      // Si se recarga, la dirección lleva a la reserva creada (el borrador ya no existe).
+      if (bookingId) {
+        void router.replace(
+          { pathname: router.pathname, query: { ...router.query, done: bookingId } },
+          undefined,
+          { shallow: true, scroll: false }
+        );
+      }
     } catch (error) {
       const message = extractErrorMessage(error, 'No pudimos confirmar la reserva. Intentá nuevamente.');
       const apiError = normalizeApiError(error, message);
@@ -406,8 +501,18 @@ export default function CheckoutPage() {
     }
   };
 
+  const doneBookingId = typeof router.query.done === 'string' ? router.query.done : '';
+  useEffect(() => {
+    if (!draftLoaded || draft || confirmedBookingId !== null || !doneBookingId) return;
+    void router.replace(`/bookings?booking=${encodeURIComponent(doneBookingId)}`);
+  }, [confirmedBookingId, doneBookingId, draft, draftLoaded, router]);
+
   if (!authChecked || !draftLoaded) {
     return <UserLoadingState mode="page" message="Preparando checkout..." />;
+  }
+
+  if (!draft && doneBookingId && confirmedBookingId === null) {
+    return <UserLoadingState mode="page" message="Abriendo tu reserva..." />;
   }
 
   if (!draft) {
@@ -431,36 +536,126 @@ export default function CheckoutPage() {
     );
   }
 
+
+  const draftDate = parseDraftDate(draft.date);
+  const dateBadge = draftDate
+    ? {
+        weekday: draftDate.toLocaleDateString('es-AR', { weekday: 'short' }).replace('.', '').toUpperCase(),
+        day: draftDate.getDate(),
+      }
+    : null;
+  const clubDisplayName = draft.clubName || formatSlugLabel(draft.clubSlug || '') || '';
+  const clubConfirmsManually = draft.bookingConfirmationMode === 'MANUAL';
+  const stickyAmount = isPerPlayer ? ownerShare : Number(draft.price || 0);
+  const confirmLabel = participants.length > 0
+    ? `Confirmar y enviar ${participants.length === 1 ? 'invitación' : 'invitaciones'}`
+    : 'Confirmar reserva';
+  const renderConfirmContent = () => (
+    submitting ? (
+      <>
+        <Loader2 size={15} style={{ animation: 'p-public-spin .8s linear infinite' }} />
+        Confirmando...
+      </>
+    ) : (
+      <>
+        <ShieldCheck size={15} />
+        {confirmLabel}
+      </>
+    )
+  );
+  const addToCalendar = () => {
+    if (!draftDate) return;
+    const [hour, minute] = String(draft.slotTime || '').split(':').map(Number);
+    const start = new Date(draftDate.getFullYear(), draftDate.getMonth(), draftDate.getDate(), hour || 0, minute || 0);
+    const end = new Date(start.getTime() + Number(draft.durationMinutes || 0) * 60000);
+    downloadCalendarEvent({
+      uid: `booking-${confirmedBookingId || draft.id}`,
+      title: [activityLabel || 'Partido', clubDisplayName].filter(Boolean).join(' · '),
+      start,
+      end,
+      location: [clubDisplayName, draft.courtName].filter(Boolean).join(' · '),
+      description: 'Reserva hecha en Pique.',
+    });
+  };
+  const summaryCard = (withCalendar: boolean) => (
+    <div className={withCalendar ? 'ck-done-card' : undefined}>
+      <div className={withCalendar ? 'ck-summary' : 'ck-summary'} style={withCalendar ? { padding: 0, border: 0, background: 'transparent' } : undefined}>
+        {dateBadge && (
+          <span className="ck-date"><small>{dateBadge.weekday}</small><b>{dateBadge.day}</b></span>
+        )}
+        <div style={{ minWidth: 0 }}>
+          <p className="ck-sum-main">{timeRange} · {durationLabel}</p>
+          <p className="ck-sum-sub">{[activityLabel, draft.courtName].filter(Boolean).join(' · ')}{draft.playerCount ? ` · ${draft.playerCount} jugadores` : ''}</p>
+          {clubDisplayName && <p className="ck-sum-club">{clubDisplayName}</p>}
+        </div>
+      </div>
+      {withCalendar && (
+        <button type="button" className="ck-cal" onClick={addToCalendar}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><CalendarPlus size={15} /> Agregar al calendario</span>
+          <span style={{ color: 'var(--text-muted)' }}>›</span>
+        </button>
+      )}
+    </div>
+  );
+
   if (confirmedBookingId !== null) {
+    const isConfirmed = confirmedStatus === 'CONFIRMED';
+    const firstName = String(user?.firstName || '').trim();
+    const confetti = Array.from({ length: 16 }, (_, index) => {
+      const angle = (index / 16) * Math.PI * 2;
+      const distance = 78 + (index % 3) * 18;
+      return {
+        x: Math.round(Math.cos(angle) * distance),
+        y: Math.round(Math.sin(angle) * distance) - 10,
+        r: ((index * 97) % 520) - 260,
+        color: ['var(--brand)', 'var(--brand-hover)', 'var(--text-primary)', 'var(--accent-fg)'][index % 4],
+      };
+    });
     return (
-      <DarkPageLayout title="Reserva confirmada | Pique" extraCss={CHECKOUT_CSS} breadcrumbs={checkoutBreadcrumbs}>
+      <DarkPageLayout title={isConfirmed ? 'Reserva confirmada | Pique' : 'Solicitud enviada | Pique'} extraCss={CHECKOUT_CSS} breadcrumbs={checkoutBreadcrumbs}>
         <main className="p-public-page-sm">
-          <section className="checkout-card checkout-card-pad checkout-success">
-            <div className="checkout-success-icon">
-              <CheckCircle2 size={34} />
-            </div>
-            <span className="checkout-pill">
-              <ShieldCheck size={13} />
-              Reserva creada
-            </span>
-            <h1 className="checkout-title">Tu turno quedó reservado</h1>
-            <p className="checkout-copy" style={{ margin: '0 auto 22px' }}>
-              Te esperamos en el club. La tenés en Mis reservas para revisarla cuando quieras.
-            </p>
-            <div className="checkout-grid" style={{ textAlign: 'left', marginBottom: 14 }}>
-              <div className="checkout-detail">
-                <div className="checkout-label"><Calendar size={14} /> Cuándo</div>
-                <p className="checkout-value">{dateLabels?.longDate}</p>
-                <p className="checkout-value-sub">{timeRange} · {durationLabel}</p>
+          <div className="ck-done">
+            <div className="ck-done-hero">
+              <div className="ck-mark" aria-hidden="true">
+                {isConfirmed
+                  ? confetti.map((piece, index) => (
+                      <span
+                        key={`conf-${index}`}
+                        className="ck-conf"
+                        style={{
+                          background: piece.color,
+                          ['--x' as string]: `calc(-50% + ${piece.x}px)`,
+                          ['--y' as string]: `calc(-50% + ${piece.y}px)`,
+                          ['--r' as string]: `${piece.r}deg`,
+                        }}
+                      />
+                    ))
+                  : <span className="ck-pulse" />}
+                <svg viewBox="0 0 88 88">
+                  <circle className="ck-disc" cx="44" cy="44" r="36" fill={isConfirmed ? 'var(--brand)' : 'var(--warn-fg)'} />
+                  <circle className="ck-ring" cx="44" cy="44" r="40" stroke={isConfirmed ? 'var(--brand)' : 'var(--warn-fg)'} />
+                  <path className="ck-tick" d="M29 45l10 10 20-21" stroke={isConfirmed ? 'var(--brand-on)' : 'var(--surface-1)'} />
+                </svg>
               </div>
-              <div className="checkout-detail">
-                <div className="checkout-label"><MapPin size={14} /> Dónde</div>
-                <p className="checkout-value">{draft.courtName}</p>
-                <p className="checkout-value-sub">{activityLabel}</p>
-              </div>
+              <span className={`ck-done-pill ck-rise ${isConfirmed ? 'is-confirmed' : 'is-pending'}`} style={{ animationDelay: '.9s' }}>
+                {isConfirmed ? <><ShieldCheck size={13} /> Reserva confirmada</> : <><Hourglass size={13} /> Esperando al club</>}
+              </span>
+              <h1 className="ck-done-title ck-rise" style={{ animationDelay: '.95s' }}>
+                {isConfirmed
+                  ? <>¡Listo{firstName ? `, ${firstName}` : ''}!<br />Tu turno está reservado</>
+                  : '¡Solicitud enviada!'}
+              </h1>
+              <p className="ck-done-copy ck-rise" style={{ animationDelay: '1s' }}>
+                {isConfirmed
+                  ? 'Te esperamos en el club. Está en Mis reservas cuando la necesites.'
+                  : 'El club tiene que confirmar tu turno. Te avisamos apenas lo haga, y lo ves en Mis reservas.'}
+              </p>
             </div>
+
+            <div className="ck-rise" style={{ animationDelay: '1.05s' }}>{summaryCard(true)}</div>
+
             {(participants.length > 0 || openSlotCount > 0) && (
-              <div className="checkout-card" style={{ textAlign: 'left', marginBottom: 14 }}>
+              <div className="checkout-card ck-rise" style={{ textAlign: 'left', animationDelay: '1.05s' }}>
                 <div className="checkout-card-pad">
                   <div className="checkout-participants-head" style={{ marginBottom: 12 }}>
                     <h2 className="checkout-participants-title"><Users size={17} /> Jugadores</h2>
@@ -481,7 +676,7 @@ export default function CheckoutPage() {
                           </p>
                         )}
                       </div>
-                      <span className="checkout-status-chip is-confirmed">Confirmado</span>
+                      <span className={`checkout-status-chip ${confirmedStatus === 'CONFIRMED' ? 'is-confirmed' : 'is-pending'}`}>{confirmedStatus === 'CONFIRMED' ? 'Confirmado' : 'Esperando al club'}</span>
                     </div>
                     {participants.map((participant) => (
                       <div className="checkout-player" key={participant.id}>
@@ -493,7 +688,7 @@ export default function CheckoutPage() {
                           <p className="checkout-player-status">
                             {participant.lookupStatus === 'EMAIL_WITHOUT_ACCOUNT'
                               ? 'La verá cuando se registre con ese email'
-                              : 'Le avisamos en la app para que acepte'}
+                              : 'Le avisamos para que acepte'}
                           </p>
                         </div>
                         <span className="checkout-status-chip is-pending">Esperando respuesta</span>
@@ -508,7 +703,7 @@ export default function CheckoutPage() {
                 </div>
               </div>
             )}
-            <div className="checkout-success-pay">
+            <div className="checkout-success-pay ck-rise" style={{ marginBottom: 0, animationDelay: '1.1s' }}>
               <div>
                 <p className="payment-title">Se paga en el club</p>
                 <p className="payment-copy">
@@ -520,11 +715,13 @@ export default function CheckoutPage() {
                 <p className="checkout-success-pay-amount">{formatMoney(draft.price)}</p>
               </div>
             </div>
-            <div className="checkout-actions">
-              <button type="button" className="checkout-secondary" style={{ minWidth: 236 }} onClick={goBackToClub}>Reservar otro</button>
+
+            <div className="ck-bar-spacer" aria-hidden="true" />
+            <div className="ck-done-actions">
+              <button type="button" className="checkout-secondary" onClick={goBackToClub}>Reservar otro</button>
               <Link href="/bookings" replace className="checkout-primary">Ver mis reservas</Link>
             </div>
-          </section>
+          </div>
         </main>
       </DarkPageLayout>
     );
@@ -536,43 +733,17 @@ export default function CheckoutPage() {
         <div className="checkout-shell">
           <div className="checkout-layout">
             <section className="checkout-card">
-              <div className="checkout-hero">
-                <div className="checkout-hero-content">
-                  <span className="checkout-pill">
-                    <ShieldCheck size={13} />
-                    Último paso
-                  </span>
-                  <h1 className="checkout-title">Confirmá tu reserva</h1>
-                  <p className="checkout-copy">
-                    Revisá los datos del turno y, si querés, sumá a tus compañeros.
-                  </p>
-                </div>
-              </div>
-
               <div className="checkout-card-pad">
-                <div className="checkout-activity">
-                  <div className="checkout-activity-icon">
-                    <Ticket size={19} />
-                  </div>
+                <div className="ck-head">
+                  <button type="button" className="ck-back" onClick={goBackToClub} aria-label="Volver">
+                    <ChevronLeft size={18} />
+                  </button>
                   <div>
-                    <p className="checkout-activity-name">{activityLabel}</p>
-                    <p className="checkout-activity-court">
-                      {draft.courtName}
-                      {draft.playerCount ? ` · ${draft.playerCount} jugadores` : ''}
-                    </p>
+                    <p className="ck-eyebrow">Último paso</p>
+                    <h1 className="ck-title">Confirmá tu reserva</h1>
                   </div>
                 </div>
-
-                <div className="checkout-grid">
-                  <div className="checkout-detail">
-                    <div className="checkout-label"><Calendar size={14} /> Fecha</div>
-                    <p className="checkout-value">{dateLabels?.longDate}</p>
-                  </div>
-                  <div className="checkout-detail">
-                    <div className="checkout-label"><Clock size={14} /> Horario</div>
-                    <p className="checkout-value">{timeRange} · {durationLabel}</p>
-                  </div>
-                </div>
+                {summaryCard(false)}
               </div>
 
               <div className="checkout-participants">
@@ -687,6 +858,21 @@ export default function CheckoutPage() {
             </section>
 
             <aside className="checkout-card checkout-summary">
+              <button
+                type="button"
+                className={`ck-price-toggle${priceDetailOpen ? ' is-open' : ''}`}
+                onClick={() => setPriceDetailOpen((open) => !open)}
+                aria-expanded={priceDetailOpen}
+              >
+                <span>
+                  <span className="ck-price-toggle-title">Precio</span>
+                  <span className="ck-price-toggle-sub">Total del turno {formatMoney(draft.price)}</span>
+                </span>
+                <span className="ck-price-toggle-action">
+                  {priceDetailOpen ? 'Ocultar detalle' : 'Ver detalle'} <ChevronDown size={14} />
+                </span>
+              </button>
+              <div className={`ck-price-detail${priceDetailOpen ? ' is-open' : ''}`}>
               <div className="checkout-price">
                 <div>
                   <p className="checkout-price-label">Total del turno</p>
@@ -727,6 +913,7 @@ export default function CheckoutPage() {
                   </p>
                 </div>
               )}
+              </div>
 
               <div className="checkout-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div className="payment-option active">
@@ -741,9 +928,16 @@ export default function CheckoutPage() {
                   </div>
                 </div>
 
+                {clubConfirmsManually && (
+                  <div className="ck-hint">
+                    <Hourglass size={15} />
+                    <span><b>El club confirma tu turno.</b> Te avisamos apenas lo haga; mientras tanto queda reservado a tu nombre.</span>
+                  </div>
+                )}
+
                 {submitError && <div className="checkout-error">{submitError}</div>}
 
-                <div className="checkout-actions">
+                <div className="checkout-actions ck-desktop-actions">
                   <button type="button" className="checkout-secondary" onClick={goBackToClub}>Volver</button>
                   <button
                     type="button"
@@ -751,23 +945,32 @@ export default function CheckoutPage() {
                     onClick={() => { void handleConfirm(); }}
                     disabled={submitting}
                   >
-                    {submitting ? (
-                      <>
-                        <Loader2 size={15} style={{ animation: 'p-public-spin .8s linear infinite' }} />
-                        Confirmando...
-                      </>
-                    ) : (
-                      <>
-                        <ShieldCheck size={15} />
-                        {participants.length > 0
-                          ? `Confirmar y enviar ${participants.length === 1 ? 'invitación' : 'invitaciones'}`
-                          : 'Confirmar reserva'}
-                      </>
-                    )}
+                    {renderConfirmContent()}
                   </button>
                 </div>
               </div>
             </aside>
+          </div>
+
+          {/* Celular: total y confirmar siempre a la vista */}
+          <div className="ck-bar-spacer" aria-hidden="true" />
+          <div className="ck-sticky">
+            {submitError && <p className="ck-sticky-error" role="alert">{submitError}</p>}
+            <div className="ck-sticky-row">
+              <div className="ck-sticky-amount">
+                <small>{isPerPlayer ? 'TU PARTE' : 'TOTAL'}</small>
+                <b>{formatMoney(stickyAmount)}</b>
+                <em>Se paga en el club</em>
+              </div>
+              <button
+                type="button"
+                className="checkout-primary"
+                onClick={() => { void handleConfirm(); }}
+                disabled={submitting}
+              >
+                {renderConfirmContent()}
+              </button>
+            </div>
           </div>
         </div>
       </main>

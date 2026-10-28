@@ -6,7 +6,7 @@ import { OUTBOX_TYPES, OutboxService } from './OutboxService';
 // Avisos push web (Web Push + VAPID). Se encolan en el outbox (en la misma transacción que el evento)
 // y los envía el worker con reintentos. Si las claves VAPID no están configuradas, no se envía nada.
 
-export type PushKind = 'INVITATION' | 'INVITATION_RESPONSE' | 'BOOKING_REMINDER' | 'BOOKING_CANCELLED';
+export type PushKind = 'INVITATION' | 'INVITATION_RESPONSE' | 'BOOKING_REMINDER' | 'BOOKING_CANCELLED' | 'BOOKING_CONFIRMED';
 
 export type PushAction = { action: string; title: string; url: string };
 
@@ -167,6 +167,14 @@ export const PushMessages = {
             actions
         };
     },
+    confirmedByClub(ctx: BookingPushContext): PushContent {
+        return {
+            title: `${ctx.clubName} confirmó tu reserva ✅`,
+            body: `${ctx.activityName} · ${ctx.dayLabel} · ${ctx.timeLabel} · ${ctx.courtName}. ¡Te esperamos!`,
+            url: bookingUrl(ctx.bookingId),
+            tag: `confirmed-${ctx.bookingId}`
+        };
+    },
     cancelledByClub(ctx: BookingPushContext, reason: { text?: string | null; autoCancel?: boolean }): PushContent {
         const reasonText = String(reason.text || '').trim();
         const motive = reasonText
@@ -210,7 +218,8 @@ export class PushNotificationService {
     }
 
     private async isAllowedByPreferences(userId: number, kind: PushKind) {
-        if (kind === 'BOOKING_CANCELLED') return true;
+        // Cambios de estado de la reserva hechos por el club: siempre se avisan.
+        if (kind === 'BOOKING_CANCELLED' || kind === 'BOOKING_CONFIRMED') return true;
         const preferences = await prisma.userNotificationPreference.findUnique({ where: { userId } });
         if (!preferences) return true;
         if (kind === 'INVITATION') return preferences.invitations;
