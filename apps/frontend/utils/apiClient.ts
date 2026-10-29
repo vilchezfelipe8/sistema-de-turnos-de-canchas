@@ -138,20 +138,59 @@ const triggerLogoutInvalidation = (redirectTo: string | null, code: ApiErrorCode
   }
 };
 
-const refreshSessionSingleFlight = async (): Promise<boolean> => {
+// Renovación de la sesión: un único punto para toda la app (pantallas y AuthContext).
+// - Dentro de la pestaña: un solo pedido a la vez (los demás esperan el mismo resultado).
+// - Entre pestañas/ventanas (y la app del club con el navegador en Android): se turnan con un lock
+//   del navegador; si otra pestaña ya renovó mientras esperábamos, las cookies ya son nuevas y no
+//   se vuelve a renovar (renovar dos veces con la misma credencial cerraba la sesión).
+const REFRESHED_AT_STORAGE_KEY = 'pique:auth-refreshed-at';
+const REFRESH_LOCK_NAME = 'pique-auth-refresh';
+
+const readRefreshedAt = () => {
+  try {
+    return Number(window.localStorage.getItem(REFRESHED_AT_STORAGE_KEY) || 0);
+  } catch {
+    return 0;
+  }
+};
+
+const markRefreshed = () => {
+  try {
+    window.localStorage.setItem(REFRESHED_AT_STORAGE_KEY, String(Date.now()));
+  } catch {
+    // noop
+  }
+};
+
+const withCrossTabRefreshLock = <T,>(task: () => Promise<T>): Promise<T> => {
+  const locks = typeof navigator !== 'undefined'
+    ? (navigator as unknown as { locks?: { request: (name: string, cb: () => Promise<unknown>) => Promise<unknown> } }).locks
+    : undefined;
+  if (!locks?.request) return task();
+  return locks.request(REFRESH_LOCK_NAME, task) as Promise<T>;
+};
+
+export const refreshSessionSingleFlight = async (): Promise<boolean> => {
   if (refreshInFlight) {
     return refreshInFlight;
   }
 
+  const startedAt = Date.now();
   const task = (async () => {
     try {
-      const headers = await buildHeaders({ method: 'POST' });
-      const response = await fetch(`${getApiUrl()}/api/auth/session/refresh`, {
-        method: 'POST',
-        headers,
-        credentials: 'include'
+      return await withCrossTabRefreshLock(async () => {
+        if (typeof window !== 'undefined' && readRefreshedAt() >= startedAt) {
+          return true;
+        }
+        const headers = await buildHeaders({ method: 'POST' });
+        const response = await fetch(`${getApiUrl()}/api/auth/session/refresh`, {
+          method: 'POST',
+          headers,
+          credentials: 'include'
+        });
+        if (response.ok && typeof window !== 'undefined') markRefreshed();
+        return response.ok;
       });
-      return response.ok;
     } catch {
       return false;
     } finally {

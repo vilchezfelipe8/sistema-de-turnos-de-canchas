@@ -9,7 +9,7 @@ import {
 } from '../services/AuthService';
 import { getActiveClubId } from '../services/AuthService';
 import { normalizeSessionUser, persistSessionUser, type MembershipLite } from '../utils/session';
-import { buildCsrfHeaders } from '../utils/csrf';
+import { refreshSessionSingleFlight } from '../utils/apiClient';
 
 export interface AuthUser {
   id: number;
@@ -123,21 +123,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return sessionResponse;
   }, []);
 
-  const tryRefreshSession = useCallback(async () => {
-    const headers = await buildCsrfHeaders();
-    const activeClubId = getActiveClubId();
-    if (activeClubId) {
-      headers.set('x-active-club-id', String(activeClubId));
-    }
-
-    const refreshResponse = await fetch(`${apiBase()}/auth/session/refresh`, {
-      method: 'POST',
-      headers,
-      credentials: 'include'
-    });
-
-    return refreshResponse.ok;
-  }, []);
+  // Misma renovación que usan las pantallas (una sola a la vez, también entre pestañas).
+  const tryRefreshSession = useCallback(() => refreshSessionSingleFlight(), []);
 
   const revalidateSession = useCallback(async () => {
     if (revalidateInFlightRef.current) {

@@ -142,7 +142,7 @@ export class AuthController {
         } as const;
     }
 
-    private setSessionCookies(res: Response, accessToken: string, refreshToken: string) {
+    private setSessionCookies(res: Response, accessToken: string, refreshToken: string | null) {
         const base = this.getCookieBaseOptions();
         const accessMaxAgeMs = authConfig.accessTtlMinutes * 60 * 1000;
         const refreshMaxAgeMs = authConfig.refreshIdleDays * 24 * 60 * 60 * 1000;
@@ -150,10 +150,13 @@ export class AuthController {
             ...base,
             maxAge: accessMaxAgeMs
         });
-        res.cookie(authConfig.refreshCookieName, refreshToken, {
-            ...base,
-            maxAge: refreshMaxAgeMs
-        });
+        // En una renovación simultánea tolerada no hay credencial nueva: se conserva la que ya tiene el navegador.
+        if (refreshToken) {
+            res.cookie(authConfig.refreshCookieName, refreshToken, {
+                ...base,
+                maxAge: refreshMaxAgeMs
+            });
+        }
     }
 
     private clearSessionCookies(res: Response) {
