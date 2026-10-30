@@ -13,11 +13,12 @@ function createService() {
 }
 
 function baseBooking(overrides?: Partial<Record<string, any>>) {
+  const startDateTime = new Date(Date.now() + 24 * 60 * 60 * 1000);
   return {
     id: 101,
     displayCode: 'RES-101',
-    startDateTime: new Date('2026-06-20T21:00:00.000Z'),
-    endDateTime: new Date('2026-06-20T22:00:00.000Z'),
+    startDateTime,
+    endDateTime: new Date(startDateTime.getTime() + 60 * 60 * 1000),
     status: 'CONFIRMED',
     userId: 77,
     clubId: 10,
@@ -27,7 +28,8 @@ function baseBooking(overrides?: Partial<Record<string, any>>) {
       club: {
         id: 10,
         name: 'Club Norte',
-        slug: 'club-norte'
+        slug: 'club-norte',
+        logoUrl: '/clubs/club-norte.png'
       }
     },
     activity: {
@@ -151,6 +153,7 @@ test('el endpoint de Mis reservas usa un DTO público seguro', async () => {
       assert.equal('clientId' in (dto as any), false);
       assert.equal('price' in (dto as any), false);
       assert.equal('account' in (dto as any), false);
+      assert.equal(dto.club.logoUrl, '/clubs/club-norte.png');
     }
   );
 });
