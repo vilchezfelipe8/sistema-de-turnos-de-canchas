@@ -14,16 +14,19 @@ const secret = () => {
     return value;
 };
 
+// Clave propia derivada de JWT_SECRET: un token de invitación nunca puede validar como token de sesión.
+const inviteSecret = () => crypto.createHmac('sha256', secret()).update(`${TOKEN_PURPOSE}:v1`).digest();
+
 export const playerRefFor = (userId: number) =>
     crypto.createHmac('sha256', secret()).update(`player-ref:${userId}`).digest('base64url').slice(0, 16);
 
 export const signPlayerInviteToken = (input: { invitedUserId: number; requesterUserId: number }) =>
-    jwt.sign({ typ: TOKEN_PURPOSE, uid: input.invitedUserId, by: input.requesterUserId }, secret(), { expiresIn: TOKEN_TTL });
+    jwt.sign({ typ: TOKEN_PURPOSE, uid: input.invitedUserId, by: input.requesterUserId }, inviteSecret(), { algorithm: 'HS256', expiresIn: TOKEN_TTL });
 
 // Devuelve el id del usuario invitado, o null si el token no es válido, venció o es de otra persona.
 export const verifyPlayerInviteToken = (token: string, requesterUserId: number): number | null => {
     try {
-        const payload = jwt.verify(String(token || ''), secret()) as { typ?: string; uid?: unknown; by?: unknown };
+        const payload = jwt.verify(String(token || ''), inviteSecret(), { algorithms: ['HS256'] }) as { typ?: string; uid?: unknown; by?: unknown };
         if (payload?.typ !== TOKEN_PURPOSE) return null;
         if (Number(payload.by) !== Number(requesterUserId)) return null;
         const invitedUserId = Number(payload.uid);

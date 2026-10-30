@@ -22,7 +22,17 @@ export class AuthTokenService {
   }
 
   verifyAccessToken(token: string): AccessTokenClaims {
-    return jwt.verify(token, JWT_SECRET) as AccessTokenClaims;
+    const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+    // Solo tokens de sesión: cualquier otro JWT firmado con el mismo secreto (ej. invitaciones) se rechaza.
+    const claims = payload as Partial<AccessTokenClaims> & { typ?: unknown };
+    if (
+      !claims || typeof claims !== 'object' ||
+      claims.typ !== undefined ||
+      !Number.isInteger(claims.userId) || Number(claims.userId) <= 0
+    ) {
+      throw new jwt.JsonWebTokenError('invalid token type');
+    }
+    return claims as AccessTokenClaims;
   }
 
   generateRefreshToken(): string {
