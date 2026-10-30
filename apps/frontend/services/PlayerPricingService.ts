@@ -15,6 +15,8 @@ export type ActivityFormat = {
   playerCount: number;
   // Duración fija del turno en esta modalidad (null = la de la actividad)
   durationMinutes?: number | null;
+  // Si el turno completo no entra en un hueco, permite reservar 1 h al mismo precio por jugador
+  allowShortInGaps?: boolean;
   sortOrder?: number;
   isActive?: boolean;
 };
@@ -97,7 +99,7 @@ export const PlayerPricingService = {
       'No se pudo crear la modalidad.'
     ),
 
-  updateFormat: (slug: string, formatId: string, body: { name?: string; playerCount?: number; durationMinutes?: number | null; isActive?: boolean; sortOrder?: number }) =>
+  updateFormat: (slug: string, formatId: string, body: { name?: string; playerCount?: number; durationMinutes?: number | null; allowShortInGaps?: boolean; isActive?: boolean; sortOrder?: number }) =>
     request<ActivityFormat>(
       `/clubs/${slug}/admin/activity-formats/${formatId}`,
       { method: 'PATCH', body: JSON.stringify(body) },

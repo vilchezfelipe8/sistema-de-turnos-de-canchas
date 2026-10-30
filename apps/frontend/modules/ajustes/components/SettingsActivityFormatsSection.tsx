@@ -100,6 +100,22 @@ export default function SettingsActivityFormatsSection() {
     }
   };
 
+  const handleToggleShortGaps = async (format: ActivityFormat) => {
+    if (!clubSlug || saving) return;
+    try {
+      setSaving(true);
+      setError('');
+      await PlayerPricingService.updateFormat(clubSlug, format.id, { allowShortInGaps: !format.allowShortInGaps });
+      await load();
+      showAdminToast(format.allowShortInGaps ? 'Turnos de 1 h desactivados.' : 'Turnos de 1 h activados.');
+    } catch (err) {
+      reportUiError({ area: 'SettingsActivityFormatsSection', action: 'toggleShortGaps' }, err);
+      setError(extractErrorMessage(err, 'No se pudo actualizar la modalidad.'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!canManage) {
     return <AdminEmptyState title="Sin permiso" description="Solo owner y admin pueden configurar las modalidades." />;
   }
@@ -137,6 +153,21 @@ export default function SettingsActivityFormatsSection() {
                   <button type="button" className={ghostButtonClass} disabled={saving} onClick={() => void handleToggle(format)}>
                     {format.isActive ? 'Desactivar' : 'Activar'}
                   </button>
+                  {format.durationMinutes && format.durationMinutes > 60 ? (
+                    <label className="flex basis-full cursor-pointer items-start gap-2 text-[12px] text-p-text-muted">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={Boolean(format.allowShortInGaps)}
+                        disabled={saving}
+                        onChange={() => void handleToggleShortGaps(format)}
+                      />
+                      <span>
+                        <span className="font-semibold text-p-text">Permitir también turnos de 1 h.</span>{' '}
+                        El jugador puede elegir jugar 1 hora en vez de {format.durationMinutes} min, al mismo precio por jugador. Si el turno completo no entra en un horario (hay otra reserva después), se le ofrece la hora libre.
+                      </span>
+                    </label>
+                  ) : null}
                 </div>
               ))}
             </div>

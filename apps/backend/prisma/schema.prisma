@@ -791,6 +791,9 @@ model ActivityFormat {
   playerCount    Int
   // Duración fija del turno en esta modalidad (ej. Single 60, Dobles 120). null = la de la actividad.
   durationMinutes Int?
+  // Si el turno completo no entra (ej. hueco de 1 h antes de otro turno), permite reservarlo de 60 min
+  // con el mismo precio por jugador. Lo activa cada club por modalidad.
+  allowShortInGaps Boolean @default(false)
   sortOrder      Int          @default(0)
   isActive       Boolean      @default(true)
   createdAt      DateTime     @default(now()) @db.Timestamptz(3)

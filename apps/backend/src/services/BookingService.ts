@@ -17,7 +17,7 @@ import { ProductRepository } from '../repositories/ProductRepository';
 import { buildSlotsFromSchedule, normalizeSchedule } from '../utils/ActivityScheduleHelper';
 import { getUserClubContext } from '../utils/getUserClubContext';
 import { PricingService } from './PricingService';
-import { PlayerSlotService, type PerPlayerQuote } from './PlayerSlotService';
+import { PlayerSlotService, resolveShortGapMinutes, type PerPlayerQuote } from './PlayerSlotService';
 import { BookingReleaseService } from './BookingReleaseService';
 import { normalizeDni } from '../utils/dni';
 import { verifyPlayerInviteToken } from '../utils/playerInviteToken';
@@ -2507,10 +2507,14 @@ export class BookingService {
             activityId: input.activityId,
             activityFormatId: input.activityFormatId
         });
-        if (modalityDuration && input.durationMinutes && Number(input.durationMinutes) !== modalityDuration.durationMinutes) {
+        // Turno corto en huecos (si la modalidad lo permite): se acepta la duración corta.
+        const isShortGapRequestA = Boolean(
+            modalityDuration?.shortGapMinutes && Number(input.durationMinutes) === modalityDuration.shortGapMinutes
+        );
+        if (modalityDuration && input.durationMinutes && Number(input.durationMinutes) !== modalityDuration.durationMinutes && !isShortGapRequestA) {
             throw this.invalidInput(`La modalidad ${modalityDuration.formatName} dura ${modalityDuration.durationMinutes} minutos.`);
         }
-        const effectiveDuration = modalityDuration?.durationMinutes ?? input.durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
+        const effectiveDuration = (isShortGapRequestA ? modalityDuration!.shortGapMinutes! : modalityDuration?.durationMinutes) ?? input.durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
         this.assertValidDuration(effectiveDuration);
         if (!modalityDuration && !allowedDurations.includes(effectiveDuration)) {
             if (!(canProfessorDurationOverride && effectiveDuration === professorOverrideMinutes)) {
@@ -3368,10 +3372,14 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             activityId,
             activityFormatId: options?.activityFormatId
         });
-        if (modalityDuration && durationMinutes && Number(durationMinutes) !== modalityDuration.durationMinutes) {
+        // Turno corto en huecos (si la modalidad lo permite): se acepta la duración corta.
+        const isShortGapRequest = Boolean(
+            modalityDuration?.shortGapMinutes && Number(durationMinutes) === modalityDuration.shortGapMinutes
+        );
+        if (modalityDuration && durationMinutes && Number(durationMinutes) !== modalityDuration.durationMinutes && !isShortGapRequest) {
             throw this.invalidInput(`La modalidad ${modalityDuration.formatName} dura ${modalityDuration.durationMinutes} minutos.`);
         }
-        const effectiveDuration = modalityDuration?.durationMinutes ?? durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
+        const effectiveDuration = (isShortGapRequest ? modalityDuration!.shortGapMinutes! : modalityDuration?.durationMinutes) ?? durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
         this.assertValidDuration(effectiveDuration);
         // Regla operativa explícita: permitir duración especial profesor aunque no esté en scheduleDurations
         if (!modalityDuration && !allowedDurations.includes(effectiveDuration)) {
@@ -7596,6 +7604,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             formatName: string;
             playerCount: number;
             durationMinutes: number;
+            shortGapMinutes?: number | null;
         } | null;
         professorOverrideAvailable: boolean;
         professorDurationOverrideMinutes: number | null;
@@ -7709,7 +7718,10 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             professorOverrideMinutes > 0;
         const allowedDurations = activitySchedule.durations;
         // Precio por jugador: la modalidad puede fijar la duración; la grilla usa esa duración.
-        const modalityDurationMinutes = perPlayerFormat?.durationMinutes ?? null;
+        // Si la modalidad permite turnos de 1 h y se pide 1 h, la grilla se arma con 60 min.
+        const modalityShortMinutes = perPlayerFormat ? resolveShortGapMinutes(perPlayerFormat) : null;
+        const wantsShortModality = Boolean(modalityShortMinutes && Number(durationMinutes) === modalityShortMinutes);
+        const modalityDurationMinutes = wantsShortModality ? modalityShortMinutes : (perPlayerFormat?.durationMinutes ?? null);
         const effectiveDuration = modalityDurationMinutes ?? durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
         const referenceDuration = this.resolvePriceReferenceDuration(activity, allowedDurations, effectiveDuration);
         if (!modalityDurationMinutes && !allowedDurations.includes(effectiveDuration)) {
@@ -7752,6 +7764,43 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 .map((start: string) => ({ slotTime: start, dayOffset: 0 }));
         }
 
+        // Turno corto en huecos: también se ofrecen los inicios donde solo entra 1 h (si la modalidad lo permite).
+        // Pidiendo 1 h directamente no hace falta: la grilla ya es de 60 min.
+        const shortGapMinutes = wantsShortModality ? null : modalityShortMinutes;
+        const fullDurationSlotTimes = new Set(possibleSlots.map((slot) => slot.slotTime));
+        // En horario fijo los inicios son los de los turnos de la modalidad: pidiendo 1 h se usan esos mismos inicios.
+        const extraSlotsDuration = shortGapMinutes
+            ?? (wantsShortModality && activitySchedule.mode === 'FIXED' ? perPlayerFormat?.durationMinutes ?? null : null);
+        if (extraSlotsDuration) {
+            const shortSlots = buildSlotsFromSchedule(
+                {
+                    scheduleMode: activitySchedule.mode,
+                    scheduleOpenTime: activitySchedule.openTime,
+                    scheduleCloseTime: activitySchedule.closeTime,
+                    scheduleIntervalMinutes: activitySchedule.intervalMinutes,
+                    scheduleWindows: activitySchedule.rangeWindows,
+                    scheduleDurations: activitySchedule.durations,
+                    scheduleFixedSlots: activitySchedule.fixedSlots
+                },
+                activity.defaultDurationMinutes,
+                extraSlotsDuration
+            ) as Array<{ slotTime: string; dayOffset: number }>;
+            const seen = new Set(possibleSlots.map((slot) => `${slot.dayOffset}|${slot.slotTime}`));
+            for (const slot of shortSlots) {
+                const key = `${slot.dayOffset}|${slot.slotTime}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    possibleSlots.push(slot);
+                    if (wantsShortModality) fullDurationSlotTimes.add(slot.slotTime);
+                }
+            }
+            possibleSlots.sort((a, b) =>
+                a.dayOffset !== b.dayOffset
+                    ? a.dayOffset - b.dayOffset
+                    : TimeHelper.timeToMinutes(a.slotTime) - TimeHelper.timeToMinutes(b.slotTime)
+            );
+        }
+
         const now = new Date();
 
         const anchors = [
@@ -7787,26 +7836,32 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
         for (const { slotTime, slotDateTime } of slotsMap.values()) {
             const slotEndDateTime = new Date(slotDateTime.getTime() + effectiveDuration * 60000);
+            const fullDurationFitsSchedule = fullDurationSlotTimes.has(slotTime);
 
             // 1. Mapeamos TODAS las canchas calculando su disponibilidad real por milisegundos
             const courtsWithStatus = await Promise.all(activityCourts.map(async (court) => {
-                const isBusy = bookings.some(b => {
+                const isBusyFor = (endDateTime: Date) => bookings.some(b => {
                     if (b.court.id !== court.id || b.status === "CANCELLED") return false;
-                    
+
                     const bStart = b.startDateTime.getTime();
                     const bEnd = b.endDateTime.getTime();
                     const sStart = slotDateTime.getTime();
-                    const sEnd = slotEndDateTime.getTime();
+                    const sEnd = endDateTime.getTime();
 
                     // Si se solapan, la cancha está ocupada
                     return sStart < bEnd && sEnd > bStart;
                 }) || classSessions.some((classSession) => {
                     if (classSession.courtId !== court.id) return false;
-                    return slotDateTime < classSession.endsAt && slotEndDateTime > classSession.startsAt;
+                    return slotDateTime < classSession.endsAt && endDateTime > classSession.startsAt;
                 });
+                const isBusy = !fullDurationFitsSchedule || isBusyFor(slotEndDateTime);
 
                 if (perPlayerFormat) {
                     const quote = await quoteForSlot(slotDateTime);
+                    // Hueco: el turno completo no entra pero sí el corto (mismo precio por jugador).
+                    const fitsShortGap = Boolean(
+                        isBusy && shortGapMinutes && !isBusyFor(new Date(slotDateTime.getTime() + shortGapMinutes * 60000))
+                    );
                     return {
                         id: court.id,
                         name: court.name,
@@ -7817,7 +7872,9 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         generalPricePerPlayer: quote ? quote.generalPricePerPlayer + quote.lightsPerSlot : null,
                         playerCount: perPlayerFormat.playerCount,
                         memberCategoryName: quote?.ownerMemberCategoryName ?? null,
-                        isAvailable: !isBusy
+                        // Minutos que se pueden reservar en esta cancha a esta hora (turno completo o hueco corto).
+                        fitMinutes: isBusy ? (fitsShortGap ? shortGapMinutes : null) : effectiveDuration,
+                        isAvailable: !isBusy || fitsShortGap
                     };
                 }
 
@@ -7877,7 +7934,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     activityFormatId: perPlayerFormat.id,
                     formatName: perPlayerFormat.name,
                     playerCount: perPlayerFormat.playerCount,
-                    durationMinutes: effectiveDuration
+                    durationMinutes: effectiveDuration,
+                    shortGapMinutes
                 }
                 : null
         };

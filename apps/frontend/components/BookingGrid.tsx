@@ -55,6 +55,8 @@ type CourtSummary = {
   generalPricePerPlayer?: number | null;
   playerCount?: number | null;
   memberCategoryName?: string | null;
+  // Minutos que entran en esta cancha (menos que el turno completo si es un turno corto en un hueco)
+  fitMinutes?: number | null;
   activityType?: ActivityTypeSummary | null;
 };
 
@@ -65,6 +67,15 @@ const formatCourtPriceLabel = (court: CourtSummary, durationMinutes: number, fal
     return `$${Number(court.pricePerPlayer).toLocaleString()} por jugador${memberSuffix} · ${durationMinutes} min`;
   }
   return court.price ? `$${court.price.toLocaleString()} · ${durationMinutes} min` : fallback;
+};
+
+// 60 -> "1 h", 120 -> "2 h", 90 -> "90 min"
+const formatDurationShort = (minutes: number) => (minutes % 60 === 0 ? `${minutes / 60} h` : `${minutes} min`);
+
+const addMinutesToSlotTime = (slotTime: string, minutes: number) => {
+  const [h, m] = slotTime.split(':').map(Number);
+  const total = (h * 60 + m + minutes) % (24 * 60);
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 };
 
 const DEFAULT_DURATION_MINUTES = 90;
@@ -353,6 +364,8 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
     formats: []
   });
   const [selectedFormatId, setSelectedFormatId] = useState('');
+  // Modalidad con "también 1 h": el jugador eligió jugar la versión corta.
+  const [formatUseShort, setFormatUseShort] = useState(false);
   useEffect(() => {
     if (!clubSlug) return;
     PlayerPricingService.getPublicFormats(clubSlug)
@@ -405,13 +418,16 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
   const selectedFormat = activityFormats.find(format => format.id === selectedFormatId) || null;
   // Una modalidad con duración fija (ej. Single 60, Dobles 120) define la duración del turno.
   const formatFixedDuration = isPerPlayerPricing ? selectedFormat?.durationMinutes ?? null : null;
+  // Si la modalidad lo permite, también se puede jugar 1 h (mismo precio por jugador).
+  const formatShortMinutes = formatFixedDuration && formatFixedDuration > 60 && selectedFormat?.allowShortInGaps ? 60 : null;
+  const formatDuration = formatFixedDuration && formatUseShort && formatShortMinutes ? formatShortMinutes : formatFixedDuration;
   useEffect(() => {
-    if (formatFixedDuration && selectedDuration !== formatFixedDuration) {
-      setSelectedDuration(formatFixedDuration);
+    if (formatDuration && selectedDuration !== formatDuration) {
+      setSelectedDuration(formatDuration);
       setSelectedSlot(null);
       setSelectedCourt(null);
     }
-  }, [formatFixedDuration, selectedDuration]);
+  }, [formatDuration, selectedDuration]);
 
   const { slotsWithCourts, loading, error, refresh } = useAvailability(
     selectedDate,
@@ -518,16 +534,28 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
     );
   }, [disabledSlots]);
 
+  // Turno corto en huecos: minutos que entran en la cancha (si la modalidad lo permite, menos que el turno completo).
+  const getCourtFitMinutes = useCallback(
+    (court: CourtSummary) => (Number(court.fitMinutes) > 0 ? Math.min(Number(court.fitMinutes), selectedDuration) : selectedDuration),
+    [selectedDuration]
+  );
+
   const availableSlots = useMemo(() => {
-    if (!selectedDate) return [] as Array<{ slotTime: string; courts: CourtSummary[] }>;
+    if (!selectedDate) return [] as Array<{ slotTime: string; courts: CourtSummary[]; shortOnly: boolean; shortMinutes: number }>;
     const dateStr = formatLocalDate(selectedDate);
     return filteredSlotsWithCourts
-      .map(slot => ({
-        slotTime: slot.slotTime,
-        courts: slot.availableCourts.filter(c => !isSlotDisabledForDate(dateStr, slot.slotTime, Number(c.id)))
-      }))
+      .map(slot => {
+        const courts = slot.availableCourts.filter(c => !isSlotDisabledForDate(dateStr, slot.slotTime, Number(c.id)));
+        const fits = courts.map(getCourtFitMinutes);
+        return {
+          slotTime: slot.slotTime,
+          courts,
+          shortOnly: fits.length > 0 && fits.every(fit => fit < selectedDuration),
+          shortMinutes: fits.length > 0 ? Math.max(...fits) : selectedDuration,
+        };
+      })
       .filter(slot => slot.courts.length > 0);
-  }, [filteredSlotsWithCourts, isSlotDisabledForDate, selectedDate]);
+  }, [filteredSlotsWithCourts, getCourtFitMinutes, isSlotDisabledForDate, selectedDate, selectedDuration]);
 
   const visibleListSlots = useMemo(() => {
     if (activeScheduleViewMode !== 'list') return availableSlots;
@@ -570,12 +598,15 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
     };
   }, [selectedCourt?.price, selectedCourt?.basePrice, selectedCourt?.lightsExtraApplied]);
 
+  // Duración de la reserva: la de la cancha elegida (1 h si es un turno corto en un hueco).
+  const bookingDuration = selectedCourt ? getCourtFitMinutes(selectedCourt) : selectedDuration;
+
   const bookingReview = useMemo(() => {
     if (!selectedDate || !selectedSlot || !selectedCourt) return null;
     const [hours, minutes] = selectedSlot.split(':').map(Number);
     if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
     const start = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), hours, minutes, 0, 0);
-    const end = new Date(start.getTime() + selectedDuration * 60000);
+    const end = new Date(start.getTime() + bookingDuration * 60000);
     const activityName = String(selectedCourt.activityType?.name || selectedActivityFilter || 'Actividad');
     const courtName = String(selectedCourt.name || `Cancha ${selectedCourt.id}`);
     const price = Number(priceInfo.final || 0);
@@ -589,7 +620,7 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
       dateLabel: start.toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: 'long' }),
       shortDateLabel: start.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }),
       timeLabel: `${start.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })} - ${end.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })}`,
-      durationLabel: `${selectedDuration} min`,
+      durationLabel: `${bookingDuration} min`,
       price,
       listPrice,
       discountAmount,
@@ -598,6 +629,7 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
       lightsFromHour: clubConfig?.lightsFromHour || null,
     };
   }, [
+    bookingDuration,
     clubConfig?.lightsFromHour,
     priceInfo.extra,
     priceInfo.final,
@@ -606,7 +638,6 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
     selectedActivityFilter,
     selectedCourt,
     selectedDate,
-    selectedDuration,
     selectedSlot,
   ]);
 
@@ -630,7 +661,7 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
       activityName: bookingReview.activityName,
       date: formatLocalDate(selectedDate),
       slotTime: selectedSlot,
-      durationMinutes: selectedDuration,
+      durationMinutes: bookingDuration,
       price: bookingReview.price,
       listPrice: bookingReview.listPrice,
       discountAmount: bookingReview.discountAmount,
@@ -880,6 +911,7 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
       // fixed-slot clubs may return unpadded times from the API.
       const normalizedTime = normalizeSlotLabel(slot.slotTime);
       const availableIds = slot.availableCourts
+        .filter(c => getCourtFitMinutes(c) >= selectedDuration)
         .map(c => Number(c.id))
         .filter(id =>
           !disabledSlots[`${dateStr}-${slot.slotTime}-${id}`] &&
@@ -888,7 +920,7 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
       map.set(normalizedTime, new Set(availableIds));
     });
     return map;
-  }, [filteredSlotsWithCourts, selectedDate, disabledSlots]);
+  }, [filteredSlotsWithCourts, selectedDate, disabledSlots, getCourtFitMinutes, selectedDuration]);
 
   const atcCourtSlots = useMemo(() => {
     const map = new Map<number, Array<{ slotTime: string; minute: number; available: boolean }>>();
@@ -1055,12 +1087,34 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
         </div>
         )}
 
+        {/* Modalidad (precio por jugador): va antes que la duración porque la define */}
+        {isPerPlayerPricing && activityFormats.length > 0 && (
+          <div style={{ position: 'relative', zIndex: 10, minWidth: 0 }}>
+            <div style={labelStyle}><Activity size={12} style={{ color: 'var(--accent-fg)' }} /> Modalidad</div>
+            <CustomSelect
+              value={selectedFormatId}
+              onChange={(val: string) => { setSelectedFormatId(String(val)); setFormatUseShort(false); setSelectedSlot(null); setSelectedCourt(null); }}
+              placeholder="Modalidad"
+              centerLabel={isMobileListOnly}
+              options={activityFormats.map(format => ({ value: format.id, label: `${format.name} · ${format.playerCount} jugadores` }))}
+            />
+          </div>
+        )}
+
         {/* Duración */}
-        <div style={{ position: 'relative', zIndex: 10, minWidth: 0 }}>
+        <div style={{ position: 'relative', zIndex: 9, minWidth: 0 }}>
           <div style={labelStyle}><Clock size={12} style={{ color: 'var(--accent-fg)' }} /> Duración</div>
-          {formatFixedDuration ? (
+          {formatFixedDuration && formatShortMinutes ? (
+            <CustomSelect
+              value={formatDuration}
+              onChange={(val: number) => { setFormatUseShort(Number(val) === formatShortMinutes); setSelectedSlot(null); setSelectedCourt(null); }}
+              placeholder="Duración"
+              centerLabel={isMobileListOnly}
+              options={[formatFixedDuration, formatShortMinutes].map(d => ({ value: d, label: `${d} min` }))}
+            />
+          ) : formatFixedDuration ? (
             <div style={{ padding: '11px 14px', borderRadius: 12, border: `1px solid ${T.border}`, background: T.bgInput, color: T.textPrimary, fontSize: 14, fontWeight: 700, textAlign: isMobileListOnly ? 'center' : 'left' }}>
-              {formatFixedDuration} min · según la modalidad
+              {formatFixedDuration} min
             </div>
           ) : (
           <CustomSelect
@@ -1072,20 +1126,6 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
           />
           )}
         </div>
-
-        {/* Modalidad (precio por jugador) */}
-        {isPerPlayerPricing && activityFormats.length > 0 && (
-          <div style={{ position: 'relative', zIndex: 9, minWidth: 0 }}>
-            <div style={labelStyle}><Activity size={12} style={{ color: 'var(--accent-fg)' }} /> Modalidad</div>
-            <CustomSelect
-              value={selectedFormatId}
-              onChange={(val: string) => { setSelectedFormatId(String(val)); setSelectedSlot(null); setSelectedCourt(null); }}
-              placeholder="Modalidad"
-              centerLabel={isMobileListOnly}
-              options={activityFormats.map(format => ({ value: format.id, label: `${format.name} · ${format.playerCount} jugadores` }))}
-            />
-          </div>
-        )}
 
       </div>
 
@@ -1420,6 +1460,10 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
               .v-slot--selected:hover,
               .v-slot--selected:focus-visible{ background:var(--slot-selected-bg); border-color:var(--slot-selected-border); color:var(--slot-selected-text); box-shadow:none; }
               .v-slot--disabled{ background:var(--slot-disabled-bg); border-color:var(--slot-disabled-border); color:var(--slot-disabled-text); pointer-events:none; opacity:0.85; }
+              .v-slot--short{ padding:5px 8px; border-style:dashed; border-color:var(--warn-fg, #B45309); background:var(--warn-bg, rgba(245,158,11,.1)); color:var(--slot-text); }
+              .v-slot--short:hover{ background:var(--warn-bg, rgba(245,158,11,.1)); border-color:var(--warn-fg, #B45309); }
+              .v-slot-tag{ display:block; margin-top:1px; font-size:9px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:var(--warn-fg, #B45309); }
+              .v-slot--selected .v-slot-tag{ color:var(--slot-selected-text); }
               @media (max-width:720px){ .v-slot{ transform:none; } }
               `}</style>
 
@@ -1431,12 +1475,14 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
                     <button
                       key={slot.slotTime}
                       type="button"
-                      className={`v-slot${isSelected ? ' v-slot--selected' : ''}${isDisabled ? ' v-slot--disabled' : ''}`}
+                      className={`v-slot${slot.shortOnly ? ' v-slot--short' : ''}${isSelected ? ' v-slot--selected' : ''}${isDisabled ? ' v-slot--disabled' : ''}`}
                       onClick={() => { if (!isDisabled) { setSelectedSlot(slot.slotTime); setSelectedCourt(null); } }}
                       aria-pressed={isSelected}
                       aria-disabled={isDisabled}
+                      aria-label={slot.shortOnly ? `${slot.slotTime}, solo ${formatDurationShort(slot.shortMinutes)}` : undefined}
                     >
                       {slot.slotTime}
+                      {slot.shortOnly && <span className="v-slot-tag">Solo {formatDurationShort(slot.shortMinutes)}</span>}
                     </button>
                   );
                 })}
@@ -1492,9 +1538,58 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
             .v-court-meta{font-size:11px;color:${T.textMuted};font-weight:600;}
             .v-court-option[aria-pressed="true"] .v-court-name,
             .v-court-option[aria-pressed="true"] .v-court-meta{color:var(--accent-fg);}
+            .v-court-fit{flex-shrink:0;padding:3px 8px;border-radius:999px;border:1px solid var(--border);background:var(--surface-2);color:${T.textMuted};font-size:10px;font-weight:800;white-space:nowrap;}
+            .v-court-fit.is-short{border-color:var(--warn-fg, #B45309);background:var(--warn-bg, rgba(245,158,11,.1));color:var(--warn-fg, #B45309);}
+            .v-gap-note{margin-bottom:10px;padding:12px 14px;border-radius:14px;border:1px solid var(--warn-fg, #B45309);background:var(--warn-bg, rgba(245,158,11,.1));font-family:'Geist',system-ui,sans-serif;}
+            .v-gap-title{margin:0;font-size:13px;font-weight:800;color:${T.textPrimary};line-height:1.35;}
+            .v-gap-copy{margin:3px 0 0;font-size:12px;font-weight:500;color:${T.textMuted};line-height:1.45;}
+            .v-gap-alts{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px;font-size:11px;font-weight:700;color:${T.textMuted};}
+            .v-gap-alt{min-height:32px;padding:5px 10px;border-radius:10px;border:1px solid var(--border);background:var(--surface-1);color:${T.textPrimary};font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;}
+            .v-gap-alt:hover{border-color:var(--accent-border);background:var(--accent-bg-faint);}
+            .v-gap-alt:focus-visible{outline:2px solid var(--accent-fg);outline-offset:2px;}
           `}</style>
+          {(() => {
+            const current = availableSlots.find(s => s.slotTime === selectedSlot);
+            if (!current?.shortOnly) return null;
+            const toMinutes = (time: string) => { const [h, m] = time.split(':').map(Number); return h * 60 + m; };
+            const target = toMinutes(current.slotTime);
+            // Horarios más cercanos donde sí entra el turno completo.
+            const alternatives = availableSlots
+              .filter(s => !s.shortOnly)
+              .sort((a, b) => Math.abs(toMinutes(a.slotTime) - target) - Math.abs(toMinutes(b.slotTime) - target))
+              .slice(0, 3)
+              .sort((a, b) => toMinutes(a.slotTime) - toMinutes(b.slotTime));
+            return (
+              <div className="v-gap-note" role="note">
+                <p className="v-gap-title">
+                  A las {current.slotTime} hay lugar para {formatDurationShort(current.shortMinutes)} (hasta {addMinutesToSlotTime(current.slotTime, current.shortMinutes)})
+                </p>
+                <p className="v-gap-copy">
+                  Después hay otra reserva. Podés jugar {formatDurationShort(current.shortMinutes)} pagando el mismo precio por jugador.
+                </p>
+                {alternatives.length > 0 && (
+                  <div className="v-gap-alts">
+                    <span>{formatDurationShort(selectedDuration)} completas:</span>
+                    {alternatives.map(alt => (
+                      <button
+                        key={alt.slotTime}
+                        type="button"
+                        className="v-gap-alt"
+                        onClick={() => { setSelectedSlot(alt.slotTime); setSelectedCourt(null); }}
+                      >
+                        {alt.slotTime}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {(availableSlots.find(s => s.slotTime === selectedSlot)?.courts || []).map(court => {
+            {(() => {
+              const slotCourts = availableSlots.find(s => s.slotTime === selectedSlot)?.courts || [];
+              const showFitBadges = slotCourts.some(c => getCourtFitMinutes(c) < selectedDuration);
+              return slotCourts.map(court => {
               if (!selectedDate) return null;
               const dateStr = formatLocalDate(selectedDate);
               const slotKey = `${dateStr}-${selectedSlot}-${court.id}`;
@@ -1508,6 +1603,9 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
                 setSelectedCourt(court);
               };
 
+              const courtFit = getCourtFitMinutes(court);
+              const isShortCourt = courtFit < selectedDuration;
+
               return (
                 <button
                   key={court.id}
@@ -1519,13 +1617,22 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
                   <div>
                     <div className="v-court-name">{court.name}</div>
                     <div className="v-court-meta">
-                      {formatCourtPriceLabel(court, selectedDuration, 'Precio a confirmar')}
+                      {formatCourtPriceLabel(court, courtFit, 'Precio a confirmar')}
+                      {isShortCourt && selectedSlot ? ` · libre hasta ${addMinutesToSlotTime(selectedSlot, courtFit)}` : ''}
                     </div>
                   </div>
-                  <div className="v-court-dot" />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    {showFitBadges && (
+                      <span className={`v-court-fit${isShortCourt ? ' is-short' : ''}`}>
+                        {isShortCourt ? `Solo ${formatDurationShort(courtFit)}` : formatDurationShort(selectedDuration)}
+                      </span>
+                    )}
+                    <div className="v-court-dot" />
+                  </div>
                 </button>
               );
-            })}
+              });
+            })()}
           </div>
         </div>
       )}

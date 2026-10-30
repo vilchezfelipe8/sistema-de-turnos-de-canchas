@@ -92,6 +92,7 @@ export class PlayerSlotController {
         name: format.name,
         playerCount: format.playerCount,
         durationMinutes: format.durationMinutes,
+        allowShortInGaps: format.allowShortInGaps,
         sortOrder: format.sortOrder,
         isActive: format.isActive
       })));
@@ -107,7 +108,8 @@ export class PlayerSlotController {
         name: z.string().trim().min(2).max(60),
         playerCount: z.preprocess((v) => Number(v), z.number().int().min(1).max(30)),
         durationMinutes: z.preprocess((v) => (v === undefined || v === null || v === '' ? null : Number(v)), z.number().int().nullable()).optional(),
-        sortOrder: z.number().int().optional()
+        sortOrder: z.number().int().optional(),
+        allowShortInGaps: z.boolean().optional()
       }).safeParse(req.body);
       if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
       const created = await this.playerSlotService.createFormat({ clubId: this.resolveClubId(req), ...parsed.data });
@@ -124,7 +126,8 @@ export class PlayerSlotController {
         playerCount: z.preprocess((v) => (v === undefined ? undefined : Number(v)), z.number().int().min(1).max(30).optional()),
         durationMinutes: z.preprocess((v) => (v === undefined ? undefined : v === null || v === '' ? null : Number(v)), z.number().int().nullable().optional()),
         sortOrder: z.number().int().optional(),
-        isActive: z.boolean().optional()
+        isActive: z.boolean().optional(),
+        allowShortInGaps: z.boolean().optional()
       }).safeParse(req.body);
       if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
       const updated = await this.playerSlotService.updateFormat({
@@ -179,7 +182,7 @@ export class PlayerSlotController {
       const formats = await prisma.activityFormat.findMany({
         where: { clubId: club.id, isActive: true },
         orderBy: [{ activityTypeId: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
-        select: { id: true, activityTypeId: true, name: true, playerCount: true, durationMinutes: true }
+        select: { id: true, activityTypeId: true, name: true, playerCount: true, durationMinutes: true, allowShortInGaps: true }
       });
       return res.json({
         pricingMode: club.settings?.pricingMode ?? 'PER_COURT',

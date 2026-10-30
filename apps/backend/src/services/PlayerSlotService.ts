@@ -56,6 +56,14 @@ export type PerPlayerQuote = {
 };
 
 // Reparte el recargo de luces en partes iguales; los centavos sobrantes van al lugar 1 (D10b).
+// Turno corto en huecos: si la modalidad lo permite y dura más de 1 h, se puede reservar de 60 min
+// (mismo precio por jugador) cuando el turno completo no entra.
+export const SHORT_GAP_MINUTES = 60;
+export function resolveShortGapMinutes(format: { durationMinutes: number | null; allowShortInGaps?: boolean | null } | null | undefined) {
+  if (!format?.allowShortInGaps || !format.durationMinutes) return null;
+  return format.durationMinutes > SHORT_GAP_MINUTES ? SHORT_GAP_MINUTES : null;
+}
+
 export function splitLightsForSlot(lightsExtra: number, playerCount: number, slotIndex: number) {
   if (!(lightsExtra > 0) || !(playerCount > 0)) return 0;
   const base = Math.floor((lightsExtra / playerCount) * 100) / 100;
@@ -119,7 +127,7 @@ export class PlayerSlotService {
     }
   }
 
-  async createFormat(input: { clubId: number; activityTypeId: number; name: string; playerCount: number; durationMinutes?: number | null; sortOrder?: number }) {
+  async createFormat(input: { clubId: number; activityTypeId: number; name: string; playerCount: number; durationMinutes?: number | null; sortOrder?: number; allowShortInGaps?: boolean }) {
     const activity = await prisma.activityType.findFirst({ where: { id: input.activityTypeId, clubId: input.clubId } });
     if (!activity) throw notFound('Actividad no encontrada.', ErrorCodes.ACTIVITY_NOT_FOUND);
     if (!Number.isInteger(input.playerCount) || input.playerCount < 1 || input.playerCount > 30) {
@@ -134,7 +142,8 @@ export class PlayerSlotService {
           name: input.name.trim(),
           playerCount: input.playerCount,
           durationMinutes: input.durationMinutes ?? null,
-          sortOrder: input.sortOrder ?? 0
+          sortOrder: input.sortOrder ?? 0,
+          allowShortInGaps: Boolean(input.allowShortInGaps)
         }
       });
     } catch (error) {
@@ -145,7 +154,7 @@ export class PlayerSlotService {
     }
   }
 
-  async updateFormat(input: { clubId: number; formatId: string; name?: string; playerCount?: number; durationMinutes?: number | null; sortOrder?: number; isActive?: boolean }) {
+  async updateFormat(input: { clubId: number; formatId: string; name?: string; playerCount?: number; durationMinutes?: number | null; sortOrder?: number; isActive?: boolean; allowShortInGaps?: boolean }) {
     const format = await prisma.activityFormat.findFirst({ where: { id: input.formatId, clubId: input.clubId } });
     if (!format) throw notFound('Modalidad no encontrada.', ErrorCodes.NOT_FOUND);
     if (input.playerCount !== undefined && input.playerCount !== format.playerCount) {
@@ -171,7 +180,8 @@ export class PlayerSlotService {
         ...(input.playerCount !== undefined ? { playerCount: input.playerCount } : {}),
         ...(input.durationMinutes !== undefined ? { durationMinutes: input.durationMinutes } : {}),
         ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
-        ...(input.isActive !== undefined ? { isActive: input.isActive } : {})
+        ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+        ...(input.allowShortInGaps !== undefined ? { allowShortInGaps: input.allowShortInGaps } : {})
       }
     });
   }
@@ -256,14 +266,19 @@ export class PlayerSlotService {
   async resolveFormatDurationTx(
     db: DbClient,
     input: { clubId: number; activityId: number; activityFormatId: string | null | undefined }
-  ): Promise<{ durationMinutes: number; formatName: string } | null> {
+  ): Promise<{ durationMinutes: number; formatName: string; shortGapMinutes: number | null } | null> {
     const formatId = String(input.activityFormatId || '').trim();
     if (!formatId || !(await this.isPerPlayerClub(input.clubId, db))) return null;
     const format = await db.activityFormat.findFirst({
       where: { id: formatId, clubId: input.clubId, activityTypeId: input.activityId },
-      select: { name: true, durationMinutes: true }
+      select: { name: true, durationMinutes: true, allowShortInGaps: true }
     });
-    return format?.durationMinutes ? { durationMinutes: format.durationMinutes, formatName: format.name } : null;
+    if (!format?.durationMinutes) return null;
+    return {
+      durationMinutes: format.durationMinutes,
+      formatName: format.name,
+      shortGapMinutes: resolveShortGapMinutes(format)
+    };
   }
 
   async resolveFormatTx(db: DbClient, input: { clubId: number; activityId: number; activityFormatId: string | null | undefined }) {

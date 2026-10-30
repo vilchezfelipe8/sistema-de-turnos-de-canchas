@@ -13,6 +13,8 @@ interface Court {
   generalPricePerPlayer?: number | null;
   playerCount?: number | null;
   memberCategoryName?: string | null;
+  // Minutos que entran en esa cancha (menos que el turno completo si es un turno corto en un hueco)
+  fitMinutes?: number | null;
 }
 
 interface SlotWithCourts {
