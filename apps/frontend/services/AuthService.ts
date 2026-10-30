@@ -220,6 +220,11 @@ export const confirmPasswordReset = async (identifier: string, code: string, pas
   return completeSessionLogin(data);
 };
 
+export const changePassword = async (currentPassword: string, newPassword: string) => {
+  const data = await postAuthJson('/auth/password/change', { currentPassword, newPassword }, 'No se pudo cambiar la contraseña.');
+  return completeSessionLogin(data);
+};
+
 export const requestMagicLink = async (email: string) => {
   const headers = await buildCsrfHeaders({
     'Content-Type': 'application/json',

@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import DarkPageLayout from '../components/DarkPageLayout';
 import UserLoadingState from '../components/UserLoadingState';
+import ChangePasswordForm from '../components/ChangePasswordForm';
 import {
   beginAppleOAuthConnect,
   beginFacebookOAuthConnect,
@@ -90,6 +91,7 @@ export default function PerfilPage() {
   const [connectingProvider, setConnectingProvider] = useState<'google' | 'apple' | 'facebook' | null>(null);
   const [logoutAllLoading, setLogoutAllLoading] = useState(false);
   const [claimingClubId, setClaimingClubId] = useState<number | null>(null);
+  const [securityRefreshKey, setSecurityRefreshKey] = useState(0);
   const [form, setForm] = useState({
     firstName: '',
     lastName: '',
@@ -140,7 +142,7 @@ export default function PerfilPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [authChecked, user]);
+  }, [authChecked, user, securityRefreshKey]);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -584,6 +586,7 @@ export default function PerfilPage() {
         <div className="pf-zone">
           <div className="pf-zone-title" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-muted)', marginBottom: 16 }}>Seguridad</div>
           <div className="pf-security-grid">
+            <ChangePasswordForm onPasswordChanged={() => setSecurityRefreshKey(value => value + 1)} />
             <div className="p-public-card pf-security-card">
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                 <Shield size={16} />
@@ -803,7 +806,7 @@ export default function PerfilPage() {
               <Link
                 href="/bookings"
                 className="pf-zone-link"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: 'var(--positive-bg)', border: '1px solid var(--accent-border-subtle)', borderRadius: 999, color: 'var(--brand)', fontSize: 13, fontWeight: 700, textDecoration: 'none', transition: 'background .15s' }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: 'var(--positive-bg)', border: '1px solid var(--accent-border-subtle)', borderRadius: 999, color: 'var(--positive-fg)', fontSize: 13, fontWeight: 700, textDecoration: 'none', transition: 'background .15s' }}
               >
                 Ver reservas →
               </Link>

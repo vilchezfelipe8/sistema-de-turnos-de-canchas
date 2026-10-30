@@ -84,6 +84,17 @@ export class AuthEmailService {
     this.from = getRequiredEnv('EMAIL_FROM');
   }
 
+  private async sendEmail(payload: Parameters<Resend['emails']['send']>[0]): Promise<void> {
+    const { data, error } = await this.resend.emails.send(payload);
+    if (error) {
+      throw new Error(`Resend rechazó el correo (${error.name}): ${error.message}`);
+    }
+    if (!data?.id) {
+      throw new Error('Resend no devolvió un identificador de envío.');
+    }
+    logger.info({ provider: 'resend', emailId: data.id }, 'Correo de autenticación aceptado por el proveedor');
+  }
+
   async sendMagicLink(email: string, url: string, ttlMinutes: number): Promise<void> {
     const safeTtl = Math.max(1, Math.floor(ttlMinutes));
     const subject = 'Tu enlace de acceso a Pique';
@@ -178,6 +189,8 @@ ${brandHeader}
       '',
       'Recibimos una solicitud para iniciar sesión con este correo.',
       '',
+      `Ingresar a Pique: ${url}`,
+      '',
       `Este enlace vence en ${safeTtl} minuto${safeTtl === 1 ? '' : 's'} y solo puede usarse una vez.`,
       'Si no pediste este acceso, podés ignorar este correo.',
       '',
@@ -185,7 +198,7 @@ ${brandHeader}
       'pique.ar'
     ].join('\n');
 
-    await this.resend.emails.send({
+    await this.sendEmail({
       from: this.from,
       to: email,
       subject,
@@ -243,6 +256,6 @@ ${brandHeader}
       supportCopy
     ].join('\n');
 
-    await this.resend.emails.send({ from: this.from, to: email, subject: title, html, text });
+    await this.sendEmail({ from: this.from, to: email, subject: title, html, text });
   }
 }

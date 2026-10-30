@@ -24,6 +24,7 @@ router.get('/oauth/facebook/callback', optionalAuthMiddleware, authController.fa
 router.get('/csrf', authController.csrfToken);
 router.get('/me', authMiddleware, authController.getMe);
 router.patch('/me', authMiddleware, authController.updateMe);
+router.post('/password/change', authMiddleware, loginLimiter, authController.changePassword);
 router.get('/account/security', authMiddleware, authController.accountSecurityOverview);
 router.post('/account/club-profiles/:clubId/claim', authMiddleware, authController.claimClubProfile);
 router.post('/oauth/google/disconnect', authMiddleware, authController.disconnectGoogleOAuth);

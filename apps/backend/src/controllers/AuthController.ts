@@ -708,6 +708,48 @@ export class AuthController {
         }
     };
 
+    changePassword = async (req: Request, res: Response) => {
+        const userId = (req as any).user?.userId;
+        if (!userId) return sendAuthError(res, 401, 'AUTH_MISSING', 'No autorizado');
+        const parsed = z.object({
+            currentPassword: z.string().min(1).max(256),
+            newPassword: z.string().min(8, 'Usá al menos 8 caracteres.').max(72)
+                .refine((value) => Buffer.byteLength(value, 'utf8') <= 72, 'La contraseña es demasiado larga.')
+        }).safeParse(req.body);
+        if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá las contraseñas.'));
+        if (parsed.data.currentPassword === parsed.data.newPassword) {
+            return sendAppError(res, validationError('Elegí una contraseña diferente a la actual.', { newPassword: 'Elegí otra contraseña.' }));
+        }
+        try {
+            const user = await prisma.user.findUnique({ where: { id: userId } });
+            if (!user || user.accountStatus !== 'ACTIVE') return sendAuthError(res, 401, 'AUTH_INVALID', 'No autorizado');
+            if (!await bcrypt.compare(parsed.data.currentPassword, user.password)) {
+                return sendAppError(res, validationError('La contraseña actual es incorrecta.', { currentPassword: 'Contraseña incorrecta.' }));
+            }
+            const password = await bcrypt.hash(parsed.data.newPassword, 10);
+            const changed = await prisma.$transaction(async (tx) => {
+                // Evita que dos cambios simultáneos acepten la misma contraseña anterior.
+                const updated = await tx.user.updateMany({
+                    where: { id: userId, password: user.password, accountStatus: 'ACTIVE' },
+                    data: { password }
+                });
+                if (updated.count !== 1) return false;
+                await tx.authSession.updateMany({
+                    where: { userId, status: { in: ['ACTIVE', 'ROTATED'] } },
+                    data: { status: 'REVOKED', revokedAt: new Date() }
+                });
+                return true;
+            });
+            if (!changed) return sendAppError(res, validationError('La contraseña cambió. Volvé a iniciar sesión.', {}));
+            await this.auditUserAccountEvent(userId, 'USER_PASSWORD_CHANGED', {});
+            const payload = await this.issueAuthPayload(userId, res, req);
+            return res.json({ message: 'Contraseña actualizada', ...payload });
+        } catch (error) {
+            logger.error({ err: error, action: 'changePassword' }, 'Error cambiando contraseña');
+            return res.status(500).json({ error: 'No pudimos actualizar la contraseña en este momento.' });
+        }
+    };
+
     requestEmailMagicLink = async (req: Request, res: Response) => {
         const schema = z.object({
             email: z.string().email()
