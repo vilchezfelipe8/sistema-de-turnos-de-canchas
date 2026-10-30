@@ -87,6 +87,36 @@ test('preflight OK con PIQUE_DEFAULT activo, templates activos y envs presentes'
   });
 });
 
+test('preflight acepta la versión activa configurada para el evento y rol', async () => {
+  await withEnv('WHATSAPP_META_ACCESS_TOKEN', 'secret-token', async () => {
+    const templates = buildTemplates().map((template) =>
+      template.eventType === 'BOOKING_CREATED' && template.recipientRole === 'CLUB_STAFF'
+        ? { ...template, templateName: 'staff_booking_created_v2' }
+        : template
+    );
+    const service = new WhatsappV2PreflightService({
+      db: createDb({ sender: buildActiveSender(), templates }) as any,
+      flags: {
+        ENABLE_WHATSAPP_CUSTOMER_EVENTS_V2: false,
+        ENABLE_WHATSAPP_STAFF_EVENTS_V2: false,
+        ENABLE_WHATSAPP_SEND_V2: false,
+        ENABLE_WHATSAPP_CLOUD_API: false,
+        ENABLE_WHATSAPP_WEBHOOK_PROCESSOR: false,
+        ENABLE_WHATSAPP_V2_DRY_RUN: false
+      },
+      metaConfig: { webhookVerifyToken: '' }
+    });
+
+    const result = await service.run();
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 'OK');
+    assert.equal(
+      result.checks.find((check) => check.key === 'template.staff_booking_created_v1')?.message,
+      'Template activo encontrado: staff_booking_created_v2.'
+    );
+  });
+});
+
 test('preflight falla si falta PIQUE_DEFAULT', async () => {
   const service = new WhatsappV2PreflightService({
     db: createDb({
