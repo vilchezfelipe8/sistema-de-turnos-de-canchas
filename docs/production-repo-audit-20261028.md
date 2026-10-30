@@ -56,3 +56,46 @@ Integrar los diez commits remotos preservando los cambios locales; reconciliar
 las 38 rutas con los tests locales adicionales; separar infraestructura, seguridad
 y producto en commits revisables; validar y subir la rama; reconstruir las imágenes
 desde el commit resultante y registrar ese commit como base de producción.
+
+## Reconciliación del 30/10/2026
+
+Se volvió a consultar producción por SSH, sin cambiar sus fuentes ni sus servicios.
+`/opt/pique` continúa sin `.git`. Su registro de despliegue declara como base
+`676b56766098a93aefd924b82b3b49e37b887ad1`, coincidente con el último commit remoto
+disponible al comenzar la reconciliación.
+
+Se compararon 803 archivos de fuentes y configuración con el árbol Git remoto.
+Ningún archivo versionado faltaba en producción. Se consolidaron los ajustes de
+infraestructura, bootstrap de Barrio Parque, correo, contraste y ayuda del login.
+También se recuperaron hotfixes que todavía no estaban en Git:
+
+- Separación criptográfica de tokens de invitación y sesión, con pruebas de tipos.
+- Preflight de WhatsApp que acepta la versión de plantilla configurada por evento/rol,
+  con su prueba de regresión.
+- Estados neutrales de las opciones de ayuda del login y foco visible.
+
+Los doce commits que adelantaban la rama remota se integraron mediante merge,
+conservando los cambios locales de reservas mobile y el nuevo formulario de contraseña.
+Se resolvieron conflictos de navegación en grilla, Mis reservas y checkout preservando
+las mejoras remotas de historial/caché y confirmación.
+
+La copia de producción conserva el formulario anterior de contraseña. Git conserva
+su reemplazo local por el componente accesible `ChangePasswordForm`; esa diferencia
+es intencional y queda pendiente de despliegue. Los SVG antiguos sobrantes de la copia
+de producción ya fueron eliminados por la rama remota y no se reincorporaron.
+
+Los archivos `.env`, secretos, respaldos, datos de socios y `DEPLOYMENT.json` siguen
+fuera de esta consolidación de fuentes. No se inicializó Git en producción ni se
+reconstruyeron imágenes, ejecutaron migraciones o reiniciaron servicios.
+
+Esta regularización publica código en Git; el despliegue queda como operación separada.
+
+Validación del código integrado:
+
+- Frontend: build Next.js completo, con advertencias existentes de hooks/imágenes y Browserslist.
+- Backend: generación de Prisma Client y compilación TypeScript completas.
+- 40 pruebas backend aprobadas: correo, tipos de token, cambio de contraseña, reservas,
+  checkout y preflight de WhatsApp.
+- 12 pruebas frontend aprobadas: contraseña, filtros de deportes y errores de API.
+- Compose de producción validado con variables de ejemplo, sin iniciar contenedores.
+- Sintaxis Bash y PowerShell de los scripts de backup validada, sin ejecutar respaldos.
