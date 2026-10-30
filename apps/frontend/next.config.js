@@ -22,6 +22,10 @@ const getAllowedDevOrigins = () => {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   allowedDevOrigins: getAllowedDevOrigins(),
+  // Al volver atrás, Next devuelve la pantalla a la posición donde estaba.
+  experimental: {
+    scrollRestoration: true,
+  },
   async rewrites() {
     // Manifest e ícono de la "app del club": se publican fuera de /api porque en producción
     // nginx manda /api al backend. Internamente los resuelve pages/api/club-app.

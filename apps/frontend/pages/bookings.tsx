@@ -28,8 +28,10 @@ import { getPendingLogoutRedirect } from '../services/AuthService';
 import Link from 'next/link';
 import UserLoadingState from '../components/UserLoadingState';
 import PlayerSlotsBreakdown from '../components/PlayerSlotsBreakdown';
+import PlayerInviteSearch, { type PickedInvitePlayer } from '../components/players/PlayerInviteSearch';
+import PushOptInCard from '../components/push/PushOptInCard';
 import { downloadCalendarEvent } from '../utils/calendarInvite';
-import { Calendar, Clock, MapPin, Ticket, ArrowRight, Search, XCircle, CheckCircle2, Star, MessageSquare, X, Users, UserPlus, Mail, LogOut, Trash2, ChevronDown } from 'lucide-react';
+import { Calendar, Clock, MapPin, Ticket, ArrowRight, Search, XCircle, CheckCircle2, Star, MessageSquare, X, Users, UserPlus, LogOut, Trash2, ChevronDown } from 'lucide-react';
 import { getApiFieldErrors, normalizeApiError } from '../utils/apiError';
 
 const APP_NOTICE_EVENT = 'app:notice';
@@ -65,7 +67,8 @@ const PAGE_CSS = `
   .bk-invite-calendar:hover { background:var(--surface-2); }
   @media(max-width:620px){
     .bk-invite-card { grid-template-columns:auto minmax(0,1fr); }
-    .bk-invite-actions { grid-column:1 / -1; min-width:0; }
+    .bk-invite-actions { grid-column:1 / -1; min-width:0; grid-template-columns:minmax(0, 2fr) minmax(0, 1fr); }
+    .bk-invite-decline { height:auto; }
   }
   .bk-layout { display:grid; grid-template-columns:1.4fr 1fr; gap:20px; align-items:start; }
   .bk-layout.bk-layout-empty { align-items:stretch; }
@@ -206,13 +209,21 @@ const PAGE_CSS = `
   .p-public-root:not(.p-public-theme-light) .bk-action-rebook:hover { background:linear-gradient(135deg, var(--brand-hover) 0%, var(--brand) 100%); }
 `;
 
+// Última carga de Mis reservas en esta visita (solo navegador): al volver a la página se muestra
+// al instante y se actualiza por detrás, sin pasar por "Cargando reservas...".
+let bookingsPageCache: { userId: number; bookings: PlayerBookingDto[]; invitations: PlayerBookingInvitationDto[] } | null = null;
+const readBookingsPageCache = (userId: number | undefined) =>
+  typeof window !== 'undefined' && bookingsPageCache && userId && bookingsPageCache.userId === Number(userId)
+    ? bookingsPageCache
+    : null;
+
 export default function MyBookingsPage() {
   const router = useRouter();
   const { authChecked, user } = useValidateAuth();
   const clubApp = useClubApp();
   const newBookingHref = clubApp ? `/club/${clubApp.slug}?view=reservar` : '/complejos';
   const openedBookingIdRef = useRef<string | null>(null);
-  const [bookings, setBookings] = useState<PlayerBookingDto[]>([]);
+  const [bookings, setBookings] = useState<PlayerBookingDto[]>(() => readBookingsPageCache(user?.id)?.bookings ?? []);
   const [activeTab, setActiveTab] = useState<'ACTIVE' | 'PAST' | 'CANCELLED'>('ACTIVE');
   const [selectedBooking, setSelectedBooking] = useState<PlayerBookingDto | null>(null);
   const selectedDetailRef = useRef<HTMLDivElement | null>(null);
@@ -220,7 +231,7 @@ export default function MyBookingsPage() {
   const listBodyRef = useRef<HTMLDivElement | null>(null);
   const pendingTabScrollRestoreRef = useRef<{ windowY: number; listScrollTop: number } | null>(null);
   const bookingRefs = useRef<Record<number, HTMLDivElement | null>>({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !readBookingsPageCache(user?.id));
   const [error, setError] = useState('');
   const [modalState, setModalState] = useState<{
     show: boolean;
@@ -235,7 +246,7 @@ export default function MyBookingsPage() {
     closeOnEscape?: boolean;
   }>({ show: false });
   const [cancellingBooking, setCancellingBooking] = useState(false);
-  const [pendingInvitations, setPendingInvitations] = useState<PlayerBookingInvitationDto[]>([]);
+  const [pendingInvitations, setPendingInvitations] = useState<PlayerBookingInvitationDto[]>(() => readBookingsPageCache(user?.id)?.invitations ?? []);
   // Llegando desde el aviso de la barra (/bookings#invitaciones): ir a las invitaciones cuando cargan.
   useEffect(() => {
     if (pendingInvitations.length === 0 || typeof window === 'undefined') return;
@@ -243,6 +254,20 @@ export default function MyBookingsPage() {
     document.getElementById('invitaciones')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [pendingInvitations.length]);
   const [invitationActionId, setInvitationActionId] = useState<string | null>(null);
+  // Llegando desde un aviso push (/bookings?booking=123): abrir esa reserva cuando cargan.
+  const deepLinkedBookingRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!router.isReady) return;
+    const requested = typeof router.query.booking === 'string' ? router.query.booking : '';
+    if (!requested || deepLinkedBookingRef.current === requested) return;
+    const match = bookings.find((booking) => String(booking.id) === requested);
+    if (!match) return;
+    deepLinkedBookingRef.current = requested;
+    setSelectedBooking(match);
+    const restQuery = { ...router.query };
+    delete restQuery.booking;
+    void router.replace({ pathname: router.pathname, query: restQuery }, undefined, { shallow: true, scroll: false });
+  }, [bookings, router]);
   const [participants, setParticipants] = useState<PlayerBookingParticipantDto[]>([]);
   const [participantsLoading, setParticipantsLoading] = useState(false);
   const [participantsError, setParticipantsError] = useState('');
@@ -252,11 +277,10 @@ export default function MyBookingsPage() {
   const [checkoutSubmitting, setCheckoutSubmitting] = useState(false);
   const [participantsExpanded, setParticipantsExpanded] = useState(false);
   const [paymentExpanded, setPaymentExpanded] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteName, setInviteName] = useState('');
-  const [inviteFieldErrors, setInviteFieldErrors] = useState<Record<string, string>>({});
   const [inviteBannerError, setInviteBannerError] = useState('');
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
+  // Cambia después de invitar para vaciar el buscador.
+  const [inviteSearchKey, setInviteSearchKey] = useState(0);
   const [participantActionId, setParticipantActionId] = useState<string | null>(null);
   const [paymentBanner, setPaymentBanner] = useState<{ tone: 'success' | 'info' | 'error'; message: string } | null>(null);
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
@@ -368,6 +392,7 @@ export default function MyBookingsPage() {
       const sortedBookings = data.sort((a, b) => new Date(b.startDateTime).getTime() - new Date(a.startDateTime).getTime());
       setBookings(sortedBookings);
       setPendingInvitations(invitations);
+      bookingsPageCache = { userId: Number(user.id), bookings: sortedBookings, invitations };
       setError('');
       return sortedBookings;
     } catch (err: unknown) {
@@ -376,7 +401,8 @@ export default function MyBookingsPage() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   useEffect(() => { if (authChecked && user) loadData(); }, [authChecked, user, loadData]);
 
@@ -430,7 +456,6 @@ export default function MyBookingsPage() {
       setCheckoutError('');
       setCheckoutLoading(false);
       setInviteBannerError('');
-      setInviteFieldErrors({});
       setParticipantsExpanded(false);
       setPaymentExpanded(false);
       return;
@@ -443,7 +468,6 @@ export default function MyBookingsPage() {
     setParticipantsLoading(true);
     setParticipantsError('');
     setInviteBannerError('');
-    setInviteFieldErrors({});
     void getBookingParticipants(selectedBooking.id)
       .then((items) => {
         if (cancelled) return;
@@ -823,29 +847,27 @@ export default function MyBookingsPage() {
     });
   };
 
-  const handleInviteParticipant = async () => {
+  const handleInvitePicked = async (picked: PickedInvitePlayer) => {
     if (!selectedBooking || inviteSubmitting) return;
     setInviteSubmitting(true);
-    setInviteFieldErrors({});
     setInviteBannerError('');
     try {
-      // Un solo campo: con @ es email; si no, DNI.
-      const inviteTarget = inviteEmail.trim();
-      await inviteBookingParticipant(selectedBooking.id, {
-        ...(inviteTarget.includes('@') ? { email: inviteTarget } : { dni: inviteTarget }),
-        name: inviteName
-      });
-      setInviteEmail('');
-      setInviteName('');
+      await inviteBookingParticipant(
+        selectedBooking.id,
+        picked.kind === 'token'
+          ? { inviteToken: picked.inviteToken, name: picked.displayName }
+          : {
+              ...(picked.kind === 'email' ? { email: picked.value } : { dni: picked.value }),
+              ...(picked.displayName ? { name: picked.displayName } : {})
+            }
+      );
+      setInviteSearchKey((current) => current + 1);
       await refreshSelectedParticipants();
       await loadData();
     } catch (error) {
       const fieldErrors = getApiFieldErrors(error);
-      setInviteFieldErrors(fieldErrors);
-      const message = toPublicBookingErrorMessage(error, 'No pudimos enviar la invitación.');
-      if (Object.keys(fieldErrors).length === 0) {
-        setInviteBannerError(message);
-      }
+      const fieldMessage = fieldErrors.email || fieldErrors.dni || fieldErrors.name;
+      setInviteBannerError(fieldMessage || toPublicBookingErrorMessage(error, 'No pudimos enviar la invitación.'));
     } finally {
       setInviteSubmitting(false);
     }
@@ -987,6 +1009,8 @@ export default function MyBookingsPage() {
             + Nueva reserva
           </Link>
         </div>
+
+        <PushOptInCard />
 
         {/* ── TABS ── */}
         <div className="bk-tabs-wrap">
@@ -1325,44 +1349,17 @@ export default function MyBookingsPage() {
                             {inviteBannerError}
                           </div>
                         )}
-                        <div style={{ display: 'grid', gap: 10 }}>
-                          <div>
-                            <div style={{ position: 'relative' }}>
-                              <Mail size={14} style={{ position: 'absolute', left: 12, top: 12, color: 'var(--text-muted)' }} />
-                              <input
-                                type="text"
-                                value={inviteEmail}
-                                onChange={(e) => setInviteEmail(e.target.value)}
-                                placeholder="DNI o email del jugador"
-                                style={{ width: '100%', padding: '10px 12px 10px 34px', borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-primary)' }}
-                              />
-                            </div>
-                            {(inviteFieldErrors.email || inviteFieldErrors.dni) && (
-                              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--error-fg)' }}>{inviteFieldErrors.email || inviteFieldErrors.dni}</div>
-                            )}
-                          </div>
-                          <div>
-                            <input
-                              type="text"
-                              value={inviteName}
-                              onChange={(e) => setInviteName(e.target.value)}
-                              placeholder="Nombre (opcional)"
-                              style={{ width: '100%', padding: '10px 12px', borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-primary)' }}
-                            />
-                            {inviteFieldErrors.name && (
-                              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--error-fg)' }}>{inviteFieldErrors.name}</div>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            className="bk-action-btn bk-action-rebook"
-                            onClick={handleInviteParticipant}
-                            disabled={inviteSubmitting}
-                          >
-                            <UserPlus size={15} />
-                            {inviteSubmitting ? 'Enviando...' : 'Invitar jugador'}
-                          </button>
-                        </div>
+                        <PlayerInviteSearch
+                          key={`${selectedBooking.id}-${inviteSearchKey}`}
+                          bookingId={selectedBooking.id}
+                          clubLabel={selectedBooking.club?.name || null}
+                          busy={inviteSubmitting}
+                          autoFocus={false}
+                          onPick={handleInvitePicked}
+                        />
+                        {inviteSubmitting && (
+                          <div style={{ fontSize: 12, fontWeight: 650, color: 'var(--text-muted)' }}>Enviando invitación…</div>
+                        )}
                       </div>
                     )}
                   </div>

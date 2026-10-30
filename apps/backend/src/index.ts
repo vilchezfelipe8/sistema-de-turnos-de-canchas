@@ -6,6 +6,7 @@ import { OutboxWorker } from './services/OutboxWorker';
 import { acquireDistributedLock } from './utils/distributedLock';
 import { featureFlags } from './config/featureFlags';
 import { PendingBookingAutoCancelService } from './services/PendingBookingAutoCancelService';
+import { BookingReminderService } from './services/BookingReminderService';
 import { BookingService } from './services/BookingService';
 import { BookingRepository } from './repositories/BookingRepository';
 import { CourtRepository } from './repositories/CourtRepository';
@@ -20,6 +21,9 @@ const PENDING_BOOKINGS_AUTOCANCEL_INTERVAL_MS = Number(process.env.PENDING_BOOKI
 const OUTBOX_PROCESSOR_INTERVAL_MS = Number(process.env.OUTBOX_PROCESSOR_INTERVAL_MS) || 5_000;
 const BOOKINGS_COMPLETION_LOCK_TTL_MS = Number(process.env.BOOKINGS_COMPLETION_LOCK_TTL_MS) || 55_000;
 const PENDING_BOOKINGS_AUTOCANCEL_LOCK_TTL_MS = Number(process.env.PENDING_BOOKINGS_AUTOCANCEL_LOCK_TTL_MS) || 55_000;
+// Recordatorios push antes del turno.
+const BOOKING_REMINDERS_INTERVAL_MS = Number(process.env.BOOKING_REMINDERS_INTERVAL_MS) || 5 * 60_000;
+const BOOKING_REMINDERS_LOCK_TTL_MS = Number(process.env.BOOKING_REMINDERS_LOCK_TTL_MS) || 4 * 60_000;
 const PROCESS_ROLE = String(process.env.PROCESS_ROLE || 'all').toLowerCase();
 const RUN_BOOKING_COMPLETION_JOB = process.env.RUN_BOOKING_COMPLETION_JOB;
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
@@ -149,6 +153,26 @@ const processPendingBookingPolicies = async () => {
   }
 };
 
+const bookingReminderService = new BookingReminderService();
+const processBookingReminders = async () => {
+  const lock = await acquireDistributedLock('scheduler:booking-reminders', BOOKING_REMINDERS_LOCK_TTL_MS);
+
+  if (process.env.REDIS_URL && !lock) {
+    metricsService.recordSchedulerRun('booking_reminders', 'skipped');
+    return;
+  }
+
+  try {
+    await bookingReminderService.processUpcomingReminders();
+    metricsService.recordSchedulerRun('booking_reminders', 'success');
+  } catch (error) {
+    console.error('❌ Error enviando recordatorios de turnos:', error);
+    metricsService.recordSchedulerRun('booking_reminders', 'error');
+  } finally {
+    await lock?.release();
+  }
+};
+
 const startApi = () => {
   const app = createApp();
   app.listen(PORT, '0.0.0.0', () => {
@@ -186,6 +210,11 @@ const startScheduler = async () => {
   setInterval(async () => {
     await processPendingBookingPolicies();
   }, PENDING_BOOKINGS_AUTOCANCEL_INTERVAL_MS);
+
+  await processBookingReminders();
+  setInterval(async () => {
+    await processBookingReminders();
+  }, BOOKING_REMINDERS_INTERVAL_MS);
 
   console.log('⏰ Scheduler de reservas iniciado');
 };

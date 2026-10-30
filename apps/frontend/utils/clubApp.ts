@@ -12,6 +12,12 @@ export const CLUB_APP_QUERY_VALUE = 'club';
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,79}$/;
 
+// Última lectura en memoria (solo en el navegador): cada pantalla nueva arranca ya en modo club,
+// sin dibujarse un instante como la web. undefined = todavía no se leyó.
+let cachedClubApp: ClubAppIdentity | null | undefined;
+export const getCachedClubApp = (): ClubAppIdentity | null =>
+  typeof window === 'undefined' ? null : cachedClubApp ?? null;
+
 export const isValidClubSlug = (slug: unknown): slug is string => typeof slug === 'string' && SLUG_RE.test(slug);
 
 // Abierta como app instalada (Android/computadora: display-mode; iPhone: navigator.standalone).
@@ -29,7 +35,7 @@ const safeSession = () => {
   }
 };
 
-export const readClubApp = (): ClubAppIdentity | null => {
+const readClubAppFromStorage = (): ClubAppIdentity | null => {
   const storage = safeSession();
   if (!storage || !isStandaloneDisplay()) return null;
   try {
@@ -41,11 +47,18 @@ export const readClubApp = (): ClubAppIdentity | null => {
   }
 };
 
+export const readClubApp = (): ClubAppIdentity | null => {
+  const identity = readClubAppFromStorage();
+  if (typeof window !== 'undefined') cachedClubApp = identity;
+  return identity;
+};
+
 const writeClubApp = (identity: ClubAppIdentity) => {
   const storage = safeSession();
   if (!storage) return;
   try {
     storage.setItem(STORAGE_KEY, JSON.stringify(identity));
+    cachedClubApp = identity;
     window.dispatchEvent(new Event(CLUB_APP_CHANGED_EVENT));
   } catch {
     // noop

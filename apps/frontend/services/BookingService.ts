@@ -264,6 +264,8 @@ export const createBooking = async (
       email?: string;
       dni?: string;
       name?: string;
+      // Jugador elegido en la búsqueda por nombre.
+      inviteToken?: string;
     }>;
     clientId?: string;
     ownerSelection?:
@@ -484,10 +486,10 @@ export const getPlayerBookingCheckout = async (bookingId: number | string): Prom
   return await res.json() as PlayerBookingCheckoutDto;
 };
 
-// Se invita por email o por DNI exacto de una cuenta existente.
+// Se invita por email, por DNI exacto de una cuenta existente o con el token de la búsqueda por nombre.
 export const inviteBookingParticipant = async (
   bookingId: number | string,
-  input: { email?: string; dni?: string; name?: string }
+  input: { email?: string; dni?: string; name?: string; inviteToken?: string }
 ): Promise<PlayerBookingParticipantDto> => {
   const res = await fetchWithAuth(`${apiBase()}/me/bookings/${bookingId}/participants/invite`, {
     method: 'POST',
@@ -495,7 +497,8 @@ export const inviteBookingParticipant = async (
     body: JSON.stringify({
       ...(String(input?.email || '').trim() ? { email: String(input.email).trim() } : {}),
       ...(String(input?.dni || '').trim() ? { dni: String(input.dni).trim() } : {}),
-      ...(String(input?.name || '').trim() ? { name: String(input.name).trim() } : {})
+      ...(String(input?.name || '').trim() ? { name: String(input.name).trim() } : {}),
+      ...(String(input?.inviteToken || '').trim() ? { inviteToken: String(input.inviteToken).trim() } : {})
     })
   });
 
@@ -558,6 +561,49 @@ export const lookupPlayerForInvitation = async (
   }
 
   return res.json();
+};
+
+// Jugador para invitar encontrado por nombre o entre los que jugaron con vos.
+// Sin datos de contacto: `ref` es estable (para no repetir) e `inviteToken` sirve para invitarlo.
+export type PlayerInviteCandidate = {
+  ref: string;
+  inviteToken: string;
+  displayName: string;
+  initials: string;
+  playedWithCount: number;
+};
+
+// Búsqueda por nombre acotada al club de la reserva (por slug en el checkout o por reserva ya creada).
+export const searchPlayersForInvitation = async (
+  input: { q: string; clubSlug?: string | null; bookingId?: number | string | null },
+  options?: { signal?: AbortSignal }
+): Promise<PlayerInviteCandidate[]> => {
+  const params = new URLSearchParams({ q: input.q });
+  if (input.clubSlug) params.set('clubSlug', String(input.clubSlug));
+  if (input.bookingId) params.set('bookingId', String(input.bookingId));
+  const res = await fetchWithAuth(`${apiBase()}/me/players/search?${params.toString()}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    signal: options?.signal
+  });
+  if (!res.ok) {
+    await throwApiErrorFromResponse(res, 'No pudimos buscar jugadores.');
+  }
+  const payload = await res.json();
+  return Array.isArray(payload?.items) ? payload.items : [];
+};
+
+// Personas con las que el usuario jugó más seguido.
+export const getFrequentPlayers = async (): Promise<PlayerInviteCandidate[]> => {
+  const res = await fetchWithAuth(`${apiBase()}/me/players/frequent`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!res.ok) {
+    await throwApiErrorFromResponse(res, 'No pudimos cargar tus compañeros frecuentes.');
+  }
+  const payload = await res.json();
+  return Array.isArray(payload?.items) ? payload.items : [];
 };
 
 export const getMyBookingInvitations = async (): Promise<PlayerBookingInvitationDto[]> => {

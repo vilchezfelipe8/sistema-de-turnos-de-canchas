@@ -8,6 +8,8 @@ import { UserThemeProvider, useUserTheme } from '../contexts/UserThemeContext';
 import { AUTH_LOGOUT_EVENT, clearPendingLogoutRedirect, type AuthLogoutEventDetail } from '../services/AuthService';
 import { isAuthSessionInvalidatedError } from '../utils/apiClient';
 import { detectClubAppLaunch } from '../utils/clubApp';
+import { initNavigationHistory, trackRouteChange } from '../utils/navigationHistory';
+import PushSubscriptionSync from '../components/push/PushSubscriptionSync';
 import { startPwaInstallCapture } from '../utils/pwaInstall';
 
 import '../styles/globals.css';
@@ -122,6 +124,16 @@ export default function MyApp({ Component, pageProps }: AppProps) {
     if (!router.isReady) return;
     detectClubAppLaunch(router.pathname, router.query);
   }, [router.isReady, router.pathname, router.query]);
+
+  // Pantalla anterior dentro de la app (para los botones "Volver").
+  useEffect(() => {
+    initNavigationHistory(`${window.location.pathname}${window.location.search}`);
+    const onRouteChangeComplete = (url: string) => trackRouteChange(url);
+    Router.events.on('routeChangeComplete', onRouteChangeComplete);
+    return () => {
+      Router.events.off('routeChangeComplete', onRouteChangeComplete);
+    };
+  }, []);
 
   useEffect(() => {
     const preventNumberInputWheel = (event: WheelEvent) => {
@@ -284,7 +296,9 @@ export default function MyApp({ Component, pageProps }: AppProps) {
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
         <meta name="twitter:image" content={OG_IMAGE_URL} />
-        <meta name="theme-color" content="#B6F36A" />
+        <meta name="theme-color" content="#B6F36A" key="theme-color" />
+        {/* viewport-fit=cover: en iPhone permite respetar la zona de la barra de inicio (env(safe-area-inset-*)). */}
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" key="viewport" />
         <script
           type="application/ld+json"
           // JSON-LD must be a string
@@ -296,6 +310,7 @@ export default function MyApp({ Component, pageProps }: AppProps) {
           <UserThemeProvider>
             <Component {...pageProps} />
             <AppNoticeViewport notices={notices} />
+            <PushSubscriptionSync />
           </UserThemeProvider>
         </AuthProvider>
       </ActiveClubProvider>

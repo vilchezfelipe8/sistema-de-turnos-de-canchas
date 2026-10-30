@@ -145,23 +145,82 @@ export default function ClientsTable({
     },
   ];
 
+  const getInitials = (name: string) =>
+    String(name || '')
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join('') || '?';
+
   return (
-    <AdminDataTable<AdminClient>
-      columns={columns}
-      data={clients}
-      rowKey={(c) => c.id}
-      loading={loading}
-      empty={{
-        title: 'No hay clientes',
-        description: 'Intentá con otra búsqueda o agregá un cliente nuevo.',
-      }}
-      onRowClick={onRowClick}
-      rowClassName={(c) =>
-        String(c.id) === String(selectedId ?? '')
-          ? 'bg-p-positive-bg [&>td:first-child]:shadow-[2px_0_0_0_var(--accent-fg)_inset]'
-          : ''
-      }
-      className={['w-full', className].filter(Boolean).join(' ')}
-    />
+    <div className="min-h-0 w-full overflow-y-auto lg:contents">
+      <div className="hidden lg:contents">
+        <AdminDataTable<AdminClient>
+          columns={columns}
+          data={clients}
+          rowKey={(c) => c.id}
+          loading={loading}
+          empty={{
+            title: 'No hay clientes',
+            description: 'Intentá con otra búsqueda o agregá un cliente nuevo.',
+          }}
+          onRowClick={onRowClick}
+          rowClassName={(c) =>
+            String(c.id) === String(selectedId ?? '')
+              ? 'bg-p-positive-bg [&>td:first-child]:shadow-[2px_0_0_0_var(--accent-fg)_inset]'
+              : ''
+          }
+          className={['w-full', className].filter(Boolean).join(' ')}
+        />
+      </div>
+
+      <div className="lg:hidden">
+        {loading ? (
+          <div className="grid place-items-center p-10">
+            <div className="h-7 w-7 animate-spin rounded-full border-2 border-p-border border-t-p-accent" />
+          </div>
+        ) : clients.length === 0 ? (
+          <div className="px-4 py-10 text-center">
+            <p className="text-[14px] font-semibold text-p-text-muted">No hay clientes</p>
+            <p className="mt-1 text-[12px] text-p-text-muted">Intentá con otra búsqueda o agregá un cliente nuevo.</p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-p-border">
+            {clients.map((c) => {
+              const isSelected = String(c.id) === String(selectedId ?? '');
+              const secondary = [c.dni ? `DNI ${c.dni}` : '', c.phone || ''].filter(Boolean).join(' · ') || c.email || '—';
+              return (
+                <li key={String(c.id)}>
+                  <button
+                    type="button"
+                    onClick={() => onRowClick?.(c)}
+                    className={`flex w-full items-center gap-3 px-3.5 py-3 text-left transition ${
+                      isSelected ? 'bg-p-positive-bg' : 'hover:bg-p-surface-2'
+                    }`}
+                  >
+                    <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-full bg-p-surface-3 text-[12px] font-extrabold text-p-text">
+                      {getInitials(c.name)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <span className="truncate text-[14px] font-bold text-p-text">{c.name}</span>
+                        <MemberBadge member={c.member} />
+                      </span>
+                      <span className="mt-0.5 block truncate text-[11px] text-p-text-muted">{secondary}</span>
+                    </span>
+                    {c.totalDebt > 0 ? (
+                      <span className="shrink-0 text-[12px] font-extrabold text-[var(--error-fg)]">{formatMoney(c.totalDebt)}</span>
+                    ) : (
+                      <span className="shrink-0 text-[12px] font-semibold text-p-text-muted">Al día</span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
   );
 }

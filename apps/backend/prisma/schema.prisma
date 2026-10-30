@@ -473,6 +473,9 @@ model User {
   academyClassPassesCreated ClassPass[] @relation("ClassPassCreatedByUser")
   academyClassCreditUsagesCreated ClassCreditUsage[] @relation("ClassCreditUsageCreatedByUser")
   verificationCodes UserVerificationCode[]
+  pushSubscriptions PushSubscription[]
+  notificationPreference UserNotificationPreference?
+  bookingReminderLogs BookingReminderLog[]
 }
 
 model UserVerificationCode {
@@ -1266,6 +1269,7 @@ model Booking {
   playerSlots         BookingPlayerSlot[]
   billingConfig  BookingBillingConfig?
   participants   BookingParticipant[]
+  reminderLogs   BookingReminderLog[]
   historyEntries BookingHistoryEntry[]
   onlinePaymentAttempts OnlinePaymentAttempt[]
   reviews        ClubReview[]
@@ -2257,4 +2261,42 @@ model Refund {
   @@index([clubId, createdAt])
   @@index([cashShiftId])
   @@index([status, createdAt])
+}
+
+// Avisos push web: una suscripción por navegador/celular del usuario (endpoint del servicio de push).
+model PushSubscription {
+  id         String    @id @default(cuid())
+  userId     Int
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint   String    @unique
+  p256dh     String
+  auth       String
+  userAgent  String?
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @db.Timestamptz(3)
+  lastSentAt DateTime? @db.Timestamptz(3)
+
+  @@index([userId])
+}
+
+// Qué avisos quiere recibir el jugador (las cancelaciones del club se envían siempre).
+model UserNotificationPreference {
+  userId              Int      @id
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invitations         Boolean  @default(true)
+  invitationResponses Boolean  @default(true)
+  bookingReminders    Boolean  @default(true)
+  updatedAt           DateTime @updatedAt @db.Timestamptz(3)
+}
+
+// Recordatorios ya enviados (evita repetirlos si el scheduler corre varias veces).
+model BookingReminderLog {
+  bookingId Int
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      String
+  sentAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  @@id([bookingId, userId, kind])
 }

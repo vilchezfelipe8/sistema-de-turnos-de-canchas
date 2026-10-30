@@ -31,9 +31,18 @@ type ClubPageProps = { appSlug: string | null; appName: string | null };
 // toma el manifest que trae la página y no el que se cambia después en el navegador.
 export const getServerSideProps: GetServerSideProps<ClubPageProps> = async ({ params, req }) => {
   const slug = typeof params?.slug === 'string' && isValidClubSlug(params.slug) ? params.slug : null;
-  const basics = slug ? await fetchClubBasics(slug, resolveRequestOrigin(req)) : null;
+  // Navegaciones dentro de la app (/_next/data): no hace falta buscar el club en el servidor,
+  // la página ya lo tiene o lo carga; así volver atrás o cambiar de pestaña es inmediato.
+  const isClientNavigation = String(req.url || '').startsWith('/_next/data');
+  const basics = slug && !isClientNavigation ? await fetchClubBasics(slug, resolveRequestOrigin(req)) : null;
   return { props: { appSlug: slug, appName: basics?.name ?? null } };
 };
+
+// Clubes ya cargados en esta visita (solo navegador): al volver a la página se muestran al instante
+// y se actualizan por detrás, sin pasar por "Cargando club...".
+const clubPageCache = new Map<string, Club>();
+const readCachedClub = (slug: unknown) =>
+  typeof window !== 'undefined' && typeof slug === 'string' ? clubPageCache.get(slug) ?? null : null;
 
 const APP_NOTICE_EVENT = 'app:notice';
 type AppNoticeTone = 'success' | 'error' | 'info' | 'warning';
@@ -154,8 +163,8 @@ export default function ClubPage({ appSlug, appName }: ClubPageProps) {
   const router = useRouter();
   const { slug } = router.query;
   const { authChecked, user } = useValidateAuth({ allowGuest: true });
-  const [club, setClub] = useState<Club | null>(null);
-  const [loadingClub, setLoadingClub] = useState(true);
+  const [club, setClub] = useState<Club | null>(() => readCachedClub(slug));
+  const [loadingClub, setLoadingClub] = useState(() => !readCachedClub(slug));
   const [error, setError] = useState<string | null>(null);
   const [reviewsSummary, setReviewsSummary] = useState<{ count: number; averageRating: number }>({ count: 0, averageRating: 0 });
   const [reviews, setReviews] = useState<ClubReviewItem[]>([]);
@@ -178,13 +187,21 @@ export default function ClubPage({ appSlug, appName }: ClubPageProps) {
   useEffect(() => {
     const loadClub = async () => {
       if (!slug || typeof slug !== 'string') { setLoadingClub(false); return; }
+      const cached = clubPageCache.get(slug);
       try {
-        setLoadingClub(true);
+        if (cached) {
+          setClub(cached);
+          setLoadingClub(false);
+        } else {
+          setLoadingClub(true);
+        }
         setError(null);
-        setClub(await ClubService.getClubBySlug(slug));
+        const fresh = await ClubService.getClubBySlug(slug);
+        clubPageCache.set(slug, fresh);
+        setClub(fresh);
       } catch (err: any) {
         reportUiError({ area: 'ClubPage', action: 'loadClubBySlug' }, err);
-        setError('Club no encontrado');
+        if (!cached) setError('Club no encontrado');
       } finally {
         setLoadingClub(false);
       }

@@ -73,10 +73,10 @@ export default function ChangeTitularModal({
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center bg-ink-950/45 px-4"
+      className="fixed inset-0 flex items-end justify-center bg-ink-950/45 px-0 sm:items-center sm:px-4"
       style={{ zIndex: ADMIN_Z_INDEX.modal }}
     >
-      <div className="w-full max-w-[560px] rounded-2xl border border-p-border bg-p-surface shadow-p-lg">
+      <div className="w-full max-w-[560px] rounded-2xl border border-p-border bg-p-surface shadow-p-lg max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]">
         <div className="border-b border-p-border px-5 py-4">
           <p className="text-[16px] font-semibold text-p-text">Cambiar titular</p>
           <p className="mt-1 text-[13px] text-p-text-muted">

@@ -8,6 +8,7 @@ import RouteTransitionScreen from '../../components/RouteTransitionScreen';
 import AdminPlaygroundShell from '../../components/admin/AdminPlaygroundShell';
 import AdminDrawer, { AdminDrawerSection } from '../../components/admin/ui/AdminDrawer';
 import AgendaBookingBlock from '../../components/admin/agenda/AgendaBookingBlock';
+import AgendaMobileGrid from '../../components/admin/agenda/AgendaMobileGrid';
 import AgendaSelectionPreview from '../../components/admin/agenda/AgendaSelectionPreview';
 import AgendaSlotLayer from '../../components/admin/agenda/AgendaSlotLayer';
 import AgendaTimeGutter from '../../components/admin/agenda/AgendaTimeGutter';
@@ -135,6 +136,9 @@ import { bookingDrawerReducer, initialBookingDrawerState } from '../../modules/a
 
 const MAX_MANUAL_PARTICIPANT_PRICE = 100000;
 const DRAWER_CLOSE_RESET_DELAY_MS = 320;
+/** Refresco automático de la agenda (web y mobile). */
+const AGENDA_AUTO_REFRESH_MS = 30_000;
+const AGENDA_REFRESH_ON_FOCUS_MIN_GAP_MS = 10_000;
 
 const bookingKindOptions: Array<{
   value: BookingKind;
@@ -1737,13 +1741,18 @@ export default function AdminAgendaPlaygroundPage() {
     return ['Todos', ...uniques] as SportFilter[];
   }, [effectiveCourts]);
 
+  const scheduleRequestSeqRef = useRef(0);
   const reloadSchedule = useCallback(async () => {
+    const requestSeq = ++scheduleRequestSeqRef.current;
     try {
       const raw = await getAdminSchedule(formatLocalDate(selectedDate));
       const mapped = (Array.isArray(raw) ? raw : [])
         .map(parseScheduleSlotToBooking)
         .filter((booking): booking is Booking => Boolean(booking));
-      setBookings(mapped);
+      // Si mientras tanto salió otro pedido (cambio de fecha, refresco automático), gana el más nuevo.
+      if (requestSeq === scheduleRequestSeqRef.current) {
+        setBookings(mapped);
+      }
       return mapped;
     } catch (error) {
       reportUiError({ area: 'AgendaPlayground', action: 'loadSchedule' }, error);
@@ -2558,6 +2567,41 @@ export default function AdminAgendaPlaygroundPage() {
     void reloadSchedule();
   }, [authChecked, user, reloadSchedule]);
 
+  // Refresco automático: no corre con la pestaña oculta, ni mientras se arrastra/selecciona
+  // en la grilla, ni con el panel de reserva o la cuenta abiertos (para no pisar ediciones).
+  const autoRefreshBlockedRef = useRef(false);
+  autoRefreshBlockedRef.current =
+    drawerOpen || accountDrawerOpen || isDragging || Boolean(draggingBookingId) || Boolean(dragSelection);
+  useEffect(() => {
+    if (!authChecked || !user) return;
+    let inFlight = false;
+    let lastRunAt = Date.now();
+    const runRefresh = async () => {
+      if (inFlight || autoRefreshBlockedRef.current) return;
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      inFlight = true;
+      lastRunAt = Date.now();
+      try {
+        await reloadSchedule();
+      } finally {
+        inFlight = false;
+      }
+    };
+    const intervalId = window.setInterval(() => void runRefresh(), AGENDA_AUTO_REFRESH_MS);
+    const handleReturn = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastRunAt < AGENDA_REFRESH_ON_FOCUS_MIN_GAP_MS) return;
+      void runRefresh();
+    };
+    document.addEventListener('visibilitychange', handleReturn);
+    window.addEventListener('focus', handleReturn);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleReturn);
+      window.removeEventListener('focus', handleReturn);
+    };
+  }, [authChecked, user, reloadSchedule]);
+
   useEffect(() => {
     if (!drawerOpen) return;
     setBookingHoverPreview(null);
@@ -3037,7 +3081,7 @@ export default function AdminAgendaPlaygroundPage() {
   }, [visibleBookings]);
 
   const openQuickCreateBooking = useCallback(
-    (preferredCourtId?: string) => {
+    (preferredCourtId?: string, preferredRange?: { startSlot: number; endSlot: number }) => {
       const fallbackCourtId =
         (preferredCourtId && effectiveCourts.some((court) => court.id === preferredCourtId) ? preferredCourtId : '') ||
         (selectedCourtId && effectiveCourts.some((court) => court.id === selectedCourtId) ? selectedCourtId : '') ||
@@ -3066,14 +3110,25 @@ export default function AdminAgendaPlaygroundPage() {
         suggestedStartSlot + 1,
         Math.min(totalSlots, suggestedStartSlot + slotSpan)
       );
+      const hasPreferredRange =
+        Boolean(preferredRange) &&
+        Number.isFinite(preferredRange?.startSlot) &&
+        Number.isFinite(preferredRange?.endSlot) &&
+        Number(preferredRange?.endSlot) > Number(preferredRange?.startSlot);
+      const nextStartSlot = hasPreferredRange
+        ? Math.max(0, Math.min(totalSlots - 1, Number(preferredRange?.startSlot)))
+        : suggestedStartSlot;
+      const nextEndSlot = hasPreferredRange
+        ? Math.max(nextStartSlot + 1, Math.min(totalSlots, Number(preferredRange?.endSlot)))
+        : suggestedEndSlot;
 
       setEditingBookingId(null);
       setEditingBaseline(null);
       setBookingKind('regular');
       setBlockingTitle('');
       setSelectedCourtId(fallbackCourtId);
-      setSelectedStartSlot(suggestedStartSlot);
-      setSelectedEndSlot(suggestedEndSlot);
+      setSelectedStartSlot(nextStartSlot);
+      setSelectedEndSlot(nextEndSlot);
       resetRecurringDraft(selectedDate, fallbackCourtId);
       setParticipants(createInitialParticipants());
       setSimplifiedSidebarSection('DETAILS');
@@ -5785,11 +5840,43 @@ export default function AdminAgendaPlaygroundPage() {
           appearance: textfield;
         }
       `}</style>
-      <AdminPlaygroundShell activeItem="Calendario" user={user}>
+      <AdminPlaygroundShell activeItem="Calendario" user={user} mobileNavHidden={drawerOpen}>
 
           <section ref={agendaSurfaceRef} className="relative flex-1 h-full min-w-0 rounded-tl-[12px] overflow-hidden bg-p-surface-2">
             <div className="h-full min-w-0">
-              <div className="h-full flex flex-col p-4 lg:p-6 gap-4">
+              <div className="h-full lg:hidden">
+                <AgendaMobileGrid
+                  courts={visibleCourts}
+                  bookings={visibleBookings}
+                  availableSports={availableSports}
+                  sportFilter={sportFilter}
+                  selectedDate={selectedDate}
+                  onSportFilterChange={setSportFilter}
+                  onDateChange={(nextDate) => {
+                    setSelectedDate(nextDate);
+                    setFormError('');
+                  }}
+                  onMoveDate={moveDate}
+                  onOpenBooking={openBookingInDrawer}
+                  onCreateAt={(courtId, startSlot, endSlot) => openQuickCreateBooking(courtId, { startSlot, endSlot })}
+                  onCreateBooking={() => openQuickCreateBooking(visibleCourts[0]?.id)}
+                  onConfirmBooking={async (booking) => {
+                    const bookingId = Number(booking.id);
+                    if (!Number.isFinite(bookingId) || bookingId <= 0) return;
+                    try {
+                      await confirmBooking(bookingId);
+                      await reloadSchedule();
+                      showAgendaToast('Reserva confirmada.', 'success');
+                    } catch (error) {
+                      reportUiError({ area: 'AgendaPlayground', action: 'confirmBookingFromMobileGrid' }, error);
+                      const normalized = normalizeApiError(error, 'No se pudo confirmar la reserva.');
+                      showAgendaToast(toUserSafeMessage(normalized.message, 'No se pudo confirmar la reserva.'));
+                    }
+                  }}
+                  onChargeBooking={(booking) => void openAgendaAccountDrawer(Number(booking.id), 'payment')}
+                />
+              </div>
+              <div className="hidden h-full flex-col p-4 lg:flex lg:p-6 gap-4">
                 <AgendaToolbar
                   availableSports={availableSports}
                   sportFilter={sportFilter}
@@ -6007,14 +6094,14 @@ export default function AdminAgendaPlaygroundPage() {
 
             {customRecurrenceModalOpen && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-center justify-center p-4`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
                   handleModalBackdropPointerUp(event, () => setCustomRecurrenceModalOpen(false))
                 }
               >
                 <div
-                  className="w-full max-w-[560px] rounded-2xl border border-p-border bg-p-surface shadow-2xl"
+                  className="w-full max-w-[560px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
@@ -6205,7 +6292,7 @@ export default function AdminAgendaPlaygroundPage() {
 
             {recurringCreateConfirmOpen && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-center justify-center p-4`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
                   handleModalBackdropPointerUp(event, () => {
@@ -6215,7 +6302,7 @@ export default function AdminAgendaPlaygroundPage() {
                 }
               >
                 <div
-                  className="w-full max-w-[560px] rounded-2xl border border-p-border bg-p-surface shadow-2xl"
+                  className="w-full max-w-[560px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
@@ -6307,14 +6394,14 @@ export default function AdminAgendaPlaygroundPage() {
 
             {recurringOverlapModalOpen && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-center justify-center p-4`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
                   handleModalBackdropPointerUp(event, closeRecurringResultModal)
                 }
               >
                 <div
-                  className="w-full max-w-[680px] rounded-2xl border border-p-border bg-p-surface shadow-2xl"
+                  className="w-full max-w-[680px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
@@ -6420,7 +6507,7 @@ export default function AdminAgendaPlaygroundPage() {
 
             {editSeriesScopeModalOpen && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-center justify-center p-4`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
                   handleModalBackdropPointerUp(event, () => {
@@ -6432,7 +6519,7 @@ export default function AdminAgendaPlaygroundPage() {
                 }
               >
                 <div
-                  className="w-full max-w-[640px] rounded-2xl border border-p-border bg-p-surface shadow-2xl"
+                  className="w-full max-w-[640px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
@@ -6588,7 +6675,7 @@ export default function AdminAgendaPlaygroundPage() {
 
             {deleteSeriesScopeModalOpen && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-center justify-center p-4`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
                   handleModalBackdropPointerUp(event, () => {
@@ -6600,7 +6687,7 @@ export default function AdminAgendaPlaygroundPage() {
                 }
               >
                 <div
-                  className="w-full max-w-[640px] rounded-2xl border border-p-border bg-p-surface shadow-2xl"
+                  className="w-full max-w-[640px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
@@ -6792,14 +6879,14 @@ export default function AdminAgendaPlaygroundPage() {
 
             {deleteBookingConfirmOpen && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex justify-end p-3`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex justify-end p-0 sm:p-3`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
                   handleModalBackdropPointerUp(event, closeDeleteBookingFlow)
                 }
               >
                 <div
-                  className="flex h-full w-full max-w-[560px] flex-col rounded-2xl border border-p-border bg-p-surface shadow-2xl"
+                  className="flex h-full w-full max-w-[560px] flex-col rounded-none border-0 bg-p-surface shadow-2xl sm:rounded-2xl sm:border sm:border-p-border"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-start justify-between gap-3 border-b border-p-border px-5 py-4">
@@ -6975,7 +7062,7 @@ export default function AdminAgendaPlaygroundPage() {
 
             {deleteBookingFinalConfirmOpen && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modalStacked} flex items-center justify-center bg-[var(--overlay)] p-4`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modalStacked} flex items-end justify-center bg-[var(--overlay)] p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
                   handleModalBackdropPointerUp(event, () => {
@@ -6984,7 +7071,7 @@ export default function AdminAgendaPlaygroundPage() {
                 }
               >
                 <div
-                  className="w-full max-w-[460px] rounded-2xl border border-p-border bg-p-surface shadow-2xl"
+                  className="w-full max-w-[460px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="border-b border-p-border px-5 py-4">
@@ -7022,14 +7109,14 @@ export default function AdminAgendaPlaygroundPage() {
 
             {seriesOperationResultOpen && seriesOperationResult && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-center justify-center p-4`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
                   handleModalBackdropPointerUp(event, closeSeriesOperationResult)
                 }
               >
                 <div
-                  className="w-full max-w-[620px] rounded-2xl border border-p-border bg-p-surface shadow-2xl"
+                  className="w-full max-w-[620px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
@@ -7098,7 +7185,7 @@ export default function AdminAgendaPlaygroundPage() {
 
             {deleteParticipantConfirm.open && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-center justify-center p-4`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
                   handleModalBackdropPointerUp(event, () =>
@@ -7107,7 +7194,7 @@ export default function AdminAgendaPlaygroundPage() {
                 }
               >
                 <div
-                  className="w-full max-w-[500px] rounded-2xl border border-p-border bg-p-surface shadow-2xl"
+                  className="w-full max-w-[500px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
@@ -7153,14 +7240,14 @@ export default function AdminAgendaPlaygroundPage() {
 
             {blockingErrorModalOpen && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-center justify-center p-4`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
                   handleModalBackdropPointerUp(event, () => setBlockingErrorModalOpen(false))
                 }
               >
                 <div
-                  className="w-full max-w-[560px] rounded-2xl border border-p-error bg-p-surface shadow-2xl"
+                  className="w-full max-w-[560px] rounded-2xl border border-p-error bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between px-5 py-4 border-b border-p-error">
@@ -7196,14 +7283,14 @@ export default function AdminAgendaPlaygroundPage() {
 
             {bookingCreatedModalOpen && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-center justify-center p-4`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
                   handleModalBackdropPointerUp(event, () => setBookingCreatedModalOpen(false))
                 }
               >
                 <div
-                  className="w-full max-w-[520px] rounded-2xl border border-p-accent bg-p-surface shadow-2xl"
+                  className="w-full max-w-[520px] rounded-2xl border border-p-accent bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
@@ -7262,10 +7349,18 @@ export default function AdminAgendaPlaygroundPage() {
                     </div>
                   </div>
                 )}
-                <header className="border-b border-p-border px-6 py-5 flex items-start justify-between gap-4">
-                  <div className="min-w-0">
+                <header className="border-b border-p-border px-4 py-3.5 lg:px-6 lg:py-5 flex items-start justify-between gap-3 lg:gap-4">
+                  <button
+                    type="button"
+                    onClick={() => closeBookingDrawer({ clearFormError: false })}
+                    aria-label="Volver al calendario"
+                    className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-[10px] border border-p-border text-p-text-secondary hover:bg-p-surface-2 lg:hidden"
+                  >
+                    <ChevronLeft size={17} />
+                  </button>
+                  <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-[22px] font-semibold leading-snug tracking-tight text-p-text">
+                      <h2 className="text-[18px] lg:text-[22px] font-semibold leading-snug tracking-tight text-p-text">
                         {sidebarTitle}
                       </h2>
                       {useSimplifiedBookingSidebar && simplifiedIsEditingReservation && (
@@ -7301,7 +7396,7 @@ export default function AdminAgendaPlaygroundPage() {
                         <ChevronDown size={14} />
                       </button>
                       {bookingKindMenuOpen && (
-                        <div className="absolute top-10 left-0 z-40 w-[420px] rounded-2xl border border-p-border bg-p-surface p-2 shadow-xl">
+                        <div className="absolute top-10 left-0 z-40 w-[420px] max-w-[calc(100vw-2rem)] rounded-2xl border border-p-border bg-p-surface p-2 shadow-xl">
                           <div className="space-y-1">
                             {bookingKindOptions.map((option) => (
                               <button
@@ -7392,15 +7487,16 @@ export default function AdminAgendaPlaygroundPage() {
                   <button
                     type="button"
                     onClick={() => closeBookingDrawer({ clearFormError: false })}
-                    className="h-9 w-9 rounded-full border border-p-border text-p-text-muted grid place-items-center hover:bg-p-surface-2 shrink-0"
+                    aria-label="Cerrar panel"
+                    className="hidden h-9 w-9 rounded-full border border-p-border text-p-text-muted place-items-center hover:bg-p-surface-2 shrink-0 lg:grid"
                   >
                     <X size={16} />
                   </button>
                 </header>
 
                 {useSimplifiedBookingSidebar && simplifiedIsEditingReservation && (
-                  <div className="border-b border-p-border px-6">
-                    <nav className="flex items-center gap-6 overflow-x-auto">
+                  <div className="border-b border-p-border px-4 lg:px-6">
+                    <nav className="flex items-center gap-5 lg:gap-6 overflow-x-auto">
                       {simplifiedSectionTabs.map((tab) => {
                         const isActive = simplifiedSidebarSection === tab.id;
                         return (
@@ -7422,7 +7518,7 @@ export default function AdminAgendaPlaygroundPage() {
                   </div>
                 )}
 
-                <div ref={drawerScrollContainerRef} className="flex-1 overflow-y-auto px-6 py-6">
+                <div ref={drawerScrollContainerRef} className="flex-1 overflow-y-auto px-3 py-3 lg:px-6 lg:py-6">
                   {useSimplifiedBookingSidebar ? (
                     <section className="rounded-2xl border border-p-border bg-p-surface px-4 py-4">
                       {showSimplifiedDetailsSection && (simplifiedIsEditingReservation ? (
@@ -9310,7 +9406,7 @@ export default function AdminAgendaPlaygroundPage() {
                   )}
                 </div>
 
-                <footer ref={simplifiedSidebarFooterRef} className="border-t border-p-border bg-p-surface px-6 py-4">
+                <footer ref={simplifiedSidebarFooterRef} className="border-t border-p-border bg-p-surface px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:px-6 lg:py-4">
                   {useSimplifiedBookingSidebar ? (
                     <div className="space-y-3">
                       {shouldShowSeriesScopeHint && (
@@ -9338,7 +9434,8 @@ export default function AdminAgendaPlaygroundPage() {
                               className="h-10 inline-flex items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-40"
                             >
                               <MoreVertical size={15} />
-                              Más acciones
+                              <span className="sm:hidden">Más</span>
+                              <span className="hidden sm:inline">Más acciones</span>
                             </button>
                             {simplifiedMoreActionsOpen && (
                               <div
@@ -9390,7 +9487,7 @@ export default function AdminAgendaPlaygroundPage() {
                         ) : (
                           <span />
                         )}
-                        <div className="flex items-center gap-2">
+                        <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
                           {showConfirmMainAction && (
                             <button
                               type="button"
@@ -9414,7 +9511,7 @@ export default function AdminAgendaPlaygroundPage() {
                             type="button"
                             onClick={() => void handleCreateBooking()}
                             disabled={primaryActionDisabled}
-                            className="h-10 min-w-[170px] rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-50"
+                            className="h-11 flex-1 sm:h-10 sm:flex-none sm:min-w-[170px] rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-50"
                           >
                             {editingBookingId ? 'Guardar cambios' : 'Crear reserva'}
                           </button>
@@ -9519,7 +9616,7 @@ export default function AdminAgendaPlaygroundPage() {
                           type="button"
                           onClick={() => void handleCreateBooking()}
                           disabled={primaryActionDisabled}
-                          className="h-10 min-w-[232px] rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-50"
+                          className="h-10 sm:min-w-[232px] rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-50"
                         >
                           {isSubmittingBooking ? primaryActionLabel : `${primaryActionLabel} • ${primaryActionMeta}`}
                         </button>

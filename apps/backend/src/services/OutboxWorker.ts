@@ -6,6 +6,7 @@ import { WhatsappDeliveryService } from './WhatsappDeliveryService';
 import { NotificationService } from './NotificationService';
 import { metricsService } from './MetricsService';
 import { WhatsappSendV2Dispatcher } from './WhatsappSendV2Dispatcher';
+import { pushNotificationService, type PushOutboxPayload } from './PushNotificationService';
 
 type ClaimedOutboxRow = OutboxMessage;
 type DispatchOutcome = {
@@ -169,6 +170,14 @@ export class OutboxWorker {
       return {
         outboxLastError: null
       };
+    }
+
+    if (message.type === OUTBOX_TYPES.PUSH_SEND) {
+      const result = await pushNotificationService.deliver(
+        (message.payload || {}) as unknown as PushOutboxPayload,
+        message.attempts
+      );
+      return { outboxLastError: result.skipped ? `PUSH_SKIPPED: ${result.skipped}` : null };
     }
 
     throw new Error(`Tipo de outbox no soportado: ${message.type}`);

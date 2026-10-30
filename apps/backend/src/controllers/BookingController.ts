@@ -328,8 +328,9 @@ export class BookingController {
                         z.string().trim().email().optional()
                     ),
                     dni: optionalTrimmedString(),
-                    name: optionalTrimmedString()
-                }).refine((participant) => Boolean(participant.email || participant.dni), {
+                    name: optionalTrimmedString(),
+                    inviteToken: z.string().trim().max(1000).optional()
+                }).refine((participant) => Boolean(participant.email || participant.dni || participant.inviteToken), {
                     message: 'Ingresá el email o el DNI del jugador.'
                 })).max(20).optional()
             });
@@ -500,7 +501,8 @@ export class BookingController {
                         : (initialParticipants || []).map((participant) => ({
                             email: participant.email ? sanitizeString(participant.email, 254) : null,
                             dni: participant.dni ? sanitizeString(participant.dni, 20) : null,
-                            name: participant.name ? sanitizeString(participant.name, 120) : null
+                            name: participant.name ? sanitizeString(participant.name, 120) : null,
+                            inviteToken: participant.inviteToken || null
                         }))
                 }
             );
@@ -713,7 +715,9 @@ export class BookingController {
                     executeNow: z.boolean().optional(),
                     reasonType: z.enum(['FULL', 'PARTIAL_COMMERCIAL', 'PARTIAL_SERVICE_FAILURE', 'PARTIAL_PRICING_ERROR', 'OTHER']).optional(),
                     executionNotes: z.string().trim().max(500).optional()
-                }).optional()
+                }).optional(),
+                // Motivo para los jugadores (se muestra en el aviso de cancelación).
+                reasonText: z.string().trim().max(120).optional()
             });
             const parsed = cancelSchema.safeParse(req.body);
             if (!parsed.success) {
@@ -723,6 +727,7 @@ export class BookingController {
             const user = (req as any).user;
             const clubId = (req as any).clubId;
             const result = await this.bookingService.cancelBooking(Number(bookingId), user?.userId, clubId, {
+                playerReasonText: parsed.data.reasonText || null,
                 refund: parsed.data.refund
                     ? {
                         amount: parsed.data.refund.amount,
@@ -1112,12 +1117,13 @@ export class BookingController {
                 return sendAppError(res, badRequest('Seleccioná una reserva válida.', ErrorCodes.INVALID_INPUT));
             }
 
-            // Se invita por email o por DNI exacto de una cuenta existente.
+            // Se invita por email, por DNI exacto de una cuenta existente o con el token de la búsqueda por nombre.
             const bodySchema = z.object({
                 email: z.string().trim().email().optional(),
                 dni: z.string().trim().min(6).max(20).optional(),
-                name: z.string().trim().min(1).max(120).optional()
-            }).refine((value) => Boolean(value.email || value.dni), {
+                name: z.string().trim().min(1).max(120).optional(),
+                inviteToken: z.string().trim().max(1000).optional()
+            }).refine((value) => Boolean(value.email || value.dni || value.inviteToken), {
                 path: ['email'],
                 message: 'Ingresá el email o el DNI del jugador.'
             });
@@ -1136,7 +1142,8 @@ export class BookingController {
                 ownerUserId: userId,
                 invitedEmail: parsed.data.email || null,
                 invitedDni: parsed.data.dni || null,
-                invitedName: parsed.data.name || null
+                invitedName: parsed.data.name || null,
+                invitedUserToken: parsed.data.inviteToken || null
             });
             return res.status(201).json({
                 message: 'Invitación creada.',

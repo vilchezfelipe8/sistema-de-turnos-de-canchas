@@ -36,7 +36,7 @@ export default function AdminModal({
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center bg-[var(--overlay)] p-4 backdrop-blur-[1px]"
+      className="fixed inset-0 flex items-end justify-center bg-[var(--overlay)] p-0 backdrop-blur-[1px] sm:items-center sm:p-4"
       style={{ zIndex: ADMIN_Z_INDEX.modal }}
       role="presentation"
       onMouseDown={(event) => {
@@ -47,7 +47,7 @@ export default function AdminModal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`w-full ${maxWidthClassName} rounded-2xl border border-p-border bg-p-surface shadow-p-lg`}
+        className={`w-full ${maxWidthClassName} rounded-t-3xl border border-p-border bg-p-surface shadow-p-lg max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)] sm:rounded-2xl`}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="flex items-start justify-between gap-4 border-b border-p-border px-5 py-4">

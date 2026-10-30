@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { BookingController } from '../controllers/BookingController';
 import { BookingService } from '../services/BookingService';
 import { authMiddleware } from '../middleware/AuthMiddleware';
-import { playerLookupLimiter } from '../middleware/rateLimit';
+import { playerLookupLimiter, playerSearchLimiter } from '../middleware/rateLimit';
 import { BookingRepository } from '../repositories/BookingRepository';
 import { CourtRepository } from '../repositories/CourtRepository';
 import { UserRepository } from '../repositories/UserRepository';
@@ -10,6 +10,8 @@ import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
 import { CashRepository } from '../repositories/CashRepository';
 import { ProductRepository } from '../repositories/ProductRepository';
 import { PlayerSlotController } from '../controllers/PlayerSlotController';
+import { PlayerInviteSearchController } from '../controllers/PlayerInviteSearchController';
+import { PushController } from '../controllers/PushController';
 
 const router = Router();
 
@@ -42,8 +44,20 @@ router.post('/bookings/:id/participants/:participantId/remove', authMiddleware, 
 router.post('/bookings/:id/cancel', authMiddleware, (req, res) => bookingController.cancelMyBooking(req, res));
 router.post('/bookings/:id/leave', authMiddleware, (req, res) => bookingController.leaveMyBooking(req, res));
 router.post('/players/lookup', authMiddleware, playerLookupLimiter, (req, res) => bookingController.lookupPlayerForInvitation(req, res));
+// Invitar por nombre: búsqueda acotada al club y "Jugaron con vos".
+const playerInviteSearchController = new PlayerInviteSearchController();
+router.get('/players/search', authMiddleware, playerSearchLimiter, (req, res) => playerInviteSearchController.search(req, res));
+router.get('/players/frequent', authMiddleware, playerSearchLimiter, (req, res) => playerInviteSearchController.frequent(req, res));
 router.get('/booking-invitations', authMiddleware, (req, res) => bookingController.getMyBookingInvitations(req, res));
 router.post('/booking-invitations/:id/accept', authMiddleware, (req, res) => bookingController.acceptMyBookingInvitation(req, res));
 router.post('/booking-invitations/:id/decline', authMiddleware, (req, res) => bookingController.declineMyBookingInvitation(req, res));
+
+// Avisos push: configuración, suscripción por dispositivo y preferencias.
+const pushController = new PushController();
+router.get('/push/config', authMiddleware, (req, res) => pushController.config(req, res));
+router.post('/push/subscriptions', authMiddleware, (req, res) => pushController.saveSubscription(req, res));
+router.post('/push/subscriptions/remove', authMiddleware, (req, res) => pushController.removeSubscription(req, res));
+router.get('/notification-preferences', authMiddleware, (req, res) => pushController.getPreferences(req, res));
+router.put('/notification-preferences', authMiddleware, (req, res) => pushController.updatePreferences(req, res));
 
 export default router;

@@ -267,6 +267,9 @@ const formatRelativeDate = (isoString: string): string => {
   return date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
 };
 const ACCOUNT_PAYMENT_EPSILON = 0.009;
+/** Refresco automático de Caja (web y mobile). */
+const CAJA_AUTO_REFRESH_MS = 30_000;
+const CAJA_REFRESH_ON_FOCUS_MIN_GAP_MS = 10_000;
 const EMPTY_REFUNDS: RefundRecord[] = [];
 const drawerSectionCardClass = 'rounded-2xl border border-p-border bg-p-surface-2 p-4';
 
@@ -696,9 +699,12 @@ export default function AdminPaymentsPlaygroundPage() {
     [router]
   );
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const refresh = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent);
+    if (!silent) {
+      setLoading(true);
+      setError('');
+    }
     try {
       const [open, closed, pending, recent] = await Promise.all([
         listAccounts({ status: 'OPEN' }),
@@ -707,19 +713,23 @@ export default function AdminPaymentsPlaygroundPage() {
         listRefunds({ take: 30 }),
       ]);
 
-      setOpenAccounts(Array.isArray(open) ? open : []);
+      const nextOpen = Array.isArray(open) ? open : [];
+      setOpenAccounts(nextOpen);
       setClosedAccounts(Array.isArray(closed) ? closed : []);
       setPendingRefunds(Array.isArray(pending) ? pending : []);
       setRecentRefunds(Array.isArray(recent) ? recent : []);
+      if (silent) setError('');
+      return nextOpen;
     } catch (loadError: any) {
-      reportUiError({ area: 'PaymentsPlayground', action: 'refresh' }, loadError);
-      setError(loadError?.message || 'No se pudo cargar el módulo de pagos.');
+      reportUiError({ area: 'PaymentsPlayground', action: silent ? 'autoRefresh' : 'refresh' }, loadError);
+      if (!silent) setError(loadError?.message || 'No se pudo cargar el módulo de pagos.');
+      return null;
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
-  const ensureAccountDetail = useCallback(async (accountId: string, force = false) => {
+  const ensureAccountDetail = useCallback(async (accountId: string, force = false, silent = false) => {
     const key = String(accountId || '').trim();
     if (!key) return null;
     if (!force && accountDetailById[key]) return accountDetailById[key];
@@ -728,8 +738,10 @@ export default function AdminPaymentsPlaygroundPage() {
     const requestSeq = (accountDetailRequestSeqRef.current[key] || 0) + 1;
     accountDetailRequestSeqRef.current[key] = requestSeq;
     try {
-      setLoadingAccountDetailById((prev) => ({ ...prev, [key]: true }));
-      setAccountDetailError('');
+      if (!silent) {
+        setLoadingAccountDetailById((prev) => ({ ...prev, [key]: true }));
+        setAccountDetailError('');
+      }
       const detail = await getAccountById(key);
       const normalized: AccountDetail = {
         id: String(detail?.id || key),
@@ -767,10 +779,12 @@ export default function AdminPaymentsPlaygroundPage() {
       return normalized;
     } catch (detailError) {
       reportUiError({ area: 'PaymentsPlayground', action: 'ensureAccountDetail' }, detailError);
-      setAccountDetailError(extractErrorMessage(detailError, 'No se pudo cargar el detalle de la cuenta.'));
+      if (!silent) {
+        setAccountDetailError(extractErrorMessage(detailError, 'No se pudo cargar el detalle de la cuenta.'));
+      }
       return null;
     } finally {
-      if (accountDetailRequestSeqRef.current[key] === requestSeq) {
+      if (!silent && accountDetailRequestSeqRef.current[key] === requestSeq) {
         setLoadingAccountDetailById((prev) => ({ ...prev, [key]: false }));
       }
     }
@@ -830,9 +844,12 @@ export default function AdminPaymentsPlaygroundPage() {
     }
   }, [openAccountDrawer, refresh]);
 
-  const loadCashSummary = useCallback(async () => {
-    setCashSummaryError('');
-    setLoadingCashSummary(true);
+  const loadCashSummary = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent);
+    if (!silent) {
+      setCashSummaryError('');
+      setLoadingCashSummary(true);
+    }
     try {
       const { startDate, endDate } = getCashDateRange(cashActivePeriod, cashPeriodOffset);
       const data = await CashService.getSummary({ startDate, endDate });
@@ -862,15 +879,18 @@ export default function AdminPaymentsPlaygroundPage() {
       setCashMovements(normalizedMovements.filter((item) => Number.isFinite(item.id) && item.id > 0));
     } catch (loadError) {
       reportUiError({ area: 'PaymentsPlayground', action: 'loadCashSummary' }, loadError);
-      setCashSummaryError(extractErrorMessage(loadError, 'No se pudo cargar el resumen de caja.'));
+      if (!silent) setCashSummaryError(extractErrorMessage(loadError, 'No se pudo cargar el resumen de caja.'));
     } finally {
-      setLoadingCashSummary(false);
+      if (!silent) setLoadingCashSummary(false);
     }
   }, [cashActivePeriod, cashPeriodOffset]);
 
-  const loadCashShiftContext = useCallback(async () => {
-    setCashShiftError('');
-    setLoadingCashShift(true);
+  const loadCashShiftContext = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent);
+    if (!silent) {
+      setCashShiftError('');
+      setLoadingCashShift(true);
+    }
     try {
       const [shift, registers] = await Promise.all([
         CashService.getCurrentShift(),
@@ -887,9 +907,9 @@ export default function AdminPaymentsPlaygroundPage() {
       }
     } catch (loadError) {
       reportUiError({ area: 'PaymentsPlayground', action: 'loadCashShiftContext' }, loadError);
-      setCashShiftError(extractErrorMessage(loadError, 'No se pudo cargar el estado del turno de caja.'));
+      if (!silent) setCashShiftError(extractErrorMessage(loadError, 'No se pudo cargar el estado del turno de caja.'));
     } finally {
-      setLoadingCashShift(false);
+      if (!silent) setLoadingCashShift(false);
     }
   }, []);
 
@@ -1400,6 +1420,84 @@ export default function AdminPaymentsPlaygroundPage() {
     void Promise.allSettled(missingIds.map((id) => ensureAccountDetail(id)));
   }, [activeTab, allAccounts, accountDetailById, ensureAccountDetail, loadingAccountDetailById]);
 
+  // Refresco automático de Caja (web y mobile). No corre con la pestaña oculta ni con
+  // paneles/modales de acción abiertos, para no pisar formularios en curso.
+  const cajaAutoRefreshBlockedRef = useRef(false);
+  cajaAutoRefreshBlockedRef.current =
+    accountDrawerOpen ||
+    cashActionSidebarOpen ||
+    refundRequestOpen ||
+    Boolean(refundActionConfirm) ||
+    submittingCashMovement ||
+    openingCashShift ||
+    closingCashShift ||
+    posSubmitting ||
+    openingAccount;
+  const cajaAutoRefreshStateRef = useRef({
+    activeTab,
+    selectedAccountId,
+    openAccountIds: [] as string[],
+  });
+  cajaAutoRefreshStateRef.current = {
+    activeTab,
+    selectedAccountId,
+    openAccountIds: openAccounts.map((account) => String(account.id)),
+  };
+  const cajaAutoRefreshFnsRef = useRef({ refresh, ensureAccountDetail, loadCashSummary, loadCashShiftContext });
+  cajaAutoRefreshFnsRef.current = { refresh, ensureAccountDetail, loadCashSummary, loadCashShiftContext };
+  useEffect(() => {
+    if (!authChecked || !user || !hasOperatorAccess(user)) return;
+    let inFlight = false;
+    let lastRunAt = Date.now();
+    const runRefresh = async () => {
+      if (inFlight || cajaAutoRefreshBlockedRef.current) return;
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      inFlight = true;
+      lastRunAt = Date.now();
+      try {
+        const { activeTab: tab, selectedAccountId: selectedId, openAccountIds: previousOpenIds } =
+          cajaAutoRefreshStateRef.current;
+        const { refresh, ensureAccountDetail, loadCashSummary, loadCashShiftContext } = cajaAutoRefreshFnsRef.current;
+        const tasks: Array<Promise<unknown>> = [];
+        if (tab === 'ACCOUNTS' || tab === 'REFUNDS') {
+          tasks.push(
+            refresh({ silent: true }).then((nextOpen) => {
+              if (!nextOpen || tab !== 'ACCOUNTS') return;
+              // Actualiza saldos de cuentas abiertas (y de las que se cerraron desde la última vuelta).
+              const ids = new Set<string>([
+                ...nextOpen.map((account: any) => String(account.id)),
+                ...previousOpenIds,
+                ...(selectedId ? [String(selectedId)] : []),
+              ]);
+              return Promise.allSettled(
+                Array.from(ids).slice(0, 40).map((id) => ensureAccountDetail(id, true, true))
+              );
+            })
+          );
+        }
+        if (isCashSectionTab(tab)) {
+          tasks.push(loadCashSummary({ silent: true }), loadCashShiftContext({ silent: true }));
+        }
+        await Promise.allSettled(tasks);
+      } finally {
+        inFlight = false;
+      }
+    };
+    const intervalId = window.setInterval(() => void runRefresh(), CAJA_AUTO_REFRESH_MS);
+    const handleReturn = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastRunAt < CAJA_REFRESH_ON_FOCUS_MIN_GAP_MS) return;
+      void runRefresh();
+    };
+    document.addEventListener('visibilitychange', handleReturn);
+    window.addEventListener('focus', handleReturn);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleReturn);
+      window.removeEventListener('focus', handleReturn);
+    };
+  }, [authChecked, user]);
+
   const accountsWithRefundsIdSet = useMemo(() => {
     const set = new Set<string>();
     recentRefunds.forEach((refund) => {
@@ -1841,7 +1939,8 @@ export default function AdminPaymentsPlaygroundPage() {
         <title>Caja | Pique Admin</title>
       </Head>
       <AdminPlaygroundShell activeItem="Caja" user={user} contentMuted={cashActionSidebarOpen}>
-        <div className="flex h-full min-h-0 flex-col gap-4 p-4 lg:p-6">
+        <div className="flex h-full min-h-0 flex-col gap-3 p-3.5 lg:gap-4 lg:p-6">
+          <h1 className="text-[22px] font-extrabold tracking-[-0.03em] text-p-text lg:hidden">Caja</h1>
           <AdminSegmentedControl
             ariaLabel="Secciones de caja"
             value={activeTab}
@@ -1983,11 +2082,12 @@ export default function AdminPaymentsPlaygroundPage() {
                     </div>
                   ) : (
                   <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-                    <div className="max-h-[560px] overflow-y-auto pr-1">
+                    <div className="lg:max-h-[560px] lg:overflow-y-auto lg:pr-1">
                       <CashAccountsList
                         accounts={cashAccountItems}
                         selectedId={selectedAccountId}
                         onSelect={handleSelectAccount}
+                        onPay={(accountId) => openAccountDrawer(accountId, 'payment')}
                       />
                     </div>
 
@@ -2150,7 +2250,7 @@ export default function AdminPaymentsPlaygroundPage() {
                     description="Timeline de ingresos y egresos del período visible."
                     headerClassName="pl-4 pr-2 py-3"
                     actions={(
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
                           onClick={() => setCashSidebarView('product_sale')}

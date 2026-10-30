@@ -21,7 +21,7 @@ type UsePlayerSignInOptions = {
   onAuthenticated: (data: any) => void | Promise<void>;
 };
 
-// Lógica de ingreso del jugador compartida por /login y el modal de la grilla de reservas:
+// Lógica de ingreso del jugador usada por /login (único login de la app; la grilla de reservas manda ahí):
 // DNI o email + contraseña, cuenta de socio pendiente → activación, olvidé mi contraseña y enlace por email.
 export function usePlayerSignIn({ onAuthenticated }: UsePlayerSignInOptions) {
   const [identifier, setIdentifier] = useState('');

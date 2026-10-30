@@ -26,6 +26,8 @@ type CashAccountsListProps = {
   selectedId: string | null;
   /** Called when the user clicks the card. */
   onSelect: (id: string) => void;
+  /** Mobile: acción directa de cobro en la card (solo cuentas abiertas con saldo). */
+  onPay?: (id: string) => void;
   loading?: boolean;
   className?: string;
 };
@@ -61,10 +63,12 @@ function AccountCard({
   account,
   isSelected,
   onSelect,
+  onPay,
 }: {
   account: CashAccountItem;
   isSelected: boolean;
   onSelect: (id: string) => void;
+  onPay?: (id: string) => void;
 }) {
   const { detail } = account;
   const clientName =
@@ -120,7 +124,7 @@ function AccountCard({
       </div>
 
       {/* ── Financial summary ── */}
-      <div className="flex items-center gap-4 text-[12px]">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
         {detail ? (
           <>
             <span className="text-p-text-muted">
@@ -144,6 +148,22 @@ function AccountCard({
           <span className="text-p-text-muted">Cargando detalle…</span>
         )}
       </div>
+
+      {onPay && isOpen && hasPending && (
+        <div className="flex justify-end lg:hidden">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onPay(account.id);
+            }}
+            onKeyDown={(event) => event.stopPropagation()}
+            className="inline-flex h-9 items-center rounded-[10px] bg-p-brand px-4 text-[12px] font-extrabold text-p-brand-on"
+          >
+            Cobrar
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -165,6 +185,7 @@ export default function CashAccountsList({
   accounts,
   selectedId,
   onSelect,
+  onPay,
   loading = false,
   className,
 }: CashAccountsListProps) {
@@ -225,6 +246,7 @@ export default function CashAccountsList({
           account={account}
           isSelected={selectedId === account.id}
           onSelect={onSelect}
+          onPay={onPay}
         />
       ))}
     </div>

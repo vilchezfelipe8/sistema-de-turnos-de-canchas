@@ -44,7 +44,8 @@ export default function AdminStorePage() {
         const clubSlug = getActiveClubSlug(normalizedUser);
 
         return (
-          <div className="flex h-full min-h-0 flex-col gap-4 p-4 pb-0 lg:p-6 lg:pb-0">
+          <div className="flex h-full min-h-0 flex-col gap-3 p-3.5 pb-0 lg:gap-4 lg:p-6 lg:pb-0">
+            <h1 className="text-[22px] font-extrabold tracking-[-0.03em] text-p-text lg:hidden">Tienda</h1>
             <AdminSegmentedControl
               options={STORE_TABS.map((tab) => ({ value: tab.value, label: tab.label }))}
               value={activeTab}

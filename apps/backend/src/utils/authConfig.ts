@@ -33,8 +33,9 @@ export const authConfig = {
   cookieSecure: toBool(process.env.AUTH_COOKIE_SECURE, isProduction),
   cookieSameSite: normalizeSameSite(process.env.AUTH_COOKIE_SAMESITE),
   accessTtlMinutes: toInt(process.env.AUTH_ACCESS_TTL_MINUTES, 15),
-  refreshIdleDays: toInt(process.env.AUTH_REFRESH_IDLE_DAYS, 30),
-  refreshAbsoluteDays: toInt(process.env.AUTH_REFRESH_ABSOLUTE_DAYS, 180),
+  // La sesión dura hasta que el usuario la cierre: 10 años por defecto (se puede acortar por entorno).
+  refreshIdleDays: toInt(process.env.AUTH_REFRESH_IDLE_DAYS, 3650),
+  refreshAbsoluteDays: toInt(process.env.AUTH_REFRESH_ABSOLUTE_DAYS, 3650),
   refreshPepper: String(process.env.AUTH_REFRESH_PEPPER || '').trim() || (isProduction ? '' : 'dev-refresh-pepper'),
   trustProxy: toBool(process.env.AUTH_TRUST_PROXY, isProduction)
 };
