@@ -1,15 +1,20 @@
-FROM node:18-bullseye-slim AS deps
+FROM node:22-bookworm-slim AS deps
 WORKDIR /usr/src/app
 COPY package.json package-lock.json* ./
 RUN npm ci
 
-FROM node:18-bullseye-slim AS builder
+FROM node:22-bookworm-slim AS builder
 WORKDIR /usr/src/app
 COPY --from=deps /usr/src/app/node_modules ./node_modules
 COPY . .
+ARG NEXT_PUBLIC_API_URL=/api
+ARG NEXT_PUBLIC_SITE_URL=https://pique.ar
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
+ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-FROM node:18-bullseye-slim
+FROM node:22-bookworm-slim
 WORKDIR /usr/src/app
 ENV NODE_ENV=production
 COPY --from=builder /usr/src/app/.next ./.next

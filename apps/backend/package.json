@@ -29,6 +29,7 @@
     "smoke:release": "ts-node src/scripts/smokeRelease.ts",
     "whatsapp:bootstrap-cloud-api": "ts-node src/scripts/bootstrapWhatsappCloudApi.ts",
     "bootstrap:las-tejas": "node dist/scripts/bootstrap-las-tejas.js",
+    "bootstrap:barrio-parque": "node dist/scripts/bootstrap-barrio-parque.js",
     "phones:backfill": "ts-node src/scripts/backfillPhoneCanonical.ts",
     "users:dni:audit": "ts-node src/scripts/auditUserDni.ts",
     "members:import": "ts-node src/scripts/importMembers.ts",

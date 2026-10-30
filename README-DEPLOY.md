@@ -2,6 +2,10 @@
 
 Guía mínima para desplegar Pique con foco en autenticación por cookies y operación productiva.
 
+Para la VPS reconstruida el 2026-10-22, usar [la guía de Hostinger](docs/hostinger-rebuild.md)
+y `docker-compose.production.yml`. Incluye arranque sin certificado previo, bootstrap exclusivo
+de Barrio Parque y backups a Windows. El `.env` remoto selecciona este Compose automáticamente.
+
 ## 1) Requisitos base
 
 - Docker + Docker Compose
