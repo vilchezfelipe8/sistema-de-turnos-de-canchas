@@ -6,6 +6,7 @@ import { beginAppleOAuthLogin, beginFacebookOAuthLogin, beginGoogleOAuthLogin, r
 import { normalizeDniInput, usePlayerSignIn } from '../hooks/usePlayerSignIn';
 import { ClubService } from '../services/ClubService';
 import { Mail, Lock, User, Phone, UserPlus, LogIn, AlertCircle, Loader2, IdCard, CheckCircle, Eye, EyeOff, Moon, Sun, ArrowLeft, KeyRound } from 'lucide-react';
+import { AppleMark, FacebookMark, GoogleMark } from '../components/AuthProviderMarks';
 import { getActiveClubSlug, hasOperatorAccess, normalizeSessionUser } from '../utils/session';
 import { buildCanonicalPhone, DEFAULT_PHONE_COUNTRY_ISO2, normalizePhoneCountryIso2, PHONE_COUNTRY_OPTIONS, resolveCallingCodeByIso2 } from '../utils/phone';
 import { useAuth } from '../contexts/AuthContext';
@@ -18,43 +19,6 @@ import { AUTH_REQUIRED_PATHS, getPreviousInAppPath } from '../utils/navigationHi
 type PostLoginRedirectIntent = { sourceUser?: any };
 
 const FONT = "var(--font-sans)";
-
-function GoogleMark() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
-      <path fill="#EA4335" d="M24 9.5c3.54 0 6.72 1.22 9.23 3.61l6.9-6.9C35.95 2.34 30.45 0 24 0 14.64 0 6.55 5.38 2.56 13.22l8.04 6.24C12.5 13.63 17.77 9.5 24 9.5z" />
-      <path fill="#4285F4" d="M46.5 24.55c0-1.64-.15-3.21-.41-4.73H24v8.95h12.64c-.55 2.96-2.23 5.46-4.75 7.14l7.31 5.68C43.84 37.31 46.5 31.54 46.5 24.55z" />
-      <path fill="#FBBC05" d="M10.6 28.54A14.36 14.36 0 0 1 9.84 24c0-1.58.27-3.11.76-4.54l-8.04-6.24A24.03 24.03 0 0 0 0 24c0 3.87.93 7.53 2.56 10.78l8.04-6.24z" />
-      <path fill="#34A853" d="M24 48c6.48 0 11.92-2.13 15.89-5.8l-7.31-5.68c-2.03 1.36-4.62 2.17-8.58 2.17-6.23 0-11.5-4.13-13.4-9.96l-8.04 6.24C6.55 42.62 14.64 48 24 48z" />
-    </svg>
-  );
-}
-
-function AppleMark() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M16.02 12.85c.03 3.18 2.8 4.24 2.83 4.26-.02.07-.44 1.51-1.45 2.99-.87 1.28-1.77 2.55-3.2 2.58-1.4.03-1.85-.83-3.45-.83-1.61 0-2.1.8-3.42.86-1.38.05-2.43-1.39-3.31-2.66-1.8-2.6-3.17-7.34-1.33-10.54.91-1.59 2.54-2.6 4.3-2.63 1.34-.03 2.61.91 3.45.91.84 0 2.41-1.12 4.07-.96.69.03 2.64.28 3.88 2.1-.1.06-2.32 1.35-2.37 3.92ZM13.73 5.31c.73-.88 1.23-2.1 1.1-3.31-1.05.04-2.31.7-3.06 1.58-.67.78-1.26 2.02-1.1 3.21 1.17.09 2.34-.59 3.06-1.48Z"
-      />
-    </svg>
-  );
-}
-
-function FacebookMark() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        fill="#1877F2"
-        d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07c0 6.03 4.39 11.03 10.13 11.93v-8.44H7.08v-3.49h3.05V9.41c0-3.03 1.79-4.7 4.54-4.7 1.31 0 2.68.24 2.68.24v2.98h-1.51c-1.49 0-1.95.93-1.95 1.88v2.26h3.32l-.53 3.49h-2.79V24C19.61 23.1 24 18.1 24 12.07Z"
-      />
-      <path
-        fill="#FFFFFF"
-        d="M16.67 15.56l.53-3.49h-3.32V9.81c0-.95.46-1.88 1.95-1.88h1.51V4.95s-1.37-.24-2.68-.24c-2.75 0-4.54 1.67-4.54 4.7v2.66H7.08v3.49h3.05V24a12.1 12.1 0 0 0 3.75 0v-8.44h2.79Z"
-      />
-    </svg>
-  );
-}
 
 const LOGIN_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800;900&display=swap');

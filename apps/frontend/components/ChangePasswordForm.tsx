@@ -12,24 +12,26 @@ const FIELDS = [
 ] as const;
 
 const CSS = `
-  .pf-password-title { display:flex; align-items:center; gap:10px; margin:0 0 8px; font-size:18px; font-weight:800; color:var(--text-primary); }
-  .pf-password-copy { margin:0 0 24px; max-width:52ch; font-size:15px; line-height:1.5; color:var(--text-secondary); }
-  .pf-password-fields { display:grid; gap:20px; max-width:520px; }
-  .pf-password-label { display:block; margin-bottom:8px; font-size:15px; font-weight:700; color:var(--text-primary); }
+  .pf-password.pf-security-card { width:100%; padding:20px; }
+  .pf-password-title { display:flex; align-items:center; gap:8px; margin:0 0 8px; font-size:16px; font-weight:800; color:var(--text-primary); }
+  .pf-password-copy { margin:0 0 16px; font-size:13px; line-height:1.45; color:var(--text-secondary); }
+  .pf-password-fields { display:grid; gap:12px; }
+  .pf-password-label { display:block; margin-bottom:5px; font-size:12px; font-weight:700; color:var(--text-primary); }
   .pf-password-input-wrap { position:relative; }
-  .pf-password .p-public-input { min-height:52px; padding-right:104px; font-size:16px; }
+  .pf-password .p-public-input { min-height:42px; padding:10px 44px 10px 12px; font-size:14px; }
   .pf-password .p-public-input[aria-invalid="true"] { border-color:var(--error-fg); }
-  .pf-password-toggle { position:absolute; right:4px; top:4px; bottom:4px; min-width:88px; display:flex; align-items:center; justify-content:center; gap:6px; padding:0 10px; border:0; border-radius:10px; background:transparent; color:var(--text-primary); font:inherit; font-size:14px; font-weight:700; cursor:pointer; }
-  .pf-password-toggle:hover:not(:disabled) { background:var(--surface-3); }
+  .pf-password-toggle { position:absolute; right:4px; top:50%; transform:translateY(-50%); width:42px; height:42px; display:flex; align-items:center; justify-content:center; padding:0; border:0; border-radius:8px; background:none; color:var(--text-muted); cursor:pointer; transition:color .15s; }
+  .pf-password-toggle:hover:not(:disabled) { color:var(--text-secondary); }
   .pf-password-toggle:focus-visible { outline:2px solid var(--accent-fg); outline-offset:2px; }
   .pf-password-toggle:disabled { opacity:.5; cursor:not-allowed; }
-  .pf-password-help, .pf-password-error { margin:8px 0 0; font-size:14px; line-height:1.5; }
+  .pf-password-help, .pf-password-error { margin:5px 0 0; font-size:12px; line-height:1.4; }
   .pf-password-help { color:var(--text-secondary); }
   .pf-password-error { color:var(--error-fg); }
-  .pf-password .pf-save { min-height:52px; justify-content:center; font-size:16px; }
-  .pf-password .pf-notice { margin:20px 0 0; font-size:15px; }
+  .pf-password .pf-actions { margin-top:16px; }
+  .pf-password .pf-save { min-height:42px; justify-content:center; padding:10px 18px; border-radius:12px; font-size:13px; }
+  .pf-password .pf-notice { margin:14px 0 0; font-size:13px; }
   .pf-password .pf-notice:focus { outline:none; }
-  @media(max-width:600px) { .pf-password .pf-save { width:100%; } }
+  @media(max-width:600px) { .pf-password .p-public-input { font-size:16px; } .pf-password .pf-save { width:100%; } }
 `;
 
 export default function ChangePasswordForm({ onPasswordChanged }: { onPasswordChanged: () => void }) {
@@ -91,8 +93,8 @@ export default function ChangePasswordForm({ onPasswordChanged }: { onPasswordCh
   return (
     <form className="p-public-card pf-security-card pf-password" onSubmit={handleSubmit} noValidate aria-labelledby="pf-password-title" aria-busy={saving}>
       <style>{CSS}</style>
-      <h2 id="pf-password-title" className="pf-password-title"><LockKeyhole size={20} aria-hidden="true" /> Cambiar contraseña</h2>
-      <p className="pf-password-copy">Ingresá tu contraseña actual y elegí una nueva. Al guardar, se cerrarán las sesiones en otros dispositivos.</p>
+      <h2 id="pf-password-title" className="pf-password-title"><LockKeyhole size={18} aria-hidden="true" /> Cambiar contraseña</h2>
+      <p className="pf-password-copy">Se cerrarán las sesiones de otros dispositivos.</p>
       <div className="pf-password-fields">
         {FIELDS.map(({ name, label, autoComplete }) => {
           const id = `pf-password-${name}`;
@@ -123,11 +125,10 @@ export default function ChangePasswordForm({ onPasswordChanged }: { onPasswordCh
                   aria-label={`${visible[name] ? 'Ocultar' : 'Mostrar'} ${label.toLowerCase()}`}
                   aria-controls={id} aria-pressed={Boolean(visible[name])}
                   onClick={() => setVisible(previous => ({ ...previous, [name]: !previous[name] }))}>
-                  {visible[name] ? <EyeOff size={17} aria-hidden="true" /> : <Eye size={17} aria-hidden="true" />}
-                  {visible[name] ? 'Ocultar' : 'Ver'}
+                  {visible[name] ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
                 </button>
               </div>
-              {name === 'newPassword' && <p id="pf-password-help" className="pf-password-help">Al menos 8 caracteres. Debe ser diferente de la actual.</p>}
+              {name === 'newPassword' && <p id="pf-password-help" className="pf-password-help">Mínimo 8 caracteres.</p>}
               {errors[name] && <p id={`${id}-error`} className="pf-password-error">{errors[name]}</p>}
             </div>
           );
@@ -137,8 +138,8 @@ export default function ChangePasswordForm({ onPasswordChanged }: { onPasswordCh
       {notice.success && <div ref={successRef} role="status" tabIndex={-1} className="pf-notice pf-notice-ok"><CheckCircle size={20} aria-hidden="true" style={{ flexShrink: 0 }} />{notice.success}</div>}
       <div className="pf-actions">
         <button className="pf-save" type="submit" disabled={saving}>
-          {saving ? <Loader2 size={18} className="animate-spin" aria-hidden="true" /> : <LockKeyhole size={18} aria-hidden="true" />}
-          {saving ? 'Guardando contraseña...' : 'Guardar nueva contraseña'}
+          {saving && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
+          {saving ? 'Guardando...' : 'Cambiar contraseña'}
         </button>
       </div>
     </form>
