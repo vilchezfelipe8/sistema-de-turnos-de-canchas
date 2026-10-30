@@ -517,9 +517,9 @@ export default function Navbar({
             href="/bookings#invitaciones"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', textDecoration: 'none' }}
           >
-            <Mail size={14} style={{ color: 'var(--brand)' }} />
+            <Mail size={14} style={{ color: 'var(--positive-fg)' }} />
             Tenés {pendingInvitationsCount} invitación{pendingInvitationsCount === 1 ? '' : 'es'} para jugar pendiente{pendingInvitationsCount === 1 ? '' : 's'}
-            <span style={{ color: 'var(--brand)' }}>Ver</span>
+            <span style={{ color: 'var(--positive-fg)' }}>Ver</span>
           </Link>
         </div>
       )}

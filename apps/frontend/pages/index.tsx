@@ -276,7 +276,7 @@ export default function Home() {
   const [isSearching, setIsSearching] = useState(false);
   const [clubCoords, setClubCoords] = useState<Record<number, { lat: number; lon: number } | null>>({});
 
-  const [searchSport, setSearchSport] = useState<PublicSport>('padel');
+  const [searchSport, setSearchSport] = useState<PublicSport>('');
   const [showSportDropdown, setShowSportDropdown] = useState(false);
   // Fecha seleccionada en formato YYYY-MM-DD. Por defecto, el dia de hoy.
   const getEffectiveToday = () => {
@@ -308,7 +308,10 @@ export default function Home() {
       }
     };
     const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setContactMenu(null);
+      if (e.key === 'Escape') {
+        setContactMenu(null);
+        setShowContact(false);
+      }
     };
     document.addEventListener('mousedown', handleDocClick);
     document.addEventListener('keydown', handleEsc);
@@ -329,6 +332,9 @@ export default function Home() {
       const sidebarRect = sidebarRef.current.getBoundingClientRect();
       top = rect.bottom - sidebarRect.top + 8; // relative to sidebar
       left = rect.left - sidebarRect.left;
+      if (top + 94 > sidebarRect.height) {
+        top = rect.top - sidebarRect.top - 94;
+      }
     }
     let href = '#';
     let copyText = '';
@@ -679,7 +685,7 @@ export default function Home() {
     .p-home-search-divider { width:1px; height:28px; background:var(--border); flex-shrink:0; margin:0 2px; }
     .p-home-search-loc { flex:1; position:relative; min-width:0; }
     .p-home-search-input { flex:1; min-width:120px; padding:10px 14px; background:transparent; border:none; color:var(--text-secondary); font-family:var(--font-sans); font-size:13px; font-weight:500; outline:none; }
-    .p-home-search-input::placeholder { color:var(--text-muted); }
+    .p-home-search-input::placeholder { color:var(--text-secondary); }
     .p-home-search-cta { padding:12px 20px; background:var(--brand); color:var(--brand-on); border:none; border-radius:999px; font-size:13px; font-weight:700; display:inline-flex; align-items:center; gap:8px; transition:background .15s; cursor:pointer; font-family:inherit; white-space:nowrap; flex-shrink:0; }
     .p-home-search-cta:hover { background:var(--brand-hover); }
     .p-home-search-quicks { display:flex; gap:6px; margin-top:14px; flex-wrap:wrap; }
@@ -687,7 +693,7 @@ export default function Home() {
     .p-home-quick-chip:hover { background:var(--border-subtle); color:var(--ink-50); }
     .p-home-hero-side { display:flex; flex-direction:column; gap:12px; min-width:260px; }
     .p-home-live-card { padding:20px 22px; background:var(--border-subtle); border:1px solid var(--border-subtle); border-radius:20px; backdrop-filter:blur(20px); }
-    .p-home-live-head { display:flex; align-items:center; gap:8px; font-size:10px; font-weight:700; letter-spacing:.04em; color:var(--text-muted); margin-bottom:10px; }
+    .p-home-live-head { display:flex; align-items:center; gap:8px; font-size:10px; font-weight:700; letter-spacing:.04em; color:var(--text-secondary); margin-bottom:10px; }
     .p-home-live-dot { width:7px; height:7px; border-radius:50%; background:var(--brand); animation:p-home-pulse 1.2s ease-in-out infinite; }
     .p-home-live-stat { font-size:26px; font-weight:700; letter-spacing:-.03em; color:var(--ink-50); }
     .p-home-live-label { font-size:12px; color:var(--text-secondary); margin-top:8px; line-height:1.5; font-weight:400; }
@@ -720,7 +726,7 @@ export default function Home() {
     .p-home-club-cta:hover { background:var(--brand-hover); }
     /* Section wrapper */
     .p-home-sec-w { max-width:1360px; margin:0 auto; padding:100px 40px; }
-    .p-home-eyebrow { display:inline-flex; align-items:center; gap:10px; font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--text-muted); margin-bottom:20px; }
+    .p-home-eyebrow { display:inline-flex; align-items:center; gap:10px; font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--text-secondary); margin-bottom:20px; }
     .p-home-eyebrow::before { content:''; display:inline-block; width:24px; height:1px; background:var(--text-muted); }
     .p-home-sec-h { font-size:clamp(36px,4.5vw,60px); font-weight:700; letter-spacing:-.035em; line-height:1.02; margin:0 0 20px; color:var(--text-primary); }
     .p-home-sec-h b { font-weight:900; }
@@ -742,7 +748,7 @@ export default function Home() {
     .p-home-step:hover { background:var(--surface-2); }
     .p-home-step-num { font-weight:800; font-size:60px; color:var(--text-muted); line-height:1; letter-spacing:-.05em; margin-bottom:24px; transition:color .3s; }
     .p-home-step:hover .p-home-step-num { color:var(--accent-fg); }
-    .p-home-step-foot { margin-top:24px; padding-top:24px; border-top:1px solid var(--border-subtle); font-size:12px; color:var(--text-muted); display:flex; align-items:center; gap:8px; }
+    .p-home-step-foot { margin-top:24px; padding-top:24px; border-top:1px solid var(--border-subtle); font-size:12px; color:var(--text-secondary); display:flex; align-items:center; gap:8px; }
     .p-home-step-foot b { color:var(--text-primary); font-weight:700; }
     /* Owner */
     .p-home-owner { --p-home-owner-parallax:0px; position:relative; isolation:isolate; border-top:1px solid var(--border-subtle); background:var(--bg); overflow:hidden; }
@@ -803,15 +809,15 @@ export default function Home() {
     .p-home-foot-inner { max-width:1360px; margin:0 auto; }
     .p-home-foot-cols { display:grid; grid-template-columns:1.6fr repeat(3,1fr); gap:48px; padding-bottom:36px; border-bottom:1px solid var(--border-subtle); }
     .p-home-foot-brand { display:flex; flex-direction:column; gap:12px; max-width:320px; }
-    .p-home-foot-brand p { font-size:13px; line-height:1.6; color:var(--text-muted); margin:0; }
-    .p-home-foot-col h6 { font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--text-muted); margin:0 0 14px; }
+    .p-home-foot-brand p { font-size:13px; line-height:1.6; color:var(--text-secondary); margin:0; }
+    .p-home-foot-col h6 { font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--text-secondary); margin:0 0 14px; }
     .p-home-foot-col ul { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:10px; }
-    .p-home-foot-col li a,.p-home-foot-col li button { font-size:13px; color:var(--text-muted); font-weight:500; transition:color .15s; background:none; border:none; padding:0; cursor:pointer; font-family:inherit; text-align:left; }
+    .p-home-foot-col li a,.p-home-foot-col li button { font-size:13px; color:var(--text-secondary); font-weight:500; transition:color .15s; background:none; border:none; padding:0; cursor:pointer; font-family:inherit; text-align:left; }
     .p-home-foot-col li a:hover,.p-home-foot-col li button:hover { color:var(--accent-fg); }
-    .p-home-foot-base { padding-top:24px; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--text-muted); margin-top:28px; }
+    .p-home-foot-base { padding-top:24px; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--text-secondary); margin-top:28px; }
     /* Contact panel */
-    .p-home-contact-overlay { position:fixed; inset:0; background:var(--overlay); z-index:60; transition:opacity .3s; }
-    .p-home-contact-panel { position:fixed; top:0; right:0; height:100%; width:100%; max-width:360px; background:var(--surface-1); z-index:70; box-shadow:var(--shadow-lg); transform:translateX(100%); transition:transform .3s ease-out; border-left:1px solid var(--border-subtle); }
+    .p-home-contact-overlay { position:fixed; inset:0; background:var(--overlay); z-index:10010; transition:opacity .3s; }
+    .p-home-contact-panel { position:fixed; top:84px; right:0; width:100%; max-width:390px; max-height:calc(100dvh - 100px); overflow-y:auto; background:var(--surface-1); z-index:10020; box-shadow:var(--shadow-lg); transform:translateX(100%); transition:transform .3s ease-out; border:1px solid var(--border-subtle); border-right:0; border-radius:18px 0 0 18px; }
     .p-home-contact-panel.p-home-open { transform:translateX(0); }
     /* Dropdowns */
     .p-home-dropdown { position:absolute; top:calc(100% + 8px); left:0; min-width:220px; width:max-content; max-width:min(360px, calc(100vw - 32px)); background:var(--surface-1); border:1px solid var(--border-subtle); border-radius:12px; overflow:hidden; box-shadow:var(--shadow-md); z-index:100; }
@@ -846,7 +852,7 @@ export default function Home() {
       .p-home-search-input{width:100%;min-width:0;padding:12px 14px}
       .p-home-search-cta{order:4;width:100%;justify-content:center;padding:14px 18px}
       .p-home-search .p-home-dropdown{left:0;right:auto;width:100%;min-width:0;max-width:100%}
-      .p-home-contact-panel{top:auto;right:0;bottom:0;left:0;height:auto;max-width:none;max-height:min(78vh,680px);border-left:none;border-top:1px solid var(--border-subtle);border-radius:20px 20px 0 0;transform:translateY(100%)}
+      .p-home-contact-panel{top:auto;right:0;bottom:0;left:0;height:auto;max-width:none;max-height:min(78vh,680px);border-left:none;border-right:0;border-top:1px solid var(--border-subtle);border-radius:20px 20px 0 0;transform:translateY(100%)}
       .p-home-contact-panel.p-home-open{transform:translateY(0)}
     }
     @media(max-width:480px){
@@ -874,8 +880,8 @@ export default function Home() {
     .p-home-search { animation:p-home-fade-up .7s ease both .52s; }
     .p-home-search-quicks { animation:p-home-fade-up .6s ease both .68s; }
     /* Hero stat bar */
-    .p-home-hero-stat { display:flex; align-items:center; gap:8px; margin-top:18px; font-size:13px; color:var(--text-muted); font-weight:500; animation:p-home-fade-up .6s ease both .82s; }
-    .p-home-hero-stat b { color:var(--accent-fg); font-weight:700; }
+    .p-home-hero-stat { display:flex; align-items:center; gap:8px; margin-top:18px; font-size:13px; color:var(--text-secondary); font-weight:500; animation:p-home-fade-up .6s ease both .82s; }
+    .p-home-hero-stat b { color:var(--positive-fg); font-weight:700; }
     .p-home-hero-stat-dot { width:6px; height:6px; border-radius:50%; background:var(--brand); opacity:.7; flex-shrink:0; }
     /* Marquee strip */
     .p-home-marquee-wrap { overflow:hidden; border-bottom:1px solid var(--border-subtle); background:var(--surface-1); padding:20px 0; }
@@ -897,7 +903,7 @@ export default function Home() {
     @keyframes p-home-aurora-2 { 0%,100%{transform:translate(0,0) scale(1)} 40%{transform:translate(-90px,35px) scale(1.13)} 70%{transform:translate(55px,-25px) scale(.97)} }
     @keyframes p-home-aurora-3 { 0%,100%{transform:translate(0,0) scale(1)} 50%{transform:translate(50px,70px) scale(1.18)} }
     /* Gradient animated text */
-    .p-home-grad-text { display:inline-block; overflow:visible; padding-inline:.14em; margin-inline:-.14em; background:linear-gradient(90deg,var(--brand) 0%,var(--brand-hover) 35%,var(--brand-hover) 65%,var(--brand) 100%); background-size:220% 100%; background-repeat:no-repeat; background-position:0% 50%; -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; animation:p-home-grad-shift 4.6s ease-in-out infinite alternate; font-style:italic; }
+    .p-home-grad-text { display:inline-block; overflow:visible; padding-inline:.14em; margin-inline:-.14em; background:linear-gradient(90deg,var(--accent-fg) 0%,var(--brand-hover) 35%,var(--brand-hover) 65%,var(--accent-fg) 100%); background-size:220% 100%; background-repeat:no-repeat; background-position:0% 50%; -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; animation:p-home-grad-shift 4.6s ease-in-out infinite alternate; font-style:italic; }
     @keyframes p-home-grad-shift { from{background-position:0% 50%} to{background-position:100% 50%} }
     /* Rotating sport word */
     .p-home-sport-word { display:inline-block; letter-spacing:0; line-height:1.02; overflow:visible; padding-inline:.1em; margin-inline:-.1em; transition:opacity .36s ease, transform .36s ease; }
@@ -928,6 +934,7 @@ export default function Home() {
     }
     .p-home-root.p-home-theme-light .p-home-hero-noise { opacity:0; }
     .p-home-root.p-home-theme-light .p-home-hero-h1 { color:var(--text-primary); }
+    .p-home-root.p-home-theme-light .p-home-grad-text { background-image:linear-gradient(90deg,var(--positive-fg) 0%,var(--accent-fg) 50%,var(--positive-fg) 100%); }
     .p-home-root.p-home-theme-light .p-home-hero-sub { color:var(--text-secondary); }
     .p-home-root.p-home-theme-light .p-home-hero-eyebrow { background:var(--surface-1); border-color:var(--border); color:var(--text-secondary); box-shadow:0 8px 20px var(--border); }
     .p-home-root.p-home-theme-light .p-home-search { background:var(--surface-1); border-color:var(--border); box-shadow:0 10px 24px var(--border); }
@@ -998,9 +1005,6 @@ export default function Home() {
     .p-home-root.p-home-theme-light .p-home-foot-col li button:hover { color:var(--positive-fg); }
     .p-home-root.p-home-theme-light .p-home-contact-overlay { background:var(--overlay); }
     .p-home-root.p-home-theme-light .p-home-contact-panel { background:var(--surface-1); border-left-color:var(--border); box-shadow:var(--shadow-lg); }
-    .p-home-root.p-home-theme-light .p-home-contact-panel p,
-    .p-home-root.p-home-theme-light .p-home-contact-panel div,
-    .p-home-root.p-home-theme-light .p-home-contact-panel button { color:var(--text-primary)!important; }
     .p-home-root.p-home-theme-light .p-home-dropdown { background:var(--surface-1); border-color:var(--border); box-shadow:var(--shadow-md); }
     .p-home-root.p-home-theme-light .p-home-dropdown button { color:var(--text-primary)!important; }
     .p-home-root.p-home-theme-light .p-home-dropdown button:hover { background:var(--surface-2)!important; }
@@ -1047,12 +1051,7 @@ export default function Home() {
             <h1 className="p-home-hero-h1">
               Reservá<br />
               <span className={`p-home-sport-word${heroWordVisible ? '' : ' p-home-sport-word-out'}`}>
-                <span className="p-home-grad-text" style={{ backgroundImage: [
-                  'linear-gradient(90deg,var(--brand) 0%,var(--brand-hover) 50%,var(--brand) 100%)',
-                  'linear-gradient(90deg,var(--accent-fg) 0%,var(--brand-hover) 50%,var(--accent-fg) 100%)',
-                  'linear-gradient(90deg,var(--lima-700) 0%,var(--brand) 50%,var(--lima-500) 100%)',
-                  'linear-gradient(90deg,var(--ink-500) 0%,var(--brand-hover) 50%,var(--accent-fg) 100%)',
-                ][heroSportIdx] }}>{sportWords[heroSportIdx]}</span>
+                <span className="p-home-grad-text">{sportWords[heroSportIdx]}</span>
               </span>
               <br />al toque.
             </h1>
@@ -1070,8 +1069,8 @@ export default function Home() {
                     <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', fontSize: 10, fontWeight: 700, letterSpacing: '.04em', color: 'var(--text-muted)' }}>Elegí deporte</div>
                     {sportOptions.map(sport => (
                       <button key={sport.value} onClick={() => { setSearchSport(sport.value); setShowSportDropdown(false); }}
-                        style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '12px 16px', background: searchSport === sport.value ? 'var(--accent-bg-soft)' : 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', color: searchSport === sport.value ? 'var(--brand)' : 'var(--text-secondary)', fontSize: 14, fontWeight: 600 }}>
-                        <span style={{ color: searchSport === sport.value ? 'var(--brand)' : 'var(--text-muted)', display: 'flex' }}>{sport.icon}</span>
+                        style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '12px 16px', background: searchSport === sport.value ? 'var(--accent-bg-soft)' : 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', color: searchSport === sport.value ? 'var(--positive-fg)' : 'var(--text-secondary)', fontSize: 14, fontWeight: 600 }}>
+                        <span style={{ color: searchSport === sport.value ? 'var(--positive-fg)' : 'var(--text-muted)', display: 'flex' }}>{sport.icon}</span>
                         {sport.label}
                       </button>
                     ))}
@@ -1244,7 +1243,7 @@ export default function Home() {
               />
               <div className="p-home-sport-content">
                 {!loadingClubs && sportClubCounts[s.countKey] > 0 && (
-                  <div className="p-home-sport-club-count">{sportClubCounts[s.countKey]} clubes</div>
+                  <div className="p-home-sport-club-count">{sportClubCounts[s.countKey]} {sportClubCounts[s.countKey] === 1 ? 'club' : 'clubes'}</div>
                 )}
                 <div className="p-home-sport-count">{s.sub}</div>
                 <div className="p-home-sport-name">{s.name} →</div>
@@ -1427,17 +1426,18 @@ export default function Home() {
         }}
         aria-hidden={!showContact}
       >
-        <div style={{ padding: '18px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${isLight ? 'var(--border)' : 'var(--border-subtle)'}` }}>
-          <h2 style={{ fontSize: 18, fontWeight: 800, color: 'var(--brand)', margin: 0 }}>Contacto</h2>
+        <div style={{ padding: '20px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${isLight ? 'var(--border)' : 'var(--border-subtle)'}` }}>
+          <h2 style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>Contacto</h2>
           <button className="p-home-close-btn" onClick={() => setShowContact(false)} aria-label="Cerrar">
             <X size={15} />
           </button>
         </div>
-        <div style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>¿Tenés dudas o querés dar de alta tu club? Escribinos.</p>
+        <div style={{ padding: '20px 22px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, margin: '0 0 8px' }}>¿Tenés dudas o querés dar de alta tu club? Escribinos.</p>
           {([
             { type: 'whatsapp' as const, label: 'WhatsApp', value: '+54 351 343 6163', icon: <Phone size={16} /> },
             { type: 'email' as const, label: 'Email', value: 'soporte.pique@gmail.com', icon: <Mail size={16} /> },
+            { type: 'instagram' as const, label: 'Instagram', value: '@pique.app_', icon: <Instagram size={16} /> },
           ]).map(c => (
             <button key={c.type} type="button" onClick={e => openContactMenu(e, c.type)}
               style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 14px', background: isLight ? 'var(--surface-2)' : 'var(--border-subtle)', border: `1px solid ${isLight ? 'var(--border)' : 'var(--border-subtle)'}`, borderRadius: 12, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', transition: 'border-color .15s', width: '100%' }}
@@ -1453,23 +1453,18 @@ export default function Home() {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  color: 'var(--accent-fg)',
+                  color: 'var(--positive-fg)',
                   flexShrink: 0
                 }}
               >
                 {c.icon}
               </div>
               <div>
-                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.04em', color: isLight ? 'var(--text-muted)' : 'var(--text-muted)' }}>{c.label}</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: isLight ? 'var(--text-primary)' : 'var(--text-primary)' }}>{c.value}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-secondary)' }}>{c.label}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{c.value}</div>
               </div>
             </button>
           ))}
-          <div style={{ marginTop: 8, paddingTop: 14, borderTop: `1px solid ${isLight ? 'var(--border)' : 'var(--border-subtle)'}` }}>
-            <button type="button" onClick={e => openContactMenu(e, 'instagram')} style={{ display: 'inline-flex', alignItems: 'center', gap: 10, padding: '9px 14px', background: isLight ? 'var(--surface-2)' : 'var(--border-subtle)', border: `1px solid ${isLight ? 'var(--border)' : 'var(--border-subtle)'}`, borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit', color: isLight ? 'var(--text-secondary)' : 'var(--text-secondary)', fontSize: 13, fontWeight: 600 }}>
-              <Instagram size={15} /> @pique.app_
-            </button>
-          </div>
           {contactMenu && (
             <div ref={menuRef} role="dialog" style={{ position: 'absolute', top: contactMenu.top, left: contactMenu.left, zIndex: 90, background: isLight ? 'var(--surface-1)' : 'var(--surface-3)', border: `1px solid ${isLight ? 'var(--border)' : 'var(--border-subtle)'}`, borderRadius: 12, padding: 6, minWidth: 150, boxShadow: isLight ? '0 8px 24px var(--border)' : 'var(--shadow-md)' }}>
               <button onClick={() => handleOpenHref(contactMenu.href)} style={{ display: 'block', width: '100%', padding: '9px 13px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: isLight ? 'var(--text-primary)' : 'var(--text-primary)', fontWeight: 500, textAlign: 'left', borderRadius: 8 }}

@@ -127,7 +127,7 @@ export default function AppModal({
   const titleIcon = isWarning
     ? <AlertTriangle size={20} style={{ color: 'var(--error-fg)', flexShrink: 0 }} />
     : title.toLowerCase().includes('éxito') || title.toLowerCase().includes('listo') || title.toLowerCase().includes('confirmad')
-    ? <CheckCircle2 size={20} style={{ color: 'var(--brand)', flexShrink: 0 }} />
+    ? <CheckCircle2 size={20} style={{ color: 'var(--positive-fg)', flexShrink: 0 }} />
     : <Info size={20} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />;
 
   const modalContent = (

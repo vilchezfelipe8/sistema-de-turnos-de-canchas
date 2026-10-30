@@ -23,6 +23,7 @@ import { getMyReviewForClub, upsertMyClubReview } from '../services/ClubReviewSe
 import AppModal from '../components/AppModal';
 import { extractErrorMessage } from '../utils/uiError';
 import { useValidateAuth } from '../hooks/useValidateAuth';
+import { useClubApp } from '../hooks/useClubApp';
 import { getPendingLogoutRedirect } from '../services/AuthService';
 import Link from 'next/link';
 import UserLoadingState from '../components/UserLoadingState';
@@ -208,6 +209,9 @@ const PAGE_CSS = `
 export default function MyBookingsPage() {
   const router = useRouter();
   const { authChecked, user } = useValidateAuth();
+  const clubApp = useClubApp();
+  const newBookingHref = clubApp ? `/club/${clubApp.slug}?view=reservar` : '/complejos';
+  const openedBookingIdRef = useRef<string | null>(null);
   const [bookings, setBookings] = useState<PlayerBookingDto[]>([]);
   const [activeTab, setActiveTab] = useState<'ACTIVE' | 'PAST' | 'CANCELLED'>('ACTIVE');
   const [selectedBooking, setSelectedBooking] = useState<PlayerBookingDto | null>(null);
@@ -391,8 +395,21 @@ export default function MyBookingsPage() {
       else if (b.status === 'COMPLETED' || end.getTime() < now.getTime()) past.push(b);
       else active.push(b);
     });
+    active.sort((a, b) => new Date(a.startDateTime).getTime() - new Date(b.startDateTime).getTime());
     return { activeBookings: active, pastBookings: past, cancelledBookings: cancelled };
   }, [bookings]);
+
+  // Abrir el partido tocado en Inicio o la reserva recién confirmada.
+  // La lista ya está limitada a reservas accesibles por la sesión actual.
+  const requestedBookingId = typeof router.query.bookingId === 'string' ? router.query.bookingId : null;
+  useEffect(() => {
+    if (!router.isReady || loading || !requestedBookingId || openedBookingIdRef.current === requestedBookingId) return;
+    const booking = bookings.find(item => item.id === requestedBookingId);
+    if (!booking) return;
+    openedBookingIdRef.current = requestedBookingId;
+    setActiveTab(booking.status === 'CANCELLED' ? 'CANCELLED' : pastBookings.includes(booking) ? 'PAST' : 'ACTIVE');
+    setSelectedBooking(booking);
+  }, [bookings, loading, pastBookings, requestedBookingId, router.isReady]);
 
   const visibleBookings = useMemo(() => {
     if (activeTab === 'PAST') return pastBookings;
@@ -643,10 +660,14 @@ export default function MyBookingsPage() {
         try {
           await cancelBooking(id);
           closeModal();
-          const refreshedBookings = await loadData();
-          const cancelledBooking = refreshedBookings.find((booking) => String(booking.id) === id) || null;
-          setActiveTab('CANCELLED');
-          setSelectedBooking(cancelledBooking);
+          setActiveTab('ACTIVE');
+          setSelectedBooking(null);
+          if (requestedBookingId) {
+            const nextQuery = { ...router.query };
+            delete nextQuery.bookingId;
+            void router.replace({ pathname: router.pathname, query: nextQuery }, undefined, { shallow: true });
+          }
+          await loadData();
           flashSuccess('Reserva cancelada.');
         } catch (e: any) {
           setModalState(prev => ({
@@ -960,7 +981,7 @@ export default function MyBookingsPage() {
             <p className="p-public-page-sub">Próximos partidos e historial</p>
           </div>
           <Link
-            href="/complejos"
+            href={newBookingHref}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: 'var(--brand)', color: 'var(--brand-on)', borderRadius: 999, fontSize: 12, fontWeight: 800, letterSpacing: '.01em', textDecoration: 'none' }}
           >
             + Nueva reserva
@@ -1097,7 +1118,7 @@ export default function MyBookingsPage() {
                     {activeTab === 'CANCELLED' ? 'Sin cancelaciones' : activeTab === 'PAST' ? 'Sin historial' : 'No hay reservas activas'}
                   </div>
                   {activeTab === 'ACTIVE' && (
-                    <Link href="/complejos" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: 'var(--brand)', color: 'var(--brand-on)', borderRadius: 999, fontSize: 12, fontWeight: 800, letterSpacing: '.01em', textDecoration: 'none', marginTop: 4 }}>
+                    <Link href={newBookingHref} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: 'var(--brand)', color: 'var(--brand-on)', borderRadius: 999, fontSize: 12, fontWeight: 800, letterSpacing: '.01em', textDecoration: 'none', marginTop: 4 }}>
                       Reservar ahora
                     </Link>
                   )}
@@ -1501,7 +1522,7 @@ export default function MyBookingsPage() {
                         <MessageSquare size={15} /> Dejar / editar reseña del club
                       </button>
                     )}
-                    <Link href={`/club/${selectedBooking.club.slug}`} className="bk-action-btn bk-action-rebook">
+                    <Link href={`/club/${selectedBooking.club.slug}?view=reservar`} className="bk-action-btn bk-action-rebook">
                       <CheckCircle2 size={15} /> Volver a reservar
                     </Link>
                   </>

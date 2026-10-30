@@ -67,7 +67,7 @@ const LOGIN_CSS = `
   .lg-body { padding:20px 28px 24px; display:flex; flex-direction:column; gap:14px; }
   .lg-notice { display:flex; align-items:flex-start; gap:10px; padding:12px 16px; border-radius:12px; font-size:13px; font-weight:600; line-height:1.5; }
   .lg-err { background:var(--error-bg); border:1px solid var(--danger-border); color:var(--error-fg); }
-  .lg-ok { background:var(--accent-bg-soft); border:1px solid var(--accent-bg-muted); color:var(--brand-hover); }
+  .lg-ok { background:var(--positive-bg); border:1px solid var(--accent-border); color:var(--positive-fg); }
   .lg-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; }
   .lg-full { grid-column:1 / -1; }
   .lg-field { display:flex; flex-direction:column; gap:5px; }

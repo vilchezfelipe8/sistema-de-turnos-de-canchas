@@ -287,7 +287,7 @@ export default function CheckoutPage() {
 
   const dateLabels = useMemo(() => (draft ? getDraftDateLabels(draft) : null), [draft]);
   const timeRange = useMemo(() => (draft ? getTimeRange(draft) : ''), [draft]);
-  const backHref = draft?.clubSlug ? `/club/${draft.clubSlug}` : '/';
+  const backHref = draft?.clubSlug ? `/club/${draft.clubSlug}?view=reservar` : '/';
   const maxParticipants = draft?.playerCount ? Math.max(0, draft.playerCount - 1) : 20;
   const participantLimitReached = participants.length >= maxParticipants;
   const ownerName = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() || 'Vos';
@@ -593,7 +593,7 @@ export default function CheckoutPage() {
             </div>
             <div className="checkout-actions">
               <Link href={backHref} className="checkout-secondary" style={{ minWidth: 236 }}>Reservar otro</Link>
-              <Link href="/bookings" className="checkout-primary">Ver mis reservas</Link>
+              <Link href={confirmedBookingId === 'created' ? '/bookings' : { pathname: '/bookings', query: { bookingId: confirmedBookingId } }} className="checkout-primary">Ver mis reservas</Link>
             </div>
           </section>
         </main>

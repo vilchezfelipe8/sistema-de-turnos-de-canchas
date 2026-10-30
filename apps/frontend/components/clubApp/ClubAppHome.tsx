@@ -153,7 +153,7 @@ export default function ClubAppHome({ club, slug, user, loginHref }: Props) {
           <section className="ca-card">
             <p className="ca-card-label">Tu próximo partido</p>
             {nextMatch && nextMatchLabels ? (
-              <Link href="/bookings" className="ca-match">
+              <Link href={{ pathname: '/bookings', query: { bookingId: nextMatch.id } }} className="ca-match">
                 <span className="ca-date">
                   <span className="ca-date-day">{nextMatchLabels.day}</span>
                   <span className="ca-date-month">{nextMatchLabels.month}</span>

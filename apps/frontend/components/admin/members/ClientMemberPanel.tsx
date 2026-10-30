@@ -304,7 +304,7 @@ export default function ClientMemberPanel({ clubSlug, clientId, clientHasDni, ca
           <AdminFeedbackBanner tone="info">
             Código para el socio: <strong className="text-[16px] tracking-[0.2em]">{issuedCode.code}</strong>. Vence a las{' '}
             {new Date(issuedCode.expiresAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}. Entregalo en mano: el socio
-            lo usa en "Activá tu cuenta" con su DNI.
+            lo usa en &quot;Activá tu cuenta&quot; con su DNI.
           </AdminFeedbackBanner>
         ) : null}
 

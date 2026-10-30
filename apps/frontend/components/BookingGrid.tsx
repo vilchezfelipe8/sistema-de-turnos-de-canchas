@@ -13,6 +13,7 @@ import { extractErrorMessage, reportUiError } from '../utils/uiError';
 import { useAuth } from '../contexts/AuthContext';
 import { lockBodyScroll } from '../utils/bodyScrollLock';
 import { createBookingCheckoutDraftId, saveBookingCheckoutDraft } from '../utils/bookingCheckoutDraft';
+import { normalizePublicSport } from '../utils/publicClubFilters';
 import { PlayerPricingService, type ActivityFormat, type ClubPricingMode } from '../services/PlayerPricingService';
 import { BookingWindowService, type BookingWindowEvaluation } from '../services/BookingWindowService';
 import { ChevronDown, Check, Calendar, Clock, MapPin, Zap, MousePointerClick, Hourglass, Moon, Ban, AlertCircle, Activity, ChevronLeft, ChevronRight, LayoutGrid, Rows3, Info, Mail, Lock, Eye, EyeOff, LogIn, Loader2, ShieldCheck } from 'lucide-react';
@@ -760,10 +761,14 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
   }, [pendingSport, activeCourts]);
 
   useEffect(() => {
-    if (pendingSport || activeCourts.length === 0) return;
+    if (!queryApplied || pendingSport || selectedActivityFilter || activeCourts.length === 0) return;
     const unique = Array.from(new Set(activeCourts.map(c => getCourtActivityName(c)).filter(Boolean)));
-    if (unique.length === 1 && !selectedActivityFilter) setSelectedActivityFilter(unique[0]);
-  }, [activeCourts, pendingSport, selectedActivityFilter]);
+    const preferred = clubSlug === 'club-atletico-barrio-parque'
+      ? unique.find(name => normalizePublicSport(name) === 'tennis')
+      : undefined;
+    const initialActivity = preferred || (unique.length === 1 ? unique[0] : '');
+    if (initialActivity) setSelectedActivityFilter(initialActivity);
+  }, [activeCourts, clubSlug, pendingSport, queryApplied, selectedActivityFilter]);
 
   useEffect(() => {
     if (!pendingTime || availableSlots.length === 0) return;
@@ -842,10 +847,6 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
   const availableActivities = useMemo(() => {
     return Array.from(new Set(activeCourts.map(c => getCourtActivityName(c)).filter(Boolean)));
   }, [activeCourts]);
-
-  useEffect(() => {
-    if (availableActivities.length === 1 && !selectedActivityFilter) setSelectedActivityFilter(availableActivities[0]);
-  }, [availableActivities, selectedActivityFilter]);
 
   const handleSelectAtcSlot = (court: CourtSummary, slotTime: string) => {
     if (!selectedDate) return;
@@ -1643,7 +1644,7 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
               )}
 
               {signIn.success && (
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', borderRadius: 12, background: 'var(--accent-bg-soft)', border: '1px solid var(--accent-border-subtle)', color: 'var(--accent-fg)', fontSize: 13, fontWeight: 600 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', borderRadius: 12, background: 'var(--positive-bg)', border: '1px solid var(--accent-border)', color: 'var(--positive-fg)', fontSize: 13, fontWeight: 600 }}>
                   <Check size={15} style={{ marginTop: 1, flexShrink: 0 }} />
                   <span>{signIn.success}</span>
                 </div>
