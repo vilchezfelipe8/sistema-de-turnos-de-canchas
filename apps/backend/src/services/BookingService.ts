@@ -136,6 +136,11 @@ export type PlayerBookingDto = {
     activity: {
         name: string;
     } | null;
+    formatName: string | null;
+    playerCount: number | null;
+    owner: {
+        displayName: string;
+    };
     startDateTime: string;
     endDateTime: string;
     status: 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED';
@@ -4952,10 +4957,25 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             include: {
                 court: { include: { club: { include: { settings: true } } } },
                 activity: true,
+                activityFormat: {
+                    select: {
+                        name: true,
+                        playerCount: true
+                    }
+                },
+                user: {
+                    select: {
+                        firstName: true,
+                        lastName: true,
+                        email: true
+                    }
+                },
                 client: {
                     select: {
                         id: true,
-                        userId: true
+                        userId: true,
+                        name: true,
+                        email: true
                     }
                 },
                 participants: {
@@ -5018,6 +5038,13 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 !hasRegisteredPayments;
             const canInvitePlayers = isOwner && this.canInviteParticipantsForPlayerBooking(booking, userId, now);
             const canLeaveBooking = isParticipant && this.canLeavePlayerBooking(booking, now);
+            const ownerDisplayName = [
+                String(booking.user?.firstName || '').trim(),
+                String(booking.user?.lastName || '').trim()
+            ].filter(Boolean).join(' ').trim()
+                || String(booking.client?.name || '').trim()
+                || String(booking.user?.email || booking.client?.email || '').trim()
+                || 'Titular';
 
             return {
                 id: String(booking.id),
@@ -5035,6 +5062,13 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 activity: booking.activity
                     ? { name: String(booking.activity.name || 'Actividad') }
                     : null,
+                formatName: booking.activityFormat?.name ?? null,
+                playerCount: Number.isInteger(Number(booking.playerCount)) && Number(booking.playerCount) > 0
+                    ? Number(booking.playerCount)
+                    : booking.activityFormat?.playerCount ?? null,
+                owner: {
+                    displayName: ownerDisplayName
+                },
                 startDateTime: new Date(booking.startDateTime).toISOString(),
                 endDateTime: new Date(booking.endDateTime).toISOString(),
                 status: booking.status,

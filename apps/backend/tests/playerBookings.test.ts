@@ -21,7 +21,17 @@ function baseBooking(overrides?: Partial<Record<string, any>>) {
     endDateTime: new Date(startDateTime.getTime() + 60 * 60 * 1000),
     status: 'CONFIRMED',
     userId: 77,
+    user: {
+      firstName: 'Lionel',
+      lastName: 'Messi',
+      email: 'lio@example.com'
+    },
     clubId: 10,
+    playerCount: 2,
+    activityFormat: {
+      name: 'Single',
+      playerCount: 2
+    },
     court: {
       id: 9,
       name: 'Cancha 1',
@@ -38,7 +48,9 @@ function baseBooking(overrides?: Partial<Record<string, any>>) {
     },
     client: {
       id: 'c-1',
-      userId: null
+      userId: null,
+      name: 'Lionel Messi',
+      email: 'lio@example.com'
     },
     ...overrides
   };
@@ -143,9 +155,12 @@ test('el endpoint de Mis reservas usa un DTO público seguro', async () => {
         'club',
         'court',
         'endDateTime',
+        'formatName',
         'id',
         'myRole',
+        'owner',
         'paymentSummary',
+        'playerCount',
         'publicCode',
         'startDateTime',
         'status'
@@ -153,6 +168,9 @@ test('el endpoint de Mis reservas usa un DTO público seguro', async () => {
       assert.equal('clientId' in (dto as any), false);
       assert.equal('price' in (dto as any), false);
       assert.equal('account' in (dto as any), false);
+      assert.equal(dto.playerCount, 2);
+      assert.equal(dto.formatName, 'Single');
+      assert.equal(dto.owner.displayName, 'Lionel Messi');
       assert.equal(dto.club.logoUrl, '/clubs/club-norte.png');
     }
   );

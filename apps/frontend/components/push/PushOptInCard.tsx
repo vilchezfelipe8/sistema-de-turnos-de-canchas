@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Bell, Loader2 } from 'lucide-react';
+import { Bell, Loader2, X } from 'lucide-react';
 import {
   dismissPushOptIn,
   enablePushNotifications,
@@ -24,11 +24,24 @@ const CSS = `
   .pn-btn-ghost { border:1px solid var(--border); background:var(--surface-2); color:var(--text-secondary); }
   .pn-btn-primary { border:1px solid var(--brand); background:var(--brand); color:var(--brand-on); }
   .pn-btn:disabled { opacity:.6; cursor:not-allowed; }
+  .pn-dismiss { display:none; }
   .pn-steps { display:grid; gap:8px; }
   .pn-step { display:flex; gap:10px; align-items:center; color:var(--text-secondary); font-size:13px; font-weight:650; }
   .pn-step b { color:var(--text-primary); }
   .pn-step-num { width:24px; height:24px; border-radius:999px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:var(--surface-2); color:var(--text-primary); font-size:11px; font-weight:900; }
   .pn-error { margin:0; color:var(--error-fg); font-size:12px; font-weight:700; }
+  @media(max-width:620px){
+    .pn-card { grid-template-columns:34px minmax(0,1fr) 32px; gap:8px 10px; padding:12px; border-radius:16px; }
+    .pn-head { display:contents; }
+    .pn-icon { width:34px; height:34px; border-radius:11px; }
+    .pn-title { font-size:13px; line-height:1.25; }
+    .pn-copy { margin-top:2px; font-size:11px; line-height:1.35; }
+    .pn-dismiss { width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center; padding:0; border:0; border-radius:10px; background:transparent; color:var(--text-muted); cursor:pointer; }
+    .pn-actions { grid-column:2 / -1; display:block; }
+    .pn-actions .pn-btn-ghost { display:none; }
+    .pn-actions .pn-btn-primary { width:100%; height:38px; border-radius:11px; }
+    .pn-error { grid-column:2 / -1; }
+  }
   @keyframes pn-spin { to { transform:rotate(360deg); } }
 `;
 
@@ -113,11 +126,14 @@ export default function PushOptInCard() {
     <div className="pn-card">
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div className="pn-head">
-        <span className="pn-icon"><Bell size={20} /></span>
+        <span className="pn-icon"><Bell size={18} /></span>
         <div>
-          <p className="pn-title">Enterate al toque cuando te inviten</p>
-          <p className="pn-copy">Te avisamos en el celular cuando alguien te sume a un partido, aunque no tengas Pique abierto.</p>
+          <p className="pn-title">Avisos de invitaciones</p>
+          <p className="pn-copy">Enterate cuando te sumen a un partido.</p>
         </div>
+        <button type="button" className="pn-dismiss" onClick={dismiss} disabled={busy} aria-label="Ahora no">
+          <X size={17} aria-hidden="true" />
+        </button>
       </div>
       {error && <p className="pn-error" role="alert">{error}</p>}
       <div className="pn-actions">

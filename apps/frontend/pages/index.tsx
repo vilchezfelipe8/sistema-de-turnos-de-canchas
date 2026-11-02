@@ -11,6 +11,7 @@ import { normalizeSessionUser } from '../utils/session';
 import { reportUiError } from '../utils/uiError';
 import { useAuth } from '../contexts/AuthContext';
 import MyClubsSection from '../components/home/MyClubsSection';
+import HeroSportWord from '../components/home/HeroSportWord';
 import { useUserTheme } from '../contexts/UserThemeContext';
 import { isAuthSessionInvalidatedError } from '../utils/apiClient';
 import PiqueLogo from '../components/PiqueLogo';
@@ -159,9 +160,6 @@ export default function Home() {
     return counts;
   }, [clubs]);
 
-  const sportWords = ['fútbol', 'pádel', 'tenis', 'básquet'];
-  const [heroSportIdx, setHeroSportIdx] = useState(0);
-  const [heroWordVisible, setHeroWordVisible] = useState(true);
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
   const faqRefs = useRef<Array<HTMLDivElement | null>>([]);
   const shouldAnimateMarquee = clubs.length >= 6;
@@ -179,17 +177,6 @@ export default function Home() {
     document.addEventListener('click', handler);
     return () => document.removeEventListener('click', handler);
   }, [openFaqIndex]);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setHeroWordVisible(false);
-      setTimeout(() => {
-        setHeroSportIdx(i => (i + 1) % sportWords.length);
-        setHeroWordVisible(true);
-      }, 380);
-    }, 2700);
-    return () => clearInterval(timer);
-  }, [sportWords.length]);
 
   useEffect(() => {
     const els = document.querySelectorAll('.p-home-sr,.p-home-sr-up,.p-home-sr-left,.p-home-sr-right');
@@ -223,6 +210,7 @@ export default function Home() {
     if (!closingSection && !ownerSection) return;
 
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const visibleSections = new Set<HTMLElement>();
     let rafId: number | null = null;
 
     const applyParallax = (section: HTMLElement, cssVarName: string, amplitude: number) => {
@@ -245,6 +233,7 @@ export default function Home() {
     };
 
     const scheduleParallax = () => {
+      if (visibleSections.size === 0 && !reducedMotion.matches) return;
       if (rafId !== null) return;
       rafId = window.requestAnimationFrame(() => {
         rafId = null;
@@ -252,12 +241,23 @@ export default function Home() {
       });
     };
 
-    scheduleParallax();
+    const visibilityObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        const section = entry.target as HTMLElement;
+        if (entry.isIntersecting) visibleSections.add(section);
+        else visibleSections.delete(section);
+      });
+      scheduleParallax();
+    }, { rootMargin: '120px 0px' });
+
+    if (closingSection) visibilityObserver.observe(closingSection);
+    if (ownerSection) visibilityObserver.observe(ownerSection);
     window.addEventListener('scroll', scheduleParallax, { passive: true });
     window.addEventListener('resize', scheduleParallax);
 
     return () => {
       if (rafId !== null) window.cancelAnimationFrame(rafId);
+      visibilityObserver.disconnect();
       window.removeEventListener('scroll', scheduleParallax);
       window.removeEventListener('resize', scheduleParallax);
     };
@@ -650,30 +650,20 @@ export default function Home() {
     .p-home-hero-visuals { position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:0; }
     .p-home-hero-bg { position:absolute; inset:0; overflow:hidden; background:linear-gradient(135deg,var(--ink-900) 0%,var(--bg) 45%,var(--lima-900) 100%); }
     .p-home-hero-bg::before,
-    .p-home-hero-bg::after { content:''; position:absolute; inset:-22%; will-change:transform; }
+    .p-home-hero-bg::after { content:''; position:absolute; inset:-22%; }
     .p-home-hero-bg::before {
       background:radial-gradient(ellipse 62% 50% at 20% 100%,var(--accent-bg-muted),transparent 70%),
                  radial-gradient(ellipse 42% 38% at 85% 15%,var(--accent-bg-faint),transparent 66%);
-      animation:p-home-hero-drift-a 18s ease-in-out infinite alternate;
     }
     .p-home-hero-bg::after {
       background:radial-gradient(ellipse 44% 34% at 68% 72%,rgba(182,243,106,.13),transparent 68%),
                  radial-gradient(ellipse 36% 28% at 9% 20%,rgba(255,255,255,.08),transparent 64%);
       opacity:.7;
-      animation:p-home-hero-drift-b 24s ease-in-out infinite alternate;
-    }
-    @keyframes p-home-hero-drift-a {
-      from { transform:translate3d(-1.3%, -1%, 0) scale(1); }
-      to { transform:translate3d(1.7%, 1.2%, 0) scale(1.04); }
-    }
-    @keyframes p-home-hero-drift-b {
-      from { transform:translate3d(1.1%, -.8%, 0) scale(1.02); }
-      to { transform:translate3d(-1.5%, 1.3%, 0) scale(1.06); }
     }
     .p-home-hero-noise { position:absolute; inset:0; opacity:.022; pointer-events:none; background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' seed='3'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .5 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
     .p-home-hero-inner { position:relative; z-index:2; max-width:1360px; margin:0 auto; width:100%; display:grid; grid-template-columns:1.2fr auto; align-items:end; gap:48px; }
     .p-home-hero-copy { max-width:720px; }
-    .p-home-hero-eyebrow { display:inline-flex; align-items:center; gap:10px; padding:6px 14px 6px 10px; background:var(--border-subtle); border:1px solid var(--border); border-radius:999px; font-size:12px; font-weight:600; color:var(--text-secondary); margin-bottom:28px; backdrop-filter:blur(12px); }
+    .p-home-hero-eyebrow { display:inline-flex; align-items:center; gap:10px; padding:6px 14px 6px 10px; background:var(--border-subtle); border:1px solid var(--border); border-radius:999px; font-size:12px; font-weight:600; color:var(--text-secondary); margin-bottom:28px; }
     .p-home-hero-eyebrow-dot { width:6px; height:6px; border-radius:50%; background:var(--brand); box-shadow:0 0 0 3px var(--accent-border); animation:p-home-pulse 1.6s ease-in-out infinite; }
     @keyframes p-home-pulse { 0%,100%{opacity:1}50%{opacity:.5} }
     .p-home-hero-h1 { font-size:clamp(52px,8vw,108px); font-weight:800; letter-spacing:-.045em; line-height:.96; margin:0 0 24px; color:var(--ink-50); }
@@ -681,7 +671,7 @@ export default function Home() {
     .p-home-hero-h1 .p-home-grad-text { color:unset; }
     .p-home-hero-sub { font-size:17px; font-weight:400; color:var(--text-secondary); line-height:1.55; max-width:500px; margin:0 0 36px; }
     /* Search */
-    .p-home-search { position:relative; z-index:25; display:flex; gap:0; background:var(--border-subtle); border:1px solid var(--border-subtle); border-radius:999px; padding:4px; backdrop-filter:blur(20px); max-width:620px; align-items:center; flex-wrap:wrap; }
+    .p-home-search { position:relative; z-index:25; display:flex; gap:0; background:var(--border-subtle); border:1px solid var(--border-subtle); border-radius:999px; padding:4px; max-width:620px; align-items:center; flex-wrap:wrap; }
     .p-home-search-seg { display:flex; align-items:center; gap:8px; padding:10px 16px; font-size:13px; font-weight:600; color:var(--text-secondary); cursor:pointer; position:relative; white-space:nowrap; border-radius:999px; transition:background .15s; }
     .p-home-search-seg:hover { background:var(--border-subtle); }
     .p-home-search-caret { width:12px; height:12px; color:var(--text-muted); flex-shrink:0; transform-origin:center; transition:transform .22s ease, color .18s ease; }
@@ -697,7 +687,7 @@ export default function Home() {
     .p-home-quick-chip { padding:5px 13px; background:var(--border-subtle); border:1px solid var(--border-subtle); border-radius:999px; font-size:12px; font-weight:500; color:var(--text-secondary); transition:background .15s,color .15s; cursor:pointer; font-family:inherit; }
     .p-home-quick-chip:hover { background:var(--border-subtle); color:var(--ink-50); }
     .p-home-hero-side { display:flex; flex-direction:column; gap:12px; min-width:260px; }
-    .p-home-live-card { padding:20px 22px; background:var(--border-subtle); border:1px solid var(--border-subtle); border-radius:20px; backdrop-filter:blur(20px); }
+    .p-home-live-card { padding:20px 22px; background:var(--border-subtle); border:1px solid var(--border-subtle); border-radius:20px; }
     .p-home-live-head { display:flex; align-items:center; gap:8px; font-size:10px; font-weight:700; letter-spacing:.04em; color:var(--text-secondary); margin-bottom:10px; }
     .p-home-live-dot { width:7px; height:7px; border-radius:50%; background:var(--brand); animation:p-home-pulse 1.2s ease-in-out infinite; }
     .p-home-live-stat { font-size:26px; font-weight:700; letter-spacing:-.03em; color:var(--ink-50); }
@@ -900,19 +890,18 @@ export default function Home() {
     /* Sport card count overlay */
     .p-home-sport-club-count { font-size:11px; color:var(--card-accent,var(--brand)); font-weight:700; letter-spacing:.08em; margin-bottom:4px; opacity:.85; }
     /* Aurora orbs */
-    .p-home-aurora-orb { position:absolute; border-radius:50%; filter:blur(90px); pointer-events:none; will-change:transform; }
-    .p-home-aurora-1 { width:700px; height:500px; top:-150px; left:-140px; background:var(--accent-bg-soft); animation:p-home-aurora-1 16s ease-in-out infinite; }
-    .p-home-aurora-2 { width:580px; height:420px; bottom:-120px; right:8%; background:var(--accent-bg-soft); animation:p-home-aurora-2 20s ease-in-out infinite; }
-    .p-home-aurora-3 { width:360px; height:280px; top:35%; right:22%; background:var(--accent-bg-faint); animation:p-home-aurora-3 24s ease-in-out infinite; }
-    @keyframes p-home-aurora-1 { 0%,100%{transform:translate(0,0) scale(1)} 33%{transform:translate(70px,-60px) scale(1.1)} 66%{transform:translate(-40px,50px) scale(.93)} }
-    @keyframes p-home-aurora-2 { 0%,100%{transform:translate(0,0) scale(1)} 40%{transform:translate(-90px,35px) scale(1.13)} 70%{transform:translate(55px,-25px) scale(.97)} }
-    @keyframes p-home-aurora-3 { 0%,100%{transform:translate(0,0) scale(1)} 50%{transform:translate(50px,70px) scale(1.18)} }
-    /* Gradient animated text */
-    .p-home-grad-text { display:inline-block; overflow:visible; padding-inline:.14em; margin-inline:-.14em; background:linear-gradient(90deg,var(--accent-fg) 0%,var(--brand-hover) 35%,var(--brand-hover) 65%,var(--accent-fg) 100%); background-size:220% 100%; background-repeat:no-repeat; background-position:0% 50%; -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; animation:p-home-grad-shift 4.6s ease-in-out infinite alternate; font-style:italic; }
-    @keyframes p-home-grad-shift { from{background-position:0% 50%} to{background-position:100% 50%} }
+    .p-home-aurora-orb { position:absolute; border-radius:50%; pointer-events:none; background:radial-gradient(ellipse at center,var(--p-home-aurora-color) 0%,transparent 72%); }
+    .p-home-aurora-1 { --p-home-aurora-color:var(--accent-bg-soft); width:700px; height:500px; top:-150px; left:-140px; }
+    .p-home-aurora-2 { --p-home-aurora-color:var(--accent-bg-soft); width:580px; height:420px; bottom:-120px; right:8%; }
+    .p-home-aurora-3 { --p-home-aurora-color:var(--accent-bg-faint); width:360px; height:280px; top:35%; right:22%; }
+    /* Static gradient avoids repainting the large heading on every frame. */
+    .p-home-grad-text { display:inline-block; overflow:visible; padding-inline:.14em; margin-inline:-.14em; background:linear-gradient(90deg,var(--accent-fg) 0%,var(--brand-hover) 35%,var(--brand-hover) 65%,var(--accent-fg) 100%); background-size:220% 100%; background-repeat:no-repeat; background-position:0% 50%; -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; font-style:italic; }
     /* Rotating sport word */
     .p-home-sport-word { display:inline-block; letter-spacing:0; line-height:1.02; overflow:visible; padding-inline:.1em; margin-inline:-.1em; transition:opacity .36s ease, transform .36s ease; }
     .p-home-sport-word-out { opacity:0; transform:translateY(12px); }
+    @media(prefers-reduced-motion:reduce) {
+      .p-home-hero *, .p-home-hero *::before, .p-home-hero *::after { animation:none!important; transition:none!important; }
+    }
     /* Sport card per-card glow */
     .p-home-sport-card:hover { border-color:var(--border); transform:translateY(-5px); }
     /* Universal close button */
@@ -1017,9 +1006,9 @@ export default function Home() {
     .p-home-root.p-home-theme-light .p-home-marquee-item { background:var(--surface-1); border-color:var(--border); color:var(--text-secondary); }
     .p-home-root.p-home-theme-light .p-home-marquee-item:hover { color:var(--text-primary); border-color:var(--border-strong); }
     /* Aurora orbs — reduce intensity on light background */
-    .p-home-root.p-home-theme-light .p-home-aurora-1 { background:rgba(182,243,106,.48); opacity:.78; }
-    .p-home-root.p-home-theme-light .p-home-aurora-2 { background:rgba(47,175,106,.22); opacity:.72; }
-    .p-home-root.p-home-theme-light .p-home-aurora-3 { background:rgba(255,209,102,.24); opacity:.7; }
+    .p-home-root.p-home-theme-light .p-home-aurora-1 { --p-home-aurora-color:rgba(182,243,106,.48); opacity:.78; }
+    .p-home-root.p-home-theme-light .p-home-aurora-2 { --p-home-aurora-color:rgba(47,175,106,.22); opacity:.72; }
+    .p-home-root.p-home-theme-light .p-home-aurora-3 { --p-home-aurora-color:rgba(255,209,102,.24); opacity:.7; }
     /* Value/step section numbers — stronger contrast in light mode */
     .p-home-root.p-home-theme-light .p-home-value-num,
     .p-home-root.p-home-theme-light .p-home-step-num { color:var(--text-muted); }
@@ -1055,9 +1044,7 @@ export default function Home() {
             </span>
             <h1 className="p-home-hero-h1">
               Reservá<br />
-              <span className={`p-home-sport-word${heroWordVisible ? '' : ' p-home-sport-word-out'}`}>
-                <span className="p-home-grad-text">{sportWords[heroSportIdx]}</span>
-              </span>
+              <HeroSportWord />
               <br />al toque.
             </h1>
             <p className="p-home-hero-sub">Buscá cancha, elegí horario y reservá en minutos. Y si tenés un complejo, empezá a gestionar tus turnos con Pique.</p>

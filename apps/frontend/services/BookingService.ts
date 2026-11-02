@@ -118,6 +118,11 @@ export type PlayerBookingDto = {
   activity: {
     name: string;
   } | null;
+  formatName: string | null;
+  playerCount: number | null;
+  owner: {
+    displayName: string;
+  };
   startDateTime: string;
   endDateTime: string;
   status: 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED';

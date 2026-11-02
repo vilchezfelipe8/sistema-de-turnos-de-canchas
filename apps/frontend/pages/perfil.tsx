@@ -22,7 +22,7 @@ import {
 } from '../services/AuthService';
 import { useValidateAuth } from '../hooks/useValidateAuth';
 import { updateMyProfile } from '../services/AuthService';
-import { AlertTriangle, ArrowRight, Building2, CalendarDays, Mail, Phone, IdCard, User, UserRound, Save, CheckCircle, Shield, LogOut, Monitor, Smartphone, Link as LinkIcon } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Bell, Building2, CalendarDays, ChevronDown, Mail, Phone, IdCard, User, UserRound, Save, CheckCircle, Shield, LogOut, LockKeyhole, Monitor, Smartphone, Link as LinkIcon } from 'lucide-react';
 import { extractErrorMessage } from '../utils/uiError';
 import {
   buildCanonicalPhone,
@@ -48,7 +48,7 @@ const PAGE_CSS = `
   .pf-phone-inputs .p-public-input { min-width:0; }
   .pf-email-value { min-height:44px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; border:1px solid var(--border-subtle); border-radius:12px; background:var(--surface-2); color:var(--text-secondary); font-size:14px; }
   .pf-email-address { min-width:0; overflow-wrap:anywhere; }
-  .pf-email-readonly { flex:none; color:var(--text-muted); font-size:11px; font-weight:700; }
+  .pf-email-readonly { flex:none; display:inline-flex; align-items:center; gap:4px; color:var(--text-muted); font-size:11px; font-weight:700; }
   .pf-actions { margin-top:18px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
   .pf-zone { margin-top:28px; }
   .pf-zone-card { padding:20px; }
@@ -104,6 +104,8 @@ const PAGE_CSS = `
   .pf-bookings-title { margin:0; color:var(--text-primary); font-size:14px; font-weight:800; }
   .pf-bookings-copy { margin:4px 0 0; color:var(--text-secondary); font-size:12px; line-height:1.45; }
   .pf-bookings-link { flex:none; min-height:42px; text-decoration:none; }
+  .pf-disclosure-trigger { display:none; }
+  .pf-disclosure-content { display:block; }
   .pf-secondary-btn { min-height:42px; display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:10px 16px; border-radius:12px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); font-size:12px; font-weight:800; cursor:pointer; font-family:var(--font-sans); }
   .pf-secondary-btn:hover:not(:disabled) { background:var(--surface-3); }
   .pf-secondary-btn:disabled { opacity:.55; cursor:not-allowed; }
@@ -117,7 +119,28 @@ const PAGE_CSS = `
   .p-public-root.p-public-theme-light .pf-notice-ok { background:var(--positive-bg); color:var(--positive-fg); }
   .p-public-root.p-public-theme-light .pf-head { border-bottom-color:var(--border)!important; }
   .p-public-root.p-public-theme-light .pf-zone-title { color:var(--text-muted)!important; }
-  @media(max-width:600px){ .pf-page { padding-top:12px!important; padding-bottom:20px!important; } .pf-head { margin-bottom:22px; padding-bottom:18px; } .pf-grid { grid-template-columns:1fr; gap:14px; } .pf-card .p-public-input, .pf-card .p-public-select { font-size:16px; } .pf-save { width:100%; justify-content:center; } .pf-zone { margin-top:24px; } .pf-zone-card { padding:18px; } }
+  @media(max-width:600px){
+    .pf-page { padding-top:12px!important; padding-bottom:20px!important; }
+    .pf-head { margin-bottom:22px; padding-bottom:18px; }
+    .pf-grid { grid-template-columns:1fr; gap:14px; }
+    .pf-card .p-public-input, .pf-card .p-public-select { font-size:16px; }
+    .pf-save { width:100%; justify-content:center; }
+    .pf-zone { margin-top:24px; }
+    .pf-zone-card { padding:18px; }
+    .pf-disclosure { margin-top:12px; overflow:hidden; border:1px solid var(--border); border-radius:14px; background:var(--surface-1); box-shadow:var(--shadow-card); }
+    .pf-disclosure-trigger { width:100%; min-height:54px; display:flex; align-items:center; gap:11px; padding:0 15px; border:0; border-radius:0; background:transparent; color:var(--text-primary); font-family:var(--font-sans); font-size:14px; font-weight:800; text-align:left; cursor:pointer; box-shadow:none; }
+    .pf-disclosure-trigger > svg:first-child { color:var(--text-secondary); }
+    .pf-disclosure-chevron { margin-left:auto; color:var(--text-muted)!important; transition:transform .2s ease; }
+    .pf-disclosure.is-open .pf-disclosure-chevron { transform:rotate(180deg); }
+    .pf-disclosure-content { display:none; }
+    .pf-disclosure.is-open .pf-disclosure-content { display:block; }
+    .pf-disclosure.is-open .pf-disclosure-trigger { border-bottom:1px solid var(--border-subtle); }
+    .pf-disclosure-content > .pf-zone { margin-top:0; }
+    .pf-disclosure-content .pf-zone-title { display:none; }
+    .pf-disclosure-content > .pf-zone > .p-public-card { border:0; border-radius:0; box-shadow:none; }
+    .pf-disclosure-content > .pf-zone > .pf-security-grid { padding:12px; }
+    .pf-disclosure .np-heading, .pf-disclosure .pf-bookings-title { display:none; }
+  }
 `;
 
 function describeSessionDevice(session: SessionSecuritySummary) {
@@ -143,6 +166,42 @@ function describeSessionDevice(session: SessionSecuritySummary) {
 
 type FeedbackSection = 'page' | 'profile' | 'clubs' | 'access' | 'sessions';
 type Feedback = { section: FeedbackSection; kind: 'error' | 'success'; message: string };
+type ProfilePanel = 'notifications' | 'clubs' | 'security' | 'bookings';
+
+function ProfileDisclosure({
+  id,
+  label,
+  icon,
+  open,
+  onToggle,
+  children,
+}: {
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className={`pf-disclosure${open ? ' is-open' : ''}`}>
+      <button
+        type="button"
+        className="pf-disclosure-trigger"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={onToggle}
+      >
+        {icon}
+        <span>{label}</span>
+        <ChevronDown size={17} className="pf-disclosure-chevron" aria-hidden="true" />
+      </button>
+      <div id={id} className="pf-disclosure-content">
+        {children}
+      </div>
+    </section>
+  );
+}
 
 function FeedbackNotice({ feedback, section }: { feedback: Feedback | null; section: FeedbackSection }) {
   if (!feedback || feedback.section !== section) return null;
@@ -173,6 +232,12 @@ export default function PerfilPage() {
   const [logoutAllLoading, setLogoutAllLoading] = useState(false);
   const [claimingClubId, setClaimingClubId] = useState<number | null>(null);
   const [securityRefreshKey, setSecurityRefreshKey] = useState(0);
+  const [openPanels, setOpenPanels] = useState<Record<ProfilePanel, boolean>>({
+    notifications: false,
+    clubs: false,
+    security: false,
+    bookings: false,
+  });
   const [form, setForm] = useState({
     firstName: '',
     lastName: '',
@@ -181,6 +246,10 @@ export default function PerfilPage() {
     phoneCountryIso2: DEFAULT_PHONE_COUNTRY_ISO2,
     phoneLocal: ''
   });
+
+  const togglePanel = (panel: ProfilePanel) => {
+    setOpenPanels((current) => ({ ...current, [panel]: !current[panel] }));
+  };
 
   useEffect(() => {
     if (!authChecked) return;
@@ -282,6 +351,15 @@ export default function PerfilPage() {
     delete remainingQuery.oauth_provider;
     void router.replace({ pathname: router.pathname, query: remainingQuery }, undefined, { shallow: true, scroll: false });
   }, [router, router.isReady, router.query.oauth_error, router.query.oauth_provider]);
+
+  useEffect(() => {
+    if (feedback?.section === 'clubs') {
+      setOpenPanels((current) => current.clubs ? current : { ...current, clubs: true });
+    }
+    if (feedback?.section === 'access' || feedback?.section === 'sessions') {
+      setOpenPanels((current) => current.security ? current : { ...current, security: true });
+    }
+  }, [feedback?.section]);
 
   useEffect(() => {
     if (!authChecked || !user || router.query.oauth_error || !oauthScrollPending.current || feedback?.section !== 'access') return;
@@ -472,9 +550,8 @@ export default function PerfilPage() {
 
         {/* ── PAGE HEADER ── */}
         <div className="pf-head">
-          <span className="p-public-page-eyebrow">Cuenta</span>
           <h1 className="p-public-page-h">Mi <i>perfil</i></h1>
-          <p className="p-public-page-sub">Editá los datos de tu cuenta, {displayName}.</p>
+          <p className="p-public-page-sub">Editá tus datos personales, {displayName}.</p>
         </div>
 
         <FeedbackNotice feedback={feedback} section="page" />
@@ -522,7 +599,7 @@ export default function PerfilPage() {
                 </div>
                 <div className="pf-email-value">
                   <span className="pf-email-address">{form.email}</span>
-                  <span className="pf-email-readonly">No editable</span>
+                  <span className="pf-email-readonly"><LockKeyhole size={11} aria-hidden="true" /> No editable</span>
                 </div>
               </div>
 
@@ -562,7 +639,7 @@ export default function PerfilPage() {
                   className="p-public-input"
                   value={form.dni}
                   onChange={(e) => setForm(p => ({ ...p, dni: e.target.value.replace(/[^\d]/g, '') }))}
-                  placeholder="Sin puntos ni espacios"
+                  placeholder="Ej. 12345678"
                 />
               </div>
 
@@ -579,11 +656,26 @@ export default function PerfilPage() {
           </form>
         </div>
 
-        <NotificationPreferencesSection />
+        <ProfileDisclosure
+          id="pf-panel-notifications"
+          label="Notificaciones"
+          icon={<Bell size={17} aria-hidden="true" />}
+          open={openPanels.notifications}
+          onToggle={() => togglePanel('notifications')}
+        >
+          <NotificationPreferencesSection />
+        </ProfileDisclosure>
 
-        <div className="pf-zone">
-          <div className="pf-zone-title" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-muted)', marginBottom: 16 }}>Perfiles en clubes</div>
-          <div className="p-public-card pf-security-card">
+        <ProfileDisclosure
+          id="pf-panel-clubs"
+          label="Perfiles en clubes"
+          icon={<LinkIcon size={17} aria-hidden="true" />}
+          open={openPanels.clubs}
+          onToggle={() => togglePanel('clubs')}
+        >
+          <div className="pf-zone">
+            <div className="pf-zone-title" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-muted)', marginBottom: 16 }}>Perfiles en clubes</div>
+            <div className="p-public-card pf-security-card">
             <h2 className="pf-section-heading"><LinkIcon size={16} aria-hidden="true" /> Mis perfiles</h2>
             <p className="pf-muted" style={{ marginTop: 0, marginBottom: 18 }}>
               Entrá a tus clubes o vinculá un perfil encontrado.
@@ -657,9 +749,17 @@ export default function PerfilPage() {
                 )}
               </div>
             )}
+            </div>
           </div>
-        </div>
+        </ProfileDisclosure>
 
+        <ProfileDisclosure
+          id="pf-panel-security"
+          label="Acceso y seguridad"
+          icon={<Shield size={17} aria-hidden="true" />}
+          open={openPanels.security}
+          onToggle={() => togglePanel('security')}
+        >
         <div className="pf-zone">
           <div className="pf-zone-title" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-muted)', marginBottom: 16 }}>Seguridad</div>
           <div className="pf-security-grid">
@@ -768,8 +868,16 @@ export default function PerfilPage() {
             </div>
           </div>
         </div>
+        </ProfileDisclosure>
 
         {/* ── RESERVAS ── */}
+        <ProfileDisclosure
+          id="pf-panel-bookings"
+          label="Mis reservas"
+          icon={<CalendarDays size={17} aria-hidden="true" />}
+          open={openPanels.bookings}
+          onToggle={() => togglePanel('bookings')}
+        >
         <div className="pf-zone">
           <div className="pf-zone-title" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-muted)', marginBottom: 16 }}>Reservas</div>
           <div className="p-public-card pf-zone-card pf-bookings-card">
@@ -785,6 +893,7 @@ export default function PerfilPage() {
             </Link>
           </div>
         </div>
+        </ProfileDisclosure>
 
       </div>
     </DarkPageLayout>

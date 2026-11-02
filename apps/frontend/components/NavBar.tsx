@@ -51,8 +51,6 @@ const NAV_CSS = `
     background:var(--surface-1);
     border-bottom:1px solid var(--border);
     box-shadow:0 10px 28px var(--border-subtle);
-    backdrop-filter:blur(16px);
-    -webkit-backdrop-filter:blur(16px);
     transform:translateY(0);
     transition:transform .38s cubic-bezier(.4,0,.2,1);
   }

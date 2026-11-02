@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import PiqueLogo from './PiqueLogo';
 import NavBar from './NavBar';
-import { X, Phone, Mail, Instagram } from 'lucide-react';
+import { ChevronLeft, X, Phone, Mail, Instagram } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserTheme } from '../contexts/UserThemeContext';
 import { reportUiError } from '../utils/uiError';
@@ -18,7 +18,7 @@ const LAYOUT_CSS = `
   .pique-layout *,.pique-layout *::before,.pique-layout *::after { box-sizing:border-box; }
   .pique-layout a { color:inherit; text-decoration:none; }
   .pique-layout ::selection { background:var(--brand); color:var(--brand-on); }
-  .pique-layout .p-footer { margin-top:auto; }
+  .pique-layout .p-legal-footer { margin-top:auto; }
   /* App instalada del club: espacio para la barra de pestañas de abajo */
   .pique-layout.pique-layout-clubapp { padding-bottom:calc(84px + env(safe-area-inset-bottom)); }
   .p-legal-footer { border-top:1px solid var(--border); background:var(--surface-1); }
@@ -32,12 +32,22 @@ const LAYOUT_CSS = `
   .p-legal-footer-link { color:var(--text-primary); font-size:13px; font-weight:700; line-height:1.4; transition:color .15s; }
   .p-legal-footer-link:hover { color:var(--accent-fg); }
   .p-legal-footer-meta { width:100%; padding-top:14px; border-top:1px solid var(--border-subtle); color:var(--text-muted); font-size:11px; font-weight:700; letter-spacing:.02em; }
+  .p-breadcrumbs-mobile-back { display:none; }
   @media (max-width: 720px) {
-    .p-legal-footer-inner { padding:18px 20px 20px; gap:18px; }
+    .p-breadcrumbs-wrap.p-breadcrumbs-shallow { display:none; }
+    .p-breadcrumbs-wrap:not(.p-breadcrumbs-shallow) .p-breadcrumbs-cloud { display:none; }
+    .p-breadcrumbs-mobile-back { min-height:40px; display:inline-flex; align-items:center; gap:8px; padding:0 4px; color:var(--text-secondary); font-size:13px; font-weight:750; }
+    .p-breadcrumbs-mobile-back svg { flex:none; color:var(--accent-fg); }
+    .p-legal-footer-inner { padding:18px 20px 16px; gap:12px; }
     .p-legal-footer-brand { min-width:0; width:100%; }
-    .p-legal-footer-groups { width:100%; justify-content:flex-start; gap:20px; }
-    .p-legal-footer-group { min-width:110px; }
-    .p-legal-footer-meta { padding-top:12px; }
+    .p-legal-footer-copy { display:none; }
+    .p-legal-footer-groups { width:100%; display:block; }
+    .p-legal-footer-group { display:none; min-width:0; }
+    .p-legal-footer-group:nth-child(2) { display:block; }
+    .p-legal-footer-title { display:none; }
+    .p-legal-footer-links { flex-direction:row; align-items:center; gap:18px; }
+    .p-legal-footer-link { min-height:40px; display:inline-flex; align-items:center; font-size:12px; }
+    .p-legal-footer-meta { padding-top:10px; }
   }
   /* User menu link/button hover */
   .pique-menu-item { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:var(--r-md); color:var(--text-secondary); font-size:13px; font-weight:600; background:none; border:none; width:100%; cursor:pointer; font-family:var(--font-sans); text-align:left; transition:background .15s,color .15s; }
@@ -57,6 +67,7 @@ export default function DarkPageLayout({ title, children, extraCss = '', breadcr
   const router = useRouter();
   const { user } = useAuth();
   const { isLight } = useUserTheme();
+  const mobileBackBreadcrumb = [...breadcrumbs].reverse().find((item, index) => index > 0 && item.href);
   // App instalada del club: sin migas ni footer, con pestañas abajo (salvo en el checkout, para no distraer).
   const clubApp = useClubApp();
   const showClubAppTabBar = Boolean(clubApp) && router.pathname !== '/checkout';
@@ -139,7 +150,7 @@ export default function DarkPageLayout({ title, children, extraCss = '', breadcr
 
         {/* Breadcrumbs */}
         {!clubApp && breadcrumbs.length > 0 && (
-          <nav className="p-breadcrumbs-wrap" aria-label="Breadcrumb">
+          <nav className={`p-breadcrumbs-wrap${breadcrumbs.length <= 2 ? ' p-breadcrumbs-shallow' : ''}`} aria-label="Breadcrumb">
             <div className="p-breadcrumbs">
               <div className="p-breadcrumbs-cloud">
                 {breadcrumbs.map((item, index) => {
@@ -156,6 +167,12 @@ export default function DarkPageLayout({ title, children, extraCss = '', breadcr
                   );
                 })}
               </div>
+              {mobileBackBreadcrumb?.href ? (
+                <Link href={mobileBackBreadcrumb.href} className="p-breadcrumbs-mobile-back">
+                  <ChevronLeft size={17} strokeWidth={2.5} aria-hidden="true" />
+                  {mobileBackBreadcrumb.label}
+                </Link>
+              ) : null}
             </div>
           </nav>
         )}

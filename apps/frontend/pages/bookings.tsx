@@ -27,11 +27,10 @@ import { useClubApp } from '../hooks/useClubApp';
 import { getPendingLogoutRedirect } from '../services/AuthService';
 import Link from 'next/link';
 import UserLoadingState from '../components/UserLoadingState';
-import PlayerSlotsBreakdown from '../components/PlayerSlotsBreakdown';
 import PlayerInviteSearch, { type PickedInvitePlayer } from '../components/players/PlayerInviteSearch';
 import PushOptInCard from '../components/push/PushOptInCard';
 import { downloadCalendarEvent } from '../utils/calendarInvite';
-import { Calendar, Clock, MapPin, Ticket, ArrowRight, Search, XCircle, CheckCircle2, Star, MessageSquare, X, Users, UserPlus, LogOut, Trash2, ChevronDown } from 'lucide-react';
+import { Calendar, Clock, Ticket, ArrowRight, Search, XCircle, CheckCircle2, Star, MessageSquare, X, UserPlus, LogOut, ChevronDown } from 'lucide-react';
 import { getApiFieldErrors, normalizeApiError } from '../utils/apiError';
 
 const APP_NOTICE_EVENT = 'app:notice';
@@ -94,12 +93,15 @@ const PAGE_CSS = `
   .bk-card-club { font-size:15px; font-weight:800; color:var(--text-primary); line-height:1.2; margin-bottom:4px; }
   .bk-card-meta { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--text-muted); font-weight:600; flex-wrap:wrap; }
   .bk-card-chip { padding:2px 8px; background:var(--surface-2); border-radius:6px; font-size:10px; color:var(--text-muted); font-weight:600; }
+  .bk-card-arrow { color:var(--text-muted); flex-shrink:0; transition:color .2s, transform .2s; }
   /* Detail panel */
   .bk-detail { background:var(--surface-1); border:1px solid var(--border); border-radius:24px; padding:24px; position:sticky; top:80px; max-height:calc(100vh - 96px); overflow-y:auto; }
   .bk-detail::-webkit-scrollbar { width:4px; }
   .bk-detail::-webkit-scrollbar-track { background:transparent; }
   .bk-detail::-webkit-scrollbar-thumb { background:var(--surface-2); border-radius:4px; }
   .bk-ticket-label { display:inline-flex; align-items:center; gap:6px; padding:5px 14px; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); border-radius:999px; font-size:10px; font-weight:800; letter-spacing:.03em; color:var(--accent-fg); margin-bottom:16px; }
+  .bk-ticket-label.is-pending { background:var(--warn-bg); border-color:var(--warn-bg); color:var(--warn-fg); }
+  .bk-ticket-label.is-cancelled { background:var(--error-bg); border-color:var(--error-bg); color:var(--error-fg); }
   .bk-detail-court { font-size:22px; font-weight:800; color:var(--text-primary); letter-spacing:-.02em; line-height:1.1; margin-bottom:6px; }
   .bk-detail-activity { font-size:11px; font-weight:700; letter-spacing:.03em; color:var(--text-muted); margin-bottom:18px; }
   .bk-detail-row { display:flex; align-items:center; gap:14px; padding:12px 0; border-bottom:1px solid var(--border-subtle); }
@@ -116,6 +118,20 @@ const PAGE_CSS = `
   .bk-collapsible-chevron { color:var(--text-muted); flex-shrink:0; transition:transform .18s ease, color .18s ease; }
   .bk-collapsible-open .bk-collapsible-chevron { transform:rotate(180deg); color:var(--accent-fg); }
   .bk-collapsible-body { margin-top:12px; display:grid; gap:12px; }
+  .bk-compact-status { margin-top:16px; padding-top:16px; border-top:1px solid var(--border); display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }
+  .bk-compact-status-label { flex:none; color:var(--text-muted); font-size:11px; font-weight:800; letter-spacing:.03em; }
+  .bk-compact-status-copy { color:var(--text-secondary); font-size:12px; font-weight:650; line-height:1.45; text-align:right; }
+  .bk-player-list { display:grid; gap:8px; }
+  .bk-player { min-height:48px; display:flex; align-items:center; gap:10px; padding:9px 11px; border:1px solid var(--border-subtle); border-radius:15px; background:var(--surface-2); }
+  .bk-player-icon { width:30px; height:30px; flex:none; display:inline-flex; align-items:center; justify-content:center; border-radius:11px; background:var(--positive-bg); color:var(--accent-fg); font-size:10px; font-weight:900; }
+  .bk-player-info { min-width:0; flex:1; }
+  .bk-player-name { margin:0; color:var(--text-primary); font-size:12px; line-height:1.35; font-weight:850; overflow-wrap:anywhere; }
+  .bk-player-status { margin:2px 0 0; color:var(--text-muted); font-size:10px; line-height:1.35; font-weight:650; overflow-wrap:anywhere; }
+  .bk-player-status.is-pending { color:var(--warn-fg); }
+  .bk-player-remove { width:34px; height:34px; flex:none; display:inline-flex; align-items:center; justify-content:center; padding:0; border:0; border-radius:11px; background:transparent; color:var(--text-muted); cursor:pointer; }
+  .bk-player-remove:hover:not(:disabled) { background:var(--error-bg); color:var(--error-fg); }
+  .bk-player-remove:disabled { opacity:.5; cursor:not-allowed; }
+  .bk-team-full { display:flex; align-items:center; justify-content:center; min-height:38px; padding:8px 12px; border:1px solid var(--accent-border-subtle); border-radius:12px; background:var(--positive-bg); color:var(--accent-fg); font-size:11px; font-weight:850; }
   .bk-action-btn { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; padding:12px 16px; border-radius:14px; font-size:12px; font-weight:800; letter-spacing:.01em; cursor:pointer; font-family:var(--font-sans); border:none; transition:background .15s,transform .15s; text-decoration:none; }
   .bk-action-btn:hover { transform:translateY(-1px); }
   .bk-action-cancel { background:var(--error-bg); border:1px solid var(--error-bg)!important; color:var(--error-fg); }
@@ -207,6 +223,16 @@ const PAGE_CSS = `
   .p-public-root.p-public-theme-light .bk-review-secondary:hover { background:var(--surface-2); border-color:var(--border-strong); }
   .p-public-root:not(.p-public-theme-light) .bk-action-rebook { background:linear-gradient(135deg, var(--brand) 0%, var(--brand-hover) 100%); color:var(--brand-on); box-shadow:0 10px 22px rgba(182,243,106,.14); }
   .p-public-root:not(.p-public-theme-light) .bk-action-rebook:hover { background:linear-gradient(135deg, var(--brand-hover) 0%, var(--brand) 100%); }
+  @media(max-width:900px){
+    .bk-list-panel-head { display:none; }
+    .bk-empty-cta { display:none!important; }
+    .bk-detail-empty { display:none; }
+    .bk-layout.bk-layout-empty { display:block; }
+    .bk-layout.bk-has-selection { gap:0; }
+    .bk-layout.bk-has-selection .bk-list-panel { border-radius:20px 20px 0 0; }
+    .bk-layout.bk-has-selection .bk-detail { border-top:0; border-radius:0 0 20px 20px; }
+    .bk-card.bk-selected .bk-card-arrow { color:var(--positive-fg); transform:rotate(90deg); }
+  }
 `;
 
 // Última carga de Mis reservas en esta visita (solo navegador): al volver a la página se muestra
@@ -216,6 +242,14 @@ const readBookingsPageCache = (userId: number | undefined) =>
   typeof window !== 'undefined' && bookingsPageCache && userId && bookingsPageCache.userId === Number(userId)
     ? bookingsPageCache
     : null;
+
+const getInitials = (value: string) =>
+  String(value || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((chunk) => chunk.charAt(0).toUpperCase())
+    .join('') || '?';
 
 export default function MyBookingsPage() {
   const router = useRouter();
@@ -585,7 +619,8 @@ export default function MyBookingsPage() {
     date.toLocaleTimeString('es-AR', { ...(timeZone ? { timeZone } : {}), hour: '2-digit', minute: '2-digit', hour12: false });
 
   const formatWeekday = (date: Date, timeZone?: string | null) =>
-    date.toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: '2-digit', ...(timeZone ? { timeZone } : {}) })
+    date.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', ...(timeZone ? { timeZone } : {}) })
+      .replace(',', '')
       .replace(/^\w/, c => c.toUpperCase());
 
   const getDateBoxParts = (date: Date, timeZone?: string | null) => {
@@ -943,10 +978,19 @@ export default function MyBookingsPage() {
 
   const TAB_LABELS: Record<'ACTIVE' | 'PAST' | 'CANCELLED', string> = {
     ACTIVE: `Activas${activeBookings.length ? ` (${activeBookings.length})` : ''}`,
-    PAST: 'Pasadas',
-    CANCELLED: 'Canceladas'
+    PAST: `Pasadas${pastBookings.length ? ` (${pastBookings.length})` : ''}`,
+    CANCELLED: `Canceladas${cancelledBookings.length ? ` (${cancelledBookings.length})` : ''}`
   };
   const roleLabel = (booking: PlayerBookingDto) => booking.myRole === 'PARTICIPANT' ? 'Participante' : 'Titular';
+  const bookingStatusLabel = (booking: PlayerBookingDto) => {
+    const hasEnded = new Date(booking.endDateTime || booking.startDateTime).getTime() < Date.now();
+    if (booking.status === 'CANCELLED') return 'Reserva cancelada';
+    if (booking.status === 'COMPLETED' || hasEnded) return 'Reserva finalizada';
+    switch (booking.status) {
+      case 'PENDING': return 'Pendiente de confirmación';
+      case 'CONFIRMED': return 'Reserva confirmada';
+    }
+  };
   const paymentStatusLabel = (booking: PlayerBookingDto) => {
     switch (booking.paymentSummary.status) {
       case 'PAID': return 'Pagado';
@@ -983,6 +1027,22 @@ export default function MyBookingsPage() {
   };
 
   const isDualEmptyState = !loading && !error && visibleBookings.length === 0 && !selectedBooking;
+  const activeParticipants = participants.filter((participant) => participant.status === 'INVITED' || participant.status === 'JOINED');
+  const participantCapacity = selectedBooking?.playerCount && selectedBooking.playerCount > 0
+    ? selectedBooking.playerCount
+    : null;
+  const occupiedParticipantSlots = selectedBooking
+    ? Math.min(1 + activeParticipants.length, participantCapacity ?? Number.POSITIVE_INFINITY)
+    : 0;
+  const participantTeamIsFull = Boolean(participantCapacity && occupiedParticipantSlots >= participantCapacity);
+  const canInviteParticipant = Boolean(selectedBooking?.capabilities.canInvitePlayers && !participantTeamIsFull);
+  const hasNoPublishedAccount = Boolean(
+    selectedBooking
+    && !checkoutLoading
+    && !checkoutError
+    && checkoutSummary
+    && !checkoutSummary.account
+  );
 
   return (
     <DarkPageLayout
@@ -998,7 +1058,6 @@ export default function MyBookingsPage() {
         {/* ── PAGE HEADER ── */}
         <div className="bk-page-head">
           <div>
-            <span className="p-public-page-eyebrow">Reservas</span>
             <h1 className="p-public-page-h">Mis <i>reservas</i></h1>
             <p className="p-public-page-sub">Próximos partidos e historial</p>
           </div>
@@ -1086,7 +1145,7 @@ export default function MyBookingsPage() {
         </div>
 
         {/* ── MAIN LAYOUT ── */}
-        <div className={`bk-layout${isDualEmptyState ? ' bk-layout-empty' : ''}`}>
+        <div className={`bk-layout${isDualEmptyState ? ' bk-layout-empty' : ''}${selectedBooking ? ' bk-has-selection' : ''}`}>
 
           {/* LIST PANEL */}
           <div className="bk-list-panel">
@@ -1142,7 +1201,7 @@ export default function MyBookingsPage() {
                     {activeTab === 'CANCELLED' ? 'Sin cancelaciones' : activeTab === 'PAST' ? 'Sin historial' : 'No hay reservas activas'}
                   </div>
                   {activeTab === 'ACTIVE' && (
-                    <Link href={newBookingHref} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: 'var(--brand)', color: 'var(--brand-on)', borderRadius: 999, fontSize: 12, fontWeight: 800, letterSpacing: '.01em', textDecoration: 'none', marginTop: 4 }}>
+                    <Link href={newBookingHref} className="bk-empty-cta" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: 'var(--brand)', color: 'var(--brand-on)', borderRadius: 999, fontSize: 12, fontWeight: 800, letterSpacing: '.01em', textDecoration: 'none', marginTop: 4 }}>
                       Reservar ahora
                     </Link>
                   )}
@@ -1199,7 +1258,7 @@ export default function MyBookingsPage() {
                       </div>
                       <ArrowRight
                         size={16}
-                        style={{ color: isSelected ? 'var(--positive-fg)' : 'var(--text-muted)', flexShrink: 0, transition: 'color .2s' }}
+                        className="bk-card-arrow"
                         aria-hidden="true"
                       />
                     </div>
@@ -1216,8 +1275,8 @@ export default function MyBookingsPage() {
               ref={el => { selectedDetailRef.current = el; }}
               tabIndex={-1}
             >
-              <div className="bk-ticket-label">
-                <Ticket size={12} /> Ticket de reserva
+              <div className={`bk-ticket-label${activeTab === 'ACTIVE' && selectedBooking.status === 'PENDING' ? ' is-pending' : ''}${selectedBooking.status === 'CANCELLED' ? ' is-cancelled' : ''}`}>
+                <Ticket size={12} /> {bookingStatusLabel(selectedBooking)}
               </div>
               <div className="bk-detail-court">{selectedBooking.court?.name || 'Cancha'}</div>
               <div className="bk-detail-activity">{selectedBooking.activity?.name || 'Deporte'} · {selectedBooking.club?.name}</div>
@@ -1239,27 +1298,6 @@ export default function MyBookingsPage() {
                     <div className="bk-detail-row-val">{formatTime(new Date(selectedBooking.startDateTime), selectedBooking.club?.timeZone)} · {getDuration(selectedBooking)} min</div>
                   </div>
                 </div>
-                <div className="bk-detail-row">
-                  <div className="bk-detail-icon"><MapPin size={16} /></div>
-                  <div>
-                    <div className="bk-detail-row-label">Club</div>
-                    <div className="bk-detail-row-val">{selectedBooking.club?.name || 'Club'}</div>
-                  </div>
-                </div>
-                <div className="bk-detail-row">
-                  <div className="bk-detail-icon"><Ticket size={16} /></div>
-                  <div>
-                    <div className="bk-detail-row-label">Código</div>
-                    <div className="bk-detail-row-val">{selectedBooking.publicCode}</div>
-                  </div>
-                </div>
-                <div className="bk-detail-row">
-                  <div className="bk-detail-icon"><Users size={16} /></div>
-                  <div>
-                    <div className="bk-detail-row-label">Tu rol</div>
-                    <div className="bk-detail-row-val">{roleLabel(selectedBooking)}</div>
-                  </div>
-                </div>
               </div>
 
               <div className={`bk-collapsible${participantsExpanded ? ' bk-collapsible-open' : ''}`}>
@@ -1273,11 +1311,15 @@ export default function MyBookingsPage() {
                     <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.03em', color: 'var(--text-muted)' }}>
                       Participantes
                     </div>
-                    {selectedBooking.capabilities.canInvitePlayers && (
+                    {participantCapacity ? (
+                      <span className="bk-card-chip" title={selectedBooking.formatName || undefined}>
+                        {selectedBooking.formatName ? `${selectedBooking.formatName} · ` : ''}{occupiedParticipantSlots} de {participantCapacity}
+                      </span>
+                    ) : canInviteParticipant ? (
                       <span className="bk-card-chip" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                         <UserPlus size={12} /> Podés invitar
                       </span>
-                    )}
+                    ) : null}
                   </div>
                   <ChevronDown size={14} className="bk-collapsible-chevron" />
                 </button>
@@ -1290,46 +1332,39 @@ export default function MyBookingsPage() {
                       <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--error-bg)', color: 'var(--error-fg)', fontSize: 13, fontWeight: 600 }}>
                         {participantsError}
                       </div>
-                    ) : participants.length === 0 ? (
-                      <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Todavía no hay participantes registrados para esta reserva.</div>
                     ) : (
-                      <div style={{ display: 'grid', gap: 8 }}>
-                        {participants.map((participant) => (
-                          <div
-                            key={participant.id}
-                            style={{
-                              padding: '10px 12px',
-                              borderRadius: 12,
-                              border: '1px solid var(--border-subtle)',
-                              background: 'var(--surface-2)',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              gap: 12
-                            }}
-                          >
-                            <div>
-                              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
-                                {participant.displayName} {participant.isMe ? '· Vos' : ''}
-                              </div>
-                              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                      <div className="bk-player-list">
+                        <div className="bk-player">
+                          <span className="bk-player-icon" aria-hidden="true">{getInitials(selectedBooking.owner.displayName)}</span>
+                          <div className="bk-player-info">
+                            <p className="bk-player-name">
+                              {selectedBooking.owner.displayName}{selectedBooking.myRole === 'OWNER' ? ' · Vos' : ''}
+                            </p>
+                            <p className="bk-player-status">Titular · Confirmado</p>
+                          </div>
+                        </div>
+                        {activeParticipants.map((participant) => (
+                          <div className="bk-player" key={participant.id}>
+                            <span className="bk-player-icon" aria-hidden="true">{getInitials(participant.displayName)}</span>
+                            <div className="bk-player-info">
+                              <p className="bk-player-name">{participant.displayName} {participant.isMe ? '· Vos' : ''}</p>
+                              <p className={`bk-player-status${participant.status === 'INVITED' ? ' is-pending' : ''}`}>
                                 {participant.status === 'JOINED' ? 'Confirmado' :
-                                  participant.status === 'INVITED' ? 'Invitado' :
-                                  participant.status === 'DECLINED' ? 'Rechazó' :
-                                  participant.status === 'LEFT' ? 'Se bajó' : 'Removido'}
+                                  participant.status === 'INVITED' ? 'Invitación enviada' :
+                                  participant.status === 'DECLINED' ? 'Rechazó la invitación' :
+                                  participant.status === 'LEFT' ? 'Se bajó de la reserva' : 'Removido'}
                                 {participant.invitedEmail ? ` · ${participant.invitedEmail}` : ''}
-                              </div>
+                              </p>
                             </div>
                             {participant.canManage && (
                               <button
                                 type="button"
-                                className="bk-action-btn bk-action-cancel"
-                                style={{ width: 'auto', padding: '8px 12px' }}
+                                className="bk-player-remove"
+                                aria-label={`Quitar a ${participant.displayName}`}
                                 disabled={participantActionId === participant.id}
                                 onClick={() => handleRemoveParticipant(participant)}
                               >
-                                <Trash2 size={14} />
-                                Quitar
+                                <X size={15} aria-hidden="true" />
                               </button>
                             )}
                           </div>
@@ -1337,9 +1372,9 @@ export default function MyBookingsPage() {
                       </div>
                     )}
 
-                    <PlayerSlotsBreakdown bookingId={selectedBooking.id} refreshKey={participants} />
+                    {participantTeamIsFull && <div className="bk-team-full">Equipo completo</div>}
 
-                    {selectedBooking.capabilities.canInvitePlayers && (
+                    {canInviteParticipant && (
                       <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
                         <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.03em', color: 'var(--text-muted)' }}>
                           Invitar jugador
@@ -1366,6 +1401,12 @@ export default function MyBookingsPage() {
                 )}
               </div>
 
+              {hasNoPublishedAccount ? (
+                <div className="bk-compact-status" style={{ marginBottom: 18 }}>
+                  <span className="bk-compact-status-label">Estado de pago</span>
+                  <span className="bk-compact-status-copy">Consultá el estado con el club</span>
+                </div>
+              ) : (
               <div className={`bk-collapsible${paymentExpanded ? ' bk-collapsible-open' : ''}`} style={{ marginBottom: 18 }}>
                 <button
                   type="button"
@@ -1500,6 +1541,7 @@ export default function MyBookingsPage() {
                   </div>
                 )}
               </div>
+              )}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {activeTab === 'ACTIVE' && selectedBooking.capabilities?.canCancelBooking && (
