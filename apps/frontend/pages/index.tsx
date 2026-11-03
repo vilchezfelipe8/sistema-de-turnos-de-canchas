@@ -22,6 +22,8 @@ import { useClubApp } from '../hooks/useClubApp';
 import { FaTableTennis } from "react-icons/fa"; // Paleta (Perfecta para Padel)
 import { IoFootballOutline } from "react-icons/io5"; // Pelota de futbol limpia
 import { IoTennisballOutline } from "react-icons/io5"; // Pelota de tenis limpia
+import UserLoadingState from "../components/UserLoadingState";
+import BusyLabel from '../components/ui/BusyLabel';
 
 const APP_NOTICE_EVENT = 'app:notice';
 type AppNoticeTone = 'success' | 'error' | 'info' | 'warning';
@@ -853,7 +855,6 @@ export default function Home() {
     @media(max-width:480px){
       .p-home-foot-cols{grid-template-columns:1fr}
     }
-    @keyframes p-home-spin{to{transform:rotate(360deg)}}
     /* Scroll reveal */
     .p-home-sr { opacity:0; transform:translateY(28px); transition:opacity .75s cubic-bezier(.2,.8,.2,1), transform .75s cubic-bezier(.2,.8,.2,1); }
     .p-home-sr.p-home-in { opacity:1; transform:translateY(0); }
@@ -1087,7 +1088,7 @@ export default function Home() {
                     <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', fontSize: 10, fontWeight: 700, letterSpacing: '.04em', color: 'var(--text-muted)' }}>Lugares disponibles</div>
                     <ul style={{ maxHeight: 220, overflowY: 'auto', margin: 0, padding: 0, listStyle: 'none' }}>
                       {loadingClubs ? (
-                        <li style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Cargando...</li>
+                        <li style={{ padding: '16px', display: 'flex', justifyContent: 'center' }}><UserLoadingState mode="inline" message="Cargando lugares..." /></li>
                       ) : locationSuggestions.length > 0 ? (
                         locationSuggestions.map((loc, i) => (
                           <li key={i} onClick={() => selectCity(loc)} style={{ padding: '11px 16px', cursor: 'pointer', borderBottom: '1px solid var(--surface-2)', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500, transition: 'background .15s' }}
@@ -1121,8 +1122,7 @@ export default function Home() {
               </div>
               {/* CTA */}
               <button className="p-home-search-cta" onClick={handleSearch} disabled={isSearching}>
-                {isSearching ? 'Buscando...' : 'Buscar'}
-                <Search size={13} />
+                <BusyLabel busy={isSearching} spinnerSize={13}>Buscar<Search size={13} /></BusyLabel>
               </button>
             </div>
 

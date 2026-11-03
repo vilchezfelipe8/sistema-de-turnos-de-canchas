@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { CheckCircle, Eye, EyeOff, Loader2, LockKeyhole } from 'lucide-react';
+import { CheckCircle, Eye, EyeOff, LockKeyhole } from 'lucide-react';
 import { changePassword } from '../services/AuthService';
 import { normalizeApiError } from '../utils/apiError';
 import { validatePasswordChange, type PasswordChangeErrors, type PasswordChangeValues } from '../utils/passwordChange';
+import BusyLabel from './ui/BusyLabel';
 
 const EMPTY_VALUES: PasswordChangeValues = { currentPassword: '', newPassword: '', confirmation: '' };
 const FIELDS = [
@@ -138,8 +139,7 @@ export default function ChangePasswordForm({ onPasswordChanged }: { onPasswordCh
       {notice.success && <div ref={successRef} role="status" tabIndex={-1} className="pf-notice pf-notice-ok"><CheckCircle size={20} aria-hidden="true" style={{ flexShrink: 0 }} />{notice.success}</div>}
       <div className="pf-actions">
         <button className="pf-save" type="submit" disabled={saving}>
-          {saving && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
-          {saving ? 'Guardando...' : 'Cambiar contraseña'}
+          <BusyLabel busy={saving} spinnerSize={16}>Cambiar contraseña</BusyLabel>
         </button>
       </div>
     </form>

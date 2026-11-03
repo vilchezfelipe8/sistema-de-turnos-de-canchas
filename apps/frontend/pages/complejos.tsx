@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Search, MapPin, Star, ChevronDown, X } from 'lucide-react';
+import { Search, MapPin, Star, ChevronDown, X, Navigation, Check } from 'lucide-react';
 import DarkPageLayout from '../components/DarkPageLayout';
 import UserLoadingState from '../components/UserLoadingState';
 import { ClubService, Club } from '../services/ClubService';
@@ -23,14 +23,8 @@ const geocode = async (address: string): Promise<{ lat: number; lon: number } | 
 
 /* ── CSS ─────────────────────────────────────────────────────────── */
 const PAGE_CSS = `
-  .p-public-root.p-public-theme-light .p-breadcrumbs-wrap { position:relative; z-index:45; padding-bottom:0; background:
-    radial-gradient(ellipse 82% 66% at 72% 18%, rgba(182,243,106,.24) 0%, rgba(182,243,106,.08) 44%, transparent 74%),
-    linear-gradient(180deg, #fbfff4 0%, rgba(245,244,240,.86) 100%); }
-  .p-public-root.p-public-theme-light .p-breadcrumbs-cloud { background:rgba(255,255,255,.72); }
-  .vn-explore-top { position:relative; border-bottom:1px solid var(--border-subtle); background:
-    radial-gradient(ellipse 80% 64% at 72% 16%, rgba(182,243,106,.12) 0%, transparent 72%),
-    linear-gradient(180deg, rgba(182,243,106,.05) 0%, transparent 100%);
-  }
+  .p-public-root.p-public-theme-light .p-breadcrumbs-wrap { position:relative; z-index:45; padding-bottom:0; }
+  .vn-explore-top { position:relative; }
   .vn-explore-inner { max-width:1360px; margin:0 auto; padding:12px 40px 28px; }
   .vn-head-row { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; flex-wrap:wrap; margin-bottom:18px; }
   .vn-head-copy { max-width:640px; }
@@ -40,12 +34,15 @@ const PAGE_CSS = `
   .vn-toolbar { position:relative; z-index:3; display:flex; flex-direction:column; gap:14px; padding:16px 18px; border-radius:24px;
     background:color-mix(in srgb, var(--surface-1) 88%, transparent); border:1px solid var(--border);
     box-shadow:var(--shadow-md); backdrop-filter:blur(14px); box-sizing:border-box;
-    transition: top .28s ease-out, left .28s ease-out, width .28s ease-out, transform .28s ease-out, opacity .22s ease-out, background-color .26s ease, border-color .26s ease;
-    will-change:top, transform, opacity; }
+    /* Misma duración y curva que .p-header: la barra y el navbar se mueven juntos */
+    transition: transform .38s cubic-bezier(.4,0,.2,1), opacity .22s ease-out, background-color .26s ease, border-color .26s ease;
+    will-change:transform; }
   .vn-toolbar.v-stuck { }
-  .vn-toolbar.v-floating { position:fixed; top:var(--vn-toolbar-top, 76px); left:var(--vn-toolbar-left, 40px); width:var(--vn-toolbar-width, calc(100vw - 80px)); z-index:9500; opacity:1; transform:translate3d(0,0,0) scale(1); }
-  .vn-toolbar.v-floating.v-stuck { transform:translate3d(0,0,0) scale(1); opacity:1; }
-  .vn-toolbar.v-floating.v-leaving { opacity:.97; transform:translate3d(0,0,0) scale(1); }
+  .vn-toolbar.v-near { z-index:60; }
+  .vn-toolbar.v-floating { position:fixed; top:var(--vn-toolbar-top, 76px); left:var(--vn-toolbar-left, 40px); width:var(--vn-toolbar-width, calc(100vw - 80px)); z-index:9500; opacity:1; transform:translate3d(0,var(--vn-toolbar-shift, 0px),0); }
+  .vn-toolbar.v-floating.v-stuck { transform:translate3d(0,var(--vn-toolbar-shift, 0px),0); opacity:1; }
+  .vn-toolbar.v-floating.v-leaving { opacity:.97; transform:translate3d(0,var(--vn-toolbar-shift, 0px),0); }
+  @media (prefers-reduced-motion: reduce) { .vn-toolbar { transition:none; } }
   .vn-toolbar-search { position:relative; z-index:25; display:flex; gap:0; background:var(--border-subtle); border:1px solid var(--border-subtle); border-radius:999px; padding:4px; backdrop-filter:blur(20px); align-items:center; flex-wrap:wrap; }
   .vn-toolbar-seg { display:flex; align-items:center; gap:8px; padding:10px 16px; font-size:13px; font-weight:600; color:var(--text-secondary); cursor:pointer; position:relative; white-space:nowrap; border-radius:999px; transition:background .15s; background:transparent; border:none; font-family:inherit; }
   .vn-toolbar-seg:hover { background:var(--border-subtle); }
@@ -73,13 +70,14 @@ const PAGE_CSS = `
   .vn-active-pill-button:hover { background:var(--surface-2); }
   .vn-chip-wrap { position:relative; }
   .vn-dropdown { position:absolute; top:calc(100% + 8px); left:0; min-width:260px; background:var(--surface-1); border:1px solid var(--border); border-radius:12px; overflow:hidden; box-shadow:var(--shadow-lg); z-index:120; }
-  .vn-dropdown-head { padding:10px 16px; border-bottom:1px solid var(--border); font-size:10px; font-weight:700; letter-spacing:.04em; color:var(--text-muted); }
-  .vn-dropdown-list { max-height:220px; overflow-y:auto; margin:0; padding:0; list-style:none; }
-  .vn-dropdown-item { width:100%; display:flex; align-items:center; gap:10px; padding:11px 16px; background:transparent; border:0; border-bottom:1px solid var(--border-subtle); cursor:pointer; font-family:inherit; font-size:13px; color:var(--text-secondary); font-weight:500; text-align:left; transition:background .15s, color .15s; }
-  .vn-dropdown-item:last-child { border-bottom:none; }
+  .vn-dropdown-list { max-height:260px; overflow-y:auto; margin:0; padding:6px; list-style:none; display:flex; flex-direction:column; gap:2px; }
+  .vn-dropdown-item { width:100%; display:flex; align-items:center; gap:10px; min-height:44px; padding:0 12px; background:transparent; border:0; border-radius:10px; cursor:pointer; font-family:inherit; font-size:14px; color:var(--text-primary); font-weight:500; text-align:left; transition:background .15s, color .15s; }
   .vn-dropdown-item:hover { background:var(--surface-2); }
-  .vn-dropdown-item.vn-selected { background:var(--positive-bg); color:var(--accent-fg); }
-  .vn-dropdown-item-ico { width:13px; height:13px; color:var(--accent-fg); flex-shrink:0; }
+  .vn-dropdown-label { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .vn-dropdown-count { font-size:12px; font-weight:600; color:var(--text-muted); font-variant-numeric:tabular-nums; }
+  .vn-dropdown-check { width:16px; height:16px; flex-shrink:0; color:var(--accent-fg); visibility:hidden; }
+  .vn-dropdown-item.vn-selected { color:var(--accent-fg); font-weight:700; }
+  .vn-dropdown-item.vn-selected .vn-dropdown-check { visibility:visible; }
   /* Map */
   .vn-map-sec { border-top:1px solid var(--border-subtle); }
   .vn-map-inner { max-width:1360px; margin:0 auto; padding:64px 40px; }
@@ -119,6 +117,10 @@ const PAGE_CSS = `
   .vn-card-name { font-size:16px; font-weight:800; color:var(--text-primary); letter-spacing:-.01em; }
   .vn-card-addr { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-muted); font-weight:500; }
   .vn-card-addr svg { color:var(--text-muted); flex-shrink:0; }
+  .vn-card-addr-row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .vn-card-addr-row .vn-card-addr { flex:1; min-width:0; }
+  .vn-card-addr-row .vn-card-addr span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .vn-card-sports { font-size:12px; font-weight:700; color:var(--accent-fg); margin-bottom:8px; }
   .vn-card-desc { font-size:13px; color:var(--text-muted); line-height:1.5;
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
   .vn-card-footer { margin-top:auto; padding-top:14px; border-top:1px solid var(--border-subtle);
@@ -132,7 +134,33 @@ const PAGE_CSS = `
   .vn-empty-ico { color:var(--accent-border-subtle); }
   .vn-empty-title { font-size:18px; font-weight:800; color:var(--text-primary); }
   .vn-empty-sub { font-size:14px; color:var(--text-muted); }
-  .vn-skeleton { animation:p-public-pulse 1.5s ease-in-out infinite; }
+  .vn-skeleton { animation:p-pulse 1.5s ease-in-out infinite; }
+  .vn-card-photo { opacity:0; transition:opacity .35s ease; }
+  .vn-card-photo.vn-loaded { opacity:1; }
+  .vn-card-logo { opacity:0; transition:opacity .25s ease; }
+  .vn-card-logo.vn-loaded { opacity:1; }
+  .vn-results-head-plain .vn-results-copy { margin-bottom:0; }
+  /* Abrir o cerrar filtros cambia el alto de la barra: sin esto el navegador corrige el
+     scroll solo y ese movimiento muestra u oculta el navbar. */
+  html { overflow-anchor:none; }
+  @media(min-width:721px){ .vn-veil { display:none; } }
+  @keyframes vn-drop-in { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:none; } }
+  @keyframes vn-fade-in { from { opacity:0; } to { opacity:1; } }
+  @media (prefers-reduced-motion: reduce) { .vn-dropdown, .vn-veil, .vn-toolbar-input-wrap.vn-mobile-open { animation:none !important; } }
+  .vn-card-directions { display:none; }
+  @media(max-width:720px){
+    .vn-map-sec { display:none; }
+    /* Misma línea que la ciudad: el área tocable mide 40px pero no agranda la fila */
+    .vn-card-directions { display:inline-flex; flex-shrink:0; align-items:center; gap:5px; min-height:40px; margin:-12px -8px -12px 0; padding:0 8px; border:none; border-radius:999px; background:transparent; color:var(--accent-fg); font-family:inherit; font-size:12px; font-weight:700; cursor:pointer; }
+  }
+  .vn-seg-ico { color:var(--text-muted); }
+  .vn-toolbar-seg.vn-seg-active,
+  .p-public-root.p-public-theme-light .vn-toolbar-seg.vn-seg-active { color:var(--accent-fg); background:var(--positive-bg); }
+  .vn-toolbar-seg.vn-seg-active .vn-seg-ico { color:var(--accent-fg); }
+  .vn-seg-clear { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; margin-right:-4px; border-radius:999px; color:var(--accent-fg); flex-shrink:0; }
+  .vn-seg-clear:hover { background:color-mix(in srgb, var(--accent-fg) 14%, transparent); }
+  .vn-sub-clear { padding:0; border:none; background:none; font:inherit; font-weight:700; color:var(--accent-fg); cursor:pointer; text-decoration:underline; text-underline-offset:3px; }
+  @media(max-width:720px){ .vn-results-head-plain { display:none; } }
   .vn-skel-card { background:var(--surface-1); border:1px solid var(--border-subtle); border-radius:20px; overflow:hidden; }
   .vn-skel-img { height:200px; background:var(--surface-2); }
   .vn-skel-body { padding:18px 20px 20px; display:flex; flex-direction:column; gap:10px; }
@@ -169,8 +197,8 @@ const PAGE_CSS = `
     .vn-map-inner { padding-top:48px; padding-bottom:48px; }
     .vn-toolbar-zone .vn-toolbar-seg,
     .vn-toolbar-sport .vn-toolbar-seg { width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
-    .vn-toolbar-zone .vn-toolbar-seg span,
-    .vn-toolbar-sport .vn-toolbar-seg span { display:inline-block; max-width:calc(100% - 28px); overflow:hidden; text-overflow:ellipsis; vertical-align:middle; }
+    .vn-toolbar-zone .vn-toolbar-seg span:not(.vn-seg-clear),
+    .vn-toolbar-sport .vn-toolbar-seg span:not(.vn-seg-clear) { display:block; flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     /* Ajustes de padding para alinear selects y texto de búsqueda */
     .vn-toolbar-search { padding:8px 12px; }
     .vn-toolbar-seg { padding:8px 12px; }
@@ -180,12 +208,12 @@ const PAGE_CSS = `
     /* Asegurar tamaños consistentes de iconos */
     .vn-search-ico svg { width:14px; height:14px; display:block; }
     .vn-toolbar-seg svg { width:14px; height:14px; display:block; flex-shrink:0; }
-    .vn-results-head { align-items:flex-start; gap:10px; }
+    .vn-results-head { align-items:center; gap:10px; margin-bottom:16px; }
+    .vn-results-copy { display:none; }
     .vn-results-count { padding:7px 11px; font-size:11px; }
+    .vn-card-desc,
+    .vn-card-footer { display:none; }
   }
-  .p-public-root.p-public-theme-light .vn-explore-top { border-bottom-color:rgba(106,176,48,.18); background:
-    radial-gradient(ellipse 82% 66% at 72% 18%, rgba(182,243,106,.24) 0%, rgba(182,243,106,.08) 44%, transparent 74%),
-    linear-gradient(180deg, #fbfff4 0%, rgba(245,244,240,.86) 100%); }
   .p-public-root.p-public-theme-light .vn-toolbar { background:rgba(255,255,255,.82); border-color:var(--border); box-shadow:0 12px 30px var(--border-subtle); }
   .p-public-root.p-public-theme-light .vn-h1,
   .p-public-root.p-public-theme-light .vn-map-title,
@@ -210,11 +238,7 @@ const PAGE_CSS = `
   .p-public-root.p-public-theme-light .vn-toolbar-clear { background:var(--surface-1); border-color:var(--border); color:var(--text-secondary); }
   .p-public-root.p-public-theme-light .vn-toolbar-clear:hover { background:var(--surface-2); }
   .p-public-root.p-public-theme-light .vn-dropdown { background:var(--surface-1); border-color:var(--border); box-shadow:0 12px 28px var(--border); }
-  .p-public-root.p-public-theme-light .vn-dropdown-head { color:var(--text-muted); border-bottom-color:var(--border-subtle); }
-  .p-public-root.p-public-theme-light .vn-dropdown-item { color:var(--text-primary); border-bottom-color:var(--surface-2); }
   .p-public-root.p-public-theme-light .vn-dropdown-item:hover { background:var(--surface-2); }
-  .p-public-root.p-public-theme-light .vn-dropdown-item.vn-selected { color:var(--accent-fg); background:var(--positive-bg); }
-  .p-public-root.p-public-theme-light .vn-dropdown-item-ico { color:var(--accent-fg); }
   .p-public-root.p-public-theme-light .vn-map-sec { border-color:var(--border-subtle); }
   .p-public-user-foot { margin-top:0; }
   .p-public-root.p-public-theme-light .vn-card,
@@ -228,12 +252,55 @@ const PAGE_CSS = `
   .p-public-root.p-public-theme-light .vn-card-footer { border-top-color:var(--border-subtle); }
   .p-public-root.p-public-theme-light .vn-skel-img { background:var(--surface-2); }
   .p-public-root.p-public-theme-light .vn-skel-line { background:var(--border-subtle); }
+
+  /* Una sola cápsula de filtros: sin la tarjeta exterior que la envolvía */
+  .vn-toolbar,
+  .vn-toolbar.v-stuck,
+  .p-public-root.p-public-theme-light .vn-toolbar { padding:0; background:transparent; border:none; box-shadow:none; backdrop-filter:none; }
+  .vn-toolbar-search,
+  .p-public-root.p-public-theme-light .vn-toolbar-search { background:var(--surface-1); border-color:var(--border); box-shadow:0 10px 26px var(--border-subtle); }
+
+  /* Mobile: mismo lenguaje que el resto de pantallas públicas (sin franja hero ni contenedores anidados) */
+  @media(max-width:720px){
+    .vn-explore-inner { padding-bottom:4px; }
+    .vn-head-row { margin-bottom:16px; }
+    .vn-toolbar,
+    .vn-toolbar.v-stuck,
+    .p-public-root.p-public-theme-light .vn-toolbar { padding:0; gap:10px; background:transparent; border:none; box-shadow:none; backdrop-filter:none; }
+    .vn-toolbar-search,
+    .p-public-root.p-public-theme-light .vn-toolbar-search { grid-template-columns:minmax(0,1fr) minmax(0,1fr) 40px; background:var(--surface-1); border-color:var(--border); padding:6px; gap:4px; border-radius:18px; box-shadow:0 8px 20px var(--border-subtle); }
+    .vn-toolbar-seg { padding:10px; gap:6px; justify-content:center; }
+    .vn-toolbar-mobile-search-toggle { width:40px; height:40px; padding:0; }
+    .vn-toggle-label { display:none; }
+    /* Desplegables pegados a la cápsula pero superpuestos: no empujan la página */
+    .vn-chip-wrap { display:contents; }
+    .vn-toolbar-zone .vn-toolbar-seg { order:1; }
+    .vn-toolbar-sport .vn-toolbar-seg { order:2; }
+    .vn-toolbar-search.vn-has-open,
+    .p-public-root.p-public-theme-light .vn-toolbar-search.vn-has-open { border-bottom-left-radius:0; border-bottom-right-radius:0; box-shadow:none; }
+    .vn-dropdown,
+    .p-public-root.p-public-theme-light .vn-dropdown { position:absolute; top:calc(100% - 1px); left:-1px; right:-1px; margin:0; background:var(--surface-1); border:1px solid var(--border); border-top:1px solid var(--border-subtle); border-radius:0 0 18px 18px; box-shadow:0 18px 32px rgba(0,0,0,.18); animation:vn-drop-in .16s ease-out; }
+    .vn-veil { position:fixed; inset:0; z-index:2; background:rgba(0,0,0,.28); animation:vn-fade-in .16s ease-out; }
+    .vn-toolbar-input-wrap.vn-mobile-open { animation:vn-drop-in .16s ease-out; }
+    .vn-body { padding-top:20px; }
+    .vn-card-img { height:168px; }
+  }
 `;
 
 type RatingMap = Record<number, { average: number; total: number }>;
 
 function formatAddr(c: Club) {
   return [c.city, c.province].filter(Boolean).join(', ') || c.addressLine || '';
+}
+
+// Etiqueta corta solo para el botón del filtro; la lista muestra el nombre completo.
+const ZONE_SHORT_LABELS: Record<string, string> = {
+  'Ciudad Autónoma de Buenos Aires': 'CABA',
+};
+
+function directionsUrl(c: Club) {
+  const query = [c.addressLine, c.city, c.province, c.country].filter(Boolean).join(', ');
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
 function SkeletonCard() {
@@ -273,6 +340,7 @@ export default function ComplejosPage() {
   const [clubs, setClubs] = useState<Club[]>([]);
   const [loading, setLoading] = useState(true);
   const [ratings, setRatings] = useState<RatingMap>({});
+  const [loadedMedia, setLoadedMedia] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState('');
   const [zone, setZone] = useState('');
   const [sport, setSport] = useState<PublicSport>('');
@@ -280,9 +348,11 @@ export default function ComplejosPage() {
   const [showSportDropdown, setShowSportDropdown] = useState(false);
   const [toolbarStuck, setToolbarStuck] = useState(false);
   const [toolbarFloating, setToolbarFloating] = useState(false);
+  const [toolbarNear, setToolbarNear] = useState(false);
   const [toolbarLeaving, setToolbarLeaving] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [navHidden, setNavHidden] = useState(false);
+  const [navHeight, setNavHeight] = useState(76);
   const [toolbarFrame, setToolbarFrame] = useState<{ left: number; width: number; height: number }>({
     left: 40,
     width: 960,
@@ -295,7 +365,10 @@ export default function ComplejosPage() {
   // Read URL params once router is ready
   useEffect(() => {
     if (!router.isReady || paramsRead) return;
-    if (router.query.q) setSearch(String(router.query.q));
+    if (router.query.q) {
+      setSearch(String(router.query.q));
+      setMobileSearchOpen(true);
+    }
     if (router.query.zone) setZone(String(router.query.zone));
     if (router.query.sport) setSport(normalizePublicSport(String(router.query.sport)));
     setParamsRead(true);
@@ -317,6 +390,8 @@ export default function ComplejosPage() {
       if (!filtersRef.current?.contains(event.target as Node)) {
         setShowZoneDropdown(false);
         setShowSportDropdown(false);
+        // Un buscador abierto y vacío no aporta nada: se cierra al tocar afuera.
+        if (!searchRef.current?.value.trim()) setMobileSearchOpen(false);
       }
     };
     document.addEventListener('mousedown', handlePointerDown);
@@ -325,18 +400,33 @@ export default function ComplejosPage() {
 
   useEffect(() => {
     if (typeof window === 'undefined' || !toolbarSentinelRef.current) return;
-    const toolbarTopOffset = navHidden ? 18 : 76;
+    // Umbral fijo (alto del navbar visible): si dependiera de navHidden, al ocultarse el
+    // navbar el umbral bajaría y la barra se soltaría y volvería a fijarse en pleno scroll.
     const observer = new IntersectionObserver(
       ([entry]) => setToolbarStuck(!entry.isIntersecting),
       {
         root: null,
         threshold: 0,
-        rootMargin: `-${toolbarTopOffset}px 0px 0px 0px`
+        rootMargin: `-${navHeight}px 0px 0px 0px`
+      }
+    );
+    // El aviso de "fijada" llega un frame tarde: en ese frame la barra pasaría por debajo
+    // del navbar. Al acercarse al borde se eleva por encima de él para que nunca la tape.
+    const nearObserver = new IntersectionObserver(
+      ([entry]) => setToolbarNear(!entry.isIntersecting),
+      {
+        root: null,
+        threshold: 0,
+        rootMargin: `-${navHeight + 48}px 0px 0px 0px`
       }
     );
     observer.observe(toolbarSentinelRef.current);
-    return () => observer.disconnect();
-  }, [navHidden]);
+    nearObserver.observe(toolbarSentinelRef.current);
+    return () => {
+      observer.disconnect();
+      nearObserver.disconnect();
+    };
+  }, [navHeight]);
 
   useEffect(() => {
     if (!toolbarStuck) {
@@ -359,7 +449,9 @@ export default function ComplejosPage() {
       setToolbarFrame((prev) => ({
         left: slotRect.left,
         width: slotRect.width,
-        height: toolbarRect?.height || prev.height
+        // Con la barra fijada, el hueco reservado conserva su alto: si creciera al abrir un
+        // desplegable empujaría la página y el scroll resultante ocultaría el navbar.
+        height: toolbarStuck ? prev.height : (toolbarRect?.height || prev.height)
       }));
     };
 
@@ -372,36 +464,31 @@ export default function ComplejosPage() {
     };
   }, [toolbarStuck, showZoneDropdown, showSportDropdown, search, zone, sport]);
 
+  // El estado del navbar se lee del propio NavBar (clase p-header-hidden) en vez de
+  // recalcularlo acá: así la barra de filtros se mueve exactamente cuando él se mueve.
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    const header = document.querySelector<HTMLElement>('.p-player-nav');
+    if (!header) return;
 
-    let lastY = window.scrollY;
-    const threshold = 4;
-
-    const updateNavState = () => {
-      const currentY = window.scrollY;
-      const delta = Math.abs(currentY - lastY);
-
-      if (currentY < 80) {
-        setNavHidden(false);
-        lastY = currentY;
-        return;
-      }
-
-      if (delta < threshold) return;
-
-      setNavHidden(currentY > lastY);
-      lastY = currentY;
+    const sync = () => {
+      setNavHidden(header.classList.contains('p-header-hidden'));
+      if (header.offsetHeight) setNavHeight(header.offsetHeight);
     };
 
-    updateNavState();
-    window.addEventListener('scroll', updateNavState, { passive: true });
-    return () => window.removeEventListener('scroll', updateNavState);
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(header, { attributes: true, attributeFilter: ['class'] });
+    window.addEventListener('resize', sync);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', sync);
+    };
   }, []);
 
   useEffect(() => {
     if (!mobileSearchOpen) return;
-    searchRef.current?.focus();
+    searchRef.current?.focus({ preventScroll: true });
   }, [mobileSearchOpen]);
 
   // Load clubs + ratings
@@ -409,6 +496,8 @@ export default function ComplejosPage() {
     ClubService.getAllClubs()
       .then(async (all) => {
         setClubs(all);
+        // Las tarjetas se muestran sin esperar las reseñas; el rating aparece cuando llega.
+        setLoading(false);
         const ratingResults = await Promise.all(
           all.map(c =>
             getClubReviewsSummary(c.slug)
@@ -427,6 +516,8 @@ export default function ComplejosPage() {
   // Load Leaflet from CDN (client-side only)
   useEffect(() => {
     if (typeof window === 'undefined' || mapLoaded) return;
+    // En mobile el mapa no se muestra: cada tarjeta ofrece "Cómo llegar".
+    if (window.matchMedia('(max-width:720px)').matches) return;
     setMapLoaded(true);
     const leafletCss = document.createElement('link');
     leafletCss.rel = 'stylesheet';
@@ -537,24 +628,51 @@ export default function ComplejosPage() {
     [clubs, search, zone, sport],
   );
 
+  // Cantidad por opción teniendo en cuenta los demás filtros; las opciones sin complejos se ocultan.
+  const zoneOptions = useMemo(() => {
+    const pool = clubs.filter(club => matchesPublicClubFilters(club, { search, sport }));
+    return {
+      all: pool.length,
+      items: zones
+        .map(z => ({ value: z, label: z, count: pool.filter(club => matchesPublicClubFilters(club, { zone: z })).length }))
+        .filter(option => option.count > 0 || option.value === zone),
+    };
+  }, [clubs, zones, search, sport, zone]);
+  const sportOptions = useMemo(() => {
+    const pool = clubs.filter(club => matchesPublicClubFilters(club, { search, zone }));
+    return {
+      all: pool.length,
+      items: SPORTS.filter(option => option.value)
+        .map(option => ({ value: option.value, label: option.label, count: pool.filter(club => matchesPublicClubFilters(club, { sport: option.value })).length }))
+        .filter(option => option.count > 0 || option.value === sport),
+    };
+  }, [clubs, search, zone, sport]);
+
   const hasFilters = search || zone || sport;
-  const activeFilterParts = [
-    zone ? zone : null,
-    sport ? SPORT_LABELS[sport] || sport : null,
-    search ? `“${search.trim()}”` : null,
-  ].filter(Boolean) as string[];
-  const heroTitle = 'Complejos';
-  const heroSub = hasFilters
-    ? activeFilterParts.length === 1
-      ? `Resultados para ${activeFilterParts[0]}.`
-      : activeFilterParts.length > 1
-        ? `Resultados para ${activeFilterParts.slice(0, -1).join(' · ')} y ${activeFilterParts[activeFilterParts.length - 1]}.`
-        : 'Mostrando resultados según tus filtros.'
-    : 'Encontrá dónde jugar y filtrá por zona, deporte o nombre.';
-  const resultsTitle = hasFilters ? 'Resultados' : 'Todos los complejos';
-  const resultsSub = hasFilters
-    ? 'Elegí un complejo para seguir con la reserva.'
-    : 'Explorá la red completa de complejos disponibles.';
+  const activeFilterCount = (zone ? 1 : 0) + (sport ? 1 : 0) + (search.trim() ? 1 : 0);
+  // Sin resultados ya lo explica el estado vacío de la grilla.
+  const heroSub = hasFilters && !loading && filtered.length > 0
+    ? `${filtered.length} ${filtered.length === 1 ? 'complejo encontrado' : 'complejos encontrados'}`
+    : '';
+  // Cierre del segmento: con filtro activo, la flecha pasa a ser una ✕ que lo quita.
+  // El desplegable sigue ofreciendo "Todas/Todos" para quien navega con teclado.
+  const segmentEnd = (active: boolean, onClear: () => void) => (active
+    ? (
+      <span
+        className="vn-seg-clear"
+        aria-hidden="true"
+        onClick={(event) => {
+          event.stopPropagation();
+          onClear();
+          setShowZoneDropdown(false);
+          setShowSportDropdown(false);
+        }}
+      >
+        <X size={13} />
+      </span>
+    )
+    : <ChevronDown className="vn-toolbar-caret" />);
+  const markLoaded = (key: string) => setLoadedMedia(prev => (prev[key] ? prev : { ...prev, [key]: true }));
   const mapTitle = 'Mapa de complejos';
   const mapSub = hasFilters
     ? 'Ubicación de los complejos que coinciden con tus filtros.'
@@ -570,29 +688,34 @@ export default function ComplejosPage() {
 
   return (
     <DarkPageLayout
-      title="Complejos · Pique"
+      title="Complejos | Pique"
       extraCss={PAGE_CSS}
+      breadcrumbs={[
+        { label: 'Inicio', href: '/' },
+        { label: 'Complejos' },
+      ]}
     >
 
       <section className="vn-explore-top">
         <div className="vn-explore-inner">
-          <nav className="p-breadcrumbs" aria-label="Breadcrumb" style={{ marginBottom: 18 }}>
-            <div className="p-breadcrumbs-cloud">
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                <Link href="/" className="p-breadcrumb-link">Inicio</Link>
-                <span className="p-breadcrumb-sep">/</span>
-              </div>
-              <span className="p-breadcrumb-current">Complejos</span>
-            </div>
-          </nav>
-
           <div className="vn-head-row">
             <div className="vn-head-copy">
-              <h1 className="vn-h1">{heroTitle}</h1>
-              <p className="vn-sub">{heroSub}</p>
+              <h1 className="p-public-page-h">Dónde <i>jugar</i></h1>
+              {(heroSub || activeFilterCount >= 2) && (
+                <p className="p-public-page-sub">
+                  {heroSub}
+                  {activeFilterCount >= 2 && (
+                    <>
+                      {heroSub && <span className="vn-sub-sep" aria-hidden="true"> · </span>}
+                      <button type="button" className="vn-sub-clear" onClick={clearFilters}>Limpiar filtros</button>
+                    </>
+                  )}
+                </p>
+              )}
             </div>
           </div>
 
+          {(showZoneDropdown || showSportDropdown) && <div className="vn-veil" aria-hidden="true" />}
           <div ref={toolbarSentinelRef} aria-hidden="true" style={{ height: 1 }} />
           <div
             ref={toolbarSlotRef}
@@ -601,69 +724,64 @@ export default function ComplejosPage() {
           >
           {(() => {
             const leaving = toolbarLeaving;
-            const toolbarTop = (toolbarFloating || toolbarLeaving)
-              ? `${navHidden ? 18 : 76}px`
-              : undefined;
+            const toolbarTop = (toolbarFloating || toolbarLeaving) ? `${navHeight}px` : undefined;
+            // Con el navbar oculto la barra sube con transform (no con top) para acompañar
+            // su animación con la misma duración y curva.
+            const toolbarShift = navHidden ? `${-(navHeight - 14)}px` : '0px';
             return (
           <div
-            className={`vn-toolbar${(toolbarFloating || toolbarLeaving) ? ' v-floating' : ''}${toolbarStuck ? ' v-stuck' : leaving ? ' v-leaving' : ''}`}
+            className={`vn-toolbar${toolbarNear ? ' v-near' : ''}${(toolbarFloating || toolbarLeaving) ? ' v-floating' : ''}${toolbarStuck ? ' v-stuck' : leaving ? ' v-leaving' : ''}`}
             ref={filtersRef}
             style={
               (toolbarFloating || toolbarLeaving)
                 ? ({
                     ['--vn-toolbar-top' as any]: toolbarTop,
+                    ['--vn-toolbar-shift' as any]: toolbarShift,
                     ['--vn-toolbar-left' as any]: `${toolbarFrame.left}px`,
                     ['--vn-toolbar-width' as any]: `${toolbarFrame.width}px`
                   } as React.CSSProperties)
                 : undefined
             }
           >
-            <div className="vn-toolbar-search">
+            <div className={`vn-toolbar-search${showZoneDropdown || showSportDropdown ? ' vn-has-open' : ''}`}>
               <div className={`vn-chip-wrap vn-toolbar-zone${showZoneDropdown ? ' vn-open' : ''}`} onClick={(event) => event.stopPropagation()}>
                 <button
                   type="button"
-                  className="vn-toolbar-seg"
+                  className={`vn-toolbar-seg${zone ? ' vn-seg-active' : ''}`}
                   onClick={() => {
                     setShowSportDropdown(false);
+                    setMobileSearchOpen(false);
                     setShowZoneDropdown((prev) => !prev);
                   }}
                 >
-                  <MapPin size={13} style={{ color: 'var(--text-muted)' }} />
-                  <span>{zone || 'Zona'}</span>
-                  <ChevronDown className="vn-toolbar-caret" />
+                  <MapPin size={13} className="vn-seg-ico" />
+                  <span>{zone ? (ZONE_SHORT_LABELS[zone] || zone) : 'Zona'}</span>
+                  {segmentEnd(!!zone, () => setZone(''))}
                 </button>
                 {showZoneDropdown && (
                   <div className="vn-dropdown">
-                    <div className="vn-dropdown-head">Elegí zona</div>
-                    <ul className="vn-dropdown-list">
-                      <li>
-                        <button
-                          type="button"
-                          className={`vn-dropdown-item${!zone ? ' vn-selected' : ''}`}
-                          onClick={() => {
-                            setZone('');
-                            setShowZoneDropdown(false);
-                          }}
-                        >
-                          <MapPin className="vn-dropdown-item-ico" />
-                          Todas las zonas
-                        </button>
-                      </li>
-                      {zones.map((z) => (
-                        <li key={z}>
-                          <button
-                            type="button"
-                            className={`vn-dropdown-item${zone === z ? ' vn-selected' : ''}`}
-                            onClick={() => {
-                              setZone(z);
-                              setShowZoneDropdown(false);
-                            }}
-                          >
-                            <MapPin className="vn-dropdown-item-ico" />
-                            {z}
-                          </button>
-                        </li>
-                      ))}
+                    <ul className="vn-dropdown-list" role="listbox" aria-label="Zona">
+                      {[{ value: '', label: 'Todas las zonas', count: zoneOptions.all }, ...zoneOptions.items].map((option) => {
+                        const selected = zone === option.value;
+                        return (
+                          <li key={option.value || 'all'}>
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={selected}
+                              className={`vn-dropdown-item${selected ? ' vn-selected' : ''}`}
+                              onClick={() => {
+                                setZone(option.value);
+                                setShowZoneDropdown(false);
+                              }}
+                            >
+                              <span className="vn-dropdown-label">{option.label}</span>
+                              <span className="vn-dropdown-count">{option.count}</span>
+                              <Check className="vn-dropdown-check" aria-hidden="true" />
+                            </button>
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                 )}
@@ -674,35 +792,41 @@ export default function ComplejosPage() {
               <div className={`vn-chip-wrap vn-toolbar-sport${showSportDropdown ? ' vn-open' : ''}`} onClick={(event) => event.stopPropagation()}>
                 <button
                   type="button"
-                  className="vn-toolbar-seg"
+                  className={`vn-toolbar-seg${sport ? ' vn-seg-active' : ''}`}
                   onClick={() => {
                     setShowZoneDropdown(false);
+                    setMobileSearchOpen(false);
                     setShowSportDropdown((prev) => !prev);
                   }}
                 >
-                  <svg style={{ color: 'var(--text-muted)', display: 'flex', flexShrink: 0 }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M12 2a15 15 0 0 1 0 20M2 12h20" /></svg>
+                  <svg className="vn-seg-ico" style={{ display: 'flex', flexShrink: 0 }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M12 2a15 15 0 0 1 0 20M2 12h20" /></svg>
                   <span>{sport ? SPORT_LABELS[sport] : 'Deporte'}</span>
-                  <ChevronDown className="vn-toolbar-caret" />
+                  {segmentEnd(!!sport, () => setSport(''))}
                 </button>
                 {showSportDropdown && (
                   <div className="vn-dropdown">
-                    <div className="vn-dropdown-head">Elegí deporte</div>
-                    <ul className="vn-dropdown-list">
-                      {SPORTS.map((option) => (
-                        <li key={option.value || 'all'}>
-                          <button
-                            type="button"
-                            className={`vn-dropdown-item${sport === option.value ? ' vn-selected' : ''}`}
-                            onClick={() => {
-                              setSport(option.value);
-                              setShowSportDropdown(false);
-                            }}
-                          >
-                            <svg className="vn-dropdown-item-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M12 2a15 15 0 0 1 0 20M2 12h20" /></svg>
-                            {option.label}
-                          </button>
-                        </li>
-                      ))}
+                    <ul className="vn-dropdown-list" role="listbox" aria-label="Deporte">
+                      {[{ value: '' as PublicSport, label: 'Todos los deportes', count: sportOptions.all }, ...sportOptions.items].map((option) => {
+                        const selected = sport === option.value;
+                        return (
+                          <li key={option.value || 'all'}>
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={selected}
+                              className={`vn-dropdown-item${selected ? ' vn-selected' : ''}`}
+                              onClick={() => {
+                                setSport(option.value);
+                                setShowSportDropdown(false);
+                              }}
+                            >
+                              <span className="vn-dropdown-label">{option.label}</span>
+                              <span className="vn-dropdown-count">{option.count}</span>
+                              <Check className="vn-dropdown-check" aria-hidden="true" />
+                            </button>
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                 )}
@@ -710,24 +834,32 @@ export default function ComplejosPage() {
 
               <button
                 type="button"
-                className={`vn-toolbar-mobile-search-toggle${mobileSearchOpen || !!search ? ' vn-active' : ''}`}
-                onClick={() => setMobileSearchOpen((prev) => !prev)}
-                aria-expanded={mobileSearchOpen || !!search}
+                className={`vn-toolbar-mobile-search-toggle${!!search && !mobileSearchOpen ? ' vn-active' : ''}`}
+                onClick={() => {
+                  setShowZoneDropdown(false);
+                  setShowSportDropdown(false);
+                  setMobileSearchOpen((prev) => {
+                    if (!prev) requestAnimationFrame(() => searchRef.current?.focus({ preventScroll: true }));
+                    return !prev;
+                  });
+                }}
+                aria-expanded={mobileSearchOpen}
                 aria-controls="complejos-mobile-search"
               >
                 <Search size={14} />
-                Buscar
+                <span className="vn-toggle-label">Buscar</span>
               </button>
 
               <div className="vn-toolbar-divider" />
 
               <div
                 id="complejos-mobile-search"
-                className={`vn-toolbar-input-wrap${mobileSearchOpen || !!search ? ' vn-mobile-open' : ''}`}
+                className={`vn-toolbar-input-wrap${mobileSearchOpen ? ' vn-mobile-open' : ''}`}
               >
                 <span className="vn-search-ico"><Search size={16} /></span>
                 <input ref={searchRef} className="vn-search-input" type="text" value={search}
-                  onChange={e => setSearch(e.target.value)} placeholder="Buscá por nombre, zona o descripción…" autoComplete="off" />
+                  onFocus={() => { setShowZoneDropdown(false); setShowSportDropdown(false); }}
+                  onChange={e => setSearch(e.target.value)} placeholder="Buscar complejo" autoComplete="off" />
                 {search && (
                   <button className="vn-search-clear" onClick={() => { setSearch(''); searchRef.current?.focus(); }}>
                     <X size={14} />
@@ -735,27 +867,8 @@ export default function ComplejosPage() {
                 )}
               </div>
 
-              {hasFilters && (
-                <button type="button" className="vn-toolbar-clear" onClick={clearFilters}>
-                  <X size={13} />
-                  Limpiar
-                </button>
-              )}
             </div>
 
-            {hasFilters && activeFilterParts.length > 0 && (
-            <div className="vn-toolbar-row">
-              <div className="vn-active-filters" aria-label="Filtros activos">
-                {activeFilterParts.map((part) => (
-                  <span key={part} className="vn-active-pill">{part}</span>
-                ))}
-                <button type="button" className="vn-active-pill vn-active-pill-button" onClick={clearFilters}>
-                  <X size={12} />
-                  Limpiar
-                </button>
-              </div>
-            </div>
-            )}
           </div>
             );
           })()}
@@ -765,18 +878,13 @@ export default function ComplejosPage() {
 
       {/* ── TODOS LOS COMPLEJOS ── */}
       <div className="vn-body">
-        <div className="vn-results-head">
-          <div className="vn-results-copy">
-            <h2 className="vn-results-section-title">{resultsTitle}</h2>
-            <p className="vn-results-section-sub">{resultsSub}</p>
+        {!hasFilters && (
+          <div className="vn-results-head vn-results-head-plain">
+            <div className="vn-results-copy">
+              <h2 className="vn-results-section-title">Todos los complejos</h2>
+            </div>
           </div>
-          <div className="vn-results-count">
-            {loading
-              ? 'Cargando complejos…'
-              : <><b>{filtered.length}</b> {filtered.length === 1 ? 'complejo' : 'complejos'} {hasFilters ? 'encontrados' : 'disponibles'}</>
-            }
-          </div>
-        </div>
+        )}
 
         <div className="vn-grid">
           {loading
@@ -795,9 +903,12 @@ export default function ComplejosPage() {
               const r = ratings[club.id];
               return (
                 <Link key={club.id} href={`/club/${club.slug}`} className="vn-card">
-                  <div className="vn-card-img">
+                  <div className={`vn-card-img${club.clubImageUrl && !loadedMedia[`img-${club.id}`] ? ' vn-skeleton' : ''}`}>
                     {club.clubImageUrl
-                      ? <Image src={club.clubImageUrl} alt={club.name} fill style={{ objectFit: 'cover' }} sizes="(max-width:720px) 100vw, 380px" />
+                      ? <Image src={club.clubImageUrl} alt={club.name} fill
+                          className={`vn-card-photo${loadedMedia[`img-${club.id}`] ? ' vn-loaded' : ''}`}
+                          onLoad={() => markLoaded(`img-${club.id}`)}
+                          style={{ objectFit: 'cover' }} sizes="(max-width:720px) 100vw, 380px" />
                       : <div className="vn-card-img-placeholder">
                           <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--positive-bg)" strokeWidth="1">
                             <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
@@ -805,8 +916,9 @@ export default function ComplejosPage() {
                         </div>
                     }
                     {club.logoUrl && (
-                      <div className="vn-card-logo">
-                        <Image src={club.logoUrl} alt="" width={40} height={40} style={{ objectFit: 'contain' }} />
+                      <div className={`vn-card-logo${loadedMedia[`logo-${club.id}`] ? ' vn-loaded' : ''}`}>
+                        <Image src={club.logoUrl} alt="" width={40} height={40} style={{ objectFit: 'contain' }}
+                          onLoad={() => markLoaded(`logo-${club.id}`)} />
                       </div>
                     )}
                     {r && r.total > 0 && <RatingBadge rating={r.average} total={r.total} />}
@@ -815,7 +927,27 @@ export default function ComplejosPage() {
                   <div className="vn-card-body">
                     <div className="vn-card-name">{club.name}</div>
                     {formatAddr(club) && (
-                      <div className="vn-card-addr"><MapPin size={11} />{formatAddr(club)}</div>
+                      <div className="vn-card-addr-row">
+                        <div className="vn-card-addr"><MapPin size={11} /><span>{formatAddr(club)}</span></div>
+                        <button
+                          type="button"
+                          className="vn-card-directions"
+                          onClick={(event) => {
+                            // La tarjeta entera es un link al club: este botón abre el mapa sin navegar.
+                            event.preventDefault();
+                            event.stopPropagation();
+                            window.open(directionsUrl(club), '_blank', 'noopener,noreferrer');
+                          }}
+                        >
+                          <Navigation size={12} />
+                          Cómo llegar
+                        </button>
+                      </div>
+                    )}
+                    {club.publicSports && club.publicSports.length > 0 && (
+                      <div className="vn-card-sports">
+                        {club.publicSports.map(s => SPORT_LABELS[s as PublicSport] || s).join(' · ')}
+                      </div>
                     )}
                     {club.description && <div className="vn-card-desc">{club.description}</div>}
                     <div className="vn-card-footer">

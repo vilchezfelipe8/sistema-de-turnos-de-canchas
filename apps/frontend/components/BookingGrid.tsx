@@ -15,6 +15,7 @@ import { normalizePublicSport } from '../utils/publicClubFilters';
 import { PlayerPricingService, type ActivityFormat, type ClubPricingMode } from '../services/PlayerPricingService';
 import { BookingWindowService, type BookingWindowEvaluation } from '../services/BookingWindowService';
 import { ChevronDown, Check, Calendar, Clock, MapPin, Zap, MousePointerClick, Hourglass, Moon, Ban, AlertCircle, Activity, ChevronLeft, ChevronRight, LayoutGrid, Rows3, Info, LogIn, ShieldCheck } from 'lucide-react';
+import Skeleton from './ui/Skeleton';
 
 const apiBase = () => `${getApiUrl()}/api`;
 
@@ -64,9 +65,9 @@ type CourtSummary = {
 const formatCourtPriceLabel = (court: CourtSummary, durationMinutes: number, fallback: string) => {
   if (court.pricePerPlayer != null) {
     const memberSuffix = court.memberCategoryName ? ` (precio socio)` : '';
-    return `$${Number(court.pricePerPlayer).toLocaleString()} por jugador${memberSuffix} · ${durationMinutes} min`;
+    return `$${Number(court.pricePerPlayer).toLocaleString('es-AR')} por jugador${memberSuffix} · ${durationMinutes} min`;
   }
-  return court.price ? `$${court.price.toLocaleString()} · ${durationMinutes} min` : fallback;
+  return court.price ? `$${court.price.toLocaleString('es-AR')} · ${durationMinutes} min` : fallback;
 };
 
 // 60 -> "1 h", 120 -> "2 h", 90 -> "90 min"
@@ -251,7 +252,6 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
     textMuted: 'var(--text-muted)',
     textDisabled: 'var(--text-muted)',
     arrowDisabled: 'var(--border-strong)',
-    spinnerTrack: 'var(--surface-3)',
     shadow: 'var(--shadow-card)',
     shadowModal: 'var(--shadow-lg)',
     backdrop: 'var(--overlay)',
@@ -307,7 +307,7 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
           ['Fecha', params.start.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })],
           ['Horario', `${params.start.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })} - ${params.end.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })}`],
           ['Duración', `${params.durationMinutes} min`],
-          ['Precio', `$${params.price.toLocaleString()}`],
+          ['Precio', `$${params.price.toLocaleString('es-AR')}`],
         ].map(([label, val]) => (
           <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, letterSpacing: '.03em' }}>{label}</span>
@@ -317,13 +317,13 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
         {Number(params.discountAmount || 0) > 0.009 && (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, letterSpacing: '.03em' }}>Descuento</span>
-            <span style={{ fontSize: 14, fontWeight: 800, color: 'var(--accent-fg)' }}>-${Number(params.discountAmount || 0).toLocaleString()}</span>
+            <span style={{ fontSize: 14, fontWeight: 800, color: 'var(--accent-fg)' }}>-${Number(params.discountAmount || 0).toLocaleString('es-AR')}</span>
           </div>
         )}
         {params.nightSurcharge?.applied && (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, letterSpacing: '.03em' }}>Recargo nocturno</span>
-            <span style={{ fontSize: 14, fontWeight: 800, color: T.textPrimary }}>+${Number(params.nightSurcharge.amount || 0).toLocaleString()}{params.nightSurcharge.fromHour ? ` (desde ${params.nightSurcharge.fromHour})` : ''}</span>
+            <span style={{ fontSize: 14, fontWeight: 800, color: T.textPrimary }}>+${Number(params.nightSurcharge.amount || 0).toLocaleString('es-AR')}{params.nightSurcharge.fromHour ? ` (desde ${params.nightSurcharge.fromHour})` : ''}</span>
           </div>
         )}
       </div>
@@ -1213,9 +1213,11 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
             <Clock size={12} style={{ color: 'var(--accent-fg)' }} />
             {activeScheduleViewMode === 'timeline' ? 'Agenda de canchas' : 'Horarios disponibles'}
           </div>
-          <div style={{ display: 'flex', justifyContent: 'center', padding: '36px 0', border: `1px dashed ${T.borderSubtle}`, borderRadius: 16, background: T.bgSubtle }}>
-            <div style={{ width: 32, height: 32, border: `3px solid ${T.spinnerTrack}`, borderTopColor: 'var(--accent-fg)', borderRadius: '50%', animation: 'bg-spin .8s linear infinite' }} />
-            <style>{`@keyframes bg-spin{to{transform:rotate(360deg)}}`}</style>
+          {/* Esqueleto con la forma de la grilla de horarios */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(76px, 1fr))', gap: 8 }} role="status" aria-label="Cargando horarios">
+            {Array.from({ length: isMobileListOnly ? 8 : 12 }, (_, index) => (
+              <Skeleton key={index} height={38} radius={12} />
+            ))}
           </div>
         </div>
       )}
@@ -1684,11 +1686,11 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
         <div style={{ marginTop: 10, textAlign: 'center', fontSize: 13, color: T.textMuted, fontWeight: 500 }}>
           Precio:{' '}
           <span style={{ fontWeight: 800, color: 'var(--accent-fg)', fontSize: 15 }}>
-            ${priceInfo.final.toLocaleString()}
+            ${priceInfo.final.toLocaleString('es-AR')}
           </span>
           {priceInfo.hasLights && clubConfig && (
             <span style={{ fontSize: 11, color: T.textDisabled, marginLeft: 6 }}>
-              (incluye luces +${priceInfo.extra.toLocaleString()}{clubConfig.lightsFromHour ? ` desde ${clubConfig.lightsFromHour}` : ''})
+              (incluye luces +${priceInfo.extra.toLocaleString('es-AR')}{clubConfig.lightsFromHour ? ` desde ${clubConfig.lightsFromHour}` : ''})
             </span>
           )}
         </div>

@@ -15,6 +15,7 @@ import PiqueLogo from '../components/PiqueLogo';
 import { extractErrorMessage } from '../utils/uiError';
 import { normalizeApiError } from '../utils/apiError';
 import { AUTH_REQUIRED_PATHS, getPreviousInAppPath } from '../utils/navigationHistory';
+import BusyLabel from '../components/ui/BusyLabel';
 
 type PostLoginRedirectIntent = { sourceUser?: any };
 
@@ -507,7 +508,7 @@ export default function LoginPage() {
                     disabled={loading || !recoveryIdentifier.trim()}
                     className="lg-btn lg-btn-primary"
                   >
-                    {loading ? <><Loader2 size={15} style={{ animation: 'lg-spin .8s linear infinite' }} /> Enviando...</> : 'Enviarme el código'}
+                    <BusyLabel busy={loading}>Enviarme el código</BusyLabel>
                   </button>
                 ) : (
                   <>
@@ -545,9 +546,7 @@ export default function LoginPage() {
                       </div>
                     </div>
                     <button type="submit" disabled={loading} className="lg-btn lg-btn-primary">
-                      {loading
-                        ? <><Loader2 size={15} style={{ animation: 'lg-spin .8s linear infinite' }} /> Validando...</>
-                        : recoveryMode === 'activate' ? 'Activar e ingresar' : 'Guardar e ingresar'}
+                      <BusyLabel busy={loading}>{recoveryMode === 'activate' ? 'Activar e ingresar' : 'Guardar e ingresar'}</BusyLabel>
                     </button>
                     <button
                       type="button"
@@ -576,10 +575,10 @@ export default function LoginPage() {
                   disabled={magicLoading || loading || Boolean(oauthLoading)}
                 >
                   <span className="lg-help-icon">
-                    {magicLoading ? <Loader2 size={16} style={{ animation: 'lg-spin .8s linear infinite' }} /> : <Mail size={16} />}
+                    {magicLoading ? <Loader2 size={16} className="p-spin" /> : <Mail size={16} />}
                   </span>
                   <span className="lg-help-text">
-                    <strong>{magicLoading ? 'Enviando...' : 'Recibir un link para entrar'}</strong>
+                    <strong>Recibir un link para entrar</strong>
                     <span>Te lo mandamos por email. Sin contraseña.</span>
                   </span>
                 </button>
@@ -731,12 +730,9 @@ export default function LoginPage() {
 
               {/* Submit */}
               <button type="submit" disabled={loading || Boolean(oauthLoading)} className="lg-btn lg-btn-primary" style={{ marginTop: 4 }}>
-                {loading
-                  ? <><Loader2 size={15} style={{ animation: 'lg-spin .8s linear infinite' }} /> Procesando...</>
-                  : isLogin
-                  ? <><LogIn size={15} /> Ingresar</>
-                  : <><UserPlus size={15} /> Crear cuenta</>
-                }
+                <BusyLabel busy={loading}>
+                  {isLogin ? <><LogIn size={15} /> Ingresar</> : <><UserPlus size={15} /> Crear cuenta</>}
+                </BusyLabel>
               </button>
 
               {/* Redes: debajo del ingreso con DNI o email */}
@@ -759,7 +755,7 @@ export default function LoginPage() {
                     </span>
                     {oauthLoading === 'google' && (
                       <span className="lg-btn-loading-indicator">
-                        <Loader2 size={15} style={{ animation: 'lg-spin .8s linear infinite' }} />
+                        <Loader2 size={15} className="p-spin" />
                       </span>
                     )}
                   </button>
@@ -776,7 +772,7 @@ export default function LoginPage() {
                       </span>
                       {oauthLoading === 'apple' && (
                         <span className="lg-btn-loading-indicator">
-                          <Loader2 size={15} style={{ animation: 'lg-spin .8s linear infinite' }} />
+                          <Loader2 size={15} className="p-spin" />
                         </span>
                       )}
                     </button>
@@ -792,7 +788,7 @@ export default function LoginPage() {
                       </span>
                       {oauthLoading === 'facebook' && (
                         <span className="lg-btn-loading-indicator">
-                          <Loader2 size={15} style={{ animation: 'lg-spin .8s linear infinite' }} />
+                          <Loader2 size={15} className="p-spin" />
                         </span>
                       )}
                     </button>
@@ -832,7 +828,6 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <style>{`@keyframes lg-spin { to { transform: rotate(360deg) } }`}</style>
 
         {registeredModalOpen && (
           <div className="lg-modal-backdrop" role="presentation" onClick={() => setRegisteredModalOpen(false)}>

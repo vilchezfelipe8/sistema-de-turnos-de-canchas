@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Bell, Loader2, X } from 'lucide-react';
+import { Bell, X } from 'lucide-react';
 import {
   dismissPushOptIn,
   enablePushNotifications,
@@ -10,6 +10,7 @@ import {
   type PushSupport,
 } from '../../utils/pushNotifications';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
+import BusyLabel from '../ui/BusyLabel';
 
 const CSS = `
   .pn-card { display:grid; gap:12px; padding:14px; border-radius:20px; border:1px solid var(--accent-border-subtle); background:linear-gradient(135deg, var(--accent-bg-soft), var(--surface-1) 60%); margin-bottom:14px; }
@@ -42,7 +43,6 @@ const CSS = `
     .pn-actions .pn-btn-primary { width:100%; height:38px; border-radius:11px; }
     .pn-error { grid-column:2 / -1; }
   }
-  @keyframes pn-spin { to { transform:rotate(360deg); } }
 `;
 
 type CardState = 'hidden' | 'optin' | 'ios-install';
@@ -139,8 +139,7 @@ export default function PushOptInCard() {
       <div className="pn-actions">
         <button type="button" className="pn-btn pn-btn-ghost" onClick={dismiss} disabled={busy}>Ahora no</button>
         <button type="button" className="pn-btn pn-btn-primary" onClick={() => void handleEnable()} disabled={busy}>
-          {busy ? <Loader2 size={15} style={{ animation: 'pn-spin .8s linear infinite' }} /> : null}
-          {busy ? 'Activando...' : 'Activar avisos'}
+          <BusyLabel busy={busy}>Activar avisos</BusyLabel>
         </button>
       </div>
     </div>

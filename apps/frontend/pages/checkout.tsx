@@ -6,7 +6,6 @@ import {
   ChevronDown,
   ChevronLeft,
   Hourglass,
-  Loader2,
   ShieldCheck,
   Ticket,
   UserPlus,
@@ -23,6 +22,7 @@ import { useValidateAuth } from '../hooks/useValidateAuth';
 import { extractErrorMessage, reportUiError } from '../utils/uiError';
 import { normalizeApiError } from '../utils/apiError';
 import { downloadCalendarEvent } from '../utils/calendarInvite';
+import BusyLabel from '../components/ui/BusyLabel';
 import {
   readBookingCheckoutDraft,
   readCheckoutReturn,
@@ -38,7 +38,7 @@ const CHECKOUT_CSS = `
   .ck-back { width:38px; height:38px; flex-shrink:0; border-radius:12px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-secondary); display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
   .ck-back:hover { color:var(--text-primary); border-color:var(--border-strong); }
   .ck-eyebrow { margin:0; color:var(--accent-fg); font-size:11px; font-weight:900; letter-spacing:.03em; }
-  .ck-title { margin:2px 0 0; color:var(--text-primary); font-size:24px; line-height:1.1; font-weight:900; letter-spacing:-.04em; }
+  .ck-title { margin:2px 0 0; color:var(--text-primary); font-size:32px; line-height:1; font-weight:800; letter-spacing:-.045em; }
   .ck-summary { display:flex; gap:14px; align-items:center; padding:14px; border-radius:18px; background:var(--surface-2); border:1px solid var(--border-subtle); }
   .ck-date { width:56px; flex-shrink:0; border-radius:15px; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); text-align:center; padding:8px 0; }
   .ck-date small { display:block; color:var(--accent-fg); font-size:10px; font-weight:900; letter-spacing:.04em; }
@@ -518,7 +518,7 @@ export default function CheckoutPage() {
 
   if (!draft) {
     return (
-      <DarkPageLayout title="Checkout | Pique" extraCss={CHECKOUT_CSS} breadcrumbs={checkoutBreadcrumbs}>
+      <DarkPageLayout title="Confirmar reserva | Pique" extraCss={CHECKOUT_CSS} breadcrumbs={checkoutBreadcrumbs}>
         <main className="p-public-page-sm">
           <section className="checkout-card checkout-card-pad checkout-success">
             <div className="checkout-success-icon">
@@ -552,17 +552,10 @@ export default function CheckoutPage() {
     ? `Confirmar y enviar ${participants.length === 1 ? 'invitación' : 'invitaciones'}`
     : 'Confirmar reserva';
   const renderConfirmContent = () => (
-    submitting ? (
-      <>
-        <Loader2 size={15} style={{ animation: 'p-public-spin .8s linear infinite' }} />
-        Confirmando...
-      </>
-    ) : (
-      <>
-        <ShieldCheck size={15} />
-        {confirmLabel}
-      </>
-    )
+    <BusyLabel busy={submitting}>
+      <ShieldCheck size={15} />
+      {confirmLabel}
+    </BusyLabel>
   );
   const addToCalendar = () => {
     if (!draftDate) return;
@@ -729,7 +722,7 @@ export default function CheckoutPage() {
   }
 
   return (
-    <DarkPageLayout title="Checkout | Pique" extraCss={CHECKOUT_CSS} breadcrumbs={checkoutBreadcrumbs}>
+    <DarkPageLayout title="Confirmar reserva | Pique" extraCss={CHECKOUT_CSS} breadcrumbs={checkoutBreadcrumbs}>
       <main className="p-public-page">
         <div className="checkout-shell">
           <div className="checkout-layout">

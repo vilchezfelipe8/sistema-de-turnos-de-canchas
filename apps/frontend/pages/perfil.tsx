@@ -33,6 +33,7 @@ import {
   splitCanonicalPhone
 } from '../utils/phone';
 import NotificationPreferencesSection from '../components/push/NotificationPreferencesSection';
+import BusyLabel from '../components/ui/BusyLabel';
 
 const PAGE_CSS = `
   .pf-page { padding-top:16px!important; padding-bottom:28px!important; }
@@ -539,7 +540,7 @@ export default function PerfilPage() {
 
   return (
     <DarkPageLayout
-      title="Mi Perfil | Pique"
+      title="Mi perfil | Pique"
       extraCss={PAGE_CSS}
       breadcrumbs={[
         { label: 'Inicio', href: '/' },
@@ -648,8 +649,7 @@ export default function PerfilPage() {
             {/* Submit */}
             <div className="pf-actions">
               <button type="submit" disabled={saving} className="pf-save">
-                <Save size={15} />
-                {saving ? 'Guardando...' : 'Guardar cambios'}
+                <BusyLabel busy={saving}><Save size={15} />Guardar cambios</BusyLabel>
               </button>
             </div>
 
@@ -684,7 +684,7 @@ export default function PerfilPage() {
             <FeedbackNotice feedback={feedback} section="clubs" />
 
             {securityLoading ? (
-              <p className="pf-muted" style={{ margin: 0 }}>Cargando perfiles de clubes...</p>
+              <UserLoadingState mode="inline" message="Cargando clubes..." />
             ) : (
               <div className="pf-club-list">
                 {(security?.clubProfiles || []).length > 0 ? (
@@ -728,7 +728,7 @@ export default function PerfilPage() {
                             disabled={claimingClubId === profile.clubId}
                             onClick={() => handleClaimClubProfile(profile.clubId)}
                           >
-                            {claimingClubId === profile.clubId ? 'Vinculando...' : 'Vincular perfil'}
+                            <BusyLabel busy={claimingClubId === profile.clubId}>Vincular perfil</BusyLabel>
                           </button>
                         ) : profile.clubSlug ? (
                           <Link
@@ -773,7 +773,7 @@ export default function PerfilPage() {
               <FeedbackNotice feedback={feedback} section="access" />
 
               {securityLoading ? (
-                <p className="pf-muted" style={{ margin: 0 }}>Cargando accesos conectados...</p>
+                <UserLoadingState mode="inline" message="Cargando accesos..." />
               ) : (
                 <div className="pf-access-list">
                   {accessProviders.map(({ key, name, Icon, identity, disconnecting, disconnect }) => (
@@ -805,9 +805,7 @@ export default function PerfilPage() {
                           disabled={identity ? disconnecting : connectingProvider !== null}
                           onClick={identity ? disconnect : () => handleConnectProvider(key)}
                         >
-                          {identity
-                            ? disconnecting ? 'Desconectando...' : 'Desconectar'
-                            : connectingProvider === key ? 'Conectando...' : 'Conectar'}
+                          <BusyLabel busy={identity ? disconnecting : connectingProvider === key}>{identity ? 'Desconectar' : 'Conectar'}</BusyLabel>
                         </button>
                       </div>
                     </div>
@@ -825,7 +823,7 @@ export default function PerfilPage() {
               <FeedbackNotice feedback={feedback} section="sessions" />
 
               {securityLoading ? (
-                <p className="pf-muted" style={{ margin: 0 }}>Cargando sesiones activas...</p>
+                <UserLoadingState mode="inline" message="Cargando sesiones..." />
               ) : (
                 <>
                   <div className="pf-session-list">
@@ -859,8 +857,7 @@ export default function PerfilPage() {
                       disabled={logoutAllLoading}
                       onClick={handleLogoutAll}
                     >
-                      <LogOut size={14} />
-                      {logoutAllLoading ? 'Cerrando sesiones...' : 'Cerrar todas las sesiones'}
+                      <BusyLabel busy={logoutAllLoading} spinnerSize={14}><LogOut size={14} />Cerrar todas las sesiones</BusyLabel>
                     </button>
                   </div>
                 </>

@@ -696,8 +696,8 @@
 }
 
 /* ── Breadcrumbs ── */
-.p-breadcrumbs-wrap  { padding: 12px 24px 0; }
-.p-breadcrumbs       { max-width: 1360px; margin: 0 auto; }
+.p-breadcrumbs-wrap  { padding: 12px 0 0; }
+.p-breadcrumbs       { max-width: 1360px; margin: 0 auto; padding: 0 40px; box-sizing: border-box; }
 .p-breadcrumbs-cloud {
   display: inline-flex;
   align-items: center;
@@ -841,11 +841,78 @@
 @keyframes p-spin       { to { transform:rotate(360deg) } }
 @keyframes p-pulse      { 0%,100% { opacity:1 } 50% { opacity:.5 } }
 @keyframes p-scale-in   { from { opacity:0; transform:scale(.95) } to { opacity:1; transform:scale(1) } }
+@keyframes p-shimmer    { to { transform:translateX(100%) } }
+@keyframes p-appear     { from { opacity:0 } to { opacity:1 } }
+
+/* ── Loading (sistema único) ──
+   Pantalla completa / bloque: <UserLoadingState mode="page|block" />
+   Contenido que carga: <Skeleton /> con la forma de lo que viene
+   Acciones en botones: <Spinner /> + verbo ("Guardando...") */
+.p-spin { animation: p-spin .8s linear infinite; }
+
+.p-skel {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  background: var(--surface-2);
+  border-radius: 8px;
+}
+.p-skel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--border-subtle), transparent);
+  animation: p-shimmer 1.4s ease-in-out infinite;
+}
+.p-skel-line { height: 12px; border-radius: 6px; }
+.p-skel-circle { border-radius: 999px; }
+
+.p-loader { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; }
+.p-loader-page { min-height: 100vh; min-height: 100dvh; padding: 24px; background: var(--bg); box-sizing: border-box; }
+.p-loader-block { min-height: 40vh; padding: 24px 0; }
+/* Aparece con un pequeño retraso: si la carga es rápida no hay parpadeo */
+.p-loader-delayed { animation: p-appear .2s ease-out .3s both; }
+.p-loader-mark { position: relative; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
+.p-loader-mark img { width: 26px; height: 26px; display: block; }
+.p-loader-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  border: 2px solid var(--border-subtle);
+  border-top-color: var(--accent-fg);
+  animation: p-spin .9s linear infinite;
+}
+.p-loader-msg { margin: 0; font-size: 13px; font-weight: 600; color: var(--text-muted); letter-spacing: .01em; }
+.p-loader-inline { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text-muted); }
+
+/* Botón ocupado: solo spinner, sin cambiar el ancho (<BusyLabel />) */
+.p-busy { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: inherit; }
+.p-busy-content { display: inline-flex; align-items: center; justify-content: center; gap: inherit; }
+.p-busy-content[aria-hidden="true"] { visibility: hidden; }
+.p-busy-spin { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.p-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .p-skel::after { animation: none; }
+  .p-spin, .p-loader-ring { animation-duration: 2.4s; }
+}
+
+/* iOS amplía la página al enfocar un campo con letra menor a 16px.
+   En pantallas táctiles todos los campos usan 16px; en desktop no cambia nada. */
+@media (hover: none) and (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
 
 /* ── Responsive ── */
 @media (max-width: 720px) {
   .p-page, .p-page-sm { padding: 32px 20px 64px; }
-  .p-breadcrumbs-wrap  { padding: 10px 20px 0; }
+  .p-breadcrumbs-wrap  { padding: 10px 0 0; }
+  .p-breadcrumbs       { padding: 0 20px; }
   .p-breadcrumbs-cloud { border-radius: var(--r-lg); }
   .p-footer            { margin-top: 30px; }
   .p-footer-inner      { padding: 16px 20px 20px; }

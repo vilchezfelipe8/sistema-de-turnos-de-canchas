@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Bell, BellOff, CalendarX, Clock3, Loader2, MessageCircle, UserPlus, type LucideIcon } from 'lucide-react';
+import { Bell, BellOff, CalendarX, Clock3, MessageCircle, UserPlus, type LucideIcon } from 'lucide-react';
 import {
   disablePushNotifications,
   enablePushNotifications,
@@ -11,6 +11,7 @@ import {
   type NotificationPreferences,
 } from '../../utils/pushNotifications';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
+import BusyLabel from '../ui/BusyLabel';
 
 const CSS = `
   .np-heading { display:flex; align-items:center; gap:9px; margin:0 0 6px; color:var(--text-primary); }
@@ -48,7 +49,6 @@ const CSS = `
   .np-error { margin:12px 0 0; padding:10px 12px; border:1px solid var(--danger-border); border-radius:10px; background:var(--error-bg); color:var(--error-fg); font-size:12px; font-weight:700; line-height:1.4; }
   .np-action:focus-visible, .np-switch:focus-visible { outline:2px solid var(--accent-fg); outline-offset:2px; }
   @media(max-width:600px) { .np-status { align-items:flex-start; } .np-row { gap:10px; } .np-row-icon { width:34px; height:34px; } }
-  @keyframes np-spin { to { transform:rotate(360deg); } }
 `;
 
 type DeviceState = 'loading' | 'on' | 'off' | 'denied' | 'ios-needs-install' | 'unsupported';
@@ -159,8 +159,7 @@ export default function NotificationPreferencesSection() {
               onClick={() => void toggleDevice()}
               disabled={deviceBusy}
             >
-              {deviceBusy && <Loader2 size={15} style={{ animation: 'np-spin .8s linear infinite' }} aria-hidden="true" />}
-              {deviceBusy ? 'Procesando...' : `${deviceStatus.action} avisos`}
+              <BusyLabel busy={deviceBusy}>{`${deviceStatus.action} avisos`}</BusyLabel>
             </button>
           )}
         </div>

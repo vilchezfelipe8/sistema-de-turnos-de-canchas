@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import { useUserTheme } from '../contexts/UserThemeContext';
 import PiqueLogo from './PiqueLogo';
+import Spinner from './ui/Spinner';
 
 type UserLoadingStateMode = 'page' | 'block' | 'inline';
 
@@ -10,75 +11,39 @@ interface UserLoadingStateProps {
   minHeight?: string | number;
 }
 
-const shellBase: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-};
-
+// Única pantalla de carga de la app (estilos en pique.css → "Loading (sistema único)").
+// page: validar sesión / cambiar de pantalla · block: una sección entera · inline: dentro de un panel.
+// Para contenido con forma conocida (tarjetas, listas) usar <Skeleton /> en vez de esto.
 export default function UserLoadingState({
   message = 'Cargando...',
   mode = 'block',
   minHeight,
 }: UserLoadingStateProps) {
   const { isLight } = useUserTheme();
-  const panel = (
-    <div
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 12,
-        padding: mode === 'inline' ? '8px 12px' : '14px 18px',
-        borderRadius: 14,
-        border: isLight ? '1px solid var(--accent-border-subtle)' : '1px solid var(--accent-bg-muted)',
-        background: isLight ? 'var(--accent-bg-muted)' : 'var(--accent-bg-soft)',
-        color: isLight ? 'var(--positive-fg)' : 'var(--positive-fg)',
-        fontSize: mode === 'inline' ? 12 : 13,
-        fontWeight: 700,
-        letterSpacing: '.01em',
-      }}
-    >
-      <PiqueLogo
-        variant={isLight ? 'isotipo' : 'isotipoDark'}
-        style={{
-          width: mode === 'inline' ? 18 : 22,
-          height: mode === 'inline' ? 18 : 22,
-          display: 'block',
-        }}
-      />
-      <span>{message}</span>
-    </div>
-  );
 
-  if (mode === 'inline') return panel;
-
-  if (mode === 'page') {
+  if (mode === 'inline') {
     return (
-      <main
-        style={{
-          ...shellBase,
-        minHeight: '100vh',
-          background: isLight
-            ? 'radial-gradient(circle at 18% 86%, var(--accent-bg-muted), transparent 42%), var(--bg)'
-            : 'radial-gradient(circle at 18% 86%, var(--accent-bg-muted), transparent 42%), var(--bg)',
-          color: isLight ? 'var(--text-primary)' : 'var(--text-primary)',
-          fontFamily: "'Geist',system-ui,sans-serif",
-          padding: 24,
-        }}
-      >
-        {panel}
-      </main>
+      <span className="p-loader-inline" role="status">
+        <Spinner size={14} />
+        <span>{message}</span>
+      </span>
     );
   }
 
+  const style: CSSProperties | undefined = mode === 'block' && minHeight !== undefined ? { minHeight } : undefined;
+
   return (
     <div
-      style={{
-        ...shellBase,
-        minHeight: minHeight ?? '40vh',
-      }}
+      className={`p-loader p-loader-delayed ${mode === 'page' ? 'p-loader-page' : 'p-loader-block'}`}
+      style={style}
+      role="status"
+      aria-live="polite"
     >
-      {panel}
+      <div className="p-loader-mark" aria-hidden="true">
+        <PiqueLogo variant={isLight ? 'isotipo' : 'isotipoDark'} alt="" />
+        <span className="p-loader-ring" />
+      </div>
+      <p className="p-loader-msg">{message}</p>
     </div>
   );
 }

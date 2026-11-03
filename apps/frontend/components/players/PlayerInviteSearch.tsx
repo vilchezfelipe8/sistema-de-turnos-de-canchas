@@ -66,8 +66,6 @@ const PIS_CSS = `
   .pis-warn { padding:11px 12px; border-radius:13px; background:var(--warn-bg); }
   .pis-warn-title { margin:0; color:var(--warn-fg); font-size:12px; font-weight:850; }
   .pis-error { margin:0; color:var(--error-fg); font-size:11px; font-weight:700; }
-  @keyframes pis-spin { to { transform:rotate(360deg); } }
-  .pis-spin { animation:pis-spin .8s linear infinite; }
 `;
 
 const normalizeText = (value: string) =>
@@ -276,7 +274,7 @@ export default function PlayerInviteSearch({
   } else if (loading && !(mode.kind === 'name' && visibleNameResults && visibleNameResults.length > 0)) {
     body = (
       <p className="pis-hint">
-        <Loader2 size={13} className="pis-spin" /> Buscando…
+        <Loader2 size={13} className="p-spin" /> Buscando…
       </p>
     );
   } else if (mode.kind === 'name' && visibleNameResults && (visibleNameResults.length > 0 || nameResultsAreFresh)) {

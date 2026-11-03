@@ -32,6 +32,7 @@ import PushOptInCard from '../components/push/PushOptInCard';
 import { downloadCalendarEvent } from '../utils/calendarInvite';
 import { Calendar, Clock, Ticket, ArrowRight, Search, XCircle, CheckCircle2, Star, MessageSquare, X, UserPlus, LogOut, ChevronDown } from 'lucide-react';
 import { getApiFieldErrors, normalizeApiError } from '../utils/apiError';
+import BusyLabel from '../components/ui/BusyLabel';
 
 const APP_NOTICE_EVENT = 'app:notice';
 
@@ -1046,7 +1047,7 @@ export default function MyBookingsPage() {
 
   return (
     <DarkPageLayout
-      title="Mis Reservas | Pique"
+      title="Mis reservas | Pique"
       extraCss={PAGE_CSS}
       breadcrumbs={[
         { label: 'Inicio', href: '/' },
@@ -1059,7 +1060,7 @@ export default function MyBookingsPage() {
         <div className="bk-page-head">
           <div>
             <h1 className="p-public-page-h">Mis <i>reservas</i></h1>
-            <p className="p-public-page-sub">Próximos partidos e historial</p>
+            <p className="p-public-page-sub">Tus próximos partidos e historial.</p>
           </div>
           <Link
             href={newBookingHref}
@@ -1113,8 +1114,7 @@ export default function MyBookingsPage() {
                         disabled={busy}
                         onClick={() => handleAcceptInvitation(invitation)}
                       >
-                        <CheckCircle2 size={15} />
-                        {busy ? 'Procesando...' : 'Sumarme'}
+                        <BusyLabel busy={busy}><CheckCircle2 size={15} />Sumarme</BusyLabel>
                       </button>
                       <button
                         type="button"
@@ -1327,7 +1327,7 @@ export default function MyBookingsPage() {
                 {participantsExpanded && (
                   <div className="bk-collapsible-body">
                     {participantsLoading ? (
-                      <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Cargando participantes...</div>
+                      <UserLoadingState mode="inline" message="Cargando jugadores..." />
                     ) : participantsError ? (
                       <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--error-bg)', color: 'var(--error-fg)', fontSize: 13, fontWeight: 600 }}>
                         {participantsError}
@@ -1428,7 +1428,7 @@ export default function MyBookingsPage() {
                       </div>
 
                       {checkoutLoading ? (
-                        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Cargando estado de pago...</div>
+                        <UserLoadingState mode="inline" message="Cargando pago..." />
                       ) : checkoutError ? (
                         <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--error-bg)', color: 'var(--error-fg)', fontSize: 13, fontWeight: 600 }}>
                           {checkoutError}
@@ -1531,8 +1531,7 @@ export default function MyBookingsPage() {
                               onClick={handleStartOnlineCheckout}
                               disabled={checkoutSubmitting}
                             >
-                              <Ticket size={15} />
-                              {checkoutSubmitting ? 'Redirigiendo...' : 'Pagar online con Mercado Pago'}
+                              <BusyLabel busy={checkoutSubmitting}><Ticket size={15} />Pagar online con Mercado Pago</BusyLabel>
                             </button>
                           )}
                         </>
@@ -1551,7 +1550,7 @@ export default function MyBookingsPage() {
                 )}
                 {activeTab === 'ACTIVE' && !selectedBooking.capabilities?.canCancelBooking && selectedBooking.capabilities?.canLeaveBooking && (
                   <button className="bk-action-btn bk-action-cancel" onClick={() => handleLeaveBooking(selectedBooking)} disabled={participantActionId === selectedBooking.id}>
-                    <LogOut size={15} /> {participantActionId === selectedBooking.id ? 'Procesando...' : 'Salir de la reserva'}
+                    <BusyLabel busy={participantActionId === selectedBooking.id}><LogOut size={15} />Salir de la reserva</BusyLabel>
                   </button>
                 )}
                 {(activeTab === 'PAST' || activeTab === 'CANCELLED') && selectedBooking.club?.slug && (
@@ -1625,7 +1624,7 @@ export default function MyBookingsPage() {
             </div>
 
             {reviewLoading ? (
-              <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Cargando reseña...</div>
+              <UserLoadingState mode="block" minHeight={160} message="Cargando reseña..." />
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                 <div>
@@ -1668,7 +1667,7 @@ export default function MyBookingsPage() {
                 onClick={handleSubmitReview}
                 disabled={reviewLoading || reviewSaving || reviewRating < 1}
               >
-                {reviewSaving ? 'Guardando...' : 'Guardar reseña'}
+                <BusyLabel busy={reviewSaving}>Guardar reseña</BusyLabel>
               </button>
             </div>
 
