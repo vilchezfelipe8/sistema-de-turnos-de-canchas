@@ -1,79 +1,25 @@
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useCallback, useEffect, useState, useRef, useMemo } from 'react';
 import Head from 'next/head';
+import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { ClubService, Club } from '../services/ClubService';
-import { getApiUrl } from '../utils/apiUrl';
-import { PUBLIC_SPORT_OPTIONS, PUBLIC_SPORT_LABELS, PublicSport, getPublicClubLocations, normalizeFilterText as normalizeText } from '../utils/publicClubFilters';
-import DatePickerDark from '../components/ui/DatePickerDark';
-import { Search, MapPin, Calendar, TrendingUp, ArrowRight, X, Phone, Mail, Instagram, Activity, ChevronRight, ChevronLeft, MousePointerClick, CalendarCheck, PlayCircle, Coffee, Droplets, Lightbulb, Trophy, ChevronDown, Check, MessageSquare, Calculator, Heart } from 'lucide-react';
-import Link from 'next/link';
-import { normalizeSessionUser } from '../utils/session';
+import { PUBLIC_SPORT_OPTIONS, PUBLIC_SPORT_LABELS, PublicSport, getPublicClubLocations, matchesPublicClubFilters, normalizeFilterText as normalizeText } from '../utils/publicClubFilters';
+import { Search, MapPin, Calendar, Activity, ChevronDown, Check, Volleyball } from 'lucide-react';
 import { reportUiError } from '../utils/uiError';
 import { useAuth } from '../contexts/AuthContext';
 import MyClubsSection from '../components/home/MyClubsSection';
 import HeroSportWord from '../components/home/HeroSportWord';
 import { useUserTheme } from '../contexts/UserThemeContext';
-import { isAuthSessionInvalidatedError } from '../utils/apiClient';
-import PiqueLogo from '../components/PiqueLogo';
 import NavBar from '../components/NavBar';
+import PublicFooter from '../components/PublicFooter';
+import ContactPanel, { type ContactMode } from '../components/ContactPanel';
 import ClubAppTabBar from '../components/clubApp/ClubAppTabBar';
 import { useClubApp } from '../hooks/useClubApp';
-// Importamos los iconos de la libreria
-import { FaTableTennis } from "react-icons/fa"; // Paleta (Perfecta para Padel)
+
 import { IoFootballOutline } from "react-icons/io5"; // Pelota de futbol limpia
 import { IoTennisballOutline } from "react-icons/io5"; // Pelota de tenis limpia
 import UserLoadingState from "../components/UserLoadingState";
 import BusyLabel from '../components/ui/BusyLabel';
-
-const APP_NOTICE_EVENT = 'app:notice';
-type AppNoticeTone = 'success' | 'error' | 'info' | 'warning';
-
-const countActiveBookings = (rows: any[]): number => {
-  const now = Date.now();
-  return rows.filter((booking: any) => {
-    const status = String(booking?.status || '').toUpperCase();
-    if (status === 'CANCELLED' || status === 'COMPLETED') return false;
-    const endValue = booking?.endDateTime || booking?.startDateTime;
-    const endTs = new Date(endValue).getTime();
-    if (!Number.isFinite(endTs)) return true;
-    return endTs >= now;
-  }).length;
-};
-
-// ReactDOM portal removed: menu will be rendered inside the sidebar to keep positioning stable under zoom
-
-// --- COMPONENTE DE ANIMACION AL SCROLLEAR ---
-const RevealOnScroll = ({ children, delay = 0, className = "" }: { children: React.ReactNode, delay?: number, className?: string }) => {
-  const [isVisible, setIsVisible] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true);
-          observer.unobserve(entry.target);
-        }
-      },
-      { threshold: 0.1 } // Se activa cuando el 10% del elemento es visible
-    );
-    const currentRef = ref.current;
-    if (currentRef) observer.observe(currentRef);
-    return () => { if (currentRef) observer.unobserve(currentRef); };
-  }, []);
-
-  return (
-    <div
-      ref={ref}
-      className={`transition-all duration-1000 ease-out ${
-        isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-12'
-      } ${className}`}
-      style={{ transitionDelay: `${delay}ms` }}
-    >
-      {children}
-    </div>
-  );
-};
 
 // --- HELPERS DE UBICACION ---
 type LocationSuggestion = {
@@ -84,45 +30,10 @@ type LocationSuggestion = {
   country: string;
 };
 
-const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
 const LOCATION_LIMIT = 6;
-const DEFAULT_RADIUS_KM = 20;
-
-const fetchLocations = async (
-  query: string,
-  limit = LOCATION_LIMIT,
-  signal?: AbortSignal
-): Promise<{ lat: number; lon: number }[]> => {
-  if (!query.trim()) return [];
-  const params = new URLSearchParams({
-    format: 'jsonv2',
-    limit: `${limit}`,
-    addressdetails: '1',
-    q: query
-  });
-  const response = await fetch(`${NOMINATIM_URL}?${params.toString()}`, { signal });
-  if (!response.ok) return [];
-  const data = await response.json();
-  return Array.isArray(data)
-    ? data.map((item: any) => ({ lat: Number(item.lat), lon: Number(item.lon) }))
-    : [];
-};
-
-const toRadians = (value: number) => (value * Math.PI) / 180;
-
-const calculateDistanceKm = (a: { lat: number; lon: number }, b: { lat: number; lon: number }) => {
-  const earthRadiusKm = 6371;
-  const dLat = toRadians(b.lat - a.lat);
-  const dLon = toRadians(b.lon - a.lon);
-  const lat1 = toRadians(a.lat);
-  const lat2 = toRadians(b.lat);
-
-  const h =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-  return earthRadiusKm * c;
-};
+// Chips de ciudades: solo la ciudad, con nombres largos abreviados (como en Complejos).
+const CITY_SHORT_LABELS: Record<string, string> = { "Ciudad Autónoma de Buenos Aires": "CABA" };
+const cityChipLabel = (city: string) => CITY_SHORT_LABELS[city] || city;
 
 const formatLocalDate = (date: Date) => {
   const year = date.getFullYear();
@@ -131,9 +42,29 @@ const formatLocalDate = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
-const formatClubAddress = (club: Club) => {
-  return [club.addressLine, club.city, club.province, club.country].filter(Boolean).join(', ');
-};
+// Fotos servidas desde /public/home (comprimidas), no desde un sitio externo.
+const SPORT_CARDS = [
+  { name: PUBLIC_SPORT_LABELS.football, sub: 'F5 · F7 · F11', sport: 'football', photo: '/home/sport-football.webp', bgPosition: 'center 52%', accent: 'var(--brand)', countKey: 'futbol' as const },
+  { name: PUBLIC_SPORT_LABELS.padel, sub: 'Cubierto & Panorámico', sport: 'padel', photo: '/home/sport-padel.webp', bgPosition: 'center 42%', accent: 'var(--accent-fg)', countKey: 'padel' as const },
+  { name: PUBLIC_SPORT_LABELS.tennis, sub: 'Polvo & cemento', sport: 'tennis', photo: '/home/sport-tennis.webp', bgPosition: 'center 54%', accent: 'var(--lima-500)', countKey: 'tenis' as const },
+  { name: 'Otros deportes', sub: 'Hockey · Vóley · Básquet', sport: '', photo: '/home/sport-other.webp', bgPosition: 'center', accent: 'var(--accent-fg)', countKey: 'otros' as const },
+];
+
+// Solo cosas que la app hace hoy.
+const VALUES = [
+  { num: '01', title: 'Horarios en tiempo real', desc: 'Ves qué canchas están libres y reservás en el momento.' },
+  { num: '02', title: 'Precio antes de confirmar', desc: 'Sabés cuánto pagás, con luces incluidas, antes de reservar.' },
+  { num: '03', title: 'Todo en Mis reservas', desc: 'Tus turnos, invitaciones y pagos en un mismo lugar.' },
+  { num: '04', title: 'Jugá con tu grupo', desc: 'Invitá a tus compañeros o avisales por WhatsApp.' },
+];
+
+// Coinciden con lo que muestra el checkout (cancelación, formas de pago).
+const FAQ = [
+  { q: '¿Tengo que pagar para usar Pique?', a: 'No. Usar Pique es gratis para jugadores. Solo pagás el valor de la reserva definido por el complejo.' },
+  { q: '¿Puedo cancelar una reserva?', a: 'Sí. Desde Mis reservas la cancelás gratis hasta que empiece el turno, si todavía no la pagaste. Si ya pagaste, hablalo con el club.' },
+  { q: '¿Cómo pago el turno?', a: 'Según el club: en el mostrador el día del turno o, si el club lo tiene activado, online con Mercado Pago al confirmar.' },
+  { q: '¿Con cuánta anticipación puedo reservar?', a: 'Depende de cada club: en la grilla ves los días que tiene abiertos para reservar.' },
+];
 
 export default function Home() {
   // En la app instalada de un club, el home de Pique mantiene la barra del club para poder volver.
@@ -143,12 +74,10 @@ export default function Home() {
   const { isLight } = useUserTheme();
   const [clubs, setClubs] = useState<Club[]>([]);
   const [loadingClubs, setLoadingClubs] = useState(true);
-  const [user, setUser] = useState<any>(null);
-  const [showContact, setShowContact] = useState(false);
-  const [favoriteClubIds, setFavoriteClubIds] = useState<Set<number>>(new Set());
-  const [favoriteClubs, setFavoriteClubs] = useState<Club[]>([]);
-  const [favoriteBusyByClub, setFavoriteBusyByClub] = useState<Record<number, boolean>>({});
-  // track which FAQ item is currently open (null if none)
+  // Panel de contacto: null cerrado; 'owner' cuando lo abre un complejo que quiere sumarse.
+  const [contactMode, setContactMode] = useState<ContactMode | null>(null);
+  // Con sesión: cuántos clubes propios hay (null mientras carga). Si hay, ocupan la columna derecha de la portada.
+  const [myClubsCount, setMyClubsCount] = useState<number | null>(null);
   const sportClubCounts = useMemo(() => {
     if (!clubs.length) return { futbol: 0, padel: 0, tenis: 0, otros: 0 };
     const counts = { futbol: 0, padel: 0, tenis: 0, otros: 0 };
@@ -162,10 +91,12 @@ export default function Home() {
     return counts;
   }, [clubs]);
 
+  // track which FAQ item is currently open (null if none)
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
   const faqRefs = useRef<Array<HTMLDivElement | null>>([]);
   const shouldAnimateMarquee = clubs.length >= 6;
   const marqueeClubs = shouldAnimateMarquee ? [...clubs, ...clubs] : clubs;
+  const closeContact = useCallback(() => setContactMode(null), []);
 
   // close open FAQ when clicking outside the open item's box
   useEffect(() => {
@@ -191,51 +122,34 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const closeTransientPanels = () => {
-      setShowContact(false);
-      setContactMenu(null);
-      };
-    router.events.on('routeChangeStart', closeTransientPanels);
+    router.events.on('routeChangeStart', closeContact);
     return () => {
-      router.events.off('routeChangeStart', closeTransientPanels);
+      router.events.off('routeChangeStart', closeContact);
     };
-  }, [router.events]);
-
-  const toggleContactDrawer = () => {
-    setContactMenu(null);
-    setShowContact((prev) => !prev);
-  };
+  }, [router.events, closeContact]);
 
   useEffect(() => {
-    const closingSection = closingSectionRef.current;
     const ownerSection = ownerSectionRef.current;
-    if (!closingSection && !ownerSection) return;
+    if (!ownerSection) return;
 
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const visibleSections = new Set<HTMLElement>();
+    let sectionVisible = false;
     let rafId: number | null = null;
-
-    const applyParallax = (section: HTMLElement, cssVarName: string, amplitude: number) => {
-      const rect = section.getBoundingClientRect();
-      const viewportHeight = window.innerHeight || 1;
-      const progress = (viewportHeight - rect.top) / (viewportHeight + rect.height);
-      const clamped = Math.max(0, Math.min(1, progress));
-      const shift = (clamped - 0.5) * amplitude;
-      section.style.setProperty(cssVarName, `${shift.toFixed(2)}px`);
-    };
 
     const updateParallax = () => {
       if (reducedMotion.matches) {
-        if (closingSection) closingSection.style.setProperty('--p-home-closing-parallax', '0px');
-        if (ownerSection) ownerSection.style.setProperty('--p-home-owner-parallax', '0px');
+        ownerSection.style.setProperty('--p-home-owner-parallax', '0px');
         return;
       }
-      if (closingSection) applyParallax(closingSection, '--p-home-closing-parallax', 28); // -14..14
-      if (ownerSection) applyParallax(ownerSection, '--p-home-owner-parallax', 24); // -12..12
+      const rect = ownerSection.getBoundingClientRect();
+      const viewportHeight = window.innerHeight || 1;
+      const progress = (viewportHeight - rect.top) / (viewportHeight + rect.height);
+      const clamped = Math.max(0, Math.min(1, progress));
+      ownerSection.style.setProperty('--p-home-owner-parallax', `${((clamped - 0.5) * 24).toFixed(2)}px`); // -12..12
     };
 
     const scheduleParallax = () => {
-      if (visibleSections.size === 0 && !reducedMotion.matches) return;
+      if (!sectionVisible && !reducedMotion.matches) return;
       if (rafId !== null) return;
       rafId = window.requestAnimationFrame(() => {
         rafId = null;
@@ -243,17 +157,12 @@ export default function Home() {
       });
     };
 
-    const visibilityObserver = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        const section = entry.target as HTMLElement;
-        if (entry.isIntersecting) visibleSections.add(section);
-        else visibleSections.delete(section);
-      });
+    const visibilityObserver = new IntersectionObserver(([entry]) => {
+      sectionVisible = entry.isIntersecting;
       scheduleParallax();
     }, { rootMargin: '120px 0px' });
 
-    if (closingSection) visibilityObserver.observe(closingSection);
-    if (ownerSection) visibilityObserver.observe(ownerSection);
+    visibilityObserver.observe(ownerSection);
     window.addEventListener('scroll', scheduleParallax, { passive: true });
     window.addEventListener('resize', scheduleParallax);
 
@@ -265,25 +174,19 @@ export default function Home() {
     };
   }, []);
 
-  const resultsRef = useRef<HTMLElement>(null);
   const searchBarRef = useRef<HTMLDivElement | null>(null);
-  const sidebarRef = useRef<HTMLDivElement | null>(null);
   const ownerSectionRef = useRef<HTMLElement | null>(null);
-  const closingSectionRef = useRef<HTMLElement | null>(null);
-  const apiBase = useMemo(() => `${getApiUrl()}/api`, []);
 
   // Estados del Buscador
   const [searchCity, setSearchCity] = useState('');
-  const [showCityDropdown, setShowCityDropdown] = useState(false); 
+  const [showCityDropdown, setShowCityDropdown] = useState(false);
   const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<LocationSuggestion | null>(null);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const [displayedClubs, setDisplayedClubs] = useState<Club[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [clubCoords, setClubCoords] = useState<Record<number, { lat: number; lon: number } | null>>({});
 
   const [searchSport, setSearchSport] = useState<PublicSport>('');
   const [showSportDropdown, setShowSportDropdown] = useState(false);
+  const [showDateDropdown, setShowDateDropdown] = useState(false);
   // Fecha seleccionada en formato YYYY-MM-DD. Por defecto, el dia de hoy.
   const getEffectiveToday = () => {
     // Aqui podemos aplicar offsets si fuera necesario (zona horaria / reglas de negocio).
@@ -291,91 +194,6 @@ export default function Home() {
     return new Date(now.getFullYear(), now.getMonth(), now.getDate());
   };
   const [searchDate, setSearchDate] = useState(() => formatLocalDate(getEffectiveToday()));
-  const [lastSearchLabel, setLastSearchLabel] = useState<string>('');
-  const [availableTimesByClub, setAvailableTimesByClub] = useState<Record<number, string[]>>({});
-  const searchRequestIdRef = useRef(0);
-
-  // Menu de acciones para contactos (abrir / copiar)
-  const [contactMenu, setContactMenu] = useState<{
-    type: 'whatsapp' | 'email' | 'instagram';
-    top: number;
-    left: number;
-    href: string;
-    copyText: string;
-  } | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const handleDocClick = (e: MouseEvent) => {
-      if (!menuRef.current) return;
-      const target = e.target as Node;
-      if (menuRef.current && !menuRef.current.contains(target)) {
-        setContactMenu(null);
-      }
-    };
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setContactMenu(null);
-        setShowContact(false);
-      }
-    };
-    document.addEventListener('mousedown', handleDocClick);
-    document.addEventListener('keydown', handleEsc);
-    return () => {
-      document.removeEventListener('mousedown', handleDocClick);
-      document.removeEventListener('keydown', handleEsc);
-    };
-  }, []);
-
-  const openContactMenu = (e: React.MouseEvent, type: 'whatsapp' | 'email' | 'instagram') => {
-    e.preventDefault();
-    const target = e.currentTarget as HTMLElement;
-    const rect = target.getBoundingClientRect();
-    // If the sidebar ref exists, position the menu relative to the sidebar container
-    let top = rect.bottom + 8;
-    let left = rect.left;
-    if (sidebarRef.current) {
-      const sidebarRect = sidebarRef.current.getBoundingClientRect();
-      top = rect.bottom - sidebarRect.top + 8; // relative to sidebar
-      left = rect.left - sidebarRect.left;
-      if (top + 94 > sidebarRect.height) {
-        top = rect.top - sidebarRect.top - 94;
-      }
-    }
-    let href = '#';
-    let copyText = '';
-    if (type === 'whatsapp') {
-      href = 'https://wa.me/5493513436163';
-      copyText = '+5493513436163';
-    } else if (type === 'email') {
-      href = 'mailto:soporte.pique@gmail.com';
-      copyText = 'soporte.pique@gmail.com';
-    } else if (type === 'instagram') {
-      href = 'https://www.instagram.com/pique.app_/';
-      copyText = '@pique.app_';
-    }
-    setContactMenu({ type, top: Math.max(top, 10), left: Math.max(left, 10), href, copyText });
-  };
-
-  const handleOpenHref = (href: string) => {
-    window.open(href, '_blank');
-    setContactMenu(null);
-  };
-
-  const handleCopy = async (text: string) => {
-    setContactMenu(null);
-    try {
-      await navigator.clipboard.writeText(text);
-      showAppNotice(`¡Copiado! ${text}`, 'success');
-    } catch (err) {
-      reportUiError({ area: 'HomePage', action: 'copyContactData' }, err);
-    }
-  };
-
-  const handleNavbarInteract = () => {
-    setShowContact(false);
-    setContactMenu(null);
-  };
 
   const sportIcons: Partial<Record<PublicSport, React.ReactNode>> = {
     padel: (
@@ -399,6 +217,7 @@ export default function Home() {
     ),
     football: <IoFootballOutline className="h-5 w-5" />,
     tennis: <IoTennisballOutline className="h-5 w-5" />,
+    volleyball: <Volleyball className="h-5 w-5" />,
   };
   const sportOptions = PUBLIC_SPORT_OPTIONS.map(option => ({
     ...option,
@@ -421,95 +240,16 @@ export default function Home() {
     loadClubs();
   }, []);
 
-  useEffect(() => {
-    setUser(authUser ? normalizeSessionUser(authUser as any) : null);
-    if (!authUser) {
-      }
-  }, [authUser]);
-
-  useEffect(() => {
-    const loadFavorites = async () => {
-      if (!user?.id) {
-        setFavoriteClubIds(new Set());
-        setFavoriteClubs([]);
-        return;
-      }
-      try {
-        const favorites = await ClubService.getMyFavorites();
-        const nextIds = new Set<number>(favorites.map((item) => Number(item.clubId)));
-        const nextClubs = favorites
-          .map((item) => item.club)
-          .filter((club): club is Club => Boolean(club && club.id));
-        setFavoriteClubIds(nextIds);
-        setFavoriteClubs(nextClubs);
-      } catch (error) {
-        if (isAuthSessionInvalidatedError(error)) {
-          return;
-        }
-        reportUiError({ area: 'HomePage', action: 'loadFavorites' }, error);
-      }
-    };
-    void loadFavorites();
-  }, [user?.id]);
-
-  const showAppNotice = (message: string, tone: AppNoticeTone = 'info') => {
-    if (typeof window === 'undefined') return;
-    const safe = String(message || '').trim();
-    if (!safe) return;
-    window.dispatchEvent(new CustomEvent(APP_NOTICE_EVENT, { detail: { message: safe, tone } }));
-  };
-
-
-  const handleToggleFavorite = async (e: React.MouseEvent, club: Club) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (!user?.id) {
-      showAppNotice('Iniciá sesión para guardar favoritos.', 'info');
-      return;
-    }
-
-    const clubId = Number(club.id);
-    if (!Number.isFinite(clubId) || clubId <= 0) return;
-    if (favoriteBusyByClub[clubId]) return;
-
-    setFavoriteBusyByClub((prev) => ({ ...prev, [clubId]: true }));
-    try {
-      if (favoriteClubIds.has(clubId)) {
-        await ClubService.unmarkFavorite(clubId);
-        setFavoriteClubIds((prev) => {
-          const next = new Set(prev);
-          next.delete(clubId);
-          return next;
-        });
-        setFavoriteClubs((prev) => prev.filter((item) => Number(item.id) !== clubId));
-        showAppNotice('Club eliminado de favoritos.', 'success');
-      } else {
-        await ClubService.markFavorite(clubId);
-        setFavoriteClubIds((prev) => {
-          const next = new Set(prev);
-          next.add(clubId);
-          return next;
-        });
-        setFavoriteClubs((prev) => {
-          const exists = prev.some((item) => Number(item.id) === clubId);
-          return exists ? prev : [club, ...prev];
-        });
-        showAppNotice('Club agregado a favoritos.', 'success');
-      }
-    } catch (error) {
-      reportUiError({ area: 'HomePage', action: 'toggleFavorite' }, error);
-      showAppNotice('No pudimos actualizar tus favoritos. Intentá nuevamente.', 'error');
-    } finally {
-      setFavoriteBusyByClub((prev) => ({ ...prev, [clubId]: false }));
-    }
-  };
-
-  useEffect(() => {
-    setDisplayedClubs(clubs);
-  }, [clubs]);
-
   const locationOptions = useMemo(() => getPublicClubLocations(clubs), [clubs]);
+  const selectedCity = selectedLocation?.city || '';
+  // Deportes sin clubes no se ofrecen (llevarían a una búsqueda vacía), salvo el elegido.
+  const sportMenuOptions = sportOptions
+    .map(option => ({ ...option, count: clubs.filter(club => matchesPublicClubFilters(club, { zone: selectedCity, sport: option.value })).length }))
+    .filter(option => option.value === '' || option.count > 0 || option.value === searchSport);
+  // Sin texto: todas las ciudades; con texto: las que coinciden. Siempre con su cantidad de clubes.
+  const cityMenuOptions = (searchCity.trim() && !selectedLocation ? locationSuggestions : locationOptions.slice(0, LOCATION_LIMIT))
+    .map(location => ({ location, count: clubs.filter(club => matchesPublicClubFilters(club, { zone: location.city, sport: searchSport })).length }))
+    .filter(option => option.count > 0 || option.location.city === selectedCity);
 
   useEffect(() => {
     if (!searchCity.trim()) {
@@ -530,60 +270,6 @@ export default function Home() {
     );
     setLocationSuggestions(filtered.slice(0, LOCATION_LIMIT));
   }, [searchCity, selectedLocation, locationOptions]);
-
-  const resolveClubCoords = async (club: Club) => {
-    if (club.id in clubCoords) return clubCoords[club.id];
-
-    const queries = [
-      [club.addressLine, club.city, club.province, club.country, club.name],
-      [club.city, club.province, club.country],
-      [club.city, club.country]
-    ]
-      .map(parts => parts.filter(Boolean).join(', '))
-      .filter(Boolean);
-
-    for (const query of queries) {
-      const results = await fetchLocations(query, 1);
-      if (results[0]) {
-        const coords = { lat: results[0].lat, lon: results[0].lon };
-        setClubCoords(prev => ({ ...prev, [club.id]: coords }));
-        return coords;
-      }
-    }
-
-    setClubCoords(prev => ({ ...prev, [club.id]: null }));
-    return null;
-  };
-
-  const parseSearchDate = (s: string) => {
-    if (!s) return null;
-    const [y, m, d] = s.split('-').map(Number);
-    return new Date(y, m - 1, d);
-  };
-
-  const changeDateBy = (days: number) => {
-    const current = parseSearchDate(searchDate) || getEffectiveToday();
-    const next = new Date(current);
-    next.setDate(current.getDate() + days);
-    const min = getEffectiveToday();
-    if (next < min) return; // no retroceder mas que el minimo
-    setSearchDate(formatLocalDate(next));
-  };
-
-  const canGoPrev = () => {
-    const current = parseSearchDate(searchDate) || getEffectiveToday();
-    const prev = new Date(current);
-    prev.setDate(current.getDate() - 1);
-    const min = getEffectiveToday();
-    return prev >= min;
-  };
-
-  const scrollToSearchBarTop = () => {
-    if (!searchBarRef.current) return;
-    const top = window.scrollY + searchBarRef.current.getBoundingClientRect().top;
-    const navbarOffset = 18;
-    window.scrollTo({ top: Math.max(top - navbarOffset, 0), behavior: 'smooth' });
-  };
 
   const handleSearch = () => {
     const query: Record<string, string> = {};
@@ -606,26 +292,11 @@ export default function Home() {
       }
     }
     if (searchSport) query.sport = searchSport;
-    router.push({ pathname: '/complejos', query });
-  };
-
-  // Cierra el DatePicker abierto (si existe) forzando blur sobre su input
-  const closeDatepicker = () => {
-    try {
-      const el = document.querySelector('input[placeholder="Selecciona fecha"]') as HTMLInputElement | null;
-      if (el) el.blur();
-      // En algunos casos el popper queda montado en el body; lo removemos/ocultamos para asegurarnos
-      try {
-        document.querySelectorAll('.react-datepicker-popper, .react-datepicker').forEach((n) => {
-          const eln = n as HTMLElement;
-          if (eln && eln.parentNode) eln.parentNode.removeChild(eln);
-        });
-      } catch (err) {
-        // noop
-      }
-    } catch (e) {
-      // noop
-    }
+    // La fecha elegida viaja hasta la grilla del club (hoy es el valor por defecto, no hace falta).
+    if (searchDate && searchDate !== formatLocalDate(getEffectiveToday())) query.date = searchDate;
+    // El botón muestra el spinner mientras carga Complejos.
+    setIsSearching(true);
+    void router.push({ pathname: '/complejos', query }).finally(() => setIsSearching(false));
   };
 
   const selectCity = (location: LocationSuggestion) => {
@@ -633,6 +304,20 @@ export default function Home() {
     setSelectedLocation(location);
     setShowCityDropdown(false);
   };
+
+  const searchDays = (() => {
+    const today = getEffectiveToday();
+    const weekdays = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    return Array.from({ length: 14 }, (_, offset) => {
+      const date = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offset);
+      const label = offset === 0 ? 'Hoy' : offset === 1 ? 'Mañana' : `${weekdays[date.getDay()]} ${date.getDate()}`;
+      const sub = offset <= 1 ? `${weekdays[date.getDay()].toLowerCase()} ${date.getDate()}/${date.getMonth() + 1}` : `${date.getDate()}/${date.getMonth() + 1}`;
+      return { key: formatLocalDate(date), label, sub };
+    });
+  })();
+  const selectedDayLabel = searchDays.find(day => day.key === searchDate)?.label || 'Hoy';
+  const heroCompact = Boolean(authUser?.id) && Boolean(myClubsCount);
+  const showHowItWorks = !authUser?.id || myClubsCount === 0;
 
   const homeCss = `
     .p-home-root.p-home-clubapp { padding-bottom:calc(84px + env(safe-area-inset-bottom)); }
@@ -688,12 +373,6 @@ export default function Home() {
     .p-home-search-quicks { display:flex; gap:6px; margin-top:14px; flex-wrap:wrap; }
     .p-home-quick-chip { padding:5px 13px; background:var(--border-subtle); border:1px solid var(--border-subtle); border-radius:999px; font-size:12px; font-weight:500; color:var(--text-secondary); transition:background .15s,color .15s; cursor:pointer; font-family:inherit; }
     .p-home-quick-chip:hover { background:var(--border-subtle); color:var(--ink-50); }
-    .p-home-hero-side { display:flex; flex-direction:column; gap:12px; min-width:260px; }
-    .p-home-live-card { padding:20px 22px; background:var(--border-subtle); border:1px solid var(--border-subtle); border-radius:20px; }
-    .p-home-live-head { display:flex; align-items:center; gap:8px; font-size:10px; font-weight:700; letter-spacing:.04em; color:var(--text-secondary); margin-bottom:10px; }
-    .p-home-live-dot { width:7px; height:7px; border-radius:50%; background:var(--brand); animation:p-home-pulse 1.2s ease-in-out infinite; }
-    .p-home-live-stat { font-size:26px; font-weight:700; letter-spacing:-.03em; color:var(--ink-50); }
-    .p-home-live-label { font-size:12px; color:var(--text-secondary); margin-top:8px; line-height:1.5; font-weight:400; }
     /* Trust */
     /* Sports */
     .p-home-sports { padding:72px 40px; background:var(--p-home-bg-a); border-bottom:1px solid var(--border-subtle); }
@@ -710,17 +389,6 @@ export default function Home() {
     .p-home-sport-count { font-size:10px; color:var(--text-muted); letter-spacing:.03em; font-weight:600; margin-bottom:6px; }
     .p-home-sport-name { font-size:22px; font-weight:800; letter-spacing:-.02em; color:var(--ink-50); }
     /* Clubs */
-    .p-home-clubs { padding:80px 40px; background:var(--surface-1); border-top:1px solid var(--border-subtle); }
-    .p-home-clubs-inner { max-width:1360px; margin:0 auto; }
-    .p-home-clubs-h { font-size:28px; font-weight:700; letter-spacing:-.025em; color:var(--text-primary); margin:0 0 32px; display:flex; align-items:center; gap:10px; }
-    .p-home-club-card { background:var(--surface-1); border:1px solid var(--border-subtle); border-radius:16px; overflow:hidden; transition:border-color .2s,transform .2s; display:flex; flex-direction:column; text-decoration:none; height:100%; }
-    .p-home-club-card:hover { border-color:var(--accent-border); transform:translateY(-2px); }
-    .p-home-club-img { height:160px; background:var(--surface-3); position:relative; flex-shrink:0; }
-    .p-home-club-body { padding:18px 20px; flex:1; display:flex; flex-direction:column; gap:4px; }
-    .p-home-club-name { font-size:17px; font-weight:800; color:var(--text-primary); margin:0; }
-    .p-home-club-addr { font-size:13px; color:var(--text-muted); margin:0; }
-    .p-home-club-cta { margin-top:auto; padding-top:14px; display:block; text-align:center; background:var(--brand); color:var(--brand-on); border-radius:10px; padding:10px; font-size:12px; font-weight:800; letter-spacing:.01em; transition:background .15s; }
-    .p-home-club-cta:hover { background:var(--brand-hover); }
     /* Section wrapper */
     .p-home-sec-w { max-width:1360px; margin:0 auto; padding:100px 40px; }
     .p-home-eyebrow { display:inline-flex; align-items:center; gap:10px; font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--text-secondary); margin-bottom:20px; }
@@ -742,15 +410,10 @@ export default function Home() {
     .p-home-value-body p { margin:0; color:var(--text-secondary); font-size:14px; line-height:1.7; max-width:400px; }
     /* Stats */
     /* Steps */
-    .p-home-step:hover { background:var(--surface-2); }
-    .p-home-step-num { font-weight:800; font-size:60px; color:var(--text-muted); line-height:1; letter-spacing:-.05em; margin-bottom:24px; transition:color .3s; }
-    .p-home-step:hover .p-home-step-num { color:var(--accent-fg); }
-    .p-home-step-foot { margin-top:24px; padding-top:24px; border-top:1px solid var(--border-subtle); font-size:12px; color:var(--text-secondary); display:flex; align-items:center; gap:8px; }
-    .p-home-step-foot b { color:var(--text-primary); font-weight:700; }
     /* Owner */
     .p-home-owner { --p-home-owner-parallax:0px; position:relative; isolation:isolate; border-top:1px solid var(--border-subtle); background:var(--bg); overflow:hidden; }
     .p-home-owner-media { position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:0; transform:translate3d(0,var(--p-home-owner-parallax),0); will-change:transform; }
-    .p-home-owner-media-img { position:absolute; inset:-4%; background-image:url('https://images.pexels.com/photos/32474981/pexels-photo-32474981.jpeg?auto=compress&cs=tinysrgb&w=1800'); background-size:cover; background-position:center; opacity:.58; transform:scale(1.03); will-change:transform; animation:p-home-owner-kenburns 24s ease-in-out infinite alternate; }
+    .p-home-owner-media-img { position:absolute; inset:-4%; background-image:url('/home/owner.webp'); background-size:cover; background-position:center; opacity:.58; transform:scale(1.03); will-change:transform; animation:p-home-owner-kenburns 24s ease-in-out infinite alternate; }
     .p-home-owner::after { content:''; position:absolute; inset:0; background:linear-gradient(112deg,var(--overlay-strong) 12%,var(--overlay-strong) 48%,var(--overlay-strong) 100%),linear-gradient(180deg,var(--overlay) 0%,var(--overlay-strong) 100%); z-index:1; pointer-events:none; }
     .p-home-owner-inner { position:relative; z-index:2; max-width:1360px; margin:0 auto; padding:106px 40px; display:grid; grid-template-columns:1.05fr .95fr; gap:72px; align-items:center; }
     .p-home-owner .p-home-sec-h { max-width:620px; }
@@ -779,49 +442,22 @@ export default function Home() {
     .p-home-faq-a { max-height:0; overflow:hidden; transition:max-height .4s cubic-bezier(.2,.6,.2,1),margin .3s; color:var(--text-secondary); font-size:14px; line-height:1.7; }
     .p-home-faq-item.p-home-open .p-home-faq-a { max-height:300px; margin-top:14px; }
     /* Closing */
-    .p-home-closing { --p-home-closing-parallax:0px; position:relative; isolation:isolate; border-top:1px solid var(--border-subtle); padding:100px 40px 80px; background:var(--bg); overflow:hidden; }
-    .p-home-closing-media { position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:0; transform:translate3d(0,var(--p-home-closing-parallax),0); will-change:transform; }
-    .p-home-closing-media-img { position:absolute; inset:-4%; background-image:url('/closing-botines.jpg'); background-size:cover; background-position:center 43%; opacity:.84; transform:scale(1.03); will-change:transform; animation:p-home-closing-kenburns 26s ease-in-out infinite alternate; }
-    .p-home-closing::after { content:''; position:absolute; inset:0; background:linear-gradient(110deg,var(--overlay) 8%,var(--overlay) 48%,var(--overlay) 100%),linear-gradient(180deg,var(--overlay) 0%,var(--overlay) 92%); z-index:1; pointer-events:none; }
-    .p-home-closing-inner { position:relative; z-index:2; max-width:1360px; margin:0 auto; }
     .p-home-big-closing { font-size:clamp(44px,7vw,88px); font-weight:800; letter-spacing:-.05em; line-height:.98; color:var(--text-primary); margin:0 0 36px; }
     .p-home-big-closing i { font-style:italic; color:var(--accent-fg); }
-    .p-home-closing-ctas { display:flex; gap:12px; flex-wrap:wrap; }
-    @keyframes p-home-closing-kenburns {
-      0% { transform:scale(1.03) translate3d(-1.3%, -1.1%, 0); }
-      50% { transform:scale(1.08) translate3d(1.2%, 0.9%, 0); }
-      100% { transform:scale(1.05) translate3d(-0.7%, 1.2%, 0); }
-    }
     @media (prefers-reduced-motion: reduce) {
       .p-home-hero-bg::before,
       .p-home-hero-bg::after,
       .p-home-aurora-orb { animation:none; }
       .p-home-owner-media { transform:translate3d(0,0,0); }
       .p-home-owner-media-img { animation:none; transform:scale(1.03); }
-      .p-home-closing-media { transform:translate3d(0,0,0); }
-      .p-home-closing-media-img { animation:none; transform:scale(1.03); }
     }
     /* Footer */
-    .p-home-foot { background:var(--surface-1); border-top:1px solid var(--border-subtle); padding:52px 40px 28px; }
-    .p-home-foot-inner { max-width:1360px; margin:0 auto; }
-    .p-home-foot-cols { display:grid; grid-template-columns:1.6fr repeat(3,1fr); gap:48px; padding-bottom:36px; border-bottom:1px solid var(--border-subtle); }
-    .p-home-foot-brand { display:flex; flex-direction:column; gap:12px; max-width:320px; }
-    .p-home-foot-brand p { font-size:13px; line-height:1.6; color:var(--text-secondary); margin:0; }
-    .p-home-foot-col h6 { font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--text-secondary); margin:0 0 14px; }
-    .p-home-foot-col ul { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:10px; }
-    .p-home-foot-col li a,.p-home-foot-col li button { font-size:13px; color:var(--text-secondary); font-weight:500; transition:color .15s; background:none; border:none; padding:0; cursor:pointer; font-family:inherit; text-align:left; }
-    .p-home-foot-col li a:hover,.p-home-foot-col li button:hover { color:var(--accent-fg); }
-    .p-home-foot-base { padding-top:24px; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--text-secondary); margin-top:28px; }
     /* Contact panel */
-    .p-home-contact-overlay { position:fixed; inset:0; background:var(--overlay); z-index:10010; transition:opacity .3s; }
-    .p-home-contact-panel { position:fixed; top:84px; right:0; width:100%; max-width:390px; max-height:calc(100dvh - 100px); overflow-y:auto; background:var(--surface-1); z-index:10020; box-shadow:var(--shadow-lg); transform:translateX(100%); transition:transform .3s ease-out; border:1px solid var(--border-subtle); border-right:0; border-radius:18px 0 0 18px; }
-    .p-home-contact-panel.p-home-open { transform:translateX(0); }
     /* Dropdowns */
     .p-home-dropdown { position:absolute; top:calc(100% + 8px); left:0; min-width:220px; width:max-content; max-width:min(360px, calc(100vw - 32px)); background:var(--surface-1); border:1px solid var(--border-subtle); border-radius:12px; overflow:hidden; box-shadow:var(--shadow-md); z-index:100; }
     /* Responsive */
     @media(max-width:1024px){
       .p-home-hero-inner{grid-template-columns:1fr;gap:40px}
-      .p-home-hero-side{flex-direction:row;min-width:auto;width:100%}
       .p-home-values-grid{grid-template-columns:1fr;gap:40px}
       .p-home-values-h{position:static}
       .p-home-owner-inner{grid-template-columns:1fr;gap:48px;padding:72px 32px}
@@ -835,12 +471,7 @@ export default function Home() {
       .p-home-sports{padding:52px 24px}
       .p-home-sports-grid{grid-template-columns:1fr;gap:10px}
       .p-home-sec-w{padding:64px 24px}
-      .p-home-clubs{padding:56px 24px}
       .p-home-owner-inner{padding:56px 24px}
-      .p-home-closing{padding:72px 24px}
-      .p-home-foot{padding:44px 24px 24px}
-      .p-home-foot-cols{grid-template-columns:1fr 1fr;gap:28px}
-      .p-home-foot-brand{grid-column:1 / -1;max-width:none}
       .p-home-search{border-radius:24px;padding:8px;gap:8px}
       .p-home-search-divider{display:none}
       .p-home-search-sport{order:1;flex:1 1 0;min-width:0}
@@ -849,11 +480,8 @@ export default function Home() {
       .p-home-search-input{width:100%;min-width:0;padding:12px 14px}
       .p-home-search-cta{order:4;width:100%;justify-content:center;padding:14px 18px}
       .p-home-search .p-home-dropdown{left:0;right:auto;width:100%;min-width:0;max-width:100%}
-      .p-home-contact-panel{top:auto;right:0;bottom:0;left:0;height:auto;max-width:none;max-height:min(78vh,680px);border-left:none;border-right:0;border-top:1px solid var(--border-subtle);border-radius:20px 20px 0 0;transform:translateY(100%)}
-      .p-home-contact-panel.p-home-open{transform:translateY(0)}
     }
     @media(max-width:480px){
-      .p-home-foot-cols{grid-template-columns:1fr}
     }
     /* Scroll reveal */
     .p-home-sr { opacity:0; transform:translateY(28px); transition:opacity .75s cubic-bezier(.2,.8,.2,1), transform .75s cubic-bezier(.2,.8,.2,1); }
@@ -885,11 +513,12 @@ export default function Home() {
     .p-home-marquee-wrap:hover .p-home-marquee-track { animation-play-state:paused; }
     .p-home-marquee-track.p-home-marquee-static { width:100%; min-width:100%; justify-content:center; flex-wrap:wrap; padding:0 24px; animation:none; }
     @keyframes p-home-marquee { to { transform:translateX(-50%); } }
-    .p-home-marquee-item { display:inline-flex; align-items:center; gap:8px; padding:7px 16px; background:var(--surface-2); border:1px solid var(--border-subtle); border-radius:999px; font-size:12px; font-weight:600; color:var(--text-muted); white-space:nowrap; transition:color .2s,border-color .2s; cursor:default; }
+    .p-home-marquee-item { display:inline-flex; align-items:center; gap:8px; padding:7px 16px; background:var(--surface-2); border:1px solid var(--border-subtle); border-radius:999px; font-size:12px; font-weight:600; color:var(--text-muted); white-space:nowrap; transition:color .2s,border-color .2s; cursor:pointer; }
+    .p-home-marquee-label { display:none; margin:0 20px 10px; font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--text-muted); }
     .p-home-marquee-item:hover { color:var(--text-secondary); border-color:var(--border); }
     .p-home-marquee-dot { width:5px; height:5px; border-radius:50%; background:var(--brand); opacity:.5; flex-shrink:0; }
     /* Sport card count overlay */
-    .p-home-sport-club-count { font-size:11px; color:var(--card-accent,var(--brand)); font-weight:700; letter-spacing:.08em; margin-bottom:4px; opacity:.85; }
+    .p-home-sport-club-count { display:inline-block; margin-bottom:6px; padding:3px 9px; border-radius:999px; background:rgba(10,12,16,.62); color:#fff; font-size:11px; font-weight:800; letter-spacing:.02em; backdrop-filter:blur(4px); }
     /* Aurora orbs */
     .p-home-aurora-orb { position:absolute; border-radius:50%; pointer-events:none; background:radial-gradient(ellipse at center,var(--p-home-aurora-color) 0%,transparent 72%); }
     .p-home-aurora-1 { --p-home-aurora-color:var(--accent-bg-soft); width:700px; height:500px; top:-150px; left:-140px; }
@@ -906,10 +535,6 @@ export default function Home() {
     /* Sport card per-card glow */
     .p-home-sport-card:hover { border-color:var(--border); transform:translateY(-5px); }
     /* Universal close button */
-    .p-home-close-btn { width:30px; height:30px; border-radius:8px; background:var(--border-subtle); border:1px solid var(--border-subtle); display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text-muted); flex-shrink:0; transition:background .15s,color .15s; }
-    .p-home-close-btn:hover { background:var(--border); color:var(--text-secondary); }
-    .p-home-root.p-home-theme-light .p-home-close-btn { background:var(--surface-2); border-color:var(--border); color:var(--text-muted); }
-    .p-home-root.p-home-theme-light .p-home-close-btn:hover { background:var(--border); color:var(--text-secondary); }
     /* Light theme */
     .p-home-root.p-home-theme-light { background:var(--bg); color:var(--text-primary); --p-home-bg-a:var(--bg); --p-home-bg-b:var(--surface-2); --p-home-bg-c:var(--surface-3); }
     .p-home-root.p-home-theme-light .p-home-btn { background:var(--surface-1); color:var(--text-primary); border-color:var(--border-strong); box-shadow:0 2px 12px var(--border-subtle); }
@@ -943,40 +568,26 @@ export default function Home() {
     .p-home-root.p-home-theme-light .p-home-search-input::placeholder { color:var(--text-muted); }
     .p-home-root.p-home-theme-light .p-home-quick-chip { background:var(--surface-1); border-color:var(--border); color:var(--text-secondary); }
     .p-home-root.p-home-theme-light .p-home-quick-chip:hover { background:var(--surface-2); color:var(--text-primary); }
-    .p-home-root.p-home-theme-light .p-home-live-card { background:var(--surface-1); border-color:var(--border); box-shadow:0 10px 28px var(--border); }
-    .p-home-root.p-home-theme-light .p-home-live-head { color:var(--text-muted); }
-    .p-home-root.p-home-theme-light .p-home-live-stat { color:var(--text-primary); }
-    .p-home-root.p-home-theme-light .p-home-live-label { color:var(--text-secondary); }
     .p-home-root.p-home-theme-light .p-home-sports { border-bottom-color:var(--border-subtle); }
     .p-home-root.p-home-theme-light .p-home-sports-h3,
     .p-home-root.p-home-theme-light .p-home-sec-h,
     .p-home-root.p-home-theme-light .p-home-value-body h4,
-    .p-home-root.p-home-theme-light .p-home-clubs-h,
     .p-home-root.p-home-theme-light .p-home-big-closing { color:var(--text-primary); }
     .p-home-root.p-home-theme-light .p-home-sport-card { border-color:var(--border); box-shadow:0 8px 26px var(--border); }
     .p-home-root.p-home-theme-light .p-home-sport-bg::after { background:linear-gradient(0deg,var(--overlay-strong),transparent 62%); }
     .p-home-root.p-home-theme-light .p-home-sport-count { color:var(--ink-50); }
     .p-home-root.p-home-theme-light .p-home-sport-name { color:var(--surface-1); }
-    .p-home-root.p-home-theme-light .p-home-clubs { background:var(--surface-2); border-top-color:var(--border-subtle); }
-    .p-home-root.p-home-theme-light .p-home-club-card { background:var(--surface-1); border-color:var(--border); box-shadow:0 10px 24px var(--border-subtle); }
-    .p-home-root.p-home-theme-light .p-home-club-name { color:var(--text-primary); }
-    .p-home-root.p-home-theme-light .p-home-club-addr { color:var(--text-secondary); }
     .p-home-root.p-home-theme-light .p-home-sec-sub,
     .p-home-root.p-home-theme-light .p-home-value-body p,
     .p-home-root.p-home-theme-light .p-home-faq-a { color:var(--text-secondary); }
     .p-home-root.p-home-theme-light .p-home-eyebrow,
-    .p-home-root.p-home-theme-light .p-home-foot-col h6,
     .p-home-root.p-home-theme-light .p-home-owner-side-h { color:var(--text-muted); }
     .p-home-root.p-home-theme-light .p-home-eyebrow::before { background:var(--text-muted); }
     .p-home-root.p-home-theme-light .p-home-values-band,
     .p-home-root.p-home-theme-light .p-home-owner,
     .p-home-root.p-home-theme-light .p-home-faq-band,
-    .p-home-root.p-home-theme-light .p-home-closing { border-top-color:var(--border-subtle); }
     .p-home-root.p-home-theme-light .p-home-value { border-top-color:var(--border-subtle); }
     .p-home-root.p-home-theme-light .p-home-value-num,
-    .p-home-root.p-home-theme-light .p-home-step-num { color:var(--border-strong); }
-    .p-home-root.p-home-theme-light .p-home-step-foot { border-top-color:var(--border-subtle); color:var(--text-muted); }
-    .p-home-root.p-home-theme-light .p-home-step-foot b { color:var(--text-primary); }
     .p-home-root.p-home-theme-light .p-home-owner-media-img { opacity:.96; }
     .p-home-root.p-home-theme-light .p-home-owner::after { background:linear-gradient(112deg,rgba(245,244,240,.78) 0%,rgba(245,244,240,.4) 42%,rgba(245,244,240,.08) 100%),linear-gradient(180deg,rgba(245,244,240,.18) 0%,rgba(245,244,240,.48) 100%); }
     .p-home-root.p-home-theme-light .p-home-owner .p-home-sec-sub { color:var(--text-secondary); }
@@ -988,18 +599,6 @@ export default function Home() {
     .p-home-root.p-home-theme-light .p-home-faq-item:last-child { border-bottom-color:var(--border-subtle); }
     .p-home-root.p-home-theme-light .p-home-faq-q { color:var(--text-primary); }
     .p-home-root.p-home-theme-light .p-home-faq-icon { color:var(--text-muted); }
-    .p-home-root.p-home-theme-light .p-home-closing-media-img { opacity:.98; }
-    .p-home-root.p-home-theme-light .p-home-closing::after { background:linear-gradient(110deg,rgba(245,244,240,.8) 0%,rgba(245,244,240,.42) 44%,rgba(245,244,240,.1) 100%),linear-gradient(180deg,rgba(245,244,240,.12) 0%,rgba(245,244,240,.5) 92%); }
-    .p-home-root.p-home-theme-light .p-home-foot { background:var(--bg); border-top-color:var(--border-subtle); }
-    .p-home-root.p-home-theme-light .p-home-foot-cols { border-bottom-color:var(--border-subtle); }
-    .p-home-root.p-home-theme-light .p-home-foot-brand p,
-    .p-home-root.p-home-theme-light .p-home-foot-col li a,
-    .p-home-root.p-home-theme-light .p-home-foot-col li button,
-    .p-home-root.p-home-theme-light .p-home-foot-base { color:var(--text-muted); }
-    .p-home-root.p-home-theme-light .p-home-foot-col li a:hover,
-    .p-home-root.p-home-theme-light .p-home-foot-col li button:hover { color:var(--positive-fg); }
-    .p-home-root.p-home-theme-light .p-home-contact-overlay { background:var(--overlay); }
-    .p-home-root.p-home-theme-light .p-home-contact-panel { background:var(--surface-1); border-left-color:var(--border); box-shadow:var(--shadow-lg); }
     .p-home-root.p-home-theme-light .p-home-dropdown { background:var(--surface-1); border-color:var(--border); box-shadow:var(--shadow-md); }
     .p-home-root.p-home-theme-light .p-home-dropdown button { color:var(--text-primary)!important; }
     .p-home-root.p-home-theme-light .p-home-dropdown button:hover { background:var(--surface-2)!important; }
@@ -1012,24 +611,127 @@ export default function Home() {
     .p-home-root.p-home-theme-light .p-home-aurora-3 { --p-home-aurora-color:rgba(255,209,102,.24); opacity:.7; }
     /* Value/step section numbers — stronger contrast in light mode */
     .p-home-root.p-home-theme-light .p-home-value-num,
-    .p-home-root.p-home-theme-light .p-home-step-num { color:var(--text-muted); }
+    /* ── Portada solo para jugadores (sin tarjetas al costado) ── */
+    /* Dos columnas: buscador a la izquierda; tus clubes o "Cómo funciona" a la derecha */
+    .p-home-hero-inner.p-home-hero-has-side { grid-template-columns:minmax(0,1.25fr) minmax(320px,420px); align-items:end; }
+    .p-home-hero-has-side .p-home-hero-copy { grid-column:1; grid-row:1; }
+    .p-home-hero-aside { grid-column:2; grid-row:1; min-width:0; }
+    .p-home-hero-aside:empty { display:none; }
+    .p-home-steps { padding:24px; border-radius:20px; background:var(--surface-1); border:1px solid var(--border); box-shadow:var(--shadow-md); }
+    .p-home-steps-h { margin:0 0 16px; font-size:11px; font-weight:800; letter-spacing:.04em; color:var(--text-muted); }
+    .p-home-steps ol { list-style:none; margin:0; padding:0; display:grid; gap:16px; }
+    .p-home-steps li { display:flex; gap:12px; align-items:flex-start; }
+    .p-home-steps-num { width:28px; height:28px; flex-shrink:0; border-radius:999px; display:flex; align-items:center; justify-content:center; background:var(--accent-bg-muted); color:var(--accent-fg); font-size:13px; font-weight:900; }
+    .p-home-steps b { display:block; font-size:14px; font-weight:800; color:var(--text-primary); }
+    .p-home-steps-copy { display:block; margin-top:2px; font-size:12px; line-height:1.45; color:var(--text-secondary); }
+    /* Con tus clubes al costado: título más chico y portada sin alto mínimo */
+    .p-home-hero-compact { min-height:auto; }
+    .p-home-hero-compact .p-home-hero-h1 { font-size:clamp(40px,5.5vw,72px); }
+    .p-home-hero-compact .p-home-hero-h1 br:first-of-type { display:none; }
+    @media(max-width:1024px){
+      .p-home-hero-inner.p-home-hero-has-side { grid-template-columns:1fr; gap:28px; }
+      .p-home-hero-has-side .p-home-hero-copy, .p-home-hero-aside { grid-column:1; grid-row:auto; }
+      /* Tus clubes primero; "Cómo funciona" no hace falta en pantallas chicas */
+      .p-home-hero-aside { order:-1; }
+      .p-home-steps { display:none; }
+    }
+    .p-home-sport-card:focus-visible, .p-home-marquee-item:focus-visible { outline:2px solid var(--accent-fg); outline-offset:3px; }
+    .p-home-marquee-item { text-decoration:none; }
+    .p-home-value-body h3 { margin:0 0 8px; font-size:20px; font-weight:800; color:var(--text-primary); }
+    .p-home-faq-q { width:100%; padding:0; border:0; background:none; font-family:inherit; text-align:left; cursor:pointer; }
+    /* Pantallas táctiles: los campos van a 16px (evita el zoom de iPhone, ver pique.css);
+       el resto del buscador acompaña para que todo tenga el mismo tamaño y grosor. */
+    @media (hover:none) and (pointer:coarse) {
+      .p-home-search-seg, .p-home-search-cta { font-size:16px; }
+      .p-home-search-input { font-weight:600 !important; }
+    }
+    /* Desplegables del buscador: un solo diseño (opción, cantidad y ✓ en la elegida) */
+    .p-home-dd-list { list-style:none; margin:0; padding:6px; max-height:300px; overflow-y:auto; scrollbar-width:thin; }
+    .p-home-dd-option { display:flex; align-items:center; gap:10px; width:100%; min-height:44px; padding:8px 10px; border:0; border-radius:10px; background:transparent; color:var(--text-secondary); font-family:inherit; font-size:14px; font-weight:600; text-align:left; cursor:pointer; white-space:nowrap; }
+    .p-home-dd-option:hover { background:var(--surface-2); color:var(--text-primary); }
+    .p-home-dd-option[aria-selected="true"] { color:var(--positive-fg); }
+    .p-home-dd-icon { display:flex; flex-shrink:0; color:var(--text-muted); }
+    .p-home-dd-option[aria-selected="true"] .p-home-dd-icon { color:var(--positive-fg); }
+    .p-home-dd-label { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+    .p-home-dd-count { flex-shrink:0; font-size:12px; font-weight:700; color:var(--text-muted); }
+    .p-home-dd-check { width:16px; height:16px; flex-shrink:0; visibility:hidden; color:var(--positive-fg); }
+    .p-home-dd-option[aria-selected="true"] .p-home-dd-check { visibility:visible; }
+    .p-home-dd-empty { margin:0; padding:16px; text-align:center; font-size:13px; color:var(--text-muted); }
+    /* Fecha: el desplegable se ubica respecto del buscador (no del botón) */
+    .p-home-search-date-wrap { display:flex; }
+    .p-home-search-date { border:0; background:transparent; font-family:inherit; }
+    .p-home-date-dropdown { left:auto; right:0; }
+    .p-home-days { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; padding:10px; width:min(360px, calc(100vw - 40px)); box-sizing:border-box; }
+    .p-home-day { min-height:52px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; border:1px solid var(--border-subtle); border-radius:10px; background:var(--surface-2); color:var(--text-secondary); font-family:inherit; cursor:pointer; transition:background .15s,border-color .15s,color .15s; }
+    .p-home-day:hover { border-color:var(--border); color:var(--text-primary); }
+    .p-home-day b { font-size:13px; font-weight:800; white-space:nowrap; }
+    .p-home-day small { font-size:10px; font-weight:700; opacity:.8; white-space:nowrap; }
+    .p-home-day[aria-pressed="true"] { background:var(--accent-bg-muted); border-color:var(--accent-border-strong); color:var(--accent-fg); }
+    /* ── Mobile: todo en ~3 pantallas ── */
+    @media(max-width:720px){
+      .p-home-hero { padding:92px 20px 32px; }
+      .p-home-hero-eyebrow { margin-bottom:16px; }
+      .p-home-hero-h1 { font-size:44px; margin-bottom:14px; }
+      .p-home-hero-compact .p-home-hero-h1 { font-size:36px; }
+      .p-home-hero-sub { font-size:15px; margin-bottom:20px; }
+      .p-home-sports { padding:32px 20px; }
+      .p-home-sports-head { margin-bottom:16px; }
+      .p-home-sports-h3 { font-size:24px; }
+      .p-home-sports-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+      .p-home-sport-card { height:150px; padding:14px; border-radius:16px; }
+      .p-home-sport-name { font-size:17px; }
+      .p-home-sport-count { display:none; }
+      .p-home-sec-w { padding:36px 20px; }
+      .p-home-sec-h { font-size:30px; margin-bottom:10px; }
+      .p-home-sec-h br { display:none; }
+      .p-home-sec-sub { font-size:14px; margin-bottom:18px; }
+      .p-home-eyebrow { margin-bottom:10px; }
+      .p-home-values-grid { gap:12px; }
+      .p-home-values-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+      .p-home-value, .p-home-value:first-child { display:block; padding:14px; border:1px solid var(--border-subtle); border-radius:14px; background:var(--surface-1); }
+      .p-home-value-num { display:none; }
+      .p-home-value-body h3 { font-size:14px; margin-bottom:4px; }
+      .p-home-value-body p { font-size:12px; line-height:1.45; }
+      .p-home-owner-inner { padding:36px 20px; gap:0; }
+      .p-home-owner-side { display:none; }
+      .p-home-owner::after { background:var(--overlay-strong); }
+      .p-home-root.p-home-theme-light .p-home-owner::after { background:rgba(245,244,240,.84); }
+      .p-home-owner-ctas { margin-top:4px; }
+      .p-home-faq-grid { gap:8px; }
+      .p-home-faq-list { padding-left:0; }
+      .p-home-faq-list::before { display:none; }
+      .p-home-faq-item { padding:16px 0; }
+      .p-home-faq-q { font-size:15px; }
+      .p-home-faq-cta { display:none; }
+      /* Ciudades: en el celular sobran (el campo ya sugiere lugares al tocarlo) */
+      .p-home-search-quicks { display:none; }
+      .p-home-search-date-wrap { order:2; margin-left:auto; }
+      .p-home-search .p-home-date-dropdown { left:0; right:0; width:auto; }
+      .p-home-search .p-home-days { width:auto; }
+      /* Clubes: una fila con título, se desliza con el dedo (sin la copia del carrusel) */
+      .p-home-marquee-wrap { padding:14px 0; }
+      .p-home-marquee-label { display:block; }
+      .p-home-marquee-track, .p-home-marquee-track.p-home-marquee-static { width:auto; min-width:0; justify-content:flex-start; flex-wrap:nowrap; overflow-x:auto; padding:0 20px; gap:8px; animation:none; scrollbar-width:none; }
+      .p-home-marquee-track::-webkit-scrollbar { display:none; }
+      .p-home-marquee-item[aria-hidden="true"] { display:none; }
+    }
   `;
 
   return (
     <>
       <Head>
-        <title>Pique — Reservá, jugá, encontrá jugadores</title>
+        <title>Pique | Reservá canchas en Argentina</title>
       </Head>
       <style dangerouslySetInnerHTML={{ __html: homeCss }} />
-      {/* eslint-disable-next-line @next/next/no-css-tags */}
       <div className={`p-home-root${isLight ? ' p-home-theme-light' : ''}${clubApp ? ' p-home-clubapp' : ''}`} onClick={() => {
         setShowCityDropdown(false);
         setShowSportDropdown(false);
+        setShowDateDropdown(false);
         }}>
-      <NavBar onContactClick={toggleContactDrawer} onNavbarInteract={handleNavbarInteract} showContactLink showHomeShortcuts />
+      <NavBar onContactClick={() => setContactMode('general')} onNavbarInteract={closeContact} showContactLink showHomeShortcuts />
 
-      {/* Hero */}
-      <section className="p-home-hero">
+      {/* Hero: solo para jugadores */}
+      <section className={`p-home-hero${heroCompact ? ' p-home-hero-compact' : ''}`}>
         <div className="p-home-hero-visuals" aria-hidden="true">
           <div className="p-home-hero-bg" />
           <div className="p-home-hero-noise" />
@@ -1037,36 +739,69 @@ export default function Home() {
           <div className="p-home-aurora-orb p-home-aurora-2" />
           <div className="p-home-aurora-orb p-home-aurora-3" />
         </div>
-        <div className="p-home-hero-inner">
+        <div className="p-home-hero-inner p-home-hero-has-side">
+          {/* Columna derecha: tus clubes (con sesión) o cómo funciona (sin sesión). En mobile, tus clubes van primero. */}
+          <aside className="p-home-hero-aside">
+            {authUser?.id ? <MyClubsSection userId={Number(authUser.id)} placement="hero" onCountChange={setMyClubsCount} /> : null}
+            {showHowItWorks && (
+              <div className="p-home-steps">
+                <p className="p-home-steps-h">Cómo funciona</p>
+                <ol>
+                  {[
+                    { title: 'Elegí cancha y horario', copy: 'Ves qué está libre en cada club, al momento.' },
+                    { title: 'Confirmá en un toque', copy: 'Sabés el precio antes de reservar.' },
+                    { title: 'Jugá y avisale a tu grupo', copy: 'Invitalos desde la app o por WhatsApp.' },
+                  ].map((step, index) => (
+                    <li key={step.title}>
+                      <span className="p-home-steps-num" aria-hidden="true">{index + 1}</span>
+                      <span><b>{step.title}</b><span className="p-home-steps-copy">{step.copy}</span></span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+          </aside>
           <div className="p-home-hero-copy">
-            <span className="p-home-hero-eyebrow">
-              <span className="p-home-hero-eyebrow-dot" />
-              <span>Reservas y gestión para complejos en Argentina</span>
-            </span>
+            {!loadingClubs && clubs.length > 0 && (
+              <span className="p-home-hero-eyebrow">
+                <span className="p-home-hero-eyebrow-dot" />
+                <span>{clubs.length} {clubs.length === 1 ? 'club para reservar' : 'clubes para reservar'}</span>
+              </span>
+            )}
             <h1 className="p-home-hero-h1">
-              Reservá<br />
+              Reservá{' '}<br />
               <HeroSportWord />
-              <br />al toque.
+              {' '}<br />al toque.
             </h1>
-            <p className="p-home-hero-sub">Buscá cancha, elegí horario y reservá en minutos. Y si tenés un complejo, empezá a gestionar tus turnos con Pique.</p>
+            <p className="p-home-hero-sub">Buscá cancha, elegí horario y reservá en minutos.</p>
 
             {/* Search bar */}
             <div ref={searchBarRef} className="p-home-search" onClick={e => e.stopPropagation()}>
               {/* Sport selector */}
-              <div className="p-home-search-seg p-home-search-sport" style={{ position: 'relative' }} onClick={(e) => { e.stopPropagation(); setShowCityDropdown(false); closeDatepicker(); setShowSportDropdown(p => !p); }}>
+              <div className="p-home-search-seg p-home-search-sport" style={{ position: 'relative' }} onClick={(e) => { e.stopPropagation(); setShowCityDropdown(false); setShowDateDropdown(false); setShowSportDropdown(p => !p); }}>
                 <span style={{ color: 'var(--text-muted)', display: 'flex' }}>{selectedSport.icon}</span>
                 <span>{selectedSport.label}</span>
                 <ChevronDown className={`p-home-search-caret${showSportDropdown ? ' p-home-search-caret-open' : ''}`} />
                 {showSportDropdown && (
                   <div className="p-home-dropdown" onClick={e => e.stopPropagation()}>
-                    <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', fontSize: 10, fontWeight: 700, letterSpacing: '.04em', color: 'var(--text-muted)' }}>Elegí deporte</div>
-                    {sportOptions.map(sport => (
-                      <button key={sport.value} onClick={() => { setSearchSport(sport.value); setShowSportDropdown(false); }}
-                        style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '12px 16px', background: searchSport === sport.value ? 'var(--accent-bg-soft)' : 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', color: searchSport === sport.value ? 'var(--positive-fg)' : 'var(--text-secondary)', fontSize: 14, fontWeight: 600 }}>
-                        <span style={{ color: searchSport === sport.value ? 'var(--positive-fg)' : 'var(--text-muted)', display: 'flex' }}>{sport.icon}</span>
-                        {sport.label}
-                      </button>
-                    ))}
+                    <ul className="p-home-dd-list" role="listbox" aria-label="Deporte">
+                      {sportMenuOptions.map(sport => (
+                        <li key={sport.value || 'all'}>
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={searchSport === sport.value}
+                            className="p-home-dd-option"
+                            onClick={() => { setSearchSport(sport.value); setShowSportDropdown(false); }}
+                          >
+                            <span className="p-home-dd-icon">{sport.icon}</span>
+                            <span className="p-home-dd-label">{sport.label}</span>
+                            <span className="p-home-dd-count">{sport.count}</span>
+                            <Check className="p-home-dd-check" aria-hidden="true" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
               </div>
@@ -1077,48 +812,75 @@ export default function Home() {
                   id="cityInput"
                   type="text"
                   placeholder="¿Dónde jugás?"
+                  aria-label="Ciudad o zona"
                   className="p-home-search-input"
                   value={searchCity}
                   onChange={(e) => { const v = e.target.value; setSearchCity(v); if (!v.trim()) setSelectedLocation(null); setShowCityDropdown(true); }}
-                  onFocus={(e) => { e.target.select(); setShowSportDropdown(false); closeDatepicker(); setShowCityDropdown(true); }}
+                  onFocus={(e) => { e.target.select(); setShowSportDropdown(false); setShowDateDropdown(false); setShowCityDropdown(true); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { setShowCityDropdown(false); handleSearch(); } }}
                   autoComplete="off"
                 />
                 {showCityDropdown && (
-                  <div className="p-home-dropdown" style={{ minWidth: 280 }} onClick={e => e.stopPropagation()}>
-                    <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', fontSize: 10, fontWeight: 700, letterSpacing: '.04em', color: 'var(--text-muted)' }}>Lugares disponibles</div>
-                    <ul style={{ maxHeight: 220, overflowY: 'auto', margin: 0, padding: 0, listStyle: 'none' }}>
-                      {loadingClubs ? (
-                        <li style={{ padding: '16px', display: 'flex', justifyContent: 'center' }}><UserLoadingState mode="inline" message="Cargando lugares..." /></li>
-                      ) : locationSuggestions.length > 0 ? (
-                        locationSuggestions.map((loc, i) => (
-                          <li key={i} onClick={() => selectCity(loc)} style={{ padding: '11px 16px', cursor: 'pointer', borderBottom: '1px solid var(--surface-2)', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500, transition: 'background .15s' }}
-                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
-                            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                            <MapPin size={13} style={{ color: 'var(--brand)', flexShrink: 0 }} />
-                            <div><div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{loc.label}</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{loc.country}</div></div>
+                  <div className="p-home-dropdown" style={{ minWidth: 260 }} onClick={e => e.stopPropagation()}>
+                    {loadingClubs ? (
+                      <div className="p-home-dd-empty"><UserLoadingState mode="inline" message="Cargando lugares..." /></div>
+                    ) : cityMenuOptions.length > 0 ? (
+                      <ul className="p-home-dd-list" role="listbox" aria-label="Ciudad">
+                        {cityMenuOptions.map(({ location, count }) => (
+                          <li key={location.city || location.label}>
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={selectedLocation?.city === location.city}
+                              className="p-home-dd-option"
+                              onClick={() => selectCity(location)}
+                              title={location.label}
+                            >
+                              <span className="p-home-dd-icon"><MapPin size={15} /></span>
+                              <span className="p-home-dd-label">{cityChipLabel(location.city || location.label)}</span>
+                              <span className="p-home-dd-count">{count} {count === 1 ? 'club' : 'clubes'}</span>
+                              <Check className="p-home-dd-check" aria-hidden="true" />
+                            </button>
                           </li>
-                        ))
-                      ) : (
-                        <li style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Sin resultados</li>
-                      )}
-                    </ul>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="p-home-dd-empty">Todavía no hay clubes en esa zona.</p>
+                    )}
                   </div>
                 )}
               </div>
               <div className="p-home-search-divider" />
-              {/* Date */}
-              <div className="p-home-search-seg p-home-search-date" onClick={() => { setShowCityDropdown(false); setShowSportDropdown(false); }}>
-                <Calendar size={13} style={{ color: 'var(--text-muted)' }} />
-                <DatePickerDark
-                  selected={searchDate ? (() => { const [y,m,d] = searchDate.split('-').map(Number); return new Date(y,m-1,d); })() : null}
-                  onChange={(date: Date | null) => { if (!date) { setSearchDate(''); return; } setSearchDate(formatLocalDate(date)); }}
-                  minDate={getEffectiveToday()}
-                  showIcon={false}
-                  inputSize="compact"
-                  dateFormat="dd MMM"
-                  inputClassName="bg-transparent border-none outline-none font-semibold text-xs p-0 w-[64px] cursor-pointer focus:ring-0"
-                  variant="dark"
-                />
+              {/* Date: los mismos días que muestra la grilla del club, con un toque */}
+              <div className="p-home-search-date-wrap">
+                <button
+                  type="button"
+                  className="p-home-search-seg p-home-search-date"
+                  aria-expanded={showDateDropdown}
+                  aria-label={`Fecha: ${selectedDayLabel}`}
+                  onClick={(e) => { e.stopPropagation(); setShowCityDropdown(false); setShowSportDropdown(false); setShowDateDropdown(p => !p); }}
+                >
+                  <Calendar size={13} style={{ color: 'var(--text-muted)' }} />
+                  <span>{selectedDayLabel}</span>
+                </button>
+                {showDateDropdown && (
+                  <div className="p-home-dropdown p-home-date-dropdown" onClick={e => e.stopPropagation()}>
+                    <div className="p-home-days" role="group" aria-label="Día">
+                      {searchDays.map(day => (
+                        <button
+                          key={day.key}
+                          type="button"
+                          className="p-home-day"
+                          aria-pressed={searchDate === day.key}
+                          onClick={() => { setSearchDate(day.key); setShowDateDropdown(false); }}
+                        >
+                          <b>{day.label}</b>
+                          <small>{day.sub}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
               {/* CTA */}
               <button className="p-home-search-cta" onClick={handleSearch} disabled={isSearching}>
@@ -1126,49 +888,33 @@ export default function Home() {
               </button>
             </div>
 
-            <div className="p-home-search-quicks">
-              {locationOptions.slice(0, 4).map((loc, i) => (
-                <button key={i} className="p-home-quick-chip" onClick={() => selectCity(loc)}>{loc.label}</button>
-              ))}
-            </div>
-            {!loadingClubs && clubs.length > 0 && (
-              <div className="p-home-hero-stat">
-                <span className="p-home-hero-stat-dot" />
-                <span>
-                  <b>{clubs.length}</b>{' '}
-                  {clubs.length === 1 ? 'club disponible en Argentina' : 'clubes disponibles en Argentina'}
-                </span>
+            {locationOptions.length > 0 && (
+              <div className="p-home-search-quicks">
+                {locationOptions.slice(0, 3).map((loc, i) => (
+                  <button key={i} type="button" className="p-home-quick-chip" onClick={() => selectCity(loc)} title={loc.label}>{cityChipLabel(loc.city || loc.label)}</button>
+                ))}
               </div>
             )}
-          </div>
-
-          <div className="p-home-hero-side">
-            <div className="p-home-live-card">
-              <div className="p-home-live-head"><span className="p-home-live-dot" />Reservas</div>
-              <div className="p-home-live-stat">En minutos</div>
-              <div className="p-home-live-label">Buscás, elegís y confirmás sin vueltas.</div>
-            </div>
-            <div className="p-home-live-card">
-              <div className="p-home-live-head">Para complejos</div>
-              <div className="p-home-live-stat" style={{ fontSize: 20 }}>Más orden</div>
-              <div className="p-home-live-label">Publicá horarios, ordená cobros y recibí reservas desde un solo panel.</div>
-            </div>
           </div>
         </div>
       </section>
 
-      {/* ── MIS CLUBES (con sesión) ── */}
-      {authUser?.id ? <MyClubsSection userId={Number(authUser.id)} /> : null}
-
-      {/* ── MARQUEE STRIP ── */}
+      {/* ── MARQUEE STRIP: cada club lleva a su página ── */}
       {!loadingClubs && clubs.length > 0 && (
         <div className="p-home-marquee-wrap">
+          <p className="p-home-marquee-label">Clubes en Pique</p>
           <div className={`p-home-marquee-track${shouldAnimateMarquee ? '' : ' p-home-marquee-static'}`}>
             {marqueeClubs.map((club, i) => (
-              <div key={i} className="p-home-marquee-item">
+              <Link
+                key={`${club.id}-${i}`}
+                href={`/club/${club.slug}`}
+                className="p-home-marquee-item"
+                aria-hidden={i >= clubs.length ? true : undefined}
+                tabIndex={i >= clubs.length ? -1 : undefined}
+              >
                 <span className="p-home-marquee-dot" />
                 {club.name}
-              </div>
+              </Link>
             ))}
           </div>
         </div>
@@ -1177,60 +923,21 @@ export default function Home() {
       {/* ── SPORTS GRID ── */}
       <section id="deportes" className="p-home-sports" style={{ scrollMarginTop: 88 }}>
         <div className="p-home-sports-head">
-          <h3 className="p-home-sports-h3 p-home-sr">Encontrá tu deporte y <i>reservá sin vueltas.</i></h3>
+          <h2 className="p-home-sports-h3 p-home-sr">Encontrá tu deporte y <i>reservá sin vueltas.</i></h2>
         </div>
         <div className="p-home-sports-grid">
-          {[
-            {
-              name: PUBLIC_SPORT_LABELS.football,
-              sub: 'F5 · F7 · F11',
-              sport: 'football',
-              bg: 'linear-gradient(135deg,var(--ink-900),var(--lima-900))',
-              photo: 'https://images.pexels.com/photos/27394466/pexels-photo-27394466.jpeg?auto=compress&cs=tinysrgb&w=1600',
-              bgPosition: 'center 52%',
-              accent: 'var(--brand)',
-              countKey: 'futbol' as const
-            },
-            {
-              name: PUBLIC_SPORT_LABELS.padel,
-              sub: 'Cubierto & Panorámico',
-              sport: 'padel',
-              bg: 'linear-gradient(135deg,var(--ink-900),var(--ink-700))',
-              photo: 'https://images.pexels.com/photos/32897038/pexels-photo-32897038.jpeg?auto=compress&cs=tinysrgb&w=1600',
-              bgPosition: 'center 42%',
-              accent: 'var(--accent-fg)',
-              countKey: 'padel' as const
-            },
-            {
-              name: PUBLIC_SPORT_LABELS.tennis,
-              sub: 'Polvo & cemento',
-              sport: 'tennis',
-              bg: 'linear-gradient(135deg,var(--ink-900),var(--lima-900))',
-              photo: 'https://images.pexels.com/photos/19872965/pexels-photo-19872965.jpeg?auto=compress&cs=tinysrgb&w=1600',
-              bgPosition: 'center 54%',
-              accent: 'var(--lima-500)',
-              countKey: 'tenis' as const
-            },
-            {
-              name: 'Otros deportes',
-              sub: 'Hockey · Vóley · Básquet',
-              sport: '',
-              bg: 'linear-gradient(135deg,var(--ink-900),var(--ink-700))',
-              photo: 'https://images.pexels.com/photos/9716286/pexels-photo-9716286.jpeg?auto=compress&cs=tinysrgb&w=1600',
-              bgPosition: 'center',
-              accent: 'var(--accent-fg)',
-              countKey: 'otros' as const
-            },
-          ].map((s, si) => (
-            <div key={s.name} className={`p-home-sport-card p-home-sr p-home-sr-d${si + 1}`} style={{'--card-accent': s.accent} as React.CSSProperties} onClick={() => router.push({ pathname: '/complejos', query: s.sport ? { sport: s.sport } : {} })}>
+          {SPORT_CARDS.map((s, si) => (
+            <Link
+              key={s.name}
+              href={{ pathname: '/complejos', query: s.sport ? { sport: s.sport } : {} }}
+              className={`p-home-sport-card p-home-sr p-home-sr-d${si + 1}`}
+              style={{ '--card-accent': s.accent } as React.CSSProperties}
+            >
               <div
                 className="p-home-sport-bg"
                 style={{
-                  background: s.bg,
-                  backgroundImage: s.photo
-                    ? `linear-gradient(160deg, var(--overlay) 0%, var(--overlay) 58%, var(--overlay-strong) 100%), url('${s.photo}')`
-                    : undefined,
-                  backgroundPosition: s.bgPosition || 'center',
+                  backgroundImage: `linear-gradient(160deg, var(--overlay) 0%, var(--overlay) 58%, var(--overlay-strong) 100%), url('${s.photo}')`,
+                  backgroundPosition: s.bgPosition,
                 }}
               />
               <div className="p-home-sport-content">
@@ -1240,29 +947,25 @@ export default function Home() {
                 <div className="p-home-sport-count">{s.sub}</div>
                 <div className="p-home-sport-name">{s.name} →</div>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       </section>
+
       {/* ── VALUES (POR QUE PIQUE) ── */}
       <section id="por-que-pique" className="p-home-values-band" style={{ scrollMarginTop: 88 }}>
         <div className="p-home-sec-w">
           <div className="p-home-values-grid">
             <div className="p-home-values-h p-home-sr-left">
               <span className="p-home-eyebrow">Por qué Pique</span>
-              <h2 className="p-home-sec-h">La forma más<br /><b>fluida</b> de <i>jugar.</i></h2>
+              <h2 className="p-home-sec-h">La forma más{' '}<br /><b>fluida</b> de <i>jugar.</i></h2>
               <p className="p-home-sec-sub">Elegís cancha, horario y confirmás en el momento.</p>
             </div>
             <div className="p-home-values-list">
-              {[
-                { num: '01', title: 'Confirmación al instante', desc: 'Si la cancha está libre, la reservás en segundos.' },
-                { num: '02', title: 'Clubes verificados', desc: 'Fotos, precios y horarios más claros antes de reservar.' },
-                { num: '03', title: 'Cambios más simples', desc: 'Si surge algo, gestionás tu reserva desde la app.' },
-                { num: '04', title: 'Pago claro', desc: 'Ves cómo se paga cada turno antes de confirmar.' },
-              ].map((v, vi) => (
+              {VALUES.map((v, vi) => (
                 <div key={v.num} className={`p-home-value p-home-sr p-home-sr-d${vi + 1}`}>
                   <div className="p-home-value-num">{v.num}</div>
-                  <div className="p-home-value-body"><h4>{v.title}</h4><p>{v.desc}</p></div>
+                  <div className="p-home-value-body"><h3>{v.title}</h3><p>{v.desc}</p></div>
                 </div>
               ))}
             </div>
@@ -1270,7 +973,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── OWNER (PARA COMPLEJOS) ── */}
+      {/* ── OWNER (PARA COMPLEJOS): el único bloque para dueños ── */}
       <section id="para-complejos" ref={ownerSectionRef} className="p-home-owner" style={{ scrollMarginTop: 88 }}>
         <div className="p-home-owner-media" aria-hidden="true">
           <div className="p-home-owner-media-img" />
@@ -1278,10 +981,10 @@ export default function Home() {
         <div className="p-home-owner-inner">
           <div className="p-home-sr-left">
             <span className="p-home-eyebrow">Para complejos</span>
-            <h2 className="p-home-sec-h">Llená tu agenda con<br /><i>reservas online.</i></h2>
+            <h2 className="p-home-sec-h">Llená tu agenda con{' '}<br /><i>reservas online.</i></h2>
             <p className="p-home-sec-sub">Sumate a Pique y centralizá agenda, cobros y comunicación con jugadores en un solo lugar.</p>
             <div className="p-home-owner-ctas">
-              <button className="p-home-btn p-home-btn-primary" onClick={toggleContactDrawer}>Quiero sumar mi complejo →</button>
+              <button type="button" className="p-home-btn p-home-btn-primary" onClick={() => setContactMode('owner')}>Quiero sumar mi complejo →</button>
             </div>
           </div>
           <div className="p-home-owner-side p-home-sr-right">
@@ -1305,28 +1008,22 @@ export default function Home() {
           <div className="p-home-faq-grid">
             <div className="p-home-sr-up">
               <span className="p-home-eyebrow">FAQ</span>
-              <h2 className="p-home-sec-h">Preguntas<br /><i>frecuentes.</i></h2>
-              <p className="p-home-sec-sub">Lo básico antes de reservar o sumar tu complejo.</p>
-              <button className="p-home-btn p-home-btn-ghost" onClick={toggleContactDrawer} style={{ marginTop: 4 }}>Escribinos →</button>
+              <h2 className="p-home-sec-h">Preguntas{' '}<br /><i>frecuentes.</i></h2>
+              <p className="p-home-sec-sub">Lo básico antes de reservar.</p>
+              <button type="button" className="p-home-btn p-home-btn-ghost p-home-faq-cta" onClick={(e) => { e.stopPropagation(); setContactMode('general'); }} style={{ marginTop: 4 }}>Escribinos →</button>
             </div>
             <div className="p-home-faq-list">
-              {[
-                { q: '¿Tengo que pagar para usar Pique?', a: 'No. Usar Pique es gratis para jugadores. Solo pagás el valor de la reserva definido por el complejo.' },
-                { q: '¿Puedo cancelar una reserva si no puedo ir?', a: 'Sí. Cada complejo define su política y la ves antes de confirmar.' },
-                { q: '¿Qué pasa si llueve el día de mi partido?', a: 'Si el club suspende por lluvia, se gestiona según la política del complejo.' },
-                { q: '¿Con cuánta anticipación puedo reservar?', a: 'Podés reservar con anticipación según la disponibilidad que publique cada club.' },
-                { q: '¿Puedo gestionar más de una cancha o sede?', a: 'Sí. Pique permite manejar múltiples canchas, horarios y precios desde un mismo panel.' },
-              ].map((item, idx) => (
+              {FAQ.map((item, idx) => (
                 <div
                   key={idx}
                   ref={el => { faqRefs.current[idx] = el; }}
                   className={`p-home-faq-item${openFaqIndex === idx ? ' p-home-open' : ''}`}
                   onClick={e => { e.stopPropagation(); setOpenFaqIndex(openFaqIndex === idx ? null : idx); }}
                 >
-                  <div className="p-home-faq-q">
+                  <button type="button" className="p-home-faq-q" aria-expanded={openFaqIndex === idx}>
                     {item.q}
-                    <svg className="p-home-faq-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 5v14M5 12h14" /></svg>
-                  </div>
+                    <svg className="p-home-faq-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                  </button>
                   <div className="p-home-faq-a">{item.a}</div>
                 </div>
               ))}
@@ -1335,141 +1032,10 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── CLOSING CTA ── */}
-      <section ref={closingSectionRef} className="p-home-closing">
-        <div className="p-home-closing-media" aria-hidden="true">
-          <div className="p-home-closing-media-img" />
-        </div>
-        <div className="p-home-closing-inner">
-          <div className="p-home-big-closing p-home-sr-up">
-            ¿Tenés un club?<br /><i>Sumate a Pique.</i>
-          </div>
-          <div className="p-home-closing-ctas p-home-sr p-home-sr-d2">
-            <button className="p-home-btn p-home-btn-primary" onClick={toggleContactDrawer}>
-              Quiero sumar mi club →
-            </button>
-            <button className="p-home-btn p-home-btn-ghost" onClick={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setTimeout(() => document.getElementById('cityInput')?.focus(), 600); }}>
-              Buscar cancha
-            </button>
-          </div>
-        </div>
-      </section>
+      {/* ── FOOTER (el mismo de todas las páginas) ── */}
+      {clubApp ? null : <PublicFooter onContactClick={() => setContactMode('general')} />}
 
-      {/* ── FOOTER ── */}
-      <footer className="p-home-foot">
-        <div className="p-home-foot-inner">
-          <div className="p-home-foot-cols">
-            <div className="p-home-foot-brand">
-              <PiqueLogo variant={isLight ? 'horizontal' : 'horizontalDark'} style={{ width: 96, height: 'auto', display: 'block' }} />
-              <p>Reservas deportivas y gestión de complejos, en un solo lugar.</p>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {[
-                  { href: 'https://wa.me/5493513436163', label: 'WhatsApp', icon: <Phone size={15} /> },
-                  { href: 'mailto:soporte.pique@gmail.com', label: 'Email', icon: <Mail size={15} /> },
-                  { href: 'https://www.instagram.com/pique.app_/', label: 'Instagram', icon: <Instagram size={15} /> },
-                ].map(s => (
-                  <a key={s.label} href={s.href} target="_blank" rel="noopener" aria-label={s.label}
-                    style={{ width: 34, height: 34, borderRadius: 10, border: '1px solid var(--border-subtle)', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', transition: 'color .15s, border-color .15s' }}
-                    onMouseEnter={e => { e.currentTarget.style.color = 'var(--brand)'; e.currentTarget.style.borderColor = 'var(--accent-border)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}>
-                    {s.icon}
-                  </a>
-                ))}
-              </div>
-            </div>
-            <div className="p-home-foot-col">
-              <h6>Jugadores</h6>
-              <ul>
-                <li><Link href="/bookings">Mis reservas</Link></li>
-                <li><Link href="/login">Crear cuenta</Link></li>
-              </ul>
-            </div>
-            <div className="p-home-foot-col">
-              <h6>Complejos</h6>
-              <ul>
-                <li><button onClick={toggleContactDrawer}>Sumá tu complejo</button></li>
-                <li><button onClick={toggleContactDrawer}>Contactar ventas</button></li>
-              </ul>
-            </div>
-            <div className="p-home-foot-col">
-              <h6>Soporte</h6>
-              <ul>
-                <li><a href="mailto:soporte.pique@gmail.com">soporte.pique@gmail.com</a></li>
-                <li><a href="https://wa.me/5493513436163" target="_blank" rel="noopener">WhatsApp</a></li>
-                <li><Link href="/legal/privacy">Privacidad</Link></li>
-                <li><Link href="/legal/terms">Términos</Link></li>
-              </ul>
-            </div>
-          </div>
-          <div className="p-home-foot-base">
-            <span>© {new Date().getFullYear()} Pique · Hecho en Argentina · Con pasión por el juego</span>
-          </div>
-        </div>
-      </footer>
-
-      {/* ── CONTACT SIDEBAR ── */}
-      <div className="p-home-contact-overlay" style={{ opacity: showContact ? 1 : 0, pointerEvents: showContact ? 'auto' : 'none' }} onClick={() => setShowContact(false)} />
-      <div
-        ref={sidebarRef}
-        className={`p-home-contact-panel${showContact ? ' p-home-open' : ''}`}
-        style={{
-          visibility: showContact ? 'visible' : 'hidden',
-          pointerEvents: showContact ? 'auto' : 'none',
-        }}
-        aria-hidden={!showContact}
-      >
-        <div style={{ padding: '20px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${isLight ? 'var(--border)' : 'var(--border-subtle)'}` }}>
-          <h2 style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>Contacto</h2>
-          <button className="p-home-close-btn" onClick={() => setShowContact(false)} aria-label="Cerrar">
-            <X size={15} />
-          </button>
-        </div>
-        <div style={{ padding: '20px 22px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, margin: '0 0 8px' }}>¿Tenés dudas o querés dar de alta tu club? Escribinos.</p>
-          {([
-            { type: 'whatsapp' as const, label: 'WhatsApp', value: '+54 351 343 6163', icon: <Phone size={16} /> },
-            { type: 'email' as const, label: 'Email', value: 'soporte.pique@gmail.com', icon: <Mail size={16} /> },
-            { type: 'instagram' as const, label: 'Instagram', value: '@pique.app_', icon: <Instagram size={16} /> },
-          ]).map(c => (
-            <button key={c.type} type="button" onClick={e => openContactMenu(e, c.type)}
-              style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 14px', background: isLight ? 'var(--surface-2)' : 'var(--border-subtle)', border: `1px solid ${isLight ? 'var(--border)' : 'var(--border-subtle)'}`, borderRadius: 12, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', transition: 'border-color .15s', width: '100%' }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--accent-border)')}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = isLight ? 'var(--border)' : 'var(--border-subtle)')}>
-              <div
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 10,
-                  background: 'var(--positive-bg)',
-                  border: '1px solid var(--accent-border-subtle)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'var(--positive-fg)',
-                  flexShrink: 0
-                }}
-              >
-                {c.icon}
-              </div>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-secondary)' }}>{c.label}</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{c.value}</div>
-              </div>
-            </button>
-          ))}
-          {contactMenu && (
-            <div ref={menuRef} role="dialog" style={{ position: 'absolute', top: contactMenu.top, left: contactMenu.left, zIndex: 90, background: isLight ? 'var(--surface-1)' : 'var(--surface-3)', border: `1px solid ${isLight ? 'var(--border)' : 'var(--border-subtle)'}`, borderRadius: 12, padding: 6, minWidth: 150, boxShadow: isLight ? '0 8px 24px var(--border)' : 'var(--shadow-md)' }}>
-              <button onClick={() => handleOpenHref(contactMenu.href)} style={{ display: 'block', width: '100%', padding: '9px 13px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: isLight ? 'var(--text-primary)' : 'var(--text-primary)', fontWeight: 500, textAlign: 'left', borderRadius: 8 }}
-                onMouseEnter={e => (e.currentTarget.style.background = isLight ? 'var(--surface-2)' : 'var(--border-subtle)')}
-                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>Abrir</button>
-              <button onClick={() => handleCopy(contactMenu.copyText)} style={{ display: 'block', width: '100%', padding: '9px 13px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: isLight ? 'var(--text-primary)' : 'var(--text-primary)', fontWeight: 500, textAlign: 'left', borderRadius: 8 }}
-                onMouseEnter={e => (e.currentTarget.style.background = isLight ? 'var(--surface-2)' : 'var(--border-subtle)')}
-                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>Copiar</button>
-            </div>
-          )}
-        </div>
-      </div>
-
+      <ContactPanel open={contactMode !== null} mode={contactMode || 'general'} onClose={closeContact} />
 
       {clubApp ? <ClubAppTabBar slug={clubApp.slug} /> : null}
       </div>{/* end p-home-root */}

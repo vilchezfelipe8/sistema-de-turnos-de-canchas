@@ -193,7 +193,7 @@ const PAGE_CSS = `
     .cl-hero-h { font-size:28px; }
   }
   @media(max-width:600px){
-    .p-public-page.cl-page { padding:16px 20px 64px; }
+    .p-public-page.cl-page { padding:16px 20px var(--page-end-gap); }
     .cl-hero { margin-bottom:20px; border-radius:20px; }
     /* Logo y acciones en la misma fila; nombre y datos debajo */
     .cl-hero-body { grid-template-columns:auto 1fr; grid-template-areas:"logo actions" "info info"; align-items:center; gap:16px; padding:18px; }

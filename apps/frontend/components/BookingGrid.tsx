@@ -14,7 +14,7 @@ import { createBookingCheckoutDraftId, rememberCheckoutReturn, saveBookingChecko
 import { normalizePublicSport } from '../utils/publicClubFilters';
 import { PlayerPricingService, type ActivityFormat, type ClubPricingMode } from '../services/PlayerPricingService';
 import { BookingWindowService, type BookingWindowEvaluation } from '../services/BookingWindowService';
-import { ChevronDown, Check, Calendar, Clock, MapPin, Zap, MousePointerClick, Hourglass, Moon, Ban, AlertCircle, Activity, ChevronLeft, ChevronRight, LayoutGrid, Rows3, Info, LogIn, ShieldCheck } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Calendar, Check, Clock, MapPin, Hourglass, Moon, Ban, AlertCircle, Activity, LayoutGrid, Rows3, Info, LogIn, ShieldCheck } from 'lucide-react';
 import Skeleton from './ui/Skeleton';
 
 const apiBase = () => `${getApiUrl()}/api`;
@@ -25,18 +25,70 @@ interface BookingGridProps {
   variant?: 'default' | 'clubApp';
 }
 
-const CLUB_APP_GRID_CSS = `
-  .bg-days-label { font-size:10px; font-weight:700; letter-spacing:.03em; color:var(--text-muted); display:flex; align-items:center; gap:6px; margin-bottom:8px; }
-  .bg-days { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(96px, 1fr); gap:4px; padding:4px; margin-bottom:20px; border-radius:12px; background:var(--surface-2); border:1px solid var(--border); overflow-x:auto; }
-  .bg-day { min-height:46px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; border:1px solid transparent; border-radius:9px; background:transparent; color:var(--text-secondary); font-family:'Geist',system-ui,sans-serif; cursor:pointer; transition:background .16s,border-color .16s,color .16s; }
+// Días, chips de opciones, resumen y barra fija de reserva (todas las variantes).
+const GRID_CSS = `
+  .bg-field-label { font-size:10px; font-weight:700; letter-spacing:.03em; color:var(--text-muted); display:flex; align-items:center; gap:6px; margin-bottom:8px; }
+  .bg-days { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(76px, 1fr); gap:4px; padding:4px; margin-bottom:20px; border-radius:12px; background:var(--surface-2); border:1px solid var(--border); overflow-x:auto; scrollbar-width:none; scroll-snap-type:x proximity; }
+  .bg-days::-webkit-scrollbar { display:none; }
+  .bg-day { min-height:46px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; border:1px solid transparent; border-radius:9px; background:transparent; color:var(--text-secondary); font-family:'Geist',system-ui,sans-serif; cursor:pointer; transition:background .16s,border-color .16s,color .16s; scroll-snap-align:start; }
   .bg-day:hover { background:var(--surface-1); border-color:var(--border); color:var(--text-primary); }
   .bg-day:focus-visible { outline:none; box-shadow:var(--shadow-focus); }
-  .bg-day-label { font-size:14px; font-weight:800; }
-  .bg-day-sub { font-size:10px; font-weight:700; opacity:.8; }
+  .bg-day-label { font-size:13px; font-weight:800; white-space:nowrap; }
+  .bg-day-sub { font-size:10px; font-weight:700; opacity:.8; white-space:nowrap; }
   .bg-day[aria-pressed="true"] { background:var(--surface-1); border-color:var(--accent-border); color:var(--accent-fg); }
+  .bg-fields { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:14px 16px; margin-bottom:22px; }
+  .bg-field { position:relative; min-width:0; }
+  .bg-chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .bg-chip { min-height:40px; padding:0 14px; border-radius:999px; border:1px solid var(--border); background:var(--surface-1); color:var(--text-secondary); font-family:'Geist',system-ui,sans-serif; font-size:13px; font-weight:700; cursor:pointer; transition:background .15s,border-color .15s,color .15s; }
+  .bg-chip:hover { border-color:var(--border-strong); color:var(--text-primary); }
+  .bg-chip:focus-visible { outline:none; box-shadow:var(--shadow-focus); }
+  .bg-chip[aria-pressed="true"] { background:var(--accent-bg-muted); border-color:var(--accent-border-strong); color:var(--accent-fg); }
+  .bg-court-line { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border-radius:14px; border:1px solid var(--accent-border-strong); background:var(--accent-bg-muted); }
+  .bg-court-line-name { margin:0; font-size:14px; font-weight:800; color:var(--accent-fg); }
+  .bg-court-line-meta { margin:2px 0 0; font-size:11px; font-weight:600; color:var(--text-muted); }
+  .bg-link-btn { flex-shrink:0; min-height:36px; padding:0 4px; border:none; background:none; color:var(--accent-fg); font-family:inherit; font-size:12px; font-weight:800; cursor:pointer; text-decoration:underline; text-underline-offset:3px; }
+  .bg-more-btn { display:inline-flex; align-items:center; gap:6px; min-height:40px; padding:0 14px; border:none; border-radius:999px; background:transparent; color:var(--text-secondary); font-family:inherit; font-size:12px; font-weight:700; cursor:pointer; }
+  .bg-more-btn:hover { color:var(--text-primary); background:var(--surface-2); }
+  .bg-cta { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; min-height:50px; padding:0 20px; border-radius:16px; border:none; font-family:'Geist',system-ui,sans-serif; font-size:14px; font-weight:800; cursor:pointer; background:var(--brand); color:var(--brand-on); transition:background .2s; }
+  .bg-cta:disabled { cursor:not-allowed; background:var(--surface-3); color:var(--text-muted); }
+  .bg-cta-price { opacity:.85; font-weight:700; }
+  .bg-summary { margin:0 0 10px; text-align:center; font-size:12px; font-weight:600; color:var(--text-muted); }
+  .bg-summary b { color:var(--text-primary); font-weight:800; }
+`;
+
+const CLUB_APP_GRID_CSS = `
+  .bg-days { grid-auto-columns:minmax(96px, 1fr); }
+  .bg-day-label { font-size:14px; }
   .bg-clubapp .v-slot-grid { grid-template-columns:repeat(auto-fill, minmax(76px, 1fr)); gap:8px; }
   .bg-clubapp .v-slot { min-height:44px; font-size:14px; }
 `;
+
+const LAST_SPORT_STORAGE_KEY = 'pique:lastSport';
+const CHIP_OPTIONS_LIMIT = 4;
+
+const formatMoney = (value: number) => `$${Number(value || 0).toLocaleString('es-AR')}`;
+
+// Pocas opciones (hasta 4) se muestran como chips: un toque en vez de abrir un desplegable.
+const ChipGroup = ({ value, options, onChange, label }: {
+  value: string | number;
+  options: Array<{ value: string | number; label: string }>;
+  onChange: (value: any) => void;
+  label: string;
+}) => (
+  <div className="bg-chips" role="group" aria-label={label}>
+    {options.map(option => (
+      <button
+        key={String(option.value)}
+        type="button"
+        className="bg-chip"
+        aria-pressed={option.value === value}
+        onClick={() => onChange(option.value)}
+      >
+        {option.label}
+      </button>
+    ))}
+  </div>
+);
 
 type ActivityTypeSummary = {
   id: number;
@@ -193,7 +245,7 @@ const CustomSelect = ({ value, options, onChange, placeholder, centerLabel = fal
 export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGridProps = {}) {
   const isClubAppVariant = variant === 'clubApp';
   const router = useRouter();
-  const { isAuthenticated: hasAuthSession } = useAuth();
+  const { isAuthenticated: hasAuthSession, status: authStatus } = useAuth();
 
   const formatLocalDate = (date: Date) => {
     const y = date.getFullYear();
@@ -225,10 +277,14 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
   const [hoveredAtcSlot, setHoveredAtcSlot] = useState<{ courtId: number; slotTime: string } | null>(null);
   const [pendingSport, setPendingSport] = useState<string | null>(null);
   const [pendingTime, setPendingTime] = useState<string | null>(null);
+  // Al volver del login: la cancha elegida y seguir directo al checkout.
+  const [pendingCourtId, setPendingCourtId] = useState<number | null>(null);
+  const [pendingContinue, setPendingContinue] = useState(false);
   const [queryApplied, setQueryApplied] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
-  const courtsSectionRef = useRef<HTMLDivElement | null>(null);
+  // La cancha se asigna sola; la lista completa se abre solo si el jugador quiere cambiarla.
+  const [courtPickerOpen, setCourtPickerOpen] = useState(false);
+  const daysRef = useRef<HTMLDivElement | null>(null);
   const [modalState, setModalState] = useState<{
     show: boolean; title?: string; message?: ReactNode;
     cancelText?: string; confirmText?: string; isWarning?: boolean;
@@ -278,6 +334,9 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
       params.set('date', formatLocalDate(selectedDate));
       params.set('time', selectedSlot);
       if (selectedActivityFilter) params.set('sport', selectedActivityFilter);
+      // Con la cancha y "continue" el jugador vuelve del login directo al checkout.
+      if (selectedCourt) params.set('court', String(selectedCourt.id));
+      params.set('continue', '1');
     }
     const query = params.toString();
     const returnUrl = `${router.asPath.split('?')[0].split('#')[0]}${query ? `?${query}` : ''}`;
@@ -465,13 +524,15 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
 
   useEffect(() => {
     if (!router.isReady || queryApplied) return;
-    const { date, time, sport } = router.query;
+    const { date, time, sport, court } = router.query;
     if (typeof date === 'string') {
       const [y, m, d] = date.split('-').map(Number);
       if (y && m && d) { const pd = new Date(y, m - 1, d); if (!Number.isNaN(pd.getTime())) setSelectedDate(pd); }
     }
     if (typeof time === 'string') setPendingTime(time);
     if (typeof sport === 'string') setPendingSport(sport);
+    if (typeof court === 'string' && Number(court) > 0) setPendingCourtId(Number(court));
+    if (router.query.continue === '1' && typeof time === 'string') setPendingContinue(true);
     setQueryApplied(true);
   }, [router.isReady, router.query, queryApplied]);
 
@@ -690,6 +751,9 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
     params.set('date', formatLocalDate(selectedDate));
     params.set('time', selectedSlot);
     if (selectedActivityFilter) params.set('sport', selectedActivityFilter);
+    params.set('court', String(selectedCourt.id));
+    // Al volver del checkout no se tiene que reabrir solo.
+    params.delete('continue');
     const returnUrl = `${router.asPath.split('?')[0].split('#')[0]}?${params.toString()}`;
     void (async () => {
       try {
@@ -698,7 +762,11 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
         // Si no se pudo guardar la selección, se sigue igual al checkout.
       }
       rememberCheckoutReturn(returnUrl);
-      await router.push(`/checkout?draft=${encodeURIComponent(draftId)}`);
+      // El link también lleva club, día y hora: si el resumen se pierde (otra pestaña), se retoma desde ahí.
+      const checkoutParams = new URLSearchParams({ draft: draftId, date: formatLocalDate(selectedDate), time: selectedSlot });
+      if (clubSlug) checkoutParams.set("club", clubSlug);
+      if (selectedActivityFilter) checkoutParams.set("sport", selectedActivityFilter);
+      await router.push(`/checkout?${checkoutParams.toString()}`);
     })();
   };
 
@@ -712,6 +780,17 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
     setIsAuthenticated(true);
     openCheckout();
   };
+
+  // Volvió del login con la selección completa: se sigue directo al checkout, sin volver a tocar nada.
+  useEffect(() => {
+    if (!pendingContinue || !queryApplied) return;
+    if (authStatus === 'unknown') return;
+    if (!hasAuthSession) { setPendingContinue(false); return; }
+    if (pendingTime || pendingCourtId || !selectedSlot || !selectedCourt || !bookingReview) return;
+    setPendingContinue(false);
+    openCheckout();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingContinue, queryApplied, authStatus, hasAuthSession, pendingTime, pendingCourtId, selectedSlot, selectedCourt, bookingReview]);
 
   useEffect(() => {
     if (!selectedDate) return;
@@ -733,15 +812,40 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
     } catch (err) { reportUiError({ area: 'BookingGrid', action: 'saveDisabledSlotsToStorage' }, err); }
   }, [disabledSlots, selectedDate]);
 
+  // Cancha asignada sola al elegir horario: la que entra completa, después la más barata.
+  // Si el jugador eligió una (o vuelve del login con una), se respeta mientras siga libre.
   useEffect(() => {
-    if (!selectedSlot || !selectedCourt) return;
-    confirmButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [selectedSlot, selectedCourt]);
+    if (activeScheduleViewMode !== 'list' || !selectedSlot) return;
+    const courts = availableSlots.find(s => s.slotTime === selectedSlot)?.courts || [];
+    if (courts.length === 0) return;
+    if (selectedCourt && courts.some(c => c.id === selectedCourt.id)) return;
+    const requested = pendingCourtId ? courts.find(c => Number(c.id) === pendingCourtId) : undefined;
+    const ranked = [...courts].sort((a, b) => {
+      const fitDiff = getCourtFitMinutes(b) - getCourtFitMinutes(a);
+      if (fitDiff !== 0) return fitDiff;
+      return Number(a.pricePerPlayer ?? a.price ?? 0) - Number(b.pricePerPlayer ?? b.price ?? 0);
+    });
+    setSelectedCourt(requested || ranked[0]);
+    if (pendingCourtId) setPendingCourtId(null);
+  }, [activeScheduleViewMode, availableSlots, getCourtFitMinutes, pendingCourtId, selectedCourt, selectedSlot]);
 
   useEffect(() => {
-    if (!selectedSlot) return;
-    courtsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [selectedSlot]);
+    setCourtPickerOpen(false);
+  }, [selectedSlot, selectedDate]);
+
+  // El último deporte elegido queda guardado para la próxima visita.
+  useEffect(() => {
+    if (!selectedActivityFilter) return;
+    try { localStorage.setItem(LAST_SPORT_STORAGE_KEY, normalizePublicSport(selectedActivityFilter)); } catch { /* sin almacenamiento */ }
+  }, [selectedActivityFilter]);
+
+  // Centrar el día elegido en la tira de días (por ejemplo, al volver con ?date=).
+  useEffect(() => {
+    const container = daysRef.current;
+    const active = container?.querySelector<HTMLElement>('[aria-pressed="true"]');
+    if (!container || !active) return;
+    container.scrollLeft = Math.max(0, active.offsetLeft - (container.clientWidth - active.clientWidth) / 2);
+  }, [selectedDate, bookingAdvanceLimitDays]);
 
   useEffect(() => {
     const fetchCourts = async () => {
@@ -759,7 +863,9 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
     if (!pendingSport || activeCourts.length === 0) return;
     const names = Array.from(new Set(activeCourts.map(c => getCourtActivityName(c)).filter(Boolean)));
     const norm = normalizeText(pendingSport);
-    const matched = names.find(n => normalizeText(n) === norm);
+    // Acepta el nombre del deporte ("Tenis") o la clave del filtro de Complejos ("tennis").
+    const publicKey = normalizePublicSport(pendingSport);
+    const matched = names.find(n => normalizeText(n) === norm || (publicKey && normalizePublicSport(n) === publicKey));
     if (matched) setSelectedActivityFilter(matched);
     setPendingSport(null);
   }, [pendingSport, activeCourts]);
@@ -767,12 +873,13 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
   useEffect(() => {
     if (!queryApplied || pendingSport || selectedActivityFilter || activeCourts.length === 0) return;
     const unique = Array.from(new Set(activeCourts.map(c => getCourtActivityName(c)).filter(Boolean)));
-    const preferred = clubSlug === 'club-atletico-barrio-parque'
-      ? unique.find(name => normalizePublicSport(name) === 'tennis')
-      : undefined;
-    const initialActivity = preferred || (unique.length === 1 ? unique[0] : '');
+    let lastSport = '';
+    try { lastSport = localStorage.getItem(LAST_SPORT_STORAGE_KEY) || ''; } catch { /* sin almacenamiento */ }
+    const preferred = lastSport ? unique.find(name => normalizePublicSport(name) === lastSport) : undefined;
+    // Sin preferencia se elige el primero: así los horarios aparecen sin un paso extra.
+    const initialActivity = preferred || unique[0] || '';
     if (initialActivity) setSelectedActivityFilter(initialActivity);
-  }, [activeCourts, clubSlug, pendingSport, queryApplied, selectedActivityFilter]);
+  }, [activeCourts, pendingSport, queryApplied, selectedActivityFilter]);
 
   useEffect(() => {
     if (!pendingTime || availableSlots.length === 0) return;
@@ -797,39 +904,11 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
     });
   }, [slotsWithCourts, activeCourts, selectedDate]);
 
-  const isPrevDisabled = () => {
+  // Días habilitados como botones ("Hoy", "Mañana", "Vie 24"…): un toque en vez de avanzar día por día.
+  // Hasta 14 en la web y 7 en la app del club.
+  const bookingDays = useMemo(() => {
     const today = getTodayDate();
-    const cur = new Date(selectedDate);
-    cur.setHours(0, 0, 0, 0);
-    return cur <= today;
-  };
-
-  const handlePrevDay = () => {
-    if (isPrevDisabled()) return;
-    const prev = new Date(selectedDate);
-    prev.setDate(prev.getDate() - 1);
-    setSelectedDate(prev);
-  };
-
-  const isNextDisabled = () => {
-    if (!selectedDate) return true;
-    const cur = new Date(selectedDate); cur.setHours(0, 0, 0, 0);
-    const max = new Date(maxAllowedDate); max.setHours(0, 0, 0, 0);
-    return cur >= max;
-  };
-
-  const handleNextDay = () => {
-    if (isNextDisabled()) return;
-    const next = new Date(selectedDate);
-    next.setDate(next.getDate() + 1);
-    setSelectedDate(next);
-  };
-
-  // App del club: los días habilitados como botones ("Hoy", "Mañana", "Vie 24"…), hasta 7.
-  const clubAppDays = useMemo(() => {
-    if (!isClubAppVariant) return [];
-    const today = getTodayDate();
-    const total = Math.min(7, Math.max(1, bookingAdvanceLimitDays + 1));
+    const total = Math.min(isClubAppVariant ? 7 : 14, Math.max(1, bookingAdvanceLimitDays + 1));
     const weekdays = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
     return Array.from({ length: total }, (_, offset) => {
       const date = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offset);
@@ -842,15 +921,32 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isClubAppVariant, bookingAdvanceLimitDays]);
 
+  const availableActivities = useMemo(() => {
+    return Array.from(new Set(activeCourts.map(c => getCourtActivityName(c)).filter(Boolean)));
+  }, [activeCourts]);
+
+  // Desktop: fecha con flechas día por día.
+  const showDayChips = isMobileListOnly || isClubAppVariant;
   const getFormattedDate = (date: Date) => {
     const days = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
     const months = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
     return `${days[date.getDay()]} ${String(date.getDate()).padStart(2, '0')} ${months[date.getMonth()]} ${date.getFullYear()}`;
   };
+  const isPrevDisabled = !selectedDate || selectedDate.getTime() <= getTodayDate().getTime();
+  const isNextDisabled = !selectedDate || selectedDate.getTime() >= maxAllowedDate.getTime();
+  const shiftSelectedDay = (delta: number) => {
+    if (!selectedDate) return;
+    setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() + delta));
+    setSelectedSlot(null);
+    setSelectedCourt(null);
+  };
+  const handlePrevDay = () => { if (!isPrevDisabled) shiftSelectedDay(-1); };
+  const handleNextDay = () => { if (!isNextDisabled) shiftSelectedDay(1); };
 
-  const availableActivities = useMemo(() => {
-    return Array.from(new Set(activeCourts.map(c => getCourtActivityName(c)).filter(Boolean)));
-  }, [activeCourts]);
+  // Campos con una sola opción no se muestran: se eligen solos y aparecen en el resumen.
+  const showSportField = availableActivities.length > 1;
+  const showFormatField = isPerPlayerPricing && activityFormats.length > 1;
+  const showDurationField = formatFixedDuration ? Boolean(formatShortMinutes) : durationOptions.length > 1;
 
   const handleSelectAtcSlot = (court: CourtSummary, slotTime: string) => {
     if (!selectedDate) return;
@@ -998,19 +1094,42 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
   }, [selectedDate, selectedActivityFilter, selectedDuration, activeScheduleViewMode]);
 
   const canConfirm = Boolean(selectedSlot && selectedCourt);
+  // En mobile (web) el resumen y el botón quedan fijos abajo apenas hay un turno elegido.
+  // La app del club no la usa: ya tiene su barra de pestañas abajo.
+  const useStickyCta = canConfirm && isMobileListOnly && !isClubAppVariant;
+  useEffect(() => {
+    if (!useStickyCta) return undefined;
+    document.body.classList.add("p-has-action-bar");
+    return () => document.body.classList.remove("p-has-action-bar");
+  }, [useStickyCta]);
+  const bookingSummary = useMemo(() => {
+    if (!selectedDate || !selectedSlot || !selectedCourt) return null;
+    const dayKey = formatLocalDate(selectedDate);
+    const day = bookingDays.find(d => d.key === dayKey);
+    const dayLabel = day ? day.label : selectedDate.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric' });
+    const price = selectedCourt.pricePerPlayer != null
+      ? `${formatMoney(Number(selectedCourt.pricePerPlayer))} c/u`
+      : formatMoney(priceInfo.final);
+    return {
+      main: `${dayLabel} · ${selectedSlot} · ${formatDurationShort(bookingDuration)}`,
+      sub: `${selectedCourt.name} · ${price}`,
+      price,
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookingDays, bookingDuration, priceInfo.final, selectedCourt, selectedDate, selectedSlot]);
   const labelStyle: React.CSSProperties = { fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: T.textMuted, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, fontFamily: "'Geist',system-ui,sans-serif" };
   const sectionStyle: React.CSSProperties = { marginBottom: 28 };
 
   return (
     <div className={isClubAppVariant ? 'bg-clubapp' : undefined} style={{ width: '100%', minWidth: 0, background: T.bg, border: `1px solid ${T.borderSubtle}`, borderRadius: 24, padding: isMobileListOnly ? '24px 20px 20px' : '28px 28px 24px', fontFamily: "'Geist',system-ui,sans-serif", boxSizing: 'border-box', boxShadow: T.shadow, overflow: 'hidden' }}>
+      <style>{GRID_CSS}</style>
       {isClubAppVariant && <style>{CLUB_APP_GRID_CSS}</style>}
 
       {/* Header */}
-      <div style={{ marginBottom: 28, paddingBottom: 20, borderBottom: `1px solid ${T.borderSubtle}` }}>
-        <h2 style={{ fontSize: 22, fontWeight: 800, color: T.textPrimary, letterSpacing: '-.03em', margin: '0 0 4px' }}>
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 800, color: T.textPrimary, letterSpacing: '-.03em', margin: 0 }}>
           Reservar <span style={{ fontStyle: 'italic', color: 'var(--accent-fg)' }}>cancha</span>
         </h2>
-        <p style={{ fontSize: 12, color: T.textMuted, margin: 0, fontWeight: 500 }}>Elegí deporte, día y horario</p>
         {activeBookingWindow?.memberPriorityActive && (
           <p style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 12, color: T.textMuted, margin: '10px 0 0', fontWeight: 600 }}>
             <ShieldCheck size={13} style={{ color: 'var(--accent-fg)' }} />
@@ -1020,12 +1139,10 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
         )}
       </div>
 
-      {/* Días (app del club) */}
-      {isClubAppVariant && clubAppDays.length > 0 && (
-        <>
-        <div className="bg-days-label"><Calendar size={12} style={{ color: 'var(--accent-fg)' }} /> Fecha</div>
-        <div className="bg-days" role="group" aria-label="Día">
-          {clubAppDays.map((day) => {
+      {/* Días como botones: solo en mobile y en la app del club (en desktop, flechas en los campos) */}
+      {showDayChips && bookingDays.length > 0 && (
+        <div className="bg-days" role="group" aria-label="Día" ref={daysRef}>
+          {bookingDays.map((day) => {
             const isSelected = Boolean(selectedDate) && formatLocalDate(selectedDate as Date) === day.key;
             return (
               <button
@@ -1041,93 +1158,105 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
             );
           })}
         </div>
-        </>
       )}
 
-      {/* Filters row */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobileListOnly ? '1fr' : isClubAppVariant ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))', gap: 14, marginBottom: 24 }}>
-
-        {/* Deporte */}
-        <div style={{ position: 'relative', zIndex: 20, minWidth: 0 }}>
-          <div style={labelStyle}><Activity size={12} style={{ color: 'var(--accent-fg)' }} /> Deporte</div>
-          <CustomSelect
-            value={selectedActivityFilter}
-            onChange={(val: string) => { setSelectedActivityFilter(val); setSelectedSlot(null); setSelectedCourt(null); }}
-            placeholder="Seleccioná"
-            centerLabel={isMobileListOnly}
-            options={availableActivities.map(n => ({ value: n, label: n }))}
-          />
-        </div>
-
-        {/* Fecha */}
-        {!isClubAppVariant && (
-        <div style={{ minWidth: 0 }}>
-          <div style={labelStyle}><Calendar size={12} style={{ color: 'var(--accent-fg)' }} /> Fecha</div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 46, padding: '0 6px', background: T.bg, border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: T.shadow }}>
-            <button
-              type="button"
-              onClick={handlePrevDay}
-              disabled={isPrevDisabled()}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, background: 'none', border: 'none', cursor: isPrevDisabled() ? 'not-allowed' : 'pointer', color: isPrevDisabled() ? T.arrowDisabled : T.textMuted, borderRadius: 8, transition: 'color .15s, background .15s' }}
-            >
-              <ChevronLeft size={18} />
-            </button>
-            <span style={{ fontSize: 12, fontWeight: 700, color: T.textPrimary, textAlign: 'center', letterSpacing: '.02em' }}>
-              {getFormattedDate(selectedDate)}
-            </span>
-            <button
-              type="button"
-              onClick={handleNextDay}
-              disabled={isNextDisabled()}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, background: 'none', border: 'none', cursor: isNextDisabled() ? 'not-allowed' : 'pointer', color: isNextDisabled() ? T.arrowDisabled : T.textMuted, borderRadius: 8, transition: 'color .15s' }}
-            >
-              <ChevronRight size={18} />
-            </button>
-          </div>
-        </div>
-        )}
-
-        {/* Modalidad (precio por jugador): va antes que la duración porque la define */}
-        {isPerPlayerPricing && activityFormats.length > 0 && (
-          <div style={{ position: 'relative', zIndex: 10, minWidth: 0 }}>
-            <div style={labelStyle}><Activity size={12} style={{ color: 'var(--accent-fg)' }} /> Modalidad</div>
-            <CustomSelect
-              value={selectedFormatId}
-              onChange={(val: string) => { setSelectedFormatId(String(val)); setFormatUseShort(false); setSelectedSlot(null); setSelectedCourt(null); }}
-              placeholder="Modalidad"
-              centerLabel={isMobileListOnly}
-              options={activityFormats.map(format => ({ value: format.id, label: `${format.name} · ${format.playerCount} jugadores` }))}
-            />
-          </div>
-        )}
-
-        {/* Duración */}
-        <div style={{ position: 'relative', zIndex: 9, minWidth: 0 }}>
-          <div style={labelStyle}><Clock size={12} style={{ color: 'var(--accent-fg)' }} /> Duración</div>
-          {formatFixedDuration && formatShortMinutes ? (
-            <CustomSelect
-              value={formatDuration}
-              onChange={(val: number) => { setFormatUseShort(Number(val) === formatShortMinutes); setSelectedSlot(null); setSelectedCourt(null); }}
-              placeholder="Duración"
-              centerLabel={isMobileListOnly}
-              options={[formatFixedDuration, formatShortMinutes].map(d => ({ value: d, label: `${d} min` }))}
-            />
-          ) : formatFixedDuration ? (
-            <div style={{ padding: '11px 14px', borderRadius: 12, border: `1px solid ${T.border}`, background: T.bgInput, color: T.textPrimary, fontSize: 14, fontWeight: 700, textAlign: isMobileListOnly ? 'center' : 'left' }}>
-              {formatFixedDuration} min
+      {/* Deporte, modalidad y duración: solo se muestran si hay algo para elegir */}
+      {(showSportField || !showDayChips || showFormatField || showDurationField) && (
+        <div className="bg-fields">
+          {showSportField && (
+            <div className="bg-field" style={{ zIndex: 20 }}>
+              <div className="bg-field-label"><Activity size={12} style={{ color: 'var(--accent-fg)' }} /> Deporte</div>
+              <CustomSelect
+                value={selectedActivityFilter}
+                onChange={(val: string) => { setSelectedActivityFilter(val); setSelectedSlot(null); setSelectedCourt(null); }}
+                placeholder="Elegí un deporte"
+                centerLabel={isMobileListOnly}
+                options={availableActivities.map(n => ({ value: n, label: n }))}
+              />
             </div>
-          ) : (
-          <CustomSelect
-            value={selectedDuration}
-            onChange={(val: number) => { setSelectedDuration(Number(val)); setSelectedSlot(null); setSelectedCourt(null); }}
-            placeholder="Duración"
-            centerLabel={isMobileListOnly}
-            options={durationOptions.map(d => ({ value: d, label: `${d} min` }))}
-          />
+          )}
+
+          {/* Fecha en desktop: flechas día por día */}
+          {!showDayChips && selectedDate && (
+            <div className="bg-field">
+              <div className="bg-field-label"><Calendar size={12} style={{ color: 'var(--accent-fg)' }} /> Fecha</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 46, padding: '0 6px', background: T.bg, border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: T.shadow }}>
+                <button
+                  type="button"
+                  onClick={handlePrevDay}
+                  disabled={isPrevDisabled}
+                  aria-label="Día anterior"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, background: 'none', border: 'none', cursor: isPrevDisabled ? 'not-allowed' : 'pointer', color: isPrevDisabled ? T.arrowDisabled : T.textMuted, borderRadius: 8, transition: 'color .15s' }}
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <span style={{ fontSize: 12, fontWeight: 700, color: T.textPrimary, textAlign: 'center', letterSpacing: '.02em' }}>
+                  {getFormattedDate(selectedDate)}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleNextDay}
+                  disabled={isNextDisabled}
+                  aria-label="Día siguiente"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, background: 'none', border: 'none', cursor: isNextDisabled ? 'not-allowed' : 'pointer', color: isNextDisabled ? T.arrowDisabled : T.textMuted, borderRadius: 8, transition: 'color .15s' }}
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Modalidad (precio por jugador): va antes que la duración porque la define */}
+          {showFormatField && (
+            <div className="bg-field" style={{ zIndex: 10 }}>
+              <div className="bg-field-label"><Activity size={12} style={{ color: 'var(--accent-fg)' }} /> Modalidad</div>
+              {activityFormats.length <= CHIP_OPTIONS_LIMIT ? (
+                <ChipGroup
+                  label="Modalidad"
+                  value={selectedFormatId}
+                  options={activityFormats.map(format => ({ value: format.id, label: `${format.name} · ${format.playerCount}` }))}
+                  onChange={(val: string) => { setSelectedFormatId(String(val)); setFormatUseShort(false); setSelectedSlot(null); setSelectedCourt(null); }}
+                />
+              ) : (
+                <CustomSelect
+                  value={selectedFormatId}
+                  onChange={(val: string) => { setSelectedFormatId(String(val)); setFormatUseShort(false); setSelectedSlot(null); setSelectedCourt(null); }}
+                  placeholder="Modalidad"
+                  options={activityFormats.map(format => ({ value: format.id, label: `${format.name} · ${format.playerCount} jugadores` }))}
+                />
+              )}
+            </div>
+          )}
+
+          {showDurationField && (
+            <div className="bg-field" style={{ zIndex: 9 }}>
+              <div className="bg-field-label"><Clock size={12} style={{ color: 'var(--accent-fg)' }} /> Duración</div>
+              {formatFixedDuration && formatShortMinutes ? (
+                <ChipGroup
+                  label="Duración"
+                  value={formatDuration || formatFixedDuration}
+                  options={[formatFixedDuration, formatShortMinutes].map(d => ({ value: d, label: formatDurationShort(d) }))}
+                  onChange={(val: number) => { setFormatUseShort(Number(val) === formatShortMinutes); setSelectedSlot(null); setSelectedCourt(null); }}
+                />
+              ) : durationOptions.length <= CHIP_OPTIONS_LIMIT ? (
+                <ChipGroup
+                  label="Duración"
+                  value={selectedDuration}
+                  options={durationOptions.map(d => ({ value: d, label: formatDurationShort(d) }))}
+                  onChange={(val: number) => { setSelectedDuration(Number(val)); setSelectedSlot(null); setSelectedCourt(null); }}
+                />
+              ) : (
+                <CustomSelect
+                  value={selectedDuration}
+                  onChange={(val: number) => { setSelectedDuration(Number(val)); setSelectedSlot(null); setSelectedCourt(null); }}
+                  placeholder="Duración"
+                  options={durationOptions.map(d => ({ value: d, label: formatDurationShort(d) }))}
+                />
+              )}
+            </div>
           )}
         </div>
-
-      </div>
+      )}
 
       {bookingWindowBlocked && activeBookingWindow ? (() => {
         const w = activeBookingWindow;
@@ -1192,7 +1321,7 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
               className="v-view-toggle"
               aria-pressed={scheduleViewMode === 'list'}
             >
-              <Rows3 size={12} /> Lista clásica
+              <Rows3 size={12} /> Lista
             </button>
             <button
               type="button"
@@ -1200,7 +1329,7 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
               className="v-view-toggle"
               aria-pressed={scheduleViewMode === 'timeline'}
             >
-              <LayoutGrid size={12} /> Agenda visual
+              <LayoutGrid size={12} /> Grilla
             </button>
           </div>
         </div>
@@ -1493,22 +1622,11 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
                 <div style={{ display: 'flex', justifyContent: 'center', marginTop: 10 }}>
                   <button
                     type="button"
+                    className="bg-more-btn"
                     onClick={() => setShowAllMobileSlots((prev) => !prev)}
-                    aria-label={showAllMobileSlots ? 'Ver menos horarios' : 'Ver más horarios'}
-                    title={showAllMobileSlots ? 'Ver menos horarios' : 'Ver más horarios'}
-                    style={{
-                      width: 40,
-                      height: 24,
-                      border: 'none',
-                      background: 'transparent',
-                      color: 'var(--text-muted)',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
-                      padding: 0,
-                    }}
+                    aria-expanded={showAllMobileSlots}
                   >
+                    {showAllMobileSlots ? 'Ver menos horarios' : `Ver todos los horarios (${availableSlots.length})`}
                     <ChevronDown
                       size={14}
                       style={{
@@ -1524,10 +1642,10 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
         </div>
       )}
 
-      {/* Courts */}
+      {/* Cancha: se asigna sola; "Cambiar" abre la lista */}
       {activeScheduleViewMode === 'list' && selectedSlot && (
-        <div ref={courtsSectionRef} style={sectionStyle}>
-          <div style={labelStyle}><MapPin size={12} style={{ color: 'var(--accent-fg)' }} /> Elegí una cancha</div>
+        <div style={useStickyCta ? undefined : sectionStyle}>
+          <div style={labelStyle}><MapPin size={12} style={{ color: 'var(--accent-fg)' }} /> Cancha</div>
           <style>{`
             .v-court-option{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-radius:14px;text-align:left;width:100%;border:1px solid var(--border);background:var(--surface-1);cursor:pointer;transition:background-color .16s ease,border-color .16s ease,box-shadow .16s ease;outline:none;font-family:'Geist',system-ui,sans-serif;}
             .v-court-option:hover{background:var(--accent-bg-faint);border-color:var(--accent-border-subtle);}
@@ -1587,55 +1705,74 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
               </div>
             );
           })()}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {(() => {
-              const slotCourts = availableSlots.find(s => s.slotTime === selectedSlot)?.courts || [];
-              const showFitBadges = slotCourts.some(c => getCourtFitMinutes(c) < selectedDuration);
-              return slotCourts.map(court => {
-              if (!selectedDate) return null;
-              const dateStr = formatLocalDate(selectedDate);
-              const slotKey = `${dateStr}-${selectedSlot}-${court.id}`;
-              const isSelected = selectedCourt?.id === court.id;
-
-              const handleSelectCourt = async () => {
-                if (!selectedDate || !selectedSlot) return;
-                const currentSlot = availableSlots.find(s => s.slotTime === selectedSlot);
-                const availIds = new Set((currentSlot?.courts || []).map(c => c.id));
-                if (!availIds.has(court.id)) { setDisabledSlots(prev => ({ ...prev, [slotKey]: true })); showError('Cancha ya no disponible.'); return; }
-                setSelectedCourt(court);
-              };
-
-              const courtFit = getCourtFitMinutes(court);
-              const isShortCourt = courtFit < selectedDuration;
-
+          {(() => {
+            const slotCourts = availableSlots.find(s => s.slotTime === selectedSlot)?.courts || [];
+            if (selectedCourt && !courtPickerOpen) {
+              const courtFit = getCourtFitMinutes(selectedCourt);
               return (
-                <button
-                  key={court.id}
-                  type="button"
-                  onClick={handleSelectCourt}
-                  className="v-court-option"
-                  aria-pressed={isSelected}
-                >
-                  <div>
-                    <div className="v-court-name">{court.name}</div>
-                    <div className="v-court-meta">
-                      {formatCourtPriceLabel(court, courtFit, 'Precio a confirmar')}
-                      {isShortCourt && selectedSlot ? ` · libre hasta ${addMinutesToSlotTime(selectedSlot, courtFit)}` : ''}
-                    </div>
+                <div className="bg-court-line">
+                  <div style={{ minWidth: 0 }}>
+                    <p className="bg-court-line-name">{selectedCourt.name}</p>
+                    <p className="bg-court-line-meta">{formatCourtPriceLabel(selectedCourt, courtFit, 'Precio a confirmar')}</p>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    {showFitBadges && (
-                      <span className={`v-court-fit${isShortCourt ? ' is-short' : ''}`}>
-                        {isShortCourt ? `Solo ${formatDurationShort(courtFit)}` : formatDurationShort(selectedDuration)}
-                      </span>
-                    )}
-                    <div className="v-court-dot" />
-                  </div>
-                </button>
+                  {slotCourts.length > 1 && (
+                    <button type="button" className="bg-link-btn" onClick={() => setCourtPickerOpen(true)}>
+                      Cambiar
+                    </button>
+                  )}
+                </div>
               );
-              });
-            })()}
-          </div>
+            }
+            const showFitBadges = slotCourts.some(c => getCourtFitMinutes(c) < selectedDuration);
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {slotCourts.map(court => {
+                  if (!selectedDate) return null;
+                  const dateStr = formatLocalDate(selectedDate);
+                  const slotKey = `${dateStr}-${selectedSlot}-${court.id}`;
+                  const isSelected = selectedCourt?.id === court.id;
+
+                  const handleSelectCourt = () => {
+                    if (!selectedDate || !selectedSlot) return;
+                    const currentSlot = availableSlots.find(s => s.slotTime === selectedSlot);
+                    const availIds = new Set((currentSlot?.courts || []).map(c => c.id));
+                    if (!availIds.has(court.id)) { setDisabledSlots(prev => ({ ...prev, [slotKey]: true })); showError('Cancha ya no disponible.'); return; }
+                    setSelectedCourt(court);
+                    setCourtPickerOpen(false);
+                  };
+
+                  const courtFit = getCourtFitMinutes(court);
+                  const isShortCourt = courtFit < selectedDuration;
+
+                  return (
+                    <button
+                      key={court.id}
+                      type="button"
+                      onClick={handleSelectCourt}
+                      className="v-court-option"
+                      aria-pressed={isSelected}
+                    >
+                      <div>
+                        <div className="v-court-name">{court.name}</div>
+                        <div className="v-court-meta">
+                          {formatCourtPriceLabel(court, courtFit, 'Precio a confirmar')}
+                          {isShortCourt && selectedSlot ? ` · libre hasta ${addMinutesToSlotTime(selectedSlot, courtFit)}` : ''}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        {showFitBadges && (
+                          <span className={`v-court-fit${isShortCourt ? ' is-short' : ''}`}>
+                            {isShortCourt ? `Solo ${formatDurationShort(courtFit)}` : formatDurationShort(selectedDuration)}
+                          </span>
+                        )}
+                        <div className="v-court-dot" />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       )}
       {/* No slots */}
@@ -1652,48 +1789,35 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
         </div>
       )}
 
-      {/* Confirm button */}
-      <button
-        ref={confirmButtonRef}
-        onClick={handleBooking}
-        disabled={!canConfirm}
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-          width: '100%', padding: '14px 20px', borderRadius: 16,
-          fontSize: 13, fontWeight: 800, letterSpacing: '.01em',
-          fontFamily: "'Geist',system-ui,sans-serif", cursor: !canConfirm ? 'not-allowed' : 'pointer',
-          border: 'none', transition: 'all .2s',
-                  background: !canConfirm ? 'var(--surface-3)' : 'var(--brand)',
-          color: !canConfirm ? T.textMuted : 'var(--brand-on)',
-          marginTop: 8,
-        }}
-      >
-        {!canConfirm ? (
-          <>
-            <MousePointerClick size={15} /> Seleccioná turno y cancha
-          </>
-        ) : (
-          <>
-            <Zap size={15} /> Revisar reserva
-          </>
-        )}
-      </button>
-      </>
-      )}
-
-      {/* Price info */}
-      {canConfirm && (
-        <div style={{ marginTop: 10, textAlign: 'center', fontSize: 13, color: T.textMuted, fontWeight: 500 }}>
-          Precio:{' '}
-          <span style={{ fontWeight: 800, color: 'var(--accent-fg)', fontSize: 15 }}>
-            ${priceInfo.final.toLocaleString('es-AR')}
-          </span>
-          {priceInfo.hasLights && clubConfig && (
-            <span style={{ fontSize: 11, color: T.textDisabled, marginLeft: 6 }}>
-              (incluye luces +${priceInfo.extra.toLocaleString('es-AR')}{clubConfig.lightsFromHour ? ` desde ${clubConfig.lightsFromHour}` : ''})
-            </span>
+      {/* Resumen + botón. En mobile (web) va en una barra fija abajo. */}
+      {useStickyCta ? (
+        <>
+          <div className="p-action-bar" role="region" aria-label="Tu reserva">
+            <div className="p-action-bar-info">
+              <p className="p-action-bar-main">{bookingSummary?.main}</p>
+              <p className="p-action-bar-sub">{bookingSummary?.sub}</p>
+            </div>
+            <button type="button" className="p-action-bar-btn" onClick={handleBooking}>
+              Continuar
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          {canConfirm && bookingSummary && (
+            <p className="bg-summary">
+              <b>{bookingSummary.main}</b> · {bookingSummary.sub}
+              {priceInfo.hasLights && clubConfig ? ` · incluye luces +${formatMoney(priceInfo.extra)}` : ''}
+            </p>
           )}
-        </div>
+          <button type="button" className="bg-cta" onClick={handleBooking} disabled={!canConfirm} style={{ marginTop: 8 }}>
+            {canConfirm && bookingSummary ? (
+              <>Continuar <span className="bg-cta-price">· {bookingSummary.price}</span></>
+            ) : 'Elegí un horario'}
+          </button>
+        </>
+      )}
+      </>
       )}
 
       <AppModal

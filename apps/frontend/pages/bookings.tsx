@@ -37,7 +37,7 @@ import BusyLabel from '../components/ui/BusyLabel';
 const APP_NOTICE_EVENT = 'app:notice';
 
 const PAGE_CSS = `
-  .bk-page { padding-top:16px!important; padding-bottom:28px!important; }
+  .bk-page { padding-top:16px!important; padding-bottom:var(--page-end-gap)!important; }
   .bk-page.bk-page-empty { padding-bottom:8px!important; }
   .bk-page-head { margin-bottom:28px; display:flex; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:12px; padding-bottom:22px; border-bottom:1px solid var(--border-subtle); }
   .bk-tabs-wrap { margin-bottom:18px; }
@@ -164,7 +164,7 @@ const PAGE_CSS = `
   .bk-review-primary:hover:not(:disabled) { background:var(--brand-hover); }
   .bk-review-primary:disabled { opacity:.5; cursor:not-allowed; }
   @media(max-width:900px){
-    .bk-page { padding-top:12px!important; padding-bottom:20px!important; }
+    .bk-page { padding-top:12px!important; padding-bottom:var(--page-end-gap)!important; }
     .bk-page-head { margin-bottom:22px; padding-bottom:18px; }
     .bk-tabs-wrap { margin-bottom:16px; }
     .bk-layout { grid-template-columns:1fr; gap:16px; }

@@ -386,7 +386,19 @@ export const getBookingQuote = async (input: {
 };
 
 // --- 2. OBTENER MIS RESERVAS (HISTORIAL) ---
-export const getMyBookings = async (_userId?: number): Promise<PlayerBookingDto[]> => {
+// Pedidos simultáneos (navbar, página del club, inicio...) comparten una sola llamada.
+// No se guarda nada: cuando termina, el siguiente pedido vuelve a consultar.
+let myBookingsInFlight: Promise<PlayerBookingDto[]> | null = null;
+
+export const getMyBookings = (_userId?: number): Promise<PlayerBookingDto[]> => {
+  if (!myBookingsInFlight) {
+    myBookingsInFlight = fetchMyBookings().finally(() => { myBookingsInFlight = null; });
+  }
+  // Cada llamador recibe su propia copia por si la ordena o la modifica.
+  return myBookingsInFlight.then(rows => [...rows]);
+};
+
+const fetchMyBookings = async (): Promise<PlayerBookingDto[]> => {
     try {
       const res = await fetchWithAuth(`${apiBase()}/me/bookings`, {
           method: 'GET',

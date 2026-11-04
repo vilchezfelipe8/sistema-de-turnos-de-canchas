@@ -3,9 +3,12 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import {
   CalendarPlus,
+  CalendarX,
   ChevronDown,
   ChevronLeft,
+  CreditCard,
   Hourglass,
+  MessageCircle,
   ShieldCheck,
   Ticket,
   UserPlus,
@@ -15,7 +18,8 @@ import {
 } from 'lucide-react';
 import DarkPageLayout from '../components/DarkPageLayout';
 import UserLoadingState from '../components/UserLoadingState';
-import { createBooking } from '../services/BookingService';
+import { createBooking, createMercadoPagoCheckout, getPlayerBookingCheckout } from '../services/BookingService';
+import { ClubService } from '../services/ClubService';
 import PlayerInviteSearch, { type PickedInvitePlayer } from '../components/players/PlayerInviteSearch';
 import { getPendingLogoutRedirect } from '../services/AuthService';
 import { useValidateAuth } from '../hooks/useValidateAuth';
@@ -51,29 +55,53 @@ const CHECKOUT_CSS = `
   .ck-hint b { color:var(--warn-fg); }
   .ck-hint svg { flex-shrink:0; color:var(--warn-fg); margin-top:1px; }
   .ck-price-toggle { display:none; }
-  .ck-sticky { display:none; }
+  .ck-pay-line { display:flex; gap:8px; align-items:flex-start; margin:0; color:var(--text-muted); font-size:12px; line-height:1.45; font-weight:600; }
+  .ck-pay-line b { color:var(--text-primary); font-weight:800; }
+  .ck-pay-line svg { flex-shrink:0; color:var(--accent-fg); margin-top:1px; }
+  .ck-invite-compact { padding-top:18px; padding-bottom:18px; }
+  .ck-invite-compact .checkout-player { margin:0; }
+  /* Fila compacta: sin caja propia y con "Invitar" al costado también en el celular */
+  .ck-invite-compact .checkout-player { flex-wrap:nowrap; background:transparent; border:0; padding:0; }
+  .ck-invite-compact .checkout-player > .checkout-add-player { flex:0 0 auto; width:auto; }
+  .ck-lost-summary { display:inline-block; margin:0 auto 10px; padding:6px 12px; border-radius:999px; background:var(--surface-2); color:var(--text-primary); font-size:13px; font-weight:800; }
+  .ck-lost-actions { display:flex; flex-direction:column; align-items:center; gap:4px; width:100%; max-width:280px; margin:0 auto; }
+  .ck-lost-actions .checkout-primary { width:100%; flex:none; }
+  .pique-layout a.ck-lost-other { display:inline-flex; align-items:center; min-height:44px; color:var(--text-muted); font-size:13px; font-weight:700; text-decoration:underline; text-underline-offset:3px; }
+  .pique-layout a.ck-lost-other:hover { color:var(--text-primary); }
+  .ck-notes { display:grid; gap:6px; margin-top:14px; }
+  .ck-notes .ck-cancel-note { margin:0 2px; }
+  .ck-cancel-note { display:flex; gap:8px; align-items:flex-start; margin:14px 2px 0; color:var(--text-muted); font-size:12px; line-height:1.45; font-weight:600; }
+  .ck-cancel-note svg { flex-shrink:0; margin-top:1px; color:var(--text-muted); }
+  .ck-pay-options { display:grid; gap:8px; }
+  .ck-pay-options .payment-option { width:100%; text-align:left; font-family:inherit; cursor:pointer; }
+  .ck-pay-options .payment-title, .ck-pay-options .payment-copy { display:block; }
+  .ck-share-wa { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; min-height:48px; margin:12px 0; border-radius:15px; border:1px solid var(--border); background:var(--surface-1); color:var(--text-primary); font-family:var(--font-sans); font-size:13px; font-weight:800; cursor:pointer; }
+  .ck-share-wa:hover { border-color:var(--border-strong); }
+  .ck-share-wa svg { color:#25D366; }
   /* Espacio al final para que la barra fija no tape el contenido (solo celular). */
   .ck-bar-spacer { display:none; }
-  .ck-sticky-amount small { display:block; color:var(--text-muted); font-size:10px; font-weight:900; letter-spacing:.03em; }
-  .ck-sticky-amount b { display:block; color:var(--accent-fg); font-size:20px; font-weight:900; letter-spacing:-.04em; line-height:1.15; }
-  .ck-sticky-amount em { display:block; font-style:normal; color:var(--text-muted); font-size:10px; font-weight:700; }
-  .ck-sticky-error { margin:0 0 8px; color:var(--error-fg); font-size:12px; font-weight:700; }
-  @media(max-width:920px){
+  @media(max-width:900px){
     .ck-desktop-actions { display:none!important; }
+    /* En el celular la barra fija ya dice cómo se paga */
+    .ck-pay-line { display:none; }
+    /* !important: el contenedor trae display:flex en línea */
+    .ck-pay-pad:not(:has(.ck-hint, .checkout-error, .ck-pay-options)) { display:none !important; }
+    /* El breadcrumb ya tiene "‹ Club": la flecha de la tarjeta sobra en el celular */
+    .ck-back { display:none; }
     .ck-price-toggle { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; padding:16px 20px; border:0; background:transparent; color:var(--text-primary); font-family:var(--font-sans); cursor:pointer; text-align:left; }
-    .ck-price-toggle-title { display:block; font-size:14px; font-weight:900; }
-    .ck-price-toggle-sub { display:block; margin-top:2px; color:var(--text-muted); font-size:12px; font-weight:650; }
-    .ck-price-toggle-action { display:inline-flex; align-items:center; gap:4px; color:var(--accent-fg); font-size:12px; font-weight:800; white-space:nowrap; }
-    .ck-price-toggle-action svg { transition:transform .2s; }
-    .ck-price-toggle.is-open .ck-price-toggle-action svg { transform:rotate(180deg); }
+    .ck-price-toggle-title { font-size:14px; font-weight:800; }
+    .ck-price-toggle-amount { display:inline-flex; align-items:center; gap:6px; font-size:16px; font-weight:900; letter-spacing:-.02em; white-space:nowrap; }
+    .ck-price-toggle-chevron { color:var(--text-muted); transition:transform .2s; }
+    .ck-price-toggle.is-open .ck-price-toggle-chevron { transform:rotate(180deg); }
+    /* Detalle: solo cómo se arma el precio (el total ya está en el encabezado) */
+    .ck-price-detail .checkout-breakdown { padding:14px 20px 18px; border-top:1px solid var(--border-subtle); border-bottom:0; }
     .ck-price-detail { display:none; }
     .ck-price-detail.is-open { display:block; }
-    .ck-sticky { display:block; position:fixed; left:12px; right:12px; bottom:calc(10px + env(safe-area-inset-bottom)); z-index:40; padding:12px 14px; border-radius:18px; background:var(--surface-1); border:1px solid var(--border); box-shadow:0 -6px 30px rgba(0,0,0,.28); }
-    .ck-sticky-row { display:flex; align-items:center; gap:12px; }
-    .ck-sticky-row .checkout-primary, .ck-sticky-row .checkout-secondary { flex:1; min-width:0; }
-    .ck-sticky-row .checkout-secondary { flex:0 0 auto; min-width:0; }
-    .pique-layout-clubapp .ck-sticky { bottom:calc(78px + env(safe-area-inset-bottom)); }
-    .ck-bar-spacer { display:block; height:110px; }
+    /* El total ya está en el encabezado y en la barra: el detalle solo muestra cómo se arma */
+    .ck-price-detail .checkout-price { display:none; }
+    .ck-price-toggle:disabled { cursor:default; }
+    /* Sin footer en la app del club: el espacio de la barra se reserva acá */
+    .pique-layout-clubapp .ck-bar-spacer { display:block; height:84px; }
   }
 
   /* ── ¡Listo! ── */
@@ -81,11 +109,11 @@ const CHECKOUT_CSS = `
   .ck-done-hero { display:flex; flex-direction:column; align-items:center; text-align:center; gap:10px; padding:6px 0 4px; }
   .ck-mark { position:relative; width:88px; height:88px; }
   .ck-mark svg { position:absolute; inset:0; overflow:visible; }
-  .ck-ring { fill:none; stroke-width:5; stroke-linecap:round; stroke-dasharray:240; stroke-dashoffset:240; transform:rotate(-90deg); transform-origin:44px 44px; animation:ck-ring .55s cubic-bezier(.65,0,.35,1) forwards; }
-  .ck-disc { transform-origin:44px 44px; transform:scale(0); animation:ck-pop .45s cubic-bezier(.34,1.56,.64,1) .45s forwards; }
-  .ck-tick { fill:none; stroke-width:6; stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:60; stroke-dashoffset:60; animation:ck-tick .35s ease-out .8s forwards; }
-  .ck-conf { position:absolute; left:50%; top:50%; width:7px; height:11px; border-radius:2px; opacity:0; animation:ck-conf 1s cubic-bezier(.2,.7,.3,1) .85s forwards; }
-  .ck-pulse { position:absolute; inset:2px; border-radius:999px; border:2px solid var(--warn-fg); opacity:0; animation:ck-pulse 1.6s ease-out 1s 2; }
+  .ck-ring { fill:none; stroke-width:5; stroke-linecap:round; stroke-dasharray:100; stroke-dashoffset:100; transform:rotate(-90deg); transform-origin:44px 44px; animation:ck-ring .55s cubic-bezier(.65,0,.35,1) forwards; }
+  .ck-disc { transform-origin:44px 44px; transform:scale(0); animation:ck-pop .4s cubic-bezier(.34,1.56,.64,1) .15s forwards; }
+  .ck-tick { fill:none; stroke-width:6; stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:60; stroke-dashoffset:60; animation:ck-tick .3s ease-out .4s forwards; }
+  .ck-conf { position:absolute; left:50%; top:50%; width:7px; height:11px; border-radius:2px; opacity:0; animation:ck-conf 1s cubic-bezier(.2,.7,.3,1) .4s forwards; }
+  .ck-pulse { position:absolute; inset:2px; border-radius:999px; border:2px solid var(--warn-fg); opacity:0; animation:ck-pulse 1.6s ease-out .4s 2; }
   .ck-rise { opacity:0; animation:ck-rise .4s ease-out forwards; }
   @keyframes ck-ring { to { stroke-dashoffset:0; } }
   @keyframes ck-pop { 0% { transform:scale(0); } 60% { transform:scale(1.12); } 100% { transform:scale(1); } }
@@ -102,15 +130,13 @@ const CHECKOUT_CSS = `
   .ck-done-pill { display:inline-flex; align-items:center; gap:7px; height:28px; padding:0 11px; border-radius:999px; font-size:11px; font-weight:900; }
   .ck-done-pill.is-confirmed { background:var(--positive-bg); color:var(--accent-fg); border:1px solid var(--accent-border-subtle); }
   .ck-done-pill.is-pending { background:var(--warn-bg); color:var(--warn-fg); }
-  .ck-done-title { margin:0; color:var(--text-primary); font-size:28px; line-height:1.05; font-weight:900; letter-spacing:-.05em; }
-  .ck-done-copy { margin:0; max-width:340px; color:var(--text-secondary); font-size:13px; line-height:1.5; font-weight:600; }
+  .ck-done-title { text-wrap:balance; margin:0; color:var(--text-primary); font-size:28px; line-height:1.05; font-weight:900; letter-spacing:-.05em; }
+  .ck-done-copy { text-wrap:balance; margin:0; max-width:340px; color:var(--text-secondary); font-size:13px; line-height:1.5; font-weight:600; }
   .ck-done-card { border-radius:20px; background:var(--surface-1); border:1px solid var(--border); padding:14px; }
   .ck-done-actions { display:flex; gap:10px; }
   .ck-done-actions .checkout-primary { flex:1; }
-  @media(max-width:920px){
-    .ck-done-actions { position:fixed; left:12px; right:12px; bottom:calc(10px + env(safe-area-inset-bottom)); z-index:40; padding:12px; border-radius:18px; background:var(--surface-1); border:1px solid var(--border); box-shadow:0 -6px 30px rgba(0,0,0,.28); }
-    .ck-done-actions .checkout-secondary { flex:0 0 auto; min-width:0; }
-    .pique-layout-clubapp .ck-done-actions { bottom:calc(78px + env(safe-area-inset-bottom)); }
+  @media(max-width:900px){
+    .ck-done-actions { display:none; }
   }
   .checkout-shell { max-width:1120px; margin:0 auto; }
   .checkout-top { margin-bottom:22px; }
@@ -177,7 +203,7 @@ const CHECKOUT_CSS = `
   .pique-layout a.checkout-secondary { color:var(--text-secondary); }
   .checkout-success { max-width:720px; margin:0 auto; text-align:center; }
   .checkout-success-icon { width:68px; height:68px; border-radius:22px; margin:0 auto 18px; display:flex; align-items:center; justify-content:center; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); color:var(--accent-fg); }
-  @media(max-width:920px){
+  @media(max-width:900px){
     .checkout-layout { grid-template-columns:1fr; }
     .checkout-summary { position:static; }
   }
@@ -232,7 +258,8 @@ const CHECKOUT_CSS = `
   .checkout-player-name.is-muted { color:var(--text-secondary); }
   .checkout-player-amount { flex-shrink:0; color:var(--text-primary); font-size:13px; font-weight:850; white-space:nowrap; }
   .checkout-player-amount.is-muted { color:var(--text-secondary); }
-  .checkout-invite-box { display:grid; gap:12px; padding:13px; border-radius:15px; background:var(--surface-2); border:1px solid var(--accent-border); }
+  /* Mismo margen lateral que las filas de jugadores: los números y los nombres quedan en la misma columna */
+  .checkout-invite-box { display:grid; gap:12px; padding:13px 11px; border-radius:15px; background:transparent; border:1px solid var(--accent-border); }
   .checkout-invite-head { display:flex; align-items:center; gap:10px; }
   .checkout-invite-title { margin:0; flex:1; color:var(--text-primary); font-size:12px; font-weight:850; }
   .checkout-link-btn { border:0; background:transparent; color:var(--text-muted); padding:6px 4px; font-family:var(--font-sans); font-size:11px; font-weight:800; cursor:pointer; }
@@ -256,8 +283,8 @@ const CHECKOUT_CSS = `
   .checkout-status-chip { flex-shrink:0; border-radius:999px; padding:4px 9px; font-size:10px; font-weight:900; white-space:nowrap; }
   .checkout-status-chip.is-confirmed { background:var(--positive-bg); color:var(--accent-fg); }
   .checkout-status-chip.is-pending { background:var(--warn-bg); color:var(--warn-fg); }
-  .checkout-success-pay { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:20px; padding:14px 16px; border-radius:18px; background:var(--accent-bg-soft); border:1px solid var(--accent-border-subtle); text-align:left; }
-  .checkout-success-pay-amount { margin:2px 0 0; color:var(--accent-fg); font-size:24px; font-weight:900; letter-spacing:-.05em; text-align:right; }
+  .checkout-success-pay { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:20px; padding:14px 16px; border-radius:18px; background:var(--surface-1); border:1px solid var(--border); text-align:left; }
+  .checkout-success-pay-amount { margin:2px 0 0; color:var(--text-primary); font-size:24px; font-weight:900; letter-spacing:-.05em; text-align:right; }
   @media(max-width:620px){
     .checkout-lookup { flex-wrap:wrap; }
     .checkout-lookup-action { width:100%; justify-content:center; }
@@ -265,6 +292,16 @@ const CHECKOUT_CSS = `
     .checkout-success-pay-amount { text-align:left; }
   }
 `;
+
+const SLOT_TAKEN_CODES = new Set(['BOOKING_SLOT_UNAVAILABLE', 'SLOT_ALREADY_BOOKED', 'BOOKING_OVERLAP', 'BOOKING_IN_PAST']);
+
+// Vuelve a la grilla del club en el mismo día y deporte (sin el horario, que ya no está).
+const chooseAnotherSlotHref = (draft: BookingCheckoutDraft) => {
+  if (!draft.clubSlug) return '/complejos';
+  const params = new URLSearchParams({ date: draft.date });
+  if (draft.activityName) params.set('sport', draft.activityName);
+  return `/club/${draft.clubSlug}?${params.toString()}`;
+};
 
 const formatMoney = (value: number) => `$${Number(value || 0).toLocaleString('es-AR')}`;
 
@@ -324,6 +361,14 @@ export default function CheckoutPage() {
   const [participantError, setParticipantError] = useState('');
   // Invitar: el editor se abre sobre el primer lugar libre (buscador por nombre, DNI o email).
   const [inviteEditorOpen, setInviteEditorOpen] = useState(false);
+  // Alguien reservó el mismo turno mientras se confirmaba: se ofrece elegir otro horario.
+  const [slotTaken, setSlotTaken] = useState(false);
+  // Sin resumen, el link solo trae el slug: se busca el nombre real del club (con acentos).
+  const [lostClubName, setLostClubName] = useState('');
+  // Pago online (Mercado Pago) al confirmar, si el club lo tiene.
+  const [payOnline, setPayOnline] = useState(false);
+  const [redirectingToPayment, setRedirectingToPayment] = useState(false);
+  const [onlinePaymentFailed, setOnlinePaymentFailed] = useState(false);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -339,6 +384,22 @@ export default function CheckoutPage() {
     if (getPendingLogoutRedirect()) return;
     void router.replace(`/login?from=${encodeURIComponent(router.asPath || '/checkout')}`);
   }, [authChecked, router, user]);
+
+  const hasDraft = Boolean(draft);
+  const lostClubSlug = draftLoaded && !draft && typeof router.query.club === 'string' ? router.query.club : '';
+  useEffect(() => {
+    if (!lostClubSlug) return undefined;
+    let cancelled = false;
+    ClubService.getClubBySlug(lostClubSlug)
+      .then((club) => { if (!cancelled && club?.name) setLostClubName(club.name); })
+      .catch(() => { /* queda el nombre armado desde el slug */ });
+    return () => { cancelled = true; };
+  }, [lostClubSlug]);
+  useEffect(() => {
+    if (!hasDraft) return undefined;
+    document.body.classList.add('p-has-action-bar');
+    return () => document.body.classList.remove('p-has-action-bar');
+  }, [hasDraft]);
 
   const timeRange = useMemo(() => (draft ? getTimeRange(draft) : ''), [draft]);
   const clubPath = draft?.clubSlug ? `/club/${draft.clubSlug}` : '/';
@@ -369,15 +430,19 @@ export default function CheckoutPage() {
     : otherSlotsCount > 0
       ? Math.max(0, (Number(draft?.price || 0) - ownerShare) / otherSlotsCount)
       : 0;
+  const lightsAmount = Number(draft?.lightsExtraApplied || 0);
+  const discountAmount = Number(draft?.discountAmount || 0);
+  const hasPriceExtras = lightsAmount > 0.009 || discountAmount > 0.009;
+  const hasPriceDetail = isPerPlayer || hasPriceExtras;
   const checkoutBreadcrumbs = useMemo(() => {
     const items: Array<{ label: string; href?: string }> = [{ label: 'Inicio', href: '/' }];
     if (draft?.clubSlug) {
       items.push({ label: 'Complejos', href: '/complejos' });
-      items.push({ label: formatSlugLabel(draft.clubSlug) || 'Club', href: `/club/${draft.clubSlug}` });
+      items.push({ label: draft.clubName || formatSlugLabel(draft.clubSlug) || 'Club', href: `/club/${draft.clubSlug}` });
     }
-    items.push({ label: confirmedBookingId !== null ? 'Confirmación' : 'Checkout' });
+    items.push({ label: confirmedBookingId !== null ? 'Confirmación' : 'Confirmar' });
     return items;
-  }, [confirmedBookingId, draft?.clubSlug]);
+  }, [confirmedBookingId, draft?.clubName, draft?.clubSlug]);
 
   const persistParticipants = (nextParticipants: BookingCheckoutParticipantDraft[]) => {
     setParticipants(nextParticipants);
@@ -455,6 +520,23 @@ export default function CheckoutPage() {
         ? rawStatus === 'CONFIRMED'
         : draft.bookingConfirmationMode === 'AUTOMATIC';
       removeBookingCheckoutDraft(draft.id);
+      if (payOnline && bookingId) {
+        // La reserva ya está hecha: si el pago online no abre, se muestra la confirmación igual.
+        try {
+          const checkout = await getPlayerBookingCheckout(bookingId);
+          if (checkout?.checkout?.enabled) {
+            const payment = await createMercadoPagoCheckout(bookingId);
+            if (payment?.initPoint && typeof window !== 'undefined') {
+              setRedirectingToPayment(true);
+              window.location.assign(payment.initPoint);
+              return;
+            }
+          }
+        } catch (paymentError) {
+          reportUiError({ area: 'CheckoutPage', action: 'startOnlinePayment' }, paymentError);
+        }
+        setOnlinePaymentFailed(true);
+      }
       setConfirmedStatus(isConfirmed ? 'CONFIRMED' : 'PENDING');
       setConfirmedBookingId(bookingId || 'created');
       // La confirmación se ve desde arriba (en el celular el botón estaba al final de la página).
@@ -492,6 +574,11 @@ export default function CheckoutPage() {
         setParticipantError(participantMessage || message);
       }
       reportUiError({ area: 'CheckoutPage', action: 'confirmBooking' }, error);
+      if (SLOT_TAKEN_CODES.has(String(apiError.code || ''))) {
+        setSlotTaken(true);
+        setSubmitError('Alguien reservó este horario recién. Elegí otro y seguimos.');
+        return;
+      }
       if (message.toLowerCase().includes('sesión expirada')) {
         void router.replace(`/login?from=${encodeURIComponent(router.asPath || '/checkout')}`);
         return;
@@ -516,6 +603,28 @@ export default function CheckoutPage() {
     return <UserLoadingState mode="page" message="Abriendo tu reserva..." />;
   }
 
+  // El link del checkout trae club, día y hora: si el resumen no está, se puede retomar desde ahí.
+  const lostDraft = (() => {
+    const { club, date, time, sport } = router.query;
+    if (typeof club !== 'string' || !club) return null;
+    const base = `/club/${encodeURIComponent(club)}`;
+    const params = new URLSearchParams();
+    if (typeof date === 'string') params.set('date', date);
+    if (typeof sport === 'string') params.set('sport', sport);
+    // "Elegir otro horario": mismo día y deporte, sin horario.
+    const otherSlotHref = params.toString() ? `${base}?${params.toString()}` : base;
+    if (typeof time === 'string') params.set('time', time);
+    const parsedDate = typeof date === 'string' ? parseDraftDate(date) : null;
+    const dayLabel = parsedDate
+      ? parsedDate.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric' }).replace('.', '')
+      : '';
+    return {
+      href: `${base}?${params.toString()}`,
+      otherSlotHref,
+      summary: [lostClubName || formatSlugLabel(club), dayLabel, typeof time === 'string' ? time : ''].filter(Boolean).join(' · '),
+    };
+  })();
+
   if (!draft) {
     return (
       <DarkPageLayout title="Confirmar reserva | Pique" extraCss={CHECKOUT_CSS} breadcrumbs={checkoutBreadcrumbs}>
@@ -524,13 +633,21 @@ export default function CheckoutPage() {
             <div className="checkout-success-icon">
               <Ticket size={30} />
             </div>
-            <h1 className="checkout-title">No encontramos esta reserva</h1>
+            <h1 className="checkout-title">Retomá tu reserva</h1>
+            {lostDraft?.summary && <p className="ck-lost-summary">{lostDraft.summary}</p>}
             <p className="checkout-copy" style={{ margin: '0 auto 24px' }}>
-              El resumen pudo haber vencido o se abrió desde otra pestaña. Volvé a elegir el turno para continuar.
+              {lostDraft
+                ? 'El resumen se cerró, pero tu selección sigue acá.'
+                : 'El resumen se cerró. Elegí el turno de nuevo para seguir.'}
             </p>
-            <Link href="/" className="checkout-primary" style={{ maxWidth: 260, margin: '0 auto' }}>
-              Buscar turno
-            </Link>
+            <div className="ck-lost-actions">
+              <Link href={lostDraft?.href || '/complejos'} className="checkout-primary">
+                {lostDraft ? 'Seguir con este turno' : 'Buscar turno'}
+              </Link>
+              {lostDraft && (
+                <Link href={lostDraft.otherSlotHref} className="ck-lost-other">Elegir otro horario</Link>
+              )}
+            </div>
           </section>
         </main>
       </DarkPageLayout>
@@ -547,15 +664,29 @@ export default function CheckoutPage() {
     : null;
   const clubDisplayName = draft.clubName || formatSlugLabel(draft.clubSlug || '') || '';
   const clubConfirmsManually = draft.bookingConfirmationMode === 'MANUAL';
-  const stickyAmount = isPerPlayer ? ownerShare : Number(draft.price || 0);
-  const confirmLabel = participants.length > 0
+  // Online solo si el club cobra con Mercado Pago y confirma solo (con confirmación manual
+  // la cuenta de la reserva recién existe cuando el club la acepta).
+  const canPayOnline = Boolean(draft.onlineCheckoutEnabled) && draft.bookingConfirmationMode !== 'MANUAL';
+  const confirmLabel = payOnline
+    ? 'Confirmar y pagar'
+    : participants.length > 0
     ? `Confirmar y enviar ${participants.length === 1 ? 'invitación' : 'invitaciones'}`
     : 'Confirmar reserva';
+  const goChooseAnotherSlot = () => {
+    removeBookingCheckoutDraft(draft.id);
+    void router.replace(chooseAnotherSlotHref(draft));
+  };
+  const handlePrimaryAction = () => {
+    if (slotTaken) { goChooseAnotherSlot(); return; }
+    void handleConfirm();
+  };
   const renderConfirmContent = () => (
-    <BusyLabel busy={submitting}>
-      <ShieldCheck size={15} />
-      {confirmLabel}
-    </BusyLabel>
+    slotTaken ? <>Elegir otro horario</> : (
+      <BusyLabel busy={submitting || redirectingToPayment}>
+        <ShieldCheck size={15} />
+        {confirmLabel}
+      </BusyLabel>
+    )
   );
   const addToCalendar = () => {
     if (!draftDate) return;
@@ -570,6 +701,17 @@ export default function CheckoutPage() {
       location: [clubDisplayName, draft.courtName].filter(Boolean).join(' · '),
       description: 'Reserva hecha en Pique.',
     });
+  };
+  // En Argentina el partido se arma por WhatsApp: mensaje listo con día, hora y link del club.
+  const shareOnWhatsapp = () => {
+    if (typeof window === 'undefined') return;
+    const dayLabel = draftDate ? draftDate.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric' }).replace('.', '') : '';
+    const where = clubDisplayName ? `en ${clubDisplayName}` : '';
+    const when = [dayLabel, draft.slotTime].filter(Boolean).join(' · ');
+    const link = draft.clubSlug ? `${window.location.origin}/club/${draft.clubSlug}` : window.location.origin;
+    const pending = confirmedStatus !== 'CONFIRMED';
+    const text = `${pending ? 'Pedí turno' : 'Reservé'} ${where}${when ? `, ${when}` : ''}${pending ? ' (falta que confirme el club)' : ''}. ¿Te sumás? ${link}`.replace(/\s+/g, ' ').trim();
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
   };
   const summaryCard = (withCalendar: boolean) => (
     <div className={withCalendar ? 'ck-done-card' : undefined}>
@@ -594,6 +736,7 @@ export default function CheckoutPage() {
 
   if (confirmedBookingId !== null) {
     const isConfirmed = confirmedStatus === 'CONFIRMED';
+    const myBookingsHref = confirmedBookingId === 'created' ? '/bookings' : { pathname: '/bookings', query: { bookingId: confirmedBookingId } };
     const firstName = String(user?.firstName || '').trim();
     const confetti = Array.from({ length: 16 }, (_, index) => {
       const angle = (index / 16) * Math.PI * 2;
@@ -627,29 +770,29 @@ export default function CheckoutPage() {
                   : <span className="ck-pulse" />}
                 <svg viewBox="0 0 88 88">
                   <circle className="ck-disc" cx="44" cy="44" r="36" fill={isConfirmed ? 'var(--brand)' : 'var(--warn-fg)'} />
-                  <circle className="ck-ring" cx="44" cy="44" r="40" stroke={isConfirmed ? 'var(--brand)' : 'var(--warn-fg)'} />
-                  <path className="ck-tick" d="M29 45l10 10 20-21" stroke={isConfirmed ? 'var(--brand-on)' : 'var(--surface-1)'} />
+                  <circle className="ck-ring" cx="44" cy="44" r="40" pathLength={100} stroke={isConfirmed ? 'var(--brand)' : 'var(--warn-fg)'} />
+                  {/* Confirmada: tilde. Pendiente: agujas de reloj (una tilde se leería como "listo"). */}
+                  {isConfirmed
+                    ? <path className="ck-tick" d="M29 45l10 10 20-21" stroke="var(--brand-on)" />
+                    : <path className="ck-tick" d="M44 27v18l11 7" stroke="var(--surface-1)" />}
                 </svg>
               </div>
-              <span className={`ck-done-pill ck-rise ${isConfirmed ? 'is-confirmed' : 'is-pending'}`} style={{ animationDelay: '.9s' }}>
-                {isConfirmed ? <><ShieldCheck size={13} /> Reserva confirmada</> : <><Hourglass size={13} /> Esperando al club</>}
-              </span>
-              <h1 className="ck-done-title ck-rise" style={{ animationDelay: '.95s' }}>
+              <h1 className="ck-done-title ck-rise" style={{ animationDelay: '.3s' }}>
                 {isConfirmed
                   ? <>¡Listo{firstName ? `, ${firstName}` : ''}!<br />Tu turno está reservado</>
                   : '¡Solicitud enviada!'}
               </h1>
-              <p className="ck-done-copy ck-rise" style={{ animationDelay: '1s' }}>
+              <p className="ck-done-copy ck-rise" style={{ animationDelay: '.35s' }}>
                 {isConfirmed
                   ? 'Te esperamos en el club. Está en Mis reservas cuando la necesites.'
-                  : 'El club tiene que confirmar tu turno. Te avisamos apenas lo haga, y lo ves en Mis reservas.'}
+                  : 'El club tiene que confirmarla. Te avisamos apenas lo haga.'}
               </p>
             </div>
 
-            <div className="ck-rise" style={{ animationDelay: '1.05s' }}>{summaryCard(true)}</div>
+            <div className="ck-rise" style={{ animationDelay: '.4s' }}>{summaryCard(true)}</div>
 
             {(participants.length > 0 || openSlotCount > 0) && (
-              <div className="checkout-card ck-rise" style={{ textAlign: 'left', animationDelay: '1.05s' }}>
+              <div className="checkout-card ck-rise" style={{ textAlign: 'left', animationDelay: '.45s' }}>
                 <div className="checkout-card-pad">
                   <div className="checkout-participants-head" style={{ marginBottom: 12 }}>
                     <h2 className="checkout-participants-title"><Users size={17} /> Jugadores</h2>
@@ -697,23 +840,35 @@ export default function CheckoutPage() {
                 </div>
               </div>
             )}
-            <div className="checkout-success-pay ck-rise" style={{ marginBottom: 0, animationDelay: '1.1s' }}>
+            {onlinePaymentFailed && (
+              <div className="ck-hint ck-rise" style={{ marginBottom: 12, animationDelay: '.5s' }}>
+                <Hourglass size={15} />
+                <span><b>No pudimos abrir el pago online.</b> La reserva está hecha: podés pagarla desde Mis reservas o en el club.</span>
+              </div>
+            )}
+            <div className="checkout-success-pay ck-rise" style={{ marginBottom: 0, animationDelay: '.5s' }}>
               <div>
-                <p className="payment-title">Se paga en el club</p>
-                <p className="payment-copy">
-                  {isPerPlayer ? 'Cada uno abona su parte en el mostrador.' : 'Lo abonás en el mostrador del club.'}
-                </p>
+                <p className="payment-title">Pagás en el club cuando llegues</p>
+                {isPerPlayer && <p className="payment-copy">Cada uno abona su parte en el mostrador.</p>}
               </div>
               <div>
-                <p className="checkout-price-label" style={{ textAlign: 'inherit' }}>Total del turno</p>
-                <p className="checkout-success-pay-amount">{formatMoney(draft.price)}</p>
+                <p className="checkout-price-label" style={{ textAlign: 'inherit' }}>{isPerPlayer ? 'Tu parte' : 'Total del turno'}</p>
+                <p className="checkout-success-pay-amount">{formatMoney(isPerPlayer ? ownerShare : draft.price)}</p>
+                {isPerPlayer && <p className="checkout-value-sub" style={{ marginTop: 2 }}>Total {formatMoney(draft.price)}</p>}
               </div>
             </div>
+            <button type="button" className="ck-share-wa ck-rise" style={{ animationDelay: '.55s' }} onClick={shareOnWhatsapp}>
+              <MessageCircle size={17} /> Avisale a tu grupo por WhatsApp
+            </button>
 
             <div className="ck-bar-spacer" aria-hidden="true" />
             <div className="ck-done-actions">
               <button type="button" className="checkout-secondary" onClick={goBackToClub}>Reservar otro</button>
-              <Link href={confirmedBookingId === 'created' ? '/bookings' : { pathname: '/bookings', query: { bookingId: confirmedBookingId } }} replace className="checkout-primary">Ver mis reservas</Link>
+              <Link href={myBookingsHref} replace className="checkout-primary">Ver mis reservas</Link>
+            </div>
+            <div className="p-action-bar" role="region" aria-label="Siguiente paso">
+              <button type="button" className="p-action-bar-btn is-secondary" onClick={goBackToClub}>Reservar otro</button>
+              <Link href={myBookingsHref} replace className="p-action-bar-btn is-wide">Ver mis reservas</Link>
             </div>
           </div>
         </main>
@@ -738,19 +893,62 @@ export default function CheckoutPage() {
                   </div>
                 </div>
                 {summaryCard(false)}
+                <div className="ck-notes">
+                  {clubConfirmsManually && (
+                    <p className="ck-cancel-note">
+                      <Hourglass size={14} />
+                      <span>El club confirma tu turno; te avisamos apenas lo haga. Mientras tanto queda a tu nombre.</span>
+                    </p>
+                  )}
+                  <p className="ck-cancel-note">
+                    <CalendarX size={14} />
+                    <span>
+                      {payOnline
+                        ? 'Si pagás online, para cancelar tenés que hablar con el club.'
+                        : 'Podés cancelarla gratis desde Mis reservas hasta que empiece el turno.'}
+                    </span>
+                  </p>
+                </div>
               </div>
 
+              {participants.length === 0 && !inviteEditorOpen ? (
+              <div className="checkout-participants ck-invite-compact">
+                <div className="checkout-player">
+                  <span className="checkout-player-icon is-empty"><Users size={15} /></span>
+                  <div className="checkout-player-info">
+                    <p className="checkout-player-name">¿Con quién jugás?</p>
+                    <p className="checkout-player-status">
+                      {draft.playerCount && draft.playerCount > 1
+                        ? `Opcional · ${draft.playerCount - 1} ${draft.playerCount - 1 === 1 ? 'lugar libre' : 'lugares libres'}${isPerPlayer ? ' · se cobran como no socio' : ''}`
+                        : 'Opcional · también podés invitar después'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="checkout-add-player"
+                    onClick={() => {
+                      setInviteEditorOpen(true);
+                      setParticipantError('');
+                    }}
+                  >
+                    <UserPlus size={14} /> Invitar
+                  </button>
+                </div>
+              </div>
+              ) : (
               <div className="checkout-participants">
                 <div className="checkout-participants-head">
                   <div>
                     <h2 className="checkout-participants-title"><Users size={17} /> ¿Con quién jugás?</h2>
                     <p className="checkout-participants-copy">Opcional. También podés invitar después desde Mis reservas.</p>
                   </div>
-                  <span className="checkout-places">
-                    {draft.playerCount
-                      ? `${participants.length + 1} de ${draft.playerCount} lugares`
-                      : `${participants.length + 1} ${participants.length === 0 ? 'jugador' : 'jugadores'}`}
-                  </span>
+                  {(draft.playerCount || participants.length > 0) && (
+                    <span className="checkout-places">
+                      {draft.playerCount
+                        ? `${participants.length + 1} de ${draft.playerCount} lugares`
+                        : `${participants.length + 1} jugadores`}
+                    </span>
+                  )}
                 </div>
 
                 <div className="checkout-player-list" style={{ marginBottom: 0 }}>
@@ -849,6 +1047,7 @@ export default function CheckoutPage() {
                   <p className="checkout-participants-note">Ya completaste todos los lugares de esta modalidad.</p>
                 ) : null}
               </div>
+              )}
             </section>
 
             <aside className="checkout-card checkout-summary">
@@ -856,31 +1055,45 @@ export default function CheckoutPage() {
                 type="button"
                 className={`ck-price-toggle${priceDetailOpen ? ' is-open' : ''}`}
                 onClick={() => setPriceDetailOpen((open) => !open)}
-                aria-expanded={priceDetailOpen}
+                aria-expanded={hasPriceDetail ? priceDetailOpen : undefined}
+                aria-label={hasPriceDetail ? (priceDetailOpen ? 'Ocultar detalle del precio' : 'Ver detalle del precio') : undefined}
+                disabled={!hasPriceDetail}
               >
-                <span>
-                  <span className="ck-price-toggle-title">Precio</span>
-                  <span className="ck-price-toggle-sub">Total del turno {formatMoney(draft.price)}</span>
-                </span>
-                <span className="ck-price-toggle-action">
-                  {priceDetailOpen ? 'Ocultar detalle' : 'Ver detalle'} <ChevronDown size={14} />
+                <span className="ck-price-toggle-title">{isPerPlayer ? 'Tu parte' : 'Total del turno'}</span>
+                <span className="ck-price-toggle-amount">
+                  {formatMoney(isPerPlayer ? ownerShare : draft.price)}
+                  {hasPriceDetail && <ChevronDown size={16} className="ck-price-toggle-chevron" aria-hidden="true" />}
                 </span>
               </button>
               <div className={`ck-price-detail${priceDetailOpen ? ' is-open' : ''}`}>
               <div className="checkout-price">
                 <div>
-                  <p className="checkout-price-label">Total del turno</p>
-                  <p className="checkout-price-value">{formatMoney(draft.price)}</p>
+                  <p className="checkout-price-label">{isPerPlayer ? 'Tu parte' : 'Total del turno'}</p>
+                  <p className="checkout-price-value">{formatMoney(isPerPlayer ? ownerShare : draft.price)}</p>
+                  {isPerPlayer && <p className="checkout-value-sub">Total del turno {formatMoney(draft.price)}</p>}
                 </div>
-                {!isPerPlayer && (
-                  <div className="checkout-price-notes">
-                    {draft.lightsExtraApplied > 0.009 && (
-                      <div>Luces +{formatMoney(draft.lightsExtraApplied)}{draft.lightsFromHour ? ` desde ${draft.lightsFromHour}` : ''}</div>
-                    )}
-                    {draft.discountAmount > 0.009 && <div style={{ color: 'var(--accent-fg)' }}>Descuento -{formatMoney(draft.discountAmount)}</div>}
-                  </div>
-                )}
               </div>
+
+              {!isPerPlayer && hasPriceExtras && (
+                <div className="checkout-breakdown">
+                  <div className="checkout-breakdown-row">
+                    <span className="checkout-breakdown-label">Turno</span>
+                    <span className="checkout-breakdown-amount">{formatMoney(Number(draft.price || 0) - lightsAmount + discountAmount)}</span>
+                  </div>
+                  {lightsAmount > 0.009 && (
+                    <div className="checkout-breakdown-row">
+                      <span className="checkout-breakdown-label">Luces{draft.lightsFromHour ? ` (desde ${draft.lightsFromHour})` : ''}</span>
+                      <span className="checkout-breakdown-amount">+{formatMoney(lightsAmount)}</span>
+                    </div>
+                  )}
+                  {discountAmount > 0.009 && (
+                    <div className="checkout-breakdown-row">
+                      <span className="checkout-breakdown-label">Descuento</span>
+                      <span className="checkout-breakdown-amount" style={{ color: 'var(--accent-fg)' }}>-{formatMoney(discountAmount)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {isPerPlayer && (
                 <div className="checkout-breakdown">
@@ -909,34 +1122,38 @@ export default function CheckoutPage() {
               )}
               </div>
 
-              <div className="checkout-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div className="payment-option active">
-                  <div className="payment-icon"><WalletCards size={18} /></div>
-                  <div>
-                    <p className="payment-title">Se paga en el club</p>
-                    <p className="payment-copy">
-                      {isPerPlayer
-                        ? 'Cada jugador abona su parte en el mostrador.'
-                        : 'Confirmás el turno ahora y lo abonás en el mostrador del club.'}
-                    </p>
+              <div className="checkout-card-pad ck-pay-pad" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {canPayOnline ? (
+                  <div className="ck-pay-options" role="radiogroup" aria-label="Forma de pago">
+                    <button type="button" role="radio" aria-checked={payOnline} className={`payment-option${payOnline ? ' active' : ''}`} onClick={() => setPayOnline(true)}>
+                      <span className="payment-icon"><CreditCard size={18} /></span>
+                      <span>
+                        <span className="payment-title">Pagar ahora</span>
+                        <span className="payment-copy">Con Mercado Pago{isPerPlayer ? ` · el total ${formatMoney(draft.price)}` : ''}</span>
+                      </span>
+                    </button>
+                    <button type="button" role="radio" aria-checked={!payOnline} className={`payment-option${!payOnline ? ' active' : ''}`} onClick={() => setPayOnline(false)}>
+                      <span className="payment-icon"><WalletCards size={18} /></span>
+                      <span>
+                        <span className="payment-title">Pagar en el club</span>
+                        <span className="payment-copy">{isPerPlayer ? 'Cada jugador abona su parte en el mostrador.' : 'En el mostrador, el día del turno.'}</span>
+                      </span>
+                    </button>
                   </div>
-                </div>
-
-                {clubConfirmsManually && (
-                  <div className="ck-hint">
-                    <Hourglass size={15} />
-                    <span><b>El club confirma tu turno.</b> Te avisamos apenas lo haga; mientras tanto queda reservado a tu nombre.</span>
-                  </div>
+                ) : (
+                  <p className="ck-pay-line">
+                    <WalletCards size={15} />
+                    <span><b>Se paga en el club.</b> {isPerPlayer ? 'Cada jugador abona su parte en el mostrador.' : 'Lo abonás en el mostrador.'}</span>
+                  </p>
                 )}
 
                 {submitError && <div className="checkout-error">{submitError}</div>}
 
                 <div className="checkout-actions ck-desktop-actions">
-                  <button type="button" className="checkout-secondary" onClick={goBackToClub}>Volver</button>
                   <button
                     type="button"
                     className="checkout-primary"
-                    onClick={() => { void handleConfirm(); }}
+                    onClick={handlePrimaryAction}
                     disabled={submitting}
                   >
                     {renderConfirmContent()}
@@ -948,23 +1165,24 @@ export default function CheckoutPage() {
 
           {/* Celular: total y confirmar siempre a la vista */}
           <div className="ck-bar-spacer" aria-hidden="true" />
-          <div className="ck-sticky">
-            {submitError && <p className="ck-sticky-error" role="alert">{submitError}</p>}
-            <div className="ck-sticky-row">
-              <div className="ck-sticky-amount">
-                <small>{isPerPlayer ? 'TU PARTE' : 'TOTAL'}</small>
-                <b>{formatMoney(stickyAmount)}</b>
-                <em>Se paga en el club</em>
-              </div>
-              <button
-                type="button"
-                className="checkout-primary"
-                onClick={() => { void handleConfirm(); }}
-                disabled={submitting}
-              >
-                {renderConfirmContent()}
-              </button>
+          <div className="p-action-bar" role="region" aria-label="Confirmar reserva">
+            {submitError && <p className="p-action-bar-error" role="alert">{submitError}</p>}
+            <div className="p-action-bar-info">
+              <p className="p-action-bar-main">{isPerPlayer ? `Tu parte ${formatMoney(ownerShare)}` : `Total ${formatMoney(draft.price)}`}</p>
+              <p className="p-action-bar-sub">
+                {payOnline
+                  ? 'Pagás ahora con Mercado Pago'
+                  : isPerPlayer ? `Total ${formatMoney(draft.price)} · se paga en el club` : 'Se paga en el club'}
+              </p>
             </div>
+            <button
+              type="button"
+              className="p-action-bar-btn"
+              onClick={handlePrimaryAction}
+              disabled={submitting}
+            >
+              {slotTaken ? 'Elegir otro horario' : <BusyLabel busy={submitting || redirectingToPayment}>{payOnline ? 'Confirmar y pagar' : 'Confirmar'}</BusyLabel>}
+            </button>
           </div>
         </div>
       </main>

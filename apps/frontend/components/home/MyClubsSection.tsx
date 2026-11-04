@@ -22,8 +22,17 @@ const MY_CLUBS_CSS = `
   .p-myclubs-name { font-size:17px; font-weight:900; letter-spacing:-.02em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .p-myclubs-sub { color:var(--text-muted); font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .p-myclubs-cta { flex-shrink:0; display:inline-flex; align-items:center; gap:6px; height:40px; padding:0 14px; border-radius:12px; background:var(--brand); color:var(--brand-on); font-size:13px; font-weight:900; }
+  /* En la portada: columna sin fondo propio, tarjetas apiladas y nombres completos */
+  .p-myclubs.p-myclubs-hero { padding:0; background:transparent; border:0; }
+  .p-myclubs-hero .p-home-eyebrow { margin-bottom:8px; }
+  .p-myclubs-hero .p-myclubs-title { font-size:26px; margin-bottom:12px; }
+  .p-myclubs-hero .p-myclubs-grid { grid-template-columns:minmax(0,1fr); gap:8px; }
+  .p-myclubs-hero .p-myclubs-name { white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; line-height:1.2; }
+  .p-myclubs-hero .p-myclubs-cta { padding:0 12px; }
+  .p-myclubs-hero .p-myclubs-cta-label { display:none; }
   @media(max-width:720px){
-    .p-myclubs { padding:28px 16px 24px; }
+    .p-myclubs { padding:28px 20px 24px; }
+    .p-myclubs.p-myclubs-hero { padding:0; }
     .p-myclubs-grid { grid-template-columns:minmax(0, 1fr); }
     .p-myclubs-card { gap:12px; padding:14px; }
     .p-myclubs-mark { width:48px; height:48px; border-radius:14px; font-size:16px; }
@@ -45,7 +54,15 @@ const formatNext = (booking: PlayerBookingDto) => {
 };
 
 // Home con sesión: los clubes del jugador (favoritos y donde reservó) para entrar con un toque.
-export default function MyClubsSection({ userId }: { userId: number }) {
+type MyClubsSectionProps = {
+  userId: number;
+  // hero: columna de la portada (tarjetas apiladas, sin fondo propio).
+  placement?: 'default' | 'hero';
+  // Avisa cuántos clubes hay cuando termina de cargar, para que la página acomode el resto.
+  onCountChange?: (count: number) => void;
+};
+
+export default function MyClubsSection({ userId, placement = 'default', onCountChange }: MyClubsSectionProps) {
   const [clubs, setClubs] = useState<MyClub[]>([]);
 
   useEffect(() => {
@@ -78,21 +95,26 @@ export default function MyClubsSection({ userId }: { userId: number }) {
         }
         // Primero los que tienen un partido próximo, después por nombre.
         const sorted = Array.from(bySlug.values()).sort((a, b) => a.nextAt - b.nextAt || a.name.localeCompare(b.name));
-        if (!cancelled) setClubs(sorted.slice(0, 6));
+        const visible = sorted.slice(0, placement === 'hero' ? 3 : 6);
+        if (!cancelled) {
+          setClubs(visible);
+          onCountChange?.(visible.length);
+        }
       } catch (error) {
         if (!isAuthSessionInvalidatedError(error)) reportUiError({ area: 'MyClubsSection', action: 'load' }, error);
+        if (!cancelled) onCountChange?.(0);
       }
     };
     void load();
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [userId, placement, onCountChange]);
 
   if (clubs.length === 0) return null;
 
   return (
-    <section className="p-myclubs" aria-labelledby="p-myclubs-title">
+    <section className={`p-myclubs${placement === 'hero' ? ' p-myclubs-hero' : ''}`} aria-labelledby="p-myclubs-title">
       <style dangerouslySetInnerHTML={{ __html: MY_CLUBS_CSS }} />
       <div className="p-myclubs-inner">
         <span className="p-home-eyebrow">Mis clubes</span>

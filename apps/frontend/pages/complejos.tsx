@@ -89,7 +89,7 @@ const PAGE_CSS = `
   .vn-map-loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     flex-direction:column; gap:12px; color:var(--text-muted); font-size:13px; font-weight:600; }
   /* Body / grid */
-  .vn-body { width:100%; max-width:1360px; margin:0 auto; padding:28px 40px 80px; }
+  .vn-body { width:100%; max-width:1360px; margin:0 auto; padding:28px 40px var(--page-end-gap); }
   .vn-results-head { width:100%; display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:28px; gap:12px; flex-wrap:wrap; }
   .vn-results-copy { min-width:240px; }
   .vn-results-section-title { font-size:22px; font-weight:800; color:var(--text-primary); letter-spacing:-.025em; margin:0 0 4px; }
@@ -361,6 +361,8 @@ export default function ComplejosPage() {
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [paramsRead, setParamsRead] = useState(false);
+  // Fecha elegida en el buscador del inicio: no filtra complejos, se pasa a la grilla del club.
+  const [dateParam, setDateParam] = useState('');
 
   // Read URL params once router is ready
   useEffect(() => {
@@ -371,8 +373,9 @@ export default function ComplejosPage() {
     }
     if (router.query.zone) setZone(String(router.query.zone));
     if (router.query.sport) setSport(normalizePublicSport(String(router.query.sport)));
+    if (typeof router.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(router.query.date)) setDateParam(router.query.date);
     setParamsRead(true);
-  }, [router.isReady, paramsRead, router.query.q, router.query.zone, router.query.sport]);
+  }, [router.isReady, paramsRead, router.query.q, router.query.zone, router.query.sport, router.query.date]);
 
   // Sync filters → URL (shallow, no page reload)
   useEffect(() => {
@@ -381,9 +384,10 @@ export default function ComplejosPage() {
     if (search) q.q = search;
     if (zone) q.zone = zone;
     if (sport) q.sport = sport;
+    if (dateParam) q.date = dateParam;
     void router.replace({ pathname: '/complejos', query: q }, undefined, { shallow: true });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, zone, sport, paramsRead]);
+  }, [search, zone, sport, dateParam, paramsRead]);
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
@@ -627,6 +631,15 @@ export default function ComplejosPage() {
     () => clubs.filter(club => matchesPublicClubFilters(club, { search, zone, sport })),
     [clubs, search, zone, sport],
   );
+
+  // El club abre con el deporte filtrado y la fecha del buscador ya elegidos.
+  const clubHref = (slug: string) => {
+    const params = new URLSearchParams();
+    if (sport) params.set('sport', sport);
+    if (dateParam) params.set('date', dateParam);
+    const query = params.toString();
+    return `/club/${slug}${query ? `?${query}` : ''}`;
+  };
 
   // Cantidad por opción teniendo en cuenta los demás filtros; las opciones sin complejos se ocultan.
   const zoneOptions = useMemo(() => {
@@ -902,7 +915,7 @@ export default function ComplejosPage() {
             : filtered.map(club => {
               const r = ratings[club.id];
               return (
-                <Link key={club.id} href={`/club/${club.slug}`} className="vn-card">
+                <Link key={club.id} href={clubHref(club.slug)} className="vn-card">
                   <div className={`vn-card-img${club.clubImageUrl && !loadedMedia[`img-${club.id}`] ? ' vn-skeleton' : ''}`}>
                     {club.clubImageUrl
                       ? <Image src={club.clubImageUrl} alt={club.name} fill

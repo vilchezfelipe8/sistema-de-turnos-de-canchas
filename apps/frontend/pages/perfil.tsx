@@ -36,7 +36,7 @@ import NotificationPreferencesSection from '../components/push/NotificationPrefe
 import BusyLabel from '../components/ui/BusyLabel';
 
 const PAGE_CSS = `
-  .pf-page { padding-top:16px!important; padding-bottom:28px!important; }
+  .pf-page { padding-top:16px!important; padding-bottom:var(--page-end-gap)!important; }
   .pf-head { margin-bottom:28px; padding-bottom:24px; border-bottom:1px solid var(--border-subtle); }
   .pf-card { padding:20px; }
   .pf-card-title { display:flex; align-items:center; gap:8px; margin:0 0 18px; color:var(--text-primary); font-size:15px; font-weight:800; }
@@ -121,7 +121,7 @@ const PAGE_CSS = `
   .p-public-root.p-public-theme-light .pf-head { border-bottom-color:var(--border)!important; }
   .p-public-root.p-public-theme-light .pf-zone-title { color:var(--text-muted)!important; }
   @media(max-width:600px){
-    .pf-page { padding-top:12px!important; padding-bottom:20px!important; }
+    .pf-page { padding-top:12px!important; padding-bottom:var(--page-end-gap)!important; }
     .pf-head { margin-bottom:22px; padding-bottom:18px; }
     .pf-grid { grid-template-columns:1fr; gap:14px; }
     .pf-card .p-public-input, .pf-card .p-public-select { font-size:16px; }

@@ -82,8 +82,14 @@ const NAV_CSS = `
   .p-player-theme { width:38px; padding-inline:0; flex-shrink:0; }
   .p-player-theme svg { width:14px; height:14px; }
   .p-player-login { white-space:nowrap; line-height:1; min-height:40px; padding:11px 16px; font-size:12px; font-weight:800; letter-spacing:.01em; color:var(--brand-on); min-width:104px; }
-  .p-player-menu-meta { padding:18px 18px 16px; text-align:center; border-bottom:1px solid var(--border); }
-  .p-player-menu-role { margin-top:4px; color:var(--text-muted); font-size:10px; font-weight:700; letter-spacing:.03em; }
+  /* Encabezado compacto: con qué cuenta entraste (el avatar y el nombre ya están en el botón) */
+  .p-player-menu-meta { display:flex; align-items:center; gap:12px; padding:14px 16px; text-align:left; border-bottom:1px solid var(--border); }
+  .p-player-menu-meta .p-player-avatar { width:40px; height:40px; flex-shrink:0; font-size:13px; }
+  .p-player-menu-who { min-width:0; }
+  .p-player-menu-name { color:var(--text-primary); font-size:14px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .p-player-menu-email { margin-top:2px; color:var(--text-muted); font-size:12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .p-player-menu-role { margin-top:4px; color:var(--accent-fg); font-size:10px; font-weight:800; letter-spacing:.03em; }
+  .p-player-menu-sep { height:1px; margin:4px; background:var(--border-subtle); }
   .p-player-menu-body { padding:8px; display:flex; flex-direction:column; gap:4px; }
   .p-player-menu-badge { display:inline-flex; align-items:center; justify-content:center; min-width:22px; height:22px; padding:0 7px; border-radius:var(--r-pill); background:var(--brand); color:var(--brand-on); font-size:10px; font-weight:900; }
   .p-player-avatar-badge { position:absolute; top:-6px; right:-9px; min-width:20px; height:20px; padding:0 6px; border-radius:999px; border:2px solid var(--surface-1); box-shadow:0 4px 12px var(--border-subtle); font-size:10px; font-weight:900; line-height:1; }
@@ -236,9 +242,16 @@ export default function Navbar({
   }, [user]);
 
   const menuLinks = useMemo(() => {
-    const rows: Array<{ href: string; label: string; icon: React.ReactNode; badge?: number }> = [
+    const rows: Array<{ href: string; label: string; icon: React.ReactNode; badge?: number; badgeLabel?: string }> = [
       { href: '/perfil', label: 'Mi perfil', icon: <User size={15} /> },
-      { href: '/bookings', label: 'Mis reservas', icon: <Calendar size={15} />, badge: activeBookingsCount },
+      {
+        href: '/bookings',
+        label: 'Mis reservas',
+        icon: <Calendar size={15} />,
+        badge: activeBookingsCount,
+        // El número solo no dice qué cuenta.
+        badgeLabel: `${activeBookingsCount} ${activeBookingsCount === 1 ? 'próxima' : 'próximas'}`,
+      },
     ];
     if (pendingInvitationsCount > 0) {
       rows.push({ href: '/bookings#invitaciones', label: 'Invitaciones', icon: <Mail size={15} />, badge: pendingInvitationsCount });
@@ -410,6 +423,7 @@ export default function Navbar({
                     setShowUserMenu((prev) => !prev);
                   }}
                   aria-expanded={showUserMenu}
+                  aria-label={`Menú de ${user.firstName || user.name || 'tu cuenta'}${pendingInvitationsCount > 0 ? `, ${pendingInvitationsCount} invitaciones pendientes` : activeBookingsCount > 0 ? `, ${activeBookingsCount} ${activeBookingsCount === 1 ? 'reserva próxima' : 'reservas próximas'}` : ''}`}
                 >
                   <div className="p-player-avatar">
                     {userInitials}
@@ -425,6 +439,7 @@ export default function Navbar({
                     ) : activeBookingsCount > 0 && (
                       <span
                         className="p-player-menu-badge p-player-avatar-badge"
+                        title={`${activeBookingsCount} ${activeBookingsCount === 1 ? 'reserva próxima' : 'reservas próximas'}`}
                         style={{
                           background: isLight ? 'var(--surface-2)' : 'var(--text-primary)',
                           color: isLight ? 'var(--text-primary)' : 'var(--surface-1)',
@@ -443,13 +458,14 @@ export default function Navbar({
                 {showUserMenu && (
                   <div ref={userMenuRef} className="p-player-menu" onClick={(event) => event.stopPropagation()}>
                     <div className="p-player-menu-meta">
-                      <div className="p-player-avatar" style={{ width: 52, height: 52, margin: '0 auto 10px', fontSize: 16 }}>
-                        {userInitials}
+                      <div className="p-player-avatar" aria-hidden="true">{userInitials}</div>
+                      <div className="p-player-menu-who">
+                        <div className="p-player-menu-name">
+                          {[user.firstName, user.lastName].filter(Boolean).join(' ') || user.name || 'Usuario'}
+                        </div>
+                        {user.email ? <div className="p-player-menu-email">{user.email}</div> : null}
+                        {isAdmin ? <div className="p-player-menu-role">Administrador</div> : null}
                       </div>
-                      <div style={{ color: 'var(--text-primary)', fontSize: 15, fontWeight: 900 }}>
-                        {user.firstName || user.name || 'Usuario'}
-                      </div>
-                      <div className="p-player-menu-role">{isAdmin ? 'Administrador' : 'Jugador'}</div>
                     </div>
                     <div className="p-player-menu-body">
                       {menuLinks.map((link) => (
@@ -463,9 +479,10 @@ export default function Navbar({
                             {link.icon}
                             {link.label}
                           </span>
-                          {link.badge ? <span className="p-player-menu-badge">{link.badge}</span> : null}
+                          {link.badge ? <span className="p-player-menu-badge">{link.badgeLabel || link.badge}</span> : null}
                         </Link>
                       ))}
+                      <div className="p-player-menu-sep" aria-hidden="true" />
                       <button
                         type="button"
                         className="p-player-menu-item p-player-menu-danger"

@@ -288,13 +288,8 @@ export default function PlayerInviteSearch({
         <p className="pis-hint">¿No aparece? Buscalo por su DNI o email.</p>
       </>
     ) : (
-      <div className="pis-warn">
-        <p className="pis-warn-title">No encontramos a «{mode.query}» en el club</p>
-        <p className="pis-copy">
-          Por nombre buscamos solo entre quienes juegan en el club. Si es nuevo, buscalo por su DNI o email: si no tiene
-          cuenta, la invitación lo espera cuando se registre.
-        </p>
-      </div>
+      // Pasa seguido mientras se escribe: una línea gris, no una alerta.
+      <p className="pis-hint">Nadie con ese nombre en el club. Probá con su DNI o email.</p>
     );
   } else if ((mode.kind === 'dni' || mode.kind === 'email') && exactResult) {
     if (exactAlreadyAdded) {
