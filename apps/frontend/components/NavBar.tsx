@@ -46,7 +46,8 @@ const NAV_CSS = `
     position:fixed;
     top:0;
     left:0;
-    right:0;
+    /* Con un modal abierto se oculta la barra de scroll: se compensa su ancho (ver bodyScrollLock) */
+    right:var(--p-scrollbar-comp, 0px);
     z-index:10000;
     background:var(--surface-1);
     border-bottom:1px solid var(--border);
@@ -521,7 +522,7 @@ export default function Navbar({
         show={showLogoutModal}
         onClose={() => setShowLogoutModal(false)}
         title="Cerrar sesión"
-        message="Estas seguro que queres salir de tu cuenta?"
+        message="¿Seguro que querés salir de tu cuenta?"
         cancelText="Cancelar"
         confirmText="Salir"
         isWarning

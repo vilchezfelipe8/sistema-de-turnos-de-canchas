@@ -33,12 +33,12 @@ import { downloadCalendarEvent } from '../utils/calendarInvite';
 import { Calendar, Clock, Ticket, ArrowRight, Search, XCircle, CheckCircle2, Star, MessageSquare, X, UserPlus, LogOut, ChevronDown } from 'lucide-react';
 import { getApiFieldErrors, normalizeApiError } from '../utils/apiError';
 import BusyLabel from '../components/ui/BusyLabel';
+import Modal from '../components/ui/Modal';
 
 const APP_NOTICE_EVENT = 'app:notice';
 
 const PAGE_CSS = `
   .bk-page { padding-top:16px!important; padding-bottom:var(--page-end-gap)!important; }
-  .bk-page.bk-page-empty { padding-bottom:8px!important; }
   .bk-page-head { margin-bottom:28px; display:flex; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:12px; padding-bottom:22px; border-bottom:1px solid var(--border-subtle); }
   .bk-tabs-wrap { margin-bottom:18px; }
   .bk-invite-section { margin-bottom:22px; display:grid; gap:10px; scroll-margin-top:90px; }
@@ -147,22 +147,12 @@ const PAGE_CSS = `
   .bk-empty-icon { color:var(--border-strong); }
   .bk-empty-title { font-size:13px; font-weight:700; letter-spacing:.03em; color:var(--text-muted); }
   /* Review modal */
-  .bk-review-overlay { position:fixed; inset:0; background:var(--overlay); z-index:200; display:flex; align-items:center; justify-content:center; padding:20px; }
-  .bk-review-panel { background:var(--surface-1); border:1px solid var(--border); border-radius:24px; width:100%; max-width:480px; padding:32px; box-shadow:var(--shadow-lg); }
-  .bk-review-h { font-size:20px; font-weight:800; color:var(--text-primary); letter-spacing:-.02em; margin-bottom:6px; }
-  .bk-review-sub { font-size:13px; color:var(--text-muted); margin-bottom:24px; font-weight:500; }
   .bk-review-stars { display:flex; gap:8px; }
   .bk-review-star { width:40px; height:40px; border-radius:12px; border:1px solid var(--border); background:var(--surface-2); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background .15s,border-color .15s; color:var(--text-muted); }
   .bk-review-star.bk-star-on { background:var(--positive-bg); border-color:var(--accent-border); color:var(--accent-fg); }
   .bk-review-textarea { width:100%; background:var(--surface-2); border:1px solid var(--border); border-radius:14px; padding:14px 16px; color:var(--text-primary); font-family:var(--font-sans); font-size:14px; outline:none; resize:none; transition:border-color .2s; }
   .bk-review-textarea:focus { border-color:var(--accent-border); }
   /* Review modal actions */
-  .bk-review-action-row { display:flex; gap:10px; margin-top:24px; }
-  .bk-review-secondary { flex:1; height:46px; border-radius:12px; background:none; border:1px solid var(--border); color:var(--text-muted); font-family:var(--font-sans); font-size:12px; font-weight:700; letter-spacing:.01em; cursor:pointer; transition:background .15s,border-color .15s; }
-  .bk-review-secondary:hover { background:var(--surface-2); border-color:var(--border-strong); }
-  .bk-review-primary { flex:1; height:46px; border-radius:12px; background:var(--brand); border:none; color:var(--brand-on); font-family:var(--font-sans); font-size:12px; font-weight:800; letter-spacing:.01em; cursor:pointer; transition:background .15s; }
-  .bk-review-primary:hover:not(:disabled) { background:var(--brand-hover); }
-  .bk-review-primary:disabled { opacity:.5; cursor:not-allowed; }
   @media(max-width:900px){
     .bk-page { padding-top:12px!important; padding-bottom:var(--page-end-gap)!important; }
     .bk-page-head { margin-bottom:22px; padding-bottom:18px; }
@@ -183,22 +173,18 @@ const PAGE_CSS = `
   .p-public-root.p-public-theme-light .bk-date-day,
   .p-public-root.p-public-theme-light .bk-card-club,
   .p-public-root.p-public-theme-light .bk-detail-court,
-  .p-public-root.p-public-theme-light .bk-detail-total-val,
-  .p-public-root.p-public-theme-light .bk-review-h { color:var(--text-primary); }
+  .p-public-root.p-public-theme-light .bk-detail-total-val { color:var(--text-primary); }
   .p-public-root.p-public-theme-light .bk-date-month,
   .p-public-root.p-public-theme-light .bk-card-meta,
   .p-public-root.p-public-theme-light .bk-detail-row-label,
   .p-public-root.p-public-theme-light .bk-detail-total-label,
-  .p-public-root.p-public-theme-light .bk-empty-title,
-  .p-public-root.p-public-theme-light .bk-review-sub { color:var(--text-muted); }
+  .p-public-root.p-public-theme-light .bk-empty-title { color:var(--text-muted); }
   .p-public-root.p-public-theme-light .bk-card-chip { background:var(--surface-2); color:var(--text-secondary); }
   .p-public-root.p-public-theme-light .bk-detail-row { border-bottom-color:var(--border-subtle); }
   .p-public-root.p-public-theme-light .bk-detail-icon { background:var(--surface-2); color:var(--text-muted); }
   .p-public-root.p-public-theme-light .bk-detail-row-val { color:var(--text-secondary); }
   .p-public-root.p-public-theme-light .bk-detail-total { border-top-color:var(--border); }
   .p-public-root.p-public-theme-light .bk-empty-icon { color:var(--border-strong); }
-  .p-public-root.p-public-theme-light .bk-review-overlay { background:var(--overlay-strong); }
-  .p-public-root.p-public-theme-light .bk-review-panel { background:var(--surface-1); border-color:var(--border); box-shadow:var(--shadow-lg); }
   .p-public-root.p-public-theme-light .bk-review-star { border-color:var(--border-strong); background:var(--surface-2); color:var(--text-muted); }
   .p-public-root.p-public-theme-light .bk-review-textarea { background:var(--surface-1); border-color:var(--border); color:var(--text-primary); }
   .p-public-root.p-public-theme-light .bk-review-textarea:focus { border-color:var(--accent-border); }
@@ -220,8 +206,6 @@ const PAGE_CSS = `
   .p-public-root.p-public-theme-light .bk-detail-empty { background:var(--surface-2); border-color:var(--border); }
   .p-public-root.p-public-theme-light .bk-detail-empty-icon { color:var(--border-strong); }
   .p-public-root.p-public-theme-light .bk-detail-empty-label { color:var(--text-muted); }
-  .p-public-root.p-public-theme-light .bk-review-secondary { border-color:var(--border-strong); color:var(--text-secondary); }
-  .p-public-root.p-public-theme-light .bk-review-secondary:hover { background:var(--surface-2); border-color:var(--border-strong); }
   .p-public-root:not(.p-public-theme-light) .bk-action-rebook { background:linear-gradient(135deg, var(--brand) 0%, var(--brand-hover) 100%); color:var(--brand-on); box-shadow:0 10px 22px rgba(182,243,106,.14); }
   .p-public-root:not(.p-public-theme-light) .bk-action-rebook:hover { background:linear-gradient(135deg, var(--brand-hover) 0%, var(--brand) 100%); }
   @media(max-width:900px){
@@ -324,7 +308,6 @@ export default function MyBookingsPage() {
   const [reviewAnchorBookingId, setReviewAnchorBookingId] = useState<number | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewSaving, setReviewSaving] = useState(false);
-  const reviewBackdropMouseDownRef = useRef(false);
   const tabRefs = useRef<Record<'ACTIVE' | 'PAST' | 'CANCELLED', HTMLButtonElement | null>>({
     ACTIVE: null, PAST: null, CANCELLED: null
   });
@@ -710,13 +693,14 @@ export default function MyBookingsPage() {
       isWarning: true,
       confirmText: 'Cancelar reserva',
       cancelText: 'Volver',
-      closeOnBackdrop: false,
-      closeOnEscape: false,
+      // Cerrar sin confirmar equivale a "Volver"; solo se bloquea mientras se cancela.
+      closeOnBackdrop: true,
+      closeOnEscape: true,
       confirmDisabled: false,
       onConfirm: async () => {
         if (cancellingBooking) return;
         setCancellingBooking(true);
-        setModalState(prev => ({ ...prev, confirmDisabled: true }));
+        setModalState(prev => ({ ...prev, confirmDisabled: true, closeOnBackdrop: false, closeOnEscape: false }));
         try {
           await cancelBooking(id);
           closeModal();
@@ -1593,87 +1577,54 @@ export default function MyBookingsPage() {
       />
 
       {/* ── REVIEW MODAL ── */}
-      {reviewModalOpen && (
-        <div
-          className="bk-review-overlay"
-          onMouseDown={e => { reviewBackdropMouseDownRef.current = e.target === e.currentTarget; }}
-          onTouchStart={e => { reviewBackdropMouseDownRef.current = e.target === e.currentTarget; }}
-          onClick={e => {
-            const started = reviewBackdropMouseDownRef.current;
-            reviewBackdropMouseDownRef.current = false;
-            if (started && e.target === e.currentTarget && !reviewSaving) setReviewModalOpen(false);
-          }}
-        >
-          <div className="bk-review-panel" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
-
-            {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 22 }}>
-              <div>
-                <div className="bk-review-h">Tu reseña del club</div>
-                <div className="bk-review-sub">{selectedBooking?.club?.name || 'Club'} · Una reseña por club, editala cuando quieras.</div>
+      <Modal
+        open={reviewModalOpen}
+        onClose={() => setReviewModalOpen(false)}
+        title="Tu reseña del club"
+        subtitle={`${selectedBooking?.club?.name || 'Club'} · Una reseña por club, editala cuando quieras.`}
+        closeDisabled={reviewSaving}
+        maxWidth={480}
+        footer={(
+          <>
+            <button type="button" className="p-modal-btn p-modal-btn-wide" onClick={() => setReviewModalOpen(false)} disabled={reviewSaving}>
+              Cancelar
+            </button>
+            <button type="button" className="p-modal-btn p-modal-btn-primary p-modal-btn-wide" onClick={handleSubmitReview} disabled={reviewLoading || reviewSaving || reviewRating < 1}>
+              <BusyLabel busy={reviewSaving}>Guardar reseña</BusyLabel>
+            </button>
+          </>
+        )}
+      >
+        {reviewLoading ? (
+          <UserLoadingState mode="block" minHeight={160} message="Cargando reseña..." />
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-muted)', marginBottom: 10 }}>Calificación</div>
+              <div className="bk-review-stars">
+                {[1, 2, 3, 4, 5].map(v => (
+                  <button key={v} type="button" className={`bk-review-star${reviewRating >= v ? ' bk-star-on' : ''}`} onClick={() => setReviewRating(v)} disabled={reviewSaving} aria-label={`${v} ${v === 1 ? 'estrella' : 'estrellas'}`}>
+                    <Star size={16} style={{ fill: reviewRating >= v ? 'currentColor' : 'none' }} />
+                  </button>
+                ))}
               </div>
-              <button
-                type="button"
-                className="p-public-close-btn"
-                onClick={() => setReviewModalOpen(false)}
-                disabled={reviewSaving}
-                aria-label="Cerrar"
-              >
-                <X size={15} />
-              </button>
             </div>
-
-            {reviewLoading ? (
-              <UserLoadingState mode="block" minHeight={160} message="Cargando reseña..." />
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-muted)', marginBottom: 10 }}>Calificación</div>
-                  <div className="bk-review-stars">
-                    {[1, 2, 3, 4, 5].map(v => (
-                      <button key={v} type="button" className={`bk-review-star${reviewRating >= v ? ' bk-star-on' : ''}`} onClick={() => setReviewRating(v)} disabled={reviewSaving} aria-label={`${v} ${v === 1 ? 'estrella' : 'estrellas'}`}>
-                        <Star size={16} style={{ fill: reviewRating >= v ? 'currentColor' : 'none' }} />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-muted)', marginBottom: 10 }}>Comentario (opcional)</div>
-                  <textarea
-                    className="bk-review-textarea"
-                    rows={4}
-                    value={reviewComment}
-                    onChange={e => setReviewComment(e.target.value.slice(0, 220))}
-                    placeholder="Contá tu experiencia..."
-                    disabled={reviewSaving}
-                  />
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'right', marginTop: 4 }}>{reviewComment.length}/220</div>
-                </div>
-              </div>
-            )}
-
-            <div className="bk-review-action-row">
-              <button
-                type="button"
-                className="bk-review-secondary"
-                onClick={() => setReviewModalOpen(false)}
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-muted)', marginBottom: 10 }}>Comentario (opcional)</div>
+              <textarea
+                className="bk-review-textarea"
+                rows={4}
+                value={reviewComment}
+                onChange={e => setReviewComment(e.target.value.slice(0, 220))}
+                placeholder="Contá tu experiencia..."
+                aria-label="Comentario"
                 disabled={reviewSaving}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                className="bk-review-primary"
-                onClick={handleSubmitReview}
-                disabled={reviewLoading || reviewSaving || reviewRating < 1}
-              >
-                <BusyLabel busy={reviewSaving}>Guardar reseña</BusyLabel>
-              </button>
+              />
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'right', marginTop: 4 }}>{reviewComment.length}/220</div>
             </div>
-
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
 
     </DarkPageLayout>
   );

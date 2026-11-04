@@ -772,6 +772,45 @@
   z-index: 120;
 }
 
+html { color-scheme: light; background: var(--bg); }
+/* Tema oscuro: barra de scroll oscura, como el resto de la página */
+html[data-theme="dark"] { color-scheme: dark; }
+
+/* ── Modal (compartido: <Modal /> y <AppModal />) ── */
+.p-modal-overlay { position: fixed; inset: 0; z-index: 2147483200; display: flex; align-items: center; justify-content: center; padding: 20px; background: var(--overlay); animation: p-appear .15s ease; }
+.p-public-root.p-public-theme-light .p-modal-overlay, [data-theme="light"] .p-modal-overlay { background: var(--overlay-strong); }
+.p-modal { width: 100%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; background: var(--surface-1); border: 1px solid var(--border); border-radius: 20px; box-shadow: var(--shadow-lg); font-family: var(--font-sans); outline: none; animation: p-appear .16s ease-out; box-sizing: border-box; }
+/* Entrada solo con opacidad: escalar el texto lo hacía ver más apretado y "saltar" al abrir */
+.p-modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0; }
+.p-modal-heading { display: flex; align-items: center; gap: 10px; min-width: 0; padding-top: 6px; }
+.p-modal-icon { display: flex; flex-shrink: 0; color: var(--text-muted); }
+.p-modal-title { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -.02em; color: var(--text-primary); }
+.p-modal-subtitle { margin: 4px 0 0; font-size: 13px; line-height: 1.45; font-weight: 500; color: var(--text-muted); }
+.p-modal-warning .p-modal-head { background: var(--error-bg); }
+.p-modal-warning .p-modal-icon, .p-modal-warning .p-modal-title { color: var(--error-fg); }
+.p-modal-success .p-modal-icon { color: var(--positive-fg); }
+.p-modal-body { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 22px; color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
+.p-modal-body > p { margin: 0; }
+.p-modal-input { width: 100%; margin-top: 14px; padding: 11px 14px; box-sizing: border-box; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-1); color: var(--text-primary); font-family: var(--font-sans); font-size: 14px; font-weight: 600; outline: none; transition: border-color .2s, box-shadow .2s; }
+.p-modal-input:focus { border-color: var(--accent-border-strong); box-shadow: var(--shadow-focus); }
+.p-modal-foot { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--border-subtle); flex-shrink: 0; }
+/* Botones de modal: mismos tamaños y estados en toda la app */
+.p-modal-btn { position: relative; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 42px; padding: 0 18px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-secondary); font-family: var(--font-sans); font-size: 13px; font-weight: 700; cursor: pointer; transition: background .15s, border-color .15s, color .15s, filter .15s; }
+.p-modal-btn:hover:not(:disabled) { background: var(--surface-3); border-color: var(--border-strong); color: var(--text-primary); }
+.p-modal-btn:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+.p-modal-btn:disabled { opacity: .5; cursor: not-allowed; }
+.p-modal-btn-primary { border-color: var(--brand); background: var(--brand); color: var(--brand-on); font-weight: 800; }
+.p-modal-btn-primary:hover:not(:disabled) { border-color: var(--brand-hover); background: var(--brand-hover); color: var(--brand-on); }
+.p-modal-btn-danger { border-color: var(--error-fg); background: var(--error-fg); color: var(--surface-1); font-weight: 800; }
+.p-modal-btn-danger:hover:not(:disabled) { border-color: var(--error-fg); background: var(--error-fg); color: var(--surface-1); filter: brightness(.9); }
+.p-modal-btn-wide { flex: 1; }
+@media (max-width: 720px) {
+  .p-modal-head, .p-modal-body, .p-modal-foot { padding-left: 18px; padding-right: 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .p-modal-overlay, .p-modal { animation: none; }
+}
+
 /* ── Footer (compartido: <PublicFooter />, en el inicio y en el resto de las páginas) ── */
 .p-legal-footer { border-top: 1px solid var(--border); background: var(--surface-1); }
 .p-legal-footer-inner { max-width: 1360px; margin: 0 auto; padding: 22px 24px 24px; display: flex; align-items: flex-start; justify-content: space-between; gap: 22px; flex-wrap: wrap; box-sizing: border-box; }

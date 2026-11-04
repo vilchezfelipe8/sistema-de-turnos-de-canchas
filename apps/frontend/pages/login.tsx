@@ -16,6 +16,7 @@ import { extractErrorMessage } from '../utils/uiError';
 import { normalizeApiError } from '../utils/apiError';
 import { AUTH_REQUIRED_PATHS, getPreviousInAppPath } from '../utils/navigationHistory';
 import BusyLabel from '../components/ui/BusyLabel';
+import Modal from '../components/ui/Modal';
 
 type PostLoginRedirectIntent = { sourceUser?: any };
 
@@ -78,12 +79,6 @@ const LOGIN_CSS = `
   .lg-toggle-btn:hover { color:var(--accent-fg); text-decoration-color:var(--accent-fg); }
   .lg-theme-toggle { position:absolute; top:18px; right:20px; width:38px; height:38px; display:grid; place-items:center; border:1px solid var(--border); background:var(--surface-2); color:var(--text-secondary); border-radius:999px; padding:0; cursor:pointer; z-index:2; transition:background .15s,border-color .15s,color .15s; }
   .lg-theme-toggle:hover { background:var(--surface-3); color:var(--text-primary); border-color:var(--border-strong); }
-  .lg-modal-backdrop { position:fixed; inset:0; z-index:50; background:var(--overlay); display:flex; align-items:center; justify-content:center; padding:20px; animation:lg-fadein .18s ease; }
-  .lg-modal { width:100%; max-width:320px; background:var(--surface-1); border:1px solid var(--border); border-radius:20px; padding:20px 20px 16px; box-shadow:var(--shadow-lg); animation:lg-scalein .2s ease; }
-  .lg-modal-head { display:flex; align-items:center; gap:10px; }
-  .lg-modal-check { width:28px; height:28px; border-radius:999px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:var(--positive-bg); border:1px solid var(--accent-bg-muted); color:var(--accent-fg); }
-  .lg-modal-title { margin:0; font-size:17px; font-weight:800; letter-spacing:-.02em; color:var(--text-primary); }
-  .lg-modal-copy { margin:10px 0 16px; font-size:13px; line-height:1.5; font-weight:600; color:var(--text-secondary); }
   @keyframes lg-fadein { from{opacity:0} to{opacity:1} }
   .lg-social-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   .lg-label-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
@@ -829,32 +824,21 @@ export default function LoginPage() {
         </div>
 
 
-        {registeredModalOpen && (
-          <div className="lg-modal-backdrop" role="presentation" onClick={() => setRegisteredModalOpen(false)}>
-            <div
-              className="lg-modal"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="lg-registered-title"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div className="lg-modal-head">
-                <span className="lg-modal-check"><CheckCircle size={15} strokeWidth={2.5} /></span>
-                <h2 id="lg-registered-title" className="lg-modal-title">Cuenta creada</h2>
-              </div>
-              <p className="lg-modal-copy">Ya podés iniciar sesión con tu email y contraseña.</p>
-              <button
-                type="button"
-                className="lg-btn lg-btn-primary"
-                style={{ height: 42 }}
-                onClick={() => setRegisteredModalOpen(false)}
-                autoFocus
-              >
-                Entendido
-              </button>
-            </div>
-          </div>
-        )}
+        <Modal
+          open={registeredModalOpen}
+          onClose={() => setRegisteredModalOpen(false)}
+          title="Cuenta creada"
+          icon={<CheckCircle size={20} />}
+          tone="success"
+          maxWidth={360}
+          footer={(
+            <button type="button" className="p-modal-btn p-modal-btn-primary p-modal-btn-wide" onClick={() => setRegisteredModalOpen(false)} autoFocus>
+              Entendido
+            </button>
+          )}
+        >
+          <p>Ya podés iniciar sesión con tu email y contraseña.</p>
+        </Modal>
       </div>
     </>
   );

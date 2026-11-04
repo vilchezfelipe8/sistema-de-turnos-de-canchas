@@ -27,6 +27,7 @@ import type { GetServerSideProps } from 'next';
 import { fetchClubBasics, resolveRequestOrigin } from '../../utils/serverClubLookup';
 import BusyLabel from '../../components/ui/BusyLabel';
 import Skeleton, { SkeletonText } from '../../components/ui/Skeleton';
+import Modal from '../../components/ui/Modal';
 
 type ClubPageProps = { appSlug: string | null; appName: string | null };
 
@@ -160,22 +161,13 @@ const PAGE_CSS = `
   .cl-review-cta:hover:not(:disabled) { border-color:var(--accent-border); }
   .cl-review-cta:disabled { opacity:.6; cursor:not-allowed; }
   .cl-feedback { padding:10px 16px; border-radius:12px; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); font-size:12px; font-weight:700; color:var(--accent-fg); margin-top:12px; }
-  /* Modal de reseña */
-  .cl-review-overlay { position:fixed; inset:0; z-index:200; display:flex; align-items:center; justify-content:center; padding:20px; background:var(--overlay); }
-  .cl-review-panel { width:100%; max-width:480px; border-radius:24px; border:1px solid var(--border); background:var(--surface-1); padding:30px; box-shadow:var(--shadow-lg); box-sizing:border-box; }
-  .cl-review-modal-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:8px; }
-  .cl-review-modal-title { font-size:20px; font-weight:800; color:var(--text-primary); letter-spacing:-.02em; }
-  .cl-review-modal-sub { font-size:13px; color:var(--text-muted); margin-bottom:22px; line-height:1.45; }
+  /* Contenido del modal de reseña (el modal en sí: pique.css .p-modal-*) */
   .cl-review-stars { display:flex; gap:8px; }
   .cl-review-star { width:44px; height:44px; border-radius:12px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-muted); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background .15s,border-color .15s,color .15s; }
   .cl-review-star.cl-star-on { background:var(--positive-bg); border-color:var(--accent-border); color:var(--accent-fg); }
   .cl-review-textarea { width:100%; box-sizing:border-box; background:var(--surface-2); border:1px solid var(--border); border-radius:14px; padding:14px 16px; color:var(--text-primary); font-family:var(--font-sans); font-size:14px; outline:none; resize:none; transition:border-color .2s; }
   .cl-review-textarea:focus { border-color:var(--accent-border); }
   .cl-review-count { margin-top:8px; text-align:right; font-size:11px; color:var(--text-muted); font-weight:700; }
-  .cl-review-action-row { display:flex; gap:10px; margin-top:24px; }
-  .cl-review-secondary { flex:1; height:46px; border-radius:12px; background:none; border:1px solid var(--border); color:var(--text-secondary); font-family:inherit; font-size:13px; font-weight:700; cursor:pointer; }
-  .cl-review-primary { flex:1; height:46px; border-radius:12px; background:var(--brand); border:none; color:var(--brand-on); font-family:inherit; font-size:13px; font-weight:800; cursor:pointer; }
-  .cl-review-primary:disabled { opacity:.5; cursor:not-allowed; }
   /* Error */
   .cl-state { min-height:56vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; text-align:center; padding:24px 0; }
   .cl-state-icon { width:52px; height:52px; border-radius:16px; display:flex; align-items:center; justify-content:center; background:var(--surface-2); color:var(--text-muted); margin-bottom:6px; }
@@ -217,8 +209,6 @@ const PAGE_CSS = `
   .p-public-root.p-public-theme-light .cl-panel,
   .p-public-root.p-public-theme-light .cl-skel-panel { box-shadow:0 10px 24px var(--border-subtle); }
   .p-public-root.p-public-theme-light .cl-feedback { color:var(--positive-fg); }
-  .p-public-root.p-public-theme-light .cl-review-overlay { background:var(--overlay-strong); }
-  .p-public-root.p-public-theme-light .cl-review-panel { box-shadow:0 22px 46px var(--border-strong); }
   .p-public-root.p-public-theme-light .cl-review-textarea { background:var(--surface-1); }
 `;
 
@@ -241,7 +231,6 @@ export default function ClubPage({ appSlug, appName }: ClubPageProps) {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewSaving, setReviewSaving] = useState(false);
   const [reviewFeedback, setReviewFeedback] = useState<string | null>(null);
-  const reviewBackdropMouseDownRef = useRef(false);
   // App instalada de este club: inicio simplificado y reserva a pantalla completa.
   const clubApp = useClubApp();
   const isClubAppMode = Boolean(clubApp && clubApp.slug === slug);
@@ -747,93 +736,60 @@ export default function ClubPage({ appSlug, appName }: ClubPageProps) {
         </div>
       </div>
 
-      {reviewModalOpen && (
-        <div
-          className="cl-review-overlay"
-          onMouseDown={(event) => {
-            reviewBackdropMouseDownRef.current = event.target === event.currentTarget;
-          }}
-          onMouseUp={(event) => {
-            if (reviewBackdropMouseDownRef.current && event.target === event.currentTarget && !reviewSaving) {
-              setReviewModalOpen(false);
-            }
-            reviewBackdropMouseDownRef.current = false;
-          }}
-        >
-          <div className="cl-review-panel" role="dialog" aria-modal="true" aria-labelledby="club-review-title">
-            <div className="cl-review-modal-head">
-              <div>
-                <div id="club-review-title" className="cl-review-modal-title">Tu reseña de {club.name}</div>
-                <div className="cl-review-modal-sub">Una reseña por club. Podés editarla cuando quieras.</div>
-              </div>
-              <button
-                type="button"
-                className="p-public-close-btn"
-                onClick={() => !reviewSaving && setReviewModalOpen(false)}
-                disabled={reviewSaving}
-                aria-label="Cerrar"
-                title="Cerrar"
-              >
-                <X size={15} />
-              </button>
+      <Modal
+        open={reviewModalOpen}
+        onClose={() => setReviewModalOpen(false)}
+        title={`Tu reseña de ${club.name}`}
+        subtitle="Una reseña por club. Podés editarla cuando quieras."
+        closeDisabled={reviewSaving}
+        maxWidth={480}
+        footer={reviewLoading ? undefined : (
+          <>
+            <button type="button" className="p-modal-btn p-modal-btn-wide" onClick={() => setReviewModalOpen(false)} disabled={reviewSaving}>
+              Cancelar
+            </button>
+            <button type="button" className="p-modal-btn p-modal-btn-primary p-modal-btn-wide" onClick={handleSubmitReview} disabled={reviewSaving || reviewRating < 1}>
+              <BusyLabel busy={reviewSaving}>Guardar</BusyLabel>
+            </button>
+          </>
+        )}
+      >
+        {reviewLoading ? (
+          <UserLoadingState mode="block" minHeight={180} message="Cargando tu reseña..." />
+        ) : (
+          <>
+            <div className="cl-review-stars" role="group" aria-label="Calificación">
+              {[1, 2, 3, 4, 5].map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={`cl-review-star${reviewRating >= value ? ' cl-star-on' : ''}`}
+                  onClick={() => setReviewRating(value)}
+                  disabled={reviewSaving}
+                  aria-label={`${value} ${value === 1 ? 'estrella' : 'estrellas'}`}
+                  aria-pressed={reviewRating === value}
+                >
+                  <Star size={20} style={{ fill: reviewRating >= value ? 'currentColor' : 'none' }} />
+                </button>
+              ))}
             </div>
-
-            {reviewLoading ? (
-              <UserLoadingState mode="block" minHeight={180} message="Cargando tu reseña..." />
-            ) : (
-              <>
-                <div className="cl-review-stars" role="group" aria-label="Calificación">
-                  {[1, 2, 3, 4, 5].map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={`cl-review-star${reviewRating >= value ? ' cl-star-on' : ''}`}
-                      onClick={() => setReviewRating(value)}
-                      disabled={reviewSaving}
-                      aria-label={`${value} ${value === 1 ? 'estrella' : 'estrellas'}`}
-                      aria-pressed={reviewRating === value}
-                    >
-                      <Star size={20} style={{ fill: reviewRating >= value ? 'currentColor' : 'none' }} />
-                    </button>
-                  ))}
-                </div>
-                <div style={{ marginTop: 18 }}>
-                  <textarea
-                    className="cl-review-textarea"
-                    rows={5}
-                    maxLength={220}
-                    value={reviewComment}
-                    onChange={(event) => setReviewComment(event.target.value)}
-                    placeholder="Contá cómo fue tu experiencia..."
-                    aria-label="Comentario"
-                    disabled={reviewSaving}
-                  />
-                  <div className="cl-review-count">{reviewComment.length}/220</div>
-                </div>
-                {reviewFeedback && <div className="cl-feedback">{reviewFeedback}</div>}
-                <div className="cl-review-action-row">
-                  <button
-                    type="button"
-                    className="cl-review-secondary"
-                    onClick={() => setReviewModalOpen(false)}
-                    disabled={reviewSaving}
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    className="cl-review-primary"
-                    onClick={handleSubmitReview}
-                    disabled={reviewSaving || reviewRating < 1}
-                  >
-                    <BusyLabel busy={reviewSaving}>Guardar</BusyLabel>
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+            <div style={{ marginTop: 18 }}>
+              <textarea
+                className="cl-review-textarea"
+                rows={5}
+                maxLength={220}
+                value={reviewComment}
+                onChange={(event) => setReviewComment(event.target.value)}
+                placeholder="Contá cómo fue tu experiencia..."
+                aria-label="Comentario"
+                disabled={reviewSaving}
+              />
+              <div className="cl-review-count">{reviewComment.length}/220</div>
+            </div>
+            {reviewFeedback && <div className="cl-feedback">{reviewFeedback}</div>}
+          </>
+        )}
+      </Modal>
     </DarkPageLayout>
   );
 }

@@ -585,9 +585,9 @@ export default function Home() {
     .p-home-root.p-home-theme-light .p-home-eyebrow::before { background:var(--text-muted); }
     .p-home-root.p-home-theme-light .p-home-values-band,
     .p-home-root.p-home-theme-light .p-home-owner,
-    .p-home-root.p-home-theme-light .p-home-faq-band,
+    .p-home-root.p-home-theme-light .p-home-faq-band { border-top-color:var(--border-subtle); }
     .p-home-root.p-home-theme-light .p-home-value { border-top-color:var(--border-subtle); }
-    .p-home-root.p-home-theme-light .p-home-value-num,
+    .p-home-root.p-home-theme-light .p-home-value-num { color:var(--border-strong); }
     .p-home-root.p-home-theme-light .p-home-owner-media-img { opacity:.96; }
     .p-home-root.p-home-theme-light .p-home-owner::after { background:linear-gradient(112deg,rgba(245,244,240,.78) 0%,rgba(245,244,240,.4) 42%,rgba(245,244,240,.08) 100%),linear-gradient(180deg,rgba(245,244,240,.18) 0%,rgba(245,244,240,.48) 100%); }
     .p-home-root.p-home-theme-light .p-home-owner .p-home-sec-sub { color:var(--text-secondary); }
@@ -610,7 +610,7 @@ export default function Home() {
     .p-home-root.p-home-theme-light .p-home-aurora-2 { --p-home-aurora-color:rgba(47,175,106,.22); opacity:.72; }
     .p-home-root.p-home-theme-light .p-home-aurora-3 { --p-home-aurora-color:rgba(255,209,102,.24); opacity:.7; }
     /* Value/step section numbers — stronger contrast in light mode */
-    .p-home-root.p-home-theme-light .p-home-value-num,
+    .p-home-root.p-home-theme-light .p-home-value-num { color:var(--text-muted); }
     /* ── Portada solo para jugadores (sin tarjetas al costado) ── */
     /* Dos columnas: buscador a la izquierda; tus clubes o "Cómo funciona" a la derecha */
     .p-home-hero-inner.p-home-hero-has-side { grid-template-columns:minmax(0,1.25fr) minmax(320px,420px); align-items:end; }

@@ -31,6 +31,17 @@ const CSS = `
   .pn-step b { color:var(--text-primary); }
   .pn-step-num { width:24px; height:24px; border-radius:999px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:var(--surface-2); color:var(--text-primary); font-size:11px; font-weight:900; }
   .pn-error { margin:0; color:var(--error-fg); font-size:12px; font-weight:700; }
+  .pn-btn-primary:hover:not(:disabled) { border-color:var(--brand-hover); background:var(--brand-hover); }
+  .pn-btn-ghost:hover:not(:disabled) { background:var(--surface-3); color:var(--text-primary); }
+  /* Cartel de activar: una sola franja (icono, texto, botón y X), es un aviso opcional */
+  .pn-card.pn-optin { grid-template-columns:40px minmax(0,1fr) auto 32px; align-items:center; gap:12px; padding:12px 14px; }
+  .pn-optin .pn-head { display:contents; }
+  .pn-optin .pn-dismiss { grid-column:4; grid-row:1; width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center; padding:0; border:0; border-radius:10px; background:transparent; color:var(--text-muted); cursor:pointer; }
+  .pn-optin .pn-dismiss:hover:not(:disabled) { background:var(--surface-2); color:var(--text-primary); }
+  .pn-optin .pn-actions { grid-column:3; grid-row:1; display:block; }
+  .pn-optin .pn-actions .pn-btn-ghost { display:none; }
+  .pn-optin .pn-actions .pn-btn-primary { height:38px; padding:0 16px; border-radius:11px; }
+  .pn-optin .pn-error { grid-column:2 / -1; }
   @media(max-width:620px){
     .pn-card { grid-template-columns:34px minmax(0,1fr) 32px; gap:8px 10px; padding:12px; border-radius:16px; }
     .pn-head { display:contents; }
@@ -42,6 +53,11 @@ const CSS = `
     .pn-actions .pn-btn-ghost { display:none; }
     .pn-actions .pn-btn-primary { width:100%; height:38px; border-radius:11px; }
     .pn-error { grid-column:2 / -1; }
+    /* Celular: icono, texto y X arriba; el botón de todo el ancho abajo */
+    .pn-card.pn-optin { grid-template-columns:34px minmax(0,1fr) 32px; gap:8px 10px; padding:12px; }
+    .pn-optin .pn-dismiss { grid-column:3; }
+    .pn-optin .pn-actions { grid-column:2 / -1; grid-row:auto; }
+    .pn-optin .pn-actions .pn-btn-primary { width:100%; }
   }
 `;
 
@@ -123,7 +139,7 @@ export default function PushOptInCard() {
   };
 
   return (
-    <div className="pn-card">
+    <div className="pn-card pn-optin">
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div className="pn-head">
         <span className="pn-icon"><Bell size={18} /></span>
