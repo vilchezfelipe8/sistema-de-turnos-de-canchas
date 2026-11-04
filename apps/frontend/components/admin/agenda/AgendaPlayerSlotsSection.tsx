@@ -178,7 +178,7 @@ export default function AgendaPlayerSlotsSection({
               </span>
               <span className="ml-2 text-p-text-muted">
                 {slot.isEmpty
-                  ? 'no socio'
+                  ? 'No socio'
                   : slot.pricingMemberCategoryName
                     ? `Socio ${slot.pricingMemberCategoryName}`
                     : slot.memberPricePending
