@@ -29,6 +29,7 @@ export type Booking = {
     totalAmount: number;
     paidAmount: number;
     remainingAmount: number;
+    perPlayer?: boolean;
     chargeMode?: string;
     chargeResponsibleRef?: string | null;
     chargeResponsibleName?: string | null;
@@ -40,6 +41,8 @@ export type Booking = {
       ref: string;
       name: string;
       isOwner?: boolean;
+      assignedAmount?: number;
+      paidAmount?: number;
     }>;
     payerParticipants?: Array<{
       ref?: string | null;

@@ -336,6 +336,17 @@ function resolveHoverParticipantsForBooking(booking: Booking) {
   const ownerFallbackName = ownerName || 'Titular';
   const totalAmount = Number(hoverPayment?.totalAmount || 0);
   const paidAmount = Number(hoverPayment?.paidAmount || 0);
+  const perPlayer = Boolean(hoverPayment?.perPlayer);
+  const canonicalParticipantRef = (value: string) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized.startsWith('booking-client:') || normalized.startsWith('participant-client:')) {
+      return `client:${normalized.split(':').slice(1).join(':')}`;
+    }
+    if (normalized.startsWith('booking-user:') || normalized.startsWith('participant-user:')) {
+      return `user:${normalized.split(':').slice(1).join(':')}`;
+    }
+    return normalized;
+  };
 
   const rawParticipants = Array.isArray(hoverPayment?.participants)
     ? hoverPayment?.participants
@@ -354,15 +365,21 @@ function resolveHoverParticipantsForBooking(booking: Booking) {
         ref,
         name: resolvedName,
         isOwner,
+        assignedAmount: Number.isFinite(Number(rawParticipant?.assignedAmount))
+          ? Number(rawParticipant.assignedAmount)
+          : null,
+        paidAmount: Number.isFinite(Number(rawParticipant?.paidAmount))
+          ? Number(rawParticipant.paidAmount)
+          : null,
       };
     })
     .filter((participant) => participant.name.trim().length > 0);
 
   const dedupedParticipants = normalizedParticipants.reduce<typeof normalizedParticipants>((accumulator, participant) => {
-    const participantRefKey = String(participant.ref || '').trim().toLowerCase();
+    const participantRefKey = canonicalParticipantRef(participant.ref);
     const participantNameKey = String(participant.name || '').trim().toLowerCase();
     const existingIndex = accumulator.findIndex((current) => {
-      const currentRefKey = String(current.ref || '').trim().toLowerCase();
+      const currentRefKey = canonicalParticipantRef(current.ref);
       const currentNameKey = String(current.name || '').trim().toLowerCase();
       return (
         (participantRefKey && currentRefKey && participantRefKey === currentRefKey) ||
@@ -390,7 +407,7 @@ function resolveHoverParticipantsForBooking(booking: Booking) {
         }];
 
   const findByRef = (ref: string) =>
-    participants.find((participant) => participant.ref && participant.ref === ref);
+    participants.find((participant) => participant.ref && canonicalParticipantRef(participant.ref) === canonicalParticipantRef(ref));
   const normalizeName = (value: string) =>
     String(value || '').trim().toLowerCase();
   const findByName = (name: string) => {
@@ -474,22 +491,45 @@ function resolveHoverParticipantsForBooking(booking: Booking) {
       Number((Number(coveredAmountByParticipantId.get(participantId) || 0) + amount).toFixed(2))
     );
   };
-  normalizedCoveredParticipants.forEach((covered) => {
-    const matched =
-      (covered.ref ? findByRef(covered.ref) : undefined) ||
-      (covered.name ? findByName(covered.name) : undefined) ||
-      (covered.ref && isOwnerLikeParticipantRef(covered.ref)
-        ? participants.find((participant) => participant.isOwner)
-        : undefined);
-    if (!matched) return;
-    addCoveredAmount(matched.id, covered.amount);
-  });
-  if (coveredAmountByParticipantId.size === 0 && latestCoveredParticipant) {
-    addCoveredAmount(latestCoveredParticipant.id, paidAmount);
+  if (perPlayer) {
+    participants.forEach((participant) => {
+      if (participant.paidAmount != null) addCoveredAmount(participant.id, participant.paidAmount);
+    });
+  } else {
+    normalizedCoveredParticipants.forEach((covered) => {
+      const matched =
+        (covered.ref ? findByRef(covered.ref) : undefined) ||
+        (covered.name ? findByName(covered.name) : undefined) ||
+        (covered.ref && isOwnerLikeParticipantRef(covered.ref)
+          ? participants.find((participant) => participant.isOwner)
+          : undefined);
+      if (!matched) return;
+      addCoveredAmount(matched.id, covered.amount);
+    });
+    if (coveredAmountByParticipantId.size === 0 && latestCoveredParticipant) {
+      addCoveredAmount(latestCoveredParticipant.id, paidAmount);
+    }
   }
 
   const assignedAmountByParticipantId = new Map<string, number>();
-  if (chargeMode === 'SHARED') {
+  if (perPlayer && participants.some((participant) => participant.assignedAmount != null)) {
+    participants.forEach((participant) => {
+      const amount = Number(participant.assignedAmount || 0);
+      if (Number.isFinite(amount) && amount > 0.009) {
+        assignedAmountByParticipantId.set(participant.id, Number(amount.toFixed(2)));
+      }
+    });
+    const assignedTotal = Array.from(assignedAmountByParticipantId.values())
+      .reduce((sum, amount) => sum + amount, 0);
+    const residualAmount = Number(Math.max(0, totalAmount - assignedTotal).toFixed(2));
+    const ownerParticipantId = participants.find((participant) => participant.isOwner)?.id || '';
+    if (ownerParticipantId && residualAmount > 0.009) {
+      assignedAmountByParticipantId.set(
+        ownerParticipantId,
+        Number((Number(assignedAmountByParticipantId.get(ownerParticipantId) || 0) + residualAmount).toFixed(2))
+      );
+    }
+  } else if (chargeMode === 'SHARED') {
     const activeParticipants = participants.filter((participant) => participant.name.trim().length > 0);
     const target = activeParticipants.length > 0
       ? activeParticipants
@@ -744,6 +784,7 @@ function parseScheduleSlotToBooking(slot: any): Booking | null {
       totalAmount: Number(Number(hoverPaymentRaw?.totalAmount ?? bookingPrice).toFixed(2)),
       paidAmount: Number(Number(hoverPaymentRaw?.paidAmount ?? paidAmount).toFixed(2)),
       remainingAmount: Number(Number(hoverPaymentRaw?.remainingAmount ?? remainingAmount).toFixed(2)),
+      perPlayer: Boolean(hoverPaymentRaw?.perPlayer),
       chargeMode: String(hoverPaymentRaw?.chargeMode || 'INDIVIDUAL'),
       chargeResponsibleRef: hoverPaymentRaw?.chargeResponsibleRef
         ? String(hoverPaymentRaw.chargeResponsibleRef)
@@ -761,6 +802,12 @@ function parseScheduleSlotToBooking(slot: any): Booking | null {
               ref: String(rawParticipant?.ref || '').trim(),
               name: String(rawParticipant?.name || '').trim(),
               isOwner: Boolean(rawParticipant?.isOwner),
+              assignedAmount: Number.isFinite(Number(rawParticipant?.assignedAmount))
+                ? Number(rawParticipant.assignedAmount)
+                : undefined,
+              paidAmount: Number.isFinite(Number(rawParticipant?.paidAmount))
+                ? Number(rawParticipant.paidAmount)
+                : undefined,
             }))
             .filter((participant: { ref: string; name: string }) => participant.ref || participant.name)
         : fallbackHoverParticipants,

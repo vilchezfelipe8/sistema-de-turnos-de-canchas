@@ -357,6 +357,68 @@ type PersistedBillingAssignmentsJson = {
     assignments: BookingBillingAssignmentDTO[];
 };
 
+export type PerPlayerHoverParticipant = {
+    ref: string;
+    name: string;
+    isOwner: boolean;
+    assignedAmount: number;
+    paidAmount: number;
+};
+
+export function buildPerPlayerHoverParticipants(booking: any): PerPlayerHoverParticipant[] {
+    const slots = Array.isArray(booking?.playerSlots) ? booking.playerSlots : [];
+    if (slots.length === 0) return [];
+
+    const participants = Array.isArray(booking?.participants) ? booking.participants : [];
+    const participantById = new Map(
+        participants
+            .filter((participant: any) => String(participant?.id || '').trim())
+            .map((participant: any) => [String(participant.id), participant])
+    );
+    const resolveParticipantName = (participant: any) => {
+        const displayName = String(participant?.displayName || '').trim();
+        if (displayName) return displayName;
+        const invitedName = String(participant?.invitedName || '').trim();
+        if (invitedName) return invitedName;
+        const clientName = String(participant?.client?.name || '').trim();
+        if (clientName) return clientName;
+        return `${String(participant?.user?.firstName || '').trim()} ${String(participant?.user?.lastName || '').trim()}`.trim();
+    };
+
+    return [...slots]
+        .sort((left: any, right: any) => Number(left?.slotIndex || 0) - Number(right?.slotIndex || 0))
+        .map((slot: any) => {
+            const slotIndex = Number(slot?.slotIndex || 0);
+            const isOwner = slotIndex === 1;
+            const participant = participantById.get(String(slot?.participantId || ''));
+            const clientId = String(slot?.clientId || '').trim();
+            const userId = Number(slot?.userId || 0);
+            const participantId = String(slot?.participantId || '').trim();
+            const ref = clientId
+                ? `${isOwner ? 'booking-client' : 'participant-client'}:${clientId}`
+                : Number.isInteger(userId) && userId > 0
+                    ? `${isOwner ? 'booking-user' : 'participant-user'}:${userId}`
+                    : participantId
+                        ? `participant:${participantId}`
+                        : `player-slot:${slotIndex}`;
+            const isEmpty = !participantId && !clientId && !(Number.isInteger(userId) && userId > 0);
+            const name = String(slot?.displayName || '').trim()
+                || resolveParticipantName(participant)
+                || (isOwner ? String(booking?.client?.name || '').trim() : '')
+                || (isEmpty ? 'Sin asignar' : `Jugador ${slotIndex}`);
+            const accountItemAmount = slot?.accountItem?.total;
+            const assignedAmount = Number(Number(accountItemAmount ?? slot?.shareAmount ?? 0).toFixed(2));
+            const allocations = Array.isArray(slot?.accountItem?.paymentAllocations)
+                ? slot.accountItem.paymentAllocations
+                : [];
+            const paidAmount = Number(
+                allocations.reduce((sum: number, allocation: any) => sum + Number(allocation?.amount || 0), 0).toFixed(2)
+            );
+
+            return { ref, name, isOwner, assignedAmount, paidAmount };
+        });
+}
+
 export class BookingService {
     private readonly pricingService = new PricingService();
     private readonly playerSlotService = new PlayerSlotService();
@@ -7213,6 +7275,19 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             orderBy: {
                 createdAt: 'asc'
             }
+        },
+        playerSlots: {
+            include: {
+                accountItem: {
+                    select: {
+                        total: true,
+                        paymentAllocations: {
+                            select: { amount: true }
+                        }
+                    }
+                }
+            },
+            orderBy: { slotIndex: 'asc' }
         }
     }
 });
@@ -7637,7 +7712,12 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         Boolean(participant.ref || participant.name)
                     )
                 : [];
+            const perPlayerHoverParticipants = buildPerPlayerHoverParticipants(booking);
             const hoverParticipants = (() => {
+                if (perPlayerHoverParticipants.length > 0) {
+                    return perPlayerHoverParticipants;
+                }
+
                 if (realScheduleParticipants.length > 0) {
                     return realScheduleParticipants;
                 }
@@ -7681,6 +7761,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     totalAmount: roundedTotalAmount,
                     paidAmount: roundedPaidAmount,
                     remainingAmount: roundedRemainingAmount,
+                    perPlayer: perPlayerHoverParticipants.length > 0,
                     chargeMode: String(billingConfig?.chargeMode || ChargeMode.INDIVIDUAL),
                     chargeResponsibleRef: chargeResponsibleRef || null,
                     chargeResponsibleName: chargeResponsibleName || null,
