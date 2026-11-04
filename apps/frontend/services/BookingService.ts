@@ -188,6 +188,9 @@ export type PlayerBookingInvitationDto = {
   invitedByName?: string | null;
   myShareAmount?: number | null;
   myMemberCategoryName?: string | null;
+  // Lugares libres además del propio y si la parte se puede pagar online.
+  openSpots?: number | null;
+  onlinePaymentAvailable?: boolean;
 };
 
 export type PlayerBookingCheckoutDto = {
@@ -242,6 +245,7 @@ export type PlayerBookingCheckoutDto = {
     allPending: number;
     players: Array<{
       slotIndex: number;
+      participantId: string | null;
       displayName: string | null;
       isEmpty: boolean;
       isMine: boolean;

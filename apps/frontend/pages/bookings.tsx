@@ -52,16 +52,18 @@ const PAGE_CSS = `
   .bk-invite-section { margin-bottom:22px; display:grid; gap:10px; scroll-margin-top:90px; }
   .bk-invite-heading { margin:0; display:flex; align-items:center; gap:8px; color:var(--text-primary); font-size:14px; font-weight:900; }
   .bk-invite-dot { width:8px; height:8px; border-radius:999px; background:var(--brand); }
-  .bk-invite-card { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:18px; align-items:center; padding:18px; border-radius:20px; background:var(--surface-1); border:1px solid var(--accent-border); }
-  .bk-invite-date { width:58px; height:64px; border-radius:15px; }
-  .bk-invite-body { min-width:0; display:grid; gap:4px; }
-  .bk-invite-title { margin:0; color:var(--text-primary); font-size:16px; font-weight:900; line-height:1.3; }
+  .bk-invite-group { display:grid; gap:8px; }
+  .bk-invite-day { margin:6px 0 0; color:var(--text-muted); font-size:12px; font-weight:800; letter-spacing:.02em; }
+  .bk-invite-card { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:16px; align-items:center; padding:14px 16px; border-radius:18px; background:var(--surface-1); border:1px solid var(--accent-border); }
+  .bk-invite-body { min-width:0; display:grid; gap:3px; }
+  .bk-invite-title { margin:0; color:var(--text-primary); font-size:15px; font-weight:900; line-height:1.3; }
   .bk-invite-line { margin:0; color:var(--text-secondary); font-size:13px; font-weight:600; line-height:1.45; }
   .bk-invite-meta { margin-top:6px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
   .bk-invite-share { padding:4px 10px; border-radius:999px; background:var(--positive-bg); color:var(--accent-fg); font-size:12px; font-weight:900; }
   .bk-invite-pay { color:var(--text-muted); font-size:12px; font-weight:650; }
-  .bk-invite-actions { display:grid; gap:6px; min-width:180px; }
-  .bk-invite-decline { height:38px; border:0; border-radius:12px; background:transparent; color:var(--text-muted); font-family:var(--font-sans); font-size:12px; font-weight:800; cursor:pointer; }
+  .bk-invite-actions { display:flex; align-items:center; gap:8px; }
+  .bk-invite-actions .bk-action-btn { width:auto; height:38px; padding:0 16px; border-radius:12px; }
+  .bk-invite-decline { height:38px; padding:0 14px; border:1px solid var(--border-subtle); border-radius:12px; background:transparent; color:var(--text-muted); font-family:var(--font-sans); font-size:12px; font-weight:800; cursor:pointer; }
   .bk-invite-decline:hover { background:var(--surface-2); color:var(--text-primary); }
   .bk-invite-decline:disabled, .bk-invite-actions .bk-action-btn:disabled { opacity:.6; cursor:not-allowed; }
   .bk-invite-done { display:grid; gap:12px; text-align:left; }
@@ -74,9 +76,9 @@ const PAGE_CSS = `
   .bk-invite-calendar { height:44px; display:inline-flex; align-items:center; justify-content:center; gap:8px; border-radius:14px; border:1px solid var(--border); background:var(--surface-1); color:var(--text-primary); font-family:var(--font-sans); font-size:13px; font-weight:800; cursor:pointer; }
   .bk-invite-calendar:hover { background:var(--surface-2); }
   @media(max-width:620px){
-    .bk-invite-card { grid-template-columns:auto minmax(0,1fr); }
-    .bk-invite-actions { grid-column:1 / -1; min-width:0; grid-template-columns:minmax(0, 2fr) minmax(0, 1fr); }
-    .bk-invite-decline { height:auto; }
+    .bk-invite-card { grid-template-columns:minmax(0,1fr); gap:12px; }
+    .bk-invite-actions { grid-column:1 / -1; display:grid; grid-template-columns:minmax(0, 2fr) minmax(0, 1fr); }
+    .bk-invite-actions .bk-action-btn { width:100%; }
   }
   .bk-layout { display:grid; grid-template-columns:1.4fr 1fr; gap:20px; align-items:start; }
   .bk-layout.bk-layout-empty { align-items:stretch; }
@@ -101,7 +103,7 @@ const PAGE_CSS = `
   .bk-date-month { font-size:9px; font-weight:700; letter-spacing:.03em; color:var(--text-muted); }
   .bk-card-club { font-size:15px; font-weight:800; color:var(--text-primary); line-height:1.2; margin-bottom:4px; }
   .bk-card-meta { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--text-muted); font-weight:600; flex-wrap:wrap; }
-  .bk-card-chip { padding:2px 8px; background:var(--surface-2); border-radius:6px; font-size:10px; color:var(--text-muted); font-weight:600; }
+  .bk-card-chip { padding:2px 8px; background:var(--surface-2); border-radius:6px; font-size:10px; color:var(--text-muted); font-weight:600; white-space:nowrap; }
   .bk-card-arrow { color:var(--text-muted); flex-shrink:0; transition:color .2s, transform .2s; }
   /* Detail panel */
   .bk-detail { background:var(--surface-1); border:1px solid var(--border); border-radius:24px; padding:24px; position:sticky; top:80px; max-height:calc(100vh - 96px); overflow-y:auto; }
@@ -140,7 +142,15 @@ const PAGE_CSS = `
   .bk-player-remove { width:34px; height:34px; flex:none; display:inline-flex; align-items:center; justify-content:center; padding:0; border:0; border-radius:11px; background:transparent; color:var(--text-muted); cursor:pointer; }
   .bk-player-remove:hover:not(:disabled) { background:var(--error-bg); color:var(--error-fg); }
   .bk-player-remove:disabled { opacity:.5; cursor:not-allowed; }
-  .bk-team-full { display:flex; align-items:center; justify-content:center; min-height:38px; padding:8px 12px; border:1px solid var(--accent-border-subtle); border-radius:12px; background:var(--positive-bg); color:var(--accent-fg); font-size:11px; font-weight:850; }
+  .bk-player-amount { flex:none; margin-left:auto; color:var(--text-primary); font-size:12px; font-weight:850; white-space:nowrap; }
+  .bk-pay-mine { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border-radius:14px; background:var(--surface-2); border:1px solid var(--border-subtle); }
+  .bk-pay-mine-label { font-size:11px; font-weight:800; color:var(--text-muted); letter-spacing:.03em; }
+  .bk-pay-mine-status { margin-top:2px; font-size:13px; font-weight:750; color:var(--warning-fg, var(--text-secondary)); }
+  .bk-pay-mine-status.is-paid { color:var(--accent-fg); }
+  .bk-pay-mine-amount { flex:none; font-size:20px; font-weight:900; color:var(--text-primary); white-space:nowrap; }
+  .bk-pay-total { font-size:12px; font-weight:650; color:var(--text-muted); line-height:1.45; }
+  .bk-pay-note { font-size:12px; font-weight:600; color:var(--text-muted); line-height:1.45; }
+  .bk-invite-pending-note { margin:10px 2px 0; color:var(--text-muted); font-size:12px; font-weight:650; line-height:1.45; }
   .bk-action-btn { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; padding:12px 16px; border-radius:14px; font-size:12px; font-weight:800; letter-spacing:.01em; cursor:pointer; font-family:var(--font-sans); border:none; transition:background .15s,transform .15s; text-decoration:none; }
   .bk-action-btn:hover { transform:translateY(-1px); }
   .bk-action-cancel { background:var(--error-bg); border:1px solid var(--error-bg)!important; color:var(--error-fg); }
@@ -252,6 +262,9 @@ export default function MyBookingsPage() {
   const openedBookingIdRef = useRef<string | null>(null);
   const [bookings, setBookings] = useState<PlayerBookingDto[]>(() => readBookingsPageCache(user?.id)?.bookings ?? []);
   const [activeTab, setActiveTab] = useState<'ACTIVE' | 'PAST' | 'CANCELLED'>('ACTIVE');
+  // Reserva a abrir cuando termine de cargar (después de aceptar una invitación).
+  const [focusBookingId, setFocusBookingId] = useState<string | null>(null);
+  const [joinPaySubmitting, setJoinPaySubmitting] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<PlayerBookingDto | null>(null);
   const selectedDetailRef = useRef<HTMLDivElement | null>(null);
   const skipDetailAutoScrollRef = useRef(false);
@@ -592,6 +605,15 @@ export default function MyBookingsPage() {
   }, [selectedBooking]);
 
   useEffect(() => {
+    if (!focusBookingId) return;
+    const booking = bookings.find((item) => String(item.id) === focusBookingId);
+    if (!booking) return;
+    setFocusBookingId(null);
+    setActiveTab('ACTIVE');
+    setSelectedBooking(booking);
+  }, [focusBookingId, bookings]);
+
+  useEffect(() => {
     const pending = pendingTabScrollRestoreRef.current;
     if (!pending || typeof window === 'undefined') return;
     pendingTabScrollRestoreRef.current = null;
@@ -632,6 +654,29 @@ export default function MyBookingsPage() {
   const getDuration = (b: PlayerBookingDto) =>
     Math.max(0, Math.round((new Date(b.endDateTime).getTime() - new Date(b.startDateTime).getTime()) / 60000)) || 60;
 
+  const sharesTotalCopy = (checkout: PlayerBookingCheckoutDto) => {
+    const players = checkout.shares?.players || [];
+    const empty = players.filter((player) => player.isEmpty).length;
+    return [
+      `Total de la reserva ${checkout.account ? formatMoney(checkout.account.total) : '—'}`,
+      `${players.filter((player) => player.paid).length} de ${players.length} partes pagas`,
+      empty ? (empty === 1 ? 'el lugar libre se paga en el club' : `los ${empty} lugares libres se pagan en el club`) : null
+    ].filter(Boolean).join(' · ');
+  };
+
+  const sharesPayNote = (checkout: PlayerBookingCheckoutDto) => {
+    const shares = checkout.shares;
+    if (!shares?.canPayAll || shares.allPending <= (shares.mine?.pending || 0) + 0.009) {
+      return 'Cada jugador paga la suya, online o en el club.';
+    }
+    const others = shares.players
+      .filter((player) => !player.isMine && !player.isEmpty && !player.paid)
+      .map((player) => player.displayName || `Lugar ${player.slotIndex}`);
+    return others.length
+      ? `"Pagar todas" incluye la parte de ${others.join(', ')}. Cada jugador también puede pagar la suya.`
+      : 'Cada jugador también puede pagar la suya.';
+  };
+
   const getCheckoutReasonMessage = (checkout: PlayerBookingCheckoutDto) => {
     if (checkout.checkout.enabled) {
       return checkout.shares
@@ -657,6 +702,30 @@ export default function MyBookingsPage() {
         return 'El pago online todavía no está disponible para este club. Contactá al club para pagar o resolver cambios.';
       default:
         return 'Todavía no pudimos habilitar el pago online para esta reserva.';
+    }
+  };
+
+  const invitationPayCopy = (invitation: PlayerBookingInvitationDto) =>
+    invitation.onlinePaymentAvailable ? 'Pagás online o en el club' : 'Se paga en el club';
+
+  const invitationSpotsCopy = (invitation: PlayerBookingInvitationDto) => {
+    if (invitation.openSpots == null) return null;
+    if (invitation.openSpots === 0) return 'Sos el lugar que falta';
+    return invitation.openSpots === 1 ? 'Queda 1 lugar más' : `Quedan ${invitation.openSpots} lugares más`;
+  };
+
+  // Pagar la parte propia apenas se acepta la invitación.
+  const handlePayJoinedShare = async (bookingId: string) => {
+    if (joinPaySubmitting) return;
+    setJoinPaySubmitting(true);
+    try {
+      const payload = await createMercadoPagoCheckout(bookingId, 'OWN_SHARE');
+      if (typeof window !== 'undefined') window.location.assign(payload.initPoint);
+    } catch (error) {
+      closeModal();
+      showError(toPublicBookingErrorMessage(error, 'No pudimos iniciar el pago online. Podés pagar desde la reserva o en el club.'));
+    } finally {
+      setJoinPaySubmitting(false);
     }
   };
 
@@ -765,6 +834,9 @@ export default function MyBookingsPage() {
     };
   };
 
+  const invitationInviters = Array.from(new Set(pendingInvitations.map((invitation) => String(invitation.invitedByName || '').trim())));
+  const sharedInviter = invitationInviters.length === 1 && invitationInviters[0] ? invitationInviters[0] : null;
+
   const handleAcceptInvitation = async (invitation: PlayerBookingInvitationDto) => {
     if (invitationActionId) return;
     setInvitationActionId(invitation.id);
@@ -772,6 +844,8 @@ export default function MyBookingsPage() {
       await acceptBookingInvitation(invitation.id);
       if (typeof window !== 'undefined') window.dispatchEvent(new Event(BOOKING_INVITATIONS_CHANGED_EVENT));
       await loadData();
+      // La reserva aceptada queda abierta en Mis reservas, detrás del aviso.
+      setFocusBookingId(invitation.bookingId);
       const labels = getInvitationLabels(invitation);
       const inviterFirstName = labels.inviter.split(' ')[0];
       setModalState({
@@ -779,7 +853,7 @@ export default function MyBookingsPage() {
         title: '¡Listo, estás anotado!',
         isWarning: false,
         cancelText: '',
-        confirmText: 'Listo',
+        confirmText: 'Entendido',
         message: (
           <div className="bk-invite-done">
             <p style={{ margin: 0 }}>
@@ -800,11 +874,21 @@ export default function MyBookingsPage() {
               </div>
               {invitation.myShareAmount != null && (
                 <div className="bk-invite-done-share">
-                  <span>Tu parte · se paga en el club</span>
+                  <span>Tu parte · {invitationPayCopy(invitation).toLowerCase()}</span>
                   <strong>{formatMoney(Number(invitation.myShareAmount))}</strong>
                 </div>
               )}
             </div>
+            {invitation.myShareAmount != null && invitation.onlinePaymentAvailable && (
+              <button
+                type="button"
+                className="bk-action-btn bk-action-rebook"
+                onClick={() => { void handlePayJoinedShare(invitation.bookingId); }}
+              >
+                <Ticket size={15} />
+                Pagar mi parte ahora · {formatMoney(Number(invitation.myShareAmount))}
+              </button>
+            )}
             <button
               type="button"
               className="bk-invite-calendar"
@@ -1033,7 +1117,23 @@ export default function MyBookingsPage() {
   const occupiedParticipantSlots = selectedBooking
     ? Math.min(1 + activeParticipants.length, participantCapacity ?? Number.POSITIVE_INFINITY)
     : 0;
+  // Parte de cada jugador (reservas por jugador): se muestra junto a su nombre.
+  const shareByParticipantId = new Map(
+    (checkoutSummary?.shares?.players || [])
+      .filter((player) => player.participantId)
+      .map((player) => [String(player.participantId), player] as const)
+  );
+  const ownerShare = checkoutSummary?.shares?.players.find((player) => player.slotIndex === 1) ?? null;
+  const sharePayLabel = (share: { paid: boolean; memberPricePending: boolean } | null) => {
+    if (!share) return '';
+    if (share.paid) return ' · Pagó su parte';
+    return share.memberPricePending ? ' · Precio socio por validar' : ' · Pago pendiente';
+  };
   const participantTeamIsFull = Boolean(participantCapacity && occupiedParticipantSlots >= participantCapacity);
+  const pendingInviteNames = activeParticipants
+    .filter((participant) => participant.status === 'INVITED')
+    .map((participant) => participant.displayName);
+  const confirmedParticipantSlots = Math.max(0, occupiedParticipantSlots - pendingInviteNames.length);
   const canInviteParticipant = Boolean(selectedBooking?.capabilities.canInvitePlayers && !participantTeamIsFull);
   const hasNoPublishedAccount = Boolean(
     selectedBooking
@@ -1076,32 +1176,40 @@ export default function MyBookingsPage() {
             <section id="invitaciones" className="bk-invite-section">
               <h2 className="bk-invite-heading">
                 <span className="bk-invite-dot" aria-hidden="true" />
-                Te invitaron a jugar
+                {sharedInviter ? `${sharedInviter} te invitó a jugar` : 'Te invitaron a jugar'}
               </h2>
-              {pendingInvitations.map((invitation) => {
+              {pendingInvitations
+                .reduce<Array<{ day: string; items: PlayerBookingInvitationDto[] }>>((groups, invitation) => {
+                  const day = getInvitationLabels(invitation).longDate;
+                  const last = groups[groups.length - 1];
+                  if (last && last.day === day) last.items.push(invitation);
+                  else groups.push({ day, items: [invitation] });
+                  return groups;
+                }, [])
+                .map((group) => (
+                <div key={group.day} className="bk-invite-group">
+                  <h3 className="bk-invite-day">{group.day}</h3>
+                  {group.items.map((invitation) => {
                 const busy = invitationActionId === invitation.id;
                 const labels = getInvitationLabels(invitation);
                 return (
                   <article key={invitation.id} className="bk-invite-card">
-                    <div className="bk-date-box bk-date-box-active bk-invite-date">
-                      <span className="bk-date-day" style={{ color: 'var(--accent-fg)' }}>{labels.dateBox.day}</span>
-                      <span className="bk-date-month">{labels.dateBox.month}</span>
-                    </div>
                     <div className="bk-invite-body">
                       <p className="bk-invite-title">
-                        {labels.inviter ? `${labels.inviter} te invitó a jugar` : 'Te invitaron a jugar'}
+                        {[labels.timeRange, labels.activity].filter(Boolean).join(' · ')}
                       </p>
                       <p className="bk-invite-line">
-                        {[labels.longDate, labels.timeRange, labels.activity, invitation.court.name].filter(Boolean).join(' · ')}
+                        {[invitation.court.name, invitation.club.name, labels.inviter && !sharedInviter ? `Te invitó ${labels.inviter}` : null].filter(Boolean).join(' · ')}
                       </p>
-                      <p className="bk-invite-line">{invitation.club.name}</p>
                       {invitation.myShareAmount != null && (
                         <div className="bk-invite-meta">
                           <span className="bk-invite-share">
                             Tu parte {formatMoney(Number(invitation.myShareAmount))}
                             {invitation.myMemberCategoryName ? ' · precio socio' : ''}
                           </span>
-                          <span className="bk-invite-pay">Se paga en el club</span>
+                          <span className="bk-invite-pay">
+                            {[invitationSpotsCopy(invitation), invitationPayCopy(invitation)].filter(Boolean).join(' · ')}
+                          </span>
                         </div>
                       )}
                     </div>
@@ -1125,7 +1233,9 @@ export default function MyBookingsPage() {
                     </div>
                   </article>
                 );
-              })}
+                  })}
+                </div>
+                ))}
             </section>
           )}
           <div className="p-public-tabs" style={{ display: 'inline-flex' }}>
@@ -1149,7 +1259,9 @@ export default function MyBookingsPage() {
           <div className="bk-list-panel">
             <div className="bk-list-panel-head">
               <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-muted)' }}>
-                {visibleBookings.length} {activeTab === 'ACTIVE' ? 'próximas' : activeTab === 'PAST' ? 'pasadas' : 'canceladas'}
+                {visibleBookings.length} {visibleBookings.length === 1
+                  ? (activeTab === 'ACTIVE' ? 'próxima' : activeTab === 'PAST' ? 'pasada' : 'cancelada')
+                  : (activeTab === 'ACTIVE' ? 'próximas' : activeTab === 'PAST' ? 'pasadas' : 'canceladas')}
               </div>
             </div>
             <div className="bk-list-body" ref={listBodyRef}>
@@ -1311,7 +1423,10 @@ export default function MyBookingsPage() {
                     </div>
                     {participantCapacity ? (
                       <span className="bk-card-chip" title={selectedBooking.formatName || undefined}>
-                        {selectedBooking.formatName ? `${selectedBooking.formatName} · ` : ''}{occupiedParticipantSlots} de {participantCapacity}
+                        {selectedBooking.formatName ? `${selectedBooking.formatName} · ` : ''}
+                        {pendingInviteNames.length
+                          ? `${confirmedParticipantSlots} de ${participantCapacity} confirmados`
+                          : `${occupiedParticipantSlots} de ${participantCapacity}`}
                       </span>
                     ) : canInviteParticipant ? (
                       <span className="bk-card-chip" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -1338,10 +1453,13 @@ export default function MyBookingsPage() {
                             <p className="bk-player-name">
                               {selectedBooking.owner.displayName}{selectedBooking.myRole === 'OWNER' ? ' · Vos' : ''}
                             </p>
-                            <p className="bk-player-status">Titular · Confirmado</p>
+                            <p className="bk-player-status">Titular · Confirmado{sharePayLabel(ownerShare)}</p>
                           </div>
+                          {ownerShare && <span className="bk-player-amount">{formatMoney(ownerShare.amount)}</span>}
                         </div>
-                        {activeParticipants.map((participant) => (
+                        {activeParticipants.map((participant) => {
+                          const share = participant.status === 'JOINED' ? shareByParticipantId.get(participant.id) ?? null : null;
+                          return (
                           <div className="bk-player" key={participant.id}>
                             <span className="bk-player-icon" aria-hidden="true">{getInitials(participant.displayName)}</span>
                             <div className="bk-player-info">
@@ -1351,9 +1469,11 @@ export default function MyBookingsPage() {
                                   participant.status === 'INVITED' ? 'Invitación enviada' :
                                   participant.status === 'DECLINED' ? 'Rechazó la invitación' :
                                   participant.status === 'LEFT' ? 'Se bajó de la reserva' : 'Removido'}
+                                {sharePayLabel(share)}
                                 {participant.invitedEmail ? ` · ${participant.invitedEmail}` : ''}
                               </p>
                             </div>
+                            {share && <span className="bk-player-amount">{formatMoney(share.amount)}</span>}
                             {participant.canManage && (
                               <button
                                 type="button"
@@ -1366,11 +1486,18 @@ export default function MyBookingsPage() {
                               </button>
                             )}
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
 
-                    {participantTeamIsFull && <div className="bk-team-full">Equipo completo</div>}
+                    {pendingInviteNames.length > 0 && (
+                      <p className="bk-invite-pending-note">
+                        {pendingInviteNames.length === 1
+                          ? `Falta que ${pendingInviteNames[0]} acepte la invitación.`
+                          : `Faltan aceptar: ${pendingInviteNames.join(', ')}.`}
+                      </p>
+                    )}
 
                     {canInviteParticipant && (
                       <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
@@ -1421,16 +1548,65 @@ export default function MyBookingsPage() {
                 {paymentExpanded && (
                   <div className="bk-collapsible-body">
                     <div style={{ display: 'grid', gap: 10 }}>
-                      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.03em', color: 'var(--text-muted)' }}>
-                        Resumen de pago
-                      </div>
-
                       {checkoutLoading ? (
                         <UserLoadingState mode="inline" message="Cargando pago..." />
                       ) : checkoutError ? (
                         <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--error-bg)', color: 'var(--error-fg)', fontSize: 13, fontWeight: 600 }}>
                           {checkoutError}
                         </div>
+                      ) : checkoutSummary?.shares ? (
+                        <>
+                          {checkoutSummary.shares.mine && (
+                            <div className="bk-pay-mine">
+                              <div style={{ minWidth: 0 }}>
+                                <div className="bk-pay-mine-label">Tu parte</div>
+                                <div className={`bk-pay-mine-status${checkoutSummary.shares.mine.pending <= 0.009 ? ' is-paid' : ''}`}>
+                                  {checkoutSummary.shares.mine.pending <= 0.009
+                                    ? 'Pagada'
+                                    : checkoutSummary.shares.mine.memberPricePending
+                                      ? 'Precio socio pendiente de validar'
+                                      : checkoutSummary.shares.mine.paid > 0.009
+                                        ? `Pagaste ${formatMoney(checkoutSummary.shares.mine.paid)} · falta ${formatMoney(checkoutSummary.shares.mine.pending)}`
+                                        : 'Pendiente'}
+                                </div>
+                              </div>
+                              <div className="bk-pay-mine-amount">{formatMoney(checkoutSummary.shares.mine.amount)}</div>
+                            </div>
+                          )}
+                          <div className="bk-pay-total">{sharesTotalCopy(checkoutSummary)}</div>
+                          {!checkoutSummary.checkout.enabled && (
+                            <div className="bk-pay-note">{getCheckoutReasonMessage(checkoutSummary)}</div>
+                          )}
+                          {checkoutSummary.checkout.enabled && (
+                            <button
+                              type="button"
+                              className="bk-action-btn bk-action-rebook"
+                              onClick={() => { void handleStartOnlineCheckout('OWN_SHARE'); }}
+                              disabled={checkoutSubmitting}
+                            >
+                              <BusyLabel busy={checkoutSubmitting}>
+                                <Ticket size={15} />
+                                {checkoutSummary.shares.mine
+                                  ? `Pagar mi parte · ${formatMoney(checkoutSummary.shares.mine.pending)}`
+                                  : 'Pagar online con Mercado Pago'}
+                              </BusyLabel>
+                            </button>
+                          )}
+                          {checkoutSummary.shares.canPayAll && checkoutSummary.shares.allPending > (checkoutSummary.shares.mine?.pending || 0) + 0.009 && (
+                            // Solo con todos los lugares ocupados y precios validados: nadie pierde su precio socio.
+                            <button
+                              type="button"
+                              className="bk-action-btn bk-action-secondary"
+                              onClick={() => { void handleStartOnlineCheckout('ALL_SHARES'); }}
+                              disabled={checkoutSubmitting}
+                            >
+                              Pagar todas las partes · {formatMoney(checkoutSummary.shares.allPending)}
+                            </button>
+                          )}
+                          {checkoutSummary.checkout.enabled && (
+                            <div className="bk-pay-note">{sharesPayNote(checkoutSummary)}</div>
+                          )}
+                        </>
                       ) : checkoutSummary ? (
                         <>
                           <div
@@ -1440,18 +1616,11 @@ export default function MyBookingsPage() {
                               gap: 10
                             }}
                           >
-                            {(checkoutSummary.shares?.mine
-                              ? [
-                                  { label: 'Tu parte', value: formatMoney(checkoutSummary.shares.mine.amount) },
-                                  { label: 'Pagado', value: formatMoney(checkoutSummary.shares.mine.paid) },
-                                  { label: 'Pendiente', value: formatMoney(checkoutSummary.shares.mine.pending) }
-                                ]
-                              : [
-                                  { label: 'Total', value: checkoutSummary.account ? formatMoney(checkoutSummary.account.total) : '—' },
-                                  { label: 'Pagado', value: checkoutSummary.account ? formatMoney(checkoutSummary.account.paid) : '—' },
-                                  { label: 'Pendiente', value: checkoutSummary.account ? formatMoney(checkoutSummary.account.pending) : '—' }
-                                ]
-                            ).map((item) => (
+                            {[
+                              { label: 'Total', value: checkoutSummary.account ? formatMoney(checkoutSummary.account.total) : '—' },
+                              { label: 'Pagado', value: checkoutSummary.account ? formatMoney(checkoutSummary.account.paid) : '—' },
+                              { label: 'Pendiente', value: checkoutSummary.account ? formatMoney(checkoutSummary.account.pending) : '—' }
+                            ].map((item) => (
                               <div
                                 key={item.label}
                                 style={{
@@ -1469,31 +1638,7 @@ export default function MyBookingsPage() {
                             ))}
                           </div>
 
-                          {checkoutSummary.shares ? (
-                            <div style={{ display: 'grid', gap: 8 }}>
-                              {checkoutSummary.shares.players.map((player) => {
-                                const status = player.isEmpty
-                                  ? 'Lugar libre · se paga en el club'
-                                  : player.paid
-                                    ? 'Pagado'
-                                    : player.memberPricePending
-                                      ? 'Precio socio pendiente de validar'
-                                      : 'Pendiente';
-                                return (
-                                  <div key={player.slotIndex} className="bk-share-row">
-                                    <div style={{ minWidth: 0 }}>
-                                      <div className="bk-share-name">{player.isMine ? 'Vos' : player.displayName || `Lugar ${player.slotIndex}`}</div>
-                                      <div className={`bk-share-status${player.paid ? ' is-paid' : ''}`}>{status}</div>
-                                    </div>
-                                    <div className="bk-share-amount">{formatMoney(player.amount)}</div>
-                                  </div>
-                                );
-                              })}
-                              <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>
-                                Total de la reserva {checkoutSummary.account ? formatMoney(checkoutSummary.account.total) : '—'}
-                              </div>
-                            </div>
-                          ) : checkoutSummary.account?.items?.length ? (
+                          {checkoutSummary.account?.items?.length ? (
                             <div style={{ display: 'grid', gap: 8 }}>
                               {checkoutSummary.account.items.map((item, index) => (
                                 <div
@@ -1562,21 +1707,8 @@ export default function MyBookingsPage() {
                             >
                               <BusyLabel busy={checkoutSubmitting}>
                                 <Ticket size={15} />
-                                {checkoutSummary.shares?.mine
-                                  ? `Pagar mi parte · ${formatMoney(checkoutSummary.shares.mine.pending)}`
-                                  : 'Pagar online con Mercado Pago'}
+                                Pagar online con Mercado Pago
                               </BusyLabel>
-                            </button>
-                          )}
-                          {checkoutSummary.shares?.canPayAll && checkoutSummary.shares.allPending > (checkoutSummary.shares.mine?.pending || 0) + 0.009 && (
-                            // Solo con todos los lugares ocupados y precios validados: nadie pierde su precio socio.
-                            <button
-                              type="button"
-                              className="bk-action-btn bk-action-secondary"
-                              onClick={() => { void handleStartOnlineCheckout('ALL_SHARES'); }}
-                              disabled={checkoutSubmitting}
-                            >
-                              Pagar todas las partes · {formatMoney(checkoutSummary.shares.allPending)}
                             </button>
                           )}
                         </>

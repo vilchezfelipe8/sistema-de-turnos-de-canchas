@@ -206,6 +206,9 @@ export type PlayerBookingInvitationDto = {
     invitedByName?: string | null;
     myShareAmount?: number | null;
     myMemberCategoryName?: string | null;
+    // Lugares libres además del del invitado (precio por jugador) y si su parte se puede pagar online.
+    openSpots?: number | null;
+    onlinePaymentAvailable?: boolean;
 };
 
 export type PlayerBookingCheckoutDto = {
@@ -261,6 +264,8 @@ export type PlayerBookingCheckoutDto = {
         allPending: number;
         players: Array<{
             slotIndex: number;
+            // Para mostrar el pago de cada uno en la lista de participantes.
+            participantId: string | null;
             displayName: string | null;
             isEmpty: boolean;
             isMine: boolean;
@@ -5388,6 +5393,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 .toPlayerView(target.slots, { userId: viewer.userId, clientIds: [] })
                 .map((slot) => ({
                     slotIndex: slot.slotIndex,
+                    participantId: target.slots.find((full) => full.slotIndex === slot.slotIndex)?.participantId ?? null,
                     displayName: slot.displayName,
                     isEmpty: slot.isEmpty,
                     isMine: slot.isMine || (viewer.isOwner && slot.slotIndex === 1),
@@ -6813,8 +6819,17 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
         // Parte que pagaría el invitado si acepta (precio por jugador), con su ficha en cada club.
         const shareByInvitation = new Map<string, { shareAmount: number; memberCategoryName: string | null } | null>();
+        const openSpotsByInvitation = new Map<string, number>();
+        const onlineByClub = new Map<number, boolean>();
         for (const invitation of invitations) {
             if (!invitation.booking.activityFormatId) continue;
+            const slots = await this.playerSlotService.getSlotsTx(prisma, invitation.bookingId);
+            openSpotsByInvitation.set(invitation.id, slots.filter((slot) => slot.isEmpty).length);
+            const clubId = invitation.booking.clubId;
+            if (!onlineByClub.has(clubId)) {
+                const integrationStatus = await this.clubPaymentIntegrationService.getMercadoPagoIntegrationStatusForClub(clubId);
+                onlineByClub.set(clubId, Boolean(integrationStatus.connected) && (await this.isOnlineCheckoutEnabledForClub(clubId)));
+            }
             const myClient = await prisma.client.findFirst({
                 where: { clubId: invitation.booking.clubId, userId },
                 select: { id: true }
@@ -6850,7 +6865,9 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 ? `${invitation.invitedByUser.firstName || ''} ${invitation.invitedByUser.lastName || ''}`.trim() || null
                 : null,
             myShareAmount: shareByInvitation.get(invitation.id)?.shareAmount ?? null,
-            myMemberCategoryName: shareByInvitation.get(invitation.id)?.memberCategoryName ?? null
+            myMemberCategoryName: shareByInvitation.get(invitation.id)?.memberCategoryName ?? null,
+            openSpots: openSpotsByInvitation.get(invitation.id) ?? null,
+            onlinePaymentAvailable: onlineByClub.get(invitation.booking.clubId) ?? false
         }));
     }
 

@@ -1227,7 +1227,6 @@ export default function AdminAgendaPlaygroundPage() {
     participantName: string;
   }>({ open: false, participantId: null, participantName: '' });
   const [blockingErrorModalOpen, setBlockingErrorModalOpen] = useState(false);
-  const [bookingCreatedModalOpen, setBookingCreatedModalOpen] = useState(false);
   const [duplicateDecisionOpen, setDuplicateDecisionOpen] = useState(false);
   const [duplicateDecisionLoading, setDuplicateDecisionLoading] = useState(false);
   const [duplicateDecisionError, setDuplicateDecisionError] = useState('');
@@ -2704,7 +2703,6 @@ export default function AdminAgendaPlaygroundPage() {
       setDeleteSeriesScopeModalOpen(false);
       setDeleteParticipantConfirm({ open: false, participantId: null, participantName: '' });
       setBlockingErrorModalOpen(false);
-      setBookingCreatedModalOpen(false);
       setSeriesEditPreviewLoading(false);
       setSeriesEditPreviewScope(null);
       setSeriesEditPreviewSummary(null);
@@ -4798,7 +4796,6 @@ export default function AdminAgendaPlaygroundPage() {
               forceDrawerSections: true,
             });
           }
-          setBookingCreatedModalOpen(true);
           showAgendaToast('Reserva creada.', 'success');
           return;
         }
@@ -7318,46 +7315,6 @@ export default function AdminAgendaPlaygroundPage() {
                       <button
                         type="button"
                         onClick={() => setBlockingErrorModalOpen(false)}
-                        className="h-10 rounded-xl bg-ink-900 px-5 text-ink-50 text-sm font-bold hover:bg-ink-900"
-                      >
-                        Entendido
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {bookingCreatedModalOpen && (
-              <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
-                onPointerDown={handleModalBackdropPointerDown}
-                onPointerUp={(event) =>
-                  handleModalBackdropPointerUp(event, () => setBookingCreatedModalOpen(false))
-                }
-              >
-                <div
-                  className="w-full max-w-[520px] rounded-2xl border border-p-accent bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
-                    <h3 className="text-[23px] font-bold tracking-[-0.01em] text-p-accent">Reserva creada</h3>
-                    <button
-                      type="button"
-                      onClick={() => setBookingCreatedModalOpen(false)}
-                      className="h-8 w-8 rounded-full border border-p-border grid place-items-center text-p-text-muted hover:bg-p-surface-2"
-                    >
-                      <X size={15} />
-                    </button>
-                  </div>
-                  <div className="px-5 py-5 space-y-4">
-                    <p className="text-[14px] text-p-text-secondary">
-                      La reserva se creó correctamente y quedó abierta para edición.
-                    </p>
-                    <div className="flex items-center justify-end">
-                      <button
-                        type="button"
-                        onClick={() => setBookingCreatedModalOpen(false)}
                         className="h-10 rounded-xl bg-ink-900 px-5 text-ink-50 text-sm font-bold hover:bg-ink-900"
                       >
                         Entendido
