@@ -20,11 +20,12 @@ function createService() {
 }
 
 function baseBooking(overrides?: Partial<Record<string, any>>) {
+  const startDateTime = new Date(Date.now() + 24 * 60 * 60 * 1000);
   return {
     id: 501,
     displayCode: 'RES-501',
-    startDateTime: new Date('2026-07-20T21:00:00.000Z'),
-    endDateTime: new Date('2026-07-20T22:00:00.000Z'),
+    startDateTime,
+    endDateTime: new Date(startDateTime.getTime() + 60 * 60 * 1000),
     status: 'CONFIRMED',
     userId: 77,
     clubId: 10,
@@ -96,6 +97,11 @@ async function withPrismaMocks(
 
 test('titular invita participante sin auto-linkear ni tocar titularidad', async () => {
   const service = createService();
+  service.playerSlotService = {
+    assertHasFreeSlotTx: async () => undefined,
+    assignParticipantTx: async () => null
+  };
+  service.appendBookingHistoryEntryTx = async () => null;
   let createdData: any = null;
   let audited = false;
 
@@ -105,7 +111,11 @@ test('titular invita participante sin auto-linkear ni tocar titularidad', async 
       userFindUnique: async ({ where }: any) =>
         where?.id === 77 ? { email: 'owner@test.com' } : null,
       transaction: async (callback: any) => callback({
+        user: {
+          findUnique: async () => null
+        },
         bookingParticipant: {
+          findMany: async () => [],
           create: async ({ data }: any) => {
             createdData = data;
             return {
@@ -163,6 +173,10 @@ test('invitado por email no ve la reserva hasta aceptar explícitamente', async 
 
 test('invitado acepta con email coincidente y luego ve la reserva como PARTICIPANT', async () => {
   const service = createService();
+  service.playerSlotService = {
+    markParticipantAcceptedTx: async () => null
+  };
+  service.enqueueInvitationResponsePushTx = async () => undefined;
   let audited = false;
 
   await withPrismaMocks(
@@ -181,6 +195,9 @@ test('invitado acepta con email coincidente y luego ve la reserva como PARTICIPA
       }),
       bookingParticipantFindFirst: async () => null,
       transaction: async (callback: any) => callback({
+        client: {
+          findFirst: async () => null
+        },
         bookingParticipant: {
           update: async ({ data }: any) => ({
             id: 'bp-1',
@@ -231,7 +248,7 @@ test('rechazar invitación la deja afuera de Mis reservas', async () => {
           id: 501,
           clubId: 10,
           status: 'CONFIRMED',
-          startDateTime: new Date('2026-07-20T21:00:00.000Z')
+          startDateTime: new Date(Date.now() + 24 * 60 * 60 * 1000)
         }
       }),
       transaction: async (callback: any) => callback({
@@ -335,7 +352,7 @@ test('participante puede salirse si la reserva no empezó y luego deja de verla'
           id: 501,
           clubId: 10,
           status: 'CONFIRMED',
-          startDateTime: new Date('2026-07-20T21:00:00.000Z')
+          startDateTime: new Date(Date.now() + 24 * 60 * 60 * 1000)
         }
       }),
       transaction: async (callback: any) => callback({
@@ -371,7 +388,7 @@ test('participante no puede salirse de una reserva ya empezada', async () => {
           id: 501,
           clubId: 10,
           status: 'CONFIRMED',
-          startDateTime: new Date('2026-01-10T21:00:00.000Z')
+          startDateTime: new Date(Date.now() - 60 * 60 * 1000)
         }
       })
     },

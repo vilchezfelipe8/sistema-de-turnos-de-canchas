@@ -16,11 +16,13 @@ function createService() {
 }
 
 function baseBooking(overrides?: Partial<Record<string, any>>) {
+  // Fecha relativa: una fecha fija termina quedando en el pasado y la reserva deja de ser pagable.
+  const startDateTime = new Date(Date.now() + 24 * 60 * 60 * 1000);
   return {
     id: 701,
     displayCode: 'RES-701',
-    startDateTime: new Date('2026-08-20T21:00:00.000Z'),
-    endDateTime: new Date('2026-08-20T22:00:00.000Z'),
+    startDateTime,
+    endDateTime: new Date(startDateTime.getTime() + 60 * 60 * 1000),
     status: 'CONFIRMED',
     userId: 77,
     clubId: 10,

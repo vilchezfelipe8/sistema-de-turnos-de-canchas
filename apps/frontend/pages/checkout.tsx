@@ -72,10 +72,11 @@ const CHECKOUT_CSS = `
   .ck-notes .ck-cancel-note { margin:0 2px; }
   .ck-cancel-note { display:flex; gap:8px; align-items:flex-start; margin:14px 2px 0; color:var(--text-muted); font-size:12px; line-height:1.45; font-weight:600; }
   .ck-cancel-note svg { flex-shrink:0; margin-top:1px; color:var(--text-muted); }
-  .ck-pay-options { display:grid; gap:8px; }
-  .ck-pay-options .payment-option { width:100%; text-align:left; font-family:inherit; cursor:pointer; }
+  /* Las dos opciones miden lo mismo aunque una tenga más texto */
+  .ck-pay-options { display:grid; grid-auto-rows:1fr; gap:8px; }
+  .ck-pay-options .payment-option { width:100%; height:100%; align-items:center; text-align:left; font-family:inherit; cursor:pointer; }
   .ck-pay-options .payment-title, .ck-pay-options .payment-copy { display:block; }
-  .ck-share-wa { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; min-height:48px; margin:12px 0; border-radius:15px; border:1px solid var(--border); background:var(--surface-1); color:var(--text-primary); font-family:var(--font-sans); font-size:13px; font-weight:800; cursor:pointer; }
+  .ck-share-wa { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; min-height:48px; margin:0; border-radius:15px; border:1px solid var(--border); background:var(--surface-1); color:var(--text-primary); font-family:var(--font-sans); font-size:13px; font-weight:800; cursor:pointer; }
   .ck-share-wa:hover { border-color:var(--border-strong); }
   .ck-share-wa svg { color:#25D366; }
   /* Espacio al final para que la barra fija no tape el contenido (solo celular). */
@@ -106,6 +107,12 @@ const CHECKOUT_CSS = `
 
   /* ── ¡Listo! ── */
   .ck-done { max-width:560px; margin:0 auto; display:flex; flex-direction:column; gap:12px; }
+  /* Pantalla final: todas las tarjetas al mismo nivel (borde, sin sombra) y un solo espacio entre bloques */
+  .ck-done .checkout-card, .p-public-root.p-public-theme-light .ck-done .checkout-card { box-shadow:none; }
+  /* Pago: el aviso de "no pudimos abrir el pago online" va adentro, como primera línea */
+  .ck-pay-card { overflow:hidden; border-radius:18px; border:1px solid var(--border); background:var(--surface-1); }
+  .ck-pay-card .ck-hint { border-radius:0; border-bottom:1px solid var(--border-subtle); }
+  .ck-pay-card .checkout-success-pay { margin:0; border:0; border-radius:0; }
   .ck-done-hero { display:flex; flex-direction:column; align-items:center; text-align:center; gap:10px; padding:6px 0 4px; }
   .ck-mark { position:relative; width:88px; height:88px; }
   .ck-mark svg { position:absolute; inset:0; overflow:visible; }
@@ -840,15 +847,16 @@ export default function CheckoutPage() {
                 </div>
               </div>
             )}
+            <div className="ck-pay-card ck-rise" style={{ animationDelay: '.5s' }}>
             {onlinePaymentFailed && (
-              <div className="ck-hint ck-rise" style={{ marginBottom: 12, animationDelay: '.5s' }}>
+              <div className="ck-hint">
                 <Hourglass size={15} />
-                <span><b>No pudimos abrir el pago online.</b> La reserva está hecha: podés pagarla desde Mis reservas o en el club.</span>
+                <span><b>No pudimos abrir el pago online.</b> La reserva está hecha.</span>
               </div>
             )}
-            <div className="checkout-success-pay ck-rise" style={{ marginBottom: 0, animationDelay: '.5s' }}>
+            <div className="checkout-success-pay">
               <div>
-                <p className="payment-title">Pagás en el club cuando llegues</p>
+                <p className="payment-title">{onlinePaymentFailed ? 'Pagala online desde Mis reservas o en el club' : 'Pagás en el club cuando llegues'}</p>
                 {isPerPlayer && <p className="payment-copy">Cada uno abona su parte en el mostrador.</p>}
               </div>
               <div>
@@ -856,6 +864,7 @@ export default function CheckoutPage() {
                 <p className="checkout-success-pay-amount">{formatMoney(isPerPlayer ? ownerShare : draft.price)}</p>
                 {isPerPlayer && <p className="checkout-value-sub" style={{ marginTop: 2 }}>Total {formatMoney(draft.price)}</p>}
               </div>
+            </div>
             </div>
             <button type="button" className="ck-share-wa ck-rise" style={{ animationDelay: '.55s' }} onClick={shareOnWhatsapp}>
               <MessageCircle size={17} /> Avisale a tu grupo por WhatsApp
@@ -1128,8 +1137,11 @@ export default function CheckoutPage() {
                     <button type="button" role="radio" aria-checked={payOnline} className={`payment-option${payOnline ? ' active' : ''}`} onClick={() => setPayOnline(true)}>
                       <span className="payment-icon"><CreditCard size={18} /></span>
                       <span>
-                        <span className="payment-title">Pagar ahora</span>
-                        <span className="payment-copy">Con Mercado Pago{isPerPlayer ? ` · el total ${formatMoney(draft.price)}` : ''}</span>
+                        <span className="payment-title">{isPerPlayer ? 'Pagar mi parte ahora' : 'Pagar ahora'}</span>
+                        <span className="payment-copy">
+                          Con Mercado Pago · {formatMoney(isPerPlayer ? ownerShare : draft.price)}
+                          {isPerPlayer ? '. Cada invitado paga la suya.' : ''}
+                        </span>
                       </span>
                     </button>
                     <button type="button" role="radio" aria-checked={!payOnline} className={`payment-option${!payOnline ? ' active' : ''}`} onClick={() => setPayOnline(false)}>
@@ -1171,7 +1183,7 @@ export default function CheckoutPage() {
               <p className="p-action-bar-main">{isPerPlayer ? `Tu parte ${formatMoney(ownerShare)}` : `Total ${formatMoney(draft.price)}`}</p>
               <p className="p-action-bar-sub">
                 {payOnline
-                  ? 'Pagás ahora con Mercado Pago'
+                  ? isPerPlayer ? 'Pagás tu parte con Mercado Pago' : 'Pagás ahora con Mercado Pago'
                   : isPerPlayer ? `Total ${formatMoney(draft.price)} · se paga en el club` : 'Se paga en el club'}
               </p>
             </div>

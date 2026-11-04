@@ -187,6 +187,17 @@ export default function Home() {
   const [searchSport, setSearchSport] = useState<PublicSport>('');
   const [showSportDropdown, setShowSportDropdown] = useState(false);
   const [showDateDropdown, setShowDateDropdown] = useState(false);
+  const daysStripRef = useRef<HTMLDivElement | null>(null);
+  // Al abrir la tira de días, el elegido queda a la vista.
+  useEffect(() => {
+    if (!showDateDropdown) return;
+    // En mobile el desplegable se ubica respecto de la caja: justo debajo de la fila de la fecha.
+    const wrap = searchBarRef.current?.querySelector<HTMLElement>('.p-home-search-date-wrap');
+    if (wrap && searchBarRef.current) searchBarRef.current.style.setProperty('--p-home-date-top', `${wrap.offsetTop + wrap.offsetHeight + 6}px`);
+    const strip = daysStripRef.current;
+    const active = strip?.querySelector<HTMLElement>('[aria-pressed="true"]');
+    if (strip && active) strip.scrollLeft = Math.max(0, active.offsetLeft - (strip.clientWidth - active.clientWidth) / 2);
+  }, [showDateDropdown]);
   // Fecha seleccionada en formato YYYY-MM-DD. Por defecto, el dia de hoy.
   const getEffectiveToday = () => {
     // Aqui podemos aplicar offsets si fuera necesario (zona horaria / reglas de negocio).
@@ -658,15 +669,21 @@ export default function Home() {
     .p-home-dd-option[aria-selected="true"] .p-home-dd-check { visibility:visible; }
     .p-home-dd-empty { margin:0; padding:16px; text-align:center; font-size:13px; color:var(--text-muted); }
     /* Fecha: el desplegable se ubica respecto del buscador (no del botón) */
-    .p-home-search-date-wrap { display:flex; }
+    /* La fecha abre pegada a su campo, como deporte y lugar */
+    .p-home-search-date-wrap { position:relative; display:flex; }
     .p-home-search-date { border:0; background:transparent; font-family:inherit; }
-    .p-home-date-dropdown { left:auto; right:0; }
-    .p-home-days { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; padding:10px; width:min(360px, calc(100vw - 40px)); box-sizing:border-box; }
-    .p-home-day { min-height:52px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; border:1px solid var(--border-subtle); border-radius:10px; background:var(--surface-2); color:var(--text-secondary); font-family:inherit; cursor:pointer; transition:background .15s,border-color .15s,color .15s; }
-    .p-home-day:hover { border-color:var(--border); color:var(--text-primary); }
+    .p-home-date-dropdown { left:auto; right:0; width:min(400px, calc(100vw - 48px)); }
+    /* Misma tira de días que el club: una fila que se desliza */
+    .p-home-days { display:flex; gap:4px; margin:8px; padding:4px; border-radius:12px; border:1px solid var(--border); background:var(--surface-2); overflow-x:auto; scrollbar-width:none; scroll-snap-type:x proximity; box-sizing:border-box; }
+    .p-home-days::-webkit-scrollbar { display:none; }
+    /* Sin caja propia: el riel gris es el desplegable (un solo marco) */
+    .p-home-root .p-home-dropdown.p-home-date-dropdown { background:transparent; border:0; box-shadow:none; overflow:visible; }
+    .p-home-date-dropdown .p-home-days { margin:0; box-shadow:var(--shadow-lg); }
+    .p-home-day { flex:0 0 76px; scroll-snap-align:start; min-height:48px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; border:1px solid transparent; border-radius:9px; background:transparent; color:var(--text-secondary); font-family:inherit; cursor:pointer; transition:background .15s,border-color .15s,color .15s; }
+    .p-home-day:hover { background:var(--surface-1); border-color:var(--border); color:var(--text-primary); }
     .p-home-day b { font-size:13px; font-weight:800; white-space:nowrap; }
     .p-home-day small { font-size:10px; font-weight:700; opacity:.8; white-space:nowrap; }
-    .p-home-day[aria-pressed="true"] { background:var(--accent-bg-muted); border-color:var(--accent-border-strong); color:var(--accent-fg); }
+    .p-home-day[aria-pressed="true"] { background:var(--surface-1); border-color:var(--accent-border); color:var(--accent-fg); }
     /* ── Mobile: todo en ~3 pantallas ── */
     @media(max-width:720px){
       .p-home-hero { padding:92px 20px 32px; }
@@ -706,8 +723,8 @@ export default function Home() {
       /* Ciudades: en el celular sobran (el campo ya sugiere lugares al tocarlo) */
       .p-home-search-quicks { display:none; }
       .p-home-search-date-wrap { order:2; margin-left:auto; }
-      .p-home-search .p-home-date-dropdown { left:0; right:0; width:auto; }
-      .p-home-search .p-home-days { width:auto; }
+      .p-home-search-date-wrap { position:static; }
+      .p-home-search .p-home-date-dropdown { top:var(--p-home-date-top, 56px); left:0; right:0; width:auto; max-width:none; min-width:0; box-shadow:var(--shadow-lg); }
       /* Clubes: una fila con título, se desliza con el dedo (sin la copia del carrusel) */
       .p-home-marquee-wrap { padding:14px 0; }
       .p-home-marquee-label { display:block; }
@@ -862,10 +879,11 @@ export default function Home() {
                 >
                   <Calendar size={13} style={{ color: 'var(--text-muted)' }} />
                   <span>{selectedDayLabel}</span>
+                  <ChevronDown className={`p-home-search-caret${showDateDropdown ? ' p-home-search-caret-open' : ''}`} />
                 </button>
                 {showDateDropdown && (
                   <div className="p-home-dropdown p-home-date-dropdown" onClick={e => e.stopPropagation()}>
-                    <div className="p-home-days" role="group" aria-label="Día">
+                    <div className="p-home-days" role="group" aria-label="Día" ref={daysStripRef}>
                       {searchDays.map(day => (
                         <button
                           key={day.key}

@@ -17,7 +17,7 @@ import { ProductRepository } from '../repositories/ProductRepository';
 import { buildSlotsFromSchedule, normalizeSchedule } from '../utils/ActivityScheduleHelper';
 import { getUserClubContext } from '../utils/getUserClubContext';
 import { PricingService } from './PricingService';
-import { PlayerSlotService, resolveShortGapMinutes, type PerPlayerQuote } from './PlayerSlotService';
+import { PlayerSlotService, type PlayerSlotDto, resolveShortGapMinutes, type PerPlayerQuote } from './PlayerSlotService';
 import { BookingReleaseService } from './BookingReleaseService';
 import { normalizeDni } from '../utils/dni';
 import { verifyPlayerInviteToken } from '../utils/playerInviteToken';
@@ -248,10 +248,40 @@ export type PlayerBookingCheckoutDto = {
             | 'ACCOUNT_MISSING'
             | 'PARTICIPANT_PAYMENTS_NOT_SUPPORTED'
             | 'BOOKING_HAS_REFUNDS'
+            | 'MEMBER_PRICE_PENDING'
             | 'UNKNOWN'
             | null;
         futureProvider: 'MERCADO_PAGO' | null;
     };
+    // Reservas por jugador: cada uno paga su parte. null en reservas por cancha.
+    shares: {
+        mine: { amount: number; paid: number; pending: number; memberPricePending: boolean } | null;
+        // El titular puede pagar todo solo cuando todos los precios son definitivos.
+        canPayAll: boolean;
+        allPending: number;
+        players: Array<{
+            slotIndex: number;
+            displayName: string | null;
+            isEmpty: boolean;
+            isMine: boolean;
+            amount: number;
+            paid: boolean;
+            memberPricePending: boolean;
+        }>;
+    } | null;
+};
+
+// OWN_SHARE: la parte de quien paga · ALL_SHARES: todas las partes (solo el titular, con precios definitivos).
+export type OnlinePaymentScope = 'OWN_SHARE' | 'ALL_SHARES';
+
+type OnlinePaymentTarget = {
+    perPlayer: boolean;
+    scope: 'ACCOUNT' | OnlinePaymentScope;
+    amount: number;
+    items: Array<{ accountItemId: string; amount: number }>;
+    payer: { ref: string; name: string | null } | null;
+    blocked: null | 'NO_PLAYER_SLOT' | 'MEMBER_PRICE_PENDING' | 'SHARES_NOT_FINAL' | 'NO_PENDING_BALANCE';
+    slots: PlayerSlotDto[];
 };
 
 export type PlayerBookingCheckoutStartDto = {
@@ -5186,7 +5216,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     enabled: false,
                     reason: 'ACCOUNT_MISSING',
                     futureProvider: null
-                }
+                },
+                shares: null
             };
         }
 
@@ -5197,6 +5228,14 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
         const integrationStatus = await this.clubPaymentIntegrationService.getMercadoPagoIntegrationStatusForClub(booking.clubId);
         const onlineCheckoutEnabled = await this.isOnlineCheckoutEnabledForClub(booking.clubId);
+        const target = await this.resolveOnlinePaymentTargetTx(prisma, {
+            bookingId,
+            userId,
+            isOwner,
+            scope: 'OWN_SHARE',
+            accountPending: pending,
+            perPlayer: Boolean(booking.activityFormatId)
+        });
         let checkoutEnabled = false;
         let checkoutReason: PlayerBookingCheckoutDto['checkout']['reason'] = 'UNKNOWN';
         let futureProvider: PlayerBookingCheckoutDto['checkout']['futureProvider'] = null;
@@ -5205,9 +5244,12 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             checkoutReason = 'BOOKING_HAS_REFUNDS';
         } else if (bookingNotPayable) {
             checkoutReason = 'BOOKING_NOT_PAYABLE';
-        } else if (isParticipant) {
+        } else if (isParticipant && (!target.perPlayer || target.blocked === 'NO_PLAYER_SLOT')) {
             checkoutReason = 'PARTICIPANT_PAYMENTS_NOT_SUPPORTED';
-        } else if (pending <= 0.009) {
+        } else if (target.blocked === 'MEMBER_PRICE_PENDING') {
+            // Su precio socio todavía no está validado: pagar ahora lo congelaría a precio no socio (D9/D10).
+            checkoutReason = 'MEMBER_PRICE_PENDING';
+        } else if (pending <= 0.009 || target.blocked) {
             checkoutReason = 'NO_PENDING_BALANCE';
         } else if (!onlineCheckoutEnabled) {
             // El club cobra solo en el mostrador.
@@ -5256,11 +5298,108 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 enabled: checkoutEnabled,
                 reason: checkoutReason,
                 futureProvider
-            }
+            },
+            shares: this.buildPlayerSharesView(target, { userId, isOwner })
         };
     }
 
-    async createPlayerMercadoPagoCheckoutAttempt(bookingId: number, userId: number): Promise<PlayerBookingCheckoutStartDto> {
+    // Estado de cada parte para Mis reservas: lo propio completo; del resto, nombre corto y si pagó.
+    private buildPlayerSharesView(target: OnlinePaymentTarget, viewer: { userId: number; isOwner: boolean }): PlayerBookingCheckoutDto['shares'] {
+        if (!target.perPlayer) return null;
+        const outstanding = (slot: PlayerSlotDto) => Number(Math.max(0, slot.shareAmount - slot.paidAmount).toFixed(2));
+        const isMine = (slot: PlayerSlotDto) => slot.userId === viewer.userId || (viewer.isOwner && slot.slotIndex === 1);
+        const mineSlot = target.slots.find(isMine) || null;
+        const allPending = Number(target.slots.reduce((sum, slot) => sum + outstanding(slot), 0).toFixed(2));
+        const allFinal = target.slots.every((slot) => !slot.isEmpty && !slot.memberPricePending);
+        return {
+            mine: mineSlot
+                ? {
+                    amount: mineSlot.shareAmount,
+                    paid: mineSlot.paidAmount,
+                    pending: outstanding(mineSlot),
+                    memberPricePending: mineSlot.memberPricePending
+                }
+                : null,
+            canPayAll: viewer.isOwner && allFinal && allPending > 0.009,
+            allPending,
+            players: this.playerSlotService
+                .toPlayerView(target.slots, { userId: viewer.userId, clientIds: [] })
+                .map((slot) => ({
+                    slotIndex: slot.slotIndex,
+                    displayName: slot.displayName,
+                    isEmpty: slot.isEmpty,
+                    isMine: slot.isMine || (viewer.isOwner && slot.slotIndex === 1),
+                    amount: slot.shareAmount,
+                    paid: slot.paid,
+                    memberPricePending: target.slots.find((full) => full.slotIndex === slot.slotIndex)?.memberPricePending ?? false
+                }))
+        };
+    }
+
+    // Qué cubre un pago online. Reserva por cancha: toda la cuenta (como siempre).
+    // Reserva por jugador: cada uno paga su parte (D9/D10). Solo se cobran partes con precio definitivo:
+    // un lugar libre o un socio que todavía no validó su precio no se cobran online.
+    private async resolveOnlinePaymentTargetTx(
+        db: Prisma.TransactionClient | typeof prisma,
+        input: { bookingId: number; userId: number; isOwner: boolean; scope: OnlinePaymentScope; accountPending: number; perPlayer: boolean }
+    ): Promise<OnlinePaymentTarget> {
+        // Las reservas por jugador tienen modalidad (activityFormatId); las por cancha no consultan lugares.
+        const slots = input.perPlayer ? await this.playerSlotService.getSlotsTx(db, input.bookingId) : [];
+        if (slots.length === 0) {
+            return {
+                perPlayer: false,
+                scope: 'ACCOUNT',
+                amount: Number(input.accountPending.toFixed(2)),
+                items: [],
+                payer: null,
+                blocked: input.accountPending > 0.009 ? null : 'NO_PENDING_BALANCE',
+                slots
+            };
+        }
+
+        const outstanding = (slot: PlayerSlotDto) => Number(Math.max(0, slot.shareAmount - slot.paidAmount).toFixed(2));
+        const refFor = (slot: PlayerSlotDto) =>
+            slot.clientId ? `booking-client:${slot.clientId}` : slot.userId ? `booking-user:${slot.userId}` : null;
+        const mine = slots.find((slot) => slot.userId === input.userId) || (input.isOwner ? slots.find((slot) => slot.slotIndex === 1) : undefined);
+        const base = { perPlayer: true, scope: input.scope, slots } as const;
+
+        if (input.scope === 'ALL_SHARES') {
+            if (!input.isOwner) return { ...base, amount: 0, items: [], payer: null, blocked: 'NO_PLAYER_SLOT' };
+            if (slots.some((slot) => slot.isEmpty || slot.memberPricePending || !slot.accountItemId)) {
+                return { ...base, amount: 0, items: [], payer: null, blocked: 'SHARES_NOT_FINAL' };
+            }
+            const items = slots
+                .filter((slot) => outstanding(slot) > 0.009)
+                .map((slot) => ({ accountItemId: String(slot.accountItemId), amount: outstanding(slot) }));
+            const amount = Number(items.reduce((sum, item) => sum + item.amount, 0).toFixed(2));
+            const payerRef = mine ? refFor(mine) : null;
+            return {
+                ...base,
+                amount,
+                items,
+                payer: payerRef ? { ref: payerRef, name: mine?.displayName ?? null } : null,
+                blocked: amount > 0.009 ? null : 'NO_PENDING_BALANCE'
+            };
+        }
+
+        if (!mine || !mine.accountItemId) return { ...base, amount: 0, items: [], payer: null, blocked: 'NO_PLAYER_SLOT' };
+        if (mine.memberPricePending) return { ...base, amount: 0, items: [], payer: null, blocked: 'MEMBER_PRICE_PENDING' };
+        const amount = outstanding(mine);
+        const payerRef = refFor(mine);
+        return {
+            ...base,
+            amount,
+            items: amount > 0.009 ? [{ accountItemId: mine.accountItemId, amount }] : [],
+            payer: payerRef ? { ref: payerRef, name: mine.displayName } : null,
+            blocked: amount > 0.009 ? null : 'NO_PENDING_BALANCE'
+        };
+    }
+
+    async createPlayerMercadoPagoCheckoutAttempt(
+        bookingId: number,
+        userId: number,
+        scope: OnlinePaymentScope = 'OWN_SHARE'
+    ): Promise<PlayerBookingCheckoutStartDto> {
         if (!Number.isInteger(userId) || userId <= 0) {
             throw this.bookingForbidden();
         }
@@ -5303,15 +5442,23 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
         const isOwner = this.isExplicitBookingOwner(booking, userId);
         const isParticipant = !isOwner && this.isBookingParticipantJoined(booking, userId);
+        // Reserva por jugador: cada participante puede pagar su parte. Por cancha: solo el titular.
+        const perPlayerBooking = Boolean(booking.activityFormatId);
         if (!isOwner) {
-            if (isParticipant) {
+            if (isParticipant && !perPlayerBooking) {
                 throw forbidden(
                     'Por ahora el pago online está disponible solo para el titular de la reserva.',
                     ErrorCodes.CHECKOUT_FORBIDDEN
                 );
             }
-            throw this.bookingForbidden('No tenés permiso para iniciar el pago de esta reserva.');
+            if (!isParticipant) throw this.bookingForbidden('No tenés permiso para iniciar el pago de esta reserva.');
         }
+        if (scope === 'ALL_SHARES' && !isOwner) {
+            throw forbidden('Solo el titular puede pagar todas las partes.', ErrorCodes.CHECKOUT_FORBIDDEN);
+        }
+        const payerUser = isOwner
+            ? null
+            : await prisma.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true, email: true } });
 
         const account = await prisma.account.findFirst({
             where: {
@@ -5403,6 +5550,34 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 throw conflict('Esta reserva no tiene saldo pendiente por ahora.', ErrorCodes.CHECKOUT_NO_PENDING_BALANCE);
             }
 
+            const target = await this.resolveOnlinePaymentTargetTx(tx, {
+                bookingId,
+                userId,
+                isOwner,
+                scope,
+                accountPending: pending,
+                perPlayer: perPlayerBooking
+            });
+            if (target.blocked === 'MEMBER_PRICE_PENDING') {
+                throw conflict(
+                    'Tu precio socio todavía no está validado. Aceptá la invitación o validalo en el club antes de pagar.',
+                    ErrorCodes.CHECKOUT_NOT_AVAILABLE
+                );
+            }
+            if (target.blocked === 'SHARES_NOT_FINAL') {
+                throw conflict(
+                    'Todavía hay lugares libres o precios socio sin validar. Pagá tu parte; el resto paga la suya.',
+                    ErrorCodes.CHECKOUT_NOT_AVAILABLE
+                );
+            }
+            if (target.blocked === 'NO_PLAYER_SLOT') {
+                throw forbidden('No tenés un lugar en esta reserva.', ErrorCodes.CHECKOUT_FORBIDDEN);
+            }
+            if (target.blocked === 'NO_PENDING_BALANCE') {
+                throw conflict('Tu parte ya está paga.', ErrorCodes.CHECKOUT_NO_PENDING_BALANCE);
+            }
+            const amount = target.amount;
+
             if (freshAccount.refunds.some((refund) => refund.status !== 'FAILED' && refund.status !== 'CANCELLED')) {
                 throw conflict(
                     'Esta reserva tiene devoluciones o ajustes que debe revisar el club.',
@@ -5410,17 +5585,25 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 );
             }
 
+            // En reservas por jugador cada uno tiene su propio intento: no se pisan entre jugadores.
             const existingAttempt = await tx.onlinePaymentAttempt.findFirst({
                 where: {
                     clubId: booking.clubId,
                     bookingId,
                     provider: 'MERCADO_PAGO',
-                    status: { in: ['CREATED', 'PENDING'] }
+                    status: { in: ['CREATED', 'PENDING'] },
+                    ...(target.perPlayer ? { userId } : {})
                 },
                 orderBy: { createdAt: 'desc' }
             });
+            const existingScope = (existingAttempt?.target as { scope?: string } | null)?.scope ?? 'ACCOUNT';
 
-            if (existingAttempt && Number(existingAttempt.amount || 0).toFixed(2) === pending.toFixed(2) && existingAttempt.initPoint) {
+            if (
+                existingAttempt
+                && existingScope === target.scope
+                && Number(existingAttempt.amount || 0).toFixed(2) === amount.toFixed(2)
+                && existingAttempt.initPoint
+            ) {
                 return {
                     attemptId: existingAttempt.id,
                     initPoint: String(existingAttempt.initPoint),
@@ -5428,7 +5611,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 };
             }
 
-            if (existingAttempt && Math.abs(Number(existingAttempt.amount || 0) - pending) > 0.009) {
+            if (existingAttempt && (existingScope !== target.scope || Math.abs(Number(existingAttempt.amount || 0) - amount) > 0.009)) {
                 await tx.onlinePaymentAttempt.update({
                     where: { id: existingAttempt.id },
                     data: {
@@ -5438,7 +5621,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 });
             }
 
-            const idempotencyKey = `booking:${bookingId}:user:${userId}:pending:${pending.toFixed(2)}`;
+            // Por cancha: la clave de siempre. Por partes: con un sufijo único, para poder reintentar
+            // la misma parte después de un pago rechazado.
+            const idempotencyKey = target.perPlayer
+                ? `booking:${bookingId}:user:${userId}:${target.scope}:${amount.toFixed(2)}:${generateDisplayCode('K')}`
+                : `booking:${bookingId}:user:${userId}:pending:${amount.toFixed(2)}`;
             const attempt = await tx.onlinePaymentAttempt.create({
                 data: {
                     clubId: booking.clubId,
@@ -5458,17 +5645,22 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     )?.id ?? null,
                     provider: 'MERCADO_PAGO',
                     status: 'CREATED',
-                    amount: pending,
+                    amount,
                     currency: 'ARS',
                     idempotencyKey,
+                    ...(target.perPlayer
+                        ? { target: { scope: target.scope, items: target.items, payer: target.payer } as Prisma.InputJsonValue }
+                        : {}),
                     externalReference: `booking-checkout:${bookingId}:attempt:${generateDisplayCode('CHK')}`
                 }
             });
 
-            const ownerFirstName = String(booking.user?.firstName || '').trim();
-            const ownerLastName = String(booking.user?.lastName || '').trim();
-            const payerEmail = String(booking.user?.email || booking.client?.email || '').trim() || null;
-            const preferenceTitle = `Reserva de cancha - ${booking.court.club.name}`;
+            const ownerFirstName = String(payerUser?.firstName || booking.user?.firstName || '').trim();
+            const ownerLastName = String(payerUser?.lastName || booking.user?.lastName || '').trim();
+            const payerEmail = String(payerUser?.email || booking.user?.email || booking.client?.email || '').trim() || null;
+            const preferenceTitle = target.scope === 'OWN_SHARE'
+                ? `Tu parte de la reserva - ${booking.court.club.name}`
+                : `Reserva de cancha - ${booking.court.club.name}`;
             const preferenceDescription = `${booking.court.name} · ${booking.court.club.name}`;
             const publicBase = mercadoPagoConfig.frontendUrl || 'http://localhost:3001';
             const backendBase = mercadoPagoConfig.appBaseUrl || 'http://localhost:3000';
@@ -5487,7 +5679,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 title: preferenceTitle,
                 description: preferenceDescription,
                 quantity: 1,
-                unitPrice: pending,
+                unitPrice: amount,
                 payer: payerEmail
                     ? {
                         name: ownerFirstName || booking.client?.name || 'Jugador',
@@ -5534,7 +5726,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         provider: 'MERCADO_PAGO',
                         bookingId: booking.id,
                         accountId: freshAccount.id,
-                        amount: pending
+                        amount,
+                        scope: target.scope
                     }
                 }
             });

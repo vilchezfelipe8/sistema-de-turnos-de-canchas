@@ -259,6 +259,50 @@ export class OnlineCheckoutService {
         return { ok: true, attemptId: attempt.id, status: 'ERROR', reason: ErrorCodes.CHECKOUT_AMOUNT_CHANGED };
       }
 
+      // Reserva por jugador: el pago se imputa a las partes que cubre (solo esas quedan congeladas, D10).
+      // Si alguna parte cambió desde que se inició el pago, no se imputa: lo revisa el club.
+      const target = this.parseAttemptTarget(attempt.target);
+      if (target) {
+        const ids = target.items.map((item) => item.accountItemId);
+        const [items, allocated] = await Promise.all([
+          tx.accountItem.findMany({ where: { id: { in: ids }, accountId: account.id }, select: { id: true, total: true } }),
+          tx.paymentAllocation.groupBy({ by: ['accountItemId'], where: { accountItemId: { in: ids } }, _sum: { amount: true } })
+        ]);
+        const allocatedById = new Map(allocated.map((row) => [row.accountItemId, Number(row._sum.amount || 0)]));
+        const targetTotal = Number(target.items.reduce((sum, item) => sum + item.amount, 0).toFixed(2));
+        const changed = items.length !== ids.length
+          || Math.abs(targetTotal - approvedAmount) > EPSILON
+          || target.items.some((item) => {
+            const row = items.find((candidate) => candidate.id === item.accountItemId);
+            const outstanding = Number(row?.total || 0) - (allocatedById.get(item.accountItemId) || 0);
+            return outstanding + EPSILON < item.amount;
+          });
+        if (changed) {
+          await tx.onlinePaymentAttempt.update({
+            where: { id: attempt.id },
+            data: {
+              status: 'ERROR',
+              providerPaymentId,
+              providerStatus,
+              rawProviderData: rawPaymentJson,
+              processedAt: new Date(),
+              failureReason: ErrorCodes.CHECKOUT_AMOUNT_CHANGED
+            }
+          });
+          await tx.auditLog.create({
+            data: {
+              clubId,
+              userId: attempt.userId,
+              entity: 'ONLINE_PAYMENT_ATTEMPT',
+              entityId: attempt.id,
+              action: 'PAYMENT_ONLINE_SHARES_CHANGED',
+              payload: { provider: 'MERCADO_PAGO', providerPaymentId, approvedAmount, target } as Prisma.InputJsonValue
+            }
+          });
+          return { ok: true, attemptId: attempt.id, status: 'ERROR', reason: ErrorCodes.CHECKOUT_AMOUNT_CHANGED };
+        }
+      }
+
       const paymentMethod = this.mapMercadoPagoMethod(payment.payment_type_id);
       const createdPayment = await this.paymentService.createInTransaction(tx, {
         clubId,
@@ -268,7 +312,16 @@ export class OnlineCheckoutService {
         channel: paymentMethod.channel,
         source: 'ONLINE',
         externalReference: providerPaymentId,
-        idempotencyKey: `mercadopago:${providerPaymentId}`
+        idempotencyKey: `mercadopago:${providerPaymentId}`,
+        ...(target
+          ? {
+            allocations: target.items,
+            ...(target.payer ? { payerParticipantRef: target.payer.ref, payerParticipantName: target.payer.name || undefined } : {}),
+            ...(target.scope === 'OWN_SHARE' && target.payer
+              ? { coveredParticipantRef: target.payer.ref, coveredParticipantName: target.payer.name || undefined }
+              : {})
+          }
+          : {})
       });
 
       await tx.onlinePaymentAttempt.update({
@@ -307,6 +360,31 @@ export class OnlineCheckoutService {
         status: 'APPROVED'
       };
     });
+  }
+
+  private parseAttemptTarget(raw: unknown): {
+    scope: 'OWN_SHARE' | 'ALL_SHARES';
+    items: Array<{ accountItemId: string; amount: number }>;
+    payer: { ref: string; name: string | null } | null;
+  } | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const value = raw as { scope?: unknown; items?: unknown; payer?: unknown };
+    if (!Array.isArray(value.items) || value.items.length === 0) return null;
+    const items = value.items
+      .map((item) => ({
+        accountItemId: String((item as { accountItemId?: unknown })?.accountItemId || '').trim(),
+        amount: Number(Number((item as { amount?: unknown })?.amount || 0).toFixed(2))
+      }))
+      .filter((item) => item.accountItemId && item.amount > 0);
+    if (items.length === 0) return null;
+    const payer = value.payer && typeof value.payer === 'object'
+      ? { ref: String((value.payer as { ref?: unknown }).ref || ''), name: ((value.payer as { name?: unknown }).name as string | null) ?? null }
+      : null;
+    return {
+      scope: value.scope === 'ALL_SHARES' ? 'ALL_SHARES' : 'OWN_SHARE',
+      items,
+      payer: payer?.ref ? payer : null
+    };
   }
 
   private mapMercadoPagoMethod(paymentTypeId: unknown): {

@@ -35,6 +35,9 @@ async function withTransactionMock(tx: any, run: () => Promise<void>) {
 
 test('changeBookingClient permite cambio manual explícito cuando no hay pagos/devoluciones y todo pertenece al club', async () => {
   const service = buildService();
+  service.playerSlotService = {
+    replaceOwnerSlotTx: async () => undefined
+  };
   const auditCalls: any[] = [];
   service.eventService = {
     bookingClientChanged: async () => null
@@ -70,6 +73,13 @@ test('changeBookingClient permite cambio manual explícito cuando no hay pagos/d
       },
       bookingBillingConfig: {
         findUnique: async () => null
+      },
+      bookingParticipant: {
+        findFirst: async () => null,
+        create: async ({ data }: any) => ({ id: 'participant-organizer', ...data })
+      },
+      bookingHistoryEntry: {
+        create: async ({ data }: any) => ({ id: 'history-owner-change', ...data })
       }
     },
     async () => {
@@ -267,6 +277,9 @@ test('upsertBookingBillingConfig no puede cambiar Booking.clientId por participa
       },
       account: {
         findFirst: async () => null
+      },
+      bookingHistoryEntry: {
+        create: async ({ data }: any) => ({ id: 'history-billing-config', ...data })
       }
     },
     async () => {

@@ -7,6 +7,7 @@ import {
   getBookingParticipants,
   getPlayerBookingCheckout,
   createMercadoPagoCheckout,
+  type OnlinePaymentScope,
   inviteBookingParticipant,
   removeBookingParticipant,
   getMyBookingInvitations,
@@ -38,6 +39,13 @@ import Modal from '../components/ui/Modal';
 const APP_NOTICE_EVENT = 'app:notice';
 
 const PAGE_CSS = `
+  .bk-action-secondary { background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border); }
+  .bk-action-secondary:hover:not(:disabled) { background:var(--surface-3); }
+  .bk-share-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; border-radius:12px; background:var(--surface-2); border:1px solid var(--border-subtle); }
+  .bk-share-name { font-size:13px; font-weight:700; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bk-share-status { margin-top:2px; font-size:12px; font-weight:600; color:var(--text-muted); }
+  .bk-share-status.is-paid { color:var(--accent-fg); }
+  .bk-share-amount { flex-shrink:0; font-size:13px; font-weight:800; color:var(--text-primary); white-space:nowrap; }
   .bk-page { padding-top:16px!important; padding-bottom:var(--page-end-gap)!important; }
   .bk-page-head { margin-bottom:28px; display:flex; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:12px; padding-bottom:22px; border-bottom:1px solid var(--border-subtle); }
   .bk-tabs-wrap { margin-bottom:18px; }
@@ -626,13 +634,17 @@ export default function MyBookingsPage() {
 
   const getCheckoutReasonMessage = (checkout: PlayerBookingCheckoutDto) => {
     if (checkout.checkout.enabled) {
-      return 'Mercado Pago está disponible para este pago. Cuando avances, el monto se toma desde la cuenta real de la reserva.';
+      return checkout.shares
+        ? 'Podés pagar tu parte online con Mercado Pago. Cada jugador paga la suya.'
+        : 'Mercado Pago está disponible para este pago. Cuando avances, el monto se toma desde la cuenta real de la reserva.';
     }
     switch (checkout.checkout.reason) {
+      case 'MEMBER_PRICE_PENDING':
+        return 'Tu precio socio todavía no está validado. Aceptá la invitación o validalo en el club; así pagás el precio que te corresponde.';
       case 'ACCOUNT_MISSING':
         return 'Todavía no hay una cuenta publicada para esta reserva. Contactá al club para confirmar el estado de pago.';
       case 'NO_PENDING_BALANCE':
-        return 'Esta reserva no tiene saldo pendiente por ahora.';
+        return checkout.shares ? 'Tu parte ya está paga.' : 'Esta reserva no tiene saldo pendiente por ahora.';
       case 'PARTICIPANT_PAYMENTS_NOT_SUPPORTED':
         return 'Por ahora el pago online está disponible solo para el titular de la reserva. Si necesitás resolver un pago, contactá al club.';
       case 'BOOKING_HAS_REFUNDS':
@@ -648,11 +660,13 @@ export default function MyBookingsPage() {
     }
   };
 
-  const handleStartOnlineCheckout = async () => {
-    if (!selectedBooking || !checkoutSummary?.checkout.enabled || checkoutSubmitting) return;
+  const handleStartOnlineCheckout = async (scope: OnlinePaymentScope = 'OWN_SHARE') => {
+    if (!selectedBooking || checkoutSubmitting) return;
+    if (scope === 'OWN_SHARE' && !checkoutSummary?.checkout.enabled) return;
+    if (scope === 'ALL_SHARES' && !checkoutSummary?.shares?.canPayAll) return;
     setCheckoutSubmitting(true);
     try {
-      const payload = await createMercadoPagoCheckout(selectedBooking.id);
+      const payload = await createMercadoPagoCheckout(selectedBooking.id, scope);
       if (typeof window !== 'undefined') {
         window.location.assign(payload.initPoint);
       }
@@ -1426,11 +1440,18 @@ export default function MyBookingsPage() {
                               gap: 10
                             }}
                           >
-                            {[
-                              { label: 'Total', value: checkoutSummary.account ? formatMoney(checkoutSummary.account.total) : '—' },
-                              { label: 'Pagado', value: checkoutSummary.account ? formatMoney(checkoutSummary.account.paid) : '—' },
-                              { label: 'Pendiente', value: checkoutSummary.account ? formatMoney(checkoutSummary.account.pending) : '—' }
-                            ].map((item) => (
+                            {(checkoutSummary.shares?.mine
+                              ? [
+                                  { label: 'Tu parte', value: formatMoney(checkoutSummary.shares.mine.amount) },
+                                  { label: 'Pagado', value: formatMoney(checkoutSummary.shares.mine.paid) },
+                                  { label: 'Pendiente', value: formatMoney(checkoutSummary.shares.mine.pending) }
+                                ]
+                              : [
+                                  { label: 'Total', value: checkoutSummary.account ? formatMoney(checkoutSummary.account.total) : '—' },
+                                  { label: 'Pagado', value: checkoutSummary.account ? formatMoney(checkoutSummary.account.paid) : '—' },
+                                  { label: 'Pendiente', value: checkoutSummary.account ? formatMoney(checkoutSummary.account.pending) : '—' }
+                                ]
+                            ).map((item) => (
                               <div
                                 key={item.label}
                                 style={{
@@ -1448,7 +1469,31 @@ export default function MyBookingsPage() {
                             ))}
                           </div>
 
-                          {checkoutSummary.account?.items?.length ? (
+                          {checkoutSummary.shares ? (
+                            <div style={{ display: 'grid', gap: 8 }}>
+                              {checkoutSummary.shares.players.map((player) => {
+                                const status = player.isEmpty
+                                  ? 'Lugar libre · se paga en el club'
+                                  : player.paid
+                                    ? 'Pagado'
+                                    : player.memberPricePending
+                                      ? 'Precio socio pendiente de validar'
+                                      : 'Pendiente';
+                                return (
+                                  <div key={player.slotIndex} className="bk-share-row">
+                                    <div style={{ minWidth: 0 }}>
+                                      <div className="bk-share-name">{player.isMine ? 'Vos' : player.displayName || `Lugar ${player.slotIndex}`}</div>
+                                      <div className={`bk-share-status${player.paid ? ' is-paid' : ''}`}>{status}</div>
+                                    </div>
+                                    <div className="bk-share-amount">{formatMoney(player.amount)}</div>
+                                  </div>
+                                );
+                              })}
+                              <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>
+                                Total de la reserva {checkoutSummary.account ? formatMoney(checkoutSummary.account.total) : '—'}
+                              </div>
+                            </div>
+                          ) : checkoutSummary.account?.items?.length ? (
                             <div style={{ display: 'grid', gap: 8 }}>
                               {checkoutSummary.account.items.map((item, index) => (
                                 <div
@@ -1512,10 +1557,26 @@ export default function MyBookingsPage() {
                             <button
                               type="button"
                               className="bk-action-btn bk-action-rebook"
-                              onClick={handleStartOnlineCheckout}
+                              onClick={() => { void handleStartOnlineCheckout('OWN_SHARE'); }}
                               disabled={checkoutSubmitting}
                             >
-                              <BusyLabel busy={checkoutSubmitting}><Ticket size={15} />Pagar online con Mercado Pago</BusyLabel>
+                              <BusyLabel busy={checkoutSubmitting}>
+                                <Ticket size={15} />
+                                {checkoutSummary.shares?.mine
+                                  ? `Pagar mi parte · ${formatMoney(checkoutSummary.shares.mine.pending)}`
+                                  : 'Pagar online con Mercado Pago'}
+                              </BusyLabel>
+                            </button>
+                          )}
+                          {checkoutSummary.shares?.canPayAll && checkoutSummary.shares.allPending > (checkoutSummary.shares.mine?.pending || 0) + 0.009 && (
+                            // Solo con todos los lugares ocupados y precios validados: nadie pierde su precio socio.
+                            <button
+                              type="button"
+                              className="bk-action-btn bk-action-secondary"
+                              onClick={() => { void handleStartOnlineCheckout('ALL_SHARES'); }}
+                              disabled={checkoutSubmitting}
+                            >
+                              Pagar todas las partes · {formatMoney(checkoutSummary.shares.allPending)}
                             </button>
                           )}
                         </>

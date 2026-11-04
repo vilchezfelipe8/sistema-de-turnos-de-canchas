@@ -60,8 +60,8 @@ test('checkout entrega los participantes iniciales sanitizados al crear la reser
 
   assert.equal(payload.statusCode, 201);
   assert.deepEqual(receivedOptions.initialParticipants, [
-    { email: 'invitado@example.com', dni: null, name: 'Leo' },
-    { email: null, dni: '35.123.456', name: null }
+    { email: 'invitado@example.com', dni: null, name: 'Leo', inviteToken: null },
+    { email: null, dni: '35.123.456', name: null, inviteToken: null }
   ]);
 });
 

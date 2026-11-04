@@ -230,11 +230,30 @@ export type PlayerBookingCheckoutDto = {
       | 'ACCOUNT_MISSING'
       | 'PARTICIPANT_PAYMENTS_NOT_SUPPORTED'
       | 'BOOKING_HAS_REFUNDS'
+      | 'MEMBER_PRICE_PENDING'
       | 'UNKNOWN'
       | null;
     futureProvider: 'MERCADO_PAGO' | null;
   };
+  // Reservas por jugador: cada uno paga su parte. null en reservas por cancha.
+  shares: {
+    mine: { amount: number; paid: number; pending: number; memberPricePending: boolean } | null;
+    canPayAll: boolean;
+    allPending: number;
+    players: Array<{
+      slotIndex: number;
+      displayName: string | null;
+      isEmpty: boolean;
+      isMine: boolean;
+      amount: number;
+      paid: boolean;
+      memberPricePending: boolean;
+    }>;
+  } | null;
 };
+
+// OWN_SHARE: la parte propia (por defecto) · ALL_SHARES: todas las partes (solo el titular).
+export type OnlinePaymentScope = 'OWN_SHARE' | 'ALL_SHARES';
 
 export type PlayerBookingCheckoutStartDto = {
   attemptId: string;
@@ -541,11 +560,13 @@ export const removeBookingParticipant = async (bookingId: number | string, parti
 };
 
 export const createMercadoPagoCheckout = async (
-  bookingId: number | string
+  bookingId: number | string,
+  scope: OnlinePaymentScope = 'OWN_SHARE'
 ): Promise<PlayerBookingCheckoutStartDto> => {
   const res = await fetchWithAuth(`${apiBase()}/me/bookings/${bookingId}/checkout/mercadopago`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope })
   });
 
   if (!res.ok) {

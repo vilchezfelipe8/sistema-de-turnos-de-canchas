@@ -41,6 +41,9 @@ function buildServiceHarness(historyEntries: any[]) {
   service.projectionService = {
     refreshAccountSummary: async () => null
   };
+  // Club por cancha y sin avisos push: así no se consulta la base real.
+  service.playerSlotService.isPerPlayerClub = async () => false;
+  service.enqueueBookingConfirmedPushTx = async () => null;
 
   return service;
 }

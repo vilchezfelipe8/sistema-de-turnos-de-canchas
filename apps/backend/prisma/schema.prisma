@@ -1681,6 +1681,8 @@ model OnlinePaymentAttempt {
   payment              Payment?                   @relation("OnlinePaymentAttemptPayment", fields: [paymentId], references: [id], onDelete: SetNull)
   failureReason        String?
   rawProviderData      Json?
+  // Partes que cubre el pago (reservas por jugador). null = toda la cuenta.
+  target               Json?
   processedAt          DateTime?                  @db.Timestamptz(3)
   createdAt            DateTime                   @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime                   @updatedAt @db.Timestamptz(3)

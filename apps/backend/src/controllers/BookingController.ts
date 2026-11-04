@@ -892,7 +892,9 @@ export class BookingController {
                 return sendAuthError(res, 401, ErrorCodes.AUTH_MISSING, 'Necesitás iniciar sesión para iniciar el pago online.');
             }
 
-            const checkout = await this.bookingService.createPlayerMercadoPagoCheckoutAttempt(bookingId, userId);
+            // scope: OWN_SHARE (por defecto, la parte propia) o ALL_SHARES (el titular paga todas).
+            const scope = String(req.body?.scope || '').toUpperCase() === 'ALL_SHARES' ? 'ALL_SHARES' : 'OWN_SHARE';
+            const checkout = await this.bookingService.createPlayerMercadoPagoCheckoutAttempt(bookingId, userId, scope);
             return res.status(201).json(checkout);
         } catch (error: any) {
             return sendAppError(res, error, 'No pudimos iniciar el pago online de la reserva.');

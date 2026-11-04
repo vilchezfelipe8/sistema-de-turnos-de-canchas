@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma';
 import { ErrorCodes, badRequest, notFound } from '../errors';
 import { playerRefFor, signPlayerInviteToken } from '../utils/playerInviteToken';
@@ -23,6 +24,25 @@ const SEARCH_LIMIT = 8;
 const FREQUENT_LIMIT = 5;
 const FREQUENT_RECENT_BOOKINGS = 80;
 const SEARCHABLE_ACCOUNT_STATUSES = ['ACTIVE', 'PENDING_ACTIVATION'] as const;
+
+// Nombres comparados sin acentos, mayúsculas ni signos: "martin" encuentra a "Martín",
+// "nunez" a "Núñez", "guemes" a "Güemes" y "oneill" a "O'Neill".
+// Se aplica igual al texto buscado (en JS) y a los nombres guardados (en SQL con translate(),
+// nativo de PostgreSQL: no requiere la extensión unaccent ni una migración).
+const ACCENTED = 'áàäâãåéèëêíìïîóòöôõúùüûñçý';
+const PLAIN = 'aaaaaaeeeeiiiiooooouuuuncy';
+// Caracteres que se eliminan del nombre guardado (translate borra los que no tienen par).
+const REMOVED_SIGNS = "'´`’-. ";
+
+export const normalizeSearchToken = (value: string) =>
+    String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}]/gu, '');
+
+const normalizedColumn = (column: 'firstName' | 'lastName') =>
+    Prisma.raw(`translate(lower(u."${column}"), '${ACCENTED}${REMOVED_SIGNS.replace(/'/g, "''")}', '${PLAIN}')`);
 
 const displayNameFor = (user: { firstName: string; lastName: string }) =>
     `${String(user.firstName || '').trim()} ${String(user.lastName || '').trim().charAt(0)}${user.lastName ? '.' : ''}`.trim();
@@ -100,37 +120,44 @@ export class PlayerInviteSearchService {
         const tokens = String(input.query || '')
             .trim()
             .split(/\s+/)
-            .map((token) => token.slice(0, 40))
+            .map((token) => normalizeSearchToken(token.slice(0, 40)))
             .filter(Boolean)
             .slice(0, MAX_QUERY_TOKENS);
         const letters = tokens.join('').replace(/[^\p{L}]/gu, '').length;
         if (letters < MIN_QUERY_LETTERS) return [];
 
         const clubId = await this.resolveClubId(input);
-        const users = await prisma.user.findMany({
-            where: {
-                id: { not: input.requesterUserId },
-                accountStatus: { in: [...SEARCHABLE_ACCOUNT_STATUSES] },
-                AND: [
-                    ...tokens.map((token) => ({
-                        OR: [
-                            { firstName: { contains: token, mode: 'insensitive' as const } },
-                            { lastName: { contains: token, mode: 'insensitive' as const } }
-                        ]
-                    })),
-                    {
-                        OR: [
-                            { clients: { some: { clubId } } },
-                            { bookings: { some: { clubId } } },
-                            { bookingParticipants: { some: { status: 'JOINED' as const, booking: { clubId } } } }
-                        ]
-                    }
-                ]
-            },
-            select: { id: true, firstName: true, lastName: true },
-            orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
-            take: SEARCH_LIMIT * 2
+        // Cada palabra tiene que aparecer en el nombre o en el apellido. Los tokens solo tienen letras
+        // y números (sin comodines de LIKE) y van como parámetros. Solo personas relacionadas con el club.
+        const tokenConditions = tokens.map((token) => Prisma.sql`(${normalizedColumn('firstName')} LIKE ${`%${token}%`} OR ${normalizedColumn('lastName')} LIKE ${`%${token}%`})`);
+        const rows = await prisma.$queryRaw<Array<{ id: number }>>`
+            SELECT u.id
+            FROM "User" u
+            WHERE u.id <> ${input.requesterUserId}
+              AND u."accountStatus"::text IN (${Prisma.join([...SEARCHABLE_ACCOUNT_STATUSES])})
+              AND ${Prisma.join(tokenConditions, ' AND ')}
+              AND (
+                EXISTS (SELECT 1 FROM "Client" c WHERE c."userId" = u.id AND c."clubId" = ${clubId})
+                OR EXISTS (SELECT 1 FROM "Booking" b WHERE b."userId" = u.id AND b."clubId" = ${clubId})
+                OR EXISTS (
+                  SELECT 1 FROM "BookingParticipant" p
+                  JOIN "Booking" pb ON pb.id = p."bookingId"
+                  WHERE p."userId" = u.id AND p.status::text = 'JOINED' AND pb."clubId" = ${clubId}
+                )
+              )
+            ORDER BY u."firstName" ASC, u."lastName" ASC
+            LIMIT ${SEARCH_LIMIT * 2}
+        `;
+        const ids = rows.map((row) => Number(row.id));
+        if (ids.length === 0) return [];
+        const found = await prisma.user.findMany({
+            where: { id: { in: ids } },
+            select: { id: true, firstName: true, lastName: true }
         });
+        const byId = new Map(found.map((user) => [user.id, user]));
+        const users = ids
+            .map((id) => byId.get(id))
+            .filter((user): user is { id: number; firstName: string; lastName: string } => Boolean(user));
 
         const counts = await this.playedWithCounts(input.requesterUserId);
         return users

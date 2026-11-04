@@ -15,6 +15,7 @@ import BusyLabel from '../ui/BusyLabel';
 const CSS = `
   .pn-card { display:grid; gap:12px; padding:14px; border-radius:20px; border:1px solid var(--accent-border-subtle); background:linear-gradient(135deg, var(--accent-bg-soft), var(--surface-1) 60%); margin-bottom:14px; }
   .pn-card.is-neutral { border-color:var(--border); background:var(--surface-1); }
+  .pn-card.is-neutral > .pn-btn { width:100%; }
   .pn-head { display:flex; gap:12px; align-items:flex-start; }
   .pn-icon { width:40px; height:40px; border-radius:13px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:var(--positive-bg); color:var(--accent-fg); }
   .pn-card.is-neutral .pn-icon { background:var(--surface-2); color:var(--text-secondary); }
@@ -43,8 +44,8 @@ const CSS = `
   .pn-optin .pn-actions .pn-btn-primary { height:38px; padding:0 16px; border-radius:11px; }
   .pn-optin .pn-error { grid-column:2 / -1; }
   @media(max-width:620px){
-    .pn-card { grid-template-columns:34px minmax(0,1fr) 32px; gap:8px 10px; padding:12px; border-radius:16px; }
-    .pn-head { display:contents; }
+    /* La grilla de 3 columnas es solo del aviso de activar (pn-optin); el de iPhone va en columna */
+    .pn-card { gap:12px; padding:12px; border-radius:16px; }
     .pn-icon { width:34px; height:34px; border-radius:11px; }
     .pn-title { font-size:13px; line-height:1.25; }
     .pn-copy { margin-top:2px; font-size:11px; line-height:1.35; }
