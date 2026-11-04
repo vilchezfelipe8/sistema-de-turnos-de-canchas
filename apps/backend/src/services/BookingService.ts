@@ -258,10 +258,13 @@ export type PlayerBookingCheckoutDto = {
     };
     // Reservas por jugador: cada uno paga su parte. null en reservas por cancha.
     shares: {
-        mine: { amount: number; paid: number; pending: number; memberPricePending: boolean } | null;
+        // pending incluye los consumos a cargo de quien mira (extrasPending).
+        mine: { amount: number; paid: number; pending: number; extrasPending: number; memberPricePending: boolean } | null;
         // El titular puede pagar todo solo cuando todos los precios son definitivos.
         canPayAll: boolean;
         allPending: number;
+        // Consumos pendientes de la cuenta y quién los paga.
+        extras: Array<{ label: string; pending: number; slotIndex: number; isMine: boolean }>;
         players: Array<{
             slotIndex: number;
             // Para mostrar el pago de cada uno en la lista de participantes.
@@ -287,7 +290,11 @@ type OnlinePaymentTarget = {
     payer: { ref: string; name: string | null } | null;
     blocked: null | 'NO_PLAYER_SLOT' | 'MEMBER_PRICE_PENDING' | 'SHARES_NOT_FINAL' | 'NO_PENDING_BALANCE';
     slots: PlayerSlotDto[];
+    // Consumos y otros cargos que no son la parte de cancha de un lugar, con el lugar que los paga.
+    extras: PlayerExtraCharge[];
 };
+
+type PlayerExtraCharge = { accountItemId: string; label: string; pending: number; slotIndex: number };
 
 export type PlayerBookingCheckoutStartDto = {
     attemptId: string;
@@ -5376,19 +5383,29 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         const outstanding = (slot: PlayerSlotDto) => Number(Math.max(0, slot.shareAmount - slot.paidAmount).toFixed(2));
         const isMine = (slot: PlayerSlotDto) => slot.userId === viewer.userId || (viewer.isOwner && slot.slotIndex === 1);
         const mineSlot = target.slots.find(isMine) || null;
-        const allPending = Number(target.slots.reduce((sum, slot) => sum + outstanding(slot), 0).toFixed(2));
+        const extrasFor = (slotIndex: number) =>
+            Number(target.extras.filter((extra) => extra.slotIndex === slotIndex).reduce((sum, extra) => sum + extra.pending, 0).toFixed(2));
+        const extrasTotal = Number(target.extras.reduce((sum, extra) => sum + extra.pending, 0).toFixed(2));
+        const allPending = Number((target.slots.reduce((sum, slot) => sum + outstanding(slot), 0) + extrasTotal).toFixed(2));
         const allFinal = target.slots.every((slot) => !slot.isEmpty && !slot.memberPricePending);
         return {
             mine: mineSlot
                 ? {
                     amount: mineSlot.shareAmount,
                     paid: mineSlot.paidAmount,
-                    pending: outstanding(mineSlot),
+                    pending: Number((outstanding(mineSlot) + extrasFor(mineSlot.slotIndex)).toFixed(2)),
+                    extrasPending: extrasFor(mineSlot.slotIndex),
                     memberPricePending: mineSlot.memberPricePending
                 }
                 : null,
             canPayAll: viewer.isOwner && allFinal && allPending > 0.009,
             allPending,
+            extras: target.extras.map((extra) => ({
+                label: extra.label,
+                pending: extra.pending,
+                slotIndex: extra.slotIndex,
+                isMine: Boolean(mineSlot && mineSlot.slotIndex === extra.slotIndex)
+            })),
             players: this.playerSlotService
                 .toPlayerView(target.slots, { userId: viewer.userId, clientIds: [] })
                 .map((slot) => ({
@@ -5421,24 +5438,32 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 items: [],
                 payer: null,
                 blocked: input.accountPending > 0.009 ? null : 'NO_PENDING_BALANCE',
-                slots
+                slots,
+                extras: []
             };
         }
+
+        const extras = await this.loadPlayerExtraChargesTx(db, input.bookingId, slots);
+        const extrasOf = (slot: PlayerSlotDto) => extras.filter((extra) => extra.slotIndex === slot.slotIndex);
+        const extraItems = (list: PlayerExtraCharge[]) => list.map((extra) => ({ accountItemId: extra.accountItemId, amount: extra.pending }));
 
         const outstanding = (slot: PlayerSlotDto) => Number(Math.max(0, slot.shareAmount - slot.paidAmount).toFixed(2));
         const refFor = (slot: PlayerSlotDto) =>
             slot.clientId ? `booking-client:${slot.clientId}` : slot.userId ? `booking-user:${slot.userId}` : null;
         const mine = slots.find((slot) => slot.userId === input.userId) || (input.isOwner ? slots.find((slot) => slot.slotIndex === 1) : undefined);
-        const base = { perPlayer: true, scope: input.scope, slots } as const;
+        const base = { perPlayer: true, scope: input.scope, slots, extras } as const;
 
         if (input.scope === 'ALL_SHARES') {
             if (!input.isOwner) return { ...base, amount: 0, items: [], payer: null, blocked: 'NO_PLAYER_SLOT' };
             if (slots.some((slot) => slot.isEmpty || slot.memberPricePending || !slot.accountItemId)) {
                 return { ...base, amount: 0, items: [], payer: null, blocked: 'SHARES_NOT_FINAL' };
             }
-            const items = slots
-                .filter((slot) => outstanding(slot) > 0.009)
-                .map((slot) => ({ accountItemId: String(slot.accountItemId), amount: outstanding(slot) }));
+            const items = [
+                ...slots
+                    .filter((slot) => outstanding(slot) > 0.009)
+                    .map((slot) => ({ accountItemId: String(slot.accountItemId), amount: outstanding(slot) })),
+                ...extraItems(extras)
+            ];
             const amount = Number(items.reduce((sum, item) => sum + item.amount, 0).toFixed(2));
             const payerRef = mine ? refFor(mine) : null;
             return {
@@ -5452,15 +5477,51 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
         if (!mine || !mine.accountItemId) return { ...base, amount: 0, items: [], payer: null, blocked: 'NO_PLAYER_SLOT' };
         if (mine.memberPricePending) return { ...base, amount: 0, items: [], payer: null, blocked: 'MEMBER_PRICE_PENDING' };
-        const amount = outstanding(mine);
+        const shareAmount = outstanding(mine);
+        const items = [
+            ...(shareAmount > 0.009 ? [{ accountItemId: mine.accountItemId, amount: shareAmount }] : []),
+            ...extraItems(extrasOf(mine))
+        ];
+        const amount = Number(items.reduce((sum, item) => sum + item.amount, 0).toFixed(2));
         const payerRef = refFor(mine);
         return {
             ...base,
             amount,
-            items: amount > 0.009 ? [{ accountItemId: mine.accountItemId, amount }] : [],
+            items,
             payer: payerRef ? { ref: payerRef, name: mine.displayName } : null,
             blocked: amount > 0.009 ? null : 'NO_PENDING_BALANCE'
         };
+    }
+
+    // Ítems de la cuenta que no son la parte de un lugar (consumos, servicios), con su saldo pendiente.
+    // Un ítem con clientId de un jugador lo paga ese jugador; el resto, el titular (lugar 1).
+    private async loadPlayerExtraChargesTx(
+        db: Prisma.TransactionClient | typeof prisma,
+        bookingId: number,
+        slots: PlayerSlotDto[]
+    ): Promise<PlayerExtraCharge[]> {
+        const account = await db.account.findFirst({
+            where: { sourceType: 'BOOKING', sourceId: String(bookingId) },
+            select: { items: { select: { id: true, description: true, total: true, clientId: true }, orderBy: { createdAt: 'asc' } } }
+        });
+        if (!account) return [];
+        const slotItemIds = new Set(slots.map((slot) => slot.accountItemId).filter(Boolean));
+        const extraItems = account.items.filter((item) => !slotItemIds.has(item.id) && Number(item.total) > 0.009);
+        if (extraItems.length === 0) return [];
+        const allocated = await db.paymentAllocation.groupBy({
+            by: ['accountItemId'],
+            where: { accountItemId: { in: extraItems.map((item) => item.id) } },
+            _sum: { amount: true }
+        });
+        const paidByItem = new Map(allocated.map((row) => [row.accountItemId, Number(row._sum.amount || 0)]));
+        return extraItems
+            .map((item) => ({
+                accountItemId: item.id,
+                label: String(item.description || 'Consumo'),
+                pending: Number(Math.max(0, Number(item.total) - (paidByItem.get(item.id) || 0)).toFixed(2)),
+                slotIndex: slots.find((slot) => item.clientId && slot.clientId === item.clientId)?.slotIndex ?? 1
+            }))
+            .filter((extra) => extra.pending > 0.009);
     }
 
     async createPlayerMercadoPagoCheckoutAttempt(

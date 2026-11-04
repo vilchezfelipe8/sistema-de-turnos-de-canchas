@@ -11,11 +11,11 @@ import {
 } from '../../utils/pushNotifications';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import BusyLabel from '../ui/BusyLabel';
+import { getIosBrowser } from '../../utils/pwaInstall';
 
 const CSS = `
   .pn-card { display:grid; gap:12px; padding:14px; border-radius:20px; border:1px solid var(--accent-border-subtle); background:linear-gradient(135deg, var(--accent-bg-soft), var(--surface-1) 60%); margin-bottom:14px; }
   .pn-card.is-neutral { border-color:var(--border); background:var(--surface-1); }
-  .pn-card.is-neutral > .pn-btn { width:100%; }
   .pn-head { display:flex; gap:12px; align-items:flex-start; }
   .pn-icon { width:40px; height:40px; border-radius:13px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:var(--positive-bg); color:var(--accent-fg); }
   .pn-card.is-neutral .pn-icon { background:var(--surface-2); color:var(--text-secondary); }
@@ -32,6 +32,12 @@ const CSS = `
   .pn-step b { color:var(--text-primary); }
   .pn-step-num { width:24px; height:24px; border-radius:999px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:var(--surface-2); color:var(--text-primary); font-size:11px; font-weight:900; }
   .pn-error { margin:0; color:var(--error-fg); font-size:12px; font-weight:700; }
+  /* Cartel de iPhone: icono, texto con los pasos y X */
+  .pn-card.pn-ios { grid-template-columns:40px minmax(0,1fr) 32px; align-items:start; gap:12px; padding:14px; }
+  .pn-ios-body { min-width:0; display:grid; gap:10px; }
+  .pn-ios .pn-steps { margin:0; padding:0; list-style:none; display:flex; flex-wrap:wrap; gap:8px 20px; }
+  .pn-ios .pn-dismiss { width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center; padding:0; border:0; border-radius:10px; background:transparent; color:var(--text-muted); cursor:pointer; }
+  .pn-ios .pn-dismiss:hover { background:var(--surface-2); color:var(--text-primary); }
   .pn-btn-primary:hover:not(:disabled) { border-color:var(--brand-hover); background:var(--brand-hover); }
   .pn-btn-ghost:hover:not(:disabled) { background:var(--surface-3); color:var(--text-primary); }
   /* Cartel de activar: una sola franja (icono, texto, botón y X), es un aviso opcional */
@@ -54,6 +60,10 @@ const CSS = `
     .pn-actions .pn-btn-ghost { display:none; }
     .pn-actions .pn-btn-primary { width:100%; height:38px; border-radius:11px; }
     .pn-error { grid-column:2 / -1; }
+    .pn-card.pn-ios { grid-template-columns:34px minmax(0,1fr) 32px; gap:10px; padding:12px; }
+    .pn-ios .pn-steps { flex-direction:column; }
+    .pn-ios .pn-step { align-items:flex-start; font-size:12px; line-height:1.4; }
+    .pn-ios .pn-step-num { width:22px; height:22px; font-size:10px; }
     /* Celular: icono, texto y X arriba; el botón de todo el ancho abajo */
     .pn-card.pn-optin { grid-template-columns:34px minmax(0,1fr) 32px; gap:8px 10px; padding:12px; }
     .pn-optin .pn-dismiss { grid-column:3; }
@@ -100,22 +110,35 @@ export default function PushOptInCard() {
   };
 
   if (state === 'ios-install') {
+    // En Safari el botón está abajo; en Chrome y otros, arriba a la derecha.
+    const shareButtonPlace = getIosBrowser() === 'safari' ? 'abajo, en la barra de Safari' : 'arriba a la derecha';
     return (
-      <div className="pn-card is-neutral">
+      <div className="pn-card is-neutral pn-ios">
         <style dangerouslySetInnerHTML={{ __html: CSS }} />
-        <div className="pn-head">
-          <span className="pn-icon"><Bell size={20} /></span>
+        <span className="pn-icon"><Bell size={20} /></span>
+        <div className="pn-ios-body">
           <div>
             <p className="pn-title">Para recibir avisos en iPhone</p>
-            <p className="pn-copy">Agregá Pique a tu pantalla de inicio y abrilo desde ahí. Es un paso, una sola vez.</p>
+            <p className="pn-copy">Agregá Pique a tu pantalla de inicio para recibir avisos de tus partidos. Lo hacés una sola vez.</p>
           </div>
+          <ol className="pn-steps">
+            <li className="pn-step">
+              <span className="pn-step-num">1</span>
+              <span>Tocá <b>Compartir</b> (□↑) {shareButtonPlace}</span>
+            </li>
+            <li className="pn-step">
+              <span className="pn-step-num">2</span>
+              <span>Elegí <b>Agregar a pantalla de inicio</b></span>
+            </li>
+            <li className="pn-step">
+              <span className="pn-step-num">3</span>
+              <span>Abrí Pique desde el ícono y tocá <b>Activar avisos</b></span>
+            </li>
+          </ol>
         </div>
-        <div className="pn-steps">
-          <div className="pn-step"><span className="pn-step-num">1</span><span>Tocá <b>Compartir</b> en Safari</span></div>
-          <div className="pn-step"><span className="pn-step-num">2</span><span><b>Agregar a inicio</b></span></div>
-          <div className="pn-step"><span className="pn-step-num">3</span><span>Abrí Pique desde el ícono y activá los avisos</span></div>
-        </div>
-        <button type="button" className="pn-btn pn-btn-ghost" onClick={dismiss}>Entendido</button>
+        <button type="button" className="pn-dismiss" aria-label="Cerrar aviso" onClick={dismiss}>
+          <X size={16} />
+        </button>
       </div>
     );
   }

@@ -148,6 +148,11 @@ const PAGE_CSS = `
   .bk-pay-mine-status { margin-top:2px; font-size:13px; font-weight:750; color:var(--warning-fg, var(--text-secondary)); }
   .bk-pay-mine-status.is-paid { color:var(--accent-fg); }
   .bk-pay-mine-amount { flex:none; font-size:20px; font-weight:900; color:var(--text-primary); white-space:nowrap; }
+  .bk-pay-extras { display:grid; gap:6px; padding:12px 14px; border-radius:14px; background:var(--surface-2); border:1px solid var(--border-subtle); }
+  .bk-pay-extras-head { display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:12px; font-weight:800; color:var(--text-secondary); }
+  .bk-pay-extras-head strong { color:var(--text-primary); font-size:14px; font-weight:900; }
+  .bk-pay-extra { display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:12px; font-weight:600; color:var(--text-muted); }
+  .bk-pay-extra-note { font-size:11px; font-weight:650; color:var(--text-muted); }
   .bk-pay-total { font-size:12px; font-weight:650; color:var(--text-muted); line-height:1.45; }
   .bk-pay-note { font-size:12px; font-weight:600; color:var(--text-muted); line-height:1.45; }
   .bk-invite-pending-note { margin:10px 2px 0; color:var(--text-muted); font-size:12px; font-weight:650; line-height:1.45; }
@@ -654,6 +659,16 @@ export default function MyBookingsPage() {
   const getDuration = (b: PlayerBookingDto) =>
     Math.max(0, Math.round((new Date(b.endDateTime).getTime() - new Date(b.startDateTime).getTime()) / 60000)) || 60;
 
+  // Lo que falta de la parte de cancha, sin consumos.
+  const minePartPending = (checkout: PlayerBookingCheckoutDto) =>
+    Math.max(0, (checkout.shares?.mine?.pending || 0) - (checkout.shares?.mine?.extrasPending || 0));
+
+  const minePayLabel = (checkout: PlayerBookingCheckoutDto) => {
+    const hasExtras = (checkout.shares?.mine?.extrasPending || 0) > 0.009;
+    if (!hasExtras) return 'Pagar mi parte';
+    return minePartPending(checkout) > 0.009 ? 'Pagar mi parte y consumos' : 'Pagar consumos';
+  };
+
   const sharesTotalCopy = (checkout: PlayerBookingCheckoutDto) => {
     const players = checkout.shares?.players || [];
     const empty = players.filter((player) => player.isEmpty).length;
@@ -673,7 +688,7 @@ export default function MyBookingsPage() {
       .filter((player) => !player.isMine && !player.isEmpty && !player.paid)
       .map((player) => player.displayName || `Lugar ${player.slotIndex}`);
     return others.length
-      ? `"Pagar todas" incluye la parte de ${others.join(', ')}. Cada jugador también puede pagar la suya.`
+      ? `"Pagar todas" incluye la parte de ${others.join(', ').replace(/\.$/, '')}. Cada jugador también puede pagar la suya.`
       : 'Cada jugador también puede pagar la suya.';
   };
 
@@ -1560,17 +1575,34 @@ export default function MyBookingsPage() {
                             <div className="bk-pay-mine">
                               <div style={{ minWidth: 0 }}>
                                 <div className="bk-pay-mine-label">Tu parte</div>
-                                <div className={`bk-pay-mine-status${checkoutSummary.shares.mine.pending <= 0.009 ? ' is-paid' : ''}`}>
-                                  {checkoutSummary.shares.mine.pending <= 0.009
+                                <div className={`bk-pay-mine-status${minePartPending(checkoutSummary) <= 0.009 ? ' is-paid' : ''}`}>
+                                  {minePartPending(checkoutSummary) <= 0.009
                                     ? 'Pagada'
                                     : checkoutSummary.shares.mine.memberPricePending
                                       ? 'Precio socio pendiente de validar'
                                       : checkoutSummary.shares.mine.paid > 0.009
-                                        ? `Pagaste ${formatMoney(checkoutSummary.shares.mine.paid)} · falta ${formatMoney(checkoutSummary.shares.mine.pending)}`
+                                        ? `Pagaste ${formatMoney(checkoutSummary.shares.mine.paid)} · falta ${formatMoney(minePartPending(checkoutSummary))}`
                                         : 'Pendiente'}
                                 </div>
                               </div>
                               <div className="bk-pay-mine-amount">{formatMoney(checkoutSummary.shares.mine.amount)}</div>
+                            </div>
+                          )}
+                          {checkoutSummary.shares.extras.length > 0 && (
+                            <div className="bk-pay-extras">
+                              <div className="bk-pay-extras-head">
+                                <span>{checkoutSummary.shares.extras.some((extra) => extra.isMine) ? 'Consumos a tu cargo' : 'Consumos'}</span>
+                                <strong>{formatMoney(checkoutSummary.shares.extras.reduce((sum, extra) => sum + extra.pending, 0))}</strong>
+                              </div>
+                              {checkoutSummary.shares.extras.map((extra, index) => (
+                                <div key={`${extra.label}-${index}`} className="bk-pay-extra">
+                                  <span>{extra.label}</span>
+                                  <span>{formatMoney(extra.pending)}</span>
+                                </div>
+                              ))}
+                              {!checkoutSummary.shares.extras.some((extra) => extra.isMine) && (
+                                <div className="bk-pay-extra-note">Los paga el titular de la reserva.</div>
+                              )}
                             </div>
                           )}
                           <div className="bk-pay-total">{sharesTotalCopy(checkoutSummary)}</div>
@@ -1587,7 +1619,7 @@ export default function MyBookingsPage() {
                               <BusyLabel busy={checkoutSubmitting}>
                                 <Ticket size={15} />
                                 {checkoutSummary.shares.mine
-                                  ? `Pagar mi parte · ${formatMoney(checkoutSummary.shares.mine.pending)}`
+                                  ? `${minePayLabel(checkoutSummary)} · ${formatMoney(checkoutSummary.shares.mine.pending)}`
                                   : 'Pagar online con Mercado Pago'}
                               </BusyLabel>
                             </button>

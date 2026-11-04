@@ -240,9 +240,11 @@ export type PlayerBookingCheckoutDto = {
   };
   // Reservas por jugador: cada uno paga su parte. null en reservas por cancha.
   shares: {
-    mine: { amount: number; paid: number; pending: number; memberPricePending: boolean } | null;
+    // pending incluye los consumos a cargo propio (extrasPending).
+    mine: { amount: number; paid: number; pending: number; extrasPending: number; memberPricePending: boolean } | null;
     canPayAll: boolean;
     allPending: number;
+    extras: Array<{ label: string; pending: number; slotIndex: number; isMine: boolean }>;
     players: Array<{
       slotIndex: number;
       participantId: string | null;

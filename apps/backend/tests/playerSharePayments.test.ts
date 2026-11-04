@@ -40,6 +40,7 @@ function serviceWithSlots(slots: Slot[]) {
   const service = new BookingService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
   const original = service.playerSlotService.getSlotsTx;
   service.playerSlotService.getSlotsTx = async () => slots;
+  service.loadPlayerExtraChargesTx = async () => [];
   return { service, restore: () => { service.playerSlotService.getSlotsTx = original; } };
 }
 
@@ -138,7 +139,7 @@ test('Mis reservas muestra la parte propia y si se puede pagar todo', async () =
   const { service } = serviceWithSlots(slots);
   const target = await resolve(service, {});
   const view = service.buildPlayerSharesView(target, { userId: OWNER, isOwner: true });
-  assert.deepEqual(view.mine, { amount: 10000, paid: 0, pending: 10000, memberPricePending: false });
+  assert.deepEqual(view.mine, { amount: 10000, paid: 0, pending: 10000, extrasPending: 0, memberPricePending: false });
   assert.equal(view.canPayAll, true);
   assert.equal(view.allPending, 17000);
   assert.equal(view.players.length, 2);
@@ -148,6 +149,55 @@ test('Mis reservas muestra la parte propia y si se puede pagar todo', async () =
 
   const guestView = service.buildPlayerSharesView(target, { userId: GUEST, isOwner: false });
   assert.equal(guestView.canPayAll, false);
+});
+
+test('el titular paga su parte y los consumos sin dueño; el invitado solo la suya', async () => {
+  const { service } = serviceWithSlots(fullBooking());
+  service.loadPlayerExtraChargesTx = async () => [
+    { accountItemId: 'item-gatorade', label: 'Gatorade', pending: 1800, slotIndex: 1 }
+  ];
+  const owner = await resolve(service, {});
+  assert.equal(owner.amount, 11800);
+  assert.deepEqual(owner.items, [
+    { accountItemId: 'item-1', amount: 10000 },
+    { accountItemId: 'item-gatorade', amount: 1800 }
+  ]);
+
+  const guest = await resolve(service, { userId: GUEST, isOwner: false });
+  assert.equal(guest.amount, 7000);
+
+  const all = await resolve(service, { scope: 'ALL_SHARES' });
+  assert.equal(all.amount, 18800);
+
+  const view = service.buildPlayerSharesView(owner, { userId: OWNER, isOwner: true });
+  assert.equal(view.mine.pending, 11800);
+  assert.equal(view.mine.extrasPending, 1800);
+  assert.equal(view.allPending, 18800);
+  assert.deepEqual(view.extras, [{ label: 'Gatorade', pending: 1800, slotIndex: 1, isMine: true }]);
+});
+
+test('con la parte ya paga, el titular todavía puede pagar los consumos', async () => {
+  const slots = fullBooking();
+  slots[0].paidAmount = 10000;
+  const { service } = serviceWithSlots(slots);
+  service.loadPlayerExtraChargesTx = async () => [
+    { accountItemId: 'item-gatorade', label: 'Gatorade', pending: 1800, slotIndex: 1 }
+  ];
+  const owner = await resolve(service, {});
+  assert.equal(owner.blocked, null);
+  assert.equal(owner.amount, 1800);
+  assert.deepEqual(owner.items, [{ accountItemId: 'item-gatorade', amount: 1800 }]);
+});
+
+test('los consumos con dueño los paga ese jugador', async () => {
+  const { service } = serviceWithSlots(fullBooking());
+  service.loadPlayerExtraChargesTx = async () => [
+    { accountItemId: 'item-agua', label: 'Agua', pending: 900, slotIndex: 2 }
+  ];
+  const owner = await resolve(service, {});
+  assert.equal(owner.amount, 10000);
+  const guest = await resolve(service, { userId: GUEST, isOwner: false });
+  assert.equal(guest.amount, 7900);
 });
 
 // ── Webhook: imputación del pago a las partes ──
