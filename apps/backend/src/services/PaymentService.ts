@@ -11,6 +11,13 @@ import { AccountService } from './AccountService';
 import { generateDisplayCode } from '../utils/displayCode';
 import { BookingHistoryService } from './BookingHistoryService';
 import { getDerivedPaymentStatus } from '../domain/bookingDomain';
+import {
+  PaymentMethodDiscountService,
+  getPaymentMethodDiscountPercent,
+  splitAllocationsWithDiscount,
+  type DiscountablePaymentMethod,
+  type PaymentDiscountKey
+} from './PaymentMethodDiscountService';
 
 const EPSILON = 0.009;
 
@@ -45,6 +52,17 @@ type CreatePaymentInput = {
     accountItemId: string;
     amount: number;
   }>;
+  /**
+   * Cobro en el mostrador con descuento por medio de pago (ej. precio efectivo).
+   * `amount` y `allocations` vienen a precio de lista; se cobra lista - descuento
+   * y el descuento baja el total de cada ítem. Solo aplica a pagos POS.
+   */
+  applyMethodDiscount?: boolean;
+  /**
+   * Descuento ya pactado con el pagador (ej. pago online: el % quedó congelado al crear
+   * el intento de Mercado Pago). Tiene prioridad sobre la config actual del club.
+   */
+  methodDiscountOverride?: { key: PaymentDiscountKey; percent: number };
 };
 
 export class PaymentService {
@@ -55,6 +73,7 @@ export class PaymentService {
   private readonly bookingDomainService = new BookingDomainService();
   private readonly accountService = new AccountService();
   private readonly bookingHistoryService = new BookingHistoryService();
+  private readonly paymentMethodDiscountService = new PaymentMethodDiscountService();
 
   private roundMoney(value: number) {
     return Number((Number(value || 0)).toFixed(2));
@@ -423,6 +442,60 @@ export class PaymentService {
         throw conflict('El pago supera el saldo pendiente de la cuenta.', ErrorCodes.PAYMENT_OVERPAY);
       }
 
+      let paymentAmount = input.amount;
+      let requestedAllocations = input.allocations;
+      let methodDiscountTotal = 0;
+      const discountKey: PaymentDiscountKey | null = input.methodDiscountOverride
+        ? input.methodDiscountOverride.key
+        : input.applyMethodDiscount && source === 'POS'
+          ? (input.method as DiscountablePaymentMethod)
+          : null;
+      if (discountKey) {
+        const percent = input.methodDiscountOverride
+          ? Math.min(Math.max(Number(input.methodDiscountOverride.percent) || 0, 0), 90)
+          : getPaymentMethodDiscountPercent(
+            await this.paymentMethodDiscountService.getClubDiscountsTx(tx, account.clubId),
+            input.method
+          );
+        if (percent > 0) {
+          const listAllocations = await this.resolvePaymentAllocationsTx(tx, {
+            accountId: account.id,
+            paymentAmount: input.amount,
+            requested: input.allocations
+          });
+          const splits = splitAllocationsWithDiscount(listAllocations, percent);
+          methodDiscountTotal = await this.paymentMethodDiscountService.applyToItemsTx(tx, {
+            clubId: account.clubId,
+            accountId: account.id,
+            clientId: account.clientId,
+            method: discountKey,
+            percent,
+            splits,
+            items: account.items.map((item) => ({ id: item.id, type: item.type, total: item.total })),
+            actorUserId: input.createdByUserId ?? null,
+            postAdjustment: (adjustment) => this.accountingService.reverseAccountItemTransaction(tx, {
+              clubId: account.clubId,
+              type: 'ADJUSTMENT',
+              referenceType: 'ACCOUNT_ITEM',
+              referenceId: adjustment.accountItemId,
+              accountId: account.id,
+              accountItemId: adjustment.accountItemId,
+              amount: adjustment.amount,
+              revenueAccount: adjustment.revenueAccount,
+              description: adjustment.description,
+              createdByUserId: input.createdByUserId ?? null
+            })
+          });
+          requestedAllocations = splits
+            .filter((split) => split.chargedAmount > 0)
+            .map((split) => ({ accountItemId: split.accountItemId, amount: split.chargedAmount }));
+          paymentAmount = this.roundMoney(requestedAllocations.reduce((sum, allocation) => sum + allocation.amount, 0));
+          if (paymentAmount <= 0) {
+            throw badRequest('El monto a cobrar con descuento debe ser mayor a 0.', ErrorCodes.PAYMENT_INVALID_AMOUNT);
+          }
+        }
+      }
+
       let resolvedCashShiftId: string | null = null;
       if (source === 'POS') {
         if (input.cashShiftId) {
@@ -457,7 +530,7 @@ export class PaymentService {
       const payment = await tx.payment.create({
         data: {
           displayCode: generateDisplayCode('PAG'),
-          amount: new Prisma.Decimal(input.amount),
+          amount: new Prisma.Decimal(paymentAmount),
           method: input.method,
           channel,
           collectorAccountLabel,
@@ -475,8 +548,8 @@ export class PaymentService {
 
       const allocations = await this.resolvePaymentAllocationsTx(tx, {
         accountId: account.id,
-        paymentAmount: input.amount,
-        requested: input.allocations
+        paymentAmount: paymentAmount,
+        requested: requestedAllocations
       });
 
       if (allocations.length > 0) {
@@ -497,7 +570,7 @@ export class PaymentService {
         referenceId: payment.id,
         accountId: account.id,
         paymentId: payment.id,
-        amount: input.amount,
+        amount: paymentAmount,
         paymentMethod: input.method,
         paymentChannel: channel,
         description: `Pago registrado (${input.method})`,
@@ -523,7 +596,7 @@ export class PaymentService {
         await tx.cashMovement.create({
           data: {
             type: 'PAYMENT_IN',
-            amount: new Prisma.Decimal(input.amount),
+            amount: new Prisma.Decimal(paymentAmount),
             method: movementMethod,
             concept: `Pago cuenta ${input.accountId}`,
             clubId: account.clubId,
@@ -543,7 +616,7 @@ export class PaymentService {
         accountId: account.id,
         bookingId: account.sourceType === 'BOOKING' ? Number(account.sourceId) : null,
         userId: input.createdByUserId ?? null,
-        amount: input.amount,
+        amount: paymentAmount,
         method: input.method,
         channel,
         source,
@@ -565,7 +638,7 @@ export class PaymentService {
           paymentId: payment.id,
           accountId: account.id,
           detail: {
-            amount: input.amount,
+            amount: paymentAmount,
             method: input.method,
             channel,
             source,
@@ -575,7 +648,7 @@ export class PaymentService {
             coveredParticipantName,
           },
           nextState: {
-            amount: input.amount,
+            amount: paymentAmount,
             method: input.method,
             channel,
             source,
@@ -605,7 +678,7 @@ export class PaymentService {
             userId: notificationUserId,
             clubId: account.clubId,
             title: 'Pago registrado',
-            message: `Se registró un pago por $${Number(input.amount).toFixed(2)}.`
+            message: `Se registró un pago por $${Number(paymentAmount).toFixed(2)}.`
           }
         }, tx);
       }
@@ -623,6 +696,9 @@ export class PaymentService {
         include: { allocations: true }
       });
 
-      return createdPayment || payment;
+      const result = createdPayment || payment;
+      return methodDiscountTotal > 0
+        ? Object.assign(result, { methodDiscountAmount: methodDiscountTotal, listAmount: input.amount })
+        : result;
   }
 }

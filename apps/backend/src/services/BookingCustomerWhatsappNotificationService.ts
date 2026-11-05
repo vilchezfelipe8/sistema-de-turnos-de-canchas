@@ -40,7 +40,7 @@ type BookingCancelledInput = {
   clientPhone?: string | null;
   startDateTime: Date;
   timeZone: string;
-  reason?: 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED';
+  reason?: 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED' | 'ONLINE_DEPOSIT_EXPIRED';
 };
 
 type BookingPendingWarningInput = {
@@ -351,7 +351,10 @@ export class BookingCustomerWhatsappNotificationService {
     return cleanClubPhone ? `https://wa.me/${cleanClubPhone}` : 'No disponible';
   }
 
-  private buildCancelReasonLabel(reason?: 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED') {
+  private buildCancelReasonLabel(reason?: 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED' | 'ONLINE_DEPOSIT_EXPIRED') {
+    if (reason === 'ONLINE_DEPOSIT_EXPIRED') {
+      return 'sena no pagada a tiempo';
+    }
     if (reason === 'AUTO_CANCEL_UNCONFIRMED') {
       return 'falta de confirmacion';
     }

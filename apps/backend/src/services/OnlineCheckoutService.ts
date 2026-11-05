@@ -262,6 +262,7 @@ export class OnlineCheckoutService {
       // Reserva por jugador: el pago se imputa a las partes que cubre (solo esas quedan congeladas, D10).
       // Si alguna parte cambió desde que se inició el pago, no se imputa: lo revisa el club.
       const target = this.parseAttemptTarget(attempt.target);
+      const methodDiscount = this.parseAttemptMethodDiscount(attempt.target);
       if (target) {
         const ids = target.items.map((item) => item.accountItemId);
         const [items, allocated] = await Promise.all([
@@ -271,7 +272,7 @@ export class OnlineCheckoutService {
         const allocatedById = new Map(allocated.map((row) => [row.accountItemId, Number(row._sum.amount || 0)]));
         const targetTotal = Number(target.items.reduce((sum, item) => sum + item.amount, 0).toFixed(2));
         const changed = items.length !== ids.length
-          || Math.abs(targetTotal - approvedAmount) > EPSILON
+          || Math.abs(targetTotal - (methodDiscount ? methodDiscount.listAmount : approvedAmount)) > EPSILON
           || target.items.some((item) => {
             const row = items.find((candidate) => candidate.id === item.accountItemId);
             const outstanding = Number(row?.total || 0) - (allocatedById.get(item.accountItemId) || 0);
@@ -307,7 +308,15 @@ export class OnlineCheckoutService {
       const createdPayment = await this.paymentService.createInTransaction(tx, {
         clubId,
         accountId: account.id,
-        amount: approvedAmount,
+        // Con descuento online: se imputa a precio de lista y el descuento congelado baja los ítems;
+        // lo registrado como pago coincide con lo aprobado (se validó contra attempt.amount).
+        amount: methodDiscount ? methodDiscount.listAmount : approvedAmount,
+        ...(methodDiscount
+          ? {
+            methodDiscountOverride: { key: 'ONLINE' as const, percent: methodDiscount.percent },
+            ...(target ? {} : { allocations: methodDiscount.listItems })
+          }
+          : {}),
         method: paymentMethod.method,
         channel: paymentMethod.channel,
         source: 'ONLINE',
@@ -362,6 +371,26 @@ export class OnlineCheckoutService {
     });
   }
 
+  private parseAttemptMethodDiscount(raw: unknown): {
+    percent: number;
+    listAmount: number;
+    listItems: Array<{ accountItemId: string; amount: number }>;
+  } | null {
+    const value = raw && typeof raw === 'object' ? (raw as { methodDiscount?: unknown }).methodDiscount : null;
+    if (!value || typeof value !== 'object') return null;
+    const discount = value as { percent?: unknown; listAmount?: unknown; listItems?: unknown };
+    const percent = Number(discount.percent || 0);
+    const listAmount = Number(Number(discount.listAmount || 0).toFixed(2));
+    if (!(percent > 0) || !(listAmount > 0)) return null;
+    const listItems = (Array.isArray(discount.listItems) ? discount.listItems : [])
+      .map((item) => ({
+        accountItemId: String((item as { accountItemId?: unknown })?.accountItemId || '').trim(),
+        amount: Number(Number((item as { amount?: unknown })?.amount || 0).toFixed(2))
+      }))
+      .filter((item) => item.accountItemId && item.amount > 0);
+    return { percent, listAmount, listItems };
+  }
+
   private parseAttemptTarget(raw: unknown): {
     scope: 'OWN_SHARE' | 'ALL_SHARES';
     items: Array<{ accountItemId: string; amount: number }>;
@@ -381,7 +410,8 @@ export class OnlineCheckoutService {
       ? { ref: String((value.payer as { ref?: unknown }).ref || ''), name: ((value.payer as { name?: unknown }).name as string | null) ?? null }
       : null;
     return {
-      scope: value.scope === 'ALL_SHARES' ? 'ALL_SHARES' : 'OWN_SHARE',
+      // La seña la paga el titular para toda la reserva: se imputa como "todas las partes".
+      scope: value.scope === 'ALL_SHARES' || value.scope === 'DEPOSIT' ? 'ALL_SHARES' : 'OWN_SHARE',
       items,
       payer: payer?.ref ? payer : null
     };

@@ -125,6 +125,7 @@ test('titular crea intento Mercado Pago sin crear Payment ni CashMovement', asyn
           account: {
             findUnique: async () => baseAccount()
           },
+          clubSettings: { findUnique: async () => null },
           onlinePaymentAttempt: {
             findFirst: async () => null,
             create: async ({ data }: any) => {
@@ -267,6 +268,7 @@ test('si ya existe un intento pendiente reutiliza el initPoint y evita duplicar'
           account: {
             findUnique: async () => baseAccount()
           },
+          clubSettings: { findUnique: async () => null },
           onlinePaymentAttempt: {
             findFirst: async () => ({
               id: 'attempt-existing',

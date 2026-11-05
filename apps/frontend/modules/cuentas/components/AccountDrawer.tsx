@@ -35,6 +35,7 @@ import {
   resolveCustomDraftAmount,
   computeConceptBasedMaxAmount,
   buildPaymentPreviewRows,
+  computeMethodDiscount,
   type AccountDetail,
   type PaymentQuickPreset,
   type PaymentResultData,
@@ -163,6 +164,7 @@ export default function AccountDrawer({
   const [payCustomAmountById, setPayCustomAmountById] = useState<Record<string, string>>({});
   const [payError, setPayError] = useState('');
   const [payResult, setPayResult] = useState<PaymentResultData | null>(null);
+  const [payApplyMethodDiscount, setPayApplyMethodDiscount] = useState(true);
 
   const normalizeDrawerDetail = useCallback(
     (raw: any, fallbackId: string) => {
@@ -194,6 +196,7 @@ export default function AccountDrawer({
     const allIds = rows.map((r) => String(r.id));
     setPayMethod('CASH');
     setPayChannel('BANK_ACCOUNT');
+    setPayApplyMethodDiscount(true);
     setPayPreset('FULL');
     setPaySelectedIds(allIds);
     setPayCustomAmountById({});
@@ -390,6 +393,24 @@ export default function AccountDrawer({
     [payPreset, pendingRows, paySelectedIds, payCustomAmountById, amountNumeric]
   );
 
+  // ── Descuento por medio de pago (ej. precio efectivo) ────────────────────
+  const methodDiscountPercent =
+    payMethod === 'CASH' || payMethod === 'TRANSFER' || payMethod === 'CARD'
+      ? Number(detail?.paymentMethodDiscounts?.[payMethod] || 0)
+      : 0;
+  const methodDiscountActive = methodDiscountPercent > 0 && payApplyMethodDiscount;
+  const methodDiscountAmount = useMemo(() => {
+    if (!methodDiscountActive || !Number.isFinite(amountNumeric) || amountNumeric <= 0) return 0;
+    const rowAmounts = previewRows
+      .filter((row) => row.id !== SYNTHETIC_ACCOUNT_TOTAL_ITEM_ID)
+      .map((row) => row.amount);
+    const rowsTotal = rowAmounts.reduce((sum, amount) => sum + amount, 0);
+    return Math.abs(rowsTotal - amountNumeric) <= ACCOUNT_PAYMENT_EPSILON
+      ? computeMethodDiscount(rowAmounts, methodDiscountPercent)
+      : computeMethodDiscount([amountNumeric], methodDiscountPercent);
+  }, [methodDiscountActive, methodDiscountPercent, amountNumeric, previewRows]);
+  const chargeAmount = Number(((Number.isFinite(amountNumeric) ? amountNumeric : 0) - methodDiscountAmount).toFixed(2));
+
   // ── Open payment flow ─────────────────────────────────────────────────────
   const openPaymentFlow = useCallback(() => {
     if (!detail) return;
@@ -557,13 +578,16 @@ export default function AccountDrawer({
     try {
       setSubmitting(true);
       setPayError('');
-      await registerPayment({
+      const created = await registerPayment({
         accountId,
         amount: roundedAmount,
         method: payMethod,
         channel: payMethod === 'TRANSFER' ? payChannel : undefined,
         allocations: canSendAllocations ? itemAllocations : undefined,
+        applyMethodDiscount: methodDiscountActive || undefined,
       });
+      const chargedAmount = Number(Number(created?.amount ?? roundedAmount).toFixed(2));
+      const discountApplied = Number(created?.methodDiscountAmount || 0);
       await reloadDetail();
       const reloaded = await getAccountById(accountId).then((r) =>
         normalizeDrawerDetail(r, accountId)
@@ -572,9 +596,12 @@ export default function AccountDrawer({
       setPayResult({
         variant: 'success',
         title: 'Cobro registrado',
-        detail: 'El cobro se registró correctamente.',
+        detail:
+          discountApplied > 0
+            ? `Se cobraron ${formatMoney(chargedAmount)} con ${formatMoney(discountApplied)} de descuento por pago en ${paymentMethodLabel(payMethod).toLowerCase()}.`
+            : 'El cobro se registró correctamente.',
         requestedAmount: roundedAmount,
-        appliedAmount: roundedAmount,
+        appliedAmount: chargedAmount,
         remainingAfter: Number(reloaded.remaining || 0),
         methodLabel: paymentMethodLabel(payMethod),
         appliedItems,
@@ -606,6 +633,7 @@ export default function AccountDrawer({
     payMethod,
     payChannel,
     previewRows,
+    methodDiscountActive,
     reloadDetail,
     getSuccessMeta,
     normalizeDrawerDetail,
@@ -1294,6 +1322,18 @@ export default function AccountDrawer({
           onAmountChange={setPayAmountDraft}
           maxInlineLabel={`Maximo: ${maxAllowed.toFixed(2)} $`}
           maxFooterLabel={`Máximo para este cobro: ${maxAllowed.toFixed(2)} $`}
+          methodDiscount={
+            methodDiscountPercent > 0
+              ? {
+                  percent: methodDiscountPercent,
+                  methodLabel: paymentMethodLabel(payMethod).toLowerCase(),
+                  enabled: payApplyMethodDiscount,
+                  onToggle: setPayApplyMethodDiscount,
+                  discountAmount: methodDiscountAmount,
+                  chargeAmount,
+                }
+              : undefined
+          }
         />
       );
     }
@@ -1304,11 +1344,26 @@ export default function AccountDrawer({
         <>
           <AdminDrawerSection title="Resumen del cobro" className={sectionCardClass}>
             <div className={sectionListClass}>
-              <DataRow
-                label="Monto"
-                value={formatMoney(amountNumeric)}
-                valueClassName="font-bold text-p-text"
-              />
+              {methodDiscountActive && methodDiscountAmount > 0 ? (
+                <>
+                  <DataRow label="Precio de lista" value={formatMoney(amountNumeric)} />
+                  <DataRow
+                    label={`Descuento ${paymentMethodLabel(payMethod).toLowerCase()} (${methodDiscountPercent}%)`}
+                    value={`- ${formatMoney(methodDiscountAmount)}`}
+                  />
+                  <DataRow
+                    label="A cobrar"
+                    value={formatMoney(chargeAmount)}
+                    valueClassName="font-bold text-p-text"
+                  />
+                </>
+              ) : (
+                <DataRow
+                  label="Monto"
+                  value={formatMoney(amountNumeric)}
+                  valueClassName="font-bold text-p-text"
+                />
+              )}
               <DataRow label="Método" value={paymentMethodLabel(payMethod)} />
               {payMethod === 'TRANSFER' && (
                 <DataRow label="Canal" value={paymentChannelLabel(payChannel)} />

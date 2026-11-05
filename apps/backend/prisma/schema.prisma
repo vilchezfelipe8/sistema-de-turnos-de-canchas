@@ -222,6 +222,17 @@ enum CashShiftStatus {
   CLOSED
 }
 
+// Motivo de cada movimiento de stock de un producto (historial de inventario).
+enum StockMovementType {
+  INITIAL        // stock con el que se creó el producto
+  PURCHASE       // ingreso de mercadería (proveedor / remito)
+  SALE           // venta o consumo
+  SALE_REVERSAL  // anulación de venta o consumo eliminado
+  ADJUSTMENT     // ajuste por conteo físico
+  WASTE          // merma, rotura, vencimiento
+  MANUAL_EDIT    // cambio de stock editando el producto
+}
+
 enum CashMovementPosType {
   PAYMENT_IN
   REFUND
@@ -588,6 +599,7 @@ model Club {
   clients       Client[]
   bookings      Booking[]
   products      Product[]
+  stockMovements StockMovement[]
   servicesCatalog ClubServiceCatalog[]
   cashMovements CashMovement[]
   memberships   Membership[]
@@ -1238,6 +1250,8 @@ model Booking {
   autoCancelWarningSentAt DateTime? @db.Timestamptz(3)
   autoCancelledAt         DateTime? @db.Timestamptz(3)
   autoCancelReason        String?
+  // Reserva desde la app con seña online obligatoria: hasta cuándo puede pagarla antes de liberarse.
+  onlineDepositDueAt      DateTime? @db.Timestamptz(3)
 
   listPrice       Decimal @default(0) @db.Decimal(10, 2)
   price           Decimal @db.Decimal(10, 2)
@@ -1283,6 +1297,7 @@ model Booking {
   @@index([activityId, startDateTime], map: "booking_activity_day")
   @@index([startDateTime])
   @@index([status, startDateTime, autoCancelledAt], map: "booking_pending_autocancel_idx")
+  @@index([status, onlineDepositDueAt])
 }
 
 model BookingParticipant {
@@ -2032,6 +2047,15 @@ model ClubSettings {
   autoCancelPendingWarningMinutesBefore Int?
   enforceCashShiftCloseWithOpenAccounts Boolean @default(false)
 
+  // Descuento por medio de pago en el mostrador, en % sobre el precio de lista.
+  // Ej: { "CASH": 20 } = efectivo 20% menos. null = sin descuento.
+  paymentMethodDiscounts Json?
+
+  // Seña online obligatoria (modo DEPOSIT_REQUIRED): el jugador que reserva desde la app tiene
+  // onlineDepositHoldMinutes para pagar la seña con Mercado Pago; si no, la reserva se cancela sola.
+  onlineDepositRequired    Boolean @default(false)
+  onlineDepositHoldMinutes Int     @default(15)
+
   createdAt                 DateTime @default(now()) @db.Timestamptz(3)
   updatedAt                 DateTime @updatedAt @db.Timestamptz(3)
 }
@@ -2056,9 +2080,43 @@ model Product {
   usedInCombos ProductComponent[] @relation("ComboComponent")
   accountItems AccountItem[]
   discountTargets DiscountPolicyTarget[]
+  stockMovements StockMovement[]
 
   @@index([clubId])
   @@map("Product")
+}
+
+// Historial de stock: cada cambio de Product.stock deja una fila (delta firmado + saldo).
+// Los ingresos y ajustes cargados juntos comparten groupId (un remito, un conteo).
+model StockMovement {
+  id        String            @id @default(cuid())
+  clubId    Int
+  club      Club              @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  productId Int
+  product   Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  type        StockMovementType
+  quantity    Int               // delta firmado: + entra, - sale
+  stockBefore Int
+  stockAfter  Int
+
+  groupId        String?
+  supplier       String?
+  documentNumber String?       // nro de remito / factura del proveedor
+  unitCost       Decimal?      @db.Decimal(10, 2)
+  reason         String?
+
+  accountId     String?
+  accountItemId String?
+
+  createdByUserId Int?
+  occurredAt      DateTime     @default(now()) @db.Timestamptz(3)
+  createdAt       DateTime     @default(now()) @db.Timestamptz(3)
+
+  @@index([clubId, occurredAt])
+  @@index([clubId, productId, occurredAt])
+  @@index([clubId, type, occurredAt])
+  @@index([groupId])
 }
 
 model ClubServiceCatalog {

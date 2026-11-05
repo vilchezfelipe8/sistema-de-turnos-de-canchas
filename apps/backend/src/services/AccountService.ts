@@ -8,6 +8,7 @@ import { DiscountService } from './DiscountService';
 import { PlayerSlotService } from './PlayerSlotService';
 import { generateDisplayCode } from '../utils/displayCode';
 import { AppError, badRequest, notFound, conflict, ErrorCodes } from '../errors';
+import { stockMovementService } from './StockMovementService';
 
 const USE_PROJECTION_READ_MODELS = String(process.env.READ_MODEL_SOURCE || '').toLowerCase() === 'projection';
 const EPSILON = 0.009;
@@ -879,6 +880,15 @@ export class AccountService {
         if (stockUpdate.count !== 1) {
           throw conflict('Stock insuficiente.', ErrorCodes.STOCK_INSUFFICIENT);
         }
+        await stockMovementService.recordTx(tx, {
+          clubId,
+          productId: linkedProduct.id,
+          quantity: -quantity,
+          type: 'SALE',
+          accountId,
+          accountItemId: item.id,
+          createdByUserId: input.actorUserId ?? null
+        });
       }
 
       await this.projectionService.refreshAccountSummary(accountId, tx);
@@ -952,6 +962,16 @@ export class AccountService {
             ErrorCodes.PRODUCT_NOT_FOUND
           );
         }
+        await stockMovementService.recordTx(tx, {
+          clubId,
+          productId: item.productId,
+          quantity: Number(item.quantity || 0),
+          type: 'SALE_REVERSAL',
+          reason: 'Venta anulada',
+          accountId,
+          accountItemId: item.id,
+          createdByUserId: actorUserId ?? null
+        });
       }
 
       for (const item of (account as any).items) {

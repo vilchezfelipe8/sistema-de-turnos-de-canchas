@@ -10,6 +10,7 @@ import { AccountingService } from './AccountingService';
 import { ProjectionService } from './ProjectionService';
 import { generateDisplayCode } from '../utils/displayCode';
 import { DiscountService } from './DiscountService';
+import { stockMovementService } from './StockMovementService';
 import { getPhoneIdentityVariants, normalizeIdentityPhone } from '../utils/phone';
 import { AppError, badRequest, notFound, conflict, unprocessable, ErrorCodes } from '../errors';
 
@@ -1134,6 +1135,15 @@ export class CashService {
                         data: { stock: { decrement: Number(qi.quantity) } }
                     });
                     if (stockUpdate.count !== 1) throw conflict('Stock insuficiente.', ErrorCodes.STOCK_INSUFFICIENT);
+                    await stockMovementService.recordTx(tx, {
+                        clubId: input.clubId,
+                        productId: product.id,
+                        quantity: -Number(qi.quantity),
+                        type: 'SALE',
+                        accountId: account.id,
+                        accountItemId: item.id,
+                        createdByUserId: actorUserId ?? null
+                    });
                 }
 
                 await this.accountingService.createAccountItemTransaction(tx, {
@@ -1433,6 +1443,15 @@ export class CashService {
                         data: { stock: { decrement: Number(qi.quantity) } }
                     });
                     if (stockUpdate.count !== 1) throw conflict('Stock insuficiente.', ErrorCodes.STOCK_INSUFFICIENT);
+                    await stockMovementService.recordTx(tx, {
+                        clubId: input.clubId,
+                        productId: product.id,
+                        quantity: -Number(qi.quantity),
+                        type: 'SALE',
+                        accountId: account.id,
+                        accountItemId: item.id,
+                        createdByUserId: actorUserId ?? null
+                    });
                 }
 
                 await this.accountingService.createAccountItemTransaction(tx, {

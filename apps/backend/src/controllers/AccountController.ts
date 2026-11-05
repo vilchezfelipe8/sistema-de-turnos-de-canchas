@@ -5,6 +5,7 @@ import { AccountItemService } from '../services/AccountItemService';
 import { PaymentService } from '../services/PaymentService';
 import { mapAccountDto, mapAccountItemDto, mapLedgerEntryDto, mapPaymentDto } from '../dto/financialDto';
 import { sanitizeString } from '../utils/sanitize';
+import { normalizePaymentMethodDiscounts } from '../services/PaymentMethodDiscountService';
 import { prismaRead } from '../prisma';
 import { sendAppError, badRequest, ErrorCodes, validationError, zodValidationAppError } from '../errors';
 
@@ -108,7 +109,12 @@ export class AccountController {
 
       const clubId = this.resolveClubId(req);
       const result = await this.accountService.getAccount(clubId, parsed.data.id);
+      const clubSettings = await prismaRead.clubSettings.findUnique({
+        where: { clubId },
+        select: { paymentMethodDiscounts: true }
+      });
       return res.json({
+        paymentMethodDiscounts: normalizePaymentMethodDiscounts(clubSettings?.paymentMethodDiscounts),
         account: mapAccountDto(result.account),
         items: result.items.map(mapAccountItemDto),
         payments: result.payments.map(mapPaymentDto),
@@ -243,7 +249,8 @@ export class AccountController {
         allocations: z.array(z.object({
           accountItemId: z.string().trim().min(1),
           amount: z.preprocess((v) => Number(v), z.number().positive())
-        })).optional()
+        })).optional(),
+        applyMethodDiscount: z.boolean().optional()
       });
 
       const paramsParsed = paramsSchema.safeParse(req.params);
@@ -277,10 +284,16 @@ export class AccountController {
         coveredParticipantName: bodyParsed.data.coveredParticipantName,
         createdByUserId: actorUserId,
         idempotencyKey: idempotencyKey.trim(),
-        allocations: bodyParsed.data.allocations
+        allocations: bodyParsed.data.allocations,
+        applyMethodDiscount: bodyParsed.data.applyMethodDiscount
       });
 
-      return res.status(201).json(mapPaymentDto(payment));
+      const discountMeta = payment as { methodDiscountAmount?: number; listAmount?: number };
+      return res.status(201).json({
+        ...mapPaymentDto(payment),
+        methodDiscountAmount: Number(discountMeta.methodDiscountAmount || 0),
+        listAmount: Number(discountMeta.listAmount ?? payment.amount)
+      });
     } catch (error: unknown) {
       return sendAppError(res, error, 'No se pudo registrar el pago.');
     }

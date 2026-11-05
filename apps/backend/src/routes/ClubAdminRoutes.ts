@@ -13,6 +13,7 @@ import { authMiddleware } from '../middleware/AuthMiddleware';
 import { requireTenantRole } from '../middleware/RoleMiddleware';
 import { verifyClubAccess } from '../middleware/ClubMiddleware';
 import { ProductController } from '../controllers/ProductController';
+import { StockController } from '../controllers/StockController';
 import { ProductRepository } from '../repositories/ProductRepository';
 import { CashRepository } from '../repositories/CashRepository';
 import { z } from 'zod';
@@ -43,6 +44,7 @@ const userRepository = new UserRepository();
 const activityRepository = new ActivityTypeRepository();
 const clubRepository = new ClubRepository();
 const productController = new ProductController();
+const stockController = new StockController();
 const memberController = new MemberController();
 const playerSlotController = new PlayerSlotController();
 const bookingReleaseController = new BookingReleaseController();
@@ -464,6 +466,35 @@ router.delete('/:slug/admin/products/:id',
     verifyClubAccess,
     requireTenantRole('ADMIN'),
     productController.delete
+);
+
+// Inventario: historial de movimientos, ingresos de mercadería, conteos y mermas
+router.get('/:slug/admin/stock/movements',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    stockController.list
+);
+
+router.post('/:slug/admin/stock/entries',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    stockController.createEntry
+);
+
+router.post('/:slug/admin/stock/counts',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    stockController.createCount
+);
+
+router.post('/:slug/admin/stock/waste',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    stockController.createWaste
 );
 
 router.get('/:slug/admin/services',

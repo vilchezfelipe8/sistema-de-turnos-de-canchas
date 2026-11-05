@@ -299,3 +299,59 @@ test('cuenta ya pagada bloquea el webhook aprobado y no duplica cobro', async ()
     }
   );
 });
+
+test('webhook con descuento online imputa a precio de lista con el % congelado en el intento', async () => {
+  const service = createService();
+  // Lista 7500, 20% online => Mercado Pago cobró 6000 (lo que devuelve getPayment del mock).
+  let createdPaymentInput: any = null;
+  const attemptState: any = {
+    id: 'attempt-1',
+    clubId: 10,
+    userId: 77,
+    accountId: 'acc-booking-1',
+    bookingId: 801,
+    amount: 6000,
+    status: 'PENDING',
+    paymentId: null,
+    target: {
+      scope: 'ACCOUNT',
+      items: [],
+      payer: null,
+      methodDiscount: { key: 'ONLINE', percent: 20, listAmount: 7500, listItems: [{ accountItemId: 'item-cancha', amount: 7500 }] }
+    }
+  };
+  (service as any).accountService.reconcilePaidAmountTx = async () => ({ remaining: 7500 });
+  (service as any).paymentService.createInTransaction = async (_tx: any, input: any) => {
+    createdPaymentInput = input;
+    return { id: 'payment-1' };
+  };
+
+  await withTransactionMock(
+    async (callback: any) =>
+      callback({
+        $queryRaw: async () => [{ id: 'attempt-1' }],
+        onlinePaymentAttempt: {
+          findUnique: async () => attemptState,
+          update: async ({ data }: any) => {
+            Object.assign(attemptState, data);
+            return { ...attemptState };
+          }
+        },
+        account: { findUnique: async () => ({ id: 'acc-booking-1', refunds: [] }) },
+        auditLog: { create: async () => ({}) }
+      }),
+    async () => {
+      const result = await service.processMercadoPagoWebhook({
+        clubId: 10,
+        attemptId: 'attempt-1',
+        paymentId: 'mp-payment-1',
+        xSignature: 'sig',
+        xRequestId: 'req-1'
+      });
+      assert.equal(result.status, 'APPROVED');
+      assert.equal(createdPaymentInput.amount, 7500);
+      assert.deepEqual(createdPaymentInput.methodDiscountOverride, { key: 'ONLINE', percent: 20 });
+      assert.deepEqual(createdPaymentInput.allocations, [{ accountItemId: 'item-cancha', amount: 7500 }]);
+    }
+  );
+});

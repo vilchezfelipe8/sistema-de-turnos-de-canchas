@@ -74,16 +74,42 @@ const request = async <T>(path: string, init: RequestInit, fallback: string, aut
   return res.json();
 };
 
+/** % de descuento sobre el precio de lista según cómo se paga en el mostrador. */
+export type PaymentMethodDiscounts = { CASH: number; TRANSFER: number; CARD: number; ONLINE: number };
+
+/** Descuentos que la app le muestra al jugador (0 = sin descuento o no se muestra). */
+export type PublicPriceHints = { cashPercent: number; onlinePercent: number };
+
+/** Seña del club (modo "Con seña"): % y si hay que pagarla online al reservar. */
+export type PublicDepositPolicy = { percent: number; onlineRequired: boolean; holdMinutes: number };
+
+export type OnlineDepositSettings = {
+  bookingConfirmationMode?: 'AUTOMATIC' | 'MANUAL' | 'DEPOSIT_REQUIRED';
+  bookingDepositPercent?: number | null;
+  onlineDepositRequired?: boolean;
+  onlineDepositHoldMinutes?: number;
+};
+
 export const PlayerPricingService = {
   getSettings: (slug: string) =>
-    request<{ pricingMode: ClubPricingMode; onlineCheckoutEnabled: boolean }>(
+    request<{ pricingMode: ClubPricingMode; onlineCheckoutEnabled: boolean; paymentMethodDiscounts?: PaymentMethodDiscounts; showCashPriceInApp?: boolean } & OnlineDepositSettings>(
       `/clubs/${slug}/admin/pricing-settings`,
       { method: 'GET' },
       'No se pudo obtener la configuración de precios.'
     ),
 
-  updateSettings: (slug: string, body: { pricingMode?: ClubPricingMode; onlineCheckoutEnabled?: boolean }) =>
-    request<{ pricingMode: ClubPricingMode; onlineCheckoutEnabled: boolean }>(
+  updateSettings: (
+    slug: string,
+    body: {
+      pricingMode?: ClubPricingMode;
+      onlineCheckoutEnabled?: boolean;
+      paymentMethodDiscounts?: Partial<PaymentMethodDiscounts>;
+      showCashPriceInApp?: boolean;
+      onlineDepositRequired?: boolean;
+      onlineDepositHoldMinutes?: number;
+    }
+  ) =>
+    request<{ pricingMode: ClubPricingMode; onlineCheckoutEnabled: boolean; paymentMethodDiscounts?: PaymentMethodDiscounts; showCashPriceInApp?: boolean } & OnlineDepositSettings>(
       `/clubs/${slug}/admin/pricing-settings`,
       { method: 'PUT', body: JSON.stringify(body) },
       'No se pudo actualizar la configuración de precios.'
@@ -121,7 +147,7 @@ export const PlayerPricingService = {
 
   // Público (app del jugador)
   getPublicFormats: (slug: string) =>
-    request<{ pricingMode: ClubPricingMode; onlineCheckoutEnabled: boolean; formats: ActivityFormat[] }>(
+    request<{ pricingMode: ClubPricingMode; onlineCheckoutEnabled: boolean; priceHints?: PublicPriceHints; deposit?: PublicDepositPolicy | null; formats: ActivityFormat[] }>(
       `/clubs/slug/${encodeURIComponent(slug)}/activity-formats`,
       { method: 'GET' },
       'No se pudieron cargar las modalidades.',

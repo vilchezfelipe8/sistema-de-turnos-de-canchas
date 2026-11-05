@@ -144,7 +144,9 @@ export const registerPayment = async (body: {
   coveredParticipantRef?: string;
   coveredParticipantName?: string;
   allocations?: Array<{ accountItemId: string; amount: number }>;
-}) => {
+  /** Cobrar con el descuento del medio de pago (amount/allocations a precio de lista). */
+  applyMethodDiscount?: boolean;
+}): Promise<{ id: string; amount: number; listAmount?: number; methodDiscountAmount?: number }> => {
   if (body.method === 'TRANSFER' && body.channel !== 'BANK_ACCOUNT' && body.channel !== 'VIRTUAL_WALLET') {
     throw new Error('El canal es obligatorio para pagos por transferencia');
   }
@@ -162,7 +164,8 @@ export const registerPayment = async (body: {
     payerParticipantName: body.payerParticipantName,
     coveredParticipantRef: body.coveredParticipantRef,
     coveredParticipantName: body.coveredParticipantName,
-    allocations: body.allocations
+    allocations: body.allocations,
+    applyMethodDiscount: body.applyMethodDiscount
   });
   const res = await fetchWithAuth(`${apiBase()}/accounts/${body.accountId}/payments`, {
     method: 'POST',
@@ -182,7 +185,8 @@ export const registerPayment = async (body: {
       payerParticipantName: body.payerParticipantName,
       coveredParticipantRef: body.coveredParticipantRef,
       coveredParticipantName: body.coveredParticipantName,
-      allocations: body.allocations
+      allocations: body.allocations,
+      applyMethodDiscount: body.applyMethodDiscount || undefined
     })
   });
   if (!res.ok) {

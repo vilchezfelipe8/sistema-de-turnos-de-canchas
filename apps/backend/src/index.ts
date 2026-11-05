@@ -144,6 +144,7 @@ const processPendingBookingPolicies = async () => {
   try {
     await autoCancelPendingBookingsService.processPendingBookingWarnings();
     await autoCancelPendingBookingsService.processPendingBookingAutoCancellations();
+    await autoCancelPendingBookingsService.processExpiredOnlineDepositHolds();
     metricsService.recordSchedulerRun('pending_bookings_auto_cancel', 'success');
   } catch (error) {
     console.error('❌ Error procesando políticas de auto-cancelación de pendientes:', error);

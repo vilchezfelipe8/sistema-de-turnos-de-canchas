@@ -52,6 +52,8 @@ export type AccountDetail = {
   items: AccountDetailItem[];
   payments: AccountDetailPayment[];
   client: { id: string; name: string; phone: string | null; email: string | null } | null;
+  /** % de descuento por medio de pago configurado en el club (ej. { CASH: 20 }). */
+  paymentMethodDiscounts?: Partial<Record<'CASH' | 'TRANSFER' | 'CARD', number>>;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -183,9 +185,24 @@ export const normalizeAccountDetail = (raw: any, fallbackId: string): AccountDet
         ),
       createdAt: String(payment?.createdAt || ''),
     })),
+    paymentMethodDiscounts: {
+      CASH: Number(raw?.paymentMethodDiscounts?.CASH || 0),
+      TRANSFER: Number(raw?.paymentMethodDiscounts?.TRANSFER || 0),
+      CARD: Number(raw?.paymentMethodDiscounts?.CARD || 0),
+    },
     createdAt: String(raw?.createdAt || ''),
     updatedAt: String(raw?.updatedAt || ''),
   };
+};
+
+/** Descuento por medio de pago: se redondea por concepto, igual que en el backend. */
+export const computeMethodDiscount = (rowAmounts: number[], percent: number) => {
+  if (!(percent > 0)) return 0;
+  return Number(
+    rowAmounts
+      .reduce((sum, amount) => sum + Number(((Number(amount || 0) * percent) / 100).toFixed(2)), 0)
+      .toFixed(2)
+  );
 };
 
 // ─── Helpers de cómputo de cobro ─────────────────────────────────────────────

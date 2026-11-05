@@ -663,6 +663,52 @@ export default function MyBookingsPage() {
   const minePartPending = (checkout: PlayerBookingCheckoutDto) =>
     Math.max(0, (checkout.shares?.mine?.pending || 0) - (checkout.shares?.mine?.extrasPending || 0));
 
+  // Seña pendiente (club "Con seña"): botón para pagarla y hasta cuándo, si es obligatoria.
+  const renderDepositAction = (checkout: PlayerBookingCheckoutDto) => {
+    const deposit = checkout.deposit;
+    if (!deposit || deposit.covered || deposit.remainingAmount <= 0.009) return null;
+    const dueLabel = deposit.dueAt
+      ? new Date(deposit.dueAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+      : null;
+    return (
+      <>
+        <div className="bk-pay-note">
+          {deposit.onlineRequired && dueLabel
+            ? `Tu reserva queda confirmada al pagar la seña. Pagala antes de las ${dueLabel} o el turno se libera.`
+            : 'Tu reserva queda confirmada al pagar la seña.'}
+        </div>
+        {checkout.checkout.enabled && (
+          <button
+            type="button"
+            className="bk-action-btn bk-action-rebook"
+            onClick={() => { void handleStartOnlineCheckout('DEPOSIT'); }}
+            disabled={checkoutSubmitting}
+          >
+            <BusyLabel busy={checkoutSubmitting}>
+              <Ticket size={15} />
+              {`Pagar seña · ${formatMoney(deposit.remainingAmount)}`}
+            </BusyLabel>
+          </button>
+        )}
+      </>
+    );
+  };
+
+  // Precio online con descuento y precio efectivo en el club, si el club los tiene.
+  const renderPriceHintsNote = (checkout: PlayerBookingCheckoutDto) => {
+    const hints = checkout.priceHints;
+    if (!hints || (hints.onlineAmount == null && hints.cashAmount == null) || hints.listAmount <= 0.009) return null;
+    const parts = [
+      hints.onlineAmount != null ? `online ${formatMoney(hints.onlineAmount)} (${hints.onlinePercent}% off)` : null,
+      hints.cashAmount != null ? `en efectivo en el club ${formatMoney(hints.cashAmount)}` : null,
+    ].filter(Boolean);
+    return (
+      <div className="bk-pay-note">
+        Precio de lista {formatMoney(hints.listAmount)} · {parts.join(' · ')}
+      </div>
+    );
+  };
+
   const minePayLabel = (checkout: PlayerBookingCheckoutDto) => {
     const hasExtras = (checkout.shares?.mine?.extrasPending || 0) > 0.009;
     if (!hasExtras) return 'Pagar mi parte';
@@ -748,6 +794,7 @@ export default function MyBookingsPage() {
     if (!selectedBooking || checkoutSubmitting) return;
     if (scope === 'OWN_SHARE' && !checkoutSummary?.checkout.enabled) return;
     if (scope === 'ALL_SHARES' && !checkoutSummary?.shares?.canPayAll) return;
+    if (scope === 'DEPOSIT' && !((checkoutSummary?.deposit?.remainingAmount || 0) > 0.009)) return;
     setCheckoutSubmitting(true);
     try {
       const payload = await createMercadoPagoCheckout(selectedBooking.id, scope);
@@ -1606,6 +1653,8 @@ export default function MyBookingsPage() {
                             </div>
                           )}
                           <div className="bk-pay-total">{sharesTotalCopy(checkoutSummary)}</div>
+                          {renderDepositAction(checkoutSummary)}
+                          {renderPriceHintsNote(checkoutSummary)}
                           {!checkoutSummary.checkout.enabled && (
                             <div className="bk-pay-note">{getCheckoutReasonMessage(checkoutSummary)}</div>
                           )}
@@ -1619,7 +1668,7 @@ export default function MyBookingsPage() {
                               <BusyLabel busy={checkoutSubmitting}>
                                 <Ticket size={15} />
                                 {checkoutSummary.shares.mine
-                                  ? `${minePayLabel(checkoutSummary)} · ${formatMoney(checkoutSummary.shares.mine.pending)}`
+                                  ? `${minePayLabel(checkoutSummary)} · ${formatMoney(checkoutSummary.priceHints?.onlineAmount ?? checkoutSummary.shares.mine.pending)}`
                                   : 'Pagar online con Mercado Pago'}
                               </BusyLabel>
                             </button>
@@ -1739,10 +1788,14 @@ export default function MyBookingsPage() {
                             >
                               <BusyLabel busy={checkoutSubmitting}>
                                 <Ticket size={15} />
-                                Pagar online con Mercado Pago
+                                {checkoutSummary.priceHints?.onlineAmount != null
+                                  ? `Pagar online · ${formatMoney(checkoutSummary.priceHints.onlineAmount)}`
+                                  : 'Pagar online con Mercado Pago'}
                               </BusyLabel>
                             </button>
                           )}
+                          {renderDepositAction(checkoutSummary)}
+                          {renderPriceHintsNote(checkoutSummary)}
                         </>
                       ) : null}
                     </div>
