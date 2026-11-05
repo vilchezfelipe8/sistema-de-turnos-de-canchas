@@ -65,6 +65,7 @@ function buildQuoteTx(overrides?: Partial<any>) {
       },
       create: async (args: any) => ({ id: 'client-new', ...args.data })
     },
+    stockMovement: { create: async (args: any) => ({ id: 'stock-movement', ...(args?.data || {}) }) },
     product: {
       findFirst: async () => ({
         id: 101,

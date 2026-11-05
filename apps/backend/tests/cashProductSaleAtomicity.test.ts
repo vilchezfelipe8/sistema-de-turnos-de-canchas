@@ -69,6 +69,7 @@ function buildTx(state: HarnessState) {
         return { id: 'client-new' };
       }
     },
+    stockMovement: { create: async (args: any) => ({ id: 'stock-movement', ...(args?.data || {}) }) },
     product: {
       findFirst: async (args: any) => {
         const where = args?.where || {};

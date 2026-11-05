@@ -222,6 +222,17 @@ enum CashShiftStatus {
   CLOSED
 }
 
+// Motivo de cada movimiento de stock de un producto (historial de inventario).
+enum StockMovementType {
+  INITIAL        // stock con el que se creó el producto
+  PURCHASE       // ingreso de mercadería (proveedor / remito)
+  SALE           // venta o consumo
+  SALE_REVERSAL  // anulación de venta o consumo eliminado
+  ADJUSTMENT     // ajuste por conteo físico
+  WASTE          // merma, rotura, vencimiento
+  MANUAL_EDIT    // cambio de stock editando el producto
+}
+
 enum CashMovementPosType {
   PAYMENT_IN
   REFUND
@@ -588,6 +599,7 @@ model Club {
   clients       Client[]
   bookings      Booking[]
   products      Product[]
+  stockMovements StockMovement[]
   servicesCatalog ClubServiceCatalog[]
   cashMovements CashMovement[]
   memberships   Membership[]
@@ -2056,9 +2068,43 @@ model Product {
   usedInCombos ProductComponent[] @relation("ComboComponent")
   accountItems AccountItem[]
   discountTargets DiscountPolicyTarget[]
+  stockMovements StockMovement[]
 
   @@index([clubId])
   @@map("Product")
+}
+
+// Historial de stock: cada cambio de Product.stock deja una fila (delta firmado + saldo).
+// Los ingresos y ajustes cargados juntos comparten groupId (un remito, un conteo).
+model StockMovement {
+  id        String            @id @default(cuid())
+  clubId    Int
+  club      Club              @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  productId Int
+  product   Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  type        StockMovementType
+  quantity    Int               // delta firmado: + entra, - sale
+  stockBefore Int
+  stockAfter  Int
+
+  groupId        String?
+  supplier       String?
+  documentNumber String?       // nro de remito / factura del proveedor
+  unitCost       Decimal?      @db.Decimal(10, 2)
+  reason         String?
+
+  accountId     String?
+  accountItemId String?
+
+  createdByUserId Int?
+  occurredAt      DateTime     @default(now()) @db.Timestamptz(3)
+  createdAt       DateTime     @default(now()) @db.Timestamptz(3)
+
+  @@index([clubId, occurredAt])
+  @@index([clubId, productId, occurredAt])
+  @@index([clubId, type, occurredAt])
+  @@index([groupId])
 }
 
 model ClubServiceCatalog {

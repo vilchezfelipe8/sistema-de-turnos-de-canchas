@@ -46,6 +46,7 @@ import { BookingHistoryService } from './BookingHistoryService';
 import { BookingCustomerWhatsappNotificationService } from './BookingCustomerWhatsappNotificationService';
 import { BookingStaffWhatsappNotificationService } from './BookingStaffWhatsappNotificationService';
 import { AppError, ErrorCodes, badRequest, conflict, forbidden, notFound } from '../errors';
+import { stockMovementService } from './StockMovementService';
 
 type CancelBookingReason = 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED';
 type CancelBookingOptions = {
@@ -9670,6 +9671,15 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 data: { stock: { decrement: normalizedQty } }
             });
             if (stockUpdate.count !== 1) throw conflict('No hay stock suficiente para completar la venta.', ErrorCodes.STOCK_INSUFFICIENT);
+            await stockMovementService.recordTx(tx, {
+                clubId,
+                productId,
+                quantity: -normalizedQty,
+                type: 'SALE',
+                accountId: account.id,
+                accountItemId: createdItem.id,
+                createdByUserId: options?.actorUserId ?? null
+            });
 
             await this.projectionService.refreshAccountSummary(account.id, tx);
 
@@ -9804,6 +9814,15 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     data: {
                         stock: { increment: item.quantity }
                     }
+                });
+                await stockMovementService.recordTx(tx, {
+                    clubId,
+                    productId: item.productId,
+                    quantity: Number(item.quantity || 0),
+                    type: 'SALE_REVERSAL',
+                    reason: 'Consumo eliminado',
+                    accountId: item.accountId,
+                    accountItemId: item.id
                 });
             }
 

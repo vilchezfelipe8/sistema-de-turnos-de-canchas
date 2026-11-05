@@ -64,7 +64,7 @@ export class ProductController {
                 category: parsed.data.category ? sanitizeString(String(parsed.data.category), 100) : undefined,
                 isCombo: Boolean(parsed.data.isCombo),
                 components: Array.isArray(parsed.data.components) ? parsed.data.components : []
-            });
+            }, Number((req as any).user?.userId || 0) || null);
             res.status(201).json(newProduct);
         } catch (error) {
             return sendAppError(res, error, 'Error al crear producto');
@@ -111,7 +111,7 @@ export class ProductController {
             if (data.name != null) updateData.name = sanitizeString(String(data.name), 200);
             if (data.category != null) updateData.category = sanitizeString(String(data.category), 100);
 
-            const updatedProduct = await this.productService.updateProductByClub(parsedParams.data.id, club.id, updateData);
+            const updatedProduct = await this.productService.updateProductByClub(parsedParams.data.id, club.id, updateData, Number((req as any).user?.userId || 0) || null);
             if (!updatedProduct) throw badRequest('Producto no encontrado.', ErrorCodes.PRODUCT_NOT_FOUND);
             res.json(updatedProduct);
         } catch (error) {
