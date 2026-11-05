@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../prisma';
 import { ErrorCodes, badRequest, forbidden, notFound, sendAppError, zodValidationAppError } from '../errors';
 import { PlayerSlotService } from '../services/PlayerSlotService';
+import { buildPublicPriceHints, normalizePaymentMethodDiscounts, readShowCashPriceInApp } from '../services/PaymentMethodDiscountService';
 
 const nullablePrice = z.preprocess(
   (v) => (v === null || v === '' || v === undefined ? null : Number(v)),
@@ -36,11 +37,25 @@ export class PlayerSlotController {
       const clubId = this.resolveClubId(req);
       const settings = await prisma.clubSettings.findUnique({
         where: { clubId },
-        select: { pricingMode: true, onlineCheckoutEnabled: true }
+        select: {
+          pricingMode: true,
+          onlineCheckoutEnabled: true,
+          paymentMethodDiscounts: true,
+          bookingConfirmationMode: true,
+          bookingDepositPercent: true,
+          onlineDepositRequired: true,
+          onlineDepositHoldMinutes: true
+        }
       });
       return res.json({
+        bookingConfirmationMode: settings?.bookingConfirmationMode ?? 'MANUAL',
+        bookingDepositPercent: settings?.bookingDepositPercent != null ? Number(settings.bookingDepositPercent) : null,
+        onlineDepositRequired: settings?.onlineDepositRequired ?? false,
+        onlineDepositHoldMinutes: settings?.onlineDepositHoldMinutes ?? 15,
         pricingMode: settings?.pricingMode ?? 'PER_COURT',
-        onlineCheckoutEnabled: settings?.onlineCheckoutEnabled ?? true
+        onlineCheckoutEnabled: settings?.onlineCheckoutEnabled ?? true,
+        paymentMethodDiscounts: normalizePaymentMethodDiscounts(settings?.paymentMethodDiscounts),
+        showCashPriceInApp: readShowCashPriceInApp(settings?.paymentMethodDiscounts)
       });
     } catch (error: any) {
       return sendAppError(res, error, 'No se pudo obtener la configuración de precios');
@@ -51,7 +66,16 @@ export class PlayerSlotController {
     try {
       const parsed = z.object({
         pricingMode: z.enum(['PER_COURT', 'PER_PLAYER']).optional(),
-        onlineCheckoutEnabled: z.boolean().optional()
+        onlineCheckoutEnabled: z.boolean().optional(),
+        paymentMethodDiscounts: z.object({
+          CASH: z.number().min(0).max(90).optional(),
+          TRANSFER: z.number().min(0).max(90).optional(),
+          CARD: z.number().min(0).max(90).optional(),
+          ONLINE: z.number().min(0).max(90).optional()
+        }).optional(),
+        showCashPriceInApp: z.boolean().optional(),
+        onlineDepositRequired: z.boolean().optional(),
+        onlineDepositHoldMinutes: z.number().int().min(5).max(240).optional()
       }).safeParse(req.body);
       if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
       const clubId = this.resolveClubId(req);
@@ -74,6 +98,41 @@ export class PlayerSlotController {
             action: 'ONLINE_CHECKOUT_TOGGLED',
             payload: { onlineCheckoutEnabled: parsed.data.onlineCheckoutEnabled }
           }
+        });
+      }
+      if (parsed.data.paymentMethodDiscounts || parsed.data.showCashPriceInApp !== undefined) {
+        const current = await prisma.clubSettings.findUnique({ where: { clubId }, select: { paymentMethodDiscounts: true } });
+        const next = {
+          ...normalizePaymentMethodDiscounts({
+            ...normalizePaymentMethodDiscounts(current?.paymentMethodDiscounts),
+            ...(parsed.data.paymentMethodDiscounts || {})
+          }),
+          showCashPriceInApp: parsed.data.showCashPriceInApp ?? readShowCashPriceInApp(current?.paymentMethodDiscounts)
+        };
+        await prisma.clubSettings.upsert({
+          where: { clubId },
+          update: { paymentMethodDiscounts: next },
+          create: { clubId, paymentMethodDiscounts: next }
+        });
+        await prisma.auditLog.create({
+          data: {
+            clubId,
+            userId: actorUserId,
+            entity: 'CLUB_SETTINGS',
+            entityId: String(clubId),
+            action: 'PAYMENT_METHOD_DISCOUNTS_UPDATED',
+            payload: next
+          }
+        });
+      }
+      if (parsed.data.onlineDepositRequired !== undefined || parsed.data.onlineDepositHoldMinutes !== undefined) {
+        const data = {
+          ...(parsed.data.onlineDepositRequired !== undefined ? { onlineDepositRequired: parsed.data.onlineDepositRequired } : {}),
+          ...(parsed.data.onlineDepositHoldMinutes !== undefined ? { onlineDepositHoldMinutes: parsed.data.onlineDepositHoldMinutes } : {})
+        };
+        await prisma.clubSettings.upsert({ where: { clubId }, update: data, create: { clubId, ...data } });
+        await prisma.auditLog.create({
+          data: { clubId, userId: actorUserId, entity: 'CLUB_SETTINGS', entityId: String(clubId), action: 'ONLINE_DEPOSIT_UPDATED', payload: data }
         });
       }
       return this.getPricingSettings(req, res);
@@ -176,7 +235,20 @@ export class PlayerSlotController {
       const slug = String(req.params.slug || '').trim();
       const club = await prisma.club.findUnique({
         where: { slug },
-        select: { id: true, settings: { select: { pricingMode: true, onlineCheckoutEnabled: true } } }
+        select: {
+          id: true,
+          settings: {
+            select: {
+              pricingMode: true,
+              onlineCheckoutEnabled: true,
+              paymentMethodDiscounts: true,
+              bookingConfirmationMode: true,
+              bookingDepositPercent: true,
+              onlineDepositRequired: true,
+              onlineDepositHoldMinutes: true
+            }
+          }
+        }
       });
       if (!club) throw notFound('Club no encontrado.', ErrorCodes.CLUB_NOT_FOUND);
       const formats = await prisma.activityFormat.findMany({
@@ -187,6 +259,14 @@ export class PlayerSlotController {
       return res.json({
         pricingMode: club.settings?.pricingMode ?? 'PER_COURT',
         onlineCheckoutEnabled: club.settings?.onlineCheckoutEnabled ?? true,
+        priceHints: buildPublicPriceHints(club.settings?.paymentMethodDiscounts),
+        deposit: club.settings?.bookingConfirmationMode === 'DEPOSIT_REQUIRED' && Number(club.settings?.bookingDepositPercent || 0) > 0
+          ? {
+            percent: Number(club.settings.bookingDepositPercent),
+            onlineRequired: Boolean(club.settings.onlineDepositRequired) && club.settings.onlineCheckoutEnabled !== false,
+            holdMinutes: club.settings.onlineDepositHoldMinutes ?? 15
+          }
+          : null,
         formats
       });
     } catch (error: any) {

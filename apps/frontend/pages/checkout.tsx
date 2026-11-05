@@ -374,6 +374,8 @@ export default function CheckoutPage() {
   const [lostClubName, setLostClubName] = useState('');
   // Pago online (Mercado Pago) al confirmar, si el club lo tiene.
   const [payOnline, setPayOnline] = useState(false);
+  // Club "Con seña": pagar solo la seña ahora o todo.
+  const [onlinePayScope, setOnlinePayScope] = useState<'DEPOSIT' | 'FULL'>('DEPOSIT');
   const [redirectingToPayment, setRedirectingToPayment] = useState(false);
   const [onlinePaymentFailed, setOnlinePaymentFailed] = useState(false);
 
@@ -431,6 +433,21 @@ export default function CheckoutPage() {
   // Precio por jugador: parte del titular y de cada lugar sin asignar (precio general, con luces).
   const isPerPlayer = Boolean(draft?.activityFormatId && draft?.pricePerPlayer != null);
   const ownerShare = Number(draft?.pricePerPlayer || 0);
+  // Precio con descuento por medio de pago (efectivo en el club / online), redondeado a centavos.
+  const discountedPrice = (amount: number, percent?: number) =>
+    percent && percent > 0 ? Number((amount - Number(((amount * percent) / 100).toFixed(2))).toFixed(2)) : null;
+  // Seña: % del turno completo; la paga el titular. Obligatoria = no se ofrece "pagar en el club".
+  const hasDeposit =
+    draft?.bookingConfirmationMode === 'DEPOSIT_REQUIRED'
+    && Number(draft?.depositPercent || 0) > 0
+    && Boolean(draft?.onlineCheckoutEnabled);
+  const depositAmount = hasDeposit
+    ? Number(((Number(draft?.price || 0) * Number(draft?.depositPercent || 0)) / 100).toFixed(2))
+    : 0;
+  const mustPayDepositOnline = hasDeposit && Boolean(draft?.onlineDepositRequired);
+  useEffect(() => {
+    if (mustPayDepositOnline) setPayOnline(true);
+  }, [mustPayDepositOnline]);
   const otherSlotsCount = draft?.playerCount ? Math.max(0, draft.playerCount - 1) : 0;
   const generalShare = draft?.generalPricePerPlayer != null
     ? Number(draft.generalPricePerPlayer)
@@ -532,7 +549,10 @@ export default function CheckoutPage() {
         try {
           const checkout = await getPlayerBookingCheckout(bookingId);
           if (checkout?.checkout?.enabled) {
-            const payment = await createMercadoPagoCheckout(bookingId);
+            const payment = await createMercadoPagoCheckout(
+              bookingId,
+              hasDeposit && onlinePayScope === 'DEPOSIT' ? 'DEPOSIT' : 'OWN_SHARE'
+            );
             if (payment?.initPoint && typeof window !== 'undefined') {
               setRedirectingToPayment(true);
               window.location.assign(payment.initPoint);
@@ -675,7 +695,7 @@ export default function CheckoutPage() {
   // la cuenta de la reserva recién existe cuando el club la acepta).
   const canPayOnline = Boolean(draft.onlineCheckoutEnabled) && draft.bookingConfirmationMode !== 'MANUAL';
   const confirmLabel = payOnline
-    ? 'Confirmar y pagar'
+    ? hasDeposit && onlinePayScope === 'DEPOSIT' ? 'Confirmar y pagar seña' : 'Confirmar y pagar'
     : participants.length > 0
     ? `Confirmar y enviar ${participants.length === 1 ? 'invitación' : 'invitaciones'}`
     : 'Confirmar reserva';
@@ -1134,28 +1154,71 @@ export default function CheckoutPage() {
               <div className="checkout-card-pad ck-pay-pad" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {canPayOnline ? (
                   <div className="ck-pay-options" role="radiogroup" aria-label="Forma de pago">
-                    <button type="button" role="radio" aria-checked={payOnline} className={`payment-option${payOnline ? ' active' : ''}`} onClick={() => setPayOnline(true)}>
+                    {hasDeposit && (
+                      <button type="button" role="radio" aria-checked={payOnline && onlinePayScope === 'DEPOSIT'} className={`payment-option${payOnline && onlinePayScope === 'DEPOSIT' ? ' active' : ''}`} onClick={() => { setPayOnline(true); setOnlinePayScope('DEPOSIT'); }}>
+                        <span className="payment-icon"><CreditCard size={18} /></span>
+                        <span>
+                          <span className="payment-title">Pagar la seña ahora</span>
+                          <span className="payment-copy">
+                            Con Mercado Pago · <b>{formatMoney(depositAmount)}</b> ({draft.depositPercent}% del turno). El resto, online o en el club.
+                          </span>
+                        </span>
+                      </button>
+                    )}
+                    <button type="button" role="radio" aria-checked={payOnline && (!hasDeposit || onlinePayScope === 'FULL')} className={`payment-option${payOnline && (!hasDeposit || onlinePayScope === 'FULL') ? ' active' : ''}`} onClick={() => { setPayOnline(true); setOnlinePayScope('FULL'); }}>
                       <span className="payment-icon"><CreditCard size={18} /></span>
                       <span>
-                        <span className="payment-title">{isPerPlayer ? 'Pagar mi parte ahora' : 'Pagar ahora'}</span>
+                        <span className="payment-title">{hasDeposit ? (isPerPlayer ? 'Pagar mi parte completa' : 'Pagar todo ahora') : isPerPlayer ? 'Pagar mi parte ahora' : 'Pagar ahora'}</span>
                         <span className="payment-copy">
-                          Con Mercado Pago · {formatMoney(isPerPlayer ? ownerShare : draft.price)}
+                          Con Mercado Pago · {(() => {
+                            const listAmount = isPerPlayer ? ownerShare : Number(draft.price || 0);
+                            const online = discountedPrice(listAmount, draft.onlineDiscountPercent);
+                            return online != null
+                              ? <><b>{formatMoney(online)}</b> ({draft.onlineDiscountPercent}% off online)</>
+                              : formatMoney(listAmount);
+                          })()}
                           {isPerPlayer ? '. Cada invitado paga la suya.' : ''}
                         </span>
                       </span>
                     </button>
+                    {!mustPayDepositOnline && (
                     <button type="button" role="radio" aria-checked={!payOnline} className={`payment-option${!payOnline ? ' active' : ''}`} onClick={() => setPayOnline(false)}>
                       <span className="payment-icon"><WalletCards size={18} /></span>
                       <span>
                         <span className="payment-title">Pagar en el club</span>
-                        <span className="payment-copy">{isPerPlayer ? 'Cada jugador abona su parte en el mostrador.' : 'En el mostrador, el día del turno.'}</span>
+                        <span className="payment-copy">
+                          {isPerPlayer ? 'Cada jugador abona su parte en el mostrador.' : 'En el mostrador, el día del turno.'}
+                          {(() => {
+                            const listAmount = isPerPlayer ? ownerShare : Number(draft.price || 0);
+                            const cash = discountedPrice(listAmount, draft.cashDiscountPercent);
+                            return cash != null
+                              ? <> <b>{formatMoney(cash)} en efectivo</b> · {formatMoney(listAmount)} otros medios</>
+                              : null;
+                          })()}
+                        </span>
                       </span>
                     </button>
+                    )}
+                    {mustPayDepositOnline && (
+                      <p className="ck-pay-line">
+                        <WalletCards size={15} />
+                        <span>
+                          Para reservar este club pide la seña online. Tenés {draft.depositHoldMinutes || 15} minutos para pagarla; si no, el turno se libera.
+                        </span>
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <p className="ck-pay-line">
                     <WalletCards size={15} />
-                    <span><b>Se paga en el club.</b> {isPerPlayer ? 'Cada jugador abona su parte en el mostrador.' : 'Lo abonás en el mostrador.'}</span>
+                    <span>
+                      <b>Se paga en el club.</b> {isPerPlayer ? 'Cada jugador abona su parte en el mostrador.' : 'Lo abonás en el mostrador.'}
+                      {(() => {
+                        const listAmount = isPerPlayer ? ownerShare : Number(draft.price || 0);
+                        const cash = discountedPrice(listAmount, draft.cashDiscountPercent);
+                        return cash != null ? <> En efectivo <b>{formatMoney(cash)}</b>, otros medios {formatMoney(listAmount)}.</> : null;
+                      })()}
+                    </span>
                   </p>
                 )}
 
@@ -1183,7 +1246,9 @@ export default function CheckoutPage() {
               <p className="p-action-bar-main">{isPerPlayer ? `Tu parte ${formatMoney(ownerShare)}` : `Total ${formatMoney(draft.price)}`}</p>
               <p className="p-action-bar-sub">
                 {payOnline
-                  ? isPerPlayer ? 'Pagás tu parte con Mercado Pago' : 'Pagás ahora con Mercado Pago'
+                  ? hasDeposit && onlinePayScope === 'DEPOSIT'
+                    ? `Seña ${formatMoney(depositAmount)} con Mercado Pago`
+                    : isPerPlayer ? 'Pagás tu parte con Mercado Pago' : 'Pagás ahora con Mercado Pago'
                   : isPerPlayer ? `Total ${formatMoney(draft.price)} · se paga en el club` : 'Se paga en el club'}
               </p>
             </div>

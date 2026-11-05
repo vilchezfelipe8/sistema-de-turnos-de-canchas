@@ -35,7 +35,19 @@ type Props = {
   onAmountChange: (value: string) => void;
   maxInlineLabel: string;
   maxFooterLabel: string;
+  /** Descuento del club para el método elegido (ej. precio efectivo). */
+  methodDiscount?: {
+    percent: number;
+    methodLabel: string;
+    enabled: boolean;
+    onToggle: (enabled: boolean) => void;
+    discountAmount: number;
+    chargeAmount: number;
+  };
 };
+
+const formatPesos = (value: number) =>
+  `$ ${Number(value || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const sectionCardClass = 'rounded-2xl border border-p-border bg-p-surface-2 p-4';
 
@@ -58,6 +70,7 @@ export default function PaymentRegistrationDrawer({
   onAmountChange,
   maxInlineLabel,
   maxFooterLabel,
+  methodDiscount,
 }: Props) {
   return (
     <>
@@ -214,6 +227,40 @@ export default function PaymentRegistrationDrawer({
           <p className="mt-2 text-[11px] text-p-text-muted">{maxFooterLabel}</p>
         </label>
       </AdminDrawerSection>
+
+      {/* Precio por medio de pago */}
+      {methodDiscount && (
+        <AdminDrawerSection className={sectionCardClass}>
+          <label className="flex cursor-pointer items-start gap-2">
+            <input
+              type="checkbox"
+              checked={methodDiscount.enabled}
+              onChange={(event) => methodDiscount.onToggle(event.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-p-brand"
+            />
+            <span className="min-w-0">
+              <span className="block text-[13px] font-semibold text-p-text">
+                Precio {methodDiscount.methodLabel} ({methodDiscount.percent}% menos)
+              </span>
+              <span className="block text-[11px] text-p-text-muted">
+                El monto final es a precio de lista. Al confirmar se descuenta del saldo.
+              </span>
+            </span>
+          </label>
+          {methodDiscount.enabled && methodDiscount.discountAmount > 0 && (
+            <div className="mt-3 space-y-1 rounded-lg border border-p-border bg-p-surface px-3 py-2 text-[12px]">
+              <div className="flex justify-between text-p-text-muted">
+                <span>Descuento</span>
+                <span>- {formatPesos(methodDiscount.discountAmount)}</span>
+              </div>
+              <div className="flex justify-between text-[14px] font-bold text-p-text">
+                <span>A cobrar</span>
+                <span>{formatPesos(methodDiscount.chargeAmount)}</span>
+              </div>
+            </div>
+          )}
+        </AdminDrawerSection>
+      )}
     </>
   );
 }

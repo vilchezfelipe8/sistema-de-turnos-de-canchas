@@ -417,7 +417,7 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
   }, [activeCourts, selectedActivityId]);
 
   // Precio por jugador: modalidades del club (Single / Dobles...) y la elegida para la actividad.
-  const [clubPricing, setClubPricing] = useState<{ pricingMode: ClubPricingMode; onlineCheckoutEnabled: boolean; formats: ActivityFormat[] }>({
+  const [clubPricing, setClubPricing] = useState<{ pricingMode: ClubPricingMode; onlineCheckoutEnabled: boolean; priceHints?: { cashPercent: number; onlinePercent: number }; deposit?: { percent: number; onlineRequired: boolean; holdMinutes: number } | null; formats: ActivityFormat[] }>({
     pricingMode: 'PER_COURT',
     onlineCheckoutEnabled: true,
     formats: []
@@ -739,6 +739,11 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
           }
         : {}),
       onlineCheckoutEnabled: clubPricing.onlineCheckoutEnabled,
+      cashDiscountPercent: clubPricing.priceHints?.cashPercent ?? 0,
+      onlineDiscountPercent: clubPricing.priceHints?.onlinePercent ?? 0,
+      depositPercent: clubPricing.deposit?.percent ?? null,
+      onlineDepositRequired: Boolean(clubPricing.deposit?.onlineRequired),
+      depositHoldMinutes: clubPricing.deposit?.holdMinutes ?? null,
       createdAt: new Date().toISOString(),
     });
     if (!draftSaved) {

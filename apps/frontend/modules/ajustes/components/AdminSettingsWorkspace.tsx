@@ -3,6 +3,8 @@ import AdminTabCourts from '../../../components/admin/AdminTabCourts';
 import SettingsClubMembersSection from './SettingsClubMembersSection';
 import SettingsActivityFormatsSection from './SettingsActivityFormatsSection';
 import SettingsPerPlayerPricingSection from './SettingsPerPlayerPricingSection';
+import SettingsPaymentMethodDiscountSection from './SettingsPaymentMethodDiscountSection';
+import SettingsOnlineDepositSection from './SettingsOnlineDepositSection';
 import SettingsBookingWindowSection from './SettingsBookingWindowSection';
 import {
   SettingsAuditSection,
@@ -49,6 +51,7 @@ export default function AdminSettingsWorkspace({ tab }: AdminSettingsWorkspacePr
       <div className="space-y-4">
         <SettingsBookingWindowSection />
         <SettingsReservationsSection />
+        <SettingsOnlineDepositSection />
       </div>
     );
   }
@@ -57,6 +60,7 @@ export default function AdminSettingsWorkspace({ tab }: AdminSettingsWorkspacePr
     return (
       <div className="space-y-4">
         <SettingsPerPlayerPricingSection />
+        <SettingsPaymentMethodDiscountSection />
         <SettingsPricingSection />
       </div>
     );

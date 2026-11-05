@@ -1250,6 +1250,8 @@ model Booking {
   autoCancelWarningSentAt DateTime? @db.Timestamptz(3)
   autoCancelledAt         DateTime? @db.Timestamptz(3)
   autoCancelReason        String?
+  // Reserva desde la app con seña online obligatoria: hasta cuándo puede pagarla antes de liberarse.
+  onlineDepositDueAt      DateTime? @db.Timestamptz(3)
 
   listPrice       Decimal @default(0) @db.Decimal(10, 2)
   price           Decimal @db.Decimal(10, 2)
@@ -1295,6 +1297,7 @@ model Booking {
   @@index([activityId, startDateTime], map: "booking_activity_day")
   @@index([startDateTime])
   @@index([status, startDateTime, autoCancelledAt], map: "booking_pending_autocancel_idx")
+  @@index([status, onlineDepositDueAt])
 }
 
 model BookingParticipant {
@@ -2043,6 +2046,15 @@ model ClubSettings {
   autoCancelPendingWarningEnabled       Boolean @default(false)
   autoCancelPendingWarningMinutesBefore Int?
   enforceCashShiftCloseWithOpenAccounts Boolean @default(false)
+
+  // Descuento por medio de pago en el mostrador, en % sobre el precio de lista.
+  // Ej: { "CASH": 20 } = efectivo 20% menos. null = sin descuento.
+  paymentMethodDiscounts Json?
+
+  // Seña online obligatoria (modo DEPOSIT_REQUIRED): el jugador que reserva desde la app tiene
+  // onlineDepositHoldMinutes para pagar la seña con Mercado Pago; si no, la reserva se cancela sola.
+  onlineDepositRequired    Boolean @default(false)
+  onlineDepositHoldMinutes Int     @default(15)
 
   createdAt                 DateTime @default(now()) @db.Timestamptz(3)
   updatedAt                 DateTime @updatedAt @db.Timestamptz(3)

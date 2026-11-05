@@ -15,6 +15,7 @@ type PaymentFingerprintInput = {
     accountItemId: string;
     amount: number;
   }>;
+  applyMethodDiscount?: boolean;
 };
 
 const TTL_MS = 15_000;
@@ -35,6 +36,7 @@ const buildFingerprint = (input: PaymentFingerprintInput) => {
     accountId: input.accountId,
     amount: Number(input.amount || 0).toFixed(2),
     method: input.method,
+    applyMethodDiscount: Boolean(input.applyMethodDiscount),
     channel: input.channel || 'AUTO',
     collectorAccountLabel: String(input.collectorAccountLabel || '').trim() || null,
     externalReference: String(input.externalReference || '').trim() || null,

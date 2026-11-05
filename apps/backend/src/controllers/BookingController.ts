@@ -893,7 +893,9 @@ export class BookingController {
             }
 
             // scope: OWN_SHARE (por defecto, la parte propia) o ALL_SHARES (el titular paga todas).
-            const scope = String(req.body?.scope || '').toUpperCase() === 'ALL_SHARES' ? 'ALL_SHARES' : 'OWN_SHARE';
+            // DEPOSIT: el titular paga solo la seña (modo "Con seña").
+            const rawScope = String(req.body?.scope || '').toUpperCase();
+            const scope = rawScope === 'ALL_SHARES' ? 'ALL_SHARES' : rawScope === 'DEPOSIT' ? 'DEPOSIT' : 'OWN_SHARE';
             const checkout = await this.bookingService.createPlayerMercadoPagoCheckoutAttempt(bookingId, userId, scope);
             return res.status(201).json(checkout);
         } catch (error: any) {

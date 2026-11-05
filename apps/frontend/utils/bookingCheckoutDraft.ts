@@ -37,6 +37,13 @@ export type BookingCheckoutDraft = {
   memberCategoryName?: string | null;
   // false = el club cobra solo en el mostrador
   onlineCheckoutEnabled?: boolean;
+  // % de descuento en efectivo (en el club) y online, para mostrarle los dos precios al jugador.
+  cashDiscountPercent?: number;
+  onlineDiscountPercent?: number;
+  // Club "Con seña": % de seña y si hay que pagarla online al reservar (no se ofrece "pagar en el club").
+  depositPercent?: number | null;
+  onlineDepositRequired?: boolean;
+  depositHoldMinutes?: number | null;
   participants?: BookingCheckoutParticipantDraft[];
   createdAt: string;
 };

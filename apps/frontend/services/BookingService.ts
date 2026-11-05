@@ -238,6 +238,23 @@ export type PlayerBookingCheckoutDto = {
       | null;
     futureProvider: 'MERCADO_PAGO' | null;
   };
+  /** Seña (club "Con seña", solo para el titular): cuánto falta para confirmar y hasta cuándo pagarla. */
+  deposit?: {
+    percent: number;
+    requiredAmount: number;
+    remainingAmount: number;
+    covered: boolean;
+    onlineRequired: boolean;
+    dueAt: string | null;
+  } | null;
+  /** Precio efectivo en el club / online con descuento de lo que le toca pagar (null = sin descuento). */
+  priceHints?: {
+    listAmount: number;
+    cashPercent: number;
+    cashAmount: number | null;
+    onlinePercent: number;
+    onlineAmount: number | null;
+  };
   // Reservas por jugador: cada uno paga su parte. null en reservas por cancha.
   shares: {
     // pending incluye los consumos a cargo propio (extrasPending).
@@ -259,7 +276,8 @@ export type PlayerBookingCheckoutDto = {
 };
 
 // OWN_SHARE: la parte propia (por defecto) · ALL_SHARES: todas las partes (solo el titular).
-export type OnlinePaymentScope = 'OWN_SHARE' | 'ALL_SHARES';
+// DEPOSIT: el titular paga solo la seña (modo "Con seña").
+export type OnlinePaymentScope = 'OWN_SHARE' | 'ALL_SHARES' | 'DEPOSIT';
 
 export type PlayerBookingCheckoutStartDto = {
   attemptId: string;
