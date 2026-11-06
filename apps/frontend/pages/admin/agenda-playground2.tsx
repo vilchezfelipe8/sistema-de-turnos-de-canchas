@@ -115,6 +115,7 @@ import {
   isOwnerLikeParticipantRef,
 } from '../../components/admin/agenda/utils/bookingValidation';
 import { getPendingLogoutRedirect } from '../../services/AuthService';
+import { formatMoney } from '../../modules/cuentas/accountUtils';
 import { ClubAdminService } from '../../services/ClubAdminService';
 import { addAdminBookingParticipant, cancelBooking, cancelFixedBooking, changeBookingClient, confirmBooking, createBooking, createFixedBooking, getAdminBookingHistory, getAdminBookingParticipants, getAdminSchedule, getBookingById, getBookingFinancialSummary, getBookingQuote, removeAdminBookingParticipant, rescheduleFixedBooking, type AdminBookingParticipantDto, type BookingHistoryEntryDto } from '../../services/BookingService';
 import AccountDrawer, {
@@ -1284,6 +1285,9 @@ export default function AdminAgendaPlaygroundPage() {
   const participantContactInputRef = useRef<HTMLInputElement | null>(null);
   const simplifiedOwnerInputContainerRef = useRef<HTMLDivElement | null>(null);
   const simplifiedOwnerPhoneInputRef = useRef<HTMLInputElement | null>(null);
+  const simplifiedOwnerNameInputRef = useRef<HTMLInputElement | null>(null);
+  // "Reservar y cobrar": al terminar de crear, abre el cobro de la reserva nueva.
+  const chargeAfterCreateRef = useRef(false);
   const simplifiedNewParticipantInputContainerRef = useRef<HTMLDivElement | null>(null);
   const simplifiedSidebarFooterRef = useRef<HTMLElement | null>(null);
   const agendaSurfaceRef = useRef<HTMLElement | null>(null);
@@ -3838,6 +3842,9 @@ export default function AdminAgendaPlaygroundPage() {
     setSimplifiedOwnerSuggestionsOpen(false);
     setSimplifiedOwnerSearchLoading(false);
     setSimplifiedOwnerSuggestions([]);
+    // Un cliente existente ya tiene sus datos: queda como titular sin un paso extra.
+    setSimplifiedOwnerAdded(true);
+    setSimplifiedEditingParticipantId(null);
     setFormError('');
   }, [updateParticipant]);
 
@@ -4764,9 +4771,21 @@ export default function AdminAgendaPlaygroundPage() {
         return;
       }
       if (createdBookingId) {
-        const createdBooking = (Array.isArray(refreshedBookings) ? refreshedBookings : []).find(
-          (booking) => String(booking.id) === String(createdBookingId)
-        );
+        const findCreatedBooking = (rows: unknown) =>
+          (Array.isArray(rows) ? rows : []).find(
+            (booking: Booking) => String(booking.id) === String(createdBookingId)
+          ) as Booking | undefined;
+        let createdBooking = findCreatedBooking(refreshedBookings);
+        // Una reserva que carga el club en el mostrador ya está confirmada: no tiene sentido
+        // dejarla pendiente y obligar a confirmarla antes de poder cobrarla.
+        if (createdBooking && createdBooking.state === 'pending') {
+          try {
+            await confirmBooking(Number(createdBooking.id));
+            createdBooking = findCreatedBooking(await reloadSchedule()) || { ...createdBooking, state: 'confirmed' };
+          } catch (confirmError) {
+            reportUiError({ area: 'AgendaPlayground', action: 'autoConfirmCreatedBooking' }, confirmError);
+          }
+        }
         if (createdBooking) {
           openBookingInDrawer(createdBooking);
           if (pendingParticipantDrafts.length > 0) {
@@ -4797,6 +4816,10 @@ export default function AdminAgendaPlaygroundPage() {
             });
           }
           showAgendaToast('Reserva creada.', 'success');
+          if (chargeAfterCreateRef.current) {
+            chargeAfterCreateRef.current = false;
+            await openAgendaAccountDrawer(Number(createdBooking.id), 'payment');
+          }
           return;
         }
       }
@@ -5133,6 +5156,69 @@ export default function AdminAgendaPlaygroundPage() {
     };
   }, [simplifiedNewParticipantSuggestionsOpen, simplifiedOwnerSuggestionsOpen]);
 
+  // Precio de la reserva nueva, visible desde que se elige el horario. Se recotiza al cambiar
+  // horario, cancha, modalidad o cliente (el cliente define el precio de socio). Un error de
+  // cotización no bloquea guardar: solo deja el precio sin mostrar.
+  const isCreatingRegularBooking = drawerOpen && !editingBookingId && bookingKind === 'regular';
+  const ownerQuoteClientId =
+    resolveParticipantClientId(participants.find((participant) => participant.isOwner) || participants[0] || null) || '';
+  const [createQuoteTotal, setCreateQuoteTotal] = useState<number | null>(null);
+  const [createQuoteLoading, setCreateQuoteLoading] = useState(false);
+  useEffect(() => {
+    if (!isCreatingRegularBooking || !selectedCourtId || selectedEndSlot <= selectedStartSlot) {
+      setCreateQuoteTotal(null);
+      setCreateQuoteLoading(false);
+      return;
+    }
+    const activityId = Number(selectedCourt?.activityTypeId || 0);
+    if (!Number.isFinite(activityId) || activityId <= 0) {
+      setCreateQuoteTotal(null);
+      return;
+    }
+    let cancelled = false;
+    setCreateQuoteLoading(true);
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const quote = await getBookingQuote({
+          courtId: Number(selectedCourtId),
+          activityId,
+          date: new Date(selectedDate),
+          slotTime: slotToTime(selectedStartSlot),
+          durationMinutes: selectionMinutes,
+          activityFormatId: bookingActivityFormatId || null,
+          ...(ownerQuoteClientId ? { clientId: ownerQuoteClientId } : {}),
+        });
+        if (!cancelled) setCreateQuoteTotal(roundMoney(Number(quote.finalPrice ?? quote.listPrice ?? 0)));
+      } catch {
+        if (!cancelled) setCreateQuoteTotal(null);
+      } finally {
+        if (!cancelled) setCreateQuoteLoading(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    bookingActivityFormatId,
+    isCreatingRegularBooking,
+    ownerQuoteClientId,
+    selectedCourt?.activityTypeId,
+    selectedCourtId,
+    selectedDate,
+    selectedEndSlot,
+    selectedStartSlot,
+    selectionMinutes,
+    slotToTime,
+  ]);
+
+  // Al abrir "crear reserva", el cursor queda listo para buscar al cliente.
+  useEffect(() => {
+    if (!drawerOpen || editingBookingId) return;
+    const timeoutId = window.setTimeout(() => simplifiedOwnerNameInputRef.current?.focus(), 320);
+    return () => window.clearTimeout(timeoutId);
+  }, [drawerOpen, editingBookingId]);
+
   if (!authChecked || !user) return <RouteTransitionScreen message={authChecked ? 'Redirigiendo...' : 'Validando acceso...'} />;
   if (!hasOperatorAccess(user)) return <NotFound message="No tenés permiso para acceder al panel de administración." />;
   const recurringCourtSelectionLabel =
@@ -5168,6 +5254,7 @@ export default function AdminAgendaPlaygroundPage() {
   const ownerCanBeAdded = ownerHasName && (ownerHasLinkedSelection || ownerContactPhoneDraft.length > 0);
   const simplifiedSummaryOwnerLabel = ownerParticipant?.name.trim() || 'Titular sin asignar';
   const simplifiedSummaryCourtLabel = selectedCourt?.name || 'Cancha no definida';
+
   const sidebarTitle = (() => {
     if (simplifiedIsEditingReservation) {
       if (bookingKind === 'block') return 'Editar bloqueo';
@@ -7524,7 +7611,7 @@ export default function AdminAgendaPlaygroundPage() {
 
                 <div ref={drawerScrollContainerRef} className="flex-1 overflow-y-auto px-3 py-3 lg:px-6 lg:py-6">
                   {useSimplifiedBookingSidebar ? (
-                    <section className="rounded-2xl border border-p-border bg-p-surface px-4 py-4">
+                    <section className="flex flex-col rounded-2xl border border-p-border bg-p-surface px-4 py-4">
                       {showSimplifiedDetailsSection && (simplifiedIsEditingReservation ? (
                         <>
                           <div className="rounded-xl border border-p-border bg-p-surface-2 p-4">
@@ -8193,10 +8280,13 @@ export default function AdminAgendaPlaygroundPage() {
                         onFormatDurationChange={handleBookingFormatDurationChange}
                       />
 
-                      <section className="mt-4">
+                      {/* Al crear, lo primero es quién reserva: horario y cancha ya vienen del clic en la grilla. */}
+                      <section className={simplifiedIsEditingReservation ? 'mt-4' : 'order-first mb-4'}>
                         <div className="rounded-xl border border-p-border bg-p-surface-2 p-4">
                           <div className="flex items-center justify-between gap-3">
-                            <p className="text-[18px] font-semibold text-p-text">Participantes</p>
+                            <p className="text-[18px] font-semibold text-p-text">
+                              {simplifiedIsEditingReservation || simplifiedOwnerAdded ? 'Participantes' : '¿Quién reserva?'}
+                            </p>
                             {simplifiedOwnerAdded && !simplifiedNewParticipantOpen && (
                                 <button
                                   type="button"
@@ -8439,14 +8529,12 @@ export default function AdminAgendaPlaygroundPage() {
                             </div>
                           ) : (
                             <>
-                              <p className="mt-3 text-[15px] font-semibold text-p-text">Agregar titular</p>
-                              <div className="mt-3 grid grid-cols-1 gap-2 text-[12px] font-medium text-p-text-muted">
-                                <span>Nombre del cliente</span>
-                              </div>
-                              <div className="mt-2 grid grid-cols-1 gap-3">
+                              <div className="mt-3 grid grid-cols-1 gap-3">
                                 <div ref={simplifiedOwnerInputContainerRef} className="relative">
                                 <div className="h-12 rounded-xl border border-p-border bg-p-surface px-3 flex items-center gap-2">
                                   <input
+                                    ref={simplifiedOwnerNameInputRef}
+                                    aria-label="Nombre del cliente"
                                     value={ownerParticipant?.name || ''}
                                     onChange={(event) => {
                                       if (!ownerParticipant) return;
@@ -8460,7 +8548,7 @@ export default function AdminAgendaPlaygroundPage() {
                                     onBlur={() => {
                                       window.setTimeout(() => setSimplifiedOwnerSuggestionsOpen(false), 120);
                                     }}
-                                    placeholder="Ingresá un nombre"
+                                    placeholder="Buscá por nombre, teléfono o DNI"
                                     className="w-full bg-transparent text-[15px] text-p-text outline-none"
                                   />
                                   {ownerHasTypedName ? (
@@ -8593,6 +8681,10 @@ export default function AdminAgendaPlaygroundPage() {
                                   document.body
                                 )}
                                 </div>
+                                {/* Los datos de contacto solo hacen falta para un cliente nuevo. */}
+                                {ownerHasTypedName && !simplifiedOwnerSuggestionsOpen && (
+                                <>
+                                <p className="text-[12px] font-semibold text-p-text-secondary">Cliente nuevo</p>
                                 <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                                   <label className="block">
                                     <span className="text-[12px] font-medium text-p-text-muted">Teléfono</span>
@@ -8660,66 +8752,17 @@ export default function AdminAgendaPlaygroundPage() {
                                     />
                                   </label>
                                 </div>
-                                {!ownerHasLinkedSelection && ownerHasTypedName && ownerContactPhoneDraft.length === 0 && (
+                                {!ownerHasLinkedSelection && ownerContactPhoneDraft.length === 0 && (
                                   <p className="text-[12px] text-p-text-muted">
-                                    Si no existe, cargá el teléfono para crear el nuevo titular al guardar la reserva.
+                                    Cargá el teléfono para crearlo como cliente al guardar la reserva.
                                   </p>
+                                )}
+                                </>
                                 )}
                               </div>
                               {ownerFieldError && (
                                 <p className="mt-2 text-[12px] font-medium text-p-error">{ownerFieldError}</p>
                               )}
-
-                              <div className="mt-4 rounded-xl border border-p-border bg-p-surface px-4 py-3 flex items-center justify-between">
-                                <p className="text-[12px] text-p-text-muted">
-                                  Precio total:{' '}
-                                  <strong className="ml-1 text-[15px] font-semibold text-p-text">
-                                    {isFinancialDisplayPending ? '--' : `${Number(totalPrice.toFixed(2))} $`}
-                                  </strong>
-                                </p>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    showAgendaToast(
-                                      'Este total es estimado para crear la reserva. El registro de pagos se habilita al editar la reserva creada.'
-                                    )
-                                  }
-                                  className="grid h-7 w-7 place-items-center rounded-full text-p-text-muted transition hover:bg-p-surface-2"
-                                  aria-label="Información del precio total"
-                                  title="Cómo se usa el precio total"
-                                >
-                                  <CircleAlert size={16} />
-                                </button>
-                              </div>
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (!ownerHasName) return;
-                                  setSimplifiedOwnerAdded(true);
-                                  setSimplifiedEditingParticipantId(null);
-                                  setSimplifiedOwnerSuggestionsOpen(false);
-                                  setSimplifiedOwnerSearchLoading(false);
-                                  setSimplifiedOwnerSuggestions([]);
-                                  setSimplifiedNewParticipantOpen(false);
-                                  setSimplifiedNewParticipantName('');
-                                  setSimplifiedNewParticipantContact('');
-                                  setSimplifiedNewParticipantSourceTypeDraft('guest');
-                                  setSimplifiedNewParticipantEntityRefDraft('');
-                                  setSimplifiedNewParticipantSuggestionsOpen(false);
-                                  setSimplifiedNewParticipantSearchLoading(false);
-                                  setSimplifiedNewParticipantSuggestions([]);
-                                  setFormError('');
-                                }}
-                                disabled={!ownerCanBeAdded}
-                                className={`mt-5 h-11 w-full rounded-xl text-[14px] leading-none font-semibold transition ${
-                                  ownerCanBeAdded
-                                    ? 'bg-ink-900 text-ink-50 hover:bg-ink-900'
-                                    : 'border border-p-border bg-p-surface-3 text-p-text-muted'
-                                }`}
-                              >
-                                Agregar titular
-                              </button>
                             </>
                           )}
 
@@ -9421,7 +9464,7 @@ export default function AdminAgendaPlaygroundPage() {
                       {hasBlockingActionError && (
                         <div className="rounded-xl border border-p-error bg-p-error-bg px-3 py-2.5">
                           <p className="text-[12px] font-semibold text-p-error">
-                            No podes continuar hasta corregir este error.
+                            No podés continuar hasta corregir este error.
                           </p>
                           <p className="mt-0.5 text-[12px] text-p-error">{blockingActionMessage}</p>
                         </div>
@@ -9488,6 +9531,13 @@ export default function AdminAgendaPlaygroundPage() {
                               </div>
                             )}
                           </div>
+                        ) : isCreatingRegularBooking ? (
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-medium text-p-text-muted">Total</p>
+                            <p className="text-[18px] font-bold leading-tight tabular-nums text-p-text">
+                              {createQuoteLoading ? '…' : createQuoteTotal != null ? formatMoney(createQuoteTotal) : '—'}
+                            </p>
+                          </div>
                         ) : (
                           <span />
                         )}
@@ -9511,14 +9561,41 @@ export default function AdminAgendaPlaygroundPage() {
                               Ver detalle
                             </button>
                           )}
-                          <button
-                            type="button"
-                            onClick={() => void handleCreateBooking()}
-                            disabled={primaryActionDisabled}
-                            className="h-11 flex-1 sm:h-10 sm:flex-none sm:min-w-[170px] rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-50"
-                          >
-                            {editingBookingId ? 'Guardar cambios' : 'Crear reserva'}
-                          </button>
+                          {isCreatingRegularBooking ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  chargeAfterCreateRef.current = false;
+                                  void handleCreateBooking();
+                                }}
+                                disabled={primaryActionDisabled}
+                                className="h-11 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text hover:bg-p-surface-2 disabled:opacity-50 sm:h-10"
+                              >
+                                Reservar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  chargeAfterCreateRef.current = true;
+                                  void handleCreateBooking();
+                                }}
+                                disabled={primaryActionDisabled}
+                                className="h-11 flex-1 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-800 disabled:opacity-50 sm:h-10 sm:flex-none sm:min-w-[170px]"
+                              >
+                                {isSubmittingBooking ? 'Guardando...' : 'Reservar y cobrar'}
+                              </button>
+                            </>
+                          ) : (!editingBookingId || hasDeferredEditChanges) && (
+                            <button
+                              type="button"
+                              onClick={() => void handleCreateBooking()}
+                              disabled={primaryActionDisabled}
+                              className="h-11 flex-1 sm:h-10 sm:flex-none sm:min-w-[170px] rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-50"
+                            >
+                              {editingBookingId ? 'Guardar cambios' : 'Crear reserva'}
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>

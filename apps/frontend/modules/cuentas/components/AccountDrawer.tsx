@@ -290,6 +290,9 @@ export default function AccountDrawer({
 
   useEffect(() => {
     if (!open || !accountId || !detail) return;
+    // Si cambió la cuenta con el panel abierto, esperar a que llegue el detalle nuevo:
+    // aplicar la vista inicial sobre la cuenta anterior la abría con datos equivocados.
+    if (String(detail.id) !== String(accountId)) return;
     const key = `${accountId}:${initialView}`;
     if (initialViewAppliedKeyRef.current === key) return;
     initialViewAppliedKeyRef.current = key;
@@ -410,6 +413,11 @@ export default function AccountDrawer({
       : computeMethodDiscount([amountNumeric], methodDiscountPercent);
   }, [methodDiscountActive, methodDiscountPercent, amountNumeric, previewRows]);
   const chargeAmount = Number(((Number.isFinite(amountNumeric) ? amountNumeric : 0) - methodDiscountAmount).toFixed(2));
+  // Cobro directo: si se cobra todo lo pendiente tal cual, el resumen previo no aporta nada.
+  const canChargeDirectly =
+    amountIsValid &&
+    payPreset !== 'CUSTOM_ITEMS' &&
+    Math.abs(amountNumeric - maxAllowed) <= ACCOUNT_PAYMENT_EPSILON;
 
   // ── Open payment flow ─────────────────────────────────────────────────────
   const openPaymentFlow = useCallback(() => {
@@ -535,7 +543,9 @@ export default function AccountDrawer({
   );
 
   // ── Submit payment ────────────────────────────────────────────────────────
-  const submitPayment = useCallback(async () => {
+  // quick: cobro directo del total. Si sale bien, avisa con un toast y cierra en vez de
+  // mostrar la pantalla de resultado (que solo repetiría lo que ya se vio en el botón).
+  const submitPayment = useCallback(async (options?: { quick?: boolean }) => {
     if (!accountId || !detail) return;
     const amount = amountNumeric;
     if (!Number.isFinite(amount) || amount <= ACCOUNT_PAYMENT_EPSILON) {
@@ -588,6 +598,14 @@ export default function AccountDrawer({
       });
       const chargedAmount = Number(Number(created?.amount ?? roundedAmount).toFixed(2));
       const discountApplied = Number(created?.methodDiscountAmount || 0);
+      if (options?.quick) {
+        showAdminToast(
+          `Cobro registrado: ${formatMoney(chargedAmount)} en ${paymentMethodLabel(payMethod).toLowerCase()}.`
+        );
+        onSuccess?.('payment', getSuccessMeta());
+        onClose();
+        return;
+      }
       await reloadDetail();
       const reloaded = await getAccountById(accountId).then((r) =>
         normalizeDrawerDetail(r, accountId)
@@ -638,6 +656,7 @@ export default function AccountDrawer({
     getSuccessMeta,
     normalizeDrawerDetail,
     onSuccess,
+    onClose,
   ]);
 
   // ── Submit add item ────────────────────────────────────────────────────────
@@ -762,7 +781,7 @@ export default function AccountDrawer({
   const accountTitle = contextTitle || `Cuenta ${detail ? `#${shortCode(detail.id)}` : ''}`;
   const drawerSubtitle =
     view === 'payment_form'
-      ? 'Elegi método y monto. Si hace falta, ajusta conceptos.'
+      ? 'Elegí el medio de pago y el monto.'
       : detail && contextSubtitle
       ? contextSubtitle
       : detail && contextTitle
@@ -901,10 +920,14 @@ export default function AccountDrawer({
           <button
             type="button"
             disabled={!amountIsValid || submitting}
-            onClick={() => setView('payment_preconfirm')}
+            onClick={() => (canChargeDirectly ? void submitPayment({ quick: true }) : setView('payment_preconfirm'))}
             className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-40"
           >
-            {submitting ? 'Cargando...' : 'Continuar'}
+            {submitting
+              ? 'Registrando...'
+              : canChargeDirectly
+                ? `Cobrar ${formatMoney(chargeAmount)}`
+                : 'Continuar'}
           </button>
         </div>
       );
@@ -926,7 +949,7 @@ export default function AccountDrawer({
           <button
             type="button"
             disabled={submitting}
-            onClick={submitPayment}
+            onClick={() => void submitPayment()}
             className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-40"
           >
             {submitting ? 'Registrando...' : 'Confirmar cobro'}
@@ -1320,8 +1343,8 @@ export default function AccountDrawer({
           onItemAmountChange={handleCustomItemAmountChange}
           amountDraft={payAmountDraft}
           onAmountChange={setPayAmountDraft}
-          maxInlineLabel={`Maximo: ${maxAllowed.toFixed(2)} $`}
-          maxFooterLabel={`Máximo para este cobro: ${maxAllowed.toFixed(2)} $`}
+          maxInlineLabel={`Máximo ${formatMoney(maxAllowed)}`}
+          maxFooterLabel=""
           methodDiscount={
             methodDiscountPercent > 0
               ? {

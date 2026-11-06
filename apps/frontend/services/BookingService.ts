@@ -378,6 +378,7 @@ export const getBookingQuote = async (input: {
   slotTime?: string;
   startDateTime?: Date;
   durationMinutes?: number;
+  clientId?: string;
   clientEmail?: string;
   clientPhone?: string;
   clientDni?: string;
@@ -399,6 +400,7 @@ export const getBookingQuote = async (input: {
               }
             : {})),
       ...(Number.isFinite(input.durationMinutes) ? { durationMinutes: input.durationMinutes } : {}),
+      ...(input.clientId ? { clientId: input.clientId } : {}),
       ...(input.clientEmail ? { clientEmail: input.clientEmail } : {}),
       ...(input.clientPhone ? { clientPhone: input.clientPhone } : {}),
       ...(input.clientDni ? { clientDni: input.clientDni } : {}),
