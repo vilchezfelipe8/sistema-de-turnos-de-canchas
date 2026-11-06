@@ -15,7 +15,7 @@ const EPSILON = 0.009;
 
 type OpenAccountInput = {
   clubId: number;
-  sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT';
+  sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT' | 'SUBSCRIPTION_INSTALLMENT';
   sourceId: string;
 };
 
@@ -99,6 +99,13 @@ export class AccountService {
       });
     }
 
+    if (account.sourceType === 'SUBSCRIPTION_INSTALLMENT') {
+      // Import diferido: SubscriptionService no depende de AccountService, pero evitamos el ciclo de carga.
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { subscriptionService } = require('./subscriptions/SubscriptionService') as typeof import('./subscriptions/SubscriptionService');
+      await subscriptionService.syncInstallmentFromAccountTx(tx, accountId);
+    }
+
     return {
       netPaid,
       total,
@@ -107,7 +114,7 @@ export class AccountService {
   }
 
   async cancelItemsForSourceTx(tx: Prisma.TransactionClient, input: {
-    sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT';
+    sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT' | 'SUBSCRIPTION_INSTALLMENT';
     sourceId: string | number;
   }) {
     const sourceId = String(input.sourceId);
@@ -184,7 +191,7 @@ export class AccountService {
   }
 
   async cancelItemsForSource(input: {
-    sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT';
+    sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT' | 'SUBSCRIPTION_INSTALLMENT';
     sourceId: string | number;
   }) {
     return prisma.$transaction(async (tx) => {

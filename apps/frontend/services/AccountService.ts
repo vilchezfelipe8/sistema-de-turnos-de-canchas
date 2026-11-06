@@ -34,7 +34,7 @@ const humanizeAccountItemValidationError = (payload: any) => {
   return '';
 };
 
-export type AccountSource = 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT';
+export type AccountSource = 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT' | 'SUBSCRIPTION_INSTALLMENT';
 export type AccountStatus = 'OPEN' | 'CLOSED';
 export type PaymentMethod = 'CASH' | 'TRANSFER' | 'CARD' | 'OTHER';
 export type PaymentChannel = 'AUTO' | 'CASH_DRAWER' | 'BANK_ACCOUNT' | 'CARD_TERMINAL' | 'VIRTUAL_WALLET' | 'OTHER';

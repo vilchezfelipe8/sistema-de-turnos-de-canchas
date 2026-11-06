@@ -118,6 +118,7 @@ enum AccountSource {
   MANUAL
   CLASS_PASS
   CLASS_ENROLLMENT
+  SUBSCRIPTION_INSTALLMENT
 }
 
 enum AccountStatus {
@@ -196,6 +197,7 @@ enum LedgerReferenceType {
   BOOKING
   CLASS_PASS
   CLASS_ENROLLMENT
+  SUBSCRIPTION
   MANUAL
 }
 
@@ -213,6 +215,7 @@ enum LedgerAccount {
   BOOKING_REVENUE
   BAR_REVENUE
   ACADEMY_REVENUE
+  MEMBERSHIP_REVENUE
   ADJUSTMENTS
   EXPENSE
 }
@@ -415,6 +418,37 @@ enum ClassPassStatus {
   EXPIRED
   DEPLETED
   CANCELLED
+}
+
+// Planes y cuotas (abonos de gimnasio, cuota social, clases mensuales).
+// Ver docs/planes-y-cuotas-diseno.md.
+enum SubscriptionBillingType {
+  RECURRING
+  FIXED_TERM
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAUSED
+  PAST_DUE
+  EXPIRED
+  CANCELLED
+}
+
+enum SubscriptionInstallmentKind {
+  ENROLLMENT_FEE
+  PERIOD
+}
+
+enum SubscriptionInstallmentStatus {
+  PENDING
+  PAID
+  VOID
+}
+
+enum SubscriptionEntitlementKind {
+  ACTIVITY_ACCESS
+  CLASS_CREDITS
 }
 
 enum ClassCreditUsageReason {
@@ -635,6 +669,9 @@ model Club {
   classCreditUsages ClassCreditUsage[]
   memberCategories MemberCategory[]
   clubMembers ClubMember[]
+  subscriptionPlans SubscriptionPlan[]
+  subscriptions Subscription[]
+  subscriptionInstallments SubscriptionInstallment[]
 }
 
 model ClubFavorite {
@@ -789,6 +826,7 @@ model ActivityType {
   classSessions          ClassSession[]
   classPasses            ClassPass[]
   formats                ActivityFormat[]
+  subscriptionEntitlements SubscriptionPlanEntitlement[]
 
   @@index([clubId])
 }
@@ -892,6 +930,8 @@ model Client {
   ownedClassPasses ClassPass[] @relation("ClassPassOwnerClient")
   beneficiaryClassPasses ClassPass[] @relation("ClassPassBeneficiaryClient")
   clubMember    ClubMember?
+  subscriptions Subscription[] @relation("SubscriptionClient")
+  paidSubscriptions Subscription[] @relation("SubscriptionPayerClient")
 
   @@index([clubId])
   @@index([userId])
@@ -916,6 +956,7 @@ model MemberCategory {
 
   members ClubMember[]
   playerPriceRules PlayerPriceRule[]
+  subscriptionPlans SubscriptionPlan[]
 
   @@unique([clubId, code])
   @@index([clubId, isActive])
@@ -1200,6 +1241,10 @@ model ClassPass {
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   usages ClassCreditUsage[]
+
+  // Pack generado por un período de un plan con clases incluidas.
+  subscriptionId String?
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
 
   @@index([clubId, status])
   @@index([clubId, ownerClientId])
@@ -2362,4 +2407,163 @@ model BookingReminderLog {
   sentAt    DateTime @default(now()) @db.Timestamptz(3)
 
   @@id([bookingId, userId, kind])
+}
+
+// ---------------------------------------------------------------------------
+// Planes y cuotas. Ver docs/planes-y-cuotas-diseno.md.
+// ---------------------------------------------------------------------------
+
+model SubscriptionPlan {
+  id             String   @id @default(cuid())
+  clubId         Int
+  club           Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?
+  billingType    SubscriptionBillingType
+  periodMonths   Int
+  enrollmentFee  Decimal? @db.Decimal(10, 2)
+  // null = cada cuota vence según la fecha de alta.
+  dueDayOfMonth  Int?
+  graceDays      Int      @default(5)
+  pauseMaxDays   Int      @default(0)
+  pauseMaxCount  Int      @default(0)
+  grantsMemberCategoryId String?
+  grantsMemberCategory   MemberCategory? @relation(fields: [grantsMemberCategoryId], references: [id], onDelete: SetNull)
+  isActive       Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  options        SubscriptionPlanOption[]
+  entitlements   SubscriptionPlanEntitlement[]
+  subscriptions  Subscription[]
+
+  @@index([clubId, isActive])
+}
+
+model SubscriptionPlanOption {
+  id                String  @id @default(cuid())
+  planId            String
+  plan              SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  label             String
+  installmentsCount Int
+  // Precio de lista de cada cuota.
+  installmentPrice  Decimal @db.Decimal(10, 2)
+  isActive          Boolean @default(true)
+  sortOrder         Int     @default(0)
+
+  subscriptions     Subscription[]
+
+  @@index([planId])
+}
+
+model SubscriptionPlanEntitlement {
+  id               String  @id @default(cuid())
+  planId           String
+  plan             SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  kind             SubscriptionEntitlementKind
+  activityTypeId   Int
+  activityType     ActivityType @relation(fields: [activityTypeId], references: [id], onDelete: Cascade)
+  // ACTIVITY_ACCESS: null = libre.
+  timesPerWeek     Int?
+  // CLASS_CREDITS: créditos por período.
+  creditsPerPeriod Int?
+  classType        ClassSessionType?
+
+  @@index([planId])
+  @@index([activityTypeId])
+}
+
+model Subscription {
+  id               String  @id @default(cuid())
+  clubId           Int
+  club             Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  planId           String
+  plan             SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  optionId         String
+  option           SubscriptionPlanOption @relation(fields: [optionId], references: [id], onDelete: Restrict)
+  clientId         String
+  client           Client  @relation("SubscriptionClient", fields: [clientId], references: [id], onDelete: Restrict)
+  payerClientId    String
+  payerClient      Client  @relation("SubscriptionPayerClient", fields: [payerClientId], references: [id], onDelete: Restrict)
+  status           SubscriptionStatus @default(ACTIVE)
+  // Nombre, opción, precios y beneficios al momento de la venta.
+  planSnapshot     Json
+  // FIXED_TERM: true (congela precio). RECURRING: false (toma el precio vigente al renovar).
+  priceLocked      Boolean
+  startDate        DateTime @db.Date
+  // FIXED_TERM: último día del plazo. RECURRING: null.
+  endDate          DateTime? @db.Date
+  // Último día del período en curso (RECURRING) o del plazo (FIXED_TERM).
+  currentPeriodEnd DateTime @db.Date
+  autoRenew        Boolean  @default(true)
+  pausesUsed       Int      @default(0)
+  cancelledAt      DateTime? @db.Timestamptz(3)
+  cancelReason     String?
+  notes            String?
+  createdByUserId  Int
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
+
+  installments     SubscriptionInstallment[]
+  pauses           SubscriptionPause[]
+  history          SubscriptionHistory[]
+  classPasses      ClassPass[]
+
+  @@index([clubId, status])
+  @@index([clubId, clientId])
+  @@index([clubId, payerClientId])
+}
+
+model SubscriptionInstallment {
+  id             String  @id @default(cuid())
+  clubId         Int
+  club           Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  // 0 = matrícula, 1..N = cuotas.
+  sequence       Int
+  kind           SubscriptionInstallmentKind
+  coversFrom     DateTime @db.Date
+  coversTo       DateTime @db.Date
+  dueDate        DateTime @db.Date
+  listAmount     Decimal  @db.Decimal(10, 2)
+  status         SubscriptionInstallmentStatus @default(PENDING)
+  paidAt         DateTime? @db.Timestamptz(3)
+  // Cuenta SUBSCRIPTION_INSTALLMENT (Account.sourceId = id de la cuota).
+  accountId      String?  @unique
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([subscriptionId, sequence])
+  @@index([clubId, status, dueDate])
+}
+
+model SubscriptionPause {
+  id              String   @id @default(cuid())
+  subscriptionId  String
+  subscription    Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  startDate       DateTime @db.Date
+  endDate         DateTime @db.Date
+  reason          String?
+  createdByUserId Int
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([subscriptionId])
+}
+
+model SubscriptionHistory {
+  id              String   @id @default(cuid())
+  subscriptionId  String
+  subscription    Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  clubId          Int
+  action          String
+  fromStatus      SubscriptionStatus?
+  toStatus        SubscriptionStatus?
+  detail          Json?
+  changedByUserId Int?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([subscriptionId, createdAt])
+  @@index([clubId, createdAt])
 }

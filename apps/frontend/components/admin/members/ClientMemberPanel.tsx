@@ -52,7 +52,8 @@ const HISTORY_ACTION_LABELS: Record<string, string> = {
   STATUS_CHANGED: 'Cambio de estado',
   CATEGORY_CHANGED: 'Cambio de categoría',
   UPDATED: 'Datos actualizados',
-  MERGED: 'Fusión de clientes'
+  MERGED: 'Fusión de clientes',
+  VALID_UNTIL_SYNCED: 'Al día actualizado por plan'
 };
 
 export default function ClientMemberPanel({ clubSlug, clientId, clientHasDni, canManage, onChanged }: ClientMemberPanelProps) {

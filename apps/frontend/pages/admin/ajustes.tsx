@@ -10,6 +10,7 @@ import {
   Home,
   LayoutGrid,
   Plug,
+  Repeat,
   ScrollText,
   Star,
   Tag,
@@ -32,6 +33,7 @@ const SETTINGS_TABS: Array<{ value: SettingsTab; label: string; comingSoon?: boo
   { value: 'integraciones', label: 'Integraciones' },
   { value: 'usuarios', label: 'Usuarios' },
   { value: 'socios', label: 'Socios' },
+  { value: 'planes', label: 'Planes' },
   { value: 'excepciones', label: 'Excepciones' },
   { value: 'auditoria', label: 'Auditoría' },
   { value: 'resenas', label: 'Reseñas' },
@@ -64,6 +66,7 @@ const MOBILE_SETTINGS_GROUPS: Array<{
       { value: 'reservas', description: 'Reglas y ventana de reserva', icon: CalendarCheck },
       { value: 'precios', description: 'Tarifas y descuentos', icon: Tag },
       { value: 'socios', description: 'Padrón y precios diferenciales', icon: Users },
+      { value: 'planes', description: 'Abonos, cuotas y vencimientos', icon: Repeat },
       { value: 'resenas', description: 'Opiniones de los jugadores', icon: Star },
     ],
   },
@@ -93,6 +96,7 @@ const parseSettingsTab = (value: unknown): SettingsTab => {
   if (raw === 'integraciones') return 'integraciones';
   if (raw === 'usuarios') return 'usuarios';
   if (raw === 'socios' || raw === 'members') return 'socios';
+  if (raw === 'planes' || raw === 'plans') return 'planes';
   if (raw === 'notificaciones') return 'notificaciones';
   if (raw === 'excepciones') return 'excepciones';
   if (raw === 'auditoria') return 'auditoria';

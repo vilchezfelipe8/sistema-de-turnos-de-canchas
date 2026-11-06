@@ -22,6 +22,7 @@ import DuplicateClientDecisionModal, {
 } from '../../components/admin/agenda/DuplicateClientDecisionModal';
 import ClientsTable from '../../modules/clientes/components/ClientsTable';
 import ClientMemberPanel from '../../components/admin/members/ClientMemberPanel';
+import ClientSubscriptionsPanel from '../../components/admin/subscriptions/ClientSubscriptionsPanel';
 import MemberBadge from '../../components/admin/members/MemberBadge';
 import MembersRosterPanel from '../../components/admin/members/MembersRosterPanel';
 import { AdminDrawer, AdminDrawerSection, AdminFeedbackBanner, AdminFilterToolbar, AdminInlineError, AdminSegmentedControl } from '../../components/admin/ui';
@@ -192,6 +193,7 @@ const formatAccountSourceType = (value: unknown) => {
   if (key === 'BAR') return 'Bar';
   if (key === 'TABLE') return 'Mesa';
   if (key === 'MANUAL') return 'Manual';
+  if (key === 'SUBSCRIPTION_INSTALLMENT') return 'Cuota de plan';
   return formatRawTypeFallback(key);
 };
 
@@ -289,6 +291,8 @@ export default function AdminClientesPlayground2Page() {
   const [deletingClient, setDeletingClient] = useState(false);
 
   const [accountDrawerOpen, setAccountDrawerOpen] = useState(false);
+  // Al cambiar un plan del cliente puede cambiar su "al día hasta": recargamos el panel de socio.
+  const [memberPanelVersion, setMemberPanelVersion] = useState(0);
   const [accountDrawerAccountId, setAccountDrawerAccountId] = useState('');
   const [accountDrawerInitialView, setAccountDrawerInitialView] =
     useState<AccountDrawerInitialView>('overview');
@@ -1404,11 +1408,24 @@ export default function AdminClientesPlayground2Page() {
 
                             {/* Socio (padrón) */}
                             <ClientMemberPanel
+                              key={`member-${String(selectedClient.id)}-${memberPanelVersion}`}
                               clubSlug={resolveClubSlug() || ''}
                               clientId={String(selectedClient.id)}
                               clientHasDni={Boolean(String(selectedClient.dni || '').replace(/\D/g, ''))}
                               canManage={hasAdminAccess(user)}
                               onChanged={() => void loadClients()}
+                            />
+
+                            {/* Planes y cuotas */}
+                            <ClientSubscriptionsPanel
+                              clubSlug={resolveClubSlug() || ''}
+                              clientId={String(selectedClient.id)}
+                              clientName={getClientName(selectedClient)}
+                              canManage={hasAdminAccess(user)}
+                              onChanged={() => {
+                                setMemberPanelVersion((value) => value + 1);
+                                void loadClients();
+                              }}
                             />
 
                             {/* Contact */}

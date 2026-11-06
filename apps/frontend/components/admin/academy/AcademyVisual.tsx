@@ -179,6 +179,8 @@ export function academySourceLabel(status: string) {
       return 'Pack de clases';
     case 'CLASS_ENROLLMENT':
       return 'Clase';
+    case 'SUBSCRIPTION_INSTALLMENT':
+      return 'Cuota de plan';
     case 'BOOKING':
       return 'Reserva';
     case 'BAR':

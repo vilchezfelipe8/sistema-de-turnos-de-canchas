@@ -5,7 +5,7 @@ import { ErrorCodes, badRequest, validationError } from '../errors';
 import { CashService } from './CashService';
 import { CashRepository } from '../repositories/CashRepository';
 
-type SourceType = 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT';
+type SourceType = 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT' | 'SUBSCRIPTION_INSTALLMENT';
 
 type ReportsServiceDeps = {
   prismaClient?: typeof prisma;
@@ -19,6 +19,7 @@ const ACCOUNT_SOURCE_LABELS: Record<SourceType, string> = {
   MANUAL: 'Manual',
   CLASS_PASS: 'Academia',
   CLASS_ENROLLMENT: 'Academia',
+  SUBSCRIPTION_INSTALLMENT: 'Planes',
 };
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {

@@ -30,6 +30,7 @@ import { ClassSessionAdminController } from '../controllers/ClassSessionAdminCon
 import { ClassEnrollmentAdminController } from '../controllers/ClassEnrollmentAdminController';
 import { ClassPassAdminController } from '../controllers/ClassPassAdminController';
 import { ClassCreditUsageAdminController } from '../controllers/ClassCreditUsageAdminController';
+import { SubscriptionAdminController } from '../controllers/SubscriptionAdminController';
 import { AcademyStudentAdminController } from '../controllers/AcademyStudentAdminController';
 import { MemberController } from '../controllers/MemberController';
 import { PlayerSlotController } from '../controllers/PlayerSlotController';
@@ -78,6 +79,7 @@ const classSessionAdminController = new ClassSessionAdminController();
 const classEnrollmentAdminController = new ClassEnrollmentAdminController();
 const classPassAdminController = new ClassPassAdminController();
 const classCreditUsageAdminController = new ClassCreditUsageAdminController();
+const subscriptionAdminController = new SubscriptionAdminController();
 const academyStudentAdminController = new AcademyStudentAdminController();
 
 // Todas las rutas requieren autenticación y verificación de acceso al club.
@@ -1129,6 +1131,70 @@ router.get('/:slug/admin/stats/dashboard',
     verifyClubAccess,     
     requireTenantRole(['ADMIN', 'STAFF']), 
     bookingController.getDashboardStats
+);
+
+// ── Planes y cuotas ──────────────────────────────────────────────────
+router.get('/:slug/admin/subscription-plans',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    subscriptionAdminController.listPlans
+);
+
+router.get('/:slug/admin/subscription-plans/:id',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    subscriptionAdminController.getPlan
+);
+
+router.post('/:slug/admin/subscription-plans',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    subscriptionAdminController.createPlan
+);
+
+router.put('/:slug/admin/subscription-plans/:id',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    subscriptionAdminController.updatePlan
+);
+
+router.patch('/:slug/admin/subscription-plans/:id/status',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    subscriptionAdminController.setPlanStatus
+);
+
+router.get('/:slug/admin/subscriptions',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    subscriptionAdminController.listSubscriptions
+);
+
+router.get('/:slug/admin/subscriptions/:id',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    subscriptionAdminController.getSubscription
+);
+
+router.post('/:slug/admin/subscriptions',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    subscriptionAdminController.sell
+);
+
+router.post('/:slug/admin/subscriptions/:id/cancel',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    subscriptionAdminController.cancel
 );
 
 export default router;

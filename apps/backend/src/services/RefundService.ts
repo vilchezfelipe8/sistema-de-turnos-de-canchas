@@ -364,7 +364,8 @@ export class RefundService {
 
     const shouldReconcileClosedAccountStatus =
       refund.payment.account.sourceType === 'CLASS_ENROLLMENT' ||
-      refund.payment.account.sourceType === 'CLASS_PASS';
+      refund.payment.account.sourceType === 'CLASS_PASS' ||
+      refund.payment.account.sourceType === 'SUBSCRIPTION_INSTALLMENT';
     const accountBalance = await this.accountService.reconcilePaidAmountTx(tx, refund.accountId, {
       updateStatus: shouldReconcileClosedAccountStatus,
       reopenIfRemaining: shouldReconcileClosedAccountStatus
@@ -441,7 +442,8 @@ export class RefundService {
         }
       } else if (
         payment.account.sourceType !== 'CLASS_ENROLLMENT' &&
-        payment.account.sourceType !== 'CLASS_PASS'
+        payment.account.sourceType !== 'CLASS_PASS' &&
+        payment.account.sourceType !== 'SUBSCRIPTION_INSTALLMENT'
       ) {
         throw conflict('No se puede devolver un pago de una cuenta cerrada.', ErrorCodes.ACCOUNT_CLOSED);
       }
