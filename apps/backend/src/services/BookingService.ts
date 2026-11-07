@@ -9258,10 +9258,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             }
 
             if (!previewOnly && canCancel) {
-                await prisma.booking.update({
-                    where: { id: Number(occurrence.id) },
-                    data: { status: 'CANCELLED' }
-                });
+                // Igual que una reserva suelta: cierra la cuenta, deja historial y avisa.
+                await this.cancelBooking(Number(occurrence.id), input.actorUserId ?? null, input.clubId);
             }
 
             const applicableItems = canCancel ? [mapApplicableCancelItem(occurrence)] : [];
@@ -9345,22 +9343,34 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             applicableItems.push(mapApplicableCancelItem(candidate));
         }
 
+        const cancelledIds: number[] = [];
         if (!previewOnly && cancellableIds.length > 0) {
-            await prisma.booking.updateMany({
-                where: { id: { in: cancellableIds } },
-                data: { status: 'CANCELLED' }
-            });
-            await prisma.fixedBooking.update({
-                where: { id: input.fixedBookingId },
-                data: { status: 'CANCELLED' }
-            });
+            // Cada turno se cancela como una reserva suelta (cuenta, historial, eventos).
+            // Antes se cambiaba solo el estado y las cuentas quedaban abiertas con deuda.
+            for (const bookingId of cancellableIds) {
+                try {
+                    await this.cancelBooking(bookingId, input.actorUserId ?? null, input.clubId);
+                    cancelledIds.push(bookingId);
+                } catch (error: any) {
+                    skipped.push({
+                        bookingId,
+                        reason: String(error?.message || 'No se pudo cancelar este turno.'),
+                    });
+                }
+            }
+            if (cancelledIds.length > 0) {
+                await prisma.fixedBooking.update({
+                    where: { id: input.fixedBookingId },
+                    data: { status: 'CANCELLED' }
+                });
+            }
         }
 
         return {
             preview: previewOnly,
             scope,
             totalCandidates: candidates.length,
-            cancelledCount: cancellableIds.length,
+            cancelledCount: previewOnly ? cancellableIds.length : cancelledIds.length,
             skippedCount: skipped.length,
             skipped,
             applicableItems,
