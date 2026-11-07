@@ -526,7 +526,6 @@ const parsePaymentsTab = (value: unknown): PaymentsTab => {
   if (raw === 'closure') return 'SUMMARY';
   if (raw === 'refunds') return 'REFUNDS';
   if (raw === 'accounts') return 'ACCOUNTS';
-  if (raw === 'reports') return 'REPORTS';
   return 'SUMMARY';
 };
 
@@ -779,9 +778,14 @@ export default function AdminPaymentsPlaygroundPage() {
   }, [authChecked, router, user]);
 
   useEffect(() => {
+    // Los reportes de mostrador viven en Informes: el link viejo lleva ahí.
+    if (String(router.query.tab || '').toLowerCase() === 'reports') {
+      void router.replace('/admin/informes?tab=mostrador');
+      return;
+    }
     const nextTab = parsePaymentsTab(router.query.tab);
     setActiveTab((prev) => (prev === nextTab ? prev : nextTab));
-  }, [router.query.tab]);
+  }, [router, router.query.tab]);
 
   const cashActiveView = toCashViewByTab(activeTab);
 
@@ -2087,7 +2091,6 @@ export default function AdminPaymentsPlaygroundPage() {
               { value: 'ACCOUNTS', label: 'Cuentas' },
               { value: 'MOVEMENTS', label: 'Movimientos' },
               { value: 'REFUNDS', label: 'Devoluciones' },
-              { value: 'REPORTS', label: 'Reportes' },
             ]}
             className="w-fit"
           />
@@ -2474,264 +2477,6 @@ export default function AdminPaymentsPlaygroundPage() {
                     }}
                     onViewReport={() => setCashSidebarView('close_report')}
                   />
-                )}
-              </div>
-            ) : activeTab === 'REPORTS' ? (
-              <div className="space-y-5">
-                <div className="w-full rounded-2xl border border-p-border bg-p-surface p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {cashCurrentShift?.id ? (
-                        <AdminSegmentedControl
-                          ariaLabel="Alcance del reporte POS"
-                          value={posReportScope}
-                          onChange={(nextValue) => setPosReportScope(nextValue as PosReportScope)}
-                          options={[
-                            { value: 'shift', label: 'Turno actual' },
-                            { value: 'period', label: 'Período' },
-                          ]}
-                          className="w-fit"
-                        />
-                      ) : (
-                        <div className="rounded-xl border border-p-border bg-p-surface-2 px-3 py-2 text-[12px] font-semibold text-p-text-secondary">
-                          Reporte por período
-                        </div>
-                      )}
-
-                      <div className="rounded-xl border border-p-border bg-p-surface-2 px-3 py-2 text-[12px] text-p-text-muted">
-                        {posReportScope === 'shift' && cashCurrentShift
-                          ? `Caja ${cashCurrentShift.cashRegister?.name || '-'} · Turno abierto`
-                          : `Período ${cashPeriodLabel}`}
-                      </div>
-                    </div>
-
-                    {posReportScope === 'period' ? (
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface-2 p-1">
-                          {(['hoy', 'semana', 'mes'] as CashPeriod[]).map((period) => (
-                            <button
-                              key={`reports-${period}`}
-                              type="button"
-                              onClick={() => {
-                                setCashActivePeriod(period);
-                                setCashPeriodOffset(0);
-                              }}
-                              className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition ${
-                                cashActivePeriod === period
-                                  ? 'bg-p-surface text-p-accent shadow-sm'
-                                  : 'text-p-text-muted hover:text-p-text-secondary'
-                              }`}
-                            >
-                              {period === 'hoy' ? 'Hoy' : period === 'semana' ? 'Semana' : 'Mes'}
-                            </button>
-                          ))}
-                        </div>
-
-                        <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface px-1 py-1">
-                          <button
-                            type="button"
-                            onClick={() => setCashPeriodOffset((prev) => prev - 1)}
-                            className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2"
-                          >
-                            <ChevronLeft size={16} />
-                          </button>
-                          <span className="min-w-[120px] text-center text-[12px] font-semibold text-p-text-secondary">{cashPeriodLabel}</span>
-                          <button
-                            type="button"
-                            onClick={() => setCashPeriodOffset((prev) => Math.min(0, prev + 1))}
-                            disabled={cashPeriodOffset === 0}
-                            className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:text-p-text-muted disabled:hover:bg-transparent"
-                          >
-                            <ChevronRight size={16} />
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-
-                {posReportError && (
-                  <div className="rounded-xl border border-p-error bg-p-error-bg px-3 py-2 text-[12px] text-p-error">
-                    {posReportError}
-                  </div>
-                )}
-                {posReportLoading ? (
-                  <div className="flex h-40 items-center justify-center">
-                    <div className="inline-flex items-center gap-2 text-[13px] text-p-text-muted">
-                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-p-accent border-t-transparent" />
-                      Cargando reporte...
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                      {[
-                        { label: 'Ventas POS', value: formatMoney(posReport?.totals.salesTotal || 0), help: posReportScope === 'shift' && cashCurrentShift ? 'Turno actual' : `Período ${cashPeriodLabel}` },
-                        { label: 'Cobrado', value: formatMoney(posReport?.totals.paidTotal || 0), help: 'Pagos registrados en el alcance actual' },
-                        { label: 'Pendiente', value: formatMoney(posReport?.totals.pendingTotal || 0), help: 'Saldo abierto de cuentas POS' },
-                        { label: 'Anulado', value: formatMoney(posReport?.totals.voidedTotal || 0), help: 'Ventas anuladas sin cobro' },
-                        { label: 'Productos', value: formatMoney(posReport?.totals.productTotal || 0), help: 'Facturación de productos' },
-                        { label: 'Servicios', value: formatMoney(posReport?.totals.serviceTotal || 0), help: 'Facturación de servicios' },
-                      ].map((card) => (
-                        <AdminPanel
-                          key={card.label}
-                          title={card.label}
-                          description={card.help}
-                          headerClassName="pl-4 pr-4 py-3"
-                          bodyClassName="px-4 pb-4 pt-0"
-                        >
-                          <p className="text-[22px] font-semibold text-p-text">{card.value}</p>
-                        </AdminPanel>
-                      ))}
-                    </div>
-
-                    {/* Open BAR Accounts */}
-                    <AdminPanel
-                      title="Cuentas BAR abiertas"
-                      description={`${(posReport?.accounts || []).filter((account) => account.status === 'OPEN').length} cuenta${(posReport?.accounts || []).filter((account) => account.status === 'OPEN').length !== 1 ? 's' : ''} pendiente${(posReport?.accounts || []).filter((account) => account.status === 'OPEN').length !== 1 ? 's' : ''} de cobro`}
-                      headerClassName="pl-4 pr-3 py-3"
-                      bodyClassName="p-0"
-                    >
-                      {(posReport?.accounts || []).filter((account) => account.status === 'OPEN').length === 0 ? (
-                        <p className="px-4 py-6 text-center text-[13px] text-p-text-muted">No hay cuentas BAR abiertas</p>
-                      ) : (
-                        <div className="divide-y divide-p-border">
-                          {(posReport?.accounts || []).filter((account) => account.status === 'OPEN').map((account) => (
-                            <div key={account.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                              <div className="min-w-0">
-                                <p className="truncate text-[13px] font-medium text-p-text">
-                                  {account.clientName || `Cuenta ${shortCode(account.id)}`}
-                                </p>
-                                <p className="text-[11px] text-p-text-muted">
-                                  {formatRelativeDate(account.createdAt)} · Pendiente {formatMoney(account.pending)}
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => navigateToPaymentsTab('ACCOUNTS')}
-                                className="shrink-0 text-[11px] text-p-accent underline underline-offset-2"
-                              >
-                                Ver en Cuentas
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </AdminPanel>
-
-                    {/* Sales by Product */}
-                    <AdminPanel
-                      title="Ventas por producto"
-                      description="Facturación POS agrupada por producto."
-                      headerClassName="pl-4 pr-3 py-3"
-                      bodyClassName="p-0"
-                    >
-                      {!posReport || posReport.byProduct.length === 0 ? (
-                        <p className="px-4 py-6 text-center text-[13px] text-p-text-muted">Sin datos para el período</p>
-                      ) : (
-                        <>
-                          <div className="hidden grid-cols-[minmax(0,1fr)_100px_120px] border-b border-p-border px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-p-text-muted sm:grid">
-                            <p>Producto</p><p className="text-right">Cantidad</p><p className="text-right">Total</p>
-                          </div>
-                          <div className="divide-y divide-p-border">
-                            {posReport.byProduct.map((row, i) => (
-                              <div key={i} className="grid grid-cols-[minmax(0,1fr)_100px_120px] px-4 py-3">
-                                <p className="truncate text-[13px] font-medium text-p-text">{row.name}</p>
-                                <p className="text-right text-[13px] text-p-text-secondary">×{row.quantity}</p>
-                                <p className="text-right text-[13px] font-semibold text-p-text">{formatMoney(row.total)}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </AdminPanel>
-
-                    {/* Sales by Service */}
-                    <AdminPanel
-                      title="Ventas por servicio"
-                      description="Facturación POS agrupada por servicio."
-                      headerClassName="pl-4 pr-3 py-3"
-                      bodyClassName="p-0"
-                    >
-                      {!posReport || posReport.byService.length === 0 ? (
-                        <p className="px-4 py-6 text-center text-[13px] text-p-text-muted">Sin datos para el período</p>
-                      ) : (
-                        <>
-                          <div className="hidden grid-cols-[minmax(0,1fr)_100px_120px] border-b border-p-border px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-p-text-muted sm:grid">
-                            <p>Servicio</p><p className="text-right">Cantidad</p><p className="text-right">Total</p>
-                          </div>
-                          <div className="divide-y divide-p-border">
-                            {posReport.byService.map((row) => (
-                              <div key={row.name} className="grid grid-cols-[minmax(0,1fr)_100px_120px] px-4 py-3">
-                                <p className="truncate text-[13px] font-medium text-p-text">{row.name}</p>
-                                <p className="text-right text-[13px] text-p-text-secondary">×{row.quantity}</p>
-                                <p className="text-right text-[13px] font-semibold text-p-text">{formatMoney(row.total)}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </AdminPanel>
-
-                    <AdminPanel
-                      title="Cuentas POS"
-                      description="Estado de cuentas creadas en el alcance actual."
-                      headerClassName="pl-4 pr-3 py-3"
-                      bodyClassName="p-0"
-                    >
-                      {!posReport || posReport.accounts.length === 0 ? (
-                        <p className="px-4 py-6 text-center text-[13px] text-p-text-muted">Sin cuentas para el período</p>
-                      ) : (
-                        <>
-                          <div className="hidden grid-cols-[minmax(0,1.2fr)_120px_120px_120px_96px] border-b border-p-border px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-p-text-muted xl:grid">
-                            <p>Cuenta</p>
-                            <p className="text-right">Total</p>
-                            <p className="text-right">Cobrado</p>
-                            <p className="text-right">Pendiente</p>
-                            <p className="text-right">Estado</p>
-                          </div>
-                          <div className="divide-y divide-p-border">
-                            {posReport.accounts.map((account) => (
-                              <div key={account.id} className="grid gap-2 px-4 py-3 xl:grid-cols-[minmax(0,1.2fr)_120px_120px_120px_96px] xl:items-center">
-                                <div className="min-w-0">
-                                  <p className="truncate text-[13px] font-medium text-p-text">{account.clientName}</p>
-                                  <p className="text-[11px] text-p-text-muted">{account.label} · {formatRelativeDate(account.createdAt)}</p>
-                                </div>
-                                <p className="text-[13px] font-semibold text-p-text xl:text-right">{formatMoney(account.total)}</p>
-                                <p className="text-[13px] text-p-positive xl:text-right">{formatMoney(account.paid)}</p>
-                                <p className="text-[13px] text-p-text-secondary xl:text-right">{formatMoney(account.pending)}</p>
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-p-text-muted xl:text-right">{account.status === 'VOIDED' ? 'Anulada' : account.status === 'OPEN' ? 'Abierta' : 'Cerrada'}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </AdminPanel>
-
-                    {/* Payments by Method */}
-                    <AdminPanel
-                      title="Pagos por método"
-                      description="Cobros de cuentas BAR desglosados por medio de pago."
-                      headerClassName="pl-4 pr-3 py-3"
-                      bodyClassName="p-0"
-                    >
-                      {!posReport || posReport.paymentsByMethod.length === 0 ? (
-                        <p className="px-4 py-6 text-center text-[13px] text-p-text-muted">Sin datos para el período</p>
-                      ) : (
-                        <div className="divide-y divide-p-border">
-                          {posReport.paymentsByMethod.map((row) => (
-                            <div key={row.method} className="flex items-center justify-between gap-3 px-4 py-3">
-                              <div>
-                                <p className="text-[13px] font-medium text-p-text">{paymentMethodLabel(row.method)}</p>
-                                <p className="text-[11px] text-p-text-muted">{row.count} cobro{row.count !== 1 ? 's' : ''}</p>
-                              </div>
-                              <p className="shrink-0 text-[13px] font-semibold text-p-positive">{formatMoney(row.total)}</p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </AdminPanel>
-                  </>
                 )}
               </div>
             ) : (

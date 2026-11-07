@@ -176,7 +176,7 @@ export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Prop
       loading,
     },
     {
-      label: 'Ventas POS',
+      label: 'Ventas mostrador',
       value: Number(report?.pos.totals.salesTotal || 0),
       format: 'money',
       icon: <ShoppingBag size={18} strokeWidth={2.4} />,
@@ -267,7 +267,7 @@ export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Prop
             title="Todavía no hay movimientos para este rango"
             description="Probá con otro período o empezá por revisar Caja y Reservas."
             actionLabel="Ir a Caja"
-            onAction={() => void router.push('/admin/caja?tab=reports')}
+            onAction={() => void router.push('/admin/caja')}
           />
         </AdminPanel>
       ) : null}
@@ -347,7 +347,7 @@ export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Prop
                 loading,
               },
               {
-                label: 'POS anulado',
+                label: 'Mostrador anulado',
                 value: Number(report?.income.totals.voidedTotal || 0),
                 format: 'money',
                 icon: <ShoppingBag size={18} strokeWidth={2.4} />,
@@ -398,57 +398,45 @@ export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Prop
 
       {showSection(focus, 'pos') && (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <AdminPanel
-            title="Resumen POS"
-            description="Se reutiliza el mismo reporte POS de Caja para evitar divergencias."
-            actions={(
-              <button
-                type="button"
-                onClick={() => void router.push('/admin/caja?tab=reports')}
-                className="rounded-xl border border-p-border bg-p-surface px-3 py-2 text-[12px] font-semibold text-p-text transition hover:bg-p-surface-2"
-              >
-                Abrir reporte POS en Caja
-              </button>
-            )}
-          >
+          <AdminPanel title="Ventas de mostrador" description="Productos y servicios vendidos en el período.">
             <ReportsMetricGrid
               className="xl:grid-cols-3"
               metrics={[
                 {
-                  label: 'Ventas POS',
+                  label: 'Vendido',
                   value: Number(report?.pos.totals.salesTotal || 0),
                   format: 'money',
                   icon: <ShoppingBag size={18} strokeWidth={2.4} />,
                   loading,
                 },
                 {
-                  label: 'Cobrado POS',
+                  label: 'Cobrado',
                   value: Number(report?.pos.totals.paidTotal || 0),
                   format: 'money',
                   icon: <DollarSign size={18} strokeWidth={2.4} />,
                   loading,
                 },
                 {
-                  label: 'Pendiente POS',
+                  label: 'Falta cobrar',
                   value: Number(report?.pos.totals.pendingTotal || 0),
                   format: 'money',
                   icon: <Clock3 size={18} strokeWidth={2.4} />,
                   loading,
                 },
                 {
-                  label: 'Cuentas abiertas POS',
+                  label: 'Cuentas abiertas',
                   value: Number(report?.pos.openAccountsCount || 0),
                   format: 'number',
                   loading,
                 },
                 {
-                  label: 'Productos POS',
+                  label: 'En productos',
                   value: Number(report?.pos.totals.productTotal || 0),
                   format: 'money',
                   loading,
                 },
                 {
-                  label: 'Servicios POS',
+                  label: 'En servicios',
                   value: Number(report?.pos.totals.serviceTotal || 0),
                   format: 'money',
                   loading,
@@ -458,7 +446,7 @@ export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Prop
           </AdminPanel>
 
           <div className="grid grid-cols-1 gap-4">
-            <AdminPanel title="Top productos POS" description="Ventas POS agrupadas por producto.">
+            <AdminPanel title="Productos más vendidos">
               <AdminDataTable
                 columns={[
                   { key: 'name', label: 'Producto' },
@@ -469,13 +457,13 @@ export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Prop
                 rowKey={(row) => `${row.productId ?? row.name}`}
                 loading={loading}
                 empty={{
-                  title: 'Sin ventas POS de productos',
+                  title: 'No se vendieron productos',
                   description: 'No hubo productos vendidos en el rango.',
                 }}
               />
             </AdminPanel>
 
-            <AdminPanel title="Top servicios POS" description="Ventas POS agrupadas por servicio.">
+            <AdminPanel title="Servicios más vendidos">
               <AdminDataTable
                 columns={[
                   { key: 'name', label: 'Servicio' },
@@ -486,8 +474,32 @@ export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Prop
                 rowKey={(row) => row.name}
                 loading={loading}
                 empty={{
-                  title: 'Sin ventas POS de servicios',
-                  description: 'No hubo servicios POS vendidos en el rango.',
+                  title: 'No se vendieron servicios',
+                  description: 'No hubo servicios vendidos en el período.',
+                }}
+              />
+            </AdminPanel>
+
+            <AdminPanel title="Cobrado por medio de pago">
+              <AdminDataTable
+                columns={[
+                  {
+                    key: 'method',
+                    label: 'Medio',
+                    render: (row) => {
+                      const m = String(row.method || '').toUpperCase();
+                      return m === 'CASH' ? 'Efectivo' : m === 'CARD' ? 'Tarjeta' : m === 'TRANSFER' ? 'Transferencia' : row.method;
+                    },
+                  },
+                  { key: 'count', label: 'Cobros', align: 'right' },
+                  { key: 'total', label: 'Total', align: 'right', render: (row) => formatReportsMoney(row.total) },
+                ]}
+                data={report?.pos.paymentsByMethod || []}
+                rowKey={(row) => row.method}
+                loading={loading}
+                empty={{
+                  title: 'Sin cobros de mostrador',
+                  description: 'No hubo cobros en el período.',
                 }}
               />
             </AdminPanel>

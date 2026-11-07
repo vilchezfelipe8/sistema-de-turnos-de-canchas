@@ -4,14 +4,14 @@ import AdminTabStatistics from '../../components/admin/AdminTabStatistics';
 import { AdminSegmentedControl } from '../../components/admin/ui';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 
-type ReportsTab = 'resumen' | 'reservas' | 'ingresos' | 'pendientes' | 'pos';
+type ReportsTab = 'resumen' | 'reservas' | 'ingresos' | 'pendientes' | 'mostrador';
 
 const REPORT_TABS: Array<{ value: ReportsTab; label: string }> = [
   { value: 'resumen', label: 'Resumen' },
   { value: 'ingresos', label: 'Ingresos' },
   { value: 'reservas', label: 'Reservas' },
   { value: 'pendientes', label: 'Pendientes' },
-  { value: 'pos', label: 'POS' },
+  { value: 'mostrador', label: 'Mostrador' },
 ];
 
 const parseReportsTab = (value: unknown): ReportsTab => {
@@ -19,7 +19,7 @@ const parseReportsTab = (value: unknown): ReportsTab => {
   if (raw === 'ingresos') return 'ingresos';
   if (raw === 'reservas') return 'reservas';
   if (raw === 'pendientes') return 'pendientes';
-  if (raw === 'pos') return 'pos';
+  if (raw === 'mostrador' || raw === 'pos') return 'mostrador';
   return 'resumen';
 };
 
@@ -66,7 +66,7 @@ export default function AdminReportsPage() {
               )}
 
               {activeTab !== 'resumen' && userSlug && (
-                <AdminTabStatistics slugProp={userSlug} focus={activeTab} />
+                <AdminTabStatistics slugProp={userSlug} focus={activeTab === 'mostrador' ? 'pos' : activeTab} />
               )}
 
               {activeTab !== 'resumen' && !userSlug && (
