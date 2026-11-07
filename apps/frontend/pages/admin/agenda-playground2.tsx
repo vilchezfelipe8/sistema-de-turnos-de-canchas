@@ -3514,17 +3514,16 @@ export default function AdminAgendaPlaygroundPage() {
   const shouldBlockSaveByQuote = hasBlockingQuoteError && (!editingBookingId || hasScheduleChanges);
   const hasConflict = useMemo(() => {
     if (!selectedCourtId) return false;
-    const ignoreBookingId = editingBookingId && !hasScheduleChanges ? editingBookingId : null;
+    // La reserva que se está editando nunca choca consigo misma (ej. acortarla de 2 h a 1 h 30).
     return hasOverlapForRange({
       courtId: selectedCourtId,
       startSlot: selectedStartSlot,
       endSlot: selectedEndSlot,
-      ignoreBookingId,
+      ignoreBookingId: editingBookingId || null,
     });
   }, [
     editingBookingId,
     hasOverlapForRange,
-    hasScheduleChanges,
     selectedCourtId,
     selectedEndSlot,
     selectedStartSlot,
@@ -5541,6 +5540,7 @@ export default function AdminAgendaPlaygroundPage() {
       .replace(/,/g, '')
       .replace(/\./g, '');
   const simplifiedCreateDateLabel = formatShortDayLabel(selectedDate);
+  const simplifiedEditDateLabel = simplifiedCreateDateLabel;
   // Precio por jugador: el total se muestra como "4 × $10.000".
   const createPlayerCount = Number(
     drawerCourtRules?.rule?.formats.find((format) => format.id === bookingActivityFormatId)?.playerCount || 0
@@ -5670,8 +5670,8 @@ export default function AdminAgendaPlaygroundPage() {
     label: product.name,
     secondary:
       product.stock == null
-        ? `${product.price.toFixed(2)} $`
-        : `${product.price.toFixed(2)} $ · Stock ${Math.max(0, Math.floor(product.stock))}`,
+        ? `${formatMoney(product.price)}`
+        : `${formatMoney(product.price)} · Stock ${Math.max(0, Math.floor(product.stock))}`,
   }));
   const previewSeriesEditScope = async (scope: EditSeriesScope) => {
     const fixedBookingId = Number(editingBooking?.fixedBookingId || 0);
@@ -5964,7 +5964,7 @@ export default function AdminAgendaPlaygroundPage() {
             ? formatResponsibleRefLabel(coveredRefRaw)
             : (payerLabel || 'Sin asignar'));
         title = Number.isFinite(amount) && amount > 0.009
-          ? `Pago recibido (${amount.toFixed(2)} $)`
+          ? `Pago recibido (${formatMoney(amount)})`
           : 'Pago recibido';
         const detailParts = [
           payerLabel ? `Pagador: ${payerLabel}` : '',
@@ -5977,7 +5977,7 @@ export default function AdminAgendaPlaygroundPage() {
       } else if (normalizedType === 'BOOKING_CREATED') {
         const amount = Number((payload as any)?.amount || 0);
         const detailParts = [
-          Number.isFinite(amount) && amount > 0.009 ? `Precio: ${amount.toFixed(2)} $` : '',
+          Number.isFinite(amount) && amount > 0.009 ? `Precio: ${formatMoney(amount)}` : '',
           'Origen: Administrador',
         ].filter(Boolean);
         title = 'Reserva creada';
@@ -6059,7 +6059,7 @@ export default function AdminAgendaPlaygroundPage() {
         title = 'Consumo agregado';
         const detailParts = [
           quantity > 0 ? `${quantity} x ${productName}` : productName,
-          Number.isFinite(totalAmount) && totalAmount > 0.009 ? `Total: ${totalAmount.toFixed(2)} $` : '',
+          Number.isFinite(totalAmount) && totalAmount > 0.009 ? `Total: ${formatMoney(totalAmount)}` : '',
         ].filter(Boolean);
         detail = detailParts.length > 0 ? detailParts.join(' - ') : 'Consumo agregado.';
       } else if (normalizedType === 'BOOKING_CONSUMPTION_REMOVED' || normalizedType === 'PRODUCT_REMOVED') {
@@ -6069,7 +6069,7 @@ export default function AdminAgendaPlaygroundPage() {
         title = 'Consumo eliminado';
         const detailParts = [
           quantity > 0 ? `${quantity} x ${productName}` : productName,
-          Number.isFinite(totalAmount) && totalAmount > 0.009 ? `Total: ${totalAmount.toFixed(2)} $` : '',
+          Number.isFinite(totalAmount) && totalAmount > 0.009 ? `Total: ${formatMoney(totalAmount)}` : '',
         ].filter(Boolean);
         detail = detailParts.length > 0 ? detailParts.join(' - ') : 'Consumo eliminado.';
       } else if (normalizedType === 'BOOKING_NOTES_UPDATED') {
@@ -7226,7 +7226,7 @@ export default function AdminAgendaPlaygroundPage() {
                             {seriesDeleteBlocksMassCancel ? (
                               <>
                                 <p>
-                                  Hay {seriesDeletePaidItems.length} ocurrencia(s) con pagos por {Number(seriesDeletePreviewSummary?.paidAmountTotal || 0).toFixed(2)} $.
+                                  Hay {seriesDeletePaidItems.length} ocurrencia(s) con pagos por {formatMoney(Number(seriesDeletePreviewSummary?.paidAmountTotal || 0))}.
                                 </p>
                                 <p className="mt-1 font-medium">
                                   Para evitar cancelar cobros sin devolución, cancelá esas ocurrencias individualmente.
@@ -7234,7 +7234,7 @@ export default function AdminAgendaPlaygroundPage() {
                               </>
                             ) : (
                               <p>
-                                Esta ocurrencia tiene pagos por {Number(seriesDeletePaidItems[0]?.paidAmount || 0).toFixed(2)} $. Vas a continuar con el flujo de devolución puntual.
+                                Esta ocurrencia tiene pagos por {formatMoney(Number(seriesDeletePaidItems[0]?.paidAmount || 0))}. Vas a continuar con el flujo de devolución puntual.
                               </p>
                             )}
                           </div>
@@ -7379,15 +7379,15 @@ export default function AdminAgendaPlaygroundPage() {
                     <div className="grid grid-cols-3 gap-2">
                       <div className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
                         <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-p-text-muted">Total</p>
-                        <p className="mt-1 text-[17px] font-bold text-p-text">{Number(bookingFinancial?.total || totalPrice || 0).toFixed(2)} $</p>
+                        <p className="mt-1 text-[17px] font-bold text-p-text">{formatMoney(Number(bookingFinancial?.total || totalPrice || 0))}</p>
                       </div>
                       <div className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
                         <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-p-text-muted">Pagado</p>
-                        <p className="mt-1 text-[17px] font-bold text-p-positive">{cancelBookingPaidAmount.toFixed(2)} $</p>
+                        <p className="mt-1 text-[17px] font-bold text-p-positive">{formatMoney(cancelBookingPaidAmount)}</p>
                       </div>
                       <div className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
                         <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-p-text-muted">Saldo</p>
-                        <p className="mt-1 text-[17px] font-bold text-p-text-muted">{Number(bookingFinancial?.remaining || 0).toFixed(2)} $</p>
+                        <p className="mt-1 text-[17px] font-bold text-p-text-muted">{formatMoney(Number(bookingFinancial?.remaining || 0))}</p>
                       </div>
                     </div>
 
@@ -7403,7 +7403,7 @@ export default function AdminAgendaPlaygroundPage() {
                         </div>
                         {cancelBookingHasPayments && (
                           <span className="rounded-full bg-p-positive-bg px-2.5 py-1 text-[11px] font-bold text-p-accent">
-                            Disponible {cancelBookingPaidAmount.toFixed(2)} $
+                            Disponible {formatMoney(cancelBookingPaidAmount)}
                           </span>
                         )}
                       </div>
@@ -7532,7 +7532,7 @@ export default function AdminAgendaPlaygroundPage() {
                   <div className="space-y-4 px-5 py-5">
                     <p className="text-[14px] text-p-text-secondary">
                       {cancelBookingHasPayments
-                        ? `Vas a cancelar esta reserva y devolver ${normalizedCancelRefundAmount.toFixed(2)} $.`
+                        ? `Vas a cancelar esta reserva y devolver ${formatMoney(normalizedCancelRefundAmount)}.`
                         : 'Vas a cancelar esta reserva sin generar devolución.'}
                     </p>
                     <div className="flex items-center justify-end gap-2">
@@ -7773,27 +7773,44 @@ export default function AdminAgendaPlaygroundPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="text-[18px] lg:text-[22px] font-semibold leading-snug tracking-tight text-p-text">
-                        {sidebarTitle}
+                        {/* Reserva existente: lo primero que se lee es de quién es. */}
+                        {useSimplifiedBookingSidebar && simplifiedIsEditingReservation ? simplifiedSummaryOwnerLabel : sidebarTitle}
                       </h2>
                       {useSimplifiedBookingSidebar && simplifiedIsEditingReservation && (
                         <>
-                          <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold ${reservationStatusTone}`}>
-                            {reservationStatusLabel}
-                          </span>
-                          {!isFinancialDisplayPending && !isPaymentLockedByManualPending && (
-                            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold ${paymentStatusTone}`}>
-                              {simplifiedPaymentStatusLabel === 'Pagado' ? 'Pagada' : `Pago ${simplifiedPaymentStatusLabel.toLowerCase()}`}
+                          {/* Confirmada es lo normal: solo se marca lo que pide atención o ya terminó. */}
+                          {editingBooking?.state !== 'confirmed' && (
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold ${reservationStatusTone}`}>
+                              {editingBooking?.state === 'pending' ? 'Sin confirmar' : reservationStatusLabel}
+                            </span>
+                          )}
+                          {simplifiedIsEditingRecurringSeries && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-p-surface-3 px-2.5 py-1 text-[11px] font-bold text-p-text-secondary">
+                              <Repeat size={11} />
+                              Fija
                             </span>
                           )}
                         </>
                       )}
                     </div>
                     {useSimplifiedBookingSidebar && simplifiedIsEditingReservation && (
-                      <div className="mt-1.5 space-y-0.5">
-                        <p className="text-[15px] font-semibold text-p-text">{simplifiedSummaryOwnerLabel}</p>
-                        <p className="text-[13px] text-p-text-muted">
-                          {simplifiedHeaderShortDateLabel} · {simplifiedHeaderTimeLabel} · {simplifiedSummaryCourtLabel}
-                        </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px] text-p-text-secondary">
+                        <span>
+                          {simplifiedEditDateLabel} · {simplifiedHeaderTimeLabel} · {simplifiedSummaryCourtLabel}
+                        </span>
+                        {!isCompletedReservationScheduleLocked && !simplifiedScheduleEditorVisible && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSimplifiedSidebarSection('DETAILS');
+                              setSimplifiedScheduleEditorOpen(true);
+                            }}
+                            className="inline-flex items-center gap-1 text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
+                          >
+                            <Pencil size={12} />
+                            Cambiar
+                          </button>
+                        )}
                       </div>
                     )}
                     {!useSimplifiedBookingSidebar && (
@@ -7929,108 +7946,108 @@ export default function AdminAgendaPlaygroundPage() {
 
                 <div ref={drawerScrollContainerRef} className="flex-1 overflow-y-auto px-3 py-3 lg:px-6 lg:py-6">
                   {useSimplifiedBookingSidebar ? (
-                    <section className={simplifiedIsEditingReservation ? "flex flex-col rounded-2xl border border-p-border bg-p-surface px-4 py-4" : "flex flex-col"}>
+                    <section className="flex flex-col">
                       {showSimplifiedDetailsSection && (simplifiedIsEditingReservation ? (
                         <>
-                          <div className="rounded-xl border border-p-border bg-p-surface-2 p-4">
-                            <div className="flex items-center justify-between gap-3">
-                              <p className="text-[16px] font-semibold text-p-text">Turno</p>
-                              {isCompletedReservationScheduleLocked ? (
-                                <span className="text-[12px] text-p-text-muted">Completada: no se puede modificar</span>
-                              ) : !simplifiedScheduleEditorVisible ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setSimplifiedScheduleEditorOpen(true)}
-                                  className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
-                                >
-                                  <Pencil size={13} />
-                                  Modificar horario o cancha
-                                </button>
-                              ) : simplifiedScheduleEditorOpen && !hasScheduleChanges && !timeFieldError && !courtFieldError ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setSimplifiedScheduleEditorOpen(false)}
-                                  className="text-[13px] font-semibold text-p-text-muted hover:text-p-text"
-                                >
-                                  Ocultar
-                                </button>
-                              ) : (
-                                <span className="text-[12px] text-p-text-muted">Los cambios se aplican al guardar</span>
-                              )}
-                            </div>
-                            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 md:grid-cols-3">
-                              <div>
-                                <p className="text-[12px] text-p-text-muted">Fecha</p>
-                                <p className="mt-0.5 text-[15px] font-medium text-p-text">{simplifiedSummaryDateLabel}</p>
-                              </div>
-                              <div>
-                                <p className="text-[12px] text-p-text-muted">Horario</p>
-                                <p className="mt-0.5 text-[15px] font-medium text-p-text">
-                                  {simplifiedHeaderTimeLabel} · {simplifiedHeaderDurationLabel}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-[12px] text-p-text-muted">Cancha</p>
-                                <p className="mt-0.5 text-[15px] font-medium text-p-text">{simplifiedSummaryCourtLabel}</p>
-                              </div>
-                            </div>
+                          {/* Horario y cancha ya están en el encabezado; el editor aparece solo al tocar "Cambiar". */}
                           {simplifiedScheduleEditorVisible && !isCompletedReservationScheduleLocked && (
-                          <div className="mt-4 grid grid-cols-1 gap-3 border-t border-p-border pt-4 md:grid-cols-2">
-                            <div className="block">
-                              <span className="text-[12px] font-medium text-p-text-muted">Hora de inicio</span>
-                              <PlaygroundCombo
-                                value={slotToTime(selectedStartSlot)}
-                                onChange={(nextValue) => {
-                                  const nextStart = timeToSlot(nextValue);
-                                  applyDrawerStartSlot(nextStart);
-                                  setScheduleInputsDirty(true);
-                                  setFormError('');
-                                }}
-                                options={drawerStartTimeOptions}
-                                disabled={isCompletedReservationScheduleLocked}
-                                className="mt-1"
-                              />
-                            </div>
-                            <div className="block">
-                              <span className="text-[12px] font-medium text-p-text-muted">Hora de fin</span>
-                              <PlaygroundCombo
-                                value={slotToTime(selectedEndSlot)}
-                                onChange={(nextValue) => {
-                                  const nextEnd = Math.max(timeToSlot(nextValue), selectedStartSlot + 1);
-                                  setSelectedEndSlot(nextEnd);
-                                  setScheduleInputsDirty(true);
-                                  setFormError('');
-                                }}
-                                options={drawerEndTimeOptions}
-                                disabled={isCompletedReservationScheduleLocked}
-                                className="mt-1"
-                              />
-                            </div>
-                            {timeFieldError && (
-                              <div className="md:col-span-2">
-                                <p className="text-[12px] font-medium text-p-error">{timeFieldError}</p>
+                            <div className="mb-6 rounded-xl border border-p-border p-4">
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="text-[15px] font-semibold text-p-text">Cambiar horario o cancha</p>
+                                {simplifiedScheduleEditorOpen && !hasScheduleChanges && !timeFieldError && !courtFieldError ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSimplifiedScheduleEditorOpen(false)}
+                                    className="text-[13px] font-semibold text-p-text-muted hover:text-p-text"
+                                  >
+                                    Cancelar
+                                  </button>
+                                ) : (
+                                  <span className="text-[12px] text-p-text-muted">Se aplica al guardar</span>
+                                )}
                               </div>
-                            )}
-                            <div className="block md:col-span-2">
-                              <span className="text-[12px] font-medium text-p-text-muted">Cancha</span>
-                              <PlaygroundCombo
-                                value={selectedCourtId}
-                                onChange={(next) => {
-                                  setSelectedCourtId(next);
-                                  setScheduleInputsDirty(true);
-                                  setFormError('');
-                                }}
-                                options={effectiveCourts.map((court) => ({ value: court.id, label: court.name }))}
-                                disabled={isCompletedReservationScheduleLocked}
-                                className="mt-1"
-                              />
+                              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[132px_minmax(0,1fr)]">
+                                <div className="block">
+                                  <span className="text-[12px] font-medium text-p-text-muted">Inicio</span>
+                                  <PlaygroundCombo
+                                    value={slotToTime(selectedStartSlot)}
+                                    onChange={(nextValue) => {
+                                      applyDrawerStartSlot(timeToSlot(nextValue));
+                                      setScheduleInputsDirty(true);
+                                      setFormError('');
+                                    }}
+                                    options={drawerStartTimeOptions}
+                                    className="mt-1"
+                                  />
+                                </div>
+                                <div className="block">
+                                  <span className="text-[12px] font-medium text-p-text-muted">Duración</span>
+                                  {drawerDurationChoices.length > 0 ? (
+                                    <div className="mt-1 flex flex-wrap gap-2">
+                                      {drawerDurationChoices.map((choice) => {
+                                        const active = selectedEndSlot === choice.endSlot;
+                                        return (
+                                          <button
+                                            key={`edit-duration-${choice.durationMinutes}`}
+                                            type="button"
+                                            aria-pressed={active}
+                                            onClick={() => {
+                                              setSelectedEndSlot(choice.endSlot);
+                                              setScheduleInputsDirty(true);
+                                              setFormError('');
+                                            }}
+                                            className={`h-11 rounded-xl border px-4 text-[14px] font-semibold transition ${
+                                              active
+                                                ? 'border-ink-900 bg-ink-900 text-ink-50'
+                                                : 'border-p-border bg-p-surface text-p-text hover:border-p-border-strong'
+                                            }`}
+                                          >
+                                            {formatDurationLabel(choice.durationMinutes)}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : (
+                                    <PlaygroundCombo
+                                      value={slotToTime(selectedEndSlot)}
+                                      onChange={(nextValue) => {
+                                        setSelectedEndSlot(Math.max(timeToSlot(nextValue), selectedStartSlot + 1));
+                                        setScheduleInputsDirty(true);
+                                        setFormError('');
+                                      }}
+                                      options={drawerEndTimeOptions}
+                                      className="mt-1"
+                                    />
+                                  )}
+                                </div>
+                              </div>
+                              <div className="mt-3 block">
+                                <span className="text-[12px] font-medium text-p-text-muted">Cancha</span>
+                                <PlaygroundCombo
+                                  value={selectedCourtId}
+                                  onChange={(next) => {
+                                    setSelectedCourtId(next);
+                                    setScheduleInputsDirty(true);
+                                    setFormError('');
+                                  }}
+                                  options={effectiveCourts.map((court) => ({ value: court.id, label: court.name }))}
+                                  className="mt-1"
+                                />
+                              </div>
+                              <p className="mt-2 text-[12px] text-p-text-muted">
+                                Queda: {slotToTime(selectedStartSlot)} a {slotToTime(selectedEndSlot)} · {simplifiedSummaryCourtLabel}
+                              </p>
+                              {timeFieldError && (
+                                <p className="mt-1 text-[12px] font-medium text-p-error">{timeFieldError}</p>
+                              )}
                               {courtFieldError && (
                                 <p className="mt-1 text-[12px] font-medium text-p-error">{courtFieldError}</p>
                               )}
                             </div>
-                          </div>
                           )}
-                          </div>
+                          {isCompletedReservationScheduleLocked && (
+                            <p className="mb-4 text-[12px] text-p-text-muted">Reserva completada: el horario ya no se puede cambiar.</p>
+                          )}
                         </>
                       ) : (
                         <>
@@ -8264,7 +8281,7 @@ export default function AdminAgendaPlaygroundPage() {
                             <div className="text-right">
                               <p className="text-[11px] text-p-text-muted">Total consumos</p>
                               <p className="text-[18px] font-semibold text-p-text">
-                                {bookingItemsAmount.toFixed(2)} $
+                                {formatMoney(bookingItemsAmount)}
                               </p>
                             </div>
                           </div>
@@ -8279,13 +8296,13 @@ export default function AdminAgendaPlaygroundPage() {
                             <div className="rounded-lg border border-p-border bg-p-surface px-2 py-1.5">
                               <p>Pagado</p>
                               <p className="text-[15px] font-semibold text-p-positive">
-                                {bookingConsumptionsPaid.toFixed(2)} $
+                                {formatMoney(bookingConsumptionsPaid)}
                               </p>
                             </div>
                             <div className="rounded-lg border border-p-border bg-p-surface px-2 py-1.5">
                               <p>Pendiente</p>
                               <p className="text-[15px] font-semibold text-p-warning">
-                                {bookingConsumptionsRemaining.toFixed(2)} $
+                                {formatMoney(bookingConsumptionsRemaining)}
                               </p>
                             </div>
                           </div>
@@ -8354,15 +8371,15 @@ export default function AdminAgendaPlaygroundPage() {
                                 <p className="text-[12px] text-p-error">{consumptionQuoteError}</p>
                               ) : consumptionQuote ? (
                                 <p className="text-[12px] text-p-text-secondary">
-                                  Lista {consumptionQuote.listTotal.toFixed(2)} $ · Final {consumptionQuote.finalTotal.toFixed(2)} $
+                                  Lista {formatMoney(consumptionQuote.listTotal)} · Final {formatMoney(consumptionQuote.finalTotal)}
                                   {consumptionQuote.hasDiscount && consumptionQuote.discountAmount > 0.009
-                                    ? ` · Descuento ${consumptionQuote.discountAmount.toFixed(2)} $`
+                                    ? ` · Descuento ${formatMoney(consumptionQuote.discountAmount)}`
                                     : ''}
                                 </p>
                               ) : selectedConsumptionProduct ? (
                                 <p className="text-[12px] text-p-text-secondary">
                                   Subtotal estimado:{' '}
-                                  {roundMoney(selectedConsumptionProduct.price * selectedConsumptionQuantity).toFixed(2)} $
+                                  {formatMoney(roundMoney(selectedConsumptionProduct.price * selectedConsumptionQuantity))}
                                 </p>
                               ) : null}
                             </div>
@@ -8394,7 +8411,7 @@ export default function AdminAgendaPlaygroundPage() {
                                     <div className="min-w-0">
                                       <p className="truncate text-[14px] font-semibold text-p-text">{item.description}</p>
                                       <p className="text-[12px] text-p-text-muted">
-                                        {item.quantity} x {item.unitPrice.toFixed(2)} $ · Total {item.totalPrice.toFixed(2)} $
+                                        {item.quantity} x {formatMoney(item.unitPrice)} · Total {formatMoney(item.totalPrice)}
                                       </p>
                                     </div>
                                     <span
@@ -9811,28 +9828,28 @@ export default function AdminAgendaPlaygroundPage() {
                           <div className="rounded-lg bg-p-surface px-2 py-1.5 text-[11px] text-p-text-muted">
                             <p>Total</p>
                             <p className="text-[13px] font-semibold text-p-text">
-                              {Number(billingSummary.totalAmount || 0).toFixed(2)} $
+                              {formatMoney(Number(billingSummary.totalAmount || 0))}
                             </p>
                           </div>
                           <div className="rounded-lg bg-p-surface px-2 py-1.5 text-[11px] text-p-text-muted">
                             <p>Pagado</p>
                             <p className="text-[13px] font-semibold text-p-positive">
-                              {Number(billingSummary.paidAmount || 0).toFixed(2)} $
+                              {formatMoney(Number(billingSummary.paidAmount || 0))}
                             </p>
                           </div>
                           <div className="rounded-lg bg-p-surface px-2 py-1.5 text-[11px] text-p-text-muted">
                             <p>Restante</p>
                             <p className="text-[13px] font-semibold text-p-warning">
-                              {Number(billingSummary.remainingAmount || 0).toFixed(2)} $
+                              {formatMoney(Number(billingSummary.remainingAmount || 0))}
                             </p>
                           </div>
                         </div>
                         <div className="mt-2 flex items-center justify-between text-[11px] text-p-text-muted">
                           <span>
-                            Lista: {quotedListPrice != null ? `${quotedListPrice.toFixed(2)} $` : '-'}
+                            Lista: {quotedListPrice != null ? `${formatMoney(quotedListPrice)}` : '-'}
                           </span>
                           <span>
-                            Descuento: {quotedDiscountAmount > 0 ? `-${quotedDiscountAmount.toFixed(2)} $` : '0.00 $'}
+                            Descuento: {quotedDiscountAmount > 0 ? `-${formatMoney(quotedDiscountAmount)}` : formatMoney(0)}
                           </span>
                         </div>
                       </div>
