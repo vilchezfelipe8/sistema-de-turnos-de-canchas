@@ -130,7 +130,7 @@ import {
 } from '../../components/admin/agenda/utils/bookingValidation';
 import { getPendingLogoutRedirect } from '../../services/AuthService';
 import { formatMoney } from '../../modules/cuentas/accountUtils';
-import { ClubAdminService } from '../../services/ClubAdminService';
+import { ClubAdminService, type CourtBlockDto } from '../../services/ClubAdminService';
 import { addAdminBookingParticipant, cancelBooking, cancelFixedBooking, changeBookingClient, confirmBooking, createBooking, createFixedBooking, getAdminBookingHistory, getAdminBookingParticipants, getAdminSchedule, getBookingById, getBookingFinancialSummary, getBookingQuote, removeAdminBookingParticipant, rescheduleFixedBooking, type AdminBookingParticipantDto, type BookingHistoryEntryDto } from '../../services/BookingService';
 import AccountDrawer, {
   type AccountDrawerContext,
@@ -884,6 +884,38 @@ function parseScheduleSlotToBooking(slot: any): Booking | null {
             )
         : undefined,
     },
+  };
+}
+
+// Los bloqueos de cancha conviven con las reservas en la grilla; su id lleva prefijo para no chocar
+// con ids numéricos de reservas.
+const COURT_BLOCK_ID_PREFIX = 'block-';
+
+function isCourtBlockBookingId(id: string | null | undefined) {
+  return String(id || '').startsWith(COURT_BLOCK_ID_PREFIX);
+}
+
+function courtBlockIdFromBookingId(id: string) {
+  return String(id || '').slice(COURT_BLOCK_ID_PREFIX.length);
+}
+
+function parseCourtBlockToBooking(block: CourtBlockDto): Booking | null {
+  const start = new Date(block.startDateTime);
+  const end = new Date(block.endDateTime);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  const baseMinutes = startHour * 60;
+  const startMinutes = start.getHours() * 60 + start.getMinutes();
+  const endMinutes = end.getHours() * 60 + end.getMinutes() || 24 * 60;
+  const startSlot = Math.max(0, Math.min(totalSlots - 1, Math.floor((startMinutes - baseMinutes) / slotMinutes)));
+  const endSlot = Math.max(startSlot + 1, Math.min(totalSlots, Math.ceil((endMinutes - baseMinutes) / slotMinutes)));
+  return {
+    id: `${COURT_BLOCK_ID_PREFIX}${block.id}`,
+    courtId: String(block.courtId),
+    startSlot,
+    endSlot,
+    title: String(block.title || '').trim() || 'Bloqueo',
+    state: 'blocked',
+    paymentState: 'unpaid',
   };
 }
 
@@ -1858,25 +1890,6 @@ export default function AdminAgendaPlaygroundPage() {
     return ['Todos', ...uniques] as SportFilter[];
   }, [effectiveCourts]);
 
-  const scheduleRequestSeqRef = useRef(0);
-  const reloadSchedule = useCallback(async () => {
-    const requestSeq = ++scheduleRequestSeqRef.current;
-    try {
-      const raw = await getAdminSchedule(formatLocalDate(selectedDate));
-      const mapped = (Array.isArray(raw) ? raw : [])
-        .map(parseScheduleSlotToBooking)
-        .filter((booking): booking is Booking => Boolean(booking));
-      // Si mientras tanto salió otro pedido (cambio de fecha, refresco automático), gana el más nuevo.
-      if (requestSeq === scheduleRequestSeqRef.current) {
-        setBookings(mapped);
-      }
-      return mapped;
-    } catch (error) {
-      reportUiError({ area: 'AgendaPlayground', action: 'loadSchedule' }, error);
-      return [];
-    }
-  }, [selectedDate]);
-
   const getClubSlug = useCallback(() => {
     try {
       const raw = localStorage.getItem('user');
@@ -1927,6 +1940,41 @@ export default function AdminAgendaPlaygroundPage() {
     }
     return byCourt;
   }, [bookingRules, effectiveCourts]);
+
+  const scheduleRequestSeqRef = useRef(0);
+  const reloadSchedule = useCallback(async () => {
+    const requestSeq = ++scheduleRequestSeqRef.current;
+    try {
+      const localDate = formatLocalDate(selectedDate);
+      const slug = getClubSlug();
+      // Los bloqueos se piden en paralelo; si fallan, la agenda igual carga las reservas.
+      const [raw, blocks] = await Promise.all([
+        getAdminSchedule(localDate),
+        slug
+          ? ClubAdminService.listCourtBlocks(slug, localDate).catch((error) => {
+              reportUiError({ area: 'AgendaPlayground', action: 'loadCourtBlocks' }, error);
+              return [] as CourtBlockDto[];
+            })
+          : Promise.resolve([] as CourtBlockDto[]),
+      ]);
+      const mapped = [
+        ...(Array.isArray(raw) ? raw : [])
+          .map(parseScheduleSlotToBooking)
+          .filter((booking): booking is Booking => Boolean(booking)),
+        ...blocks
+          .map(parseCourtBlockToBooking)
+          .filter((booking): booking is Booking => Boolean(booking)),
+      ];
+      // Si mientras tanto salió otro pedido (cambio de fecha, refresco automático), gana el más nuevo.
+      if (requestSeq === scheduleRequestSeqRef.current) {
+        setBookings(mapped);
+      }
+      return mapped;
+    } catch (error) {
+      reportUiError({ area: 'AgendaPlayground', action: 'loadSchedule' }, error);
+      return [];
+    }
+  }, [getClubSlug, selectedDate]);
 
   const resetSimplifiedNewParticipantDraft = useCallback(() => {
     setSimplifiedNewParticipantOpen(false);
@@ -2518,15 +2566,23 @@ export default function AdminAgendaPlaygroundPage() {
 
   const persistBookingMove = useCallback(
     async (bookingId: string, courtId: string, startSlot: number, endSlot: number) => {
-      const numericBookingId = Number(bookingId);
       const numericCourtId = Number(courtId);
-      if (!Number.isFinite(numericBookingId) || numericBookingId <= 0) return;
       if (!Number.isFinite(numericCourtId) || numericCourtId <= 0) return;
       const slug = getClubSlug();
       if (!slug) return;
 
       const durationMinutes = Math.max(15, (endSlot - startSlot) * slotMinutes);
       const startDateTime = buildStartDateTimeFromSlot(selectedDate, startSlot);
+      if (isCourtBlockBookingId(bookingId)) {
+        await ClubAdminService.updateCourtBlock(slug, courtBlockIdFromBookingId(bookingId), {
+          courtId: numericCourtId,
+          startDateTime: startDateTime.toISOString(),
+          endDateTime: new Date(startDateTime.getTime() + durationMinutes * 60000).toISOString(),
+        });
+        return;
+      }
+      const numericBookingId = Number(bookingId);
+      if (!Number.isFinite(numericBookingId) || numericBookingId <= 0) return;
       await ClubAdminService.rescheduleBooking(slug, numericBookingId, {
         courtId: numericCourtId,
         startDateTime: startDateTime.toISOString(),
@@ -3180,12 +3236,16 @@ export default function AdminAgendaPlaygroundPage() {
           )
         );
         void persistBookingMove(meta.bookingId, targetCourtId, safeStart, safeEnd)
-          .then(() =>
-            refreshPersistedBookingView(Number(meta.bookingId), {
+          .then(async () => {
+            if (isCourtBlockBookingId(meta.bookingId)) {
+              await reloadSchedule();
+              return;
+            }
+            await refreshPersistedBookingView(Number(meta.bookingId), {
               schedule: true,
               history: true,
-            })
-          )
+            });
+          })
           .catch(async (error) => {
             reportUiError({ area: 'AgendaPlayground', action: 'persistBookingMove' }, error);
             applyBookingError(error, 'No se pudo guardar el movimiento del turno.', { forceNotice: true });
@@ -3710,7 +3770,16 @@ export default function AdminAgendaPlaygroundPage() {
   const shouldShowSeriesScopeHint = Boolean(
     editingBooking?.fixedBookingId && hasScheduleChanges && !pendingSeriesScopeSave
   );
-  const hasDeferredEditChanges = Boolean(editingBookingId ? hasScheduleChanges : selectedCourtId);
+  // En un bloqueo también cuenta cambiar el título ("Bloqueo" por defecto equivale a vacío).
+  const editingBlockBaselineTitle = (() => {
+    const raw = String(editingBaseline?.title || '');
+    return normalizeBookingDisplayTitle(raw, '') === 'Bloqueo' ? '' : raw.trim();
+  })();
+  const hasBlockTitleChange =
+    bookingKind === 'block' && Boolean(editingBookingId) && blockingTitle.trim() !== editingBlockBaselineTitle;
+  const hasDeferredEditChanges = Boolean(
+    editingBookingId ? hasScheduleChanges || hasBlockTitleChange : selectedCourtId
+  );
   const primaryActionDisabled = Boolean(
     isSubmittingBooking ||
     isDeletingBooking ||
@@ -4438,6 +4507,85 @@ export default function AdminAgendaPlaygroundPage() {
     let createdBookingId: string | null = null;
     let firstCreatedRecurringBookingId: number | null = null;
 
+    // Bloqueo de cancha: no tiene titular ni cobro, se guarda directo en el servidor.
+    if (bookingKind === 'block') {
+      const numericCourtId = Number(selectedCourtId);
+      if (!Number.isFinite(numericCourtId) || numericCourtId <= 0) {
+        setBlockingFieldError('court', 'Seleccioná una cancha para bloquear.');
+        return;
+      }
+      if (selectedEndSlot <= selectedStartSlot) {
+        setBlockingFieldError('time', 'La hora de fin debe ser mayor a la de inicio.');
+        return;
+      }
+      const editingBlockId =
+        editingBookingId && isCourtBlockBookingId(editingBookingId)
+          ? courtBlockIdFromBookingId(editingBookingId)
+          : null;
+      const blockOverlapsSomething = bookings.some((booking) => {
+        if (editingBookingId && String(booking.id) === String(editingBookingId)) return false;
+        if (booking.courtId !== selectedCourtId) return false;
+        return selectedStartSlot < booking.endSlot && selectedEndSlot > booking.startSlot;
+      });
+      if (blockOverlapsSomething) {
+        setBlockingFieldError('time', 'Ese horario ya está ocupado en la cancha seleccionada.');
+        return;
+      }
+      const slug = getClubSlug();
+      if (!slug) {
+        setFormError('No se pudo determinar el club activo.');
+        return;
+      }
+      const startDateTime = buildStartDateTimeFromSlot(selectedDate, selectedStartSlot);
+      const endDateTime = new Date(
+        startDateTime.getTime() + (selectedEndSlot - selectedStartSlot) * slotMinutes * 60000
+      );
+      const normalizedTitle = blockingTitle.trim();
+      // Mismo criterio que openBookingInDrawer: "Bloqueo" es el título por defecto (campo vacío).
+      const baselineTitleRaw = String(editingBaseline?.title || '');
+      const baselineTitle =
+        normalizeBookingDisplayTitle(baselineTitleRaw, '') === 'Bloqueo' ? '' : baselineTitleRaw.trim();
+      const titleChanged = normalizedTitle !== baselineTitle;
+      if (editingBlockId && !hasScheduleChanges && !titleChanged) {
+        setDrawerOpen(false);
+        setFormError('');
+        setEditingBookingId(null);
+        setEditingBaseline(null);
+        return;
+      }
+      try {
+        setIsSubmittingBooking(true);
+        setFormError('');
+        if (editingBlockId) {
+          await ClubAdminService.updateCourtBlock(slug, editingBlockId, {
+            courtId: numericCourtId,
+            startDateTime: startDateTime.toISOString(),
+            endDateTime: endDateTime.toISOString(),
+            title: normalizedTitle || null,
+          });
+        } else {
+          await ClubAdminService.createCourtBlock(slug, {
+            courtId: numericCourtId,
+            startDateTime: startDateTime.toISOString(),
+            endDateTime: endDateTime.toISOString(),
+            title: normalizedTitle || null,
+          });
+        }
+        await reloadSchedule();
+        setDrawerOpen(false);
+        setEditingBookingId(null);
+        setEditingBaseline(null);
+        setBlockingTitle('');
+        showAgendaToast(editingBlockId ? 'Bloqueo actualizado.' : 'Bloqueo creado.', 'success');
+      } catch (error: any) {
+        reportUiError({ area: 'AgendaPlayground', action: editingBlockId ? 'updateCourtBlock' : 'createCourtBlock' }, error);
+        applyBookingError(error, editingBlockId ? 'No se pudo actualizar el bloqueo.' : 'No se pudo crear el bloqueo.');
+      } finally {
+        setIsSubmittingBooking(false);
+      }
+      return;
+    }
+
     const owner = participants.find((participant) => participant.isOwner);
 
     if (!owner || owner.name.trim().length === 0) {
@@ -4509,49 +4657,6 @@ export default function AdminAgendaPlaygroundPage() {
 
     if (!isRecurringKind && hasConflict && (!editingBookingId || hasScheduleChanges)) {
       setBlockingFieldError('time', 'Ya existe una reserva en ese rango horario para la cancha seleccionada.');
-      return;
-    }
-
-    if (bookingKind === 'block') {
-      if (editingBookingId) {
-        if (!hasScheduleChanges) {
-          setDrawerOpen(false);
-          setFormError('');
-          setEditingBookingId(null);
-          setEditingBaseline(null);
-          return;
-        }
-        try {
-          setIsSubmittingBooking(true);
-          await persistBookingMove(editingBookingId, selectedCourtId, selectedStartSlot, selectedEndSlot);
-          await reloadSchedule();
-          setDrawerOpen(false);
-          setFormError('');
-          setEditingBookingId(null);
-          setEditingBaseline(null);
-          showAgendaToast('Bloqueo actualizado.', 'success');
-          return;
-        } catch (error: any) {
-          applyBookingError(error, 'No se pudo actualizar el bloqueo.');
-          return;
-        } finally {
-          setIsSubmittingBooking(false);
-        }
-      }
-      const newBooking: Booking = {
-        id: `manual-${Date.now()}`,
-        courtId: selectedCourtId,
-        startSlot: selectedStartSlot,
-        endSlot: selectedEndSlot,
-        title: blockingTitle.trim() || 'Bloqueo',
-        state: 'blocked',
-        paymentState: 'unpaid',
-      };
-      setBookings((previous) => [...previous, newBooking]);
-      setDrawerOpen(false);
-      setFormError('');
-      setBlockingTitle('');
-      showAgendaToast('Bloqueo creado.', 'success');
       return;
     }
 
@@ -6377,7 +6482,35 @@ export default function AdminAgendaPlaygroundPage() {
       } satisfies Parameters<typeof cancelBooking>[1],
     };
   };
+  const isEditingCourtBlock = isCourtBlockBookingId(editingBookingId);
+  const handleDeleteCourtBlock = async () => {
+    if (!editingBookingId || !isCourtBlockBookingId(editingBookingId)) return;
+    const slug = getClubSlug();
+    if (!slug) return;
+    setIsDeletingBooking(true);
+    setCancelBookingFlowError('');
+    try {
+      await ClubAdminService.deleteCourtBlock(slug, courtBlockIdFromBookingId(editingBookingId));
+      await reloadSchedule();
+      setDrawerOpen(false);
+      setEditingBookingId(null);
+      setEditingBaseline(null);
+      setBlockingTitle('');
+      closeDeleteBookingFlow();
+      showAgendaToast('Bloqueo eliminado.', 'success');
+    } catch (error: any) {
+      reportUiError({ area: 'AgendaPlayground', action: 'handleDeleteCourtBlock' }, error);
+      const normalized = normalizeApiError(error, 'No se pudo eliminar el bloqueo.');
+      setCancelBookingFlowError(toUserSafeMessage(normalized.message, 'No se pudo eliminar el bloqueo.'));
+    } finally {
+      setIsDeletingBooking(false);
+    }
+  };
   const handleDeleteBooking = async (scope?: EditSeriesScope) => {
+    if (isCourtBlockBookingId(editingBookingId)) {
+      await handleDeleteCourtBlock();
+      return;
+    }
     const bookingId = Number(editingBookingId || 0);
     const fixedBookingId = Number(editingBooking?.fixedBookingId || 0);
     if (!Number.isFinite(bookingId) || bookingId <= 0) return;
@@ -6434,6 +6567,11 @@ export default function AdminAgendaPlaygroundPage() {
   const openDeleteBookingFlow = () => {
     setCancelBookingFlowError('');
     setDeleteBookingFinalConfirmOpen(false);
+    if (isEditingCourtBlock) {
+      // Un bloqueo no tiene cobros ni serie: va directo a la confirmación.
+      setDeleteBookingConfirmOpen(true);
+      return;
+    }
     if (editingBooking?.fixedBookingId) {
       setSeriesDeletePreviewScope(null);
       setSeriesDeletePreviewSummary(null);
@@ -7533,7 +7671,9 @@ export default function AdminAgendaPlaygroundPage() {
                 >
                   <div className="flex items-start justify-between gap-3 px-5 pt-5">
                     <div className="min-w-0">
-                      <h3 className="text-[20px] font-bold tracking-[-0.01em] text-p-text">Cancelar la reserva</h3>
+                      <h3 className="text-[20px] font-bold tracking-[-0.01em] text-p-text">
+                        {isEditingCourtBlock ? 'Eliminar el bloqueo' : 'Cancelar la reserva'}
+                      </h3>
                       <p className="mt-1 text-[14px] text-p-text-secondary">
                         <span className="font-semibold text-p-text">{editingBooking?.title || 'Reserva'}</span>
                         {' · '}
@@ -7553,7 +7693,7 @@ export default function AdminAgendaPlaygroundPage() {
 
                   <div className="space-y-3 px-5 py-4 text-[13px] text-p-text-secondary">
                     <p>La cancha queda libre para otra reserva.</p>
-                    {isBookingFinancialLoading ? (
+                    {isEditingCourtBlock ? null : isBookingFinancialLoading ? (
                       <p className="text-p-text-muted">Revisando pagos...</p>
                     ) : !cancelBookingHasPayments ? (
                       <p>No tiene pagos: no hay nada que devolver.</p>
@@ -7644,8 +7784,12 @@ export default function AdminAgendaPlaygroundPage() {
                       className="h-10 rounded-xl bg-p-error px-5 text-sm font-bold text-ink-50 hover:bg-p-error disabled:opacity-50"
                     >
                       {isDeletingBooking
-                        ? 'Cancelando...'
-                        : cancelBookingHasPayments && normalizedCancelRefundAmount > 0.009
+                        ? isEditingCourtBlock
+                          ? 'Eliminando...'
+                          : 'Cancelando...'
+                        : isEditingCourtBlock
+                          ? 'Eliminar bloqueo'
+                          : cancelBookingHasPayments && normalizedCancelRefundAmount > 0.009
                           ? `Cancelar y devolver ${formatMoney(normalizedCancelRefundAmount)}`
                           : 'Cancelar reserva'}
                     </button>
@@ -8328,11 +8472,17 @@ export default function AdminAgendaPlaygroundPage() {
                             )}
                           </div>
 
-                          {/*
-                            Bloquear un horario va acá como acción aparte ("Bloquear este horario en vez de reservar"),
-                            pero recién cuando el backend guarde bloqueos: hoy el bloqueo solo existe en pantalla
-                            y se pierde al recargar, así que no se ofrece.
-                          */}
+                          {/* Bloquear es una acción aparte: no reserva ni cobra, solo deja la cancha no reservable. */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFormError('');
+                              setBookingKind('block');
+                            }}
+                            className="self-start text-[13px] font-semibold text-p-text-secondary hover:text-p-text hover:underline underline-offset-2"
+                          >
+                            Bloquear este horario en vez de reservar
+                          </button>
                         </>
                       ))}
 
