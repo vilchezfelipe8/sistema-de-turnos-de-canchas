@@ -2177,7 +2177,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             value={form.description}
             onChange={(value) => setForm((prev) => ({ ...prev, description: value }))}
             error={fieldErrors.description}
-            placeholder="Contexto operativo de la clase, objetivo o notas visibles para el admin."
+            placeholder="Notas de la clase (opcional): nivel, qué se trabaja, etc."
             inputClassName={`${fieldInputClass} min-h-[112px] py-2`}
           />
         </div>
@@ -2308,7 +2308,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           value={classPassForm.notes}
           onChange={(value) => setClassPassForm((prev) => (prev ? { ...prev, notes: value } : prev))}
           error={classPassFieldErrors.notes}
-          placeholder="Contexto operativo del pack o aclaraciones del titular."
+          placeholder="Notas del pack (opcional)."
           inputClassName={`${fieldInputClass} min-h-[112px] py-2`}
         />
       </AdminDrawerSection>
@@ -2327,33 +2327,19 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         </AdminFeedbackBanner>
       )}
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <MetricCard
-          label="Programadas"
-          value={summary.activeCount}
-          format="number"
-          delta={{ value: summary.total, label: `de ${summary.total} cargadas` }}
-          className={academyMetricCardClass}
-        />
-        <MetricCard
-          label="Públicas"
-          value={summary.publicCount}
-          format="number"
-          valueColor="var(--accent-fg)"
-          className={academyMetricCardClass}
-        />
-        <MetricCard
-          label="Canceladas"
-          value={summary.cancelled}
-          format="number"
-          valueColor={summary.cancelled > 0 ? 'var(--error-fg)' : 'var(--positive-fg)'}
-          className={academyMetricCardClass}
-        />
-      </div>
+      {summary.total > 0 && (
+        <p className="text-[14px] text-p-text-secondary">
+          <span className="font-semibold text-p-text">
+            {summary.activeCount === 1 ? '1 clase programada' : `${summary.activeCount} clases programadas`}
+          </span>
+          {summary.publicCount > 0 ? ` · ${summary.publicCount} se ven en la app` : ''}
+          {summary.cancelled > 0 ? ` · ${summary.cancelled} canceladas` : ''}
+        </p>
+      )}
 
       <AdminPanel
-        title="Clases del club"
-        description="Escaneá rápido horario, profesor, cupo, estado y pendientes sin salir del módulo."
+        title="Clases"
+        description="Horario, profesor, cupo y alumnos de cada clase."
         bodyClassName="p-0"
         className={academyPanelClass}
         headerClassName={academyPanelHeaderClass}
@@ -2404,10 +2390,10 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             row.id === selectedClassId ? 'bg-p-surface-2/80 ring-1 ring-inset ring-p-border-strong' : ''
           }
           empty={{
-            title: teachers.length === 0 && !optionsLoading ? 'Cargá profesores antes de crear clases' : 'Todavía no hay clases cargadas',
+            title: teachers.length === 0 && !optionsLoading ? 'Primero sumá un profesor' : 'Todavía no hay clases cargadas',
             description:
               teachers.length === 0 && !optionsLoading
-                ? 'La clase necesita un profesor explícito. Primero completá el padrón en Profesores.'
+                ? 'Cada clase la da un profesor. Sumalo en la pestaña Profesores y después creá la clase.'
                 : 'Creá la primera clase para ordenar el día a día de Academia y empezar a operar desde acá.',
             action: canCreateClass ? (
               <button

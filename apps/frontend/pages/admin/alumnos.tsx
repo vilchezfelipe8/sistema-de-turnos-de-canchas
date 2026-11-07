@@ -449,15 +449,19 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
         </AdminFeedbackBanner>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <MetricCard label="Alumnos activos" value={summary.totalStudents} format="number" className={academyMetricCardClass} />
-        <MetricCard label="Con próximas clases" value={summary.studentsWithUpcoming} format="number" valueColor="var(--accent-fg)" className={academyMetricCardClass} />
-        <MetricCard label="Créditos disponibles" value={summary.totalRemainingCredits} format="number" className={academyMetricCardClass} />
-      </div>
+      {summary.totalStudents > 0 && (
+        <p className="text-[14px] text-p-text-secondary">
+          <span className="font-semibold text-p-text">
+            {summary.totalStudents === 1 ? '1 alumno' : `${summary.totalStudents} alumnos`}
+          </span>
+          {summary.studentsWithUpcoming > 0 ? ` · ${summary.studentsWithUpcoming} con clases próximas` : ''}
+          {summary.totalRemainingCredits > 0 ? ` · ${summary.totalRemainingCredits} clases a favor en packs` : ''}
+        </p>
+      )}
 
       <AdminPanel
-        title="Alumnos de Academia"
-        description="Vista operativa para escanear próximas clases, créditos, vínculos y movimiento académico sin abrir reportes."
+        title="Alumnos"
+        description="Quién viene a clases, cuántas le quedan y cuándo es la próxima."
         bodyClassName="p-0"
         className={academyPanelClass}
         headerClassName={academyPanelHeaderClass}
@@ -486,10 +490,10 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
             row.client.id === selectedStudentId ? 'bg-p-surface-2/80 ring-1 ring-inset ring-p-border-strong' : ''
           }
           empty={{
-            title: searchTerm.trim() ? 'No encontramos alumnos con ese criterio' : 'Todavía no hay alumnos con actividad académica',
+            title: searchTerm.trim() ? 'No encontramos alumnos con ese criterio' : 'Todavía no hay alumnos',
             description: searchTerm.trim()
               ? 'Probá con otro nombre, teléfono o email.'
-              : 'Aparecerán acá cuando el club tenga inscripciones, packs o vínculos académicos cargados.',
+              : 'Aparecen acá cuando anotás a alguien en una clase o le vendés un pack.',
           }}
         />
       </AdminPanel>

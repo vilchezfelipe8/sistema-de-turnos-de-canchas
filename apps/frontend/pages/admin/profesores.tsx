@@ -383,16 +383,16 @@ export function AdminTeachersPageContent({ user, embedded = false }: { user: any
             onChange={(value) => setForm((prev) => ({ ...prev, specialtiesText: value }))}
             error={fieldErrors.specialties}
             placeholder="Ej: Pádel, Tenis, Preparación física"
-            hint="Separalas con coma. Se guardan como tags simples."
+            hint="Separalas con coma (ej: Pádel, Tenis)."
             inputClassName={fieldInputClass}
           />
         </div>
       </AdminDrawerSection>
 
-      <AdminDrawerSection title="Contexto operativo" className={drawerSectionCardClass}>
+      <AdminDrawerSection title="Notas" className={drawerSectionCardClass}>
         <div className="space-y-4">
           <div className={sectionNoteClass}>
-            Este padrón define identidad y disponibilidad operativa del profesor. Las clases que dicte se gestionan aparte.
+            Lo que quieras recordar: horarios en que puede dar clases, nivel, etc.
           </div>
 
           <div className="space-y-1.5">
@@ -433,27 +433,18 @@ export function AdminTeachersPageContent({ user, embedded = false }: { user: any
         </AdminFeedbackBanner>
       )}
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <MetricCard
-          label="Activos"
-          value={summary.active}
-          format="number"
-          valueColor="var(--positive-fg)"
-          delta={{ value: summary.total, label: `de ${summary.total} cargados` }}
-          className={academyMetricCardClass}
-        />
-        <MetricCard
-          label="Inactivos"
-          value={summary.inactive}
-          format="number"
-          valueColor={summary.inactive > 0 ? 'var(--text-muted)' : 'var(--positive-fg)'}
-          className={academyMetricCardClass}
-        />
-      </div>
+      {summary.total > 0 && (
+        <p className="text-[14px] text-p-text-secondary">
+          <span className="font-semibold text-p-text">
+            {summary.active === 1 ? '1 profesor activo' : `${summary.active} profesores activos`}
+          </span>
+          {summary.inactive > 0 ? ` · ${summary.inactive} dados de baja` : ''}
+        </p>
+      )}
 
       <AdminPanel
-        title="Padrón de profesores"
-        description="Equipo docente listo para operar clases, con estado, contacto y especialidades a mano."
+        title="Profesores"
+        description="Quién da clases en el club y qué enseña."
         bodyClassName="p-0"
         className={academyPanelClass}
         headerClassName={academyPanelHeaderClass}
@@ -499,8 +490,8 @@ export function AdminTeachersPageContent({ user, embedded = false }: { user: any
           loading={loading}
           onRowClick={(row) => void openEditModal(row.id)}
           empty={{
-            title: 'Todavía no hay profesores cargados',
-            description: 'Sumá el primer profesor para empezar a programar clases y ordenar la operación diaria.',
+            title: 'Todavía no hay profesores',
+            description: 'Sumá al primero para poder crear clases.',
             action: (
               <button
                 type="button"
@@ -519,7 +510,7 @@ export function AdminTeachersPageContent({ user, embedded = false }: { user: any
         open={modalOpen}
         onClose={closeModal}
         title={editingTeacherId ? 'Editar profesor' : 'Nuevo profesor'}
-        subtitle="Padrón de profesores con el mismo lenguaje visual del resto del admin: datos, contexto y acciones en un panel lateral."
+        subtitle="Nombre, contacto y qué enseña."
         size="md"
         footer={
           <div className="flex flex-wrap items-center justify-end gap-2">
