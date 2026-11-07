@@ -9,14 +9,8 @@ import {
 } from '../../../services/ClubAdminService';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
 import { showAdminToast } from '../../../utils/adminToast';
-import {
-  AdminDataTable,
-  AdminInlineError,
-  AdminModal,
-  AdminPanel,
-  MetricCard,
-} from '../../../components/admin/ui';
-import type { AdminDataTableColumn } from '../../../components/admin/ui';
+import { AdminInlineError, AdminModal, AdminPanel } from '../../../components/admin/ui';
+import { STOCK_MOVEMENT_TEXT, formatStockWhen } from './ProductDetailPanel';
 
 // ---------------------------------------------------------------------------
 // Types & constants
@@ -36,46 +30,27 @@ type ModalKind = 'entry' | 'count' | 'waste' | null;
 
 type DraftRow = { productId: string; quantity: string; unitCost: string };
 
-const MOVEMENT_LABELS: Record<StockMovementType, string> = {
-  INITIAL: 'Stock inicial',
-  PURCHASE: 'Ingreso',
-  SALE: 'Venta',
-  SALE_REVERSAL: 'Anulación',
-  ADJUSTMENT: 'Ajuste por conteo',
-  WASTE: 'Merma',
-  MANUAL_EDIT: 'Edición manual',
-};
-
 const TYPE_FILTERS: Array<{ value: '' | StockMovementType; label: string }> = [
   { value: '', label: 'Todos los movimientos' },
-  { value: 'PURCHASE', label: 'Ingresos' },
-  { value: 'SALE', label: 'Ventas' },
-  { value: 'SALE_REVERSAL', label: 'Anulaciones' },
-  { value: 'ADJUSTMENT', label: 'Ajustes por conteo' },
-  { value: 'WASTE', label: 'Mermas' },
-  { value: 'MANUAL_EDIT', label: 'Ediciones manuales' },
-  { value: 'INITIAL', label: 'Stock inicial' },
+  { value: 'SALE', label: STOCK_MOVEMENT_TEXT.SALE },
+  { value: 'PURCHASE', label: STOCK_MOVEMENT_TEXT.PURCHASE },
+  { value: 'WASTE', label: STOCK_MOVEMENT_TEXT.WASTE },
+  { value: 'ADJUSTMENT', label: STOCK_MOVEMENT_TEXT.ADJUSTMENT },
+  { value: 'SALE_REVERSAL', label: STOCK_MOVEMENT_TEXT.SALE_REVERSAL },
+  { value: 'MANUAL_EDIT', label: STOCK_MOVEMENT_TEXT.MANUAL_EDIT },
+  { value: 'INITIAL', label: STOCK_MOVEMENT_TEXT.INITIAL },
 ];
 
 const emptyRow = (): DraftRow => ({ productId: '', quantity: '', unitCost: '' });
 
 const inputClass =
-  'h-9 w-full rounded-lg border border-p-border bg-p-surface px-3 text-[12px] text-p-text placeholder:text-p-text-muted outline-none transition focus:border-p-accent';
+  'h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text placeholder:text-p-text-muted outline-none transition focus:border-p-border-strong';
 
 const primaryButtonClass =
-  'inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 shadow-p-md transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-60';
+  'inline-flex h-10 items-center justify-center gap-1.5 rounded-xl bg-ink-900 px-3.5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-60';
 
 const secondaryButtonClass =
-  'inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text transition hover:border-p-accent hover:bg-p-positive-bg';
-
-const formatDateTime = (value: string) =>
-  new Date(value).toLocaleString('es-AR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  'inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3.5 text-[13px] font-semibold text-p-text transition hover:bg-p-surface-2';
 
 const minStockOf = (product: InventoryProduct) => Number(product.minStock ?? 5);
 
@@ -283,75 +258,6 @@ export default function InventoryPage({ slug = '' }: { slug?: string }) {
     }
   };
 
-  // ── Table ──
-  const columns: AdminDataTableColumn<StockMovement>[] = [
-    {
-      key: 'occurredAt',
-      label: 'Fecha',
-      width: 'w-[130px]',
-      render: (row) => <span className="text-[12px] text-p-text-muted">{formatDateTime(row.occurredAt)}</span>,
-    },
-    {
-      key: 'product',
-      label: 'Producto',
-      render: (row) => (
-        <div className="min-w-0">
-          <p className="truncate font-semibold text-p-text">{row.product.name}</p>
-          {row.product.category && <p className="mt-0.5 truncate text-[11px] text-p-text-muted">{row.product.category}</p>}
-        </div>
-      ),
-    },
-    {
-      key: 'type',
-      label: 'Movimiento',
-      render: (row) => (
-        <span className="whitespace-nowrap rounded-full border border-p-border bg-p-surface-2 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-p-text-muted">
-          {MOVEMENT_LABELS[row.type]}
-        </span>
-      ),
-    },
-    {
-      key: 'quantity',
-      label: 'Cantidad',
-      align: 'right',
-      render: (row) => (
-        <span className={`font-semibold tabular-nums ${row.quantity > 0 ? 'text-p-positive' : 'text-[var(--error-fg)]'}`}>
-          {row.quantity > 0 ? `+${row.quantity}` : row.quantity}
-        </span>
-      ),
-    },
-    {
-      key: 'stockAfter',
-      label: 'Saldo',
-      align: 'right',
-      render: (row) => (
-        <span className="tabular-nums text-p-text">
-          <span className="text-p-text-muted">{row.stockBefore} → </span>
-          {row.stockAfter}
-        </span>
-      ),
-    },
-    {
-      key: 'detail',
-      label: 'Detalle',
-      hideOnMobile: true,
-      render: (row) => {
-        const parts = [
-          row.supplier,
-          row.documentNumber ? `Remito ${row.documentNumber}` : null,
-          row.unitCost != null ? `Costo $${row.unitCost.toLocaleString('es-AR')}` : null,
-          row.reason,
-        ].filter(Boolean);
-        return (
-          <div className="min-w-0 text-[12px] text-p-text-muted">
-            <p className="truncate">{parts.join(' · ') || '—'}</p>
-            {row.createdBy?.name && <p className="mt-0.5 truncate text-[11px]">por {row.createdBy.name}</p>}
-          </div>
-        );
-      },
-    },
-  ];
-
   const selectClass = `${inputClass} sm:w-[220px]`;
 
   // ── Render ──
@@ -359,52 +265,42 @@ export default function InventoryPage({ slug = '' }: { slug?: string }) {
     <div className="flex flex-col gap-3">
       {loadError && <AdminInlineError>{loadError}</AdminInlineError>}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <MetricCard
-          label="Para reponer"
-          value={lowStockProducts.length}
-          format="number"
-          loading={loadingProducts}
-          valueColor={lowStockProducts.length > 0 ? 'var(--error-fg)' : undefined}
-          delta={{ value: lowStockProducts.length > 0 ? -lowStockProducts.length : 0, label: 'en o debajo del mínimo' }}
-        />
-        <MetricCard label="Unidades en stock" value={summary.units} format="number" loading={loadingProducts} />
-        <MetricCard label="Valor en stock (a precio de venta)" value={summary.value} format="money" loading={loadingProducts} />
-      </div>
+      <p className="text-[14px] text-p-text-secondary">
+        <span className="font-semibold text-p-text">{summary.units.toLocaleString('es-AR')} unidades</span> en stock ·{' '}
+        <span className="tabular-nums">${summary.value.toLocaleString('es-AR')}</span> a precio de venta ·{' '}
+        {lowStockProducts.length > 0 ? (
+          <span className="font-semibold text-p-warning">
+            {lowStockProducts.length === 1 ? '1 para reponer' : `${lowStockProducts.length} para reponer`}
+          </span>
+        ) : (
+          'nada para reponer'
+        )}
+      </p>
 
       <div className="flex flex-wrap gap-2">
         <button type="button" className={primaryButtonClass} onClick={() => openModal('entry')}>
           <PackagePlus size={15} strokeWidth={2.5} />
-          Registrar ingreso
+          Entró mercadería
         </button>
         <button type="button" className={secondaryButtonClass} onClick={() => openModal('count')}>
           <ClipboardCheck size={15} strokeWidth={2.5} />
-          Conteo físico
+          Contar todo
         </button>
         <button type="button" className={secondaryButtonClass} onClick={() => openModal('waste')}>
           <PackageMinus size={15} strokeWidth={2.5} />
-          Registrar merma
+          Se rompió o venció
         </button>
       </div>
 
       {lowStockProducts.length > 0 && (
-        <AdminPanel title="Para reponer" description="Productos con stock en o por debajo de su mínimo.">
-          <ul className="flex flex-wrap gap-2">
-            {lowStockProducts.map((product) => (
-              <li
-                key={product.id}
-                className="rounded-lg border border-p-error bg-p-error-bg px-2.5 py-1 text-[12px] font-semibold text-[var(--error-fg)]"
-              >
-                {product.name} · {Number(product.stock || 0)} u.
-              </li>
-            ))}
-          </ul>
-        </AdminPanel>
+        <div className="rounded-xl bg-p-warning-bg px-4 py-3 text-[14px] text-p-warning">
+          <span className="font-semibold">Para reponer:</span>{' '}
+          {lowStockProducts.map((product) => `${product.name} (quedan ${Number(product.stock || 0)})`).join(' · ')}
+        </div>
       )}
 
       <AdminPanel
-        title="Historial de movimientos"
-        description="Cada venta, anulación, ingreso, ajuste y merma queda registrada con su saldo."
+        title="Todo lo que entró y salió"
         actions={(
           <div className="flex flex-col gap-2 sm:flex-row">
             <select
@@ -432,16 +328,57 @@ export default function InventoryPage({ slug = '' }: { slug?: string }) {
         )}
         bodyClassName="p-0"
       >
-        <AdminDataTable
-          columns={columns}
-          data={movements}
-          rowKey={(row) => row.id}
-          loading={loadingMovements}
-          empty={{
-            title: 'Todavía no hay movimientos',
-            description: 'Registrá un ingreso de mercadería o hacé una venta y lo vas a ver acá.',
-          }}
-        />
+        {loadingMovements ? (
+          <div className="space-y-2 p-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-12 animate-pulse rounded-xl bg-p-surface-2" />
+            ))}
+          </div>
+        ) : movements.length === 0 ? (
+          <div className="px-4 py-10 text-center">
+            <p className="text-[14px] font-semibold text-p-text-secondary">Todavía no hay movimientos</p>
+            <p className="mt-1 text-[12px] text-p-text-muted">Cargá mercadería o vendé algo y lo vas a ver acá.</p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-p-border">
+            {movements.map((row) => {
+              const detail = [
+                row.supplier,
+                row.documentNumber ? `remito ${row.documentNumber}` : null,
+                row.unitCost != null ? `costo $${row.unitCost.toLocaleString('es-AR')}` : null,
+                row.type !== 'SALE_REVERSAL' ? row.reason : null,
+              ]
+                .filter(Boolean)
+                .join(' · ');
+              return (
+                <li
+                  key={row.id}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 px-4 py-3 sm:grid-cols-[120px_minmax(0,1fr)_auto]"
+                >
+                  <p className="col-span-2 text-[12px] text-p-text-muted sm:col-span-1">{formatStockWhen(row.occurredAt)}</p>
+                  <div className="min-w-0">
+                    <p className="truncate text-[14px] text-p-text">
+                      <span className="font-semibold">{row.product.name}</span>
+                      <span className="text-p-text-secondary"> · {STOCK_MOVEMENT_TEXT[row.type] || row.type}</span>
+                    </p>
+                    {(detail || row.createdBy?.name) && (
+                      <p className="truncate text-[12px] text-p-text-muted">
+                        {[detail, row.createdBy?.name ? `por ${row.createdBy.name}` : null].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <p className={`text-[14px] font-semibold tabular-nums ${row.quantity > 0 ? 'text-p-positive' : 'text-p-text'}`}>
+                      {row.quantity > 0 ? '+' : row.quantity < 0 ? '−' : ''}
+                      {Math.abs(row.quantity)}
+                    </p>
+                    <p className="text-[11px] tabular-nums text-p-text-muted">quedan {row.stockAfter}</p>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
         {nextCursor && (
           <div className="flex justify-center border-t border-p-border p-3">
             <button
@@ -459,11 +396,11 @@ export default function InventoryPage({ slug = '' }: { slug?: string }) {
       {/* ── Ingreso / merma ── */}
       <AdminModal
         open={modal === 'entry' || modal === 'waste'}
-        title={modal === 'entry' ? 'Registrar ingreso' : 'Registrar merma'}
+        title={modal === 'entry' ? 'Entró mercadería' : 'Se rompió o venció'}
         description={
           modal === 'entry'
-            ? 'Mercadería que llegó del proveedor. Suma stock a cada producto.'
-            : 'Rotura, vencimiento o consumo interno. Resta stock sin generar una venta.'
+            ? 'Lo que llegó del proveedor. Se suma al stock de cada producto.'
+            : 'Roturas, vencimientos o lo que se usó en el club. Se descuenta sin contar como venta.'
         }
         onClose={closeModal}
         maxWidthClassName="max-w-[640px]"
@@ -473,7 +410,7 @@ export default function InventoryPage({ slug = '' }: { slug?: string }) {
               Cancelar
             </button>
             <button type="button" className={primaryButtonClass} onClick={() => void submitRows()} disabled={submitting}>
-              {submitting ? 'Guardando...' : modal === 'entry' ? 'Registrar ingreso' : 'Registrar merma'}
+              {submitting ? 'Guardando...' : modal === 'entry' ? 'Sumar al stock' : 'Descontar del stock'}
             </button>
           </>
         )}
@@ -482,11 +419,11 @@ export default function InventoryPage({ slug = '' }: { slug?: string }) {
           {modal === 'entry' && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <label className="flex flex-col gap-1 text-[12px] font-semibold text-p-text">
-                Proveedor
+                Proveedor (opcional)
                 <input className={inputClass} value={entrySupplier} onChange={(e) => setEntrySupplier(e.target.value)} placeholder="Ej. Distribuidora Córdoba" />
               </label>
               <label className="flex flex-col gap-1 text-[12px] font-semibold text-p-text">
-                Nº de remito o factura
+                Remito o factura (opcional)
                 <input className={inputClass} value={entryDocument} onChange={(e) => setEntryDocument(e.target.value)} placeholder="Ej. 0001-00012345" />
               </label>
             </div>
@@ -523,7 +460,7 @@ export default function InventoryPage({ slug = '' }: { slug?: string }) {
                   </label>
                   {modal === 'entry' && (
                     <label className="col-span-2 flex flex-col gap-1 text-[11px] font-semibold text-p-text-muted sm:col-span-1">
-                      Costo unitario
+                      Costo c/u
                       <input
                         className={inputClass}
                         type="number"
@@ -558,7 +495,7 @@ export default function InventoryPage({ slug = '' }: { slug?: string }) {
           </div>
 
           <label className="flex flex-col gap-1 text-[12px] font-semibold text-p-text">
-            {modal === 'entry' ? 'Notas' : 'Motivo'}
+            {modal === 'entry' ? 'Nota (opcional)' : 'Qué pasó (opcional)'}
             <input
               className={inputClass}
               value={draftNotes}
@@ -574,14 +511,14 @@ export default function InventoryPage({ slug = '' }: { slug?: string }) {
       {/* ── Conteo físico ── */}
       <AdminModal
         open={modal === 'count'}
-        title="Conteo físico"
-        description="Cargá lo que contaste en el depósito. Solo se ajustan los productos que completes y que tengan diferencia."
+        title="Contar todo el stock"
+        description="Poné cuántas unidades contaste de cada producto. Solo se corrigen los que completes y no coincidan."
         onClose={closeModal}
         maxWidthClassName="max-w-[640px]"
         footer={(
           <>
             <span className="mr-auto text-[12px] text-p-text-muted">
-              {countChanges.filter((row) => row.diff !== 0).length} con diferencia
+              {countChanges.filter((row) => row.diff !== 0).length === 1 ? '1 no coincide' : `${countChanges.filter((row) => row.diff !== 0).length} no coinciden`}
             </span>
             <button type="button" className={secondaryButtonClass} onClick={closeModal} disabled={submitting}>
               Cancelar
@@ -598,9 +535,9 @@ export default function InventoryPage({ slug = '' }: { slug?: string }) {
               <thead className="sticky top-0 bg-p-surface-2 text-left text-[11px] uppercase tracking-wide text-p-text-muted">
                 <tr>
                   <th className="px-3 py-2 font-semibold">Producto</th>
-                  <th className="px-3 py-2 text-right font-semibold">Sistema</th>
-                  <th className="w-[96px] px-3 py-2 font-semibold">Contado</th>
-                  <th className="w-[72px] px-3 py-2 text-right font-semibold">Dif.</th>
+                  <th className="px-3 py-2 text-right font-semibold">Figura</th>
+                  <th className="w-[96px] px-3 py-2 font-semibold">Contaste</th>
+                  <th className="w-[80px] px-3 py-2 text-right font-semibold">Diferencia</th>
                 </tr>
               </thead>
               <tbody>
@@ -637,8 +574,8 @@ export default function InventoryPage({ slug = '' }: { slug?: string }) {
             </table>
           </div>
           <label className="flex flex-col gap-1 text-[12px] font-semibold text-p-text">
-            Notas
-            <input className={inputClass} value={draftNotes} onChange={(e) => setDraftNotes(e.target.value)} placeholder="Ej. Inventario mensual de octubre" />
+            Nota (opcional)
+            <input className={inputClass} value={draftNotes} onChange={(e) => setDraftNotes(e.target.value)} placeholder="Ej. conteo de fin de mes" />
           </label>
           {modalError && <AdminInlineError>{modalError}</AdminInlineError>}
         </div>
