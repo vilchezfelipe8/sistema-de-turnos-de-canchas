@@ -49,8 +49,7 @@ const MOBILE_SETTINGS_GROUPS: Array<{
     items: [
       { value: 'club', description: 'Nombre, logo, dirección y contacto', icon: Home },
       { value: 'canchas', description: 'Canchas, deportes y precio base', icon: LayoutGrid },
-      { value: 'actividades', description: 'Deportes y modalidades (Dobles, Singles)', icon: Dumbbell },
-      { value: 'horarios', description: 'Apertura y cierre por día', icon: CalendarClock },
+      { value: 'horarios', description: 'Cuándo abre cada deporte y modalidades', icon: CalendarClock },
       { value: 'excepciones', description: 'Feriados y cierres puntuales', icon: CalendarOff },
     ],
   },
@@ -82,7 +81,8 @@ const parseSettingsTab = (value: unknown): SettingsTab => {
   if (raw === 'discounts') return 'precios';
   if (raw === 'audit') return 'auditoria';
   if (raw === 'canchas') return 'canchas';
-  if (raw === 'actividades') return 'actividades';
+  // Las modalidades viven ahora en Horarios.
+  if (raw === 'actividades') return 'horarios';
   if (raw === 'reservas') return 'reservas';
   if (raw === 'horarios') return 'horarios';
   if (raw === 'precios') return 'precios';

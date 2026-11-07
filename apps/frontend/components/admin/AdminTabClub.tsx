@@ -1,4 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
+import ActivityScheduleEditor from '../../modules/ajustes/components/ActivityScheduleEditor';
+import SettingsActivityFormatsSection from '../../modules/ajustes/components/SettingsActivityFormatsSection';
 import type { ReactNode } from 'react';
 import { ClubService, Club, type BookingConfirmationMode } from '../../services/ClubService';
 import { getCourts } from '../../services/CourtService';
@@ -2734,8 +2736,8 @@ export default function AdminTabClub({
               <div className="space-y-4">
                 {/* Días de apertura */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Días de apertura</p>
-                  <p className="mb-3 text-[12px] text-p-text-muted">Seleccioná los días en los que el club está abierto. Sin selección = abre todos los días.</p>
+                  <p className={cardTitleCls}>¿Qué días abre el club?</p>
+                  <p className="mb-3 text-[12px] text-p-text-muted">Si no marcás ninguno, abre todos los días.</p>
                   <div className="flex flex-wrap gap-2">
                     {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map((label, idx) => {
                       const day = idx % 7;
@@ -2754,137 +2756,53 @@ export default function AdminTabClub({
                   </div>
                 </div>
 
-                {/* Horarios por actividad */}
+                {/* Horario de cada deporte */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Horarios por actividad</p>
+                  <p className={cardTitleCls}>Horario de cada deporte</p>
                   {activityTypes.length === 0 ? (
-                    <p className="text-[12px] text-p-text-muted">No hay actividades configuradas.</p>
+                    <p className="text-[12px] text-p-text-muted">No hay deportes cargados.</p>
                   ) : (
                     <div className="space-y-4">
                       {activityTypes.map((activity) => {
                         const cfg = activityScheduleForm[activity.id];
                         if (!cfg) return null;
                         return (
-                          <div key={activity.id} className="rounded-xl border border-p-border p-4">
-                            <div className="mb-3 flex items-center justify-between">
-                              <p className="text-[13px] font-semibold text-p-text">{activity.name}</p>
-                              {pendingScheduleExceptionMutations.some((item) => item.activityId === activity.id) && (
-                                <span className="rounded-full bg-p-positive-bg px-2 py-0.5 text-[10px] font-semibold text-p-accent">Cambios pendientes</span>
-                              )}
-                            </div>
-                            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                              <div>
-                                <label className={labelCls}>Modo</label>
-                                <select
-                                  value={cfg.scheduleMode}
-                                  onChange={(e) => setActivityScheduleForm((prev) => ({
-                                    ...prev,
-                                    [activity.id]: { ...prev[activity.id], scheduleMode: e.target.value as 'FIXED' | 'RANGE' }
-                                  }))}
-                                  className={inputCls}
-                                >
-                                  <option value="FIXED">Turnos fijos</option>
-                                  <option value="RANGE">Rango horario</option>
-                                </select>
-                              </div>
-                              <div className="md:col-span-3">
-                                <label className={labelCls}>Duraciones (min, separadas por coma)</label>
-                                <input
-                                  type="text"
-                                  value={cfg.scheduleDurations}
-                                  onChange={(e) => setActivityScheduleForm((prev) => ({
-                                    ...prev,
-                                    [activity.id]: { ...prev[activity.id], scheduleDurations: e.target.value }
-                                  }))}
-                                  className={inputCls}
-                                  placeholder="60, 90"
-                                />
-                              </div>
-                              {cfg.scheduleMode === 'RANGE' ? (
-                                <>
-                                  <div>
-                                    <label className={labelCls}>Apertura</label>
-                                    <input
-                                      type="time"
-                                      value={cfg.scheduleOpenTime}
-                                      onChange={(e) => setActivityScheduleForm((prev) => ({
-                                        ...prev,
-                                        [activity.id]: { ...prev[activity.id], scheduleOpenTime: e.target.value }
-                                      }))}
-                                      className={inputCls}
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className={labelCls}>Cierre</label>
-                                    <input
-                                      type="time"
-                                      value={cfg.scheduleCloseTime}
-                                      onChange={(e) => setActivityScheduleForm((prev) => ({
-                                        ...prev,
-                                        [activity.id]: { ...prev[activity.id], scheduleCloseTime: e.target.value }
-                                      }))}
-                                      className={inputCls}
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className={labelCls}>Intervalo (min)</label>
-                                    <input
-                                      type="number"
-                                      min={1}
-                                      value={cfg.scheduleIntervalMinutes}
-                                      onChange={(e) => setActivityScheduleForm((prev) => ({
-                                        ...prev,
-                                        [activity.id]: { ...prev[activity.id], scheduleIntervalMinutes: e.target.value }
-                                      }))}
-                                      className={inputCls}
-                                    />
-                                  </div>
-                                  <div className="md:col-span-4">
-                                    <label className={labelCls}>Franjas cortadas (opcional, una por línea: HH:mm-HH:mm)</label>
-                                    <textarea
-                                      rows={3}
-                                      value={cfg.scheduleWindows}
-                                      onChange={(e) => setActivityScheduleForm((prev) => ({
-                                        ...prev,
-                                        [activity.id]: { ...prev[activity.id], scheduleWindows: e.target.value }
-                                      }))}
-                                      className={`${inputCls} h-auto py-2.5 resize-none`}
-                                      placeholder={'08:00-12:00\n16:00-23:00'}
-                                    />
-                                  </div>
-                                </>
-                              ) : (
-                                <div className="md:col-span-4">
-                                  <label className={labelCls}>Turnos fijos (uno por línea: HH:mm-60)</label>
-                                  <textarea
-                                    rows={4}
-                                    value={cfg.scheduleFixedSlots}
-                                    onChange={(e) => setActivityScheduleForm((prev) => ({
-                                      ...prev,
-                                      [activity.id]: { ...prev[activity.id], scheduleFixedSlots: e.target.value }
-                                    }))}
-                                    className={`${inputCls} h-auto py-2.5 resize-none`}
-                                    placeholder={'08:00-60\n09:00-60\n10:30-90'}
-                                  />
-                                </div>
-                              )}
-                            </div>
-                          </div>
+                          <ActivityScheduleEditor
+                            key={activity.id}
+                            activityName={activity.name}
+                            config={cfg}
+                            onChange={(patch) =>
+                              setActivityScheduleForm((prev) => ({
+                                ...prev,
+                                [activity.id]: { ...prev[activity.id], ...patch },
+                              }))
+                            }
+                            hasPendingChanges={pendingScheduleExceptionMutations.some((item) => item.activityId === activity.id)}
+                            exceptionsCount={Number(activityExceptionSummary[activity.id]?.count || 0)}
+                            onOpenExceptions={() => openExceptionModalForActivity(activity)}
+                          />
                         );
                       })}
                     </div>
                   )}
                 </div>
 
+                {/* Modalidades (antes en Ajustes > Actividades): se guardan solas. */}
+                <div className={cardCls}>
+                  <p className={cardTitleCls}>Modalidades de juego</p>
+                  <SettingsActivityFormatsSection />
+                </div>
+
                 {/* Turnos fijos por actividad */}
                 {activitySettings.length > 0 && (
                   <div className={cardCls}>
-                    <p className={cardTitleCls}>Configuración de turnos fijos por actividad</p>
+                    <p className={cardTitleCls}>Reservas fijas (todas las semanas)</p>
+                    <p className="mb-3 text-[12px] text-p-text-muted">Cuántos turnos a futuro se crean para cada reserva fija.</p>
                     <div className="space-y-3">
                       {activitySettings.map((activity) => (
                         <div key={activity.key} className="grid grid-cols-1 gap-3 md:grid-cols-3 rounded-xl border border-p-border p-3">
                           <div>
-                            <label className={labelCls}>Actividad</label>
+                            <label className={labelCls}>Deporte</label>
                             <input
                               type="text"
                               value={activity.label}
@@ -2893,7 +2811,7 @@ export default function AdminTabClub({
                             />
                           </div>
                           <div>
-                            <label className={labelCls}>Días hacia adelante</label>
+                            <label className={labelCls}>Se crean los turnos de los próximos (días)</label>
                             <input
                               type="number"
                               min={1}
@@ -2915,7 +2833,7 @@ export default function AdminTabClub({
                             />
                           </div>
                           <div>
-                            <label className={labelCls}>Frecuencia generación (días)</label>
+                            <label className={labelCls}>Se completan cada (días)</label>
                             <input
                               type="number"
                               min={1}
@@ -2944,8 +2862,8 @@ export default function AdminTabClub({
 
                 {/* Profesor */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Profesor (operativo)</p>
-                  <p className="mb-4 text-[12px] text-p-text-muted">Ajusta la duración operativa de reservas o clases con profesor cuando el club usa una lógica distinta a la estándar.</p>
+                  <p className={cardTitleCls}>Turnos de profesores</p>
+                  <p className="mb-4 text-[12px] text-p-text-muted">Si los profesores reservan turnos de otra duración (ej: clases de 1 hora), activalo.</p>
                   <div className="space-y-4">
                     <label className="flex cursor-pointer items-center gap-2.5">
                       <div
@@ -2954,11 +2872,11 @@ export default function AdminTabClub({
                       >
                         {clubForm.professorDurationOverrideEnabled && <Check size={12} strokeWidth={3} className="text-ink-50" />}
                       </div>
-                      <span className="text-[12px] text-p-text">Permitir ajuste de duración para profesor</span>
+                      <span className="text-[12px] text-p-text">Los profesores reservan con otra duración</span>
                     </label>
                     {clubForm.professorDurationOverrideEnabled && (
                       <div className="pl-7">
-                        <label className={labelCls}>Duración especial (min)</label>
+                        <label className={labelCls}>Duración para profesores (min)</label>
                         <input
                           type="number"
                           min={1}
