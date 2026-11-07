@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Clock3, DollarSign, Receipt, ShoppingBag, Wa
 import { useRouter } from 'next/router';
 import { reportUiError } from '../../utils/uiError';
 import { getApiFieldErrors, normalizeApiError } from '../../utils/apiError';
-import { ReportsService, type AdminDashboardReport } from '../../services/ReportsService';
+import { ReportsService, type AdminDashboardReport, type ReportsOccupancy } from '../../services/ReportsService';
 import {
   AdminDataTable,
   AdminDateInput,
@@ -129,6 +129,103 @@ function ShareBars({ rows, loading, empty }: { rows: Array<{ key: string; label:
         );
       })}
     </ul>
+  );
+}
+
+const WEEKDAYS: Array<{ value: number; short: string; long: string }> = [
+  { value: 1, short: 'Lun', long: 'lunes' },
+  { value: 2, short: 'Mar', long: 'martes' },
+  { value: 3, short: 'Mié', long: 'miércoles' },
+  { value: 4, short: 'Jue', long: 'jueves' },
+  { value: 5, short: 'Vie', long: 'viernes' },
+  { value: 6, short: 'Sáb', long: 'sábados' },
+  { value: 0, short: 'Dom', long: 'domingos' },
+];
+
+const formatHours = (minutes: number) => {
+  const hours = minutes / 60;
+  return `${
+    hours >= 10 || Number.isInteger(hours) ? Math.round(hours).toLocaleString('es-AR') : hours.toFixed(1).replace('.', ',')
+  } h`;
+};
+
+/** Escala de un solo color, de claro a oscuro, en 5 escalones (mezcla el acento con la superficie). */
+const heatStyle = (pct: number): { backgroundColor: string } => {
+  const step = pct <= 0 ? 0 : pct < 0.2 ? 22 : pct < 0.4 ? 40 : pct < 0.6 ? 58 : pct < 0.8 ? 78 : 100;
+  return {
+    backgroundColor: step === 0 ? 'var(--surface-2)' : `color-mix(in srgb, var(--accent-fg) ${step}%, var(--surface-2))`,
+  };
+};
+
+/** Mapa día × hora: qué tan llenas estuvieron las canchas. */
+function OccupancyHeatmap({ cells }: { cells: ReportsOccupancy['heatmap'] }) {
+  const [hover, setHover] = useState<string | null>(null);
+  const hours = Array.from(new Set(cells.map((cell) => cell.hour))).sort((a, b) => a - b);
+  const byKey = new Map(cells.map((cell) => [`${cell.weekday}-${cell.hour}`, cell]));
+  const hovered = hover ? byKey.get(hover) : null;
+  const hoveredDay = hovered ? WEEKDAYS.find((day) => day.value === hovered.weekday) : null;
+  if (hours.length === 0) return <p className="text-[13px] text-p-text-muted">No hay horarios abiertos en este período.</p>;
+  return (
+    <div>
+      <div className="mb-2 h-5 text-[12px] text-p-text-secondary">
+        {hovered && hoveredDay ? (
+          <>
+            <span className="font-semibold text-p-text">
+              {hoveredDay.long.charAt(0).toUpperCase() + hoveredDay.long.slice(1)} {hovered.hour}–{hovered.hour + 1} h
+            </span>
+            {' · '}
+            {Math.round((hovered.bookedMinutes / Math.max(1, hovered.openMinutes)) * 100)}% ocupado ({formatHours(hovered.bookedMinutes)} de{' '}
+            {formatHours(hovered.openMinutes)})
+          </>
+        ) : (
+          <span className="text-p-text-muted">Tocá o pasá el mouse por un cuadrito para ver el detalle.</span>
+        )}
+      </div>
+      <div className="overflow-x-auto" onMouseLeave={() => setHover(null)}>
+        <table className="border-separate" style={{ borderSpacing: 2 }}>
+          <thead>
+            <tr>
+              <th className="w-10" />
+              {hours.map((hour) => (
+                <th key={`h-${hour}`} className="min-w-[26px] text-center text-[10px] font-normal tabular-nums text-p-text-muted">
+                  {hour}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {WEEKDAYS.map((day) => (
+              <tr key={`d-${day.value}`}>
+                <th className="pr-1 text-left text-[11px] font-medium text-p-text-secondary">{day.short}</th>
+                {hours.map((hour) => {
+                  const key = `${day.value}-${hour}`;
+                  const cell = byKey.get(key);
+                  if (!cell) return <td key={key} className="h-6 min-w-[26px]" />;
+                  const pct = cell.bookedMinutes / Math.max(1, cell.openMinutes);
+                  return (
+                    <td
+                      key={key}
+                      onMouseEnter={() => setHover(key)}
+                      onClick={() => setHover(key)}
+                      aria-label={`${day.long} ${hour} h: ${Math.round(pct * 100)}%`}
+                      style={heatStyle(pct)}
+                      className={`h-6 min-w-[26px] rounded-[4px] ${hover === key ? 'ring-2 ring-p-text' : ''}`}
+                    />
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-2 flex items-center gap-1.5 text-[11px] text-p-text-muted">
+        <span>Vacío</span>
+        {[0, 0.1, 0.3, 0.5, 0.7, 0.9].map((value) => (
+          <span key={`legend-${value}`} className="h-3 w-5 rounded-[3px]" style={heatStyle(value)} />
+        ))}
+        <span>Lleno</span>
+      </div>
+    </div>
   );
 }
 
@@ -589,18 +686,104 @@ export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Prop
         );
       })()}
 
-      {showSection(focus, 'reservas') && (
-        <AdminPanel title="Reservas por estado" description="Reservas del rango según estado operativo.">
-          <ReportsMetricGrid
-            metrics={(report?.bookings.byStatus || []).map((row) => ({
-              label: formatStatusLabel(row.status),
-              value: Number(row.count || 0),
-              format: 'number',
-              loading,
-            }))}
-          />
-        </AdminPanel>
-      )}
+      {showSection(focus, 'reservas') && (() => {
+        const occupancy = report?.occupancy || null;
+        const previousOccupancy = previousReport?.occupancy || null;
+        const pct = occupancy && occupancy.totals.openMinutes > 0 ? occupancy.totals.bookedMinutes / occupancy.totals.openMinutes : null;
+        const previousPct =
+          previousOccupancy && previousOccupancy.totals.openMinutes > 0
+            ? previousOccupancy.totals.bookedMinutes / previousOccupancy.totals.openMinutes
+            : null;
+        const statusCount = (status: string) => (report?.bookings.byStatus || []).find((row) => row.status === status)?.count || 0;
+        const pending = statusCount('PENDING');
+        const confirmed = statusCount('CONFIRMED');
+        const completed = statusCount('COMPLETED');
+        const cancelled = statusCount('CANCELLED');
+        const total = Number(report?.bookings.total || 0);
+        const busiest = (occupancy?.heatmap || [])
+          .filter((cell) => cell.openMinutes > 0 && cell.bookedMinutes > 0)
+          .sort((a, b) => b.bookedMinutes / b.openMinutes - a.bookedMinutes / a.openMinutes)[0];
+        const busiestDay = busiest ? WEEKDAYS.find((day) => day.value === busiest.weekday) : null;
+        return (
+          <>
+            <AdminPanel title="Ocupación de canchas">
+              {loading && !report ? (
+                <div className="h-24 animate-pulse rounded-xl bg-p-surface-2" />
+              ) : !occupancy ? (
+                <p className="text-[13px] text-p-text-muted">
+                  La ocupación se calcula para períodos de hasta 2 meses. Elegí Día, Semana o Mes.
+                </p>
+              ) : (
+                <div className="space-y-5">
+                  <div>
+                    <p className="text-[14px] text-p-text-secondary">
+                      <span className="text-[28px] font-bold tabular-nums text-p-text">{Math.round((pct || 0) * 100)}%</span>{' '}
+                      ocupado · {formatHours(occupancy.totals.bookedMinutes)} reservadas de {formatHours(occupancy.totals.openMinutes)} abiertas
+                    </p>
+                    {previousPct === null || loading ? null : (() => {
+                      const points = Math.round(((pct || 0) - previousPct) * 100);
+                      if (points === 0) return <p className="text-[12px] text-p-text-muted">Igual que {compareLabel}</p>;
+                      return (
+                        <p className={points > 0 ? 'text-[12px] font-semibold text-p-positive' : 'text-[12px] font-semibold text-p-warning'}>
+                          {points > 0 ? '+' : '−'}{Math.abs(points)} {Math.abs(points) === 1 ? 'punto' : 'puntos'} vs {compareLabel}
+                        </p>
+                      );
+                    })()}
+                    {busiest && busiestDay ? (
+                      <p className="text-[13px] text-p-text-muted">
+                        Lo más lleno: {busiestDay.long} de {busiest.hour} a {busiest.hour + 1} h (
+                        {Math.round((busiest.bookedMinutes / busiest.openMinutes) * 100)}%).
+                      </p>
+                    ) : null}
+                  </div>
+                  <ul className="space-y-3">
+                    {occupancy.courts.map((court) => {
+                      const courtPct = court.openMinutes > 0 ? court.bookedMinutes / court.openMinutes : 0;
+                      return (
+                        <li key={`court-${court.courtId}`}>
+                          <div className="flex items-baseline justify-between gap-3 text-[13px]">
+                            <span className="text-p-text">{court.name}</span>
+                            <span className="tabular-nums text-p-text">
+                              <span className="font-semibold">{Math.round(courtPct * 100)}%</span>
+                              <span className="text-p-text-muted"> · {formatHours(court.bookedMinutes)} de {formatHours(court.openMinutes)}</span>
+                            </span>
+                          </div>
+                          <div className="mt-1 h-2 rounded-full bg-p-surface-2">
+                            <div className="h-2 rounded-full bg-p-accent" style={{ width: `${Math.min(100, Math.round(courtPct * 100))}%` }} />
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+            </AdminPanel>
+
+            {occupancy && occupancy.heatmap.length > 0 && (
+              <AdminPanel title="Horarios más pedidos">
+                <OccupancyHeatmap cells={occupancy.heatmap} />
+              </AdminPanel>
+            )}
+
+            <AdminPanel title="Reservas del período">
+              <p className="text-[14px] text-p-text-secondary">
+                <span className="text-[22px] font-bold tabular-nums text-p-text">{formatReportsNumber(total - cancelled)}</span>{' '}
+                reservas
+                {completed > 0 ? <> · {formatReportsNumber(completed)} jugadas</> : null}
+                {confirmed > 0 ? <> · {formatReportsNumber(confirmed)} confirmadas</> : null}
+                {pending > 0 ? <> · <span className="text-p-warning">{formatReportsNumber(pending)} sin confirmar</span></> : null}
+              </p>
+              {cancelled > 0 ? (
+                <p className="mt-1 text-[13px] text-p-text-muted">
+                  Se cancelaron {formatReportsNumber(cancelled)} ({Math.round((cancelled / Math.max(1, total)) * 100)}% de las pedidas).
+                </p>
+              ) : (
+                <p className="mt-1 text-[13px] text-p-text-muted">No hubo cancelaciones.</p>
+              )}
+            </AdminPanel>
+          </>
+        );
+      })()}
 
       {showSection(focus, 'pendientes') && (
         <AdminPanel title="Cuentas pendientes de cobro" description="Snapshot operativo de deuda abierta hasta la fecha final elegida.">

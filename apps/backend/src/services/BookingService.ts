@@ -4308,6 +4308,138 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         return { date: localDate, timeZone, professorOverrideMinutes: professorOverride, activities: rules };
     }
 
+    /**
+     * Ocupación para Informes: horas reservadas sobre horas abiertas, por cancha y por día de la
+     * semana × hora. "Abierto" sale de las mismas reglas que usa la agenda para cada fecha.
+     * Rangos de más de 62 días devuelven null (son muchas fechas para recorrer).
+     */
+    async getOccupancyReport(clubId: number, startDate: string, endDate: string) {
+        const parse = (key: string) => {
+            const [y, m, d] = key.split('-').map(Number);
+            return new Date(y, m - 1, d);
+        };
+        const keyOf = (date: Date) =>
+            `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        const start = parse(startDate);
+        const end = parse(endDate);
+        const dayCount = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+        if (!Number.isFinite(dayCount) || dayCount <= 0 || dayCount > 62) return null;
+
+        const club = await prisma.club.findUnique({ where: { id: clubId }, include: { settings: true } });
+        if (!club) return null;
+        const timeZone = this.resolveClubConfig(club)?.timeZone ?? 'America/Argentina/Buenos_Aires';
+
+        const courts = await prisma.court.findMany({
+            where: { clubId },
+            select: { id: true, name: true, activityTypeId: true },
+            orderBy: { id: 'asc' }
+        });
+
+        const rangeStartUtc = TimeHelper.localSlotToUtc(startDate, '00:00', timeZone);
+        const rangeEndUtc = TimeHelper.localSlotToUtc(endDate, '23:59', timeZone);
+        const bookings = await prisma.booking.findMany({
+            where: {
+                clubId,
+                status: { not: 'CANCELLED' },
+                startDateTime: { lt: rangeEndUtc },
+                endDateTime: { gt: rangeStartUtc }
+            },
+            select: { courtId: true, startDateTime: true, endDateTime: true }
+        });
+
+        type Interval = [number, number];
+        const merge = (intervals: Interval[]): Interval[] => {
+            const sorted = intervals.filter(([a, b]) => b > a).sort((x, y) => x[0] - y[0]);
+            const out: Interval[] = [];
+            for (const [a, b] of sorted) {
+                const last = out[out.length - 1];
+                if (last && a <= last[1]) last[1] = Math.max(last[1], b);
+                else out.push([a, b]);
+            }
+            return out;
+        };
+        const overlap = (a: number, b: number, c: number, d: number) => Math.max(0, Math.min(b, d) - Math.max(a, c));
+
+        const byCourt = new Map<number, { courtId: number; name: string; openMinutes: number; bookedMinutes: number }>();
+        for (const court of courts) {
+            byCourt.set(court.id, { courtId: court.id, name: court.name, openMinutes: 0, bookedMinutes: 0 });
+        }
+        // heat[weekday][hour]
+        const heat = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => ({ open: 0, booked: 0 })));
+        // Horario abierto por cancha y día (para recortar reservas a lo abierto y no pasar de 100%).
+        const openByCourtDay = new Map<string, Interval[]>();
+
+        for (let i = 0; i < dayCount; i += 1) {
+            const day = new Date(start);
+            day.setDate(start.getDate() + i);
+            const dayKey = keyOf(day);
+            const weekday = day.getDay();
+            let rules: any;
+            try {
+                rules = await this.getBookingRulesForDate(clubId, dayKey);
+            } catch {
+                continue;
+            }
+            const openByActivity = new Map<number, Interval[]>();
+            for (const activity of rules?.activities || []) {
+                if (activity.isClosed) continue;
+                const intervals: Interval[] = (activity.slots || []).map((slot: any) => {
+                    const from = TimeHelper.timeToMinutes(String(slot.start));
+                    return [from, Math.min(24 * 60, from + Number(slot.durationMinutes || 0))] as Interval;
+                });
+                openByActivity.set(Number(activity.activityId), merge(intervals));
+            }
+            for (const court of courts) {
+                const intervals = court.activityTypeId ? openByActivity.get(Number(court.activityTypeId)) || [] : [];
+                if (intervals.length === 0) continue;
+                openByCourtDay.set(`${court.id}|${dayKey}`, intervals);
+                const entry = byCourt.get(court.id)!;
+                for (const [a, b] of intervals) {
+                    entry.openMinutes += b - a;
+                    for (let hour = Math.floor(a / 60); hour * 60 < b && hour < 24; hour += 1) {
+                        heat[weekday][hour].open += overlap(a, b, hour * 60, hour * 60 + 60);
+                    }
+                }
+            }
+        }
+
+        for (const booking of bookings) {
+            const localStart = TimeHelper.utcToLocal(new Date(booking.startDateTime), timeZone);
+            const localEnd = TimeHelper.utcToLocal(new Date(booking.endDateTime), timeZone);
+            const dayKey = keyOf(localStart);
+            const intervals = openByCourtDay.get(`${booking.courtId}|${dayKey}`);
+            if (!intervals) continue;
+            const from = localStart.getHours() * 60 + localStart.getMinutes();
+            const sameDay = keyOf(localEnd) === dayKey;
+            const to = sameDay ? localEnd.getHours() * 60 + localEnd.getMinutes() : 24 * 60;
+            const weekday = localStart.getDay();
+            const entry = byCourt.get(booking.courtId);
+            for (const [a, b] of intervals) {
+                const minutes = overlap(from, to, a, b);
+                if (minutes <= 0) continue;
+                if (entry) entry.bookedMinutes += minutes;
+                const lo = Math.max(from, a);
+                const hi = Math.min(to, b);
+                for (let hour = Math.floor(lo / 60); hour * 60 < hi && hour < 24; hour += 1) {
+                    heat[weekday][hour].booked += overlap(lo, hi, hour * 60, hour * 60 + 60);
+                }
+            }
+        }
+
+        const courtsOut = Array.from(byCourt.values()).filter((court) => court.openMinutes > 0);
+        const totals = courtsOut.reduce(
+            (acc, court) => ({ openMinutes: acc.openMinutes + court.openMinutes, bookedMinutes: acc.bookedMinutes + court.bookedMinutes }),
+            { openMinutes: 0, bookedMinutes: 0 }
+        );
+        const cells: Array<{ weekday: number; hour: number; openMinutes: number; bookedMinutes: number }> = [];
+        heat.forEach((hours, weekday) =>
+            hours.forEach((cell, hour) => {
+                if (cell.open > 0) cells.push({ weekday, hour, openMinutes: cell.open, bookedMinutes: cell.booked });
+            })
+        );
+        return { totals, courts: courtsOut, heatmap: cells };
+    }
+
     async getAvailableSlots(courtId: number, date: Date, activityId: number, durationMinutes?: number): Promise<string[]> {
         const court = await this.courtRepo.findById(courtId);
         if (!court) throw this.courtNotFound();

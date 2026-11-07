@@ -61,6 +61,8 @@ export type AdminDashboardReport = {
       createdAt: string;
     }>;
   };
+  /** Null si el rango es muy largo o no se pudo calcular. */
+  occupancy?: ReportsOccupancy | null;
   pos: {
     totals: {
       salesTotal: number;
@@ -89,6 +91,13 @@ export type AdminDashboardReport = {
       total: number;
     }>;
   };
+};
+
+export type ReportsOccupancy = {
+  totals: { openMinutes: number; bookedMinutes: number };
+  courts: Array<{ courtId: number; name: string; openMinutes: number; bookedMinutes: number }>;
+  /** weekday: 0 = domingo. Solo las horas en que el club abre. */
+  heatmap: Array<{ weekday: number; hour: number; openMinutes: number; bookedMinutes: number }>;
 };
 
 export class ReportsService {

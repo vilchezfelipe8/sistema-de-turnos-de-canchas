@@ -2048,7 +2048,15 @@ export class BookingController {
                 parsed.data.endDate
             );
 
-            return res.json(report);
+            // Ocupación de canchas: si falla, el resto del informe igual sale.
+            let occupancy = null;
+            try {
+                occupancy = await this.bookingService.getOccupancyReport(clubId, report.scope.startDate, report.scope.endDate);
+            } catch (occupancyError) {
+                occupancy = null;
+            }
+
+            return res.json({ ...report, occupancy });
         } catch (error) {
             return sendAppError(res, error, 'No se pudieron cargar los informes.');
         }
