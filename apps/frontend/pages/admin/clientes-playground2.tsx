@@ -51,6 +51,20 @@ import {
 } from '../../utils/phone';
 
 type ClientsView = 'directory' | 'debt' | 'history' | 'members' | 'incidents';
+
+/** "hoy", "ayer", "hace 3 días", "12 oct". */
+const formatClientLastBooking = (iso: string | null | undefined): string => {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startOf(new Date()) - startOf(date)) / 86_400_000);
+  if (days === 0) return 'hoy';
+  if (days === 1) return 'ayer';
+  if (days === -1) return 'mañana';
+  if (days > 1 && days < 7) return `hace ${days} días`;
+  return date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace(/\./g, '');
+};
 type ClientActionSidebarView = 'none' | 'client_create' | 'client_edit' | 'client_profile' | 'client_delete';
 type ClientSearchRow = {
   id: string;
@@ -265,6 +279,8 @@ export default function AdminClientesPlayground2Page() {
   const { authChecked, user } = useValidateAuth({ requireAdmin: true });
 
   const [activeView, setActiveView] = useState<ClientsView>('directory');
+  /** Lista de clientes: Todos, los que deben o los socios. */
+  const [clientsListFilter, setClientsListFilter] = useState<'ALL' | 'DEBT' | 'MEMBERS'>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
 
   const [clients, setClients] = useState<any[]>([]);
@@ -618,6 +634,12 @@ export default function AdminClientesPlayground2Page() {
     });
   }, [clients, searchTerm]);
 
+  const listedClients = useMemo(() => {
+    if (clientsListFilter === 'DEBT') return filteredClients.filter((client) => Number(client?.totalDebt || 0) > EPSILON);
+    if (clientsListFilter === 'MEMBERS') return filteredClients.filter((client) => Boolean(client?.member));
+    return filteredClients;
+  }, [clientsListFilter, filteredClients]);
+
   const debtFilteredClients = useMemo(() => {
     const q = debtSearchTerm.trim().toLowerCase();
     if (!q) return clientsWithOpenDebt;
@@ -684,7 +706,6 @@ export default function AdminClientesPlayground2Page() {
 
   const openClientProfile = (client: any) => {
     setSelectedClientId(String(client?.id || ''));
-    setSidebarView('client_profile');
   };
 
   const openDeleteClient = (client: any) => {
@@ -994,7 +1015,7 @@ export default function AdminClientesPlayground2Page() {
         setSelectedClientDiscountAssignments([]);
         return;
       }
-      if (activeView !== 'history') return;
+      if (activeView !== 'directory') return;
       const slug = resolveClubSlug();
       if (!slug) return;
       try {
@@ -1060,74 +1081,15 @@ export default function AdminClientesPlayground2Page() {
                 value={activeView}
                 onChange={(nextView) => setActiveView(nextView as ClientsView)}
                 options={[
-                  { value: 'directory', label: 'Directorio' },
+                  { value: 'directory', label: 'Clientes' },
                   { value: 'debt', label: 'Cuentas y deuda' },
-                  { value: 'history', label: 'Perfil' },
                   { value: 'members', label: 'Padrón' },
                   { value: 'incidents', label: 'Incidentes' },
                 ]}
                 className="w-fit"
               />
 
-              <div className="grid grid-cols-2 gap-3">
-                <article className="rounded-xl border border-p-border bg-p-surface p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-p-text-muted">Total clientes</p>
-                  <p className="mt-2 text-lg font-semibold text-p-text">{totalClients}</p>
-                </article>
-                <article className="rounded-xl border border-p-border bg-p-surface p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-p-text-muted">Deuda total</p>
-                  <p className={`mt-2 text-lg font-semibold ${totalDebt > 0 ? 'text-p-error' : 'text-p-positive'}`}>{formatMoney(totalDebt)}</p>
-                </article>
-              </div>
-
               <div className="min-h-0 flex-1 overflow-hidden">
-                {activeView === 'directory' && (
-                  <div className="flex h-full flex-col">
-                    <article className="flex min-h-0 flex-1 flex-col rounded-xl border border-p-border bg-p-surface">
-                      <div className="border-b border-p-border pl-4 pr-2 py-3">
-                        <div className="flex flex-wrap items-start justify-between gap-2">
-                          <div>
-                            <h2 className="text-[13px] font-semibold text-p-text">Directorio de clientes</h2>
-                            <p className="mt-1 text-[12px] text-p-text-muted">
-                              Listado operativo con acceso rápido a perfil, edición y baja.
-                            </p>
-                          </div>
-                          <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-1 sm:flex-nowrap sm:justify-end">
-                            <label className="relative w-full sm:w-[300px] sm:flex-none">
-                              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                              <input
-                                type="text"
-                                value={searchTerm}
-                                onChange={(event) => setSearchTerm(event.target.value)}
-                                placeholder="Buscar por nombre, DNI, email o teléfono"
-                                className="h-8 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[12px] outline-none focus:border-p-accent"
-                              />
-                            </label>
-                            <button
-                              type="button"
-                              onClick={openCreateClient}
-                              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 shadow-p-md transition hover:bg-ink-800"
-                            >
-                              <Plus size={14} strokeWidth={2.5} />
-                              Nuevo cliente
-                            </button>
-                          </AdminFilterToolbar>
-                        </div>
-                      </div>
-
-                      <ClientsTable
-                        clients={filteredClients}
-                        loading={loading}
-                        onRowClick={openClientProfile}
-                        onEdit={openEditClient}
-                        onDelete={openDeleteClient}
-                        selectedId={selectedClientId}
-                        className="rounded-b-xl"
-                      />
-                    </article>
-                  </div>
-                )}
-
                 {activeView === 'debt' && (
                   <div className="grid h-full grid-cols-1 gap-4 xl:grid-cols-[360px_1fr]">
                     {/* Left: debtor list with search + count badge */}
@@ -1265,50 +1227,106 @@ export default function AdminClientesPlayground2Page() {
                   </div>
                 )}
 
-                {activeView === 'history' && (
-                  <div className="grid h-full grid-cols-1 gap-4 xl:grid-cols-[320px_1fr]">
+                {activeView === 'directory' && (
+                  <div className="grid h-full grid-cols-1 gap-4 lg:grid-cols-[400px_minmax(0,1fr)]">
                     {/* Left: client list with search + debt badge */}
                     <article className={`flex min-h-0 flex-col rounded-xl border border-p-border bg-p-surface ${selectedClient ? 'max-lg:hidden' : ''}`}>
-                      <div className="p-4 pb-3">
-                        <h2 className="text-[13px] font-semibold text-p-text">Clientes</h2>
-                        <div className="relative mt-3">
-                          <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
+                      <div className="space-y-3 p-4 pb-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[14px] text-p-text-secondary">
+                            <span className="font-semibold text-p-text">
+                              {totalClients === 1 ? '1 cliente' : `${totalClients} clientes`}
+                            </span>
+                            {totalDebt > EPSILON && (
+                              <>
+                                {' · te deben '}
+                                <span className="font-semibold tabular-nums text-p-warning">{formatMoney(totalDebt)}</span>
+                              </>
+                            )}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={openCreateClient}
+                            className="inline-flex h-9 flex-none items-center gap-1.5 rounded-xl bg-ink-900 px-3 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800"
+                          >
+                            <Plus size={15} strokeWidth={2.5} />
+                            Nuevo cliente
+                          </button>
+                        </div>
+                        <div className="relative">
+                          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
                           <input
                             type="text"
                             value={searchTerm}
                             onChange={(event) => setSearchTerm(event.target.value)}
-                            placeholder="Buscar cliente..."
-                            className="h-8 w-full rounded-xl border border-p-border bg-p-surface-2 pl-9 pr-3 text-[12px] outline-none focus:border-p-accent"
+                            placeholder="Buscar por nombre, teléfono o DNI"
+                            className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
                           />
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {([
+                            { id: 'ALL', label: 'Todos' },
+                            { id: 'DEBT', label: clientsWithOpenDebt.length > 0 ? `Deben (${clientsWithOpenDebt.length})` : 'Deben' },
+                            { id: 'MEMBERS', label: 'Socios' },
+                          ] as Array<{ id: 'ALL' | 'DEBT' | 'MEMBERS'; label: string }>).map((option) => (
+                            <button
+                              key={`clients-filter-${option.id}`}
+                              type="button"
+                              aria-pressed={clientsListFilter === option.id}
+                              onClick={() => setClientsListFilter(option.id)}
+                              className={`h-8 rounded-lg px-3 text-[13px] font-semibold transition ${
+                                clientsListFilter === option.id ? 'bg-ink-900 text-ink-50' : 'text-p-text-secondary hover:bg-p-surface-2'
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
                         </div>
                       </div>
                       <div className="min-h-0 flex-1 overflow-auto border-t border-p-border">
                         {loading ? (
                           <div className="p-6 text-center text-[13px] text-p-text-muted">Cargando...</div>
-                        ) : filteredClients.length === 0 ? (
-                          <div className="p-6 text-center text-[13px] text-p-text-muted">Sin clientes.</div>
+                        ) : listedClients.length === 0 ? (
+                          <div className="p-6 text-center text-[13px] text-p-text-muted">
+                            {searchTerm.trim()
+                              ? 'Nadie coincide con esa búsqueda.'
+                              : clientsListFilter === 'DEBT'
+                                ? 'Nadie debe nada.'
+                                : clientsListFilter === 'MEMBERS'
+                                  ? 'No hay socios cargados.'
+                                  : 'Todavía no hay clientes.'}
+                          </div>
                         ) : (
                           <ul className="divide-y divide-p-border">
-                            {filteredClients.map((client) => {
-                              const hasDebt = Number(client?.totalDebt || 0) > EPSILON;
+                            {listedClients.map((client) => {
+                              const debt = Number(client?.totalDebt || 0);
+                              const isSelected = String(selectedClientId) === String(client.id);
+                              const lastBooking = formatClientLastBooking(client?.lastBookingAt);
+                              const contact = String(client.phone || client.email || '').trim();
                               return (
                                 <li key={String(client.id)}>
                                   <button
                                     type="button"
-                                    onClick={() => setSelectedClientId(String(client.id))}
-                                    className={`w-full min-h-[46px] px-3 py-3 text-left transition ${
-                                      String(selectedClientId) === String(client.id) ? 'bg-p-positive-bg' : 'hover:bg-p-surface-2'
+                                    onClick={() => openClientProfile(client)}
+                                    aria-pressed={isSelected}
+                                    className={`flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition ${
+                                      isSelected ? 'bg-p-surface-2' : 'hover:bg-p-surface-2'
                                     }`}
                                   >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <p className="truncate text-[13px] font-semibold text-p-text">{getClientName(client)}</p>
-                                      {hasDebt && (
-                                        <span className="flex-none rounded-full border border-p-error bg-p-error-bg px-1.5 py-0.5 text-[10px] font-bold text-p-error">
-                                          Deuda
-                                        </span>
-                                      )}
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <p className="truncate text-[14px] font-semibold text-p-text">{getClientName(client)}</p>
+                                        <MemberBadge member={client.member} />
+                                      </div>
+                                      <p className="truncate text-[12px] text-p-text-muted">
+                                        {[contact, lastBooking ? `última reserva ${lastBooking}` : 'sin reservas'].filter(Boolean).join(' · ')}
+                                      </p>
                                     </div>
-                                    <p className="truncate text-[12px] text-p-text-muted">{String(client.phone || client.email || '-')}</p>
+                                    {debt > EPSILON && (
+                                      <span className="flex-none text-[13px] font-bold tabular-nums text-p-warning">
+                                        Debe {formatMoney(debt)}
+                                      </span>
+                                    )}
                                   </button>
                                 </li>
                               );
@@ -1334,7 +1352,7 @@ export default function AdminClientesPlayground2Page() {
                       )}
                       {!selectedClient ? (
                         <div className="p-8 text-center text-[13px] text-p-text-muted">
-                          Selecciona un cliente para ver su perfil.
+                          Elegí un cliente para ver su ficha.
                         </div>
                       ) : (
                         <>
