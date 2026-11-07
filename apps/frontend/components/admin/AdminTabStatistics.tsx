@@ -786,31 +786,75 @@ export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Prop
       })()}
 
       {showSection(focus, 'pendientes') && (
-        <AdminPanel title="Cuentas pendientes de cobro" description="Snapshot operativo de deuda abierta hasta la fecha final elegida.">
-          <div className="mb-3 flex flex-wrap items-center gap-3 text-[12px] text-p-text-muted">
-            <span>Cuentas abiertas: <strong className="text-p-text">{formatReportsNumber(report?.pendingAccounts.openCount || 0)}</strong></span>
-            <span>Total pendiente: <strong className="text-p-text">{formatReportsMoney(report?.pendingAccounts.totalPending || 0)}</strong></span>
-          </div>
-          <AdminDataTable
-            columns={[
-              { key: 'label', label: 'Cuenta' },
-              { key: 'clientName', label: 'Cliente / titular' },
-              { key: 'sourceLabel', label: 'Origen' },
-              { key: 'ageDays', label: 'Antigüedad', align: 'right', render: (row) => `${formatReportsNumber(row.ageDays)} d` },
-              { key: 'pending', label: 'Pendiente', align: 'right', render: (row) => <span className="font-semibold text-p-text">{formatReportsMoney(row.pending)}</span> },
-            ]}
-            data={report?.pendingAccounts.accounts || []}
-            rowKey={(row) => row.id}
-            loading={loading}
-            empty={{
-              title: 'No hay cuentas pendientes',
-              description: 'El club no tiene saldos abiertos para este corte.',
-            }}
+        <AdminPanel
+          title="Por cobrar"
+          actions={(
+            <button
+              type="button"
+              onClick={() => void router.push('/admin/caja?tab=accounts')}
+              className="text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
+            >
+              Cobrar en Caja →
+            </button>
+          )}
+        >
+          <p className="mb-3 text-[14px] text-p-text-secondary">
+            Te deben{' '}
+            <span className="font-bold tabular-nums text-p-text">{formatReportsMoney(report?.pendingAccounts.totalPending || 0)}</span> en{' '}
+            {formatReportsNumber(report?.pendingAccounts.openCount || 0)}{' '}
+            {Number(report?.pendingAccounts.openCount || 0) === 1 ? 'cuenta' : 'cuentas'}.
+          </p>
+          {loading && !report ? (
+            <div className="h-24 animate-pulse rounded-xl bg-p-surface-2" />
+          ) : (report?.pendingAccounts.accounts || []).length === 0 ? (
+            <p className="text-[13px] text-p-text-muted">Nadie debe nada.</p>
+          ) : (
+            <ul className="divide-y divide-p-border">
+              {(report?.pendingAccounts.accounts || []).map((account) => {
+                const when = new Date(account.when || account.createdAt);
+                const whenLabel = Number.isNaN(when.getTime())
+                  ? ''
+                  : when
+                      .toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
+                      .replace(/,/g, '')
+                      .replace(/\./g, '');
+                const timeLabel =
+                  account.courtName && !Number.isNaN(when.getTime())
+                    ? when.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+                    : '';
+                return (
+                  <li key={account.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 py-2.5 sm:grid-cols-[110px_minmax(0,1fr)_auto]">
+                    <p className="col-span-2 text-[12px] text-p-text-muted sm:col-span-1">
+                      {whenLabel}
+                      {timeLabel ? ` · ${timeLabel}` : ''}
+                    </p>
+                    <div className="min-w-0">
+                      <p className="truncate text-[14px] font-medium text-p-text">{account.clientName}</p>
+                      <p className="truncate text-[12px] text-p-text-muted">
+                        {account.courtName ? `Reserva · ${account.courtName}` : account.sourceLabel}
+                      </p>
+                    </div>
+                    <p className="text-[14px] font-semibold tabular-nums text-p-warning">{formatReportsMoney(account.pending)}</p>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </AdminPanel>
+      )}
+
+      {showSection(focus, 'pos') && report && !loading && Number(report.pos.totals.salesTotal || 0) <= 0 && Number(report.pos.openAccountsCount || 0) === 0 && (
+        <AdminPanel>
+          <ReportsEmptyState
+            title="No hubo ventas de mostrador en este período"
+            description="Cuando vendas productos o servicios desde Caja, acá vas a ver qué se vende más y cómo te pagan."
+            actionLabel="Ir a Caja"
+            onAction={() => void router.push('/admin/caja')}
           />
         </AdminPanel>
       )}
 
-      {showSection(focus, 'pos') && (
+      {showSection(focus, 'pos') && !(report && !loading && Number(report.pos.totals.salesTotal || 0) <= 0 && Number(report.pos.openAccountsCount || 0) === 0) && (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <AdminPanel title="Ventas de mostrador" description="Productos y servicios vendidos en el período.">
             <ReportsMetricGrid

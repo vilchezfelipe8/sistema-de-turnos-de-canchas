@@ -249,8 +249,28 @@ export class ReportsService {
       bookingCounts[status] = Number(bookingCounts[status] || 0) + 1;
     }
 
+    // Cuentas de reservas: el cliente y la fecha salen de la reserva (la cuenta no siempre los tiene).
+    const pendingBookingIds = pendingAccountsRaw
+      .filter((account) => account.sourceType === 'BOOKING')
+      .filter((account) => Number(account.totalAmount || 0) - Number(account.paidAmount || 0) > 0)
+      .map((account) => Number(account.sourceId))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    const pendingBookings = pendingBookingIds.length
+      ? await this.prismaClient.booking.findMany({
+          where: { clubId, id: { in: pendingBookingIds } },
+          select: {
+            id: true,
+            startDateTime: true,
+            court: { select: { name: true } },
+            client: { select: { name: true } },
+          },
+        })
+      : [];
+    const bookingById = new Map(pendingBookings.map((booking) => [booking.id, booking]));
+
     const pendingAccounts = pendingAccountsRaw
       .map((account) => {
+        const booking = account.sourceType === 'BOOKING' ? bookingById.get(Number(account.sourceId)) : undefined;
         const total = this.roundMoney(Number(account.totalAmount || 0));
         const paid = this.roundMoney(Number(account.paidAmount || 0));
         const pending = this.roundMoney(Math.max(0, total - paid));
@@ -267,7 +287,10 @@ export class ReportsService {
           sourceType: account.sourceType,
           sourceLabel: ACCOUNT_SOURCE_LABELS[account.sourceType as SourceType] || account.sourceType,
           status: isVoided ? 'VOIDED' : account.status,
-          clientName: account.client?.name || 'Consumidor final',
+          clientName: account.client?.name || booking?.client?.name || 'Sin nombre',
+          courtName: booking?.court?.name ?? null,
+          /** Cuándo: el turno si es una reserva; si no, cuándo se abrió la cuenta. */
+          when: booking?.startDateTime ?? account.createdAt,
           total,
           paid,
           pending,
@@ -276,7 +299,7 @@ export class ReportsService {
         };
       })
       .filter((account) => account.pending > 0 && account.status !== 'VOIDED')
-      .sort((a, b) => b.ageDays - a.ageDays || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      .sort((a, b) => new Date(a.when).getTime() - new Date(b.when).getTime());
 
     const pendingTotal = pendingAccounts.reduce((sum, account) => this.roundMoney(sum + account.pending), 0);
     for (const refund of refundsExecuted) {

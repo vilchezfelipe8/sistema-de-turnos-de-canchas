@@ -58,6 +58,10 @@ export type AdminDashboardReport = {
       paid: number;
       pending: number;
       ageDays: number;
+      /** Cancha de la reserva, si es una. */
+      courtName?: string | null;
+      /** Turno de la reserva o apertura de la cuenta. */
+      when?: string;
       createdAt: string;
     }>;
   };
