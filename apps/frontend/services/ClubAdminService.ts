@@ -195,6 +195,8 @@ export type AdminClassSession = {
   } | null;
   createdAt: string;
   updatedAt: string;
+  /** Alumnos anotados; viene solo en el listado. */
+  enrolledCount?: number;
 };
 
 export type AdminClassEnrollmentStatus = 'ENROLLED' | 'WAITLISTED' | 'CANCELLED';

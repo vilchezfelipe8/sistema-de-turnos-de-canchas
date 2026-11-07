@@ -53,6 +53,8 @@ type ClassSessionSummary = {
   createdByUser: { id: number; email: string; firstName: string | null; lastName: string | null } | null;
   createdAt: string;
   updatedAt: string;
+  /** Alumnos anotados (sin contar en espera ni cancelados). Solo viene en el listado. */
+  enrolledCount?: number;
 };
 
 export class ClassSessionAdminService {
@@ -108,6 +110,9 @@ export class ClassSessionAdminService {
         : null,
       createdAt: new Date(row.createdAt).toISOString(),
       updatedAt: new Date(row.updatedAt).toISOString(),
+      ...(row._count && Number.isFinite(Number(row._count.enrollments))
+        ? { enrolledCount: Number(row._count.enrollments) }
+        : {}),
     };
   }
 
@@ -232,6 +237,7 @@ export class ClassSessionAdminService {
         court: { select: { id: true, name: true } },
         activityType: { select: { id: true, name: true } },
         createdByUser: { select: { id: true, email: true, firstName: true, lastName: true } },
+        _count: { select: { enrollments: { where: { enrollmentStatus: 'ENROLLED' } } } },
       },
       orderBy: [{ startsAt: 'asc' }, { createdAt: 'desc' }],
     });
