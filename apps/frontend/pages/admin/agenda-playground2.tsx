@@ -7346,11 +7346,18 @@ export default function AdminAgendaPlaygroundPage() {
                 }
               >
                 <div
-                  className="w-full max-w-[640px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
+                  className="w-full max-w-[460px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
-                  <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
-                    <h3 className="text-[23px] font-bold tracking-[-0.01em] text-p-text">Cancelar serie</h3>
+                  <div className="flex items-start justify-between gap-3 px-5 pt-5">
+                    <div className="min-w-0">
+                      <h3 className="text-[20px] font-bold tracking-[-0.01em] text-p-text">Cancelar reserva fija</h3>
+                      <p className="mt-1 text-[14px] text-p-text-secondary">
+                        <span className="font-semibold text-p-text">{editingBooking?.title || 'Reserva'}</span>
+                        {' · '}
+                        {simplifiedEditDateLabel} {slotToTime(selectedStartSlot)}–{slotToTime(selectedEndSlot)} · {selectedCourt?.name || 'Cancha'}
+                      </p>
+                    </div>
                     <button
                       type="button"
                       onClick={() => {
@@ -7359,178 +7366,151 @@ export default function AdminAgendaPlaygroundPage() {
                         setSeriesDeletePreviewSummary(null);
                       }}
                       disabled={isDeletingBooking}
-                      className="h-8 w-8 rounded-full border border-p-border grid place-items-center text-p-text-muted hover:bg-p-surface-2 disabled:opacity-50"
+                      aria-label="Cerrar"
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-p-border text-p-text-muted hover:bg-p-surface-2 disabled:opacity-50"
                     >
                       <X size={15} />
                     </button>
                   </div>
-                  <div className="px-5 py-5 space-y-4">
-                    {!seriesDeletePreviewScope ? (
-                      <>
-                        <p className="text-[13px] text-p-text-secondary">
-                          Elegí el alcance para previsualizar cuántas ocurrencias se cancelarán.
-                        </p>
-                        <div className="space-y-2">
+                  <div className="space-y-3 px-5 py-4">
+                    {/* Elegir alcance y ver el resultado en el mismo paso. */}
+                    <div className="space-y-1.5">
+                      {([
+                        { scope: 'THIS_OCCURRENCE', label: `Solo este turno (${simplifiedEditDateLabel})` },
+                        { scope: 'NEXT_OCCURRENCES', label: 'Este y los siguientes' },
+                        { scope: 'ALL_OCCURRENCES', label: 'Toda la serie (los que faltan)' },
+                      ] as Array<{ scope: EditSeriesScope; label: string }>).map((option) => {
+                        const active = seriesDeletePreviewScope === option.scope;
+                        return (
                           <button
+                            key={`series-cancel-${option.scope}`}
                             type="button"
-                            onClick={() => void previewSeriesDeleteScope('THIS_OCCURRENCE')}
+                            aria-pressed={active}
+                            onClick={() => void previewSeriesDeleteScope(option.scope)}
                             disabled={isDeletingBooking || seriesDeletePreviewLoading}
-                            className="w-full rounded-xl border border-p-border bg-p-surface px-4 py-3 text-left hover:bg-p-surface-2 disabled:opacity-50"
+                            className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left text-[14px] transition disabled:opacity-60 ${
+                              active
+                                ? 'border-ink-900 bg-p-surface-2 font-semibold text-p-text'
+                                : 'border-p-border bg-p-surface text-p-text hover:bg-p-surface-2'
+                            }`}
                           >
-                            <p className="text-[14px] font-semibold text-p-text">Cancelar solo esta ocurrencia</p>
-                            <p className="mt-1 text-[12px] text-p-text-muted">Solo cancela este turno puntual.</p>
+                            <span
+                              className={`grid h-4 w-4 shrink-0 place-items-center rounded-full border ${
+                                active ? 'border-ink-900' : 'border-p-border-strong'
+                              }`}
+                            >
+                              {active && <span className="h-2 w-2 rounded-full bg-ink-900" />}
+                            </span>
+                            {option.label}
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => void previewSeriesDeleteScope('NEXT_OCCURRENCES')}
-                            disabled={isDeletingBooking || seriesDeletePreviewLoading}
-                            className="w-full rounded-xl border border-p-border bg-p-surface px-4 py-3 text-left hover:bg-p-surface-2 disabled:opacity-50"
-                          >
-                            <p className="text-[14px] font-semibold text-p-text">Cancelar esta y las siguientes</p>
-                            <p className="mt-1 text-[12px] text-p-text-muted">Aplica desde este turno en adelante dentro de la serie.</p>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void previewSeriesDeleteScope('ALL_OCCURRENCES')}
-                            disabled={isDeletingBooking || seriesDeletePreviewLoading}
-                            className="w-full rounded-xl border border-p-border bg-p-surface px-4 py-3 text-left hover:bg-p-surface-2 disabled:opacity-50"
-                          >
-                            <p className="text-[14px] font-semibold text-p-text">Cancelar toda la serie futura</p>
-                            <p className="mt-1 text-[12px] text-p-text-muted">Cancela todas las ocurrencias pendientes de la serie.</p>
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-[13px] text-p-text-secondary">
-                          Previsualización: {
-                            seriesDeletePreviewScope === 'THIS_OCCURRENCE'
-                              ? 'solo esta ocurrencia'
-                              : seriesDeletePreviewScope === 'NEXT_OCCURRENCES'
-                                ? 'esta y las siguientes'
-                                : 'toda la serie'
-                          }.
-                        </p>
-                        {seriesDeletePreviewLoading && !seriesDeletePreviewSummary && (
-                          <div className="rounded-xl border border-p-accent bg-p-positive-bg px-4 py-5">
-                            <div className="flex items-center justify-center">
-                              <span className="h-4 w-4 rounded-full border-2 border-p-accent border-t-p-accent animate-spin" />
-                            </div>
-                          </div>
-                        )}
-                        {seriesDeletePreviewSummary && (
-                          <div className="rounded-xl border border-p-accent bg-p-positive-bg px-3 py-2 text-[13px] text-p-accent">
-                            <p>Se cancelarán <strong>{seriesDeletePreviewSummary.applicableCount}</strong> ocurrencias.</p>
-                            <p>Se omitirán <strong>{seriesDeletePreviewSummary.skippedCount}</strong> ocurrencias.</p>
-                          </div>
-                        )}
-                        {seriesDeleteHasPaidItems && (
-                          <div className={`rounded-xl border px-3 py-2 text-[12px] font-semibold ${
-                            seriesDeleteBlocksMassCancel
-                              ? 'border-p-error bg-p-error-bg text-p-error'
-                              : 'border-p-warning bg-p-warning-bg text-p-warning'
-                          }`}>
-                            {seriesDeleteBlocksMassCancel ? (
-                              <>
-                                <p>
-                                  Hay {seriesDeletePaidItems.length} ocurrencia(s) con pagos por {formatMoney(Number(seriesDeletePreviewSummary?.paidAmountTotal || 0))}.
-                                </p>
-                                <p className="mt-1 font-medium">
-                                  Para evitar cancelar cobros sin devolución, cancelá esas ocurrencias individualmente.
-                                </p>
-                              </>
-                            ) : (
-                              <p>
-                                Esta ocurrencia tiene pagos por {formatMoney(Number(seriesDeletePaidItems[0]?.paidAmount || 0))}. Vas a continuar con el flujo de devolución puntual.
+                        );
+                      })}
+                    </div>
+
+                    {seriesDeletePreviewScope && (
+                      <div className="text-[13px] text-p-text-secondary">
+                        {seriesDeletePreviewLoading && !seriesDeletePreviewSummary ? (
+                          <p className="text-p-text-muted">Calculando...</p>
+                        ) : seriesDeletePreviewSummary ? (
+                          <>
+                            <p>
+                              {(() => {
+                                const items = seriesDeletePreviewSummary.applicableItems;
+                                const count = seriesDeletePreviewSummary.applicableCount;
+                                if (count === 0) return 'No hay turnos para cancelar con esta opción.';
+                                const range =
+                                  items.length > 1
+                                    ? `: ${items[0].requestedDateLabel} → ${items[items.length - 1].requestedDateLabel}`
+                                    : items.length === 1
+                                      ? `: ${items[0].requestedDateLabel}`
+                                      : '';
+                                return `Se ${count === 1 ? 'cancela 1 turno' : `cancelan ${count} turnos`}${range}.`;
+                              })()}
+                            </p>
+                            {seriesDeletePreviewSummary.skippedCount > 0 && (
+                              <p className="mt-0.5 text-[12px] text-p-text-muted">
+                                {seriesDeletePreviewSummary.skippedCount} no se tocan (ya pasaron o están canceladas).
                               </p>
                             )}
-                          </div>
-                        )}
-                        {Boolean(seriesDeletePreviewSummary?.applicableItems.length) && (
-                          <div className="rounded-xl border border-p-border bg-p-surface">
-                            <div className="border-b border-p-border px-3 py-2 text-[12px] font-semibold text-p-text-secondary">
-                              Ocurrencias a cancelar ({seriesDeletePreviewSummary.applicableItems.length})
-                            </div>
-                            <div className="max-h-44 overflow-y-auto divide-y divide-p-border">
-                              {seriesDeletePreviewSummary.applicableItems.map((item, index) => (
-                                <div key={`delete-series-applicable-${index}`} className="px-3 py-2 text-[12px] text-p-text-secondary">
-                                  <p className="font-semibold text-p-text">{item.courtName}</p>
-                                  <p>{item.requestedDateLabel} · {item.requestedTimeLabel}</p>
-                                  {item.activityName && <p>{item.activityName}</p>}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        {Boolean(seriesDeletePreviewSummary?.overlapItems.length) && (
-                          <div className="rounded-xl border border-p-border bg-p-surface-2">
-                            <div className="border-b border-p-border px-3 py-2 text-[12px] font-semibold text-p-text-secondary">
-                              Ocurrencias omitidas ({seriesDeletePreviewSummary.overlapItems.length})
-                            </div>
-                            <div className="max-h-44 overflow-y-auto divide-y divide-p-border">
-                              {seriesDeletePreviewSummary.overlapItems.map((item, index) => (
-                                <div key={`delete-series-skip-${index}`} className="px-3 py-2 text-[12px] text-p-text-secondary">
-                                  <p className="font-semibold text-p-text">{item.courtName}</p>
-                                  <p>{item.requestedDateLabel} · {item.requestedTimeLabel}</p>
-                                  {item.activityName && <p>{item.activityName}</p>}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSeriesDeletePreviewScope(null);
-                              setSeriesDeletePreviewSummary(null);
-                            }}
-                            disabled={isDeletingBooking}
-                            className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-sm font-semibold text-p-text-secondary hover:bg-p-surface-2"
-                          >
-                            Cambiar alcance
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const scope = seriesDeletePreviewSummary?.scope || seriesDeletePreviewScope;
-                              if (seriesDeleteBlocksMassCancel) return;
-                              if (seriesDeleteUsesIndividualRefund) {
-                                const paidAmount = Number(seriesDeletePaidItems[0]?.paidAmount || cancelBookingPaidAmount || 0);
-                                const bookingId = Number(editingBookingId || 0);
-                                void (async () => {
-                                  if (Number.isFinite(bookingId) && bookingId > 0) {
-                                    try {
-                                      await refreshBookingFinancial(bookingId);
-                                    } catch (error: any) {
-                                      applyBookingError(error, 'No se pudo cargar el impacto financiero de la reserva.');
-                                      return;
-                                    }
-                                  }
-                                  setCancelRefundAmountInput(paidAmount > 0.009 ? paidAmount.toFixed(2) : '');
-                                  setCancelRefundReasonType(paidAmount > 0.009 ? 'FULL' : 'OTHER');
-                                  setCancelRefundExecutionNotes('');
-                                  setCancelRefundExecuteNow(true);
-                                  setCancelBookingFlowError('');
-                                  setDeleteBookingFinalConfirmOpen(false);
-                                  setDeleteSeriesScopeModalOpen(false);
-                                  setSeriesDeletePreviewScope(null);
-                                  setSeriesDeletePreviewSummary(null);
-                                  setDeleteBookingConfirmOpen(true);
-                                })();
+                          </>
+                        ) : null}
+                      </div>
+                    )}
+
+                    {seriesDeleteHasPaidItems && (
+                      <p
+                        className={`rounded-lg px-3 py-2 text-[12px] font-semibold ${
+                          seriesDeleteBlocksMassCancel ? 'bg-p-error-bg text-p-error' : 'bg-p-warning-bg text-p-warning'
+                        }`}
+                      >
+                        {seriesDeleteBlocksMassCancel
+                          ? `${seriesDeletePaidItems.length === 1 ? 'Un turno tiene' : `${seriesDeletePaidItems.length} turnos tienen`} pagos (${formatMoney(Number(seriesDeletePreviewSummary?.paidAmountTotal || 0))}). Cancelalos de a uno para elegir cuánto devolver.`
+                          : `Este turno tiene ${formatMoney(Number(seriesDeletePaidItems[0]?.paidAmount || 0))} cobrado: en el siguiente paso elegís cuánto devolver.`}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-end gap-2 border-t border-p-border px-5 py-4">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeleteSeriesScopeModalOpen(false);
+                        setSeriesDeletePreviewScope(null);
+                        setSeriesDeletePreviewSummary(null);
+                      }}
+                      disabled={isDeletingBooking}
+                      className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-sm font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-50"
+                    >
+                      Volver
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const scope = seriesDeletePreviewSummary?.scope || seriesDeletePreviewScope;
+                        if (!scope || seriesDeleteBlocksMassCancel) return;
+                        if (seriesDeleteUsesIndividualRefund) {
+                          const paidAmount = Number(seriesDeletePaidItems[0]?.paidAmount || cancelBookingPaidAmount || 0);
+                          const bookingId = Number(editingBookingId || 0);
+                          void (async () => {
+                            if (Number.isFinite(bookingId) && bookingId > 0) {
+                              try {
+                                await refreshBookingFinancial(bookingId);
+                              } catch (error: any) {
+                                applyBookingError(error, 'No se pudo cargar el impacto financiero de la reserva.');
                                 return;
                               }
-                              setDeleteSeriesScopeModalOpen(false);
-                              void handleDeleteBooking(scope);
-                            }}
-                            disabled={isDeletingBooking || !seriesDeletePreviewSummary || seriesDeleteBlocksMassCancel}
-                            className="h-10 rounded-xl bg-p-error px-5 text-ink-50 text-sm font-bold hover:bg-p-error disabled:opacity-50"
-                          >
-                            {seriesDeleteUsesIndividualRefund ? 'Continuar devolución' : 'Confirmar cancelación'}
-                          </button>
-                        </div>
-                      </>
-                    )}
+                            }
+                            setCancelRefundAmountInput(paidAmount > 0.009 ? paidAmount.toFixed(2) : '');
+                            setCancelRefundReasonType(paidAmount > 0.009 ? 'FULL' : 'OTHER');
+                            setCancelRefundExecutionNotes('');
+                            setCancelRefundExecuteNow(true);
+                            setCancelBookingFlowError('');
+                            setDeleteBookingFinalConfirmOpen(false);
+                            setDeleteSeriesScopeModalOpen(false);
+                            setSeriesDeletePreviewScope(null);
+                            setSeriesDeletePreviewSummary(null);
+                            setDeleteBookingConfirmOpen(true);
+                          })();
+                          return;
+                        }
+                        setDeleteSeriesScopeModalOpen(false);
+                        void handleDeleteBooking(scope);
+                      }}
+                      disabled={
+                        isDeletingBooking ||
+                        !seriesDeletePreviewSummary ||
+                        seriesDeleteBlocksMassCancel ||
+                        (seriesDeletePreviewSummary?.applicableCount ?? 0) === 0
+                      }
+                      className="h-10 rounded-xl bg-p-error px-5 text-sm font-bold text-ink-50 hover:bg-p-error disabled:opacity-50"
+                    >
+                      {seriesDeleteUsesIndividualRefund
+                        ? 'Seguir con la devolución'
+                        : !seriesDeletePreviewSummary
+                          ? 'Elegí qué cancelar'
+                          : seriesDeletePreviewSummary.applicableCount === 1
+                            ? 'Cancelar 1 turno'
+                            : `Cancelar ${seriesDeletePreviewSummary.applicableCount} turnos`}
+                    </button>
                   </div>
                 </div>
               </div>
