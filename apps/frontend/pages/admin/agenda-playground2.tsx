@@ -138,7 +138,7 @@ import AccountDrawer, {
 } from '../../modules/cuentas/components/AccountDrawer';
 import { listAccounts } from '../../services/AccountService';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
-import { reportUiError } from '../../utils/uiError';
+import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import { ADMIN_Z_INDEX_CLASS } from '../../utils/adminZIndex';
 import { AdminFeedbackBanner } from '../../components/admin/ui/AdminFeedback';
 import { showAdminToast } from '../../utils/adminToast';
@@ -2141,18 +2141,37 @@ export default function AdminAgendaPlaygroundPage() {
     const participant = participants.find((item) => item.id === safeParticipantId);
     if (!participant || participant.isOwner) return;
 
+    const removedName = participant.name.trim() || 'Jugador';
     if (persistedEditingBookingId && participant.bookingParticipantId) {
-      await removePersistedParticipantFromBooking(
-        persistedEditingBookingId,
-        participant.bookingParticipantId
-      );
-      showAgendaToast('Participante eliminado.', 'success');
+      const bookingId = persistedEditingBookingId;
+      try {
+        await removePersistedParticipantFromBooking(bookingId, participant.bookingParticipantId);
+      } catch (error) {
+        reportUiError({ area: 'AgendaPlayground', action: 'removeParticipant' }, error);
+        showAgendaToast(extractErrorMessage(error, 'No se pudo quitar al jugador.'), 'error');
+        return;
+      }
+      showAdminToast(`${removedName} quitado de la reserva.`, 'success', {
+        label: 'Deshacer',
+        onClick: () => {
+          void addParticipantToExistingBooking(bookingId, participant, {
+            successMessage: `${removedName} volvió a la reserva.`,
+          }).catch((error) => {
+            reportUiError({ area: 'AgendaPlayground', action: 'undoRemoveParticipant' }, error);
+            showAgendaToast(extractErrorMessage(error, 'No se pudo volver a agregar.'), 'error');
+          });
+        },
+      });
       return;
     }
 
     setParticipants((previous) => previous.filter((item) => item.id !== safeParticipantId));
-    showAgendaToast('Participante eliminado.', 'success');
+    showAdminToast(`${removedName} quitado.`, 'success', {
+      label: 'Deshacer',
+      onClick: () => setParticipants((previous) => [...previous, participant]),
+    });
   }, [
+    addParticipantToExistingBooking,
     participants,
     persistedEditingBookingId,
     removePersistedParticipantFromBooking,
@@ -8615,9 +8634,17 @@ export default function AdminAgendaPlaygroundPage() {
                           {simplifiedOwnerAdded && simplifiedNamedParticipants.length > 0 ? (
                             <div className="mt-2 divide-y divide-p-border">
                               {simplifiedNamedParticipants.map((participant, index) => {
-                                const slotInfo = playerSlotInfo.find(
-                                  (info) => info.name.trim().toLowerCase() === participant.name.trim().toLowerCase()
-                                );
+                                const participantClientId = String(participant.entityRef || '').trim().startsWith('client:')
+                                  ? String(participant.entityRef).trim().slice('client:'.length)
+                                  : '';
+                                const slotInfo =
+                                  (participantClientId
+                                    ? playerSlotInfo.find((info) => info.clientId && info.clientId === participantClientId)
+                                    : undefined) ||
+                                  playerSlotInfo.find(
+                                    (info) => info.name.trim().toLowerCase() === participant.name.trim().toLowerCase()
+                                  );
+                                const participantHasPayment = Boolean(slotInfo?.isFrozen || participant.paid);
                                 const participantOrdinal = participant.isOwner
                                   ? null
                                   : simplifiedNamedParticipants
@@ -8635,7 +8662,7 @@ export default function AdminAgendaPlaygroundPage() {
                                     data-participant-shell-id={participant.id}
                                     className="py-2.5"
                                   >
-                                    <div className="grid grid-cols-[36px_minmax(0,1fr)_auto_32px] gap-2.5 items-center">
+                                    <div className="grid grid-cols-[36px_minmax(0,1fr)_auto_auto] gap-2.5 items-center">
                                       <div className="h-9 w-9 rounded-full bg-p-surface-2 text-p-text-secondary text-[13px] font-semibold grid place-items-center">
                                         {participant.name.trim().charAt(0).toUpperCase() || 'P'}
                                       </div>
@@ -8656,25 +8683,46 @@ export default function AdminAgendaPlaygroundPage() {
                                       <span className="text-[14px] font-semibold tabular-nums text-p-text">
                                         {slotInfo ? formatMoney(slotInfo.shareAmount) : ''}
                                       </span>
-                                      {showParticipantActions && (
-                                        <button
-                                          type="button"
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            if (expandedParticipantId === participant.id) {
-                                              setExpandedParticipantId(null);
-                                              return;
+                                      <div className="flex items-center justify-self-end">
+                                        {/* Editar solo a quien se cargó a mano; un cliente existente se edita en Clientes. */}
+                                        {showParticipantActions && !participantIsLinkedRecord && (
+                                          <button
+                                            type="button"
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              setExpandedParticipantId((previous) =>
+                                                previous === participant.id ? null : participant.id
+                                              );
+                                            }}
+                                            className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted hover:bg-p-surface-2 hover:text-p-text"
+                                            aria-label={`Editar ${participant.name}`}
+                                            title="Editar nombre o teléfono"
+                                          >
+                                            <Pencil size={14} />
+                                          </button>
+                                        )}
+                                        {/* Quitar es un clic con "Deshacer"; el titular se cambia desde Más acciones. */}
+                                        {!participant.isOwner && (
+                                          <button
+                                            type="button"
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              if (participantHasPayment) return;
+                                              void removeParticipant(participant.id);
+                                            }}
+                                            disabled={participantHasPayment}
+                                            className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted hover:bg-p-error-bg hover:text-p-error disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-p-text-muted"
+                                            aria-label={`Quitar ${participant.name} de la reserva`}
+                                            title={
+                                              participantHasPayment
+                                                ? 'Tiene un pago: devolvelo antes de quitarlo'
+                                                : 'Quitar de la reserva'
                                             }
-                                            setParticipantMenuId((previous) =>
-                                              previous === participant.id ? null : participant.id
-                                            );
-                                          }}
-                                          className="h-8 w-8 justify-self-end rounded-full text-p-text-muted grid place-items-center hover:bg-p-surface-2"
-                                          title="Acciones del participante"
-                                        >
-                                          <MoreVertical size={15} />
-                                        </button>
-                                      )}
+                                          >
+                                            <X size={15} />
+                                          </button>
+                                        )}
+                                      </div>
                                     </div>
                                     {expandedParticipantId === participant.id && (
                                       <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -8785,49 +8833,6 @@ export default function AdminAgendaPlaygroundPage() {
                                             className="h-8 rounded-lg bg-[var(--accent-fg)] px-3 text-[12px] font-semibold text-ink-50 hover:bg-ink-900"
                                           >
                                             Guardar
-                                          </button>
-                                        </div>
-                                      </div>
-                                    )}
-                                    {participantMenuId === participant.id && (
-                                      <div className="mt-2 rounded-xl border border-p-border bg-p-surface shadow-sm p-2 text-[12px] text-p-text-secondary">
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            if (participantIsLinkedRecord) {
-                                              setParticipantMenuId(null);
-                                              return;
-                                            }
-                                            setExpandedParticipantId((previous) =>
-                                              previous === participant.id ? null : participant.id
-                                            );
-                                            setParticipantMenuId(null);
-                                          }}
-                                          className="w-full text-left rounded-lg px-2 py-1.5 hover:bg-p-surface-2 disabled:opacity-50 disabled:hover:bg-transparent"
-                                          disabled={participantIsLinkedRecord}
-                                        >
-                                          {participantIsLinkedRecord
-                                            ? 'Participante vinculado (sin edición manual)'
-                                            : expandedParticipantId === participant.id
-                                            ? 'Finalizar edición'
-                                            : 'Editar participante (nombre/contacto)'}
-                                        </button>
-                                        <div className="mt-1 border-t border-p-border pt-1">
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              if (participant.isOwner) return;
-                                              setDeleteParticipantConfirm({
-                                                open: true,
-                                                participantId: participant.id,
-                                                participantName: participant.name.trim() || 'este participante',
-                                              });
-                                              setParticipantMenuId(null);
-                                            }}
-                                            disabled={participant.isOwner}
-                                            className="w-full text-left rounded-lg px-2 py-1.5 text-p-error hover:bg-p-error-bg disabled:opacity-40"
-                                          >
-                                            Eliminar participante
                                           </button>
                                         </div>
                                       </div>

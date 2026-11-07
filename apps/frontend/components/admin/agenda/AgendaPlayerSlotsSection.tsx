@@ -32,6 +32,7 @@ type AgendaPlayerSlotsSectionProps = {
 };
 
 export type AgendaPlayerSlotInfo = {
+  clientId: string | null;
   name: string;
   shareAmount: number;
   conditionLabel: string;
@@ -134,6 +135,7 @@ export default function AgendaPlayerSlotsSection({
     const filled = (slotsData?.perPlayer ? slotsData.slots : []).filter((slot) => !slot.isEmpty);
     onSlotsLoadedRef.current(
       filled.map((slot) => ({
+        clientId: slot.clientId ? String(slot.clientId) : null,
         name: String(slot.displayName || ''),
         shareAmount: Number(slot.shareAmount || 0),
         conditionLabel: slotConditionLabel(slot),
