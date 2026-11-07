@@ -4,21 +4,20 @@ import AdminTabStatistics from '../../components/admin/AdminTabStatistics';
 import { AdminSegmentedControl } from '../../components/admin/ui';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 
-type ReportsTab = 'resumen' | 'reservas' | 'ingresos' | 'pendientes' | 'mostrador';
+type ReportsTab = 'resumen' | 'plata' | 'reservas' | 'mostrador';
 
 const REPORT_TABS: Array<{ value: ReportsTab; label: string }> = [
   { value: 'resumen', label: 'Resumen' },
-  { value: 'ingresos', label: 'Ingresos' },
+  { value: 'plata', label: 'Plata' },
   { value: 'reservas', label: 'Reservas' },
-  { value: 'pendientes', label: 'Pendientes' },
   { value: 'mostrador', label: 'Mostrador' },
 ];
 
 const parseReportsTab = (value: unknown): ReportsTab => {
   const raw = String(value || '').toLowerCase();
-  if (raw === 'ingresos') return 'ingresos';
+  // Links viejos: Ingresos y Pendientes viven en Plata.
+  if (raw === 'plata' || raw === 'ingresos' || raw === 'pendientes') return 'plata';
   if (raw === 'reservas') return 'reservas';
-  if (raw === 'pendientes') return 'pendientes';
   if (raw === 'mostrador' || raw === 'pos') return 'mostrador';
   return 'resumen';
 };

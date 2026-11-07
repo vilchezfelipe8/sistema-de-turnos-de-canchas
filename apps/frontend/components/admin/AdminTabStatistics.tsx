@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarCheck, Clock3, DollarSign, Receipt, ShoppingBag, Wallet } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock3, DollarSign, Receipt, ShoppingBag, Wallet } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { reportUiError } from '../../utils/uiError';
 import { getApiFieldErrors, normalizeApiError } from '../../utils/apiError';
@@ -12,21 +12,71 @@ import {
 } from './ui';
 import ReportsEmptyState from '../../modules/informes/components/ReportsEmptyState';
 import ReportsMetricGrid, { type ReportsMetric } from '../../modules/informes/components/ReportsMetricGrid';
-import ReportsPeriodToolbar, { type ReportsPeriod } from '../../modules/informes/components/ReportsPeriodToolbar';
+import { type ReportsPeriod } from '../../modules/informes/components/ReportsPeriodToolbar';
 import { formatReportsMoney, formatReportsNumber } from '../../modules/informes/components/reportsFormatters';
 
 interface Props {
   slugProp?: string;
-  focus?: 'resumen' | 'ingresos' | 'reservas' | 'pendientes' | 'pos';
+  /** Resumen: los 4 números. Plata: ingresos y deuda. Reservas. Mostrador (pos). */
+  focus?: 'resumen' | 'plata' | 'reservas' | 'pos';
 }
 
 type Period = ReportsPeriod;
 
 const periodOptions: Array<{ value: Period; label: string }> = [
-  { value: 'hoy', label: 'Hoy' },
+  { value: 'hoy', label: 'Día' },
   { value: 'semana', label: 'Semana' },
   { value: 'mes', label: 'Mes' },
 ];
+
+const parseDateKey = (key: string) => new Date(`${key}T12:00:00`);
+
+/** Mismo largo, justo antes: para comparar. */
+const previousRangeOf = (startDate: string, endDate: string) => {
+  const start = parseDateKey(startDate);
+  const end = parseDateKey(endDate);
+  const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1);
+  const prevEnd = new Date(start);
+  prevEnd.setDate(prevEnd.getDate() - 1);
+  const prevStart = new Date(prevEnd);
+  prevStart.setDate(prevStart.getDate() - (days - 1));
+  return { startDate: toDateKeyLocal(prevStart), endDate: toDateKeyLocal(prevEnd) };
+};
+
+function toDateKeyLocal(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+const shortDay = (key: string) =>
+  parseDateKey(key).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace(/\./g, '');
+
+/** "+12% vs octubre" con color según si subir es bueno o malo. */
+function DeltaLine({
+  current,
+  previous,
+  compareLabel,
+  higherIsBetter,
+  loading,
+}: {
+  current: number;
+  previous: number | null;
+  compareLabel: string;
+  higherIsBetter: boolean;
+  loading: boolean;
+}) {
+  if (loading || previous === null) return <p className="text-[12px] text-p-text-muted">&nbsp;</p>;
+  if (previous <= 0 && current <= 0) return <p className="text-[12px] text-p-text-muted">Igual que {compareLabel}</p>;
+  if (previous <= 0) return <p className="text-[12px] text-p-text-muted">Sin datos de {compareLabel}</p>;
+  const pct = Math.round(((current - previous) / previous) * 100);
+  if (pct === 0) return <p className="text-[12px] text-p-text-muted">Igual que {compareLabel}</p>;
+  const good = higherIsBetter ? pct > 0 : pct < 0;
+  return (
+    <p className={`text-[12px] font-semibold ${good ? 'text-p-positive' : 'text-p-warning'}`}>
+      {pct > 0 ? '+' : '−'}
+      {Math.abs(pct)}% vs {compareLabel}
+    </p>
+  );
+}
 
 const toDateKey = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -84,12 +134,19 @@ const formatStatusLabel = (status: string) => {
 const showSection = (
   focus: Props['focus'],
   section: 'ingresos' | 'reservas' | 'pendientes' | 'pos'
-) => !focus || focus === 'resumen' || focus === section;
+) => {
+  if (focus === 'plata') return section === 'ingresos' || section === 'pendientes';
+  return focus === section;
+};
 
 export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [report, setReport] = useState<AdminDashboardReport | null>(null);
+  const [previousReport, setPreviousReport] = useState<AdminDashboardReport | null>(null);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customDraft, setCustomDraft] = useState<{ startDate: string; endDate: string } | null>(null);
+  const [isCustomRange, setIsCustomRange] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [activePeriod, setActivePeriod] = useState<Period>('mes');
@@ -100,6 +157,7 @@ export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Prop
   });
 
   const periodLabel = useMemo(() => {
+    if (isCustomRange) return `${shortDay(filters.startDate)} – ${shortDay(filters.endDate)}`;
     const { rawStart, rawEnd } = getDateRange(activePeriod, periodOffset);
     if (activePeriod === 'mes') {
       return rawStart.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
@@ -110,7 +168,18 @@ export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Prop
       return rawStart.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
     }
     return `${rawStart.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })} - ${rawEnd.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })}`;
-  }, [activePeriod, periodOffset]);
+  }, [activePeriod, filters.endDate, filters.startDate, isCustomRange, periodOffset]);
+
+  /** Con qué se compara: "octubre", "la semana anterior", "ayer"… */
+  const compareLabel = useMemo(() => {
+    if (isCustomRange) return 'el período anterior';
+    if (activePeriod === 'mes') {
+      const { rawStart } = getDateRange('mes', periodOffset - 1);
+      return rawStart.toLocaleDateString('es-AR', { month: 'long' });
+    }
+    if (activePeriod === 'semana') return 'la semana anterior';
+    return periodOffset === 0 ? 'ayer' : 'el día anterior';
+  }, [activePeriod, isCustomRange, periodOffset]);
 
   const loadReport = useCallback(async (nextFilters = filters) => {
     if (!slugProp) return;
@@ -118,8 +187,13 @@ export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Prop
       setLoading(true);
       setErrorMessage('');
       setFieldErrors({});
-      const data = await ReportsService.getDashboardReport(slugProp, nextFilters);
+      const previousRange = previousRangeOf(nextFilters.startDate, nextFilters.endDate);
+      const [data, previous] = await Promise.all([
+        ReportsService.getDashboardReport(slugProp, nextFilters),
+        ReportsService.getDashboardReport(slugProp, previousRange).catch(() => null),
+      ]);
       setReport(data);
+      setPreviousReport(previous);
     } catch (error) {
       reportUiError({ area: 'AdminTabStatistics', action: 'loadReport' }, error);
       const normalized = normalizeApiError(error, 'No se pudieron cargar los informes.');
@@ -139,10 +213,23 @@ export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Prop
     const nextRange = getDateRange(nextPeriod, 0);
     setActivePeriod(nextPeriod);
     setPeriodOffset(0);
+    setIsCustomRange(false);
+    setCustomOpen(false);
     setFilters({ startDate: nextRange.startDate, endDate: nextRange.endDate });
   };
 
   const handleShiftPeriod = (direction: -1 | 1) => {
+    if (isCustomRange) {
+      // Fechas a mano: se corre el mismo largo hacia atrás o adelante.
+      const days =
+        Math.round((parseDateKey(filters.endDate).getTime() - parseDateKey(filters.startDate).getTime()) / 86_400_000) + 1;
+      const start = parseDateKey(filters.startDate);
+      start.setDate(start.getDate() + direction * days);
+      const end = new Date(start);
+      end.setDate(end.getDate() + days - 1);
+      setFilters({ startDate: toDateKeyLocal(start), endDate: toDateKeyLocal(end) });
+      return;
+    }
     const nextOffset = periodOffset + direction;
     const nextRange = getDateRange(activePeriod, nextOffset);
     setPeriodOffset(nextOffset);
@@ -150,37 +237,60 @@ export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Prop
   };
 
   const handleApplyCustomRange = () => {
-    void loadReport(filters);
+    if (!customDraft?.startDate || !customDraft?.endDate) return;
+    const ordered =
+      customDraft.startDate <= customDraft.endDate
+        ? customDraft
+        : { startDate: customDraft.endDate, endDate: customDraft.startDate };
+    setIsCustomRange(true);
+    setCustomOpen(false);
+    setFilters(ordered);
   };
 
-  const metrics: ReportsMetric[] = [
+  const cancelledCount = (report?.bookings.byStatus || []).find((row) => row.status === 'CANCELLED')?.count || 0;
+  const previousCancelled = (previousReport?.bookings.byStatus || []).find((row) => row.status === 'CANCELLED')?.count || 0;
+  const summaryCards: Array<{
+    key: string;
+    label: string;
+    value: string;
+    current: number;
+    previous: number | null;
+    higherIsBetter: boolean;
+    note?: string;
+  }> = [
     {
+      key: 'collected',
       label: 'Cobrado',
-      value: Number(report?.income.totals.collectedTotal || 0),
-      format: 'money',
-      icon: <DollarSign size={18} strokeWidth={2.4} />,
-      loading,
+      value: formatReportsMoney(Number(report?.income.totals.collectedTotal || 0)),
+      current: Number(report?.income.totals.collectedTotal || 0),
+      previous: previousReport ? Number(previousReport.income.totals.collectedTotal || 0) : null,
+      higherIsBetter: true,
     },
     {
-      label: 'Pendiente',
-      value: Number(report?.pendingAccounts.totalPending || 0),
-      format: 'money',
-      icon: <Clock3 size={18} strokeWidth={2.4} />,
-      loading,
+      key: 'owed',
+      label: 'Te deben',
+      value: formatReportsMoney(Number(report?.pendingAccounts.totalPending || 0)),
+      current: Number(report?.pendingAccounts.totalPending || 0),
+      previous: previousReport ? Number(previousReport.pendingAccounts.totalPending || 0) : null,
+      higherIsBetter: false,
+      note: `En ${formatReportsNumber(report?.pendingAccounts.openCount || 0)} cuentas`,
     },
     {
-      label: 'Reservas del período',
-      value: Number(report?.bookings.total || 0),
-      format: 'number',
-      icon: <CalendarCheck size={18} strokeWidth={2.4} />,
-      loading,
+      key: 'bookings',
+      label: 'Reservas',
+      value: formatReportsNumber(Math.max(0, Number(report?.bookings.total || 0) - cancelledCount)),
+      current: Math.max(0, Number(report?.bookings.total || 0) - cancelledCount),
+      previous: previousReport ? Math.max(0, Number(previousReport.bookings.total || 0) - previousCancelled) : null,
+      higherIsBetter: true,
+      note: cancelledCount > 0 ? `Y ${formatReportsNumber(cancelledCount)} canceladas` : 'Sin cancelaciones',
     },
     {
-      label: 'Ventas mostrador',
-      value: Number(report?.pos.totals.salesTotal || 0),
-      format: 'money',
-      icon: <ShoppingBag size={18} strokeWidth={2.4} />,
-      loading,
+      key: 'refunds',
+      label: 'Devoluciones',
+      value: formatReportsMoney(Number(report?.income.totals.refundedTotal || 0)),
+      current: Number(report?.income.totals.refundedTotal || 0),
+      previous: previousReport ? Number(previousReport.income.totals.refundedTotal || 0) : null,
+      higherIsBetter: false,
     },
   ];
 
@@ -192,66 +302,87 @@ export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Prop
 
   return (
     <div className="flex w-full flex-col gap-4" aria-busy={loading ? 'true' : undefined}>
-      <ReportsPeriodToolbar
-        period={activePeriod}
-        options={periodOptions}
-        periodLabel={periodLabel}
-        isCurrentPeriod={periodOffset === 0}
-        onPeriodChange={handlePeriodChange}
-        onPreviousPeriod={() => handleShiftPeriod(-1)}
-        onNextPeriod={() => handleShiftPeriod(1)}
-      />
+      {/* Período: un solo control. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
+          {periodOptions.map((option) => (
+            <button
+              key={`period-${option.value}`}
+              type="button"
+              aria-pressed={!isCustomRange && activePeriod === option.value}
+              onClick={() => handlePeriodChange(option.value)}
+              className={`h-8 rounded-lg px-3 text-[13px] font-semibold transition ${
+                !isCustomRange && activePeriod === option.value
+                  ? 'bg-ink-900 text-ink-50'
+                  : 'text-p-text-secondary hover:bg-p-surface-2'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
+          <button
+            type="button"
+            aria-label="Período anterior"
+            onClick={() => handleShiftPeriod(-1)}
+            className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted hover:bg-p-surface-2"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <span className="min-w-[132px] text-center text-[13px] font-semibold text-p-text">{periodLabel.charAt(0).toUpperCase() + periodLabel.slice(1)}</span>
+          <button
+            type="button"
+            aria-label="Período siguiente"
+            onClick={() => handleShiftPeriod(1)}
+            disabled={!isCustomRange && periodOffset === 0}
+            className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted hover:bg-p-surface-2 disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setCustomDraft({ startDate: filters.startDate, endDate: filters.endDate });
+            setCustomOpen((open) => !open);
+          }}
+          className="text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
+        >
+          {customOpen ? 'Cerrar' : 'Elegir fechas'}
+        </button>
+      </div>
 
-      <AdminPanel
-        title="Rango"
-        description="Elegí el período a analizar. Los montos se calculan siempre en backend."
-        actions={(
+      {customOpen && customDraft && (
+        <div className="flex flex-wrap items-end gap-3 rounded-xl border border-p-border bg-p-surface p-3">
+          <label className="block">
+            <span className="mb-1 block text-[12px] font-medium text-p-text-muted">Desde</span>
+            <AdminDateInput
+              value={customDraft.startDate}
+              onChange={(value) => setCustomDraft((prev) => (prev ? { ...prev, startDate: value } : prev))}
+              placeholder="Desde"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[12px] font-medium text-p-text-muted">Hasta</span>
+            <AdminDateInput
+              value={customDraft.endDate}
+              onChange={(value) => setCustomDraft((prev) => (prev ? { ...prev, endDate: value } : prev))}
+              placeholder="Hasta"
+            />
+          </label>
           <button
             type="button"
             onClick={handleApplyCustomRange}
-            className="rounded-xl bg-p-text px-3 py-2 text-[12px] font-semibold text-white transition hover:opacity-90"
+            className="h-10 rounded-xl bg-ink-900 px-4 text-[13px] font-semibold text-ink-50 hover:bg-ink-800"
           >
-            Aplicar rango
+            Ver
           </button>
-        )}
-      >
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <div>
-            <p className="mb-1 text-[12px] font-semibold text-p-text-muted">Desde</p>
-            <AdminDateInput
-              value={filters.startDate}
-              onChange={(value) => setFilters((prev) => ({ ...prev, startDate: value }))}
-              placeholder="Fecha desde"
-            />
-            {fieldErrors.startDate ? (
-              <p className="mt-1 text-[12px] font-semibold text-p-error">{fieldErrors.startDate}</p>
-            ) : null}
-          </div>
-          <div>
-            <p className="mb-1 text-[12px] font-semibold text-p-text-muted">Hasta</p>
-            <AdminDateInput
-              value={filters.endDate}
-              onChange={(value) => setFilters((prev) => ({ ...prev, endDate: value }))}
-              placeholder="Fecha hasta"
-            />
-            {fieldErrors.endDate ? (
-              <p className="mt-1 text-[12px] font-semibold text-p-error">{fieldErrors.endDate}</p>
-            ) : null}
-          </div>
-          <div className="rounded-xl border border-p-border bg-p-surface-2 px-3 py-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-p-text-muted">Rango activo</p>
-            <p className="mt-1 text-[13px] font-semibold text-p-text">
-              {filters.startDate} → {filters.endDate}
-            </p>
-          </div>
-          <div className="rounded-xl border border-p-border bg-p-surface-2 px-3 py-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-p-text-muted">Zona horaria</p>
-            <p className="mt-1 text-[13px] font-semibold text-p-text">
-              {report?.scope.timeZone || 'Club'}
-            </p>
-          </div>
+          {(fieldErrors.startDate || fieldErrors.endDate) && (
+            <p className="w-full text-[12px] font-semibold text-p-error">{fieldErrors.startDate || fieldErrors.endDate}</p>
+          )}
         </div>
-      </AdminPanel>
+      )}
 
       {errorMessage ? (
         <AdminFeedbackBanner tone="error" title="No se pudieron cargar los informes">
@@ -259,13 +390,40 @@ export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Prop
         </AdminFeedbackBanner>
       ) : null}
 
-      <ReportsMetricGrid metrics={metrics} />
+      {focus === 'resumen' && (
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          {summaryCards.map((card) => (
+            <div key={card.key} className="rounded-2xl border border-p-border bg-p-surface p-4">
+              <p className="text-[13px] text-p-text-muted">{card.label}</p>
+              {loading && !report ? (
+                <div className="mt-2 h-8 w-32 animate-pulse rounded bg-p-surface-3" />
+              ) : (
+                <p className="mt-1 text-[28px] font-bold leading-tight tracking-tight tabular-nums text-p-text">{card.value}</p>
+              )}
+              <DeltaLine
+                current={card.current}
+                previous={card.previous}
+                compareLabel={compareLabel}
+                higherIsBetter={card.higherIsBetter}
+                loading={loading}
+              />
+              {card.note ? <p className="text-[12px] text-p-text-muted">{card.note}</p> : null}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {focus === 'resumen' && report && Number(report.pos.totals.salesTotal || 0) > 0 && (
+        <p className="text-[14px] text-p-text-secondary">
+          En el mostrador se vendieron <span className="font-semibold text-p-text">{formatReportsMoney(report.pos.totals.salesTotal)}</span>.
+        </p>
+      )}
 
       {!loading && report && isCompletelyEmpty ? (
         <AdminPanel>
           <ReportsEmptyState
-            title="Todavía no hay movimientos para este rango"
-            description="Probá con otro período o empezá por revisar Caja y Reservas."
+            title="No hubo movimiento en este período"
+            description="Probá con otro período."
             actionLabel="Ir a Caja"
             onAction={() => void router.push('/admin/caja')}
           />
