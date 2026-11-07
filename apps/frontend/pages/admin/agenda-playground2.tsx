@@ -234,6 +234,17 @@ function formatPhoneForDisplay(value: string): string {
   return `+54 9 ${area} ${rest.slice(0, -4)}-${rest.slice(-4)}`;
 }
 
+/** Lo que cambia el precio de un jugador: si es socio vigente o si su cuota no está al día. */
+function describeMemberStatus(badges: unknown): { label: string; tone: 'positive' | 'warning' } | null {
+  const memberBadge = (Array.isArray(badges) ? badges : [])
+    .map((badge) => String(badge || ''))
+    .find((badge) => /^socio/i.test(badge));
+  if (!memberBadge) return null;
+  if (/no vigente/i.test(memberBadge)) return { label: 'Socio vencido · paga como no socio', tone: 'warning' };
+  if (/suspendido/i.test(memberBadge)) return { label: 'Socio suspendido · paga como no socio', tone: 'warning' };
+  return { label: memberBadge, tone: 'positive' };
+}
+
 /** Segunda línea de un resultado del buscador: contacto + lo que le sirve saber al que atiende. */
 function describeOwnerSuggestion(secondary: string | null | undefined, badges: unknown): string {
   const labels = (Array.isArray(badges) ? badges : [])
@@ -1310,6 +1321,9 @@ export default function AdminAgendaPlaygroundPage() {
   );
   const [recurringCourtsMenuOpen, setRecurringCourtsMenuOpen] = useState(false);
   const [createCourtPickerOpen, setCreateCourtPickerOpen] = useState(false);
+  // "Jugador nuevo": se eligió crear uno en vez de un cliente existente (pide nombre y teléfono).
+  const [simplifiedNewPlayerAsGuest, setSimplifiedNewPlayerAsGuest] = useState(false);
+  const [simplifiedNewPlayerError, setSimplifiedNewPlayerError] = useState('');
   // Precio por jugador: precio y condición de cada jugador asignado (por nombre), para la lista de Jugadores.
   const [playerSlotInfo, setPlayerSlotInfo] = useState<AgendaPlayerSlotInfo[]>([]);
   const [selectedClubIdState, setSelectedClubIdState] = useState<number>(0);
@@ -1905,6 +1919,8 @@ export default function AdminAgendaPlaygroundPage() {
 
   const resetSimplifiedNewParticipantDraft = useCallback(() => {
     setSimplifiedNewParticipantOpen(false);
+    setSimplifiedNewPlayerAsGuest(false);
+    setSimplifiedNewPlayerError('');
     setSimplifiedNewParticipantName('');
     setSimplifiedNewParticipantContact('');
     setSimplifiedNewParticipantSourceTypeDraft('guest');
@@ -5631,6 +5647,73 @@ export default function AdminAgendaPlaygroundPage() {
       simplifiedNewParticipantName.trim().length >= 2 &&
       simplifiedNewParticipantPhoneDraft.length >= 8
     );
+  /** Suma un jugador: a la reserva guardada (servidor) o al borrador si todavía se está creando. */
+  const submitSimplifiedPlayer = async (participantDraft: Participant) => {
+    const normalizedEntityRef = String(participantDraft.entityRef || '').trim();
+    const duplicateLinked = participants.some(
+      (participant) => !participant.isOwner && String(participant.entityRef || '').trim() === normalizedEntityRef
+    );
+    if (normalizedEntityRef && duplicateLinked) {
+      setSimplifiedNewPlayerError('Ese jugador ya está en la reserva.');
+      return;
+    }
+    setSimplifiedNewPlayerError('');
+    try {
+      if (persistedEditingBookingId) {
+        await addParticipantToExistingBooking(persistedEditingBookingId, participantDraft, {
+          successMessage: `${participantDraft.name} agregado.`,
+          onSuccess: () => {
+            resetSimplifiedNewParticipantDraft();
+            setFormError('');
+          },
+        });
+      } else {
+        setParticipants((previous) => [...previous, participantDraft]);
+        resetSimplifiedNewParticipantDraft();
+        setFormError('');
+      }
+    } catch (error: any) {
+      const normalized = normalizeApiError(error, 'No se pudo agregar el jugador.');
+      setSimplifiedNewPlayerError(toUserSafeMessage(normalized.message, 'No se pudo agregar el jugador.'));
+    }
+  };
+  const buildSimplifiedPlayerDraft = (fields: Partial<Participant> & { name: string }): Participant => ({
+    id: `player-${Date.now()}`,
+    contact: '',
+    dni: undefined,
+    paid: false,
+    isOwner: false,
+    sourceType: 'guest',
+    paymentMethod: 'CASH',
+    customPrice: null,
+    ...fields,
+  });
+  /** Cliente existente elegido del buscador: se agrega sin otro paso. */
+  const addSimplifiedPlayerFromSuggestion = (suggestion: ParticipantSuggestion) =>
+    submitSimplifiedPlayer(
+      buildSimplifiedPlayerDraft({
+        name: suggestion.name,
+        contact: String(suggestion.contact || '').trim(),
+        dni: suggestion.dni,
+        sourceType: suggestion.sourceType,
+        entityRef: String(suggestion.entityRef || '').trim() || undefined,
+        selectedUserId: suggestion.selectedUserId,
+        personKind: suggestion.personKind,
+        personKey: suggestion.personKey,
+        personSearchQuery: suggestion.personSearchQuery,
+        badges: suggestion.badges,
+      })
+    );
+  /** Jugador nuevo: nombre y teléfono cargados a mano. */
+  const submitSimplifiedNewPlayerDraft = () => {
+    if (!hasValidSimplifiedNewParticipantName) return;
+    return submitSimplifiedPlayer(
+      buildSimplifiedPlayerDraft({
+        name: simplifiedNewParticipantName.trim(),
+        contact: simplifiedNewParticipantContact.trim(),
+      })
+    );
+  };
   const simplifiedOwnerSuggestionsFloatingStyle = (() => {
     if (
       !simplifiedOwnerSuggestionsOpen ||
@@ -8989,33 +9072,46 @@ export default function AdminAgendaPlaygroundPage() {
                               }`}
                             >
                               {simplifiedNewParticipantOpen && (
-                                <div className="mt-1 rounded-xl border border-p-border bg-p-surface p-4">
-                                  <p className="text-[15px] font-semibold text-p-text">Nuevo participante</p>
-                                  <div className="mt-3 space-y-2">
+                                <div className="py-1">
+                                  {/* Buscar y agregar: elegir un cliente lo suma directo; uno nuevo pide nombre y teléfono. */}
+                                  {!simplifiedNewPlayerAsGuest ? (
                                     <div ref={simplifiedNewParticipantInputContainerRef} className="relative">
-                                      <input
-                                        value={simplifiedNewParticipantName}
-                                        onChange={(event) => {
-                                          if (simplifiedNewParticipantHasLinkedSelection) return;
-                                          void runSimplifiedNewParticipantSearch(event.target.value);
-                                        }}
-                                        onFocus={() => {
-                                          if (simplifiedNewParticipantHasLinkedSelection) return;
-                                          if (simplifiedNewParticipantName.trim().length > 0) {
-                                            setSimplifiedNewParticipantSuggestionsOpen(true);
-                                          }
-                                        }}
-                                        onBlur={() => {
-                                          window.setTimeout(() => setSimplifiedNewParticipantSuggestionsOpen(false), 120);
-                                        }}
-                                        readOnly={simplifiedNewParticipantHasLinkedSelection}
-                                        placeholder="Nombre del participante"
-                                        className={`h-11 w-full rounded-xl border px-3 text-[15px] outline-none ${
-                                          simplifiedNewParticipantHasLinkedSelection
-                                            ? 'border-p-border bg-p-surface-2 text-p-text-secondary cursor-not-allowed'
-                                            : 'border-p-border bg-p-surface'
-                                        }`}
-                                      />
+                                      <div className="flex items-center gap-2">
+                                        <div className="relative flex-1">
+                                          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
+                                          <input
+                                            autoFocus
+                                            value={simplifiedNewParticipantName}
+                                            onChange={(event) => {
+                                              setSimplifiedNewPlayerError('');
+                                              void runSimplifiedNewParticipantSearch(event.target.value);
+                                            }}
+                                            onFocus={() => {
+                                              if (simplifiedNewParticipantName.trim().length > 0) {
+                                                setSimplifiedNewParticipantSuggestionsOpen(true);
+                                              }
+                                            }}
+                                            onBlur={() => {
+                                              window.setTimeout(() => setSimplifiedNewParticipantSuggestionsOpen(false), 120);
+                                            }}
+                                            onKeyDown={(event) => {
+                                              if (event.key === 'Escape') {
+                                                event.preventDefault();
+                                                resetSimplifiedNewParticipantDraft();
+                                              }
+                                            }}
+                                            placeholder="Buscá jugador por nombre, teléfono o DNI"
+                                            className="h-11 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[15px] outline-none focus:border-p-border-strong"
+                                          />
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={resetSimplifiedNewParticipantDraft}
+                                          className="h-11 px-2 text-[13px] font-semibold text-p-text-muted hover:text-p-text"
+                                        >
+                                          Cancelar
+                                        </button>
+                                      </div>
                                       {simplifiedNewParticipantSuggestionsOpen &&
                                         simplifiedNewParticipantSuggestionsFloatingStyle &&
                                         createPortal(
@@ -9031,41 +9127,37 @@ export default function AdminAgendaPlaygroundPage() {
                                             className="overflow-y-auto overscroll-contain p-1"
                                           >
                                             {simplifiedNewParticipantSearchLoading && (
-                                              <p className="px-2 py-1 text-[11px] text-p-text-muted">Buscando...</p>
+                                              <p className="px-3 py-2 text-[13px] text-p-text-muted">Buscando...</p>
                                             )}
-                                            {simplifiedNewParticipantSuggestions.slice(0, 8).map((suggestion) => (
-                                              <button
-                                                key={`new-suggestion-${suggestion.id}`}
-                                                type="button"
-                                                onMouseDown={(event) => event.preventDefault()}
-                                                onClick={() => applySimplifiedNewParticipantSuggestion(suggestion)}
-                                                className="w-full text-left rounded-lg px-2 py-1.5 hover:bg-p-surface-2"
-                                              >
-                                                <span className="block text-[12px] font-semibold text-p-text">{suggestion.label}</span>
-                                                {Array.isArray(suggestion.badges) && suggestion.badges.length > 0 && (
-                                                  <span className="mt-1 flex flex-wrap gap-1">
-                                                    {suggestion.badges.map((badge) => (
-                                                      <span
-                                                        key={`${suggestion.id}-${badge}`}
-                                                        className="inline-flex items-center rounded-full border border-p-border bg-p-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-p-text-muted"
-                                                      >
-                                                        {badge}
+                                            {simplifiedNewParticipantSuggestions.slice(0, 8).map((suggestion) => {
+                                              const memberNote = describeMemberStatus(suggestion.badges);
+                                              return (
+                                                <button
+                                                  key={`new-suggestion-${suggestion.id}`}
+                                                  type="button"
+                                                  onMouseDown={(event) => event.preventDefault()}
+                                                  onClick={() => void addSimplifiedPlayerFromSuggestion(suggestion)}
+                                                  className="w-full text-left rounded-lg px-3 py-2 hover:bg-p-surface-2 focus:bg-p-surface-2 focus:outline-none"
+                                                >
+                                                  <span className="block truncate text-[14px] font-semibold text-p-text">{suggestion.label}</span>
+                                                  <span className="mt-0.5 block truncate text-[12px] text-p-text-muted">
+                                                    {describeOwnerSuggestion(suggestion.secondary, (suggestion.badges || []).filter((badge) => !/socio/i.test(String(badge))))}
+                                                    {memberNote ? (
+                                                      <span className={memberNote.tone === 'warning' ? 'text-p-warning' : 'text-p-positive'}>
+                                                        {' · '}
+                                                        {memberNote.label}
                                                       </span>
-                                                    ))}
+                                                    ) : null}
                                                   </span>
-                                                )}
-                                                {suggestion.secondary && (
-                                                  <span className="block text-[11px] text-p-text-muted">{suggestion.secondary}</span>
-                                                )}
-                                              </button>
-                                            ))}
+                                                </button>
+                                              );
+                                            })}
                                             {simplifiedNewParticipantName.trim().length > 0 && (
                                               <>
                                                 {simplifiedNewParticipantSuggestions.length === 0 && !simplifiedNewParticipantSearchLoading && (
-                                                  <p className="px-2 py-1 text-[11px] text-p-text-muted">
-                                                    No encontramos personas con ese dato.
-                                                  </p>
+                                                  <p className="px-3 py-2 text-[13px] text-p-text-muted">No hay clientes con ese dato.</p>
                                                 )}
+                                                <div className="my-1 h-px bg-p-border" />
                                                 <button
                                                   type="button"
                                                   onMouseDown={(event) => event.preventDefault()}
@@ -9080,13 +9172,14 @@ export default function AdminAgendaPlaygroundPage() {
                                                     setSimplifiedNewParticipantSuggestionsOpen(false);
                                                     setSimplifiedNewParticipantSearchLoading(false);
                                                     setSimplifiedNewParticipantSuggestions([]);
+                                                    setSimplifiedNewPlayerAsGuest(true);
                                                     setFormError('');
                                                   }}
-                                                  className="mt-1 w-full rounded-lg border border-dashed border-p-border px-2 py-2 text-left shadow-p-md hover:bg-p-surface-2 hover:shadow-p-md"
+                                                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[14px] text-p-text hover:bg-p-surface-2"
                                                 >
-                                                  <span className="block text-[12px] font-semibold text-p-text">Crear nuevo cliente</span>
-                                                  <span className="block text-[11px] text-p-text-muted">
-                                                    Usar &quot;{simplifiedNewParticipantName.trim()}&quot;, cargar teléfono y, si querés, sumar email o DNI acá mismo.
+                                                  <Plus size={15} className="shrink-0 text-p-accent" />
+                                                  <span className="truncate">
+                                                    Jugador nuevo: <strong className="font-semibold">{simplifiedNewParticipantName.trim()}</strong>
                                                   </span>
                                                 </button>
                                               </>
@@ -9096,154 +9189,59 @@ export default function AdminAgendaPlaygroundPage() {
                                         document.body
                                       )}
                                     </div>
-                                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                                      <input
-                                        value={simplifiedNewParticipantPhoneDraft}
-                                        onChange={(event) => {
-                                          if (simplifiedNewParticipantHasLinkedSelection) return;
-                                          setSimplifiedNewParticipantContact(
-                                            buildParticipantContactFromFields(
-                                              event.target.value,
-                                              simplifiedNewParticipantEmailDraft
-                                            )
-                                          );
-                                        }}
-                                        readOnly={simplifiedNewParticipantHasLinkedSelection}
-                                        placeholder="Teléfono"
-                                        className={`h-11 w-full rounded-xl border px-3 text-[15px] outline-none ${
-                                          simplifiedNewParticipantHasLinkedSelection
-                                            ? 'border-p-border bg-p-surface-2 text-p-text-secondary cursor-not-allowed'
-                                            : 'border-p-border bg-p-surface'
-                                        }`}
-                                      />
-                                      <input
-                                        type="email"
-                                        value={simplifiedNewParticipantEmailDraft}
-                                        onChange={(event) => {
-                                          if (simplifiedNewParticipantHasLinkedSelection) return;
-                                          setSimplifiedNewParticipantContact(
-                                            buildParticipantContactFromFields(
-                                              simplifiedNewParticipantPhoneDraft,
-                                              event.target.value
-                                            )
-                                          );
-                                        }}
-                                        readOnly={simplifiedNewParticipantHasLinkedSelection}
-                                        placeholder="Email (opcional)"
-                                        className={`h-11 w-full rounded-xl border px-3 text-[15px] outline-none ${
-                                          simplifiedNewParticipantHasLinkedSelection
-                                            ? 'border-p-border bg-p-surface-2 text-p-text-secondary cursor-not-allowed'
-                                            : 'border-p-border bg-p-surface'
-                                        }`}
-                                      />
-                                    </div>
-                                  </div>
-                                  {simplifiedNewParticipantHasLinkedSelection && (
-                                    <div className="mt-2 flex items-center justify-between gap-2">
-                                      <div>
-                                        <p className="text-[12px] text-p-text-muted">
-                                          Registro asociado seleccionado. No se puede editar manualmente.
-                                        </p>
-                                        {Array.isArray(simplifiedNewParticipantBadgesDraft) && simplifiedNewParticipantBadgesDraft.length > 0 && (
-                                          <div className="mt-1 flex flex-wrap gap-1">
-                                            {simplifiedNewParticipantBadgesDraft.map((badge) => (
-                                              <span
-                                                key={`draft-badge-${badge}`}
-                                                className="inline-flex items-center rounded-full border border-p-border bg-p-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-p-text-muted"
-                                              >
-                                                {badge}
-                                              </span>
-                                            ))}
-                                          </div>
-                                        )}
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={resetSimplifiedNewParticipantDraft}
-                                        className="shrink-0 text-[12px] font-semibold text-p-accent hover:text-[var(--accent-hover)]"
-                                      >
-                                        Cambiar selección
-                                      </button>
-                                    </div>
-                                  )}
-                                  {simplifiedNewParticipantName.trim().length > 0 && !hasValidSimplifiedNewParticipantName && (
-                                    <p className="mt-2 text-[12px] text-p-text-muted">
-                                      Seleccioná una persona existente o cargá teléfono para crear un cliente nuevo.
-                                    </p>
-                                  )}
-                                  <div className="mt-3 flex items-center gap-3">
-                                    <button
-                                      type="button"
-                                      onClick={async () => {
-                                        if (!hasValidSimplifiedNewParticipantName) return;
-                                        const normalizedEntityRef = simplifiedNewParticipantEntityRefDraft.trim();
-                                        const duplicateLinked = participants.some(
-                                          (participant) =>
-                                            !participant.isOwner &&
-                                            String(participant.entityRef || '').trim() === normalizedEntityRef
-                                        );
-                                        if (normalizedEntityRef && duplicateLinked) {
-                                          setFormError('Ese participante ya está agregado en esta reserva.');
-                                          return;
-                                        }
-                                        const participantDraft: Participant = {
-                                          id: `player-${Date.now()}`,
-                                          name: simplifiedNewParticipantName.trim(),
-                                          contact: simplifiedNewParticipantContact.trim(),
-                                          dni: undefined,
-                                          paid: false,
-                                          isOwner: false,
-                                          sourceType: simplifiedNewParticipantSourceTypeDraft,
-                                          entityRef: simplifiedNewParticipantEntityRefDraft || undefined,
-                                          selectedUserId: simplifiedNewParticipantSelectedUserIdDraft,
-                                          personKind: simplifiedNewParticipantPersonKindDraft,
-                                          personKey: simplifiedNewParticipantPersonKeyDraft,
-                                          personSearchQuery: simplifiedNewParticipantPersonSearchQueryDraft,
-                                          badges: simplifiedNewParticipantBadgesDraft,
-                                          paymentMethod: 'CASH',
-                                          customPrice: null,
-                                        };
-                                        try {
-                                          if (persistedEditingBookingId) {
-                                            const result = await addParticipantToExistingBooking(
-                                              persistedEditingBookingId,
-                                              participantDraft,
-                                              {
-                                                successMessage: 'Participante agregado correctamente.',
-                                                onSuccess: () => {
-                                                  resetSimplifiedNewParticipantDraft();
-                                                  setFormError('');
-                                                },
-                                              }
-                                            );
-                                            if (result === 'deferred') return;
-                                          } else {
-                                            setParticipants((previous) => [...previous, participantDraft]);
-                                            resetSimplifiedNewParticipantDraft();
-                                            setFormError('');
+                                  ) : (
+                                    <div>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <input
+                                          value={simplifiedNewParticipantName}
+                                          onChange={(event) => setSimplifiedNewParticipantName(event.target.value)}
+                                          placeholder="Nombre"
+                                          className="h-11 min-w-[160px] flex-1 rounded-xl border border-p-border bg-p-surface px-3 text-[15px] outline-none focus:border-p-border-strong"
+                                        />
+                                        <input
+                                          autoFocus
+                                          inputMode="tel"
+                                          value={simplifiedNewParticipantPhoneDraft}
+                                          onChange={(event) =>
+                                            setSimplifiedNewParticipantContact(buildParticipantContactFromFields(event.target.value, ''))
                                           }
-                                        } catch (error: any) {
-                                          const normalized = normalizeApiError(error, 'No se pudo agregar el participante.');
-                                          setFormError(toUserSafeMessage(normalized.message, 'No se pudo agregar el participante.'));
-                                        }
-                                      }}
-                                      disabled={!hasValidSimplifiedNewParticipantName}
-                                      className={`h-10 min-w-[100px] rounded-xl px-4 text-[14px] font-semibold ${
-                                        hasValidSimplifiedNewParticipantName
-                                          ? 'bg-ink-900 text-ink-50 hover:bg-ink-900'
-                                          : 'bg-p-surface-3 text-p-text-muted'
-                                      }`}
-                                    >
-                                      Agregar
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={resetSimplifiedNewParticipantDraft}
-                                      className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[14px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
-                                    >
-                                      Cancelar
-                                    </button>
-                                  </div>
+                                          onKeyDown={(event) => {
+                                            if (event.key === 'Enter' && hasValidSimplifiedNewParticipantName) {
+                                              event.preventDefault();
+                                              void submitSimplifiedNewPlayerDraft();
+                                            }
+                                            if (event.key === 'Escape') {
+                                              event.preventDefault();
+                                              resetSimplifiedNewParticipantDraft();
+                                            }
+                                          }}
+                                          placeholder="Teléfono"
+                                          className="h-11 w-[150px] rounded-xl border border-p-border bg-p-surface px-3 text-[15px] outline-none focus:border-p-border-strong"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => void submitSimplifiedNewPlayerDraft()}
+                                          disabled={!hasValidSimplifiedNewParticipantName}
+                                          className="h-11 rounded-xl bg-ink-900 px-4 text-[14px] font-semibold text-ink-50 hover:bg-ink-800 disabled:opacity-50"
+                                        >
+                                          Agregar
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={resetSimplifiedNewParticipantDraft}
+                                          className="h-11 px-2 text-[13px] font-semibold text-p-text-muted hover:text-p-text"
+                                        >
+                                          Cancelar
+                                        </button>
+                                      </div>
+                                      <p className="mt-1.5 text-[12px] text-p-text-muted">
+                                        Con el teléfono queda guardado como cliente del club.
+                                      </p>
+                                    </div>
+                                  )}
+                                  {simplifiedNewPlayerError && (
+                                    <p className="mt-1.5 text-[12px] font-medium text-p-error">{simplifiedNewPlayerError}</p>
+                                  )}
                                 </div>
                               )}
                             </div>
