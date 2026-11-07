@@ -143,6 +143,7 @@ import { ADMIN_Z_INDEX_CLASS } from '../../utils/adminZIndex';
 import { AdminFeedbackBanner } from '../../components/admin/ui/AdminFeedback';
 import { showAdminToast } from '../../utils/adminToast';
 import { getActiveClubSlug, hasAdminAccess, hasOperatorAccess, normalizeSessionUser } from '../../utils/session';
+import type { AgendaPlayerSlotInfo } from '../../components/admin/agenda/AgendaPlayerSlotsSection';
 import AgendaPlayerSlotsSection from '../../components/admin/agenda/AgendaPlayerSlotsSection';
 import { normalizeApiError } from '../../utils/apiError';
 import { resolveBookingErrorBehavior } from '../../utils/bookingErrorMap';
@@ -1309,6 +1310,8 @@ export default function AdminAgendaPlaygroundPage() {
   );
   const [recurringCourtsMenuOpen, setRecurringCourtsMenuOpen] = useState(false);
   const [createCourtPickerOpen, setCreateCourtPickerOpen] = useState(false);
+  // Precio por jugador: precio y condición de cada jugador asignado (por nombre), para la lista de Jugadores.
+  const [playerSlotInfo, setPlayerSlotInfo] = useState<AgendaPlayerSlotInfo[]>([]);
   const [selectedClubIdState, setSelectedClubIdState] = useState<number>(0);
   const [activeClubTimeZone, setActiveClubTimeZone] = useState<string>('');
   const [bookingHoverPreview, setBookingHoverPreview] = useState<{
@@ -5660,9 +5663,7 @@ export default function AdminAgendaPlaygroundPage() {
   const simplifiedSectionTabs: Array<{ id: SimplifiedSidebarSection; label: string }> = [
     { id: 'DETAILS', label: 'Resumen' },
     { id: 'BILLING', label: 'Jugadores' },
-    ...(bookingKind === 'block'
-      ? []
-      : [{ id: 'CONSUMPTIONS' as const, label: 'Cuenta' }]),
+    // Cuenta y consumos viven en Resumen: una pestaña aparte repetía la deuda y el botón de cobrar.
     { id: 'HISTORY', label: 'Historial' },
   ];
   const consumptionProductOptions: ComboOption[] = consumptionProducts.map((product) => ({
@@ -5823,8 +5824,9 @@ export default function AdminAgendaPlaygroundPage() {
         year: 'numeric',
       }),
       timeLabel: value.toLocaleTimeString('es-AR', {
-        hour: 'numeric',
+        hour: '2-digit',
         minute: '2-digit',
+        hourCycle: 'h23',
       }),
     });
     const formatTimelineDateTime = (value: unknown): string => {
@@ -5835,7 +5837,27 @@ export default function AdminAgendaPlaygroundPage() {
       return `${parsed.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })} ${parsed.toLocaleTimeString('es-AR', {
         hour: '2-digit',
         minute: '2-digit',
+        hourCycle: 'h23',
       })}`;
+    };
+    /** "sáb 7 nov 08:30–10:30 · Cancha 1": el turno completo, para ver qué cambió al reprogramar. */
+    const formatTimelineSlot = (state: any): string => {
+      const start = new Date(String(state?.startDateTime || ''));
+      const end = new Date(String(state?.endDateTime || ''));
+      if (!Number.isFinite(start.getTime())) return '';
+      const time = (value: Date) =>
+        value.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+      const day = start
+        .toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
+        .replace(/,/g, '')
+        .replace(/\./g, '');
+      const courtName = effectiveCourts.find((court) => Number(court.id) === Number(state?.courtId))?.name;
+      return [
+        `${day} ${time(start)}${Number.isFinite(end.getTime()) ? `–${time(end)}` : ''}`,
+        courtName || '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
     };
     const formatBillingModeLabel = (mode: unknown): string => {
       const normalized = String(mode || '').trim().toUpperCase();
@@ -5987,17 +6009,10 @@ export default function AdminAgendaPlaygroundPage() {
         title = 'Reserva cancelada';
         detail = source ? `Origen: ${source}` : 'Reserva cancelada.';
       } else if (normalizedType === 'BOOKING_RESCHEDULED') {
-        const previousStart = formatTimelineDateTime((previousState as any)?.startDateTime);
-        const nextStart = formatTimelineDateTime((nextState as any)?.startDateTime);
-        const previousCourtId = Number((previousState as any)?.courtId || (payload as any)?.previousCourtId || 0);
-        const courtId = Number((nextState as any)?.courtId || (payload as any)?.courtId || 0);
-        title = 'Reserva reprogramada';
-        const detailParts = [
-          previousStart ? `Desde: ${previousStart}` : '',
-          nextStart ? `Hasta: ${nextStart}` : '',
-          previousCourtId > 0 && courtId > 0 && previousCourtId !== courtId ? `Cancha ${previousCourtId} -> ${courtId}` : '',
-        ].filter(Boolean);
-        detail = detailParts.length > 0 ? detailParts.join(' - ') : 'Reserva reprogramada.';
+        const previousSlot = formatTimelineSlot(previousState);
+        const nextSlot = formatTimelineSlot(nextState);
+        title = 'Horario cambiado';
+        detail = previousSlot && nextSlot ? `${previousSlot} → ${nextSlot}` : 'Reserva reprogramada.';
       } else if (normalizedType === 'BOOKING_CONFIRMED' || normalizedType === 'CONFIRMED') {
         const source = formatTimelineSourceLabel(event.source || (payload as any)?.source);
         title = 'Reserva confirmada';
@@ -6119,7 +6134,7 @@ export default function AdminAgendaPlaygroundPage() {
   const showSimplifiedConsumptionsSection =
     simplifiedIsEditingReservation &&
     bookingKind !== 'block' &&
-    simplifiedSidebarSection === 'CONSUMPTIONS';
+    (simplifiedSidebarSection === 'DETAILS' || simplifiedSidebarSection === 'CONSUMPTIONS');
   const showSimplifiedBillingSection =
     !simplifiedIsEditingReservation || simplifiedSidebarSection === 'BILLING';
   const showSimplifiedHistorySection =
@@ -8243,7 +8258,7 @@ export default function AdminAgendaPlaygroundPage() {
 
                       {showSimplifiedAccountSummary && (
                         <BookingAccountSummarySection
-                          title={simplifiedSidebarSection === 'DETAILS' ? 'Precio y pagos' : 'Cuenta'}
+                          title="Cuenta"
                           statusLabel={simplifiedPaymentStatusLabel}
                           showStatusBadge
                           showActionIcons
@@ -8268,7 +8283,7 @@ export default function AdminAgendaPlaygroundPage() {
                                 ? 'Confirmá la reserva para habilitar pagos.'
                                 : null
                           }
-                          className={simplifiedSidebarSection === 'DETAILS' ? 'mt-4' : 'mb-4'}
+                          className="mb-8"
                         />
                       )}
 
@@ -8449,14 +8464,15 @@ export default function AdminAgendaPlaygroundPage() {
                         refreshKey={persistedAdminParticipants}
                         canReprice={hasAdminAccess(user)}
                         onFormatDurationChange={handleBookingFormatDurationChange}
+                        onSlotsLoaded={setPlayerSlotInfo}
                       />
 
                       {/* Al crear, lo primero es quién reserva: horario y cancha ya vienen del clic en la grilla. */}
-                      <section className={simplifiedIsEditingReservation ? 'mt-4' : 'order-first'}>
-                        <div className={simplifiedIsEditingReservation ? 'rounded-xl border border-p-border bg-p-surface-2 p-4' : ''}>
+                      <section className={simplifiedIsEditingReservation ? '' : 'order-first'}>
+                        <div>
                           <div className="flex items-center justify-between gap-3">
-                            <p className="text-[18px] font-semibold text-p-text">
-                              {simplifiedIsEditingReservation || simplifiedOwnerAdded ? 'Participantes' : '¿Quién reserva?'}
+                            <p className={simplifiedIsEditingReservation ? 'text-[15px] font-semibold text-p-text' : 'text-[18px] font-semibold text-p-text'}>
+                              {simplifiedIsEditingReservation || simplifiedOwnerAdded ? 'Jugadores' : '¿Quién reserva?'}
                             </p>
                             {simplifiedOwnerAdded && !simplifiedNewParticipantOpen && (
                                 <button
@@ -8479,7 +8495,7 @@ export default function AdminAgendaPlaygroundPage() {
                                   }}
                                   className="text-[14px] font-semibold text-p-accent hover:text-p-accent"
                                 >
-                                  + Nuevo participante
+                                  + Agregar jugador
                                 </button>
                             )}
                           </div>
@@ -8487,8 +8503,11 @@ export default function AdminAgendaPlaygroundPage() {
                             <p className="mt-2 mb-3 text-[12px] font-medium text-p-error">{participantsFieldError}</p>
                           )}
                           {simplifiedOwnerAdded && simplifiedNamedParticipants.length > 0 ? (
-                            <div className="mt-3 space-y-3">
+                            <div className="mt-2 divide-y divide-p-border">
                               {simplifiedNamedParticipants.map((participant, index) => {
+                                const slotInfo = playerSlotInfo.find(
+                                  (info) => info.name.trim().toLowerCase() === participant.name.trim().toLowerCase()
+                                );
                                 const participantOrdinal = participant.isOwner
                                   ? null
                                   : simplifiedNamedParticipants
@@ -8504,20 +8523,29 @@ export default function AdminAgendaPlaygroundPage() {
                                   <div
                                     key={`simplified-participant-${participant.id}`}
                                     data-participant-shell-id={participant.id}
-                                    className="rounded-xl border border-p-border bg-p-surface px-3 py-3"
+                                    className="py-2.5"
                                   >
-                                    <div className="grid grid-cols-[42px_minmax(0,1fr)_32px] gap-2 items-start">
-                                      <div className="h-10 w-10 rounded-full bg-p-surface-2 text-p-text-secondary text-[14px] font-semibold grid place-items-center">
+                                    <div className="grid grid-cols-[36px_minmax(0,1fr)_auto_32px] gap-2.5 items-center">
+                                      <div className="h-9 w-9 rounded-full bg-p-surface-2 text-p-text-secondary text-[13px] font-semibold grid place-items-center">
                                         {participant.name.trim().charAt(0).toUpperCase() || 'P'}
                                       </div>
-                                      <div>
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                          <span className="inline-flex items-center rounded-full bg-p-positive-bg px-2.5 py-1 text-[11px] font-semibold text-p-accent">
-                                            {participant.isOwner ? 'Titular' : `Participante ${participantOrdinal}`}
-                                          </span>
-                                        </div>
-                                        <p className="text-[15px] font-semibold text-p-text">{participant.name}</p>
+                                      <div className="min-w-0">
+                                        <p className="truncate text-[14px] font-semibold text-p-text">
+                                          {participant.name}
+                                          {participant.isOwner && (
+                                            <span className="ml-2 align-middle text-[11px] font-semibold text-p-accent">Titular</span>
+                                          )}
+                                        </p>
+                                        {slotInfo && (
+                                          <p className="text-[12px] text-p-text-muted">
+                                            {slotInfo.conditionLabel}
+                                            {slotInfo.isFrozen ? ' · pagado' : ''}
+                                          </p>
+                                        )}
                                       </div>
+                                      <span className="text-[14px] font-semibold tabular-nums text-p-text">
+                                        {slotInfo ? formatMoney(slotInfo.shareAmount) : ''}
+                                      </span>
                                       {showParticipantActions && (
                                         <button
                                           type="button"

@@ -11,7 +11,7 @@ import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
 import { showAdminToast } from '../../../utils/adminToast';
 
 const formatMoney = (amount: number) =>
-  `$ ${Number(amount || 0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  `$${Number(amount || 0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
 type AgendaPlayerSlotsSectionProps = {
   clubSlug: string;
@@ -27,7 +27,25 @@ type AgendaPlayerSlotsSectionProps = {
   onPricesChanged?: () => void;
   // Avisa la duración fija de la modalidad elegida (null = la de la actividad) para ajustar la selección.
   onFormatDurationChange?: (durationMinutes: number | null) => void;
+  /** Avisa precio y condición de cada jugador asignado, para mostrarlos en la lista de jugadores. */
+  onSlotsLoaded?: (slots: AgendaPlayerSlotInfo[]) => void;
 };
+
+export type AgendaPlayerSlotInfo = {
+  name: string;
+  shareAmount: number;
+  conditionLabel: string;
+  isFrozen: boolean;
+};
+
+const slotConditionLabel = (slot: AdminBookingSlots['slots'][number]) =>
+  slot.isEmpty
+    ? 'No socio'
+    : slot.pricingMemberCategoryName
+      ? `Socio ${slot.pricingMemberCategoryName}`
+      : slot.memberPricePending
+        ? 'Socio · falta validar'
+        : 'No socio';
 
 const chipClass = (active: boolean) =>
   `h-8 rounded-lg border px-3 text-[12px] font-semibold transition ${active ? 'border-ink-900 bg-ink-900 !text-ink-50' : 'border-p-border text-p-text hover:bg-p-surface-2'}`;
@@ -45,7 +63,8 @@ export default function AgendaPlayerSlotsSection({
   refreshKey,
   canReprice,
   onPricesChanged,
-  onFormatDurationChange
+  onFormatDurationChange,
+  onSlotsLoaded
 }: AgendaPlayerSlotsSectionProps) {
   const [pricingMode, setPricingMode] = useState<ClubPricingMode>('PER_COURT');
   const [formats, setFormats] = useState<ActivityFormat[]>([]);
@@ -106,6 +125,23 @@ export default function AgendaPlayerSlotsSection({
     void loadSlots();
   }, [loadSlots, refreshKey]);
 
+  const onSlotsLoadedRef = useRef(onSlotsLoaded);
+  useEffect(() => {
+    onSlotsLoadedRef.current = onSlotsLoaded;
+  }, [onSlotsLoaded]);
+  useEffect(() => {
+    if (!onSlotsLoadedRef.current) return;
+    const filled = (slotsData?.perPlayer ? slotsData.slots : []).filter((slot) => !slot.isEmpty);
+    onSlotsLoadedRef.current(
+      filled.map((slot) => ({
+        name: String(slot.displayName || ''),
+        shareAmount: Number(slot.shareAmount || 0),
+        conditionLabel: slotConditionLabel(slot),
+        isFrozen: Boolean(slot.isFrozen)
+      }))
+    );
+  }, [slotsData]);
+
   const runAction = async (action: string, fn: () => Promise<unknown>, message: string) => {
     try {
       setBusy(true);
@@ -147,69 +183,53 @@ export default function AgendaPlayerSlotsSection({
 
   if (!slotsData?.perPlayer) return null;
   const total = slotsData.slots.reduce((sum, slot) => sum + slot.shareAmount, 0);
+  const emptySlots = slotsData.slots.filter((slot) => slot.isEmpty);
+  const pendingValidation = slotsData.slots.filter((slot) => !slot.isEmpty && slot.memberPricePending && !slot.isFrozen);
 
   return (
-    <section className="mt-4 rounded-xl border border-p-border bg-p-surface-2 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[13px] font-semibold text-p-text">
-          Jugadores · {slotsData.activityFormat?.name} ({slotsData.playerCount})
+    <section className="mb-4">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-[13px] text-p-text-muted">
+          {slotsData.activityFormat?.name} · {slotsData.playerCount} jugadores ·{' '}
+          <span className="font-semibold text-p-text">{formatMoney(total)}</span>
+          {Number(slotsData.memberBenefitAmount || 0) > 0
+            ? ` · beneficio socio ${formatMoney(Number(slotsData.memberBenefitAmount))}`
+            : ''}
         </p>
         {canReprice ? (
           <button
             type="button"
             className={buttonClass}
             disabled={busy}
-            title="Recalcula las partes sin pagos con la condición actual de cada jugador"
-            onClick={() => void runAction('reprice', () => PlayerPricingService.reprice(bookingId), 'Precios recalculados.')}
+            title="Vuelve a calcular el precio de los lugares sin pagos con la condición actual de cada jugador"
+            onClick={() => void runAction('reprice', () => PlayerPricingService.reprice(bookingId), 'Precios actualizados.')}
           >
-            <RefreshCw size={12} /> Recalcular
+            <RefreshCw size={12} /> Actualizar precios
           </button>
         ) : null}
       </div>
       {error ? <div className="mt-2"><AdminFeedbackBanner tone="error" compact>{error}</AdminFeedbackBanner></div> : null}
-      <ul className="mt-2 divide-y divide-p-border text-[12px]">
-        {slotsData.slots.map((slot) => (
-          <li key={slot.slotIndex} className="flex items-center justify-between gap-2 py-1.5">
-            <div className="min-w-0">
-              <span className="font-semibold text-p-text">
-                {slot.slotIndex}. {slot.isEmpty ? 'Sin asignar' : slot.displayName || 'Jugador'}
-              </span>
-              <span className="ml-2 text-p-text-muted">
-                {slot.isEmpty
-                  ? 'No socio'
-                  : slot.pricingMemberCategoryName
-                    ? `Socio ${slot.pricingMemberCategoryName}`
-                    : slot.memberPricePending
-                      ? 'Socio · precio pendiente de validar'
-                      : 'No socio'}
-              </span>
-              {slot.isFrozen ? <span className="ml-2 text-p-accent">pagado</span> : null}
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {slot.memberPricePending && !slot.isFrozen ? (
-                <button
-                  type="button"
-                  className={buttonClass}
-                  disabled={busy}
-                  title="Validar presencialmente (carnet o DNI) para aplicar el precio socio"
-                  onClick={() =>
-                    void runAction('validateMember', () => PlayerPricingService.validateMember(bookingId, slot.slotIndex), 'Socio validado.')
-                  }
-                >
-                  <BadgeCheck size={12} /> Validar socio
-                </button>
-              ) : null}
-              <span className="font-semibold text-p-text">{formatMoney(slot.shareAmount)}</span>
-            </div>
-          </li>
-        ))}
-      </ul>
-      <div className="mt-2 flex justify-between border-t border-p-border pt-2 text-[12px]">
-        <span className="text-p-text-muted">
-          {Number(slotsData.memberBenefitAmount || 0) > 0 ? `Beneficio socio: ${formatMoney(Number(slotsData.memberBenefitAmount))}` : ''}
-        </span>
-        <span className="font-semibold text-p-text">Total {formatMoney(total)}</span>
-      </div>
+      {pendingValidation.map((slot) => (
+        <div key={`validate-${slot.slotIndex}`} className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-p-warning-bg px-3 py-2 text-[12px] text-p-warning">
+          <span>{slot.displayName || 'Jugador'} dice ser socio: validalo con carnet o DNI.</span>
+          <button
+            type="button"
+            className={buttonClass}
+            disabled={busy}
+            onClick={() =>
+              void runAction('validateMember', () => PlayerPricingService.validateMember(bookingId, slot.slotIndex), 'Socio validado.')
+            }
+          >
+            <BadgeCheck size={12} /> Validar
+          </button>
+        </div>
+      ))}
+      {emptySlots.length > 0 && (
+        <p className="mt-1 text-[12px] text-p-text-muted">
+          {emptySlots.length === 1 ? 'Falta 1 jugador' : `Faltan ${emptySlots.length} jugadores`}: cada lugar vacío se cobra{' '}
+          {formatMoney(emptySlots[0].shareAmount)} (no socio).
+        </p>
+      )}
     </section>
   );
 }
