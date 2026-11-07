@@ -49,6 +49,7 @@ import {
   type ClubActivityType,
   type PersonSearchResult,
 } from '../../services/ClubAdminService';
+import { ClientService } from '../../services/ClientService';
 import { getApiFieldErrors, normalizeApiError } from '../../utils/apiError';
 import { showAdminToast } from '../../utils/adminToast';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
@@ -609,10 +610,8 @@ const personBadges = (row: { badges?: string[] | null }) =>
 
 const buildStudentCandidate = (row: PersonSearchResult): EnrollmentPersonOption => {
   if (row.kind === 'newClientSuggestion') {
-    return {
-      ...row,
-      disabledReason: 'La creación de clientes desde clases todavía no está disponible. Usá Clientes.',
-    };
+    // Se crea como cliente del club al anotarlo.
+    return { ...row, badges: ['No está cargado: se crea al anotarlo'] };
   }
   if (!row.clientId) {
     return {
@@ -878,6 +877,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
   const [editingEnrollmentId, setEditingEnrollmentId] = useState<string | null>(null);
   const [enrollmentDrawerTab, setEnrollmentDrawerTab] = useState<EnrollmentDrawerTab>('summary');
   const [enrollmentForm, setEnrollmentForm] = useState<EnrollmentFormState>(() => buildEmptyEnrollmentForm());
+  const [newStudentPhone, setNewStudentPhone] = useState('');
+  const [enrollmentOtherPayer, setEnrollmentOtherPayer] = useState(false);
   const [enrollmentFormError, setEnrollmentFormError] = useState('');
   const [enrollmentFieldErrors, setEnrollmentFieldErrors] = useState<Record<string, string>>({});
   const [enrollmentSubmitting, setEnrollmentSubmitting] = useState(false);
@@ -1437,6 +1438,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
 
   const openEnrollmentCreateModal = useCallback(() => {
     resetEnrollmentForm();
+    setNewStudentPhone('');
+    setEnrollmentOtherPayer(false);
     setEnrollmentDrawerTab('summary');
     setEnrollmentModalOpen(true);
   }, [resetEnrollmentForm]);
@@ -1633,9 +1636,15 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     event.preventDefault();
     if (!clubSlug || !selectedClass || enrollmentSubmitting) return;
 
-    if (!enrollmentForm.selectedStudent?.clientId) {
-      setEnrollmentFormError('Seleccioná un alumno explícitamente desde PersonSearch.');
-      setEnrollmentFieldErrors({ studentClientId: 'Elegí un alumno del club.' });
+    const pendingNewStudent =
+      !editingEnrollmentId &&
+      enrollmentForm.selectedStudent?.kind === 'newClientSuggestion' &&
+      !enrollmentForm.selectedStudent.clientId
+        ? enrollmentForm.selectedStudent
+        : null;
+    if (!enrollmentForm.selectedStudent?.clientId && !pendingNewStudent) {
+      setEnrollmentFormError('Elegí quién viene a la clase.');
+      setEnrollmentFieldErrors({ studentClientId: 'Buscalo por nombre o teléfono.' });
       return;
     }
 
@@ -1657,13 +1666,25 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         }
         showAdminToast('Inscripción actualizada.');
       } else {
+        let studentClientId = enrollmentForm.selectedStudent?.clientId || '';
+        if (pendingNewStudent) {
+          const phone = newStudentPhone.trim() || pendingNewStudent.phone || '';
+          const created = await ClientService.createByClubSlug(clubSlug, {
+            name: pendingNewStudent.displayName.trim(),
+            ...(phone ? { phone } : {}),
+            ...(pendingNewStudent.email ? { email: pendingNewStudent.email } : {}),
+          });
+          studentClientId = String(created?.id || created?.client?.id || '');
+          if (!studentClientId) throw new Error('No se pudo crear el cliente.');
+        }
         await ClubAdminService.createClassEnrollment(clubSlug, selectedClass.id, {
-          studentClientId: enrollmentForm.selectedStudent.clientId,
-          studentUserId: enrollmentForm.selectedStudentUser?.userId ?? enrollmentForm.selectedStudent.userId ?? null,
-          billingResponsibleClientId: enrollmentForm.selectedResponsible?.clientId ?? null,
+          studentClientId,
+          studentUserId: enrollmentForm.selectedStudentUser?.userId ?? enrollmentForm.selectedStudent?.userId ?? null,
+          billingResponsibleClientId: enrollmentOtherPayer ? enrollmentForm.selectedResponsible?.clientId ?? null : null,
           notes: normalizeOptionalText(enrollmentForm.notes),
         });
-        showAdminToast('Alumno agregado a la clase.');
+        showAdminToast(pendingNewStudent ? 'Cliente creado y anotado.' : 'Alumno anotado.');
+        if (typeof window !== 'undefined') window.dispatchEvent(new Event('academy:changed'));
       }
 
       closeEnrollmentModalImmediately();
@@ -2660,20 +2681,24 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       <AdminDrawer
         open={enrollmentModalOpen && !classPassDrawerOpen}
         onClose={closeEnrollmentModal}
-        title={editingEnrollmentId ? 'Gestionar inscripción' : 'Agregar alumno'}
-        subtitle={
+        title={
           editingEnrollmentId
-            ? 'Resolvé asistencia, créditos y cuenta sin perder el contexto de esta clase.'
-            : 'Seleccioná explícitamente al alumno y, si corresponde, un responsable de pago opcional.'
+            ? enrollmentForm.selectedStudent?.displayName || 'Alumno'
+            : 'Anotar alumno'
+        }
+        subtitle={
+          selectedClass
+            ? `${selectedClass.activityType?.name || 'Clase'} · ${formatClassWhen(selectedClass.startsAt, selectedClass.endsAt)}`
+            : undefined
         }
         size="lg"
         tabs={
           enrollmentDrawerShowsTabs
             ? [
-                { id: 'summary', label: 'Resumen' },
-                { id: 'credits', label: 'Créditos' },
-                { id: 'account', label: 'Cuenta' },
-                { id: 'traceability', label: 'Trazabilidad' },
+                { id: 'summary', label: 'Datos' },
+                { id: 'account', label: 'Cobro' },
+                { id: 'credits', label: 'Pack' },
+                { id: 'traceability', label: 'Historial' },
               ]
             : undefined
         }
@@ -2694,7 +2719,13 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
               disabled={enrollmentSubmitting}
               className="inline-flex h-9 items-center justify-center rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800 disabled:cursor-wait disabled:opacity-70"
             >
-              {enrollmentSubmitting ? 'Guardando...' : editingEnrollmentId ? 'Guardar inscripción' : 'Agregar alumno'}
+              {enrollmentSubmitting
+                ? 'Guardando...'
+                : editingEnrollmentId
+                  ? 'Guardar'
+                  : enrollmentForm.selectedStudent?.kind === 'newClientSuggestion' && !enrollmentForm.selectedStudent.clientId
+                    ? 'Crear y anotar'
+                    : 'Anotar'}
             </button>
           </div>
         }
@@ -2703,14 +2734,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           {enrollmentFormError && <AdminInlineError>{enrollmentFormError}</AdminInlineError>}
 
           {showEnrollmentSummaryTab ? (
-          <AdminDrawerSection title="Identidad y responsable" className={drawerSectionCardClass}>
+          <AdminDrawerSection title={editingEnrollmentId ? 'Alumno' : '¿Quién viene?'} className={drawerSectionCardClass}>
             <div className="space-y-4">
-              <div className={helperCardClass}>
-                <p className="font-semibold text-p-text">Alumno y responsable no son lo mismo</p>
-                <p className="mt-1">
-                  Alumno es quien toma la clase. Responsable es quien paga o administra, y puede ser otra persona.
-                </p>
-              </div>
 
               {editingEnrollmentId ? (
                 <div className="rounded-xl border border-p-border bg-p-surface px-4 py-3">
@@ -2724,9 +2749,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                 </div>
               ) : (
                 <PersonSearchSelectField
-                  label="Alumno"
-                  required
-                  placeholder="Buscar alumno por nombre, teléfono o email..."
+                  label="Nombre o teléfono"
+                  placeholder="Ej: Juan o 351..."
                   selected={enrollmentForm.selectedStudent}
                   query={enrollmentForm.studentQuery}
                   onQueryChange={(value) => setEnrollmentForm((prev) => ({ ...prev, studentQuery: value }))}
@@ -2751,13 +2775,28 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                     }))
                   }
                   error={enrollmentFieldErrors.studentClientId}
-                  helper="Solo se pueden inscribir clientes del club. Si la búsqueda sugiere crear uno nuevo, hacelo primero desde Clientes."
+                  helper="Si no está cargado, escribí el nombre completo y elegí la opción para crearlo."
                 />
               )}
 
+              {!editingEnrollmentId &&
+              enrollmentForm.selectedStudent?.kind === 'newClientSuggestion' &&
+              !enrollmentForm.selectedStudent.clientId ? (
+                <Field
+                  label="Teléfono (opcional)"
+                  type="tel"
+                  value={newStudentPhone}
+                  onChange={setNewStudentPhone}
+                  placeholder="351 555 1234"
+                  hint="Se crea como cliente del club al anotarlo."
+                  inputClassName={fieldInputClass}
+                />
+              ) : null}
+
+              {editingEnrollmentId ? (
               <PersonSearchSelectField
-                label="Usuario del alumno"
-                placeholder="Buscar usuario explícito del alumno..."
+                label="Cuenta en la app (opcional)"
+                placeholder="Buscar por email..."
                 selected={enrollmentForm.selectedStudentUser}
                 query={enrollmentForm.studentUserQuery}
                 onQueryChange={(value) => setEnrollmentForm((prev) => ({ ...prev, studentUserQuery: value }))}
@@ -2778,13 +2817,22 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                   }))
                 }
                 error={enrollmentFieldErrors.studentUserId}
-                helper="Opcional. Se guarda solo por selección explícita y no crea vínculos automáticos."
-                disabled={!editingEnrollmentId && !enrollmentForm.selectedStudent}
+                helper="Si el alumno usa la app, así ve esta clase en su celular."
               />
+              ) : null}
 
+              {!editingEnrollmentId ? (
+                <CheckboxField
+                  label="Paga otra persona (ej: la madre o el padre)"
+                  checked={enrollmentOtherPayer}
+                  onChange={setEnrollmentOtherPayer}
+                />
+              ) : null}
+
+              {editingEnrollmentId || enrollmentOtherPayer ? (
               <PersonSearchSelectField
-                label="Responsable de pago"
-                placeholder="Buscar responsable opcional..."
+                label="Quién paga"
+                placeholder="Buscar por nombre o teléfono..."
                 selected={enrollmentForm.selectedResponsible}
                 query={enrollmentForm.responsibleQuery}
                 onQueryChange={(value) => setEnrollmentForm((prev) => ({ ...prev, responsibleQuery: value }))}
@@ -2805,14 +2853,15 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                   }))
                 }
                 error={enrollmentFieldErrors.billingResponsibleClientId}
-                helper="Opcional. Puede ser distinto del alumno y en esta fase solo se valida que pertenezca al club."
+                helper={editingEnrollmentId ? 'Opcional. Si está vacío, paga el alumno.' : 'Tiene que estar cargado como cliente del club.'}
               />
+              ) : null}
             </div>
           </AdminDrawerSection>
           ) : null}
 
           {showEnrollmentSummaryTab ? (
-          <AdminDrawerSection title="Asistencia y notas" className={drawerSectionCardClass}>
+          <AdminDrawerSection title={editingEnrollmentId ? 'Asistencia y notas' : 'Notas'} className={drawerSectionCardClass}>
             <div className="space-y-4">
               {editingEnrollmentId ? (
                 <SelectField
@@ -2828,29 +2877,22 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                   options={attendanceOptions}
                   inputClassName={fieldInputClass}
                 />
-              ) : (
-                <div className={helperCardClass}>
-                  <p className="font-semibold text-p-text">Asistencia inicial</p>
-                  <p className="mt-1">
-                    Las nuevas inscripciones arrancan como pendiente. La asistencia se gestiona después desde la edición del alumno.
-                  </p>
-                </div>
-              )}
+              ) : null}
 
               <TextAreaField
-                label="Notas"
+                label="Notas (opcional)"
                 value={enrollmentForm.notes}
                 onChange={(value) => setEnrollmentForm((prev) => ({ ...prev, notes: value }))}
                 error={enrollmentFieldErrors.notes}
-                placeholder="Notas operativas sobre esta inscripción."
+                placeholder="Ej: viene con paleta propia, avisar si se suspende."
                 inputClassName={`${fieldInputClass} min-h-[112px] py-2`}
               />
             </div>
           </AdminDrawerSection>
           ) : null}
 
-          {showEnrollmentCreditsTab ? (
-          <AdminDrawerSection title="Créditos" className={drawerSectionCardClass}>
+          {showEnrollmentCreditsTab && editingEnrollmentId ? (
+          <AdminDrawerSection title="Pack" className={drawerSectionCardClass}>
             {!editingEnrollmentId || !editingEnrollment || !editingEnrollmentForCredit ? (
               <div className={helperCardClass}>
                 <p className="font-semibold text-p-text">Créditos después de guardar</p>

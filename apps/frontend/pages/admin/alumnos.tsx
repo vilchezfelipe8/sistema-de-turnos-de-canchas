@@ -1,7 +1,7 @@
 import type { GetServerSideProps } from 'next';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, Users } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import {
   AcademyEmptyState,
   AcademyStatusBadge,
@@ -15,15 +15,12 @@ import {
 import AdminRouteShell from '../../components/admin/AdminRouteShell';
 import {
   AdminAppModal,
-  AdminDataTable,
   AdminDrawer,
-  AdminDrawerSection,
-  type AdminDataTableColumn,
   AdminFeedbackBanner,
   AdminFilterToolbar,
   AdminInlineError,
-  MetricCard,
   AdminPanel,
+  AdminSegmentedControl,
 } from '../../components/admin/ui';
 import {
   ClubAdminService,
@@ -161,6 +158,60 @@ const creditUsageReasonLabel = (value: string) => {
   }
 };
 
+const formatClassDay = (iso: string) => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date
+    .toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
+    .replace(/\./g, '')
+    .replace(',', '');
+};
+
+const formatClassTime = (iso: string) => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+};
+
+/** "sáb 14 nov · 15:30" */
+const formatClassWhen = (iso: string) => `${formatClassDay(iso)} · ${formatClassTime(iso)}`;
+
+const formatShortDate = (iso: string | null) => {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace(/\./g, '');
+};
+
+type StudentFilter = 'all' | 'upcoming' | 'credits';
+
+const PACK_SIZE_CHOICES = [4, 8, 12];
+
+const enrollmentPaymentText = (row: { paymentStatus: string; priceAtEnrollment: number; paidAmount: number }) => {
+  if (row.paymentStatus === 'COVERED_BY_CREDIT') return 'Pagó con pack';
+  if (row.paymentStatus === 'PAID') return 'Pagó';
+  if (row.paymentStatus === 'REFUNDED') return 'Se le devolvió';
+  const owed = Math.max(0, Number(row.priceAtEnrollment || 0) - Number(row.paidAmount || 0));
+  return owed > 0 ? `Debe ${formatCurrency(owed)}` : 'Sin cargo';
+};
+
+const enrollmentAttendanceText = (row: { attendanceStatus: string; enrollmentStatus: string }) => {
+  if (row.enrollmentStatus === 'CANCELLED') return 'Se bajó';
+  switch (row.attendanceStatus) {
+    case 'ATTENDED':
+      return 'Vino';
+    case 'ABSENT':
+    case 'NO_SHOW':
+      return 'Faltó';
+    case 'CANCELLED_ON_TIME':
+      return 'Avisó que no venía';
+    case 'CANCELLED_LATE':
+      return 'Avisó tarde';
+    default:
+      return 'Sin marcar';
+  }
+};
+
 const personSecondaryLine = (row: { email?: string | null; phone?: string | null }) =>
   String(row.phone || '').trim() || String(row.email || '').trim() || 'Sin contacto cargado';
 
@@ -179,6 +230,7 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
   const [students, setStudents] = useState<AdminAcademyStudentListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [studentFilter, setStudentFilter] = useState<StudentFilter>('all');
   const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [studentDrawerTab, setStudentDrawerTab] = useState<'summary' | 'classes' | 'credits'>('summary');
@@ -259,18 +311,20 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
   const submitStudentPackForm = useCallback(async () => {
     if (!clubSlug || !overview || studentPackSubmitting) return;
 
-    const packageName = studentPackForm.packageName.trim();
     const totalCredits = Number(studentPackForm.totalCredits);
+    const packageName =
+      studentPackForm.packageName.trim() ||
+      (Number.isInteger(totalCredits) && totalCredits > 0 ? `Pack ${totalCredits} clase${totalCredits === 1 ? '' : 's'}` : '');
     const parsedPrice = studentPackForm.priceAtPurchase.trim() ? Number(studentPackForm.priceAtPurchase) : null;
     const expiresAt = studentPackForm.expiresAt ? new Date(`${studentPackForm.expiresAt}T23:59:59`).toISOString() : null;
 
     if (packageName.length < 2) {
-      setStudentPackError('Elegí un nombre claro para el pack.');
+      setStudentPackError('Poné cuántas clases trae el pack.');
       return;
     }
 
     if (!Number.isInteger(totalCredits) || totalCredits <= 0) {
-      setStudentPackError('La cantidad de créditos debe ser un entero mayor a 0.');
+      setStudentPackError('Poné cuántas clases trae el pack.');
       return;
     }
 
@@ -294,7 +348,9 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
         notes: studentPackForm.notes.trim() || null,
       });
 
-      showAdminToast('Pack asignado al alumno.');
+      showAdminToast('Pack cargado.');
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('academy:changed'));
+      void loadStudents(searchTerm);
       setStudentPackModalOpen(false);
       setStudentPackForm(buildEmptyStudentPackForm());
       setStudentPackError('');
@@ -305,7 +361,7 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
     } finally {
       setStudentPackSubmitting(false);
     }
-  }, [clubSlug, loadOverview, overview, studentPackForm, studentPackSubmitting]);
+  }, [clubSlug, loadOverview, loadStudents, overview, searchTerm, studentPackForm, studentPackSubmitting]);
 
   useEffect(() => {
     const query = searchTerm.trim();
@@ -359,83 +415,26 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
     [selectedStudentId, students]
   );
 
-  const columns = useMemo<AdminDataTableColumn<AdminAcademyStudentListItem>[]>(
-    () => [
-      {
-        key: 'student',
-        label: 'Alumno',
-        render: (row) => (
-          <div className="min-w-0">
-            <p className="truncate font-semibold text-p-text">{row.client.name}</p>
-            <p className="mt-0.5 text-[12px] text-p-text-muted">{personSecondaryLine(row.client)}</p>
-            <div className="mt-1 flex flex-wrap gap-1">
-              {row.client.linkedUser ? (
-                <AcademyStatusBadge label="Usuario Pique" tone="info" />
-              ) : null}
-              {row.summary.incomingRelationshipsCount > 0 ? (
-                <AcademyStatusBadge
-                  label={`${row.summary.incomingRelationshipsCount} responsable${row.summary.incomingRelationshipsCount === 1 ? '' : 's'}`}
-                  tone="neutral"
-                />
-              ) : null}
-            </div>
-          </div>
-        ),
-      },
-      {
-        key: 'classes',
-        label: 'Clases',
-        width: 'w-[170px]',
-        render: (row) => (
-          <div className="text-[12px] text-p-text-secondary">
-            <p className="font-medium text-p-text">{row.summary.upcomingEnrollmentsCount} próximas</p>
-            <p className="mt-0.5 text-p-text-muted">{row.summary.pastEnrollmentsCount} pasadas</p>
-          </div>
-        ),
-      },
-      {
-        key: 'credits',
-        label: 'Créditos',
-        width: 'w-[150px]',
-        render: (row) => (
-          <div className="text-[12px] text-p-text-secondary">
-            <p className="font-medium text-p-text">{row.summary.totalRemainingCredits} disponibles</p>
-            <p className="mt-0.5 text-p-text-muted">{row.summary.activePassesCount} pack{row.summary.activePassesCount === 1 ? '' : 's'} activo{row.summary.activePassesCount === 1 ? '' : 's'}</p>
-          </div>
-        ),
-      },
-      {
-        key: 'activity',
-        label: 'Actividad',
-        render: (row) => (
-          <div className="text-[12px] text-p-text-secondary">
-            <p>Próxima: {formatDateTime(row.nextClassAt)}</p>
-            <p className="mt-0.5 text-p-text-muted">Última: {formatDateTime(row.lastClassAt)}</p>
-          </div>
-        ),
-      },
-      {
-        key: 'actions',
-        label: '',
-        align: 'right',
-        isActions: true,
-        width: 'w-[150px]',
-        render: (row) => (
-          <div className="flex items-center justify-end">
-            <button
-              type="button"
-              onClick={() => setSelectedStudentId(row.client.id)}
-              className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 shadow-sm transition hover:bg-ink-800"
-            >
-              <Users size={13} />
-              Ver alumno
-            </button>
-          </div>
-        ),
-      },
-    ],
-    []
-  );
+  const visibleStudents = useMemo(() => {
+    if (studentFilter === 'upcoming') return students.filter((row) => row.summary.upcomingEnrollmentsCount > 0);
+    if (studentFilter === 'credits') return students.filter((row) => row.summary.totalRemainingCredits > 0);
+    return students;
+  }, [studentFilter, students]);
+
+  const closeStudentDrawer = () => {
+    setSelectedStudentId(null);
+    setOverview(null);
+    setOverviewError('');
+    setStudentPackModalOpen(false);
+    setStudentPackForm(buildEmptyStudentPackForm());
+    setStudentPackError('');
+  };
+
+  const openPackModal = () => {
+    setStudentPackForm(buildEmptyStudentPackForm());
+    setStudentPackError('');
+    setStudentPackModalOpen(true);
+  };
 
   return (
     <div
@@ -467,11 +466,23 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
         headerClassName={academyPanelHeaderClass}
         actions={
           <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-2 sm:flex-nowrap sm:justify-end">
-            <div className="relative w-full sm:w-[320px] sm:flex-none">
+            <AdminSegmentedControl
+              options={[
+                { value: 'all', label: 'Todos' },
+                { value: 'upcoming', label: 'Con clases' },
+                { value: 'credits', label: 'Con pack' },
+              ]}
+              value={studentFilter}
+              onChange={(value) => setStudentFilter(value as StudentFilter)}
+              ariaLabel="Qué alumnos ver"
+              density="compact"
+              className="w-fit"
+            />
+            <div className="relative w-full sm:w-[260px] sm:flex-none">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-p-text-muted" size={14} strokeWidth={2.5} />
               <input
                 type="text"
-                placeholder="Buscar por nombre, teléfono o email..."
+                placeholder="Buscar por nombre o teléfono..."
                 className="h-8 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[12px] text-p-text placeholder:text-p-text-muted outline-none transition focus:border-p-accent"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
@@ -480,307 +491,202 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
           </AdminFilterToolbar>
         }
       >
-        <AdminDataTable
-          columns={columns}
-          data={students}
-          rowKey={(row) => row.client.id}
-          loading={loading}
-          onRowClick={(row) => setSelectedStudentId(row.client.id)}
-          rowClassName={(row) =>
-            row.client.id === selectedStudentId ? 'bg-p-surface-2/80 ring-1 ring-inset ring-p-border-strong' : ''
-          }
-          empty={{
-            title: searchTerm.trim() ? 'No encontramos alumnos con ese criterio' : 'Todavía no hay alumnos',
-            description: searchTerm.trim()
-              ? 'Probá con otro nombre, teléfono o email.'
-              : 'Aparecen acá cuando anotás a alguien en una clase o le vendés un pack.',
-          }}
-        />
+        {loading && students.length === 0 ? (
+          <div className="px-4 py-12 text-center">
+            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-p-border border-t-p-accent" />
+          </div>
+        ) : visibleStudents.length === 0 ? (
+          <div className="p-4 lg:p-5">
+            <AcademyEmptyState
+              title={
+                searchTerm.trim()
+                  ? 'No hay alumnos con esa búsqueda'
+                  : studentFilter === 'upcoming'
+                    ? 'Nadie tiene clases próximas'
+                    : studentFilter === 'credits'
+                      ? 'Nadie tiene clases a favor'
+                      : 'Todavía no hay alumnos'
+              }
+              description={
+                searchTerm.trim() || studentFilter !== 'all'
+                  ? undefined
+                  : 'Aparecen acá cuando anotás a alguien en una clase o le vendés un pack.'
+              }
+            />
+          </div>
+        ) : (
+          <ul className="divide-y divide-p-border">
+            {visibleStudents.map((row) => {
+              const selected = row.client.id === selectedStudentId;
+              return (
+                <li key={row.client.id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedStudentId(row.client.id)}
+                    className={`flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-p-surface-2 lg:px-5 ${
+                      selected ? 'bg-p-surface-2' : ''
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[14px] font-semibold text-p-text">{row.client.name}</p>
+                      <p className="truncate text-[12px] text-p-text-muted">
+                        {row.nextClassAt
+                          ? `Próxima: ${formatClassWhen(row.nextClassAt)}`
+                          : row.lastClassAt
+                            ? `Última clase: ${formatShortDate(row.lastClassAt)}`
+                            : 'Sin clases todavía'}
+                      </p>
+                    </div>
+                    {row.summary.totalRemainingCredits > 0 ? (
+                      <div className="flex-none text-right">
+                        <p className="text-[14px] font-semibold text-p-text">{row.summary.totalRemainingCredits}</p>
+                        <p className="text-[11px] text-p-text-muted">
+                          {row.summary.totalRemainingCredits === 1 ? 'clase a favor' : 'clases a favor'}
+                        </p>
+                      </div>
+                    ) : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </AdminPanel>
 
       <AdminDrawer
         open={Boolean(selectedStudentId)}
-        onClose={() => {
-          setSelectedStudentId(null);
-          setStudentDrawerTab('summary');
-          setOverview(null);
-          setOverviewError('');
-          setStudentPackModalOpen(false);
-          setStudentPackForm(buildEmptyStudentPackForm());
-          setStudentPackError('');
-        }}
+        onClose={closeStudentDrawer}
         title={overview?.client.name || selectedStudentListRow?.client.name || 'Alumno'}
-        subtitle="Resumen rápido de clases, asistencia, packs, consumos y vínculos relevantes de Academia."
+        subtitle={
+          overview
+            ? [overview.client.phone, overview.client.email].filter(Boolean).join(' · ') || 'Sin teléfono ni email'
+            : undefined
+        }
         size="lg"
-        tabs={[
-          { id: 'summary', label: 'Resumen' },
-          { id: 'classes', label: 'Clases' },
-          { id: 'credits', label: 'Créditos' },
-        ]}
-        activeTabId={studentDrawerTab}
-        onTabChange={(id) => setStudentDrawerTab(id as 'summary' | 'classes' | 'credits')}
         footer={
           <div className="flex justify-end">
             <button
               type="button"
-              onClick={() => {
-                setSelectedStudentId(null);
-                setStudentDrawerTab('summary');
-                setOverview(null);
-                setOverviewError('');
-                setStudentPackModalOpen(false);
-                setStudentPackForm(buildEmptyStudentPackForm());
-                setStudentPackError('');
-              }}
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-p-border px-3 text-sm font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
+              onClick={openPackModal}
+              disabled={!overview}
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-60"
             >
-              Cerrar
+              <Plus size={14} />
+              Cargar pack de clases
             </button>
           </div>
         }
       >
-        {overviewLoading ? (
-          <div className="rounded-[22px] border border-p-border bg-p-surface-2 p-5 text-sm text-p-text-secondary">
-            Cargando resumen académico del alumno...
+        {overviewLoading && !overview ? (
+          <div className="px-1 py-10 text-center">
+            <div className="mx-auto h-7 w-7 animate-spin rounded-full border-2 border-p-border border-t-p-accent" />
           </div>
         ) : null}
 
         {!overviewLoading && overviewError ? <AdminInlineError>{overviewError}</AdminInlineError> : null}
 
-        {!overviewLoading && overview ? (
-          <div className="space-y-4">
-            {(() => {
-              const nextEnrollment = overview.upcomingEnrollments[0] || null;
-              const lastEnrollment = overview.pastEnrollments[0] || null;
-              const activePasses = overview.beneficiaryPasses.filter((row) => row.status === 'ACTIVE');
-              const activeOrOwnedPass = activePasses[0] || overview.ownedPasses[0] || overview.beneficiaryPasses[0] || null;
-              const nextExpiry =
-                activePasses
-                  .map((row) => row.expiresAt)
-                  .filter(Boolean)
-                  .sort()[0] || null;
-              const lastUsage = overview.creditUsages[0] || null;
-              const outstandingEnrollments = [...overview.upcomingEnrollments, ...overview.pastEnrollments].filter(
-                (row) => row.paymentStatus === 'UNPAID' || row.paymentStatus === 'PARTIAL'
-              );
-              const outstandingAmount = outstandingEnrollments.reduce(
-                (total, row) => total + Math.max(0, Number(row.priceAtEnrollment || 0) - Number(row.paidAmount || 0)),
-                0
-              );
-              const primaryResponsible = overview.billingResponsibles[0]?.name || 'Sin responsable cargado';
-              const linkedUserName =
-                overview.client.linkedUser
-                  ? [overview.client.linkedUser.firstName, overview.client.linkedUser.lastName]
-                      .filter(Boolean)
-                      .join(' ')
-                      .trim() || overview.client.linkedUser.email
-                  : 'Sin usuario vinculado';
+        {overview ? (
+          (() => {
+            const allEnrollments = [...overview.upcomingEnrollments, ...overview.pastEnrollments];
+            const owing = allEnrollments.filter(
+              (row) =>
+                row.enrollmentStatus !== 'CANCELLED' &&
+                (row.paymentStatus === 'UNPAID' || row.paymentStatus === 'PARTIAL') &&
+                Number(row.priceAtEnrollment || 0) - Number(row.paidAmount || 0) > 0
+            );
+            const owedAmount = owing.reduce(
+              (total, row) => total + Math.max(0, Number(row.priceAtEnrollment || 0) - Number(row.paidAmount || 0)),
+              0
+            );
+            const passes = [
+              ...overview.beneficiaryPasses,
+              ...overview.ownedPasses.filter((row) => row.beneficiaryClientId !== overview.client.id),
+            ];
+            const activePasses = passes.filter((row) => row.status === 'ACTIVE');
+            const oldPasses = passes.filter((row) => row.status !== 'ACTIVE');
+            const attended = overview.pastEnrollments.filter((row) => row.attendanceStatus === 'ATTENDED').length;
+            const marked = overview.pastEnrollments.filter(
+              (row) => row.enrollmentStatus !== 'CANCELLED' && row.attendanceStatus !== 'PENDING'
+            ).length;
 
-              if (studentDrawerTab === 'classes') {
-                return (
-                  <AdminDrawerSection title="Clases" className={drawerSectionCardClass}>
-                    <div className="space-y-4">
-                      <div className="grid gap-3 md:grid-cols-3">
-                        <SummaryBlock
-                          label="Próximas"
-                          value={`${overview.summary.upcomingEnrollmentsCount}`}
-                        />
-                        <SummaryBlock
-                          label="Historial"
-                          value={`${overview.summary.pastEnrollmentsCount}`}
-                        />
-                        <SummaryBlock
-                          label="Próxima agenda"
-                          value={
-                            nextEnrollment
-                              ? formatDateRange(nextEnrollment.classSession.startsAt, nextEnrollment.classSession.endsAt)
-                              : 'Sin clases próximas'
-                          }
-                        />
-                      </div>
+            return (
+              <div className="space-y-6">
+                <p className="text-[14px] text-p-text-secondary">
+                  {overview.summary.upcomingEnrollmentsCount > 0
+                    ? overview.summary.upcomingEnrollmentsCount === 1
+                      ? 'Tiene 1 clase próxima'
+                      : `Tiene ${overview.summary.upcomingEnrollmentsCount} clases próximas`
+                    : 'No tiene clases próximas'}
+                  {overview.summary.totalRemainingCredits > 0
+                    ? ` · ${overview.summary.totalRemainingCredits} a favor en packs`
+                    : ''}
+                  {marked > 0 ? ` · vino a ${attended} de ${marked}` : ''}.
+                </p>
 
-                      {overview.upcomingEnrollments.length ? (
-                        <div className="space-y-2">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-p-text-muted">
-                            Próximas
-                          </p>
-                          <div className="space-y-2">
-                            {overview.upcomingEnrollments.slice(0, 4).map((row) => (
-                              <EnrollmentCompactRow key={row.id} row={row} />
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {overview.pastEnrollments.length ? (
-                        <div className="space-y-2">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-p-text-muted">
-                            Últimas clases
-                          </p>
-                          <div className="space-y-2">
-                            {overview.pastEnrollments.slice(0, 5).map((row) => (
-                              <EnrollmentCompactRow key={row.id} row={row} />
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {!overview.upcomingEnrollments.length && !overview.pastEnrollments.length ? (
-                        <AcademyEmptyState
-                          title="Todavía no hay clases cargadas"
-                          description="Cuando el alumno tenga inscripciones o historial académico, lo vas a ver acá."
-                        />
-                      ) : null}
-                    </div>
-                  </AdminDrawerSection>
-                );
-              }
-
-              if (studentDrawerTab === 'credits') {
-                return (
-                  <div className="space-y-4">
-                    <AdminDrawerSection title="Créditos" className={drawerSectionCardClass}>
-                      <div className="space-y-4">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                          <p className="text-[13px] text-p-text-secondary">
-                            Los packs viven a nivel alumno. Desde acá podés asignar uno nuevo sin depender de una clase puntual.
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setStudentPackForm(buildEmptyStudentPackForm());
-                              setStudentPackError('');
-                              setStudentPackModalOpen(true);
-                            }}
-                            className="inline-flex h-8 shrink-0 self-start items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text transition hover:border-p-border-strong hover:text-p-text sm:self-auto"
-                          >
-                            <Plus size={14} />
-                            Asignar pack
-                          </button>
-                        </div>
-
-                        <div className="grid gap-3 md:grid-cols-3">
-                        <SummaryBlock label="Disponibles" value={`${overview.summary.totalRemainingCredits}`} />
-                        <SummaryBlock label="Packs activos" value={`${overview.summary.activePassesCount}`} />
-                        <SummaryBlock
-                          label="Próximo vencimiento"
-                          value={nextExpiry ? formatDateTime(nextExpiry) : 'Sin vencimientos cercanos'}
-                        />
-                        </div>
-                      </div>
-                    </AdminDrawerSection>
-
-                    <AdminDrawerSection title="Packs" className={drawerSectionCardClass}>
-                      {overview.beneficiaryPasses.length || overview.ownedPasses.length ? (
-                        <div className="space-y-3">
-                          {[...overview.beneficiaryPasses, ...overview.ownedPasses.filter((row) => row.beneficiaryClientId !== overview.client.id)]
-                            .slice(0, 4)
-                            .map((row) => (
-                              <CompactPassCard
-                                key={row.id}
-                                row={row}
-                                clientId={overview.client.id}
-                              />
-                            ))}
-                        </div>
-                      ) : (
-                        <AcademyEmptyState
-                          title="No hay packs cargados"
-                          description="Los packs del alumno van a aparecer acá cuando tenga créditos asignados."
-                        />
-                      )}
-                    </AdminDrawerSection>
-
-                    <AdminDrawerSection title="Consumos" className={drawerSectionCardClass}>
-                      {overview.creditUsages.length ? (
-                        <div className="space-y-2">
-                          {overview.creditUsages.slice(0, 5).map((row) => (
-                            <CreditUsageCompactRow key={row.id} row={row} />
-                          ))}
-                        </div>
-                      ) : (
-                        <AcademyEmptyState
-                          title="Sin consumos todavía"
-                          description="Cuando el alumno use créditos en una inscripción, el movimiento va a quedar visible acá."
-                        />
-                      )}
-                    </AdminDrawerSection>
+                {owedAmount > 0 ? (
+                  <div className="rounded-2xl border border-p-error bg-p-error-bg px-4 py-3">
+                    <p className="text-[15px] font-semibold text-[var(--error-fg)]">Debe {formatCurrency(owedAmount)}</p>
+                    <p className="mt-0.5 text-[13px] text-p-text-secondary">
+                      {owing.length === 1 ? 'De 1 clase.' : `De ${owing.length} clases.`} Se cobra desde cada clase, tocando "Ver" en el alumno.
+                    </p>
                   </div>
-                );
-              }
+                ) : null}
 
-              return (
-                <AdminDrawerSection title="Resumen" className={drawerSectionCardClass}>
-                  <div className="space-y-4">
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <SummaryBlock label="Contacto" value={personSecondaryLine(overview.client)} />
-                      <SummaryBlock
-                        label="Próxima clase"
-                        value={
-                          nextEnrollment
-                            ? formatDateRange(nextEnrollment.classSession.startsAt, nextEnrollment.classSession.endsAt)
-                            : 'Sin clases próximas'
-                        }
-                      />
-                      <SummaryBlock
-                        label="Créditos"
-                        value={`${overview.summary.totalRemainingCredits} disponibles`}
-                      />
-                      <SummaryBlock
-                        label="Cobro"
-                        value={outstandingAmount > 0 ? `${formatCurrency(outstandingAmount)} pendiente` : 'Al día'}
-                      />
-                      <SummaryBlock label="Responsable" value={primaryResponsible} />
-                    </div>
+                <section className="space-y-2">
+                  <p className="text-[14px] font-semibold text-p-text">Próximas clases</p>
+                  {overview.upcomingEnrollments.length ? (
+                    <ul className="divide-y divide-p-border overflow-hidden rounded-2xl border border-p-border bg-p-surface">
+                      {overview.upcomingEnrollments.map((row) => (
+                        <StudentClassRow key={row.id} row={row} />
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-[13px] text-p-text-muted">Ninguna. Se anota desde la clase, en la pestaña Clases.</p>
+                  )}
+                </section>
 
-                    <div className="rounded-2xl border border-p-border bg-p-surface p-4">
-                      <div className="flex flex-wrap gap-2">
-                        <AcademyStatusBadge
-                          label={`${overview.summary.upcomingEnrollmentsCount} próxima${overview.summary.upcomingEnrollmentsCount === 1 ? '' : 's'}`}
-                          tone="neutral"
-                        />
-                        <AcademyStatusBadge
-                          label={`${overview.summary.activePassesCount} pack${overview.summary.activePassesCount === 1 ? '' : 's'} activo${overview.summary.activePassesCount === 1 ? '' : 's'}`}
-                          tone="info"
-                        />
-                        <AcademyStatusBadge
-                          label={linkedUserName === 'Sin usuario vinculado' ? linkedUserName : 'Usuario vinculado'}
-                          tone={linkedUserName === 'Sin usuario vinculado' ? 'muted' : 'success'}
-                        />
-                        {nextEnrollment ? (
-                          <AcademyStatusBadge
-                            label={paymentStatusLabel(nextEnrollment.paymentStatus)}
-                            tone={academyPaymentTone(nextEnrollment.paymentStatus)}
-                          />
-                        ) : null}
-                        {lastUsage ? (
-                          <AcademyStatusBadge
-                            label={`Último consumo: ${creditUsageReasonLabel(lastUsage.reason)}`}
-                            tone="muted"
-                          />
-                        ) : null}
-                      </div>
+                <section className="space-y-2">
+                  <p className="text-[14px] font-semibold text-p-text">Packs</p>
+                  {activePasses.length ? (
+                    <ul className="divide-y divide-p-border overflow-hidden rounded-2xl border border-p-border bg-p-surface">
+                      {activePasses.map((row) => (
+                        <StudentPassRow key={row.id} row={row} clientId={overview.client.id} />
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-[13px] text-p-text-muted">
+                      No tiene packs activos. Con un pack, las clases se descuentan solas en vez de cobrarlas una por una.
+                    </p>
+                  )}
+                  {oldPasses.length ? (
+                    <p className="text-[12px] text-p-text-muted">
+                      {oldPasses.length === 1 ? '1 pack terminado o vencido.' : `${oldPasses.length} packs terminados o vencidos.`}
+                    </p>
+                  ) : null}
+                </section>
 
-                      <div className="mt-4 grid gap-3 border-t border-p-border pt-4 md:grid-cols-2">
-                        <CompactInfoLine
-                          label="Última clase"
-                          value={
-                            lastEnrollment
-                              ? `${lastEnrollment.classSession.teacher?.displayName || 'Clase'} · ${formatDateTime(lastEnrollment.classSession.startsAt)}`
-                              : 'Sin historial todavía'
-                          }
-                        />
-                        <CompactInfoLine
-                          label="Próximo vencimiento"
-                          value={nextExpiry ? formatDateTime(nextExpiry) : 'Sin vencimientos cercanos'}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </AdminDrawerSection>
-              );
-            })()}
-          </div>
+                {overview.pastEnrollments.length ? (
+                  <section className="space-y-2">
+                    <p className="text-[14px] font-semibold text-p-text">Últimas clases</p>
+                    <ul className="divide-y divide-p-border overflow-hidden rounded-2xl border border-p-border bg-p-surface">
+                      {overview.pastEnrollments.slice(0, 8).map((row) => (
+                        <StudentClassRow key={row.id} row={row} past />
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+
+                {overview.billingResponsibles.length ? (
+                  <section className="space-y-1">
+                    <p className="text-[14px] font-semibold text-p-text">Quién paga</p>
+                    <p className="text-[13px] text-p-text-secondary">
+                      {overview.billingResponsibles.map((row) => row.name).join(', ')}
+                    </p>
+                  </section>
+                ) : null}
+              </div>
+            );
+          })()
         ) : null}
       </AdminDrawer>
 
@@ -788,76 +694,92 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
         show={studentPackModalOpen}
         onClose={closeStudentPackModal}
         onCancel={closeStudentPackModal}
-        title={overview ? `Asignar pack a ${overview.client.name}` : 'Asignar pack'}
-        confirmText={studentPackSubmitting ? 'Asignando...' : 'Asignar pack'}
+        title={overview ? `Pack de clases para ${overview.client.name}` : 'Pack de clases'}
+        confirmText={studentPackSubmitting ? 'Guardando...' : 'Cargar pack'}
         cancelText="Cancelar"
-        confirmDisabled={studentPackSubmitting || !studentPackForm.packageName.trim() || !studentPackForm.totalCredits.trim()}
+        confirmDisabled={studentPackSubmitting || !studentPackForm.totalCredits.trim()}
         onConfirm={() => void submitStudentPackForm()}
         message={
           <div className="space-y-4">
             {studentPackError ? <AdminInlineError>{studentPackError}</AdminInlineError> : null}
 
-            <div className="space-y-1.5">
-              <label className="text-[12px] font-semibold text-p-text">Nombre del pack</label>
-              <input
-                type="text"
-                value={studentPackForm.packageName}
-                onChange={(event) => setStudentPackForm((prev) => ({ ...prev, packageName: event.target.value }))}
-                placeholder="Ej. Pack 4 clases"
-                className={fieldInputClass}
-              />
+            <div className="space-y-2">
+              <p className="text-[13px] font-semibold text-p-text">¿Cuántas clases?</p>
+              <div className="flex flex-wrap items-center gap-2">
+                {PACK_SIZE_CHOICES.map((size) => {
+                  const active = studentPackForm.totalCredits === String(size);
+                  return (
+                    <button
+                      key={size}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => setStudentPackForm((prev) => ({ ...prev, totalCredits: String(size) }))}
+                      className={`inline-flex h-9 items-center rounded-full border px-3.5 text-[13px] font-semibold transition ${
+                        active
+                          ? 'border-ink-900 bg-ink-900 text-ink-50'
+                          : 'border-p-border bg-p-surface text-p-text-secondary hover:border-p-border-strong hover:text-p-text'
+                      }`}
+                    >
+                      {size}
+                    </button>
+                  );
+                })}
+                <label className="inline-flex items-center gap-2 text-[13px] text-p-text-secondary">
+                  otra:
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={PACK_SIZE_CHOICES.includes(Number(studentPackForm.totalCredits)) ? '' : studentPackForm.totalCredits}
+                    onChange={(event) => setStudentPackForm((prev) => ({ ...prev, totalCredits: event.target.value }))}
+                    className={fieldInputClass.replace('w-full', 'w-20')}
+                  />
+                </label>
+              </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <label className="text-[12px] font-semibold text-p-text">Créditos</label>
-                <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={studentPackForm.totalCredits}
-                  onChange={(event) => setStudentPackForm((prev) => ({ ...prev, totalCredits: event.target.value }))}
-                  className={fieldInputClass}
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[12px] font-semibold text-p-text">Precio acordado</label>
+                <label className="text-[13px] font-semibold text-p-text">
+                  Precio <span className="font-normal text-p-text-muted">(opcional)</span>
+                </label>
                 <input
                   type="number"
                   min={0}
                   step="0.01"
                   value={studentPackForm.priceAtPurchase}
                   onChange={(event) => setStudentPackForm((prev) => ({ ...prev, priceAtPurchase: event.target.value }))}
-                  placeholder="Opcional"
+                  placeholder="$"
+                  className={fieldInputClass}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[13px] font-semibold text-p-text">
+                  Vence <span className="font-normal text-p-text-muted">(opcional)</span>
+                </label>
+                <input
+                  type="date"
+                  value={studentPackForm.expiresAt}
+                  onChange={(event) => setStudentPackForm((prev) => ({ ...prev, expiresAt: event.target.value }))}
                   className={fieldInputClass}
                 />
               </div>
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-[12px] font-semibold text-p-text">Vencimiento</label>
-              <input
-                type="date"
-                value={studentPackForm.expiresAt}
-                onChange={(event) => setStudentPackForm((prev) => ({ ...prev, expiresAt: event.target.value }))}
-                className={fieldInputClass}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[12px] font-semibold text-p-text">Notas</label>
+              <label className="text-[13px] font-semibold text-p-text">
+                Notas <span className="font-normal text-p-text-muted">(opcional)</span>
+              </label>
               <textarea
                 value={studentPackForm.notes}
                 onChange={(event) => setStudentPackForm((prev) => ({ ...prev, notes: event.target.value }))}
-                placeholder="Opcional"
                 className={fieldTextAreaClass}
               />
             </div>
 
-            <div className="rounded-xl border border-p-border bg-p-surface px-4 py-3 text-[12px] text-p-text-secondary">
-              Asignar un pack no registra un pago. Si después querés cobrarlo, abrí la cuenta del pack desde Academia.
-            </div>
+            <p className="text-[12px] text-p-text-muted">
+              Cargar el pack no registra el pago.
+            </p>
           </div>
         }
       />
@@ -869,162 +791,72 @@ export const getServerSideProps: GetServerSideProps = async () => ({
   redirect: { destination: '/admin/academia?tab=alumnos', permanent: false },
 });
 
-function SummaryBlock({ label, value }: { label: string; value: string }) {
+type StudentEnrollmentRow = AdminAcademyStudentOverview['upcomingEnrollments'][number];
+type StudentPassRowData = AdminAcademyStudentOverview['beneficiaryPasses'][number];
+
+function StudentClassRow({ row, past = false }: { row: StudentEnrollmentRow; past?: boolean }) {
+  const payment = enrollmentPaymentText(row);
+  const owes = row.enrollmentStatus !== 'CANCELLED' && payment.startsWith('Debe');
+  const cancelledClass = row.classSession.status === 'CANCELLED';
   return (
-    <div className="min-w-0 rounded-2xl border border-p-border bg-p-surface px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-p-text-muted">{label}</p>
-      <p className="mt-2 min-w-0 break-words text-[15px] font-medium leading-snug text-p-text [overflow-wrap:anywhere]">
-        {value}
+    <li className="flex items-center gap-3 px-4 py-3">
+      <div className="w-[92px] flex-none">
+        <p className={`text-[13px] font-semibold text-p-text ${cancelledClass ? 'line-through' : ''}`}>
+          {formatClassDay(row.classSession.startsAt)}
+        </p>
+        <p className="text-[12px] text-p-text-muted">{formatClassTime(row.classSession.startsAt)}</p>
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-semibold text-p-text">
+          {row.classSession.activityType?.name || 'Clase'}
+          <span className="font-normal text-p-text-secondary">
+            {' '}con {row.classSession.teacher?.displayName || 'sin profesor'}
+          </span>
+        </p>
+        <p className="truncate text-[12px] text-p-text-muted">
+          {cancelledClass
+            ? 'Clase cancelada'
+            : [past ? enrollmentAttendanceText(row) : row.enrollmentStatus === 'WAITLISTED' ? 'En espera' : null, row.enrollmentStatus === 'CANCELLED' && !past ? 'Se bajó' : null]
+                .filter(Boolean)
+                .join(' · ') || (row.classSession.court?.name ?? 'Sin cancha')}
+        </p>
+      </div>
+      <p className={`flex-none text-right text-[12px] ${owes ? 'font-semibold text-[var(--error-fg)]' : 'text-p-text-muted'}`}>
+        {row.enrollmentStatus === 'CANCELLED' ? '' : payment}
       </p>
-    </div>
+    </li>
   );
 }
 
-function MiniInfoCard({ title, items, emptyLabel }: { title: string; items: string[]; emptyLabel: string }) {
-  const filtered = items.filter(Boolean);
+function StudentPassRow({ row, clientId }: { row: StudentPassRowData; clientId: string }) {
+  const used = Math.max(0, row.totalCredits - row.remainingCredits);
+  const ownerIsOther = row.ownerClient?.id && row.ownerClient.id !== clientId;
   return (
-    <div className="rounded-2xl border border-p-border bg-p-surface p-4">
-      <p className="text-[12px] font-semibold text-p-text">{title}</p>
-      {filtered.length ? (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {filtered.map((item) => (
-            <AcademyStatusBadge key={item} label={item} tone="neutral" />
-          ))}
-        </div>
-      ) : (
-        <p className="mt-2 text-[12px] text-p-text-muted">{emptyLabel}</p>
-      )}
-    </div>
-  );
-}
-
-function OverviewCard({
-  title,
-  description,
-  items,
-  footer,
-}: {
-  title: string;
-  description: string;
-  items: Array<{ label: string; value: string }>;
-  footer?: ReactNode;
-}) {
-  return (
-    <div className="rounded-[22px] border border-p-border bg-p-surface p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
-      <p className="text-[13px] font-semibold text-p-text">{title}</p>
-      <p className="mt-1 text-[12px] leading-relaxed text-p-text-muted">{description}</p>
-      <div className="mt-4 space-y-3">
-        {items.map((item) => (
-          <div key={`${title}-${item.label}`} className="flex items-start justify-between gap-3 border-b border-p-border/70 pb-3 last:border-b-0 last:pb-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-p-text-muted">{item.label}</p>
-            <p className="max-w-[70%] text-right text-[12px] text-p-text-secondary">{item.value}</p>
-          </div>
-        ))}
+    <li className="px-4 py-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="truncate text-[13px] font-semibold text-p-text">{row.packageName}</p>
+        <p className="flex-none text-[13px] text-p-text">
+          <span className="font-semibold">{row.remainingCredits}</span>
+          <span className="text-p-text-muted"> de {row.totalCredits} quedan</span>
+        </p>
       </div>
-      {footer ? <div className="mt-4 border-t border-p-border pt-3">{footer}</div> : null}
-    </div>
-  );
-}
-
-function CompactInfoLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="space-y-1">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-p-text-muted">{label}</p>
-      <p className="text-[12px] leading-relaxed text-p-text-secondary">{value}</p>
-    </div>
-  );
-}
-
-function EnrollmentCompactRow({
-  row,
-}: {
-  row: AdminAcademyStudentOverview['upcomingEnrollments'][number] | AdminAcademyStudentOverview['pastEnrollments'][number];
-}) {
-  return (
-    <div className="rounded-2xl border border-p-border bg-p-surface p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[12px] font-semibold text-p-text">
-            {row.classSession.activityType?.name || 'Clase'} · {row.classSession.teacher?.displayName || 'Sin profesor'}
-          </p>
-          <p className="mt-1 text-[12px] text-p-text-secondary">
-            {formatDateRange(row.classSession.startsAt, row.classSession.endsAt)}
-          </p>
-        </div>
-        <div className="flex flex-wrap justify-end gap-2">
-          <AcademyStatusBadge
-            label={attendanceStatusLabel(row.attendanceStatus)}
-            tone={academyAttendanceTone(row.attendanceStatus)}
-          />
-          <AcademyStatusBadge
-            label={paymentStatusLabel(row.paymentStatus)}
-            tone={academyPaymentTone(row.paymentStatus)}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CompactPassCard({
-  row,
-  clientId,
-}: {
-  row: AdminAcademyStudentOverview['beneficiaryPasses'][number] | AdminAcademyStudentOverview['ownedPasses'][number];
-  clientId: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-p-border bg-p-surface p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[13px] font-semibold text-p-text">{row.packageName}</p>
-          <p className="mt-1 text-[12px] text-p-text-secondary">
-            {row.remainingCredits}/{row.totalCredits} créditos ·{' '}
-            {row.expiresAt ? `Vence ${formatDateTime(row.expiresAt)}` : 'Sin vencimiento'}
-          </p>
-        </div>
-        <AcademyStatusBadge
-          label={classPassStatusLabel(row.status)}
-          tone={academyPassStatusTone(row.status)}
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-p-surface-3">
+        <div
+          className="h-full rounded-full bg-ink-900"
+          style={{ width: `${Math.round((row.remainingCredits / Math.max(1, row.totalCredits)) * 100)}%` }}
         />
       </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {row.activityType?.name ? <AcademyStatusBadge label={row.activityType.name} tone="neutral" /> : null}
-        {row.classType ? <AcademyStatusBadge label={classTypeLabel(row.classType)} tone="muted" /> : null}
-        {row.teacher?.displayName ? <AcademyStatusBadge label={row.teacher.displayName} tone="muted" /> : null}
-        <AcademyStatusBadge
-          label={
-            row.ownerClient?.id && row.ownerClient.id !== clientId ? `Titular: ${row.ownerClient.name}` : 'Titular: el mismo alumno'
-          }
-          tone="info"
-        />
-      </div>
-    </div>
-  );
-}
-
-function CreditUsageCompactRow({ row }: { row: AdminAcademyStudentOverview['creditUsages'][number] }) {
-  return (
-    <div className="rounded-2xl border border-p-border bg-p-surface p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[12px] font-semibold text-p-text">
-            {row.classPass?.packageName || 'Pack'} · {creditUsageReasonLabel(row.reason)}
-          </p>
-          <p className="mt-1 text-[12px] text-p-text-secondary">
-            {row.classEnrollment?.classSession?.activityType?.name || 'Clase'} · {formatDateTime(row.usedAt)}
-          </p>
-        </div>
-        <div className="flex flex-wrap justify-end gap-2">
-          <AcademyStatusBadge label={`${row.creditsUsed} crédito${row.creditsUsed === 1 ? '' : 's'}`} tone="info" />
-          {row.classPass ? (
-            <AcademyStatusBadge
-              label={`${row.classPass.remainingCredits} disponibles`}
-              tone={academyPassStatusTone(row.classPass.status)}
-            />
-          ) : null}
-        </div>
-      </div>
-    </div>
+      <p className="mt-1.5 text-[12px] text-p-text-muted">
+        {[
+          used > 0 ? (used === 1 ? 'Usó 1' : `Usó ${used}`) : 'Sin usar',
+          row.expiresAt ? `vence el ${formatShortDate(row.expiresAt)}` : null,
+          row.activityType?.name ? `solo ${row.activityType.name}` : null,
+          row.teacher?.displayName ? `con ${row.teacher.displayName}` : null,
+          ownerIsOther ? `lo paga ${row.ownerClient?.name}` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+      </p>
+    </li>
   );
 }
