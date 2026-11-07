@@ -139,6 +139,7 @@ export const mapCashShiftDto = (shift: any) => ({
   expectedCash: shift.expectedCash == null ? null : toNumber(shift.expectedCash),
   countedCash: shift.countedCash == null ? null : toNumber(shift.countedCash),
   difference: shift.difference == null ? null : toNumber(shift.difference),
+  digitalAmount: shift.digitalAmount == null ? null : toNumber(shift.digitalAmount),
   status: shift.status,
   cashRegister: shift.cashRegister
     ? {

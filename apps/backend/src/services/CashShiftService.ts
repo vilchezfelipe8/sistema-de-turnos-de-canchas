@@ -87,6 +87,28 @@ export class CashShiftService {
     });
   }
 
+  /** Efectivo que entra y sale del cajón (lo que hay que contar al cerrar). */
+  private cashDelta(movements: Array<{ amount: unknown; method: string; type: string }>) {
+    return movements.reduce((sum, movement) => {
+      const amount = Number(movement.amount || 0);
+      if (movement.method !== 'CASH') return sum;
+      if (movement.type === 'PAYMENT_IN' || movement.type === 'DEPOSIT') return sum + amount;
+      if (movement.type === 'WITHDRAW' || movement.type === 'REFUND') return sum - amount;
+      return sum;
+    }, 0);
+  }
+
+  /** Lo cobrado por medios digitales (transferencia, tarjeta, etc.) en el turno. */
+  private digitalDelta(movements: Array<{ amount: unknown; method: string; type: string }>) {
+    return movements.reduce((sum, movement) => {
+      const amount = Number(movement.amount || 0);
+      if (movement.method === 'CASH') return sum;
+      if (movement.type === 'PAYMENT_IN' || movement.type === 'DEPOSIT') return sum + amount;
+      if (movement.type === 'WITHDRAW' || movement.type === 'REFUND') return sum - amount;
+      return sum;
+    }, 0);
+  }
+
   async current(clubId: number) {
     const shift = await prismaRead.cashShift.findFirst({
       where: {
@@ -108,6 +130,9 @@ export class CashShiftService {
 
     return {
       ...shift,
+      // Turno abierto: lo esperado en el cajón se calcula en vivo (al cerrar queda guardado).
+      expectedCash: this.roundMoney(Number(shift.openingAmount || 0) + this.cashDelta(shift.movements as any)),
+      digitalAmount: this.roundMoney(this.digitalDelta(shift.movements as any)),
       openAccountsSummary: summary,
       closePolicy: policy
     };
@@ -139,13 +164,7 @@ export class CashShiftService {
         throw conflict('No se puede cerrar la caja: hay cuentas abiertas con saldo pendiente.', ErrorCodes.CASH_SHIFT_CLOSE_BLOCKED, { openAccounts: openAccountsSummary.openAccounts, pendingAmount: openAccountsSummary.pendingAmount });
       }
 
-      const movementDelta = shift.movements.reduce((sum, movement) => {
-        const amount = Number(movement.amount || 0);
-        if (movement.method !== 'CASH') return sum;
-        if (movement.type === 'PAYMENT_IN' || movement.type === 'DEPOSIT') return sum + amount;
-        if (movement.type === 'WITHDRAW' || movement.type === 'REFUND') return sum - amount;
-        return sum;
-      }, 0);
+      const movementDelta = this.cashDelta(shift.movements as any);
 
       const expectedCash = Number(shift.openingAmount || 0) + movementDelta;
       const difference = countedCash - expectedCash;

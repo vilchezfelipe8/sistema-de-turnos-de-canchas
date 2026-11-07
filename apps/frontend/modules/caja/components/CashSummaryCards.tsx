@@ -36,20 +36,14 @@ export default function CashSummaryCards({
   return (
     <div
       className={[
-        'grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5',
+        'grid grid-cols-2 gap-3 md:grid-cols-4',
         className,
       ]
         .filter(Boolean)
         .join(' ')}
     >
       <MetricCard
-        label="Saldo Total"
-        value={balance.total}
-        format="money"
-        loading={loading}
-      />
-      <MetricCard
-        label="Ingresos"
+        label="Cobrado"
         value={balance.income}
         format="money"
         loading={loading}
@@ -63,13 +57,13 @@ export default function CashSummaryCards({
         valueColor="var(--error-fg)"
       />
       <MetricCard
-        label="Caja Efectivo"
+        label="En efectivo"
         value={balance.cash}
         format="money"
         loading={loading}
       />
       <MetricCard
-        label="Caja Digital"
+        label="Digital"
         value={balance.digital}
         format="money"
         loading={loading}
