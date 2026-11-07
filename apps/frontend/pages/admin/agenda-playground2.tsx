@@ -2012,6 +2012,11 @@ export default function AdminAgendaPlaygroundPage() {
     resetDrawerParticipantVisualState();
   }, [resetDrawerParticipantVisualState]);
 
+  // Cada panel arranca con "Cambiar cancha" cerrado.
+  useEffect(() => {
+    setCreateCourtPickerOpen(false);
+  }, [drawerOpen, editingBookingId]);
+
   const loadAdminParticipantsForBooking = useCallback(async (bookingId: number) => {
     const items = await getAdminBookingParticipants(bookingId);
     setPersistedAdminParticipants(Array.isArray(items) ? items : []);
@@ -3790,7 +3795,7 @@ export default function AdminAgendaPlaygroundPage() {
   const primaryActionLabel = editingBookingId
     ? 'Guardar cambios'
     : bookingKind === 'block'
-      ? 'Crear bloqueo'
+      ? 'Bloquear'
       : 'Crear reserva';
   const primaryActionMeta = editingBookingId
     ? `${slotToTime(selectedStartSlot)} - ${slotToTime(selectedEndSlot)}`
@@ -8052,7 +8057,7 @@ export default function AdminAgendaPlaygroundPage() {
                         )}
                       </div>
                     )}
-                    {!useSimplifiedBookingSidebar && (
+                    {!useSimplifiedBookingSidebar && bookingKind !== 'block' && (
                     <div className="mt-4 flex flex-wrap items-center gap-2 relative">
                       <button
                         type="button"
@@ -8105,7 +8110,7 @@ export default function AdminAgendaPlaygroundPage() {
                         />
                         <ChevronDown size={14} />
                       </label>
-                      {bookingKind !== 'block' && (
+                      {(
                         <>
                           {!isRecurringKind && (
                             <PlaygroundCombo
@@ -9361,23 +9366,7 @@ export default function AdminAgendaPlaygroundPage() {
                     </section>
                   ) : (
                     <>
-                  {bookingKind === 'block' && !editingBookingId ? (
-                    <div className="mb-6 flex items-center justify-between gap-3">
-                      <p className="text-[15px] font-semibold text-p-text">
-                        {selectedCourt?.name || 'Cancha'} · {slotToTime(selectedStartSlot)} a {slotToTime(selectedEndSlot)}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFormError('');
-                          setBookingKind('regular');
-                        }}
-                        className="text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
-                      >
-                        Volver a reserva
-                      </button>
-                    </div>
-                  ) : bookingKind === 'block' ? null : (
+                  {bookingKind === 'block' ? null : (
                   <>
                   <section className="mb-6 rounded-xl border border-p-border bg-p-surface-2 px-4 py-3">
                     <div className="flex items-center justify-between gap-2">
@@ -9435,75 +9424,142 @@ export default function AdminAgendaPlaygroundPage() {
                   )}
                   {bookingKind === 'block' ? (
                     <>
-                      <section className="pb-6 border-b border-p-border">
-                        <div className="grid grid-cols-2 gap-3">
-                          <label className="block">
-                            <span className="text-[13px] text-p-text-muted">Título (opcional)</span>
-                            <input
-                              value={blockingTitle}
-                              onChange={(event) => setBlockingTitle(event.target.value)}
-                              placeholder="Mantenimiento"
-                              className="mt-2 h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[15px] text-p-text outline-none"
-                            />
-                          </label>
-                          <div className="block">
-                            <span className="text-[13px] text-p-text-muted">Cancha</span>
-                            <PlaygroundCombo
-                              value={selectedCourtId}
-                              onChange={(next) => {
-                                setSelectedCourtId(next);
-                                setScheduleInputsDirty(true);
-                              }}
-                              options={effectiveCourts.map((court) => ({ value: court.id, label: court.name }))}
-                              className="mt-2"
-                            />
+                      {/* Bloqueo: dónde, desde cuándo, cuánto y por qué. Nada más. */}
+                      <section className="space-y-5">
+                        <div>
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-[15px] font-semibold text-p-text">
+                              {selectedCourt?.name || 'Cancha'} · {simplifiedCreateDateLabel}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setCreateCourtPickerOpen((previous) => !previous)}
+                              className="text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
+                            >
+                              {createCourtPickerOpen ? 'Listo' : 'Cambiar'}
+                            </button>
                           </div>
+                          {createCourtPickerOpen && (
+                            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <PlaygroundCombo
+                                value={selectedCourtId}
+                                onChange={(next) => {
+                                  setSelectedCourtId(next);
+                                  setScheduleInputsDirty(true);
+                                  setFormError('');
+                                }}
+                                options={effectiveCourts.map((court) => ({ value: court.id, label: court.name }))}
+                              />
+                              <input
+                                type="date"
+                                aria-label="Día"
+                                value={formatLocalDate(selectedDate)}
+                                onChange={(event) => {
+                                  const next = new Date(`${event.target.value}T12:00:00`);
+                                  if (!Number.isNaN(next.getTime())) {
+                                    setSelectedDate(next);
+                                    setScheduleInputsDirty(true);
+                                    setFormError('');
+                                  }
+                                }}
+                                className="h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text outline-none focus:border-p-border-strong"
+                              />
+                            </div>
+                          )}
                         </div>
-                        <div className="mt-4 grid grid-cols-3 gap-3">
-                          <label className="block">
-                            <span className="text-[13px] text-p-text-muted">Fecha</span>
-                            <input
-                              type="date"
-                              value={formatLocalDate(selectedDate)}
-                              onChange={(event) => {
-                                const next = new Date(`${event.target.value}T12:00:00`);
-                                if (!Number.isNaN(next.getTime())) {
-                                  setSelectedDate(next);
-                                }
-                              }}
-                              className="mt-2 h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[15px] text-p-text"
-                            />
-                          </label>
+
+                        <div className="grid grid-cols-2 gap-3">
                           <div className="block">
-                            <span className="text-[13px] text-p-text-muted">Hora de inicio</span>
+                            <span className="text-[12px] font-medium text-p-text-muted">Desde</span>
                             <PlaygroundCombo
                               value={slotToTime(selectedStartSlot)}
                               onChange={(nextValue) => {
                                 const nextStart = timeToSlot(nextValue);
+                                const length = Math.max(1, selectedEndSlot - selectedStartSlot);
                                 setSelectedStartSlot(nextStart);
-                                if (nextStart >= selectedEndSlot) {
-                                  setSelectedEndSlot(nextStart + 1);
-                                }
+                                setSelectedEndSlot(Math.min(totalSlots, nextStart + length));
                                 setScheduleInputsDirty(true);
+                                setFormError('');
                               }}
                               options={timeOptions.slice(0, -1).map((option) => ({ value: option.value, label: option.value }))}
-                              className="mt-2"
+                              className="mt-1"
                             />
                           </div>
                           <div className="block">
-                            <span className="text-[13px] text-p-text-muted">Hora de fin</span>
+                            <span className="text-[12px] font-medium text-p-text-muted">Hasta</span>
                             <PlaygroundCombo
                               value={slotToTime(selectedEndSlot)}
                               onChange={(nextValue) => {
-                                const nextEnd = Math.max(timeToSlot(nextValue), selectedStartSlot + 1);
-                                setSelectedEndSlot(nextEnd);
+                                setSelectedEndSlot(Math.max(timeToSlot(nextValue), selectedStartSlot + 1));
                                 setScheduleInputsDirty(true);
+                                setFormError('');
                               }}
-                              options={timeOptions.slice(1).map((option) => ({ value: option.value, label: option.value }))}
-                              className="mt-2"
+                              options={timeOptions
+                                .filter((option) => option.slot > selectedStartSlot)
+                                .map((option) => ({ value: option.value, label: option.value }))}
+                              className="mt-1"
                             />
                           </div>
                         </div>
+                        <div className="-mt-2 flex flex-wrap gap-2">
+                          {[
+                            { key: '60', label: '1 h', endSlot: selectedStartSlot + 60 / slotMinutes },
+                            { key: '120', label: '2 h', endSlot: selectedStartSlot + 120 / slotMinutes },
+                            { key: 'close', label: 'Hasta el cierre', endSlot: totalSlots },
+                          ]
+                            .filter((choice) => choice.endSlot <= totalSlots && choice.endSlot > selectedStartSlot)
+                            .map((choice) => {
+                              const active = selectedEndSlot === choice.endSlot;
+                              return (
+                                <button
+                                  key={`block-length-${choice.key}`}
+                                  type="button"
+                                  aria-pressed={active}
+                                  onClick={() => {
+                                    setSelectedEndSlot(choice.endSlot);
+                                    setScheduleInputsDirty(true);
+                                    setFormError('');
+                                  }}
+                                  className={`h-9 rounded-lg border px-3 text-[13px] font-semibold transition ${
+                                    active
+                                      ? 'border-ink-900 bg-ink-900 text-ink-50'
+                                      : 'border-p-border bg-p-surface text-p-text-secondary hover:border-p-border-strong'
+                                  }`}
+                                >
+                                  {choice.label}
+                                </button>
+                              );
+                            })}
+                        </div>
+
+                        <label className="block">
+                          <span className="text-[12px] font-medium text-p-text-muted">Motivo (opcional)</span>
+                          <input
+                            value={blockingTitle}
+                            onChange={(event) => setBlockingTitle(event.target.value)}
+                            placeholder="Mantenimiento, torneo, clase…"
+                            className="mt-1 h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[15px] text-p-text outline-none focus:border-p-border-strong"
+                          />
+                        </label>
+
+                        <p className="text-[13px] text-p-text-muted">
+                          Nadie puede reservar {selectedCourt?.name || 'la cancha'} de {slotToTime(selectedStartSlot)} a{' '}
+                          {slotToTime(selectedEndSlot)}.
+                        </p>
+
+                        {!editingBookingId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFormError('');
+                              setCreateCourtPickerOpen(false);
+                              setBookingKind('regular');
+                            }}
+                            className="text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
+                          >
+                            Mejor crear una reserva
+                          </button>
+                        )}
                       </section>
 
                     </>
@@ -10056,7 +10112,13 @@ export default function AdminAgendaPlaygroundPage() {
                           disabled={primaryActionDisabled}
                           className="h-10 sm:min-w-[232px] rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-50"
                         >
-                          {isSubmittingBooking ? primaryActionLabel : `${primaryActionLabel} • ${primaryActionMeta}`}
+                          {isSubmittingBooking
+                            ? primaryActionLabel
+                            : bookingKind === 'block'
+                              ? editingBookingId
+                                ? 'Guardar cambios'
+                                : `Bloquear ${slotToTime(selectedStartSlot)}–${slotToTime(selectedEndSlot)}`
+                              : `${primaryActionLabel} • ${primaryActionMeta}`}
                         </button>
                       </div>
                     </div>
