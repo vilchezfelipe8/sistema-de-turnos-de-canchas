@@ -320,14 +320,73 @@ const shortCode = (value: unknown) => {
 };
 
 const formatRefundStatus = (status: string) => {
-  if (status === 'REQUESTED') return 'Solicitada';
-  if (status === 'APPROVED') return 'Aprobada';
-  if (status === 'READY_TO_EXECUTE') return 'Lista';
-  if (status === 'EXECUTED') return 'Ejecutada';
-  if (status === 'FAILED') return 'Fallida';
-  if (status === 'CANCELLED') return 'Cancelada';
+  if (status === 'REQUESTED') return 'Falta aprobar';
+  if (status === 'APPROVED' || status === 'READY_TO_EXECUTE') return 'Falta devolver';
+  if (status === 'EXECUTED') return 'Devuelta';
+  if (status === 'FAILED') return 'No se pudo devolver';
+  if (status === 'CANCELLED') return 'Anulada';
   return status;
 };
+
+const REFUND_TODO_STATUSES = new Set(['REQUESTED', 'APPROVED', 'READY_TO_EXECUTE', 'FAILED']);
+
+const refundStatusTone = (status: string) => {
+  if (status === 'EXECUTED') return 'text-p-positive';
+  if (status === 'CANCELLED') return 'text-p-text-muted';
+  if (status === 'FAILED') return 'text-p-error';
+  return 'text-p-warning';
+};
+
+/** Período: Día / Semana / Mes y flechas. Igual en Cuentas, Movimientos y Devoluciones. */
+function CashPeriodPicker({
+  period,
+  label,
+  offset,
+  onPeriod,
+  onOffset,
+}: {
+  period: CashPeriod;
+  label: string;
+  offset: number;
+  onPeriod: (period: CashPeriod) => void;
+  onOffset: (updater: (prev: number) => number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
+      {(['hoy', 'semana', 'mes'] as CashPeriod[]).map((value) => (
+        <button
+          key={`period-${value}`}
+          type="button"
+          aria-pressed={period === value}
+          onClick={() => onPeriod(value)}
+          className={`h-7 rounded-lg px-2.5 text-[12px] font-semibold transition ${
+            period === value ? 'bg-p-surface-3 text-p-text' : 'text-p-text-muted hover:text-p-text-secondary'
+          }`}
+        >
+          {value === 'hoy' ? 'Día' : value === 'semana' ? 'Semana' : 'Mes'}
+        </button>
+      ))}
+      <button
+        type="button"
+        aria-label="Período anterior"
+        onClick={() => onOffset((prev) => prev - 1)}
+        className="grid h-7 w-7 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2"
+      >
+        <ChevronLeft size={15} />
+      </button>
+      <span className="min-w-[96px] text-center text-[12px] font-semibold text-p-text-secondary">{label}</span>
+      <button
+        type="button"
+        aria-label="Período siguiente"
+        onClick={() => onOffset((prev) => Math.min(0, prev + 1))}
+        disabled={offset === 0}
+        className="grid h-7 w-7 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-40 disabled:hover:bg-transparent"
+      >
+        <ChevronRight size={15} />
+      </button>
+    </div>
+  );
+}
 
 const refundCodeLabel = (refund: RefundRecord) => {
   const display = String(refund?.displayCode || '').trim();
@@ -617,6 +676,8 @@ export default function AdminPaymentsPlaygroundPage() {
   const [refundSearchTerm, setRefundSearchTerm] = useState('');
   const [refundStatusFilter, setRefundStatusFilter] = useState<RefundStatusFilter>('ALL');
   const [refundMethodFilter, setRefundMethodFilter] = useState<RefundMethodFilter>('ALL');
+  /** Por hacer = falta aprobar o devolver; Hechas = ya devueltas. */
+  const [refundStageFilter, setRefundStageFilter] = useState<'ALL' | 'TODO' | 'DONE'>('ALL');
   const [refundRequestOpen, setRefundRequestOpen] = useState(false);
   const [refundRequestAccountLocked, setRefundRequestAccountLocked] = useState(false);
   const [refundRequestAccountId, setRefundRequestAccountId] = useState('');
@@ -1115,15 +1176,29 @@ export default function AdminPaymentsPlaygroundPage() {
       const normalizedMethod = String(refund.executionMethod || '').toUpperCase();
       const matchesStatus = refundStatusFilter === 'ALL' || normalizedStatus === refundStatusFilter;
       const matchesMethod = refundMethodFilter === 'ALL' || normalizedMethod === refundMethodFilter;
+      const matchesStage =
+        refundStageFilter === 'ALL' ||
+        (refundStageFilter === 'TODO' && REFUND_TODO_STATUSES.has(normalizedStatus)) ||
+        (refundStageFilter === 'DONE' && normalizedStatus === 'EXECUTED');
+      // Lo que falta hacer se ve siempre, aunque sea de otro período.
+      const inPeriod = matchesDate || (refundStageFilter === 'TODO' && REFUND_TODO_STATUSES.has(normalizedStatus));
+      const account =
+        openAccounts.find((row) => row.id === refund.accountId) ||
+        closedAccounts.find((row) => row.id === refund.accountId);
       const matchesSearch =
         normalizedQuery.length === 0 ||
         refundCodeLabel(refund).toLowerCase().includes(normalizedQuery) ||
         String(refund.reason || '').toLowerCase().includes(normalizedQuery) ||
-        shortId(refund.accountId).toLowerCase().includes(normalizedQuery) ||
-        shortId(refund.paymentId).toLowerCase().includes(normalizedQuery);
-      return matchesDate && matchesStatus && matchesMethod && matchesSearch;
+        String(account?.booking?.clientName || account?.client?.name || '').toLowerCase().includes(normalizedQuery) ||
+        String(account?.booking?.courtName || '').toLowerCase().includes(normalizedQuery);
+      return inPeriod && matchesStatus && matchesMethod && matchesStage && matchesSearch;
     });
-  }, [cashActivePeriod, cashPeriodOffset, recentRefunds, refundMethodFilter, refundSearchTerm, refundStatusFilter]);
+  }, [cashActivePeriod, closedAccounts, cashPeriodOffset, openAccounts, recentRefunds, refundMethodFilter, refundSearchTerm, refundStageFilter, refundStatusFilter]);
+
+  const refundsTodo = useMemo(() => {
+    const items = recentRefunds.filter((refund) => REFUND_TODO_STATUSES.has(String(refund.status || '').toUpperCase()));
+    return { count: items.length, amount: items.reduce((sum, refund) => sum + Number(refund.amount || 0), 0) };
+  }, [recentRefunds]);
 
   const filteredPendingRefunds = useMemo(() => {
     const visibleIds = new Set(filteredRecentRefunds.map((refund) => refund.id));
@@ -2258,51 +2333,6 @@ export default function AdminPaymentsPlaygroundPage() {
                   </>
                 )}
 
-                {cashActiveView === 'movements' && (
-                  <div className="w-full rounded-2xl border border-p-border bg-p-surface p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface-2 p-1">
-                        {(['hoy', 'semana', 'mes'] as CashPeriod[]).map((period) => (
-                          <button
-                            key={`movements-${period}`}
-                            type="button"
-                            onClick={() => {
-                              setCashActivePeriod(period);
-                              setCashPeriodOffset(0);
-                            }}
-                            className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition ${
-                              cashActivePeriod === period
-                                ? 'bg-p-surface text-p-accent shadow-sm'
-                                : 'text-p-text-muted hover:text-p-text-secondary'
-                            }`}
-                          >
-                            {period === 'hoy' ? 'Hoy' : period === 'semana' ? 'Semana' : 'Mes'}
-                          </button>
-                        ))}
-                      </div>
-
-                      <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface px-1 py-1">
-                        <button
-                          type="button"
-                          onClick={() => setCashPeriodOffset((prev) => prev - 1)}
-                          className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2"
-                        >
-                          <ChevronLeft size={16} />
-                        </button>
-                        <span className="min-w-[120px] text-center text-[12px] font-semibold text-p-text-secondary">{cashPeriodLabel}</span>
-                        <button
-                          type="button"
-                          onClick={() => setCashPeriodOffset((prev) => Math.min(0, prev + 1))}
-                          disabled={cashPeriodOffset === 0}
-                          className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:text-p-text-muted disabled:hover:bg-transparent"
-                        >
-                          <ChevronRight size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 {(cashSummaryError || cashShiftError || cashMovementError) && (
                   <div className="space-y-2">
                     {cashSummaryError && <div className="rounded-xl border border-p-error bg-p-error-bg px-3 py-2 text-[12px] text-p-error">{cashSummaryError}</div>}
@@ -2313,118 +2343,121 @@ export default function AdminPaymentsPlaygroundPage() {
 
 
                 {cashActiveView === 'movements' && (
-                  <AdminPanel
-                    title="Movimientos"
-                    description="Timeline de ingresos y egresos del período visible."
-                    headerClassName="pl-4 pr-2 py-3"
-                    actions={(
-                      <div className="flex flex-wrap items-center gap-2">
+                  <div className="space-y-4">
+                    {/* Qué mirar, buscar y agregar: una sola fila. */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <CashPeriodPicker
+                        period={cashActivePeriod}
+                        label={cashPeriodLabel}
+                        offset={cashPeriodOffset}
+                        onPeriod={(period) => {
+                          setCashActivePeriod(period);
+                          setCashPeriodOffset(0);
+                        }}
+                        onOffset={setCashPeriodOffset}
+                      />
+                      <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
+                        {([
+                          { id: 'ALL', label: 'Todo' },
+                          { id: 'INCOME', label: 'Entradas' },
+                          { id: 'EXPENSE', label: 'Salidas' },
+                        ] as Array<{ id: MovementTypeFilter; label: string }>).map((option) => (
+                          <button
+                            key={`movement-type-${option.id}`}
+                            type="button"
+                            aria-pressed={cashTypeFilter === option.id}
+                            onClick={() => setCashTypeFilter(option.id)}
+                            className={`h-7 rounded-lg px-2.5 text-[12px] font-semibold transition ${
+                              cashTypeFilter === option.id ? 'bg-ink-900 text-ink-50' : 'text-p-text-secondary hover:bg-p-surface-2'
+                            }`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
+                        {([
+                          { id: 'ALL', label: 'Todos' },
+                          { id: 'CASH', label: 'Efectivo' },
+                          { id: 'TRANSFER', label: 'Transferencia' },
+                          { id: 'CARD', label: 'Tarjeta' },
+                        ] as Array<{ id: MovementMethodFilter; label: string }>).map((option) => (
+                          <button
+                            key={`movement-method-${option.id}`}
+                            type="button"
+                            aria-pressed={cashMethodFilter === option.id}
+                            onClick={() => setCashMethodFilter(option.id)}
+                            className={`h-7 whitespace-nowrap rounded-lg px-2.5 text-[12px] font-semibold transition ${
+                              cashMethodFilter === option.id ? 'bg-p-surface-3 text-p-text' : 'text-p-text-muted hover:text-p-text-secondary'
+                            }`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                      <label className="relative min-w-[180px] flex-1 sm:max-w-[260px]">
+                        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
+                        <input
+                          type="text"
+                          value={cashSearchTerm}
+                          onChange={(event) => setCashSearchTerm(event.target.value)}
+                          placeholder="Buscar"
+                          className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
+                        />
+                      </label>
+                      <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none">
                         <button
                           type="button"
                           onClick={() => setCashSidebarView('product_sale')}
-                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-2.5 text-[11px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
+                          className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3.5 text-[13px] font-semibold text-p-text hover:bg-p-surface-2"
                         >
-                          <Plus size={14} strokeWidth={2.5} />
+                          <Plus size={15} strokeWidth={2.5} />
                           Venta mostrador
                         </button>
                         <button
                           type="button"
                           onClick={() => setCashSidebarView('movement_create')}
-                          className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 shadow-p-md transition hover:bg-ink-800"
+                          className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-3.5 text-[13px] font-semibold text-ink-50 hover:bg-ink-800"
                         >
-                          <Plus size={14} strokeWidth={2.5} />
-                          Nuevo movimiento
+                          <Plus size={15} strokeWidth={2.5} />
+                          Ingreso o egreso
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => setCashShowFilters((prev) => !prev)}
-                          className="h-8 rounded-lg border border-p-border bg-p-surface px-2.5 text-[12px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
-                        >
-                          {cashShowFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
-                        </button>
-                        <div className="inline-flex items-center gap-2 text-[12px] text-p-text-muted">
-                          <Landmark size={14} />
-                          <span>{loadingCashSummary ? 'Actualizando...' : `${filteredCashMovements.length} de ${cashMovements.length}`}</span>
-                        </div>
                       </div>
-                    )}
-                    bodyClassName="p-4"
-                  >
-
-                    <div className="mb-3 grid grid-cols-3 gap-2">
-                      <MetricCard
-                        label="Resultado visible"
-                        value={Math.abs(filteredNetAmount)}
-                        format="money"
-                        valueColor={filteredNetAmount >= 0 ? 'var(--positive-fg)' : 'var(--error-fg)'}
-                      />
-                      <MetricCard
-                        label="Ingresos visibles"
-                        value={filteredIncomeAmount}
-                        format="money"
-                        valueColor="var(--positive-fg)"
-                      />
-                      <MetricCard
-                        label="Egresos visibles"
-                        value={filteredExpenseAmount}
-                        format="money"
-                        valueColor="var(--error-fg)"
-                      />
                     </div>
 
-                    {cashShowFilters && (
-                      <AdminFilterToolbar className="mb-3 grid grid-cols-1 md:grid-cols-[1fr_140px_160px_auto]">
-                        <label className="relative">
-                          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                          <input
-                            type="text"
-                            value={cashSearchTerm}
-                            onChange={(event) => setCashSearchTerm(event.target.value)}
-                            placeholder="Buscar por concepto o método"
-                            className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] outline-none focus:border-p-accent"
-                          />
-                        </label>
+                    {/* El resultado del período en una frase. */}
+                    <p className="text-[15px] text-p-text-secondary">
+                      {loadingCashSummary && filteredCashMovements.length === 0 ? (
+                        'Cargando…'
+                      ) : (
+                        <>
+                          Entró <span className="font-bold tabular-nums text-p-positive">{formatMoney(filteredIncomeAmount)}</span>
+                          {' · '}salió <span className="font-bold tabular-nums text-p-error">{formatMoney(filteredExpenseAmount)}</span>
+                          {' · '}
+                          {'en total '}
+                          <span className="font-bold tabular-nums text-p-text">
+                            {filteredNetAmount < 0 ? '−' : '+'}
+                            {formatMoney(Math.abs(filteredNetAmount))}
+                          </span>
+                        </>
+                      )}
+                    </p>
 
-                        <select
-                          value={cashTypeFilter}
-                          onChange={(event) => setCashTypeFilter(event.target.value as MovementTypeFilter)}
-                  className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent"
-                        >
-                          <option value="ALL">Todos los tipos</option>
-                          <option value="INCOME">Solo ingresos</option>
-                          <option value="EXPENSE">Solo egresos</option>
-                        </select>
-
-                        <select
-                          value={cashMethodFilter}
-                          onChange={(event) => setCashMethodFilter(event.target.value as MovementMethodFilter)}
-                  className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent"
-                        >
-                          <option value="ALL">Todos los métodos</option>
-                          <option value="CASH">Efectivo</option>
-                          <option value="TRANSFER">Transferencia</option>
-                          <option value="CARD">Tarjeta</option>
-                        </select>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCashSearchTerm('');
-                            setCashTypeFilter('ALL');
-                            setCashMethodFilter('ALL');
-                          }}
-                          className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
-                        >
-                          <X size={13} />
-                          Limpiar filtros
-                        </button>
-                      </AdminFilterToolbar>
-                    )}
-
-                    <div className="overflow-auto rounded-xl border border-p-border bg-p-surface max-h-[68vh] px-4 py-2">
-                      <CashMovementsTimeline movements={filteredCashMovements} />
-                    </div>
-                  </AdminPanel>
+                    <CashMovementsTimeline
+                      movements={filteredCashMovements}
+                      loading={loadingCashSummary}
+                      emptyTitle={
+                        cashSearchTerm.trim() || cashTypeFilter !== 'ALL' || cashMethodFilter !== 'ALL'
+                          ? 'Sin resultados'
+                          : 'No hubo movimientos'
+                      }
+                      emptyDescription={
+                        cashSearchTerm.trim() || cashTypeFilter !== 'ALL' || cashMethodFilter !== 'ALL'
+                          ? 'Probá sacando algún filtro.'
+                          : 'En este período no entró ni salió plata.'
+                      }
+                    />
+                  </div>
                 )}
 
                 {cashActiveView === 'closures' && (
@@ -2703,217 +2736,160 @@ export default function AdminPaymentsPlaygroundPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="w-full rounded-2xl border border-p-border bg-p-surface p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface-2 p-1">
-                      {(['hoy', 'semana', 'mes'] as CashPeriod[]).map((period) => (
-                        <button
-                          key={`refunds-${period}`}
-                          type="button"
-                          onClick={() => {
-                            setCashActivePeriod(period);
-                            setCashPeriodOffset(0);
-                          }}
-                          className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition ${
-                            cashActivePeriod === period
-                              ? 'bg-p-surface text-p-accent shadow-sm'
-                              : 'text-p-text-muted hover:text-p-text-secondary'
-                          }`}
-                        >
-                          {period === 'hoy' ? 'Hoy' : period === 'semana' ? 'Semana' : 'Mes'}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface px-1 py-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
+                    {([
+                      { id: 'ALL', label: 'Todas' },
+                      { id: 'TODO', label: refundsTodo.count > 0 ? `Por hacer (${refundsTodo.count})` : 'Por hacer' },
+                      { id: 'DONE', label: 'Devueltas' },
+                    ] as Array<{ id: 'ALL' | 'TODO' | 'DONE'; label: string }>).map((option) => (
                       <button
+                        key={`refund-stage-${option.id}`}
                         type="button"
-                        onClick={() => setCashPeriodOffset((prev) => prev - 1)}
-                        className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2"
-                      >
-                        <ChevronLeft size={16} />
-                      </button>
-                      <span className="min-w-[120px] text-center text-[12px] font-semibold text-p-text-secondary">{cashPeriodLabel}</span>
-                      <button
-                        type="button"
-                        onClick={() => setCashPeriodOffset((prev) => Math.min(0, prev + 1))}
-                        disabled={cashPeriodOffset === 0}
-                        className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:text-p-text-muted disabled:hover:bg-transparent"
-                      >
-                        <ChevronRight size={16} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                  <MetricCard label="Pendientes (período)" value={filteredPendingRefunds.length} format="number" valueColor="var(--accent-fg)" />
-                  <MetricCard label="Total recientes (período)" value={filteredRecentRefunds.length} format="number" valueColor="var(--positive-fg)" />
-                  <MetricCard label="Monto pendiente (período)" value={filteredPendingRefundAmount} format="money" />
-                </div>
-
-                <AdminPanel
-                  title="Devoluciones recientes"
-                  description="Listado real del período según filtros seleccionados."
-                  headerClassName="pl-4 pr-2 py-3"
-                  actions={(
-                    <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-1 sm:flex-nowrap sm:justify-end">
-                      <button
-                        type="button"
-                        onClick={openRefundRequestSelector}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 shadow-p-md transition hover:bg-ink-800"
-                      >
-                        <Plus size={14} strokeWidth={2.5} />
-                        Nueva devolución
-                      </button>
-
-                      <label className="relative w-full sm:w-[260px] sm:flex-none">
-                        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                        <input
-                          type="text"
-                          value={refundSearchTerm}
-                          onChange={(event) => setRefundSearchTerm(event.target.value)}
-                          placeholder="Buscar por código, motivo o referencia"
-                          className="h-8 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[12px] outline-none focus:border-p-accent"
-                        />
-                      </label>
-
-                      <select
-                        value={refundStatusFilter}
-                        onChange={(event) => setRefundStatusFilter(event.target.value as RefundStatusFilter)}
-                        className="h-8 min-w-[145px] rounded-xl border border-p-border bg-p-surface px-2.5 text-[12px] outline-none focus:border-p-accent"
-                      >
-                        <option value="ALL">Todos los estados</option>
-                        <option value="REQUESTED">Solicitada</option>
-                        <option value="APPROVED">Aprobada</option>
-                        <option value="READY_TO_EXECUTE">Lista</option>
-                        <option value="EXECUTED">Ejecutada</option>
-                        <option value="FAILED">Fallida</option>
-                        <option value="CANCELLED">Cancelada</option>
-                      </select>
-
-                      <select
-                        value={refundMethodFilter}
-                        onChange={(event) => setRefundMethodFilter(event.target.value as RefundMethodFilter)}
-                        className="h-8 min-w-[165px] rounded-xl border border-p-border bg-p-surface px-2.5 text-[12px] outline-none focus:border-p-accent"
-                      >
-                        <option value="ALL">Todos los métodos</option>
-                        <option value="CASH">Efectivo</option>
-                        <option value="TRANSFER">Transferencia</option>
-                        <option value="CARD_REVERSAL">Reverso tarjeta</option>
-                        <option value="CREDIT_NOTE">Nota de crédito</option>
-                      </select>
-                    </AdminFilterToolbar>
-                  )}
-                  bodyClassName="p-0"
-                >
-                  {filteredRecentRefunds.length > 0 && (
-                    <>
-                      <div className="hidden grid-cols-[130px_140px_minmax(0,1fr)_140px_140px_120px_120px_110px] border-b border-p-border px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-p-text-muted lg:grid">
-                        <p>Código</p>
-                        <p>Fecha</p>
-                        <p>Motivo</p>
-                        <p>Método</p>
-                        <p>Pago / Cuenta</p>
-                        <p>Estado</p>
-                        <p className="text-right">Monto</p>
-                        <p className="text-right">Acciones</p>
-                      </div>
-                      <div className="hidden divide-y divide-p-border lg:block">
-                        {filteredRecentRefunds.map((refund) => {
-                          const isSelected = selectedRefundId === refund.id;
-                          return (
-                          <button
-                            key={`refund-grid-${refund.id}`}
-                            type="button"
-                            onClick={() => setSelectedRefundId(refund.id)}
-                            className={`group relative grid min-h-[46px] w-full grid-cols-[130px_140px_minmax(0,1fr)_140px_140px_120px_120px_110px] items-center px-4 py-3 text-left text-[13px] transition ${
-                              isSelected ? 'bg-p-surface-2 text-p-text' : 'text-p-text-secondary hover:bg-p-surface-2'
-                            }`}
-                          >
-                            {isSelected ? <span className="absolute -inset-y-px left-0 w-0.5 rounded-r-full bg-ink-900" aria-hidden="true" /> : null}
-                            <p className="font-semibold text-p-text">{refundCodeLabel(refund)}</p>
-                            <p>{formatDateTime24(refund.createdAt)}</p>
-                            <p className="truncate">{refund.reason?.trim() || refundReasonTypeLabel(refund.reasonType)}</p>
-                            <p>{refundExecutionMethodLabel(refund.executionMethod)}</p>
-                            <p className="truncate text-p-text-secondary">P:{shortId(refund.paymentId)} · C:{shortId(refund.accountId)}</p>
-                            <div>
-                              <span className="rounded-full bg-p-surface-3 px-2 py-0.5 text-[11px] font-semibold text-p-text-secondary">
-                                {formatRefundStatus(refund.status)}
-                              </span>
-                            </div>
-                            <p className="text-right font-semibold text-p-text">{formatMoney(refund.amount)}</p>
-                            <div
-                              className={`flex min-h-8 items-center justify-end gap-1.5 transition-opacity ${
-                                isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                              }`}
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              {refundQuickActions(refund).length === 0 ? (
-                                <span className="inline-flex h-8 w-8 items-center justify-center opacity-0" aria-hidden="true">
-                                  Acción
-                                </span>
-                              ) : null}
-                              {refundQuickActions(refund).map((quickAction) => (
-                                <button
-                                  key={`${refund.id}-${quickAction.key}`}
-                                  type="button"
-                                  title={quickAction.label}
-                                  aria-label={quickAction.label}
-                                  onClick={() => openRefundActionConfirm(refund, quickAction.action)}
-                                  className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition ${
-                                    quickAction.tone === 'danger'
-                                      ? 'border-p-error bg-p-error-bg text-p-error hover:bg-p-error-bg'
-                                      : quickAction.tone === 'muted'
-                                        ? 'border-p-border bg-p-surface text-p-text-muted hover:bg-p-surface-2'
-                                        : 'border-p-border bg-p-surface text-p-accent hover:bg-p-positive-bg'
-                                  }`}
-                                >
-                                  {quickAction.icon}
-                                </button>
-                              ))}
-                            </div>
-                          </button>
-                        )})}
-                      </div>
-                    </>
-                  )}
-                  {filteredRecentRefunds.length === 0 && (
-                    <div className="hidden px-3 py-8 text-center lg:block">
-                      <p className="text-[13px] font-semibold text-p-text-secondary">No hay devoluciones para este período</p>
-                      <p className="mt-1 text-[12px] text-p-text-muted">Proba otro rango o ajustá los filtros para ver resultados.</p>
-                    </div>
-                  )}
-                  <div className="divide-y divide-p-border lg:hidden">
-                    {filteredRecentRefunds.map((refund) => {
-                      const isSelected = selectedRefundId === refund.id;
-                      return (
-                      <button
-                        key={refund.id}
-                        type="button"
-                        onClick={() => setSelectedRefundId(refund.id)}
-                        className={`relative block min-h-[46px] w-full px-4 py-3 text-left text-[13px] transition ${
-                          isSelected ? 'bg-p-surface-2 text-p-text' : 'text-p-text-secondary hover:bg-p-surface-2'
+                        aria-pressed={refundStageFilter === option.id}
+                        onClick={() => setRefundStageFilter(option.id)}
+                        className={`h-9 rounded-lg px-3.5 text-[13px] font-semibold transition ${
+                          refundStageFilter === option.id ? 'bg-ink-900 text-ink-50' : 'text-p-text-secondary hover:bg-p-surface-2'
                         }`}
                       >
-                        {isSelected ? <span className="absolute -inset-y-px left-0 w-0.5 rounded-r-full bg-ink-900" aria-hidden="true" /> : null}
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="font-semibold text-p-text">{refundCodeLabel(refund)}</p>
-                          <span className="rounded-full bg-p-surface-3 px-2 py-0.5 text-[10px] font-semibold text-p-text-secondary">
-                            {formatRefundStatus(refund.status)}
-                          </span>
-                        </div>
-                        <p>{formatMoney(refund.amount)} · {formatDateTime24(refund.createdAt)}</p>
+                        {option.label}
                       </button>
-                    )})}
-                    {filteredRecentRefunds.length === 0 && (
-                      <div className="px-3 py-8 text-center">
-                        <p className="text-[13px] font-semibold text-p-text-secondary">No hay devoluciones para este período</p>
-                        <p className="mt-1 text-[12px] text-p-text-muted">Proba otro rango o ajustá los filtros para ver resultados.</p>
-                      </div>
-                    )}
+                    ))}
                   </div>
-                </AdminPanel>
+                  {refundStageFilter !== 'TODO' && (
+                    <CashPeriodPicker
+                      period={cashActivePeriod}
+                      label={cashPeriodLabel}
+                      offset={cashPeriodOffset}
+                      onPeriod={(period) => {
+                        setCashActivePeriod(period);
+                        setCashPeriodOffset(0);
+                      }}
+                      onOffset={setCashPeriodOffset}
+                    />
+                  )}
+                  <label className="relative min-w-[180px] flex-1 sm:max-w-[280px]">
+                    <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
+                    <input
+                      type="text"
+                      value={refundSearchTerm}
+                      onChange={(event) => setRefundSearchTerm(event.target.value)}
+                      placeholder="Buscar cliente o motivo"
+                      className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={openRefundRequestSelector}
+                    className="ml-auto inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-3.5 text-[13px] font-semibold text-ink-50 hover:bg-ink-800"
+                  >
+                    <Plus size={15} strokeWidth={2.5} />
+                    Devolver plata
+                  </button>
+                </div>
+
+                {refundsTodo.count > 0 && refundStageFilter !== 'TODO' && (
+                  <button
+                    type="button"
+                    onClick={() => setRefundStageFilter('TODO')}
+                    className="w-full rounded-xl bg-p-warning-bg px-4 py-3 text-left text-[14px] text-p-warning"
+                  >
+                    <span className="font-semibold">
+                      {refundsTodo.count === 1 ? 'Hay 1 devolución por hacer' : `Hay ${refundsTodo.count} devoluciones por hacer`}
+                    </span>{' '}
+                    ({formatMoney(refundsTodo.amount)}). Ver →
+                  </button>
+                )}
+
+                {filteredRecentRefunds.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-p-border px-4 py-10 text-center">
+                    <p className="text-[14px] font-semibold text-p-text-secondary">
+                      {refundStageFilter === 'TODO' ? 'No hay nada por devolver' : 'No hay devoluciones en este período'}
+                    </p>
+                    <p className="mt-1 text-[12px] text-p-text-muted">
+                      {refundStageFilter === 'TODO'
+                        ? 'Todas las devoluciones están hechas.'
+                        : 'Cambiá el período para ver otras fechas.'}
+                    </p>
+                  </div>
+                ) : (
+                  <ul className="space-y-2">
+                    {filteredRecentRefunds.map((refund) => {
+                      const isSelected = selectedRefundId === refund.id;
+                      const account = allAccounts.find((row) => row.id === refund.accountId);
+                      const who =
+                        account?.booking?.clientName?.trim() ||
+                        account?.client?.name?.trim() ||
+                        (account ? accountKindLabel[account.sourceType] : 'Cuenta');
+                      const status = String(refund.status || '').toUpperCase();
+                      const rawReason = refund.reason?.trim() || '';
+                      const reason = /^Cancelaci[oó]n reserva/i.test(rawReason)
+                        ? 'Reserva cancelada'
+                        : rawReason.replace(/\s*#\S+/g, '').trim() || refundReasonTypeLabel(refund.reasonType);
+                      const bookingWhere = account?.booking?.courtName
+                        ? ` · ${account.booking.courtName}${
+                            account.booking.startDateTime ? ` ${formatAccountDay(new Date(account.booking.startDateTime))}` : ''
+                          }`
+                        : '';
+                      const actions = refundQuickActions(refund);
+                      const created = new Date(refund.createdAt);
+                      const when = Number.isNaN(created.getTime())
+                        ? ''
+                        : `${formatAccountDay(created)} ${formatAccountTime(refund.createdAt) || ''}`;
+                      return (
+                        <li key={`refund-row-${refund.id}`}>
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => setSelectedRefundId(refund.id)}
+                            onKeyDown={(event) => {
+                              if (event.key !== 'Enter' && event.key !== ' ') return;
+                              event.preventDefault();
+                              setSelectedRefundId(refund.id);
+                            }}
+                            className={`grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 rounded-xl border px-4 py-3 outline-none transition sm:grid-cols-[104px_minmax(0,1fr)_auto] ${
+                              isSelected ? 'border-ink-900 bg-p-surface-2' : 'border-p-border bg-p-surface hover:bg-p-surface-2'
+                            }`}
+                          >
+                            <p className="col-span-2 text-[12px] text-p-text-muted sm:col-span-1">{when}</p>
+                            <div className="min-w-0">
+                              <p className="truncate text-[14px] font-semibold text-p-text">{who}</p>
+                              <p className="truncate text-[12px] text-p-text-muted">
+                                {reason}
+                                {bookingWhere} · {refundExecutionMethodLabel(refund.executionMethod)}
+                              </p>
+                            </div>
+                            <div className="flex items-center justify-end gap-3">
+                              <div className="text-right">
+                                <p className="text-[14px] font-bold tabular-nums text-p-text">{formatMoney(refund.amount)}</p>
+                                <p className={`text-[11px] font-semibold ${refundStatusTone(status)}`}>{formatRefundStatus(status)}</p>
+                              </div>
+                              {actions.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    openRefundActionConfirm(refund, actions[0].action);
+                                  }}
+                                  onKeyDown={(event) => event.stopPropagation()}
+                                  className="h-9 rounded-lg bg-ink-900 px-3.5 text-[12px] font-semibold text-ink-50 hover:bg-ink-800"
+                                >
+                                  {actions[0].action === 'approve'
+                                    ? 'Aprobar'
+                                    : actions[0].action === 'execute'
+                                      ? 'Ya la devolví'
+                                      : actions[0].action === 'retry'
+                                        ? 'Reintentar'
+                                        : actions[0].label}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </div>
             )}
           </section>
@@ -3157,156 +3133,145 @@ export default function AdminPaymentsPlaygroundPage() {
         </AdminDrawerSection>
       </AdminDrawer>
 
-      <AdminDrawer
-        open={Boolean(selectedRefund)}
-        onClose={closeRefundDetailDrawer}
-        title="Detalle de devolución"
-        subtitle={selectedRefund ? `${refundCodeLabel(selectedRefund)} · ${formatMoney(selectedRefund.amount)}` : undefined}
-        statusChip={selectedRefund ? formatRefundStatus(selectedRefund.status) : undefined}
-        statusChipClassName={
-          selectedRefund?.status === 'EXECUTED'
-            ? 'bg-p-positive-bg text-p-positive'
-            : selectedRefund?.status === 'FAILED' || selectedRefund?.status === 'CANCELLED'
-              ? 'bg-p-error-bg text-p-error'
-              : 'bg-p-positive-bg text-p-accent'
-        }
-        size="md"
-        footer={
-          selectedRefund ? (
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              {selectedRefund.status === 'REQUESTED' && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => openRefundActionConfirm(selectedRefund, 'cancel')}
-                    className="h-10 rounded-xl border border-p-error bg-p-error-bg px-3 text-[13px] font-semibold text-p-error transition hover:bg-p-error-bg"
-                  >
-                    Cancelar
+      {(() => {
+        // Devolución: a quién, cuánto, cómo y qué pasó. Sin códigos internos.
+        const refund = selectedRefund;
+        const account = refund ? allAccounts.find((row) => row.id === refund.accountId) : null;
+        const who =
+          account?.booking?.clientName?.trim() ||
+          account?.client?.name?.trim() ||
+          (account ? accountKindLabel[account.sourceType] : 'Devolución');
+        const rawReason = refund?.reason?.trim() || '';
+        const reason = refund
+          ? /^Cancelaci[oó]n reserva/i.test(rawReason)
+            ? 'Reserva cancelada'
+            : rawReason.replace(/\s*#\S+/g, '').trim() || refundReasonTypeLabel(refund.reasonType)
+          : '';
+        const bookingLine = account?.booking?.courtName
+          ? [
+              account.booking.startDateTime ? formatAccountDay(new Date(account.booking.startDateTime)) : '',
+              formatAccountTime(account.booking.startDateTime) || '',
+              account.booking.courtName,
+            ]
+              .filter(Boolean)
+              .join(' · ')
+          : '';
+        const when = (value?: string | null) => {
+          if (!value) return '';
+          const d = new Date(value);
+          if (Number.isNaN(d.getTime())) return '';
+          return `${formatAccountDay(d)} ${formatAccountTime(value) || ''}`.trim();
+        };
+        const steps = refund
+          ? ([
+              ['Pedida', refund.createdAt],
+              ['Aprobada', refund.approvedAt],
+              ['Devuelta', refund.executedAt],
+              ['Anulada', refund.cancelledAt],
+              ['No se pudo devolver', refund.failedAt],
+            ] as Array<[string, string | null | undefined]>).filter(([, value]) => Boolean(value))
+          : [];
+        const notes = refund
+          ? ([
+              ['Nota', refund.executionNotes],
+              ['Comprobante', refund.executionReference],
+              ['Por qué se anuló', refund.cancelReason],
+              ['Por qué falló', refund.failedReason],
+            ] as Array<[string, string | null | undefined]>).filter(([, value]) => Boolean(String(value || '').trim()))
+          : [];
+        const status = String(refund?.status || '').toUpperCase();
+        const secondaryClass =
+          'text-[13px] font-semibold text-p-text-secondary hover:underline underline-offset-2';
+        const primaryClass =
+          'h-11 rounded-xl bg-ink-900 px-5 text-[14px] font-semibold text-ink-50 transition hover:bg-ink-800';
+        return (
+          <AdminDrawer
+            open={Boolean(refund)}
+            onClose={closeRefundDetailDrawer}
+            title={who}
+            subtitle={refund ? [reason, bookingLine].filter(Boolean).join(' · ') : undefined}
+            statusChip={refund && status !== 'EXECUTED' ? formatRefundStatus(status) : undefined}
+            statusChipClassName={
+              status === 'FAILED' || status === 'CANCELLED'
+                ? 'bg-p-surface-3 text-p-text-secondary'
+                : 'bg-p-warning-bg text-p-warning'
+            }
+            size="md"
+            footer={
+              refund && REFUND_TODO_STATUSES.has(status) ? (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <button type="button" onClick={() => openRefundActionConfirm(refund, 'cancel')} className={secondaryClass}>
+                    Anular
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => openRefundActionConfirm(selectedRefund, 'approve')}
-                    className="h-10 rounded-xl border border-p-border bg-p-surface px-3 text-[13px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
-                  >
-                    Aprobar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openRefundActionConfirm(selectedRefund, 'approve_execute')}
-                    className="h-10 rounded-xl bg-ink-900 px-4 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-900"
-                  >
-                    Aprobar y ejecutar
-                  </button>
-                </>
-              )}
-              {(selectedRefund.status === 'APPROVED' || selectedRefund.status === 'READY_TO_EXECUTE') && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => openRefundActionConfirm(selectedRefund, 'cancel')}
-                    className="h-10 rounded-xl border border-p-error bg-p-error-bg px-3 text-[13px] font-semibold text-p-error transition hover:bg-p-error-bg"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openRefundActionConfirm(selectedRefund, 'fail')}
-                    className="h-10 rounded-xl border border-p-border bg-p-surface px-3 text-[13px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
-                  >
-                    Marcar fallida
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openRefundActionConfirm(selectedRefund, 'execute')}
-                    className="h-10 rounded-xl bg-ink-900 px-4 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-900"
-                  >
-                    Ejecutar
-                  </button>
-                </>
-              )}
-              {selectedRefund.status === 'FAILED' && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => openRefundActionConfirm(selectedRefund, 'cancel')}
-                    className="h-10 rounded-xl border border-p-error bg-p-error-bg px-3 text-[13px] font-semibold text-p-error transition hover:bg-p-error-bg"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openRefundActionConfirm(selectedRefund, 'retry')}
-                    className="h-10 rounded-xl bg-ink-900 px-4 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-900"
-                  >
-                    Reintentar
-                  </button>
-                </>
-              )}
-            </div>
-          ) : undefined
-        }
-      >
-        {selectedRefund && (
-          <>
-            <AdminDrawerSection title="Resumen" className={drawerSectionCardClass}>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-p-text-muted">Monto</p>
-                  <p className="mt-1 text-[18px] font-bold text-p-text">{formatMoney(selectedRefund.amount)}</p>
+                  {status === 'REQUESTED' && (
+                    <button type="button" onClick={() => openRefundActionConfirm(refund, 'approve')} className={secondaryClass}>
+                      Solo aprobar
+                    </button>
+                  )}
+                  {(status === 'APPROVED' || status === 'READY_TO_EXECUTE') && (
+                    <button type="button" onClick={() => openRefundActionConfirm(refund, 'fail')} className={secondaryClass}>
+                      No se pudo devolver
+                    </button>
+                  )}
+                  <div className="flex-1" />
+                  {status === 'REQUESTED' && (
+                    <button type="button" onClick={() => openRefundActionConfirm(refund, 'approve_execute')} className={primaryClass}>
+                      Aprobar y devolver
+                    </button>
+                  )}
+                  {(status === 'APPROVED' || status === 'READY_TO_EXECUTE') && (
+                    <button type="button" onClick={() => openRefundActionConfirm(refund, 'execute')} className={primaryClass}>
+                      Ya la devolví
+                    </button>
+                  )}
+                  {status === 'FAILED' && (
+                    <button type="button" onClick={() => openRefundActionConfirm(refund, 'retry')} className={primaryClass}>
+                      Reintentar
+                    </button>
+                  )}
                 </div>
-                <div className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-p-text-muted">Método</p>
-                  <p className="mt-1 text-[14px] font-bold text-p-text">{refundExecutionMethodLabel(selectedRefund.executionMethod)}</p>
+              ) : undefined
+            }
+          >
+            {refund && (
+              <div className="space-y-5">
+                <div>
+                  <p className="text-[13px] text-p-text-muted">{status === 'EXECUTED' ? 'Se devolvió' : 'A devolver'}</p>
+                  <p className="text-[30px] font-bold leading-tight tabular-nums text-p-text">{formatMoney(refund.amount)}</p>
+                  <p className="text-[13px] text-p-text-secondary">En {refundExecutionMethodLabel(refund.executionMethod).toLowerCase()}</p>
                 </div>
-              </div>
-            </AdminDrawerSection>
 
-            <AdminDrawerSection title="Referencias" className={drawerSectionCardClass}>
-              <div className="divide-y divide-p-border rounded-xl border border-p-border bg-p-surface-2 px-3 text-[12px] text-p-text-secondary">
-                <div className="flex items-center justify-between gap-3 py-2.5">
-                  <span>Pago</span>
-                  <span className="font-mono font-semibold text-p-text">{shortCode(selectedRefund.paymentId)}</span>
-                </div>
-                <div className="flex items-center justify-between gap-3 py-2.5">
-                  <span>Cuenta</span>
-                  <span className="font-mono font-semibold text-p-text">{shortCode(selectedRefund.accountId)}</span>
-                </div>
-                <div className="flex items-center justify-between gap-3 py-2.5">
-                  <span>Turno de caja</span>
-                  <span className="font-mono font-semibold text-p-text">{selectedRefund.cashShiftId ? shortCode(selectedRefund.cashShiftId) : '-'}</span>
-                </div>
-              </div>
-            </AdminDrawerSection>
-
-            <AdminDrawerSection title="Trazabilidad" className={drawerSectionCardClass}>
-              <div className="divide-y divide-p-border rounded-xl border border-p-border bg-p-surface-2 px-3 text-[12px]">
-                {[
-                  ['Creada', selectedRefund.createdAt],
-                  ['Aprobada', selectedRefund.approvedAt],
-                  ['Ejecutada', selectedRefund.executedAt],
-                  ['Cancelada', selectedRefund.cancelledAt],
-                  ['Fallida', selectedRefund.failedAt],
-                ].map(([label, value]) => (
-                  <div key={label} className="grid grid-cols-[104px_minmax(0,1fr)] items-center gap-3 py-2.5">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-p-text-muted">{label}</p>
-                    <p className="font-semibold text-p-text">{value ? formatDateTime24(String(value)) : '-'}</p>
+                {steps.length > 0 && (
+                  <div className="border-t border-p-border pt-4">
+                    <p className="text-[13px] font-semibold text-p-text">Qué pasó</p>
+                    <ul className="mt-1 divide-y divide-p-border">
+                      {steps.map(([label, value]) => (
+                        <li key={label} className="flex items-center justify-between gap-3 py-2.5 text-[13px]">
+                          <span className="text-p-text">{label}</span>
+                          <span className="tabular-nums text-p-text-muted">{when(value)}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                ))}
-              </div>
-            </AdminDrawerSection>
+                )}
 
-            <AdminDrawerSection title="Notas" className={drawerSectionCardClass}>
-              <div className="divide-y divide-p-border rounded-xl border border-p-border bg-p-surface-2 px-3 text-[12px] text-p-text-secondary">
-                <p className="py-2.5"><span className="font-semibold text-p-text">Motivo:</span> {selectedRefund.reason?.trim() || refundReasonTypeLabel(selectedRefund.reasonType)}</p>
-                <p className="py-2.5"><span className="font-semibold text-p-text">Nota:</span> {selectedRefund.executionNotes?.trim() || '-'}</p>
-                <p className="py-2.5"><span className="font-semibold text-p-text">Referencia:</span> {selectedRefund.executionReference?.trim() || '-'}</p>
-                <p className="py-2.5"><span className="font-semibold text-p-text">Cancelación:</span> {selectedRefund.cancelReason?.trim() || '-'}</p>
-                <p className="py-2.5"><span className="font-semibold text-p-text">Fallo:</span> {selectedRefund.failedReason?.trim() || '-'}</p>
+                {notes.length > 0 && (
+                  <div className="border-t border-p-border pt-4">
+                    <ul className="space-y-2">
+                      {notes.map(([label, value]) => (
+                        <li key={label} className="text-[13px]">
+                          <span className="text-p-text-muted">{label}: </span>
+                          <span className="text-p-text">{String(value).trim()}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
-            </AdminDrawerSection>
-          </>
-        )}
-      </AdminDrawer>
+            )}
+          </AdminDrawer>
+        );
+      })()}
 
       <AdminAppModal
         show={Boolean(refundActionConfirm && refundActionCopyValue)}
