@@ -12,7 +12,12 @@ type AgendaToolbarProps = {
   onDateChange: (date: Date) => void;
   onMoveDate: (days: number) => void;
   onCreateBooking: () => void;
+  /** Volver al día de hoy (y a la hora actual). */
+  onGoToday?: () => void;
 };
+
+const isSameLocalDay = (a: Date, b: Date) =>
+  a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
 const formatLocalDate = (date: Date) => {
   const year = date.getFullYear();
@@ -32,7 +37,9 @@ export default function AgendaToolbar({
   onDateChange,
   onMoveDate,
   onCreateBooking,
+  onGoToday,
 }: AgendaToolbarProps) {
+  const isToday = isSameLocalDay(selectedDate, new Date());
   const openNativeDatePicker = () => {
     const input = quickDateInputRef.current;
     if (!input) return;
@@ -76,6 +83,20 @@ export default function AgendaToolbar({
 
       <div className="shrink-0">
         <div className="flex flex-wrap items-center gap-2">
+          {onGoToday && (
+            <button
+              type="button"
+              onClick={onGoToday}
+              className={`h-8 rounded-lg px-3 text-[12px] font-semibold transition ${
+                isToday
+                  ? 'border border-p-border bg-p-surface text-p-text-muted hover:bg-p-surface-2'
+                  : 'bg-p-positive-bg text-p-accent hover:brightness-95'
+              }`}
+              title={isToday ? 'Ir a la hora actual' : 'Volver a hoy'}
+            >
+              Hoy
+            </button>
+          )}
           <div className="relative inline-flex h-8 items-center rounded-lg border border-p-border bg-p-surface overflow-hidden">
             <button
               type="button"

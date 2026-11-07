@@ -1252,6 +1252,17 @@ export default function AdminAgendaPlaygroundPage() {
     });
     setFormError('');
   }, []);
+  /** Slots de la grilla que ya pasaron: todo si el día es anterior, hasta la hora actual si es hoy. */
+  const pastSlotCount = useMemo(() => {
+    const now = new Date(nowTick);
+    const todayKey = now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate();
+    const selectedKey =
+      selectedDate.getFullYear() * 10000 + (selectedDate.getMonth() + 1) * 100 + selectedDate.getDate();
+    if (selectedKey < todayKey) return totalSlots;
+    if (selectedKey > todayKey) return 0;
+    const minutesFromStart = now.getHours() * 60 + now.getMinutes() - startHour * 60;
+    return Math.max(0, Math.min(totalSlots, Math.floor(minutesFromStart / slotMinutes)));
+  }, [nowTick, selectedDate]);
   const nowLineTop = useMemo(() => {
     const now = new Date(nowTick);
     const isSameDay =
@@ -2774,6 +2785,35 @@ export default function AdminAgendaPlaygroundPage() {
     setBookingHoverPreview(null);
   }, [drawerOpen, resetConsumptionsDraft, setExpandedParticipantId, setParticipantMenuId]);
 
+  /** Lleva la grilla a la hora actual (hoy) o al principio del día (otro día). */
+  const scrollAgendaToNow = useCallback((behavior: ScrollBehavior = 'auto') => {
+    const container = agendaScrollContainerRef.current;
+    if (!container) return;
+    const target = nowLineTop != null ? Math.max(0, nowLineTop - slotHeight * slotsPerHour) : 0;
+    container.scrollTo({ top: target, behavior });
+  }, [nowLineTop]);
+  const selectedDayKeyForScroll = formatLocalDate(selectedDate);
+  const lastAutoScrolledDayRef = useRef<string | null>(null);
+  useEffect(() => {
+    // Solo al abrir la agenda o cambiar de día: no mover la grilla mientras el usuario trabaja.
+    if (lastAutoScrolledDayRef.current === selectedDayKeyForScroll) return;
+    if (!agendaScrollContainerRef.current) return;
+    lastAutoScrolledDayRef.current = selectedDayKeyForScroll;
+    const rafId = window.requestAnimationFrame(() => scrollAgendaToNow('auto'));
+    return () => window.cancelAnimationFrame(rafId);
+  });
+  const goToToday = useCallback(() => {
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+    const isAlreadyToday = formatLocalDate(today) === formatLocalDate(selectedDate);
+    if (isAlreadyToday) {
+      scrollAgendaToNow('smooth');
+      return;
+    }
+    setSelectedDate(today);
+    setFormError('');
+  }, [scrollAgendaToNow, selectedDate]);
+
   useEffect(() => {
     if (!drawerOpen) return;
     const resetDrawerScrollTop = () => {
@@ -3793,6 +3833,7 @@ export default function AdminAgendaPlaygroundPage() {
       anchorSlot,
       pointerSlot,
       isFree: (startSlot, endSlot) =>
+        startSlot >= pastSlotCount &&
         !hasOverlapForRange({ courtId, startSlot, endSlot, ignoreBookingId: null }),
     });
   };
@@ -3809,6 +3850,10 @@ export default function AdminAgendaPlaygroundPage() {
       ignoreBookingId: null,
     });
     if (startsOnConflict) return;
+    if (slot < pastSlotCount) {
+      showAgendaToast('Ese horario ya pasó.', 'info');
+      return;
+    }
     const snapped = snapCreateForCourt(courtId, slot, slot);
     if (snapped === null) {
       // Horario grisado: no se puede reservar. Si el horario es válido pero no entra un turno, avisar.
@@ -6475,6 +6520,7 @@ export default function AdminAgendaPlaygroundPage() {
                   }}
                   onMoveDate={moveDate}
                   onCreateBooking={() => openQuickCreateBooking(visibleCourts[0]?.id)}
+                  onGoToday={goToToday}
                 />
 
                 <div className="flex-1 rounded-2xl border border-p-border bg-p-surface overflow-hidden">
@@ -6514,6 +6560,7 @@ export default function AdminAgendaPlaygroundPage() {
                                       ? courtBookingRules.get(court.id)?.mask
                                       : null
                                   }
+                                  pastSlotCount={pastSlotCount}
                                 >
 
                                   {(() => {
