@@ -167,11 +167,34 @@ export default function ClientSubscriptionsPanel({ clubSlug, clientId, clientNam
 
   return (
     <div>
-      <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">Planes</h3>
-      <div className="space-y-3 rounded-xl border border-p-border p-3 text-[13px]">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="text-[13px] font-semibold text-p-text">Planes</p>
+        <div className="flex items-center gap-3">
+          {hiddenCount > 0 ? (
+            <button
+              type="button"
+              className="text-[13px] font-semibold text-p-text-secondary hover:underline underline-offset-2"
+              onClick={() => setShowClosed((prev) => !prev)}
+            >
+              {showClosed ? 'Ocultar terminados' : `Ver terminados (${hiddenCount})`}
+            </button>
+          ) : null}
+          {plans.length ? (
+            <button
+              type="button"
+              className="text-[13px] font-semibold text-p-accent hover:underline underline-offset-2 disabled:opacity-50"
+              disabled={submitting}
+              onClick={openSell}
+            >
+              Vender plan
+            </button>
+          ) : null}
+        </div>
+      </div>
+      <div className="space-y-3 text-[13px]">
         {error ? <AdminFeedbackBanner tone="error" compact>{error}</AdminFeedbackBanner> : null}
 
-        {visibleRows.length === 0 ? <p className="text-[12px] text-p-text-muted">Sin planes activos.</p> : null}
+        {visibleRows.length === 0 ? <p className="text-[13px] text-p-text-muted">No tiene planes activos.</p> : null}
 
         {visibleRows.map((row) => {
           const periodCount = row.installments.filter((inst) => inst.kind === 'PERIOD').length;
@@ -244,18 +267,6 @@ export default function ClientSubscriptionsPanel({ clubSlug, clientId, clientNam
           );
         })}
 
-        <div className="flex flex-wrap gap-2">
-          {plans.length ? (
-            <button type="button" className={buttonClass} disabled={submitting} onClick={openSell}>
-              Vender plan
-            </button>
-          ) : null}
-          {hiddenCount > 0 ? (
-            <button type="button" className={buttonClass} onClick={() => setShowClosed((prev) => !prev)}>
-              {showClosed ? 'Ocultar terminados' : `Ver terminados (${hiddenCount})`}
-            </button>
-          ) : null}
-        </div>
       </div>
 
       <AdminModal

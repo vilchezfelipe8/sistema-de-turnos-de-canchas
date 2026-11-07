@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ChevronLeft,
   Link2,
+  MoreHorizontal,
   DollarSign,
   Pencil,
   Plus,
@@ -51,6 +52,28 @@ import {
 } from '../../utils/phone';
 
 type ClientsView = 'directory' | 'debt' | 'history' | 'members' | 'incidents';
+
+/** "sáb 7 nov · 10:30". */
+const formatClientSlot = (iso: string | null | undefined, fallbackDate?: string | null, fallbackTime?: string | null): string => {
+  const date = iso ? new Date(iso) : fallbackDate ? new Date(`${String(fallbackDate).slice(0, 10)}T12:00:00`) : null;
+  if (!date || Number.isNaN(date.getTime())) return fallbackDate ? String(fallbackDate) : '-';
+  const day = date
+    .toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
+    .replace(/,/g, '')
+    .replace(/\./g, '');
+  const time = iso
+    ? date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    : fallbackTime || '';
+  return time ? `${day} · ${time}` : day;
+};
+
+const CLIENT_BOOKING_STATUS: Record<string, { label: string; tone: string }> = {
+  CONFIRMED: { label: 'Confirmada', tone: 'text-p-text-muted' },
+  PENDING: { label: 'Sin confirmar', tone: 'text-p-warning' },
+  COMPLETED: { label: 'Jugada', tone: 'text-p-text-muted' },
+  CANCELLED: { label: 'Cancelada', tone: 'text-p-text-muted line-through' },
+  NO_SHOW: { label: 'No vino', tone: 'text-p-warning' },
+};
 
 /** "hoy", "ayer", "hace 3 días", "12 oct". */
 const formatClientLastBooking = (iso: string | null | undefined): string => {
@@ -281,6 +304,7 @@ export default function AdminClientesPlayground2Page() {
   const [activeView, setActiveView] = useState<ClientsView>('directory');
   /** Lista de clientes: Todos, los que deben o los socios. */
   const [clientsListFilter, setClientsListFilter] = useState<'ALL' | 'DEBT' | 'MEMBERS'>('ALL');
+  const [clientMenuOpen, setClientMenuOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
   const [clients, setClients] = useState<any[]>([]);
@@ -1036,6 +1060,59 @@ export default function AdminClientesPlayground2Page() {
     () => (selectedClient?.history || []).slice().sort(sortByCreationDesc),
     [selectedClient]
   );
+  // Ficha: reservas que vienen, las últimas y lo que debe por cuenta.
+  const clientBookingRows = useMemo(() => {
+    const rows = Array.isArray(selectedClient?.bookings) ? selectedClient.bookings : [];
+    const seen = new Set<string>();
+    return rows
+      .map((entry: any) => {
+        const iso = entry?.startDateTime || null;
+        const fallback = entry?.date ? new Date(`${String(entry.date).slice(0, 10)}T${entry?.time || '00:00'}:00`) : null;
+        const start = iso ? new Date(iso) : fallback;
+        return {
+          id: String(entry?.bookingId ?? entry?.id ?? ''),
+          start: start && !Number.isNaN(start.getTime()) ? start : null,
+          iso,
+          date: entry?.date || null,
+          time: entry?.time || null,
+          courtName: entry?.courtName || '',
+          status: String(entry?.bookingStatus || entry?.status || '').toUpperCase(),
+        };
+      })
+      .filter((row: any) => {
+        if (!row.id || seen.has(row.id)) return false;
+        seen.add(row.id);
+        return true;
+      });
+  }, [selectedClient]);
+  const clientUpcomingBookings = useMemo(() => {
+    const now = Date.now();
+    return clientBookingRows
+      .filter((row: any) => row.start && row.start.getTime() >= now && row.status !== 'CANCELLED')
+      .sort((a: any, b: any) => a.start.getTime() - b.start.getTime())
+      .slice(0, 5);
+  }, [clientBookingRows]);
+  const clientRecentBookings = useMemo(() => {
+    const now = Date.now();
+    return clientBookingRows
+      .filter((row: any) => row.start && row.start.getTime() < now)
+      .sort((a: any, b: any) => b.start.getTime() - a.start.getTime())
+      .slice(0, 5);
+  }, [clientBookingRows]);
+  const clientPendingAccounts = useMemo(
+    () =>
+      historyAccounts.filter(
+        (account: any) =>
+          String(account?.accountStatus || account?.status || 'OPEN').toUpperCase() !== 'CLOSED' &&
+          Number(account?.amount || 0) > EPSILON
+      ),
+    [historyAccounts]
+  );
+
+  useEffect(() => {
+    setClientMenuOpen(false);
+  }, [selectedClientId]);
+
   const accountDrawerEntry = useMemo(
     () =>
       historyAccounts.find((account: any) => String(account?.id) === String(accountDrawerAccountId)) ||
@@ -1356,438 +1433,261 @@ export default function AdminClientesPlayground2Page() {
                         </div>
                       ) : (
                         <>
-                          {/* Hero */}
-                          <div className="flex flex-wrap items-start justify-between gap-2 border-b border-p-border p-4 lg:flex-nowrap lg:gap-4 lg:p-5">
-                            <div className="min-w-0 basis-full lg:basis-auto">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <h2 className="text-[18px] font-bold text-p-text">{getClientName(selectedClient)}</h2>
-                                {selectedClient.isProfessor && (
-                                  <span className="rounded-full bg-p-positive-bg px-2 py-0.5 text-[11px] font-semibold text-p-accent">
-                                    Profesor
-                                  </span>
-                                )}
-                                <MemberBadge member={selectedClient.member} />
-                              </div>
-                              <p className="mt-0.5 text-[12px] text-p-text-muted">ID #{shortId(selectedClient.id)}</p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => openEditClient(selectedClient)}
-                              className="h-8 flex-none rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
-                            >
-                              <span className="inline-flex items-center gap-1.5"><Pencil size={13} /> Editar</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={openMergeModal}
-                              className="h-8 flex-none rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
-                            >
-                              Fusionar
-                            </button>
-                          </div>
-
-                          {/* Debt banner */}
-                          {Number(selectedClient.totalDebt || 0) > EPSILON && (
-                            <div className="flex items-center justify-between gap-3 bg-p-error px-5 py-3">
-                              <div>
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-50">Deuda pendiente</p>
-                                <p className="text-[20px] font-bold leading-tight text-ink-50">
-                                  {formatMoney(Number(selectedClient.totalDebt || 0))}
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setActiveView('debt')}
-                                className="h-8 flex-none rounded-lg bg-p-surface px-3 text-[12px] font-bold text-p-error hover:bg-p-error-bg"
-                              >
-                                <span className="inline-flex items-center gap-1"><DollarSign size={13} /> Cobrar</span>
-                              </button>
-                            </div>
-                          )}
-
-                          <div className="space-y-5 p-5">
-                            {/* Quick stats */}
-                            <div className="grid grid-cols-3 gap-3">
-                              <div className="rounded-xl border border-p-border bg-p-surface-2 p-3 text-center">
-                                <p className="text-[18px] font-bold text-p-text">{Number(selectedClient.totalBookings || 0)}</p>
-                                <p className="mt-0.5 text-[11px] text-p-text-muted">Reservas</p>
-                              </div>
-                              <div className="rounded-xl border border-p-border bg-p-surface-2 p-3 text-center">
-                                <p className="text-[18px] font-bold text-p-text">{historyAccounts.length}</p>
-                                <p className="mt-0.5 text-[11px] text-p-text-muted">Cuentas</p>
-                              </div>
-                              <div className="rounded-xl border border-p-border bg-p-surface-2 p-3 text-center">
-                                <p className="text-[14px] font-bold text-p-text">
-                                  {selectedClient.isProfessor ? 'Profesor' : 'Cliente'}
-                                </p>
-                                <p className="mt-0.5 text-[11px] text-p-text-muted">Rol</p>
-                              </div>
-                            </div>
-
-                            {/* Socio (padrón) */}
-                            <ClientMemberPanel
-                              key={`member-${String(selectedClient.id)}-${memberPanelVersion}`}
-                              clubSlug={resolveClubSlug() || ''}
-                              clientId={String(selectedClient.id)}
-                              clientHasDni={Boolean(String(selectedClient.dni || '').replace(/\D/g, ''))}
-                              canManage={hasAdminAccess(user)}
-                              onChanged={() => void loadClients()}
-                            />
-
-                            {/* Planes y cuotas */}
-                            <ClientSubscriptionsPanel
-                              clubSlug={resolveClubSlug() || ''}
-                              clientId={String(selectedClient.id)}
-                              clientName={getClientName(selectedClient)}
-                              canManage={hasAdminAccess(user)}
-                              onChanged={() => {
-                                setMemberPanelVersion((value) => value + 1);
-                                void loadClients();
-                              }}
-                            />
-
-                            {/* Contact */}
-                            <div>
-                              <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
-                                Contacto
-                              </h3>
-                              <div className="divide-y divide-p-border rounded-xl border border-p-border text-[13px]">
-                                <div className="grid grid-cols-[90px_1fr] gap-2 px-3 py-2.5">
-                                  <span className="text-p-text-muted">DNI</span>
-                                  <span className="font-semibold text-p-text">{String(selectedClient.dni || '-')}</span>
-                                </div>
-                                <div className="grid grid-cols-[90px_1fr] gap-2 px-3 py-2.5">
-                                  <span className="text-p-text-muted">Teléfono</span>
-                                  <span className="font-semibold text-p-text">{String(selectedClient.phone || '-')}</span>
-                                </div>
-                                <div className="grid grid-cols-[90px_1fr] gap-2 px-3 py-2.5">
-                                  <span className="text-p-text-muted">Email</span>
-                                  <span className="break-all font-semibold text-p-text">{String(selectedClient.email || '-')}</span>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div>
-                              <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
-                                Vinculación con usuario
-                              </h3>
-                              <div className="rounded-xl border border-p-border bg-p-surface p-3">
-                                {selectedClient.linkedUser ? (
-                                  <>
-                                    <p className="text-[13px] font-semibold text-p-text">
-                                      {selectedClient.linkedUser.name || `Usuario ${selectedClient.linkedUser.id}`}
-                                    </p>
-                                    <p className="mt-0.5 text-[12px] text-p-text-muted">
-                                      {selectedClient.linkedUser.email || `ID usuario #${selectedClient.linkedUser.id}`}
-                                    </p>
-                                    <div className="mt-3 flex flex-wrap gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => setUnlinkConfirmOpen(true)}
-                                        className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
-                                      >
-                                        <Unlink2 size={12} />
-                                        Desvincular
-                                      </button>
-                                    </div>
-                                  </>
-                                ) : (
-                                  <>
-                                    <p className="text-[13px] text-p-text-secondary">
-                                      Este cliente todavía no está vinculado a un usuario del sistema.
-                                    </p>
-                                    <div className="mt-3 flex flex-wrap gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={openLinkModal}
-                                        className="inline-flex h-8 items-center gap-1 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 hover:bg-ink-900"
-                                      >
-                                        <Link2 size={12} />
-                                        Vincular usuario
-                                      </button>
-                                    </div>
-                                  </>
-                                )}
-
-                                <div className="mt-4 rounded-xl border border-p-border bg-p-surface-2 p-3">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <p className="text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
-                                      Estado de identidad
-                                    </p>
-                                    {identityOverview?.signals?.length ? (
-                                      <span className="rounded-full border border-p-border bg-p-surface px-2 py-0.5 text-[10px] font-semibold text-p-text-secondary">
-                                        Señales: {formatIdentitySignals(identityOverview.signals)}
-                                      </span>
-                                    ) : null}
-                                  </div>
-
-                                  {identityOverviewLoading ? (
-                                    <p className="mt-2 text-[12px] text-p-text-muted">Cargando diagnóstico de identidad...</p>
-                                  ) : identityOverviewError ? (
-                                    <AdminFeedbackBanner tone="error" compact className="mt-3">
-                                      {identityOverviewError}
-                                    </AdminFeedbackBanner>
-                                  ) : identityOverview ? (
-                                    <div className="mt-3 space-y-3">
-                                      <div className="rounded-xl border border-p-border bg-p-surface px-3 py-2.5">
-                                        <p className="text-[13px] font-semibold text-p-text">{identityOverview.summary}</p>
-                                        <p className="mt-1 text-[12px] text-p-text-muted">
-                                          Estado: {identityOverview.status === 'SUGGESTED_LINK'
-                                            ? 'Sugerencia de vínculo'
-                                            : identityOverview.status === 'REVIEW_REQUIRED'
-                                            ? 'Revisión requerida'
-                                            : identityOverview.status === 'LINKED'
-                                            ? 'Vinculado'
-                                            : 'Sin match'}
-                                        </p>
-                                      </div>
-
-                                      {identityOverview.userCandidates.length > 0 ? (
-                                        <div className="space-y-2">
-                                          <p className="text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
-                                            Usuarios compatibles ({identityOverview.userCandidates.length})
-                                          </p>
-                                          {identityOverview.userCandidates.map((candidate) => (
-                                            <div
-                                              key={candidate.userId}
-                                              className="rounded-xl border border-p-border bg-p-surface px-3 py-2.5"
-                                            >
-                                              <p className="text-[13px] font-semibold text-p-text">{candidate.displayName}</p>
-                                              <p className="mt-0.5 text-[12px] text-p-text-muted">
-                                                {candidate.email || candidate.phoneNumber || `ID usuario #${candidate.userId}`}
-                                              </p>
-                                              <p className="mt-1 text-[11px] text-p-text-muted">
-                                                Match por {formatIdentitySignals(candidate.matchedBy)}
-                                              </p>
-                                              {candidate.linkedClientId ? (
-                                                <p className="mt-1 text-[11px] text-p-error">
-                                                  Ya vinculado a {candidate.linkedClientName || `cliente ${candidate.linkedClientId}`}.
-                                                </p>
-                                              ) : (
-                                                <div className="mt-2 flex flex-wrap gap-2">
-                                                  <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                      void linkClientToSpecificUser(candidate.userId);
-                                                    }}
-                                                    disabled={identityQuickLinkBusy}
-                                                    className="inline-flex h-7 items-center gap-1 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 hover:bg-ink-900 disabled:cursor-not-allowed disabled:opacity-60"
-                                                  >
-                                                    <Link2 size={11} />
-                                                    {identityQuickLinkBusy ? 'Vinculando...' : 'Vincular este usuario'}
-                                                  </button>
-                                                </div>
-                                              )}
-                                            </div>
-                                          ))}
-                                        </div>
-                                      ) : null}
-
-                                      {identityOverview.duplicateClients.length > 0 ? (
-                                        <div className="space-y-2">
-                                          <p className="text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
-                                            Clientes duplicados ({identityOverview.duplicateClients.length})
-                                          </p>
-                                          {identityOverview.duplicateClients.map((duplicate) => (
-                                            <div
-                                              key={duplicate.clientId}
-                                              className="rounded-xl border border-p-border bg-p-surface px-3 py-2.5"
-                                            >
-                                              <p className="text-[13px] font-semibold text-p-text">{duplicate.name}</p>
-                                              <p className="mt-0.5 text-[12px] text-p-text-muted">
-                                                {duplicate.email || duplicate.phone || duplicate.dni || `ID ${duplicate.clientId}`}
-                                              </p>
-                                              <p className="mt-1 text-[11px] text-p-text-muted">
-                                                Match por {formatIdentitySignals(duplicate.matchedBy)}
-                                              </p>
-                                              <div className="mt-2 flex flex-wrap gap-2">
-                                                <button
-                                                  type="button"
-                                                  onClick={() => {
-                                                    openMergeModalWithTarget({
-                                                      id: duplicate.clientId,
-                                                      name: duplicate.name,
-                                                      phone: duplicate.phone || undefined,
-                                                      email: duplicate.email || undefined,
-                                                      dni: duplicate.dni || undefined,
-                                                    });
-                                                  }}
-                                                  className="inline-flex h-7 items-center gap-1 rounded-lg border border-p-border bg-p-surface-2 px-2.5 text-[11px] font-semibold text-p-text-secondary hover:bg-p-surface"
-                                                >
-                                                  <RotateCcw size={11} />
-                                                  Fusionar con este cliente
-                                                </button>
-                                              </div>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      ) : null}
-
-                                      <div className="flex flex-wrap gap-2">
-                                        {identityOverview.status === 'SUGGESTED_LINK' && identityOverview.recommendedUserId ? (
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              void applySuggestedIdentityLink();
-                                            }}
-                                            disabled={identityQuickLinkBusy}
-                                            className="inline-flex h-8 items-center gap-1 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 hover:bg-ink-900"
-                                          >
-                                            <Link2 size={12} />
-                                            {identityQuickLinkBusy ? 'Vinculando...' : 'Vincular usuario sugerido'}
-                                          </button>
-                                        ) : null}
-
-                                        {identityOverview.status === 'REVIEW_REQUIRED' || identityOverview.userCandidates.length > 0 ? (
-                                          <button
-                                            type="button"
-                                            onClick={openLinkModal}
-                                            className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
-                                          >
-                                            <UserPlus size={12} />
-                                            Buscar usuario manualmente
-                                          </button>
-                                        ) : null}
-
-                                        {identityOverview.duplicateClients.length > 0 ? (
-                                          <button
-                                            type="button"
-                                            onClick={openMergeModal}
-                                            className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
-                                          >
-                                            <RotateCcw size={12} />
-                                            Fusionar cliente
-                                          </button>
-                                        ) : null}
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <p className="mt-2 text-[12px] text-p-text-muted">
-                                      Todavía no hay diagnóstico de identidad para este cliente.
-                                    </p>
+                          {/* Quién es */}
+                          <div className="border-b border-p-border p-4 lg:p-5">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <h2 className="text-[22px] font-bold leading-tight tracking-tight text-p-text">{getClientName(selectedClient)}</h2>
+                                  <MemberBadge member={selectedClient.member} />
+                                  {selectedClient.isProfessor && (
+                                    <span className="rounded-full bg-p-surface-3 px-2 py-0.5 text-[11px] font-semibold text-p-text-secondary">
+                                      Profesor
+                                    </span>
                                   )}
                                 </div>
+                                <p className="mt-1 text-[14px] text-p-text-secondary">
+                                  {[String(selectedClient.phone || '').trim(), String(selectedClient.email || '').trim()]
+                                    .filter(Boolean)
+                                    .join(' · ') || 'Sin teléfono ni email'}
+                                </p>
+                              </div>
+                              <div className="relative flex flex-none items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => openEditClient(selectedClient)}
+                                  className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3 text-[13px] font-semibold text-p-text hover:bg-p-surface-2"
+                                >
+                                  <Pencil size={13} />
+                                  Editar
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label="Más opciones del cliente"
+                                  aria-expanded={clientMenuOpen}
+                                  onClick={() => setClientMenuOpen((open) => !open)}
+                                  className="grid h-9 w-9 place-items-center rounded-xl border border-p-border text-p-text-secondary hover:bg-p-surface-2"
+                                >
+                                  <MoreHorizontal size={16} />
+                                </button>
+                                {clientMenuOpen && (
+                                  <>
+                                    <button type="button" aria-hidden tabIndex={-1} className="fixed inset-0 z-30 cursor-default" onClick={() => setClientMenuOpen(false)} />
+                                    <div className="absolute right-0 top-11 z-40 w-60 rounded-xl border border-p-border bg-p-surface p-1 shadow-xl">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setClientMenuOpen(false);
+                                          openMergeModal();
+                                        }}
+                                        className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-p-text hover:bg-p-surface-2"
+                                      >
+                                        Unir con otro cliente repetido
+                                      </button>
+                                      {selectedClient.linkedUser ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setClientMenuOpen(false);
+                                            setUnlinkConfirmOpen(true);
+                                          }}
+                                          className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-p-text hover:bg-p-surface-2"
+                                        >
+                                          Desvincular de su cuenta de la app
+                                        </button>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setClientMenuOpen(false);
+                                            openLinkModal();
+                                          }}
+                                          className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-p-text hover:bg-p-surface-2"
+                                        >
+                                          Vincular con una cuenta de la app
+                                        </button>
+                                      )}
+                                    </div>
+                                  </>
+                                )}
                               </div>
                             </div>
+                          </div>
 
-                            {/* Descuentos — only shown if assigned */}
-                            {!loadingDiscountAssignments && selectedClientDiscountAssignments.length > 0 && (
+                          <div className="space-y-6 p-4 lg:p-5">
+                            {/* Cuánto debe */}
+                            {Number(selectedClient.totalDebt || 0) > EPSILON ? (
                               <div>
-                                <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
-                                  Descuentos
-                                </h3>
+                                <div className="flex flex-wrap items-end justify-between gap-3">
+                                  <div>
+                                    <p className="text-[13px] text-p-text-muted">Debe</p>
+                                    <p className="text-[30px] font-bold leading-tight tabular-nums text-p-warning">
+                                      {formatMoney(Number(selectedClient.totalDebt || 0))}
+                                    </p>
+                                    {clientPendingAccounts.length > 1 && (
+                                      <p className="text-[12px] text-p-text-muted">En {clientPendingAccounts.length} cuentas</p>
+                                    )}
+                                  </div>
+                                  {clientPendingAccounts.length === 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openAccountDrawer(String(clientPendingAccounts[0].id), 'payment')}
+                                      className="h-11 rounded-xl bg-ink-900 px-5 text-[14px] font-semibold text-ink-50 hover:bg-ink-800"
+                                    >
+                                      Cobrar {formatMoney(Number(clientPendingAccounts[0].amount || 0))}
+                                    </button>
+                                  )}
+                                </div>
+                                {clientPendingAccounts.length > 1 && (
+                                  <ul className="mt-3 divide-y divide-p-border rounded-xl border border-p-border">
+                                    {clientPendingAccounts.map((account: any) => (
+                                      <li key={String(account.id)} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => openAccountDrawer(String(account.id), 'overview')}
+                                          className="min-w-0 text-left"
+                                        >
+                                          <p className="truncate text-[13px] text-p-text">
+                                            {formatClientSlot(null, account.date, account.time)}
+                                          </p>
+                                          <p className="truncate text-[12px] text-p-text-muted">
+                                            {account.courtName ? `Reserva · ${account.courtName}` : formatAccountSourceType(account.sourceType)}
+                                          </p>
+                                        </button>
+                                        <div className="flex flex-none items-center gap-3">
+                                          <span className="text-[13px] font-bold tabular-nums text-p-warning">
+                                            {formatMoney(Number(account.amount || 0))}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => openAccountDrawer(String(account.id), 'payment')}
+                                            className="h-8 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 hover:bg-ink-800"
+                                          >
+                                            Cobrar
+                                          </button>
+                                        </div>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="text-[14px] font-semibold text-p-positive">No debe nada.</p>
+                            )}
+
+                            {/* Reservas */}
+                            <div className="border-t border-p-border pt-5">
+                              <div className="flex items-baseline justify-between gap-3">
+                                <p className="text-[13px] font-semibold text-p-text">Próximas reservas</p>
+                                {Number(selectedClient.totalBookings || 0) > 0 && (
+                                  <p className="text-[12px] text-p-text-muted">
+                                    {Number(selectedClient.totalBookings) === 1 ? 'Reservó 1 vez' : `Reservó ${selectedClient.totalBookings} veces`}
+                                  </p>
+                                )}
+                              </div>
+                              {clientUpcomingBookings.length === 0 ? (
+                                <p className="mt-1 text-[13px] text-p-text-muted">No tiene reservas próximas.</p>
+                              ) : (
+                                <ul className="mt-1 divide-y divide-p-border">
+                                  {clientUpcomingBookings.map((row: any) => (
+                                    <li key={`up-${row.id}`} className="flex items-center justify-between gap-3 py-2.5 text-[13px]">
+                                      <span className="text-p-text">{formatClientSlot(row.iso, row.date, row.time)}</span>
+                                      <span className="text-right text-p-text-secondary">
+                                        {row.courtName}
+                                        {row.status === 'PENDING' ? <span className="text-p-warning"> · sin confirmar</span> : null}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                              {clientRecentBookings.length > 0 && (
+                                <>
+                                  <p className="mt-4 text-[13px] font-semibold text-p-text">Últimas</p>
+                                  <ul className="mt-1 divide-y divide-p-border">
+                                    {clientRecentBookings.map((row: any) => {
+                                      const status = CLIENT_BOOKING_STATUS[row.status];
+                                      return (
+                                        <li key={`past-${row.id}`} className="flex items-center justify-between gap-3 py-2.5 text-[13px]">
+                                          <span className={row.status === 'CANCELLED' ? 'text-p-text-muted' : 'text-p-text'}>
+                                            {formatClientSlot(row.iso, row.date, row.time)}
+                                          </span>
+                                          <span className="text-right text-p-text-muted">
+                                            {row.courtName}
+                                            {status ? <span className={status.tone === 'text-p-warning' ? 'text-p-warning' : ''}> · {status.label.toLowerCase()}</span> : null}
+                                          </span>
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                </>
+                              )}
+                            </div>
+
+                            {/* Socio */}
+                            <div className="border-t border-p-border pt-5">
+                              <ClientMemberPanel
+                                key={`member-${String(selectedClient.id)}-${memberPanelVersion}`}
+                                clubSlug={resolveClubSlug() || ''}
+                                clientId={String(selectedClient.id)}
+                                clientHasDni={Boolean(String(selectedClient.dni || '').replace(/\D/g, ''))}
+                                canManage={hasAdminAccess(user)}
+                                onChanged={() => void loadClients()}
+                              />
+                            </div>
+
+                            {/* Planes y cuotas */}
+                            <div className="border-t border-p-border pt-5">
+                              <ClientSubscriptionsPanel
+                                clubSlug={resolveClubSlug() || ''}
+                                clientId={String(selectedClient.id)}
+                                clientName={getClientName(selectedClient)}
+                                canManage={hasAdminAccess(user)}
+                                onChanged={() => {
+                                  setMemberPanelVersion((value) => value + 1);
+                                  void loadClients();
+                                }}
+                              />
+                            </div>
+
+                            {/* Descuentos — solo si tiene */}
+                            {!loadingDiscountAssignments && selectedClientDiscountAssignments.length > 0 && (
+                              <div className="border-t border-p-border pt-5">
+                                <p className="mb-2 text-[13px] font-semibold text-p-text">Descuentos</p>
                                 <div className="flex flex-wrap gap-2">
                                   {selectedClientDiscountAssignments.map((assignment: any, index: number) => (
                                     <span
                                       key={String(assignment?.id || index)}
                                       className="rounded-full border border-p-border bg-p-surface-2 px-3 py-1 text-[12px] font-semibold text-p-text-secondary"
                                     >
-                                      {String(assignment?.policy?.name || assignment?.policyName || 'Política')}
+                                      {String(assignment?.policy?.name || assignment?.policyName || 'Descuento')}
                                     </span>
                                   ))}
                                 </div>
                               </div>
                             )}
 
-                            {/* Cuentas */}
-                            {historyAccounts.length > 0 && (
-                              <div>
-                                <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
-                                  Cuentas ({historyAccounts.length})
-                                </h3>
-                                <div className="space-y-2">
-                                  {historyAccounts.map((account: any) => {
-                                    const isPending = Number(account?.amount || 0) > EPSILON;
-                                    return (
-                                      <div
-                                        key={String(account.id)}
-                                        className="flex items-center gap-3 rounded-xl border border-p-border bg-p-surface px-3 py-2.5"
-                                      >
-                                        <div className="min-w-0 flex-1">
-                                          <p className="text-[13px] font-semibold text-p-text">
-                                            {formatAccountSourceType(account.sourceType)}{' '}
-                                            <span className="font-normal text-p-text-muted">#{shortId(account.id)}</span>
-                                          </p>
-                                          <p className="text-[12px] text-p-text-muted">
-                                            {formatDate(account.date)}{account.time ? ` · ${account.time}` : ''}
-                                          </p>
-                                        </div>
-                                        {isPending && (
-                                          <span className="flex-none rounded-full border border-p-error bg-p-error-bg px-2 py-0.5 text-[11px] font-semibold text-p-error">
-                                            {formatMoney(Number(account.amount || 0))}
-                                          </span>
-                                        )}
-                                        <div className="flex gap-1.5">
-                                          <button
-                                            type="button"
-                                            onClick={() => openAccountDrawer(String(account.id), 'overview')}
-                                            className="inline-flex h-7 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-2 text-[11px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
-                                          >
-                                            <Search size={11} />
-                                            Ver
-                                          </button>
-                                          {isPending && (
-                                            <button
-                                              type="button"
-                                              onClick={() => openAccountDrawer(String(account.id), 'payment')}
-                                              className="inline-flex h-7 items-center gap-1 rounded-lg bg-ink-900 px-2 text-[11px] font-semibold text-ink-50 hover:bg-ink-900"
-                                            >
-                                              <DollarSign size={11} />
-                                              Cobrar
-                                            </button>
-                                          )}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Reservas */}
-                            {historyBookings.length > 0 && (
-                              <div>
-                                <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
-                                  Reservas ({historyBookings.length})
-                                </h3>
-                                <div className="space-y-2">
-                                  {historyBookings.map((booking: any) => (
-                                    <div
-                                      key={String(booking.bookingId)}
-                                      className="flex items-center gap-3 rounded-xl border border-p-border bg-p-surface px-3 py-2.5"
-                                    >
-                                      <div className="min-w-0 flex-1">
-                                        <p className="text-[13px] font-semibold text-p-text">
-                                          {formatDate(booking.date)}{booking.time ? ` · ${booking.time}` : ''}
-                                        </p>
-                                        <p className="text-[12px] text-p-text-muted">
-                                          {booking.courtName || '-'} · {formatMoney(Number(booking.amount || 0))}
-                                        </p>
-                                      </div>
-                                      <span
-                                        className={`flex-none rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
-                                          booking.status === 'COMPLETED'
-                                            ? 'border-p-positive bg-p-positive-bg text-p-positive'
-                                            : booking.status === 'CANCELLED'
-                                            ? 'border-p-border bg-p-surface-2 text-p-text-muted'
-                                            : booking.status === 'CONFIRMED'
-                                            ? 'border-p-info bg-p-info-bg text-p-info'
-                                            : 'border-p-warning bg-p-warning-bg text-p-warning'
-                                        }`}
-                                      >
-                                        {bookingStatusLabel[booking.status] || booking.status || '-'}
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {historyAccounts.length === 0 && historyBookings.length === 0 && (
-                              <div className="rounded-xl border border-p-border p-8 text-center text-[13px] text-p-text-muted">
-                                Este cliente no tiene actividad registrada.
-                              </div>
-                            )}
+                            {/* Datos */}
+                            <div className="border-t border-p-border pt-5">
+                              <p className="mb-1 text-[13px] font-semibold text-p-text">Datos</p>
+                              <dl className="divide-y divide-p-border text-[13px]">
+                                {[
+                                  ['Teléfono', String(selectedClient.phone || '').trim()],
+                                  ['Email', String(selectedClient.email || '').trim()],
+                                  ['DNI', String(selectedClient.dni && selectedClient.dni !== '-' ? selectedClient.dni : '').trim()],
+                                  [
+                                    'App',
+                                    selectedClient.linkedUser
+                                      ? `Tiene cuenta${selectedClient.linkedUser.email ? ` (${selectedClient.linkedUser.email})` : ''}`
+                                      : 'No tiene cuenta',
+                                  ],
+                                ].map(([label, value]) => (
+                                  <div key={label} className="grid grid-cols-[90px_minmax(0,1fr)] gap-2 py-2">
+                                    <dt className="text-p-text-muted">{label}</dt>
+                                    <dd className="break-all text-p-text">{value || '—'}</dd>
+                                  </div>
+                                ))}
+                              </dl>
+                            </div>
                           </div>
                         </>
                       )}

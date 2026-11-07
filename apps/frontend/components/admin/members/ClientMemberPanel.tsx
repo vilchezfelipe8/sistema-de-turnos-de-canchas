@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { History, KeyRound, Smartphone } from 'lucide-react';
+import { MoreHorizontal } from 'lucide-react';
 import AdminModal from '../ui/AdminModal';
 import { AdminFeedbackBanner } from '../ui/AdminFeedback';
 import MemberBadge from './MemberBadge';
@@ -56,6 +56,22 @@ const HISTORY_ACTION_LABELS: Record<string, string> = {
   VALID_UNTIL_SYNCED: 'Al día actualizado por plan'
 };
 
+/** "2026-11-05" → "5 nov" (con año si no es el actual). */
+const formatMemberDate = (value: string | null | undefined): string => {
+  if (!value) return '';
+  const date = new Date(`${String(value).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return String(value);
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date
+    .toLocaleDateString('es-AR', { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) })
+    .replace(/\./g, '');
+};
+
+const todayKey = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 export default function ClientMemberPanel({ clubSlug, clientId, clientHasDni, canManage, onChanged }: ClientMemberPanelProps) {
   const [detail, setDetail] = useState<ClientMemberDetail | null>(null);
   const [categories, setCategories] = useState<MemberCategory[]>([]);
@@ -68,6 +84,7 @@ export default function ClientMemberPanel({ clubSlug, clientId, clientHasDni, ca
   const [statusReason, setStatusReason] = useState('');
   const [history, setHistory] = useState<MemberHistoryEntry[] | null>(null);
   const [issuedCode, setIssuedCode] = useState<{ code: string; expiresAt: string } | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!clubSlug || !clientId) return;
@@ -200,105 +217,140 @@ export default function ClientMemberPanel({ clubSlug, clientId, clientHasDni, ca
 
   const account = detail.appAccount;
 
+  // Socio en una frase: qué categoría y si está al día.
+  const expired = Boolean(member?.validUntil && String(member.validUntil).slice(0, 10) < todayKey());
+  const statusLine = !member
+    ? null
+    : member.status === 'INACTIVE'
+      ? { tone: 'text-p-text-muted', text: `Dado de baja${member.leftAt ? ` el ${formatMemberDate(member.leftAt)}` : ''}${member.statusReason ? ` · ${member.statusReason}` : ''}` }
+      : member.status === 'SUSPENDED'
+        ? { tone: 'text-p-warning', text: `Suspendido${member.statusReason ? ` · ${member.statusReason}` : ''} · paga como no socio` }
+        : expired
+          ? { tone: 'text-p-warning', text: `Cuota vencida el ${formatMemberDate(member.validUntil)} · paga como no socio` }
+          : { tone: 'text-p-positive', text: member.validUntil ? `Al día hasta el ${formatMemberDate(member.validUntil)}` : 'Al día' };
+  const appLine = !account
+    ? 'Sin cuenta en la app'
+    : account.status === 'ACTIVE'
+      ? 'Usa la app'
+      : account.status === 'PENDING_ACTIVATION'
+        ? 'Tiene la app sin activar'
+        : 'Cuenta de la app deshabilitada';
+
+  const menuItems: Array<{ key: string; label: string; onClick: () => void; disabled?: boolean; title?: string }> = [];
+  if (canManage && member) {
+    if (member.status !== 'ACTIVE') menuItems.push({ key: 'reactivate', label: 'Reactivar', onClick: () => setStatusTarget('ACTIVE') });
+    if (member.status === 'ACTIVE') menuItems.push({ key: 'suspend', label: 'Suspender', onClick: () => setStatusTarget('SUSPENDED') });
+    if (member.status !== 'INACTIVE') menuItems.push({ key: 'leave', label: 'Dar de baja', onClick: () => setStatusTarget('INACTIVE') });
+    menuItems.push({ key: 'history', label: 'Ver historial', onClick: () => void handleLoadHistory() });
+  }
+  if (member && !account && canManage) {
+    menuItems.push({
+      key: 'provision',
+      label: 'Crear cuenta de la app',
+      disabled: !clientHasDni,
+      title: clientHasDni ? undefined : 'Cargá el DNI del cliente para crearle la cuenta.',
+      onClick: () =>
+        void runAction(
+          'provisionAppAccount',
+          async () => {
+            const result = await MemberAdminService.provisionAppAccount(clubSlug, clientId);
+            if (result.status === 'CONFLICT') throw new Error(result.detail || 'La cuenta quedó en conflicto para revisar.');
+            if (result.status === 'SKIPPED_NO_DNI') throw new Error('El cliente no tiene DNI cargado.');
+          },
+          'Cuenta de la app preparada.'
+        ),
+    });
+  }
+  if (member && account && account.status !== 'DISABLED') {
+    menuItems.push({
+      key: 'code',
+      label: account.status === 'PENDING_ACTIVATION' ? 'Ver código de activación' : 'Ver código para nueva contraseña',
+      onClick: () => void handleIssueCode('ADMIN_ISSUED'),
+    });
+    menuItems.push({ key: 'whatsapp', label: 'Mandar código por WhatsApp', onClick: () => void handleIssueCode('WHATSAPP') });
+  }
+
   return (
     <div>
-      <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">Socio</h3>
-      <div className="space-y-3 rounded-xl border border-p-border p-3 text-[13px]">
+      <div className="space-y-2 text-[13px]">
         {error ? <AdminFeedbackBanner tone="error" compact>{error}</AdminFeedbackBanner> : null}
 
-        <div className="flex flex-wrap items-center gap-2">
-          <MemberBadge member={member} showNonMember />
-          {member ? (
-            <span className="text-[12px] text-p-text-muted">
-              Estado: {MEMBER_STATUS_LABELS[member.status]}
-              {member.statusReason ? ` (${member.statusReason})` : ''}
-            </span>
-          ) : null}
-        </div>
-
-        {member ? (
-          <dl className="grid grid-cols-[110px_1fr] gap-x-2 gap-y-1 text-[12px]">
-            <dt className="text-p-text-muted">Categoría</dt>
-            <dd className="text-p-text">{member.categoryName}</dd>
-            <dt className="text-p-text-muted">N° de socio</dt>
-            <dd className="text-p-text">{member.memberNumber || '—'}</dd>
-            <dt className="text-p-text-muted">Alta</dt>
-            <dd className="text-p-text">{member.joinedAt || '—'}</dd>
-            <dt className="text-p-text-muted">Al día hasta</dt>
-            <dd className="text-p-text">{member.validUntil || 'Sin vencimiento'}</dd>
-            {member.leftAt ? (
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-p-text">Socio</p>
+            {member ? (
               <>
-                <dt className="text-p-text-muted">Baja</dt>
-                <dd className="text-p-text">{member.leftAt}</dd>
+                <p className="mt-0.5 text-[14px] text-p-text">
+                  {member.categoryName}
+                  {member.memberNumber ? <span className="text-p-text-muted"> · N° {member.memberNumber}</span> : null}
+                </p>
+                {statusLine ? <p className={`text-[13px] font-semibold ${statusLine.tone}`}>{statusLine.text}</p> : null}
+                <p className="text-[12px] text-p-text-muted">
+                  {member.joinedAt ? `Socio desde el ${formatMemberDate(member.joinedAt)} · ` : ''}
+                  {appLine}
+                </p>
               </>
+            ) : (
+              <p className="mt-0.5 text-[13px] text-p-text-secondary">No es socio.</p>
+            )}
+          </div>
+          <div className="relative flex flex-none items-center gap-2">
+            {canManage && !member ? (
+              <button
+                type="button"
+                className="text-[13px] font-semibold text-p-accent hover:underline underline-offset-2 disabled:opacity-50"
+                disabled={submitting || categories.length === 0}
+                onClick={() => openForm('create')}
+              >
+                Hacerlo socio
+              </button>
             ) : null}
-            <dt className="text-p-text-muted">Cuenta de la app</dt>
-            <dd className="text-p-text">{account ? ACCOUNT_STATUS_LABELS[account.status] || account.status : 'Sin cuenta'}</dd>
-          </dl>
-        ) : null}
-
-        <div className="flex flex-wrap gap-2">
-          {canManage && !member ? (
-            <button type="button" className={buttonClass} disabled={submitting || categories.length === 0} onClick={() => openForm('create')}>
-              Dar de alta como socio
-            </button>
-          ) : null}
-          {canManage && member ? (
-            <>
-              <button type="button" className={buttonClass} disabled={submitting} onClick={() => openForm('edit')}>
+            {canManage && member ? (
+              <button
+                type="button"
+                className="text-[13px] font-semibold text-p-accent hover:underline underline-offset-2 disabled:opacity-50"
+                disabled={submitting}
+                onClick={() => openForm('edit')}
+              >
                 Editar
               </button>
-              {member.status !== 'ACTIVE' ? (
-                <button type="button" className={buttonClass} disabled={submitting} onClick={() => setStatusTarget('ACTIVE')}>
-                  Reactivar
+            ) : null}
+            {menuItems.length > 0 ? (
+              <>
+                <button
+                  type="button"
+                  aria-label="Más opciones de socio"
+                  aria-expanded={menuOpen}
+                  onClick={() => setMenuOpen((open) => !open)}
+                  className="grid h-8 w-8 place-items-center rounded-lg border border-p-border text-p-text-secondary hover:bg-p-surface-2"
+                >
+                  <MoreHorizontal size={16} />
                 </button>
-              ) : null}
-              {member.status === 'ACTIVE' ? (
-                <button type="button" className={buttonClass} disabled={submitting} onClick={() => setStatusTarget('SUSPENDED')}>
-                  Suspender
-                </button>
-              ) : null}
-              {member.status !== 'INACTIVE' ? (
-                <button type="button" className={buttonClass} disabled={submitting} onClick={() => setStatusTarget('INACTIVE')}>
-                  Dar de baja
-                </button>
-              ) : null}
-              <button type="button" className={buttonClass} onClick={() => void handleLoadHistory()}>
-                <History size={13} /> Historial
-              </button>
-            </>
-          ) : null}
-          {member && !account && canManage ? (
-            <button
-              type="button"
-              className={buttonClass}
-              disabled={submitting || !clientHasDni}
-              title={clientHasDni ? undefined : 'Cargá el DNI del cliente para crearle la cuenta.'}
-              onClick={() =>
-                void runAction(
-                  'provisionAppAccount',
-                  async () => {
-                    const result = await MemberAdminService.provisionAppAccount(clubSlug, clientId);
-                    if (result.status === 'CONFLICT') throw new Error(result.detail || 'La cuenta quedó en conflicto para revisar.');
-                    if (result.status === 'SKIPPED_NO_DNI') throw new Error('El cliente no tiene DNI cargado.');
-                  },
-                  'Cuenta de la app preparada.'
-                )
-              }
-            >
-              <Smartphone size={13} /> Crear cuenta de la app
-            </button>
-          ) : null}
-          {member && account && account.status !== 'DISABLED' ? (
-            <>
-              <button type="button" className={buttonClass} disabled={submitting} onClick={() => void handleIssueCode('ADMIN_ISSUED')}>
-                <KeyRound size={13} /> {account.status === 'PENDING_ACTIVATION' ? 'Código de activación' : 'Código para nueva contraseña'}
-              </button>
-              <button type="button" className={buttonClass} disabled={submitting} onClick={() => void handleIssueCode('WHATSAPP')}>
-                Enviar por WhatsApp
-              </button>
-            </>
-          ) : null}
+                {menuOpen ? (
+                  <>
+                    <button type="button" aria-hidden tabIndex={-1} className="fixed inset-0 z-30 cursor-default" onClick={() => setMenuOpen(false)} />
+                    <div className="absolute right-0 top-10 z-40 w-60 rounded-xl border border-p-border bg-p-surface p-1 shadow-xl">
+                      {menuItems.map((item) => (
+                        <button
+                          key={item.key}
+                          type="button"
+                          disabled={submitting || item.disabled}
+                          title={item.title}
+                          onClick={() => {
+                            setMenuOpen(false);
+                            item.onClick();
+                          }}
+                          className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-p-text hover:bg-p-surface-2 disabled:opacity-50"
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+              </>
+            ) : null}
+          </div>
         </div>
 
         {issuedCode ? (
