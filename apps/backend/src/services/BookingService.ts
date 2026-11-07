@@ -19,6 +19,7 @@ import { getUserClubContext } from '../utils/getUserClubContext';
 import { PricingService } from './PricingService';
 import { PlayerSlotService, type PlayerSlotDto, resolveShortGapMinutes, type PerPlayerQuote } from './PlayerSlotService';
 import { BookingReleaseService } from './BookingReleaseService';
+import { courtBlockedError, findCourtBlockOverlap } from './CourtBlockService';
 import { normalizeDni } from '../utils/dni';
 import { verifyPlayerInviteToken } from '../utils/playerInviteToken';
 import { PushMessages, loadBookingPushContext, pushNotificationService, shortUserName } from './PushNotificationService';
@@ -1071,6 +1072,9 @@ export class BookingService {
         });
         if (classOverlap) {
             throw this.bookingSlotUnavailable('La cancha ya tiene una clase en ese horario.');
+        }
+        if (await findCourtBlockOverlap({ courtId: input.courtId, startDateTime: input.startDateTime, endDateTime })) {
+            throw courtBlockedError();
         }
 
         try {
@@ -2849,6 +2853,10 @@ export class BookingService {
             }
         }
 
+        if (await findCourtBlockOverlap({ courtId: input.courtId, startDateTime: input.startDateTime, endDateTime })) {
+            throw courtBlockedError();
+        }
+
         if (input.scheduleOnly) {
             return { listPrice: 0, finalPrice: 0, discountAmount: 0, hasDiscount: false, appliedPolicies: [] };
         }
@@ -3789,6 +3797,9 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             if (classOverlap) {
                 throw this.bookingSlotUnavailable('La cancha ya tiene una clase en ese horario.');
             }
+            if (await findCourtBlockOverlap({ courtId, startDateTime, endDateTime }, tx)) {
+                throw courtBlockedError();
+            }
 
             const overlapping = await tx.booking.findMany({
                 where: {
@@ -4327,7 +4338,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 status: { not: 'CANCELLED' }
             }
         });
-        const existingClasses = await prisma.classSession.findMany({
+        const existingClassRows = await prisma.classSession.findMany({
             where: {
                 clubId: Number((court as any)?.club?.id || 0),
                 courtId: courtId,
@@ -4337,6 +4348,19 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             },
             select: { startsAt: true, endsAt: true }
         });
+        // Clases y bloqueos ocupan la cancha igual que una reserva.
+        const existingBlocks = await prisma.courtBlock.findMany({
+            where: {
+                courtId: courtId,
+                startDateTime: { lt: endUtc },
+                endDateTime: { gt: startUtc }
+            },
+            select: { startDateTime: true, endDateTime: true }
+        });
+        const existingClasses = [
+            ...existingClassRows,
+            ...existingBlocks.map((block) => ({ startsAt: block.startDateTime, endsAt: block.endDateTime }))
+        ];
         const allowedDurations = activitySchedule.durations;
         const effectiveDuration = durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
         if (!allowedDurations.includes(effectiveDuration)) {
@@ -8436,7 +8460,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             },
             include: { court: true }
         });
-        const classSessions = await prisma.classSession.findMany({
+        const classSessionRows = await prisma.classSession.findMany({
             where: {
                 startsAt: { lt: endUtc },
                 endsAt: { gt: startUtc },
@@ -8445,6 +8469,19 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             },
             select: { courtId: true, startsAt: true, endsAt: true }
         });
+        // Bloqueos de cancha: ocupan la cancha igual que una clase.
+        const courtBlockRows = await prisma.courtBlock.findMany({
+            where: {
+                startDateTime: { lt: endUtc },
+                endDateTime: { gt: startUtc },
+                ...(clubId ? { clubId } : {})
+            },
+            select: { courtId: true, startDateTime: true, endDateTime: true }
+        });
+        const classSessions = [
+            ...classSessionRows,
+            ...courtBlockRows.map((block) => ({ courtId: block.courtId, startsAt: block.startDateTime, endsAt: block.endDateTime }))
+        ];
 
         if (activityCourts.length === 0) {
             return {
@@ -8858,6 +8895,27 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         const lastEnd = new Date(lastStart.getTime() + duration * 60000);
         const previewConflictsOnly = Boolean(options?.previewConflictsOnly);
 
+        // Bloqueos de cancha dentro del rango de la serie: esas ocurrencias se saltean.
+        const seriesCourtBlocks = await prisma.courtBlock.findMany({
+            where: {
+                courtId,
+                startDateTime: { lt: lastEnd },
+                endDateTime: { gt: firstStart }
+            },
+            include: { court: { select: { name: true } } }
+        });
+        const findSeriesBlock = (start: Date, end: Date) =>
+            seriesCourtBlocks.find((block) => block.startDateTime < end && block.endDateTime > start);
+        const mapSeriesBlockSkip = (start: Date, end: Date, block: (typeof seriesCourtBlocks)[number]) => ({
+            requestedStartDateTime: start,
+            requestedEndDateTime: end,
+            reason: 'COURT_BLOCKED',
+            conflictingStartDateTime: block.startDateTime,
+            conflictingEndDateTime: block.endDateTime,
+            conflictingClientName: block.title || 'Bloqueo',
+            conflictingCourtName: block.court?.name || ''
+        });
+
         if (previewConflictsOnly) {
             const existingBookings = await prisma.booking.findMany({
                 where: {
@@ -8912,6 +8970,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         conflictingActivityName: conflictingBooking?.activity?.name || '',
                         conflictingStatus: conflictingBooking?.status || ''
                     });
+                    continue;
+                }
+                const blockingBlock = findSeriesBlock(currentStart, currentEnd);
+                if (blockingBlock) {
+                    skippedOccurrences.push(mapSeriesBlockSkip(currentStart, currentEnd, blockingBlock));
                     continue;
                 }
                 generatedCount += 1;
@@ -9104,6 +9167,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         conflictingActivityName: conflictingBooking?.activity?.name || '',
                         conflictingStatus: conflictingBooking?.status || ''
                     });
+                    continue;
+                }
+                const blockingBlock = findSeriesBlock(currentStart, currentEnd);
+                if (blockingBlock) {
+                    skippedOccurrences.push(mapSeriesBlockSkip(currentStart, currentEnd, blockingBlock));
                     continue;
                 }
 
@@ -9455,6 +9523,22 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             conflictingActivityName: params.conflict?.activityType?.name || '',
             conflictingTeacherName: params.conflict?.teacher?.displayName || ''
         });
+        const mapBlockOverlap = (params: {
+            requestedStartDateTime: Date;
+            requestedEndDateTime: Date;
+            conflict: any;
+            candidateBookingId?: number;
+        }) => ({
+            bookingId: Number(params.candidateBookingId || 0) || undefined,
+            requestedStartDateTime: params.requestedStartDateTime,
+            requestedEndDateTime: params.requestedEndDateTime,
+            reason: 'COURT_BLOCKED',
+            conflictingCourtBlockId: String(params.conflict?.id || ''),
+            conflictingStartDateTime: params.conflict?.startDateTime,
+            conflictingEndDateTime: params.conflict?.endDateTime,
+            conflictingClientName: params.conflict?.title || 'Bloqueo',
+            conflictingCourtName: params.conflict?.court?.name || ''
+        });
         const mapApplicableRescheduleItem = (params: {
             bookingId?: number;
             startDateTime: Date;
@@ -9590,6 +9674,35 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     };
                 }
                 throw this.bookingSlotUnavailable('La cancha ya tiene una clase en ese horario.');
+            }
+
+            const blockConflict = await findCourtBlockOverlap({
+                courtId: input.courtId,
+                startDateTime: new Date(input.startDateTime),
+                endDateTime: requestedEndDateTime
+            });
+            if (blockConflict) {
+                const overlaps = [
+                    mapBlockOverlap({
+                        requestedStartDateTime: new Date(input.startDateTime),
+                        requestedEndDateTime,
+                        conflict: blockConflict,
+                        candidateBookingId: occurrenceBookingId
+                    })
+                ];
+                if (previewOnly) {
+                    return {
+                        preview: true,
+                        scope: input.scope,
+                        totalCandidates: 1,
+                        willUpdateCount: 0,
+                        skippedCount: 1,
+                        overlaps,
+                        failedCount: 0,
+                        failures: [] as Array<{ bookingId: number; reason: string }>
+                    };
+                }
+                throw courtBlockedError();
             }
 
             if (previewOnly) {
@@ -9784,6 +9897,23 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         requestedStartDateTime: nextStart,
                         requestedEndDateTime: nextEnd,
                         conflict: classConflict,
+                        candidateBookingId: Number(candidate.id)
+                    })
+                );
+                continue;
+            }
+
+            const blockConflict = await findCourtBlockOverlap({
+                courtId: Number(targetCourt.id),
+                startDateTime: nextStart,
+                endDateTime: nextEnd
+            });
+            if (blockConflict) {
+                overlaps.push(
+                    mapBlockOverlap({
+                        requestedStartDateTime: nextStart,
+                        requestedEndDateTime: nextEnd,
+                        conflict: blockConflict,
                         candidateBookingId: Number(candidate.id)
                     })
                 );

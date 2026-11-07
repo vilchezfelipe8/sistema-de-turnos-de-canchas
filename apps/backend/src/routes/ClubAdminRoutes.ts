@@ -14,6 +14,7 @@ import { requireTenantRole } from '../middleware/RoleMiddleware';
 import { verifyClubAccess } from '../middleware/ClubMiddleware';
 import { ProductController } from '../controllers/ProductController';
 import { StockController } from '../controllers/StockController';
+import { CourtBlockController } from '../controllers/CourtBlockController';
 import { ProductRepository } from '../repositories/ProductRepository';
 import { CashRepository } from '../repositories/CashRepository';
 import { z } from 'zod';
@@ -46,6 +47,7 @@ const activityRepository = new ActivityTypeRepository();
 const clubRepository = new ClubRepository();
 const productController = new ProductController();
 const stockController = new StockController();
+const courtBlockController = new CourtBlockController();
 const memberController = new MemberController();
 const playerSlotController = new PlayerSlotController();
 const bookingReleaseController = new BookingReleaseController();
@@ -476,6 +478,35 @@ router.delete('/:slug/admin/products/:id',
     verifyClubAccess,
     requireTenantRole('ADMIN'),
     productController.delete
+);
+
+// Bloqueos de cancha: franjas no reservables
+router.get('/:slug/admin/court-blocks',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    courtBlockController.list
+);
+
+router.post('/:slug/admin/court-blocks',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    courtBlockController.create
+);
+
+router.patch('/:slug/admin/court-blocks/:id',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    courtBlockController.update
+);
+
+router.delete('/:slug/admin/court-blocks/:id',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    courtBlockController.remove
 );
 
 // Inventario: historial de movimientos, ingresos de mercadería, conteos y mermas

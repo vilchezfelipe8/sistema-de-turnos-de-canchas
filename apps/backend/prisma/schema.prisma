@@ -672,6 +672,7 @@ model Club {
   subscriptionPlans SubscriptionPlan[]
   subscriptions Subscription[]
   subscriptionInstallments SubscriptionInstallment[]
+  courtBlocks   CourtBlock[]
 }
 
 model ClubFavorite {
@@ -776,8 +777,27 @@ model Court {
   fixedBookings FixedBooking[]
   priceRules    CourtPriceRule[]
   classSessions ClassSession[]
+  courtBlocks   CourtBlock[]
 
   @@index([clubId])
+}
+
+// Bloqueo de cancha: franja en la que la cancha no se puede reservar (mantenimiento, evento, etc.).
+model CourtBlock {
+  id              String   @id @default(cuid())
+  clubId          Int
+  club            Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  courtId         Int
+  court           Court    @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  startDateTime   DateTime @db.Timestamptz(3)
+  endDateTime     DateTime @db.Timestamptz(3)
+  title           String?
+  createdByUserId Int?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([clubId, startDateTime])
+  @@index([courtId, startDateTime, endDateTime])
 }
 
 model CourtPriceRule {

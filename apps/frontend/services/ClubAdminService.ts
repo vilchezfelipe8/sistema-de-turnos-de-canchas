@@ -5,6 +5,19 @@ import type { AgendaBookingRules } from '../components/admin/agenda/utils/agenda
 
 const apiBase = () => `${getApiUrl()}/api`;
 
+export type CourtBlockDto = {
+  id: string;
+  clubId: number;
+  courtId: number;
+  courtName: string;
+  startDateTime: string;
+  endDateTime: string;
+  title: string | null;
+  createdByUserId: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type StockMovementType = 'INITIAL' | 'PURCHASE' | 'SALE' | 'SALE_REVERSAL' | 'ADJUSTMENT' | 'WASTE' | 'MANUAL_EDIT';
 
 export type StockMovement = {
@@ -1077,6 +1090,58 @@ export class ClubAdminService {
       await throwApiErrorFromResponse(res, 'Error al mover reserva');
     }
     return res.json();
+  }
+
+  // Bloqueos de cancha (franjas no reservables)
+  static async listCourtBlocks(clubSlug: string, date: string): Promise<CourtBlockDto[]> {
+    const res = await fetchWithAuth(
+      `${apiBase()}/clubs/${clubSlug}/admin/court-blocks?date=${encodeURIComponent(date)}`
+    );
+    if (!res.ok) {
+      await throwApiErrorFromResponse(res, 'Error al obtener bloqueos');
+    }
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  }
+
+  static async createCourtBlock(
+    clubSlug: string,
+    data: { courtId: number; startDateTime: string; endDateTime: string; title?: string | null }
+  ): Promise<CourtBlockDto> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/court-blocks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      await throwApiErrorFromResponse(res, 'Error al crear el bloqueo');
+    }
+    return res.json();
+  }
+
+  static async updateCourtBlock(
+    clubSlug: string,
+    blockId: string,
+    data: { courtId?: number; startDateTime?: string; endDateTime?: string; title?: string | null }
+  ): Promise<CourtBlockDto> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/court-blocks/${encodeURIComponent(blockId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      await throwApiErrorFromResponse(res, 'Error al actualizar el bloqueo');
+    }
+    return res.json();
+  }
+
+  static async deleteCourtBlock(clubSlug: string, blockId: string): Promise<void> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/court-blocks/${encodeURIComponent(blockId)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      await throwApiErrorFromResponse(res, 'Error al eliminar el bloqueo');
+    }
   }
 
   static async getBookingBillingConfig(clubSlug: string, bookingId: number): Promise<BookingBillingConfig> {

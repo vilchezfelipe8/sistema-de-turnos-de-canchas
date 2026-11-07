@@ -23,6 +23,13 @@ export const BOOKING_ERROR_BEHAVIOR_BY_CODE: Record<string, BookingErrorBehavior
     disableSave: true,
     fallbackMessage: 'Ese horario no está disponible para esta cancha.'
   },
+  COURT_BLOCKED: {
+    field: 'time',
+    blocking: true,
+    channel: 'inline',
+    disableSave: true,
+    fallbackMessage: 'La cancha está bloqueada en ese horario.'
+  },
   SLOT_ALREADY_BOOKED: {
     field: 'time',
     blocking: true,
