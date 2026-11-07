@@ -587,7 +587,9 @@ export class AccountService {
             }
           }
         },
-        payments: { include: { allocations: true } }
+        payments: { include: { allocations: true } },
+        // Caja → Cuentas muestra de quién es cada cuenta (cuotas, cuentas sueltas).
+        client: { select: { id: true, name: true, phone: true, email: true } }
       },
       orderBy: { createdAt: 'desc' }
     });

@@ -1,3 +1,5 @@
+import { Check } from 'lucide-react';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -6,29 +8,29 @@ export type CashAccountItem = {
   id: string;
   status: 'OPEN' | 'CLOSED';
   sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT' | 'SUBSCRIPTION_INSTALLMENT';
-  hasDebt: boolean;
-  booking?: {
-    id?: number;
-    clientName?: string | null;
-    courtName?: string | null;
-  } | null;
-  /** Loaded lazily from accountDetailById. Null = still loading. */
-  detail?: {
-    total: number;
-    paid: number;
-    remaining: number;
-    lastPaymentAt?: string | null;
-  } | null;
+  /** Quién: cliente o titular de la reserva. */
+  title: string;
+  /** Qué: "Reserva · Cancha 1", "Cuota de plan"… */
+  concept: string;
+  /** Cuándo: "sáb 7 nov". */
+  dateLabel: string;
+  /** Horario del turno, si es una reserva: "08:30–10:00". */
+  timeLabel: string | null;
+  bookingId?: number | null;
+  total: number;
+  paid: number;
+  remaining: number;
 };
 
 type CashAccountsListProps = {
   accounts: CashAccountItem[];
   selectedId: string | null;
-  /** Called when the user clicks the card. */
   onSelect: (id: string) => void;
-  /** Mobile: acción directa de cobro en la card (solo cuentas abiertas con saldo). */
+  /** Cobro directo desde la fila (solo cuentas abiertas que deben). */
   onPay?: (id: string) => void;
   loading?: boolean;
+  emptyTitle?: string;
+  emptyDescription?: string;
   className?: string;
 };
 
@@ -36,31 +38,20 @@ type CashAccountsListProps = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const formatMoney = (value: number) =>
-  `$${Number(value || 0).toLocaleString('es-AR')}`;
-
-const sourceLabel: Record<CashAccountItem['sourceType'], string> = {
-  BOOKING: 'Reserva',
-  BAR: 'Consumos',
-  TABLE: 'Mesa',
-  MANUAL: 'Manual',
-  CLASS_PASS: 'Pack de clases',
-  CLASS_ENROLLMENT: 'Clase',
-  SUBSCRIPTION_INSTALLMENT: 'Cuota de plan',
-};
-
-const shortId = (value: string): string => {
-  if (value.length <= 8) return value;
-  return `${value.slice(0, 4)}…${value.slice(-4)}`;
-};
+const formatMoney = (value: number) => `$${Number(value || 0).toLocaleString('es-AR')}`;
 
 const EPSILON = 0.009;
 
+const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
+
+export const accountOwes = (account: Pick<CashAccountItem, 'status' | 'remaining'>) =>
+  account.status === 'OPEN' && account.remaining > EPSILON;
+
 // ---------------------------------------------------------------------------
-// Sub-components
+// Row
 // ---------------------------------------------------------------------------
 
-function AccountCard({
+function AccountRow({
   account,
   isSelected,
   onSelect,
@@ -71,100 +62,74 @@ function AccountCard({
   onSelect: (id: string) => void;
   onPay?: (id: string) => void;
 }) {
-  const { detail } = account;
-  const clientName =
-    account.booking?.clientName?.trim() || `Cuenta ${shortId(account.id)}`;
-  const courtInfo = account.booking?.courtName
-    ? `${sourceLabel[account.sourceType]} · ${account.booking.courtName}`
-    : sourceLabel[account.sourceType];
-
-  const remaining = detail?.remaining ?? null;
-  const hasPending = remaining !== null && remaining > EPSILON;
-  const isOpen = account.status === 'OPEN';
-  const cardToneClass = isSelected
-    ? isOpen
-      ? 'border-p-accent bg-p-positive-bg'
-      : 'border-p-border-strong bg-p-surface-2'
-    : isOpen
-    ? 'border-p-accent bg-p-surface'
-    : 'border-p-border bg-p-surface-2';
+  const owes = accountOwes(account);
+  const paidInFull = account.remaining <= EPSILON;
 
   return (
     <div
       role="button"
       tabIndex={0}
+      aria-pressed={isSelected}
       onClick={() => onSelect(account.id)}
       onKeyDown={(event) => {
         if (event.key !== 'Enter' && event.key !== ' ') return;
         event.preventDefault();
         onSelect(account.id);
       }}
-      className={[
-        'group relative flex cursor-pointer flex-col gap-2 rounded-xl border px-4 py-3 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-lima-300/40',
-        cardToneClass,
-      ].join(' ')}
+      className={cx(
+        'grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 rounded-xl border px-4 py-3 outline-none transition focus-visible:ring-2 focus-visible:ring-lima-300/40 sm:grid-cols-[104px_minmax(0,1fr)_auto]',
+        isSelected ? 'border-ink-900 bg-p-surface-2' : 'border-p-border bg-p-surface hover:bg-p-surface-2'
+      )}
     >
-      {/* ── Top row: name + status badge ── */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-[13px] font-semibold leading-snug text-p-text">
-            {clientName}
-          </p>
-          <p className="mt-0.5 truncate text-[11px] text-p-text-muted">{courtInfo}</p>
-        </div>
-
-        <span
-          className={`shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-            isOpen
-              ? 'border border-p-accent bg-p-surface-2 text-p-accent'
-              : 'border border-p-border bg-p-surface-3 text-p-text-muted'
-          }`}
-        >
-          {isOpen ? 'Abierta' : 'Cerrada'}
-        </span>
-      </div>
-
-      {/* ── Financial summary ── */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
-        {detail ? (
-          <>
-            <span className="text-p-text-muted">
-              Total <span className="font-semibold text-p-text">{formatMoney(detail.total)}</span>
-            </span>
-            {detail.paid > EPSILON && (
-              <span className="text-p-text-muted">
-                Pagado <span className="font-semibold text-[var(--positive-fg)]">{formatMoney(detail.paid)}</span>
-              </span>
-            )}
-            {hasPending ? (
-              <span className="text-p-text-muted">
-                Pendiente{' '}
-                <span className="font-semibold text-[var(--warn-fg)]">{formatMoney(remaining!)}</span>
-              </span>
-            ) : (
-              <span className="font-semibold text-[var(--positive-fg)]">Sin deuda</span>
-            )}
-          </>
-        ) : (
-          <span className="text-p-text-muted">Cargando detalle…</span>
+      {/* Cuándo */}
+      <div className="col-span-2 flex items-baseline gap-2 sm:col-span-1 sm:block">
+        <p className="text-[13px] font-semibold text-p-text">{account.dateLabel}</p>
+        {account.timeLabel && (
+          <p className="text-[12px] tabular-nums text-p-text-muted">{account.timeLabel}</p>
         )}
       </div>
 
-      {onPay && isOpen && hasPending && (
-        <div className="flex justify-end lg:hidden">
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onPay(account.id);
-            }}
-            onKeyDown={(event) => event.stopPropagation()}
-            className="inline-flex h-9 items-center rounded-[10px] bg-p-brand px-4 text-[12px] font-extrabold text-p-brand-on"
-          >
-            Cobrar
-          </button>
-        </div>
-      )}
+      {/* Quién y qué */}
+      <div className="min-w-0">
+        <p className="truncate text-[14px] font-semibold text-p-text">{account.title}</p>
+        <p className="truncate text-[12px] text-p-text-muted">{account.concept}</p>
+      </div>
+
+      {/* Cuánto */}
+      <div className="flex items-center justify-end gap-3">
+        {owes ? (
+          <>
+            <div className="text-right">
+              <p className="text-[14px] font-bold tabular-nums text-p-warning">Debe {formatMoney(account.remaining)}</p>
+              {account.paid > EPSILON && (
+                <p className="text-[11px] tabular-nums text-p-text-muted">pagó {formatMoney(account.paid)}</p>
+              )}
+            </div>
+            {onPay && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onPay(account.id);
+                }}
+                onKeyDown={(event) => event.stopPropagation()}
+                className="h-9 rounded-lg bg-ink-900 px-3.5 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-800"
+              >
+                Cobrar
+              </button>
+            )}
+          </>
+        ) : account.total <= EPSILON ? (
+          <p className="text-[13px] font-medium text-p-text-muted">Sin cargo</p>
+        ) : paidInFull ? (
+          <p className="inline-flex items-center gap-1 text-[13px] font-semibold text-p-positive">
+            <Check size={14} />
+            Pagado {formatMoney(account.total)}
+          </p>
+        ) : (
+          <p className="text-[13px] font-medium text-p-text-muted">Cerrada sin cobrar</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -174,13 +139,8 @@ function AccountCard({
 // ---------------------------------------------------------------------------
 
 /**
- * CashAccountsList — lista enriquecida operativa de cuentas.
- *
- * Reemplaza la vista tabular de Caja → Cuentas con cards compactas
- * que muestran cliente, origen, totales y acciones primarias por item.
- *
- * Diseño per Documento Maestro v1.1: no tabla genérica, cards operativas
- * con [Cobrar] y [Ver cuenta] por fila.
+ * CashAccountsList — una fila por cuenta: cuándo, quién, qué y cuánto debe.
+ * Puramente presentacional.
  */
 export default function CashAccountsList({
   accounts,
@@ -188,31 +148,18 @@ export default function CashAccountsList({
   onSelect,
   onPay,
   loading = false,
+  emptyTitle = 'No hay cuentas',
+  emptyDescription = 'No hay cuentas para este filtro.',
   className,
 }: CashAccountsListProps) {
   if (loading) {
     return (
-      <div className={['space-y-2', className].filter(Boolean).join(' ')}>
+      <div className={cx('space-y-2', className)}>
         {[1, 2, 3].map((i) => (
-          <div
-            key={i}
-            className="flex flex-col gap-2 rounded-xl border border-p-border bg-p-surface px-4 py-3"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1.5">
-                <div className="h-3.5 w-32 animate-pulse rounded bg-p-surface-3" />
-                <div className="h-2.5 w-20 animate-pulse rounded bg-p-surface-3" />
-              </div>
-              <div className="h-5 w-14 animate-pulse rounded-full bg-p-surface-3" />
-            </div>
-            <div className="flex gap-4">
-              <div className="h-3 w-20 animate-pulse rounded bg-p-surface-3" />
-              <div className="h-3 w-20 animate-pulse rounded bg-p-surface-3" />
-            </div>
-            <div className="flex gap-2">
-              <div className="h-8 w-16 animate-pulse rounded-lg bg-p-surface-3" />
-              <div className="h-8 w-20 animate-pulse rounded-lg bg-p-surface-3" />
-            </div>
+          <div key={i} className="flex items-center gap-4 rounded-xl border border-p-border bg-p-surface px-4 py-3">
+            <div className="h-3.5 w-20 animate-pulse rounded bg-p-surface-3" />
+            <div className="h-3.5 flex-1 animate-pulse rounded bg-p-surface-3" />
+            <div className="h-3.5 w-24 animate-pulse rounded bg-p-surface-3" />
           </div>
         ))}
       </div>
@@ -221,28 +168,17 @@ export default function CashAccountsList({
 
   if (accounts.length === 0) {
     return (
-      <div
-        className={[
-          'grid min-h-[140px] place-items-center rounded-xl border border-dashed border-p-border bg-p-surface-2 px-4 py-8 text-center',
-          className,
-        ]
-          .filter(Boolean)
-          .join(' ')}
-      >
-        <div>
-          <p className="text-[14px] font-semibold text-p-text-muted">Sin cuentas</p>
-          <p className="mt-1 text-[12px] text-p-text-muted">
-            No hay cuentas para los filtros actuales.
-          </p>
-        </div>
+      <div className={cx('rounded-xl border border-dashed border-p-border px-4 py-10 text-center', className)}>
+        <p className="text-[14px] font-semibold text-p-text-secondary">{emptyTitle}</p>
+        <p className="mt-1 text-[12px] text-p-text-muted">{emptyDescription}</p>
       </div>
     );
   }
 
   return (
-    <div className={['space-y-2', className].filter(Boolean).join(' ')}>
+    <div className={cx('space-y-2', className)}>
       {accounts.map((account) => (
-        <AccountCard
+        <AccountRow
           key={account.id}
           account={account}
           isSelected={selectedId === account.id}

@@ -73,7 +73,8 @@ type RefundMethodFilter = 'ALL' | 'CASH' | 'TRANSFER' | 'CARD_REVERSAL' | 'CREDI
 type RefundActionKind = 'approve' | 'approve_execute' | 'execute' | 'retry' | 'fail' | 'cancel';
 type CashView = 'live' | 'movements' | 'closures';
 type CashActionSidebarView = 'none' | 'open_shift' | 'close_shift' | 'movement_create' | 'close_report' | 'product_sale';
-type AccountsFilter = 'ALL' | 'OPEN' | 'CLOSED' | 'WITH_DEBT' | 'WITH_REFUNDS';
+/** Por cobrar: todo lo que se debe, de cualquier fecha. Pagadas / Todas: por período. */
+type AccountsFilter = 'DEBT' | 'PAID' | 'ALL';
 type PosItem = {
   type: 'product' | 'service';
   id: number;
@@ -152,11 +153,47 @@ type AccountRow = {
   sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT' | 'SUBSCRIPTION_INSTALLMENT';
   status: AccountStatus;
   createdAt: string;
+  totalAmount?: number | null;
+  paidAmount?: number | null;
+  client?: { id?: string; name?: string | null } | null;
   booking?: {
     id?: number;
+    startDateTime?: string | null;
+    endDateTime?: string | null;
     courtName?: string | null;
     clientName?: string | null;
   } | null;
+};
+
+const accountKindLabel: Record<AccountRow['sourceType'], string> = {
+  BOOKING: 'Reserva',
+  BAR: 'Consumos',
+  TABLE: 'Mesa',
+  MANUAL: 'Cuenta suelta',
+  CLASS_PASS: 'Pack de clases',
+  CLASS_ENROLLMENT: 'Clase',
+  SUBSCRIPTION_INSTALLMENT: 'Cuota de plan',
+};
+
+/** Fecha que importa de una cuenta: el turno si es una reserva, si no cuándo se abrió. */
+const accountWhen = (account: AccountRow): Date => {
+  const raw = account.booking?.startDateTime || account.createdAt;
+  return new Date(raw);
+};
+
+const formatAccountDay = (date: Date): string =>
+  Number.isNaN(date.getTime())
+    ? '-'
+    : date
+        .toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
+        .replace(/,/g, '')
+        .replace(/\./g, '');
+
+const formatAccountTime = (iso: string | null | undefined): string | null => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 };
 
 type AccountDetailItem = {
@@ -543,7 +580,7 @@ export default function AdminPaymentsPlaygroundPage() {
   const [pendingRefunds, setPendingRefunds] = useState<RefundRecord[]>([]);
   const [recentRefunds, setRecentRefunds] = useState<RefundRecord[]>([]);
   const [accountsSearchTerm, setAccountsSearchTerm] = useState('');
-  const [accountsFilter, setAccountsFilter] = useState<AccountsFilter>('ALL');
+  const [accountsFilter, setAccountsFilter] = useState<AccountsFilter>('DEBT');
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [accountDrawerOpen, setAccountDrawerOpen] = useState(false);
   const [accountDrawerInitialView, setAccountDrawerInitialView] =
@@ -1414,14 +1451,10 @@ export default function AdminPaymentsPlaygroundPage() {
   );
 
   useEffect(() => {
-    if (activeTab !== 'ACCOUNTS') return;
-    if (allAccounts.length === 0) return;
-    const missingIds = allAccounts
-      .map((account) => account.id)
-      .filter((id) => !accountDetailById[id] && !loadingAccountDetailById[id]);
-    if (missingIds.length === 0) return;
-    void Promise.allSettled(missingIds.map((id) => ensureAccountDetail(id)));
-  }, [activeTab, allAccounts, accountDetailById, ensureAccountDetail, loadingAccountDetailById]);
+    if (activeTab !== 'ACCOUNTS' || !selectedAccountId) return;
+    if (accountDetailById[selectedAccountId] || loadingAccountDetailById[selectedAccountId]) return;
+    void ensureAccountDetail(selectedAccountId);
+  }, [activeTab, selectedAccountId, accountDetailById, ensureAccountDetail, loadingAccountDetailById]);
 
   // Refresco automático de Caja (web y mobile). No corre con la pestaña oculta ni con
   // paneles/modales de acción abiertos, para no pisar formularios en curso.
@@ -1513,36 +1546,67 @@ export default function AdminPaymentsPlaygroundPage() {
   const periodAccounts = useMemo(() => {
     const { rawStart, rawEnd } = getCashDateRange(cashActivePeriod, cashPeriodOffset);
     return allAccounts.filter((account) => {
-      const createdAt = new Date(account.createdAt);
-      return Number.isFinite(createdAt.getTime()) && createdAt >= rawStart && createdAt <= rawEnd;
+      const when = accountWhen(account);
+      return Number.isFinite(when.getTime()) && when >= rawStart && when <= rawEnd;
     });
   }, [allAccounts, cashActivePeriod, cashPeriodOffset]);
 
+  const accountRemaining = useCallback(
+    (account: AccountRow) => {
+      const d = accountDetailById[account.id];
+      if (d) return Math.max(0, Number(d.remaining || 0));
+      const total = Number(account.totalAmount || 0);
+      const paid = Number(account.paidAmount || 0);
+      return Math.max(0, Math.round((total - paid) * 100) / 100);
+    },
+    [accountDetailById]
+  );
+
+  const accountOwesMoney = useCallback(
+    (account: AccountRow) => account.status === 'OPEN' && accountRemaining(account) > ACCOUNT_PAYMENT_EPSILON,
+    [accountRemaining]
+  );
+
+  // Lo que se debe no depende del período: una deuda de la semana pasada sigue siendo deuda.
+  const accountsDebtSummary = useMemo(() => {
+    let count = 0;
+    let amount = 0;
+    for (const account of allAccounts) {
+      if (!accountOwesMoney(account)) continue;
+      count += 1;
+      amount += accountRemaining(account);
+    }
+    return { count, amount: Math.round(amount * 100) / 100 };
+  }, [accountOwesMoney, accountRemaining, allAccounts]);
+
   const filteredAccounts = useMemo(() => {
     const search = accountsSearchTerm.trim().toLowerCase();
-    return periodAccounts.filter((account) => {
-      const matchesFilter =
-        accountsFilter === 'ALL' ||
-        (accountsFilter === 'OPEN' && account.status === 'OPEN') ||
-        (accountsFilter === 'CLOSED' && account.status === 'CLOSED') ||
-        (accountsFilter === 'WITH_DEBT' && account.hasDebt) ||
-        (accountsFilter === 'WITH_REFUNDS' && accountsWithRefundsIdSet.has(account.id));
-
-      if (!matchesFilter) return false;
-
-      if (!search) return true;
-      const haystack = [
-        account.id,
-        account.sourceType,
-        account.booking?.clientName || '',
-        account.booking?.courtName || '',
-        account.booking?.id ? String(account.booking.id) : '',
-      ]
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(search);
-    });
-  }, [accountsFilter, accountsSearchTerm, accountsWithRefundsIdSet, periodAccounts]);
+    const base =
+      accountsFilter === 'DEBT'
+        ? allAccounts.filter(accountOwesMoney)
+        : accountsFilter === 'PAID'
+          ? periodAccounts.filter((account) => {
+              // Pagada = tenía algo que cobrar y quedó en cero. Las de $0 (canceladas) van solo en Todas.
+              const total = Number(accountDetailById[account.id]?.total ?? account.totalAmount ?? 0);
+              return total > ACCOUNT_PAYMENT_EPSILON && accountRemaining(account) <= ACCOUNT_PAYMENT_EPSILON;
+            })
+          : periodAccounts;
+    return base
+      .filter((account) => {
+        if (!search) return true;
+        const haystack = [
+          account.booking?.clientName || '',
+          account.client?.name || '',
+          account.booking?.courtName || '',
+          accountKindLabel[account.sourceType] || '',
+          account.booking?.id ? String(account.booking.id) : '',
+        ]
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(search);
+      })
+      .sort((a, b) => accountWhen(b).getTime() - accountWhen(a).getTime());
+  }, [accountDetailById, accountOwesMoney, accountRemaining, accountsFilter, accountsSearchTerm, allAccounts, periodAccounts]);
 
   const selectedAccount = useMemo(
     () => allAccounts.find((account) => account.id === selectedAccountId) || null,
@@ -1588,31 +1652,41 @@ export default function AdminPaymentsPlaygroundPage() {
     setSelectedAccountId(filteredAccounts[0].id);
   }, [activeTab, filteredAccounts, selectedAccountId]);
 
-  // Derived list for CashAccountsList — merges account rows with lazy-loaded detail.
+  // Filas de la lista: cuándo, quién, qué y cuánto debe.
   const cashAccountItems: CashAccountItem[] = useMemo(
     () =>
       filteredAccounts.map((account) => {
         const d = accountDetailById[account.id];
+        const total = d ? Number(d.total || 0) : Number(account.totalAmount || 0);
+        const paid = d ? Number(d.paid || 0) : Number(account.paidAmount || 0);
+        const startTime = formatAccountTime(account.booking?.startDateTime);
+        const endTime = formatAccountTime(account.booking?.endDateTime);
+        const title =
+          account.booking?.clientName?.trim() ||
+          account.client?.name?.trim() ||
+          accountKindLabel[account.sourceType];
+        const concept = account.booking?.courtName
+          ? `${accountKindLabel[account.sourceType]} · ${account.booking.courtName}`
+          : accountKindLabel[account.sourceType];
         return {
           id: account.id,
           status: account.status,
           sourceType: account.sourceType,
-          hasDebt: account.hasDebt,
-          booking: account.booking ?? null,
-          detail: d
-            ? {
-                total: d.total,
-                paid: d.paid,
-                remaining: d.remaining,
-                lastPaymentAt:
-                  d.payments?.length
-                    ? d.payments[d.payments.length - 1]?.createdAt ?? null
-                    : null,
-              }
-            : null,
+          title,
+          concept,
+          dateLabel: formatAccountDay(accountWhen(account)),
+          timeLabel: startTime ? (endTime ? `${startTime}–${endTime}` : startTime) : null,
+          bookingId: account.booking?.id ?? null,
+          total,
+          paid,
+          remaining: accountRemaining(account),
         };
       }),
-    [filteredAccounts, accountDetailById]
+    [accountDetailById, accountRemaining, filteredAccounts]
+  );
+  const selectedAccountItem = useMemo(
+    () => cashAccountItems.find((account) => account.id === selectedAccountId) || null,
+    [cashAccountItems, selectedAccountId]
   );
 
   const selectedAccountDetailLoading = Boolean(
@@ -1622,27 +1696,6 @@ export default function AdminPaymentsPlaygroundPage() {
     () => filteredAccounts.some((account) => account.id === selectedAccountId),
     [filteredAccounts, selectedAccountId]
   );
-  const visibleOpenAccounts = useMemo(
-    () => filteredAccounts.filter((account) => account.status === 'OPEN'),
-    [filteredAccounts]
-  );
-  const visibleClosedAccounts = useMemo(
-    () => filteredAccounts.filter((account) => account.status === 'CLOSED'),
-    [filteredAccounts]
-  );
-  const visibleAccountsWithDebtCount = useMemo(
-    () =>
-      visibleOpenAccounts.filter((account) => {
-        const d = accountDetailById[account.id];
-        return !d || d.remaining > 0.009;
-      }).length,
-    [accountDetailById, visibleOpenAccounts]
-  );
-  const visibleAccountsWithRefundsCount = useMemo(
-    () => filteredAccounts.filter((account) => accountsWithRefundsIdSet.has(account.id)).length,
-    [accountsWithRefundsIdSet, filteredAccounts]
-  );
-
   const refundRequestAccount = useMemo(
     () => allAccounts.find((account) => account.id === refundRequestAccountId) || null,
     [allAccounts, refundRequestAccountId]
@@ -1974,9 +2027,33 @@ export default function AdminPaymentsPlaygroundPage() {
               </div>
             ) : activeTab === 'ACCOUNTS' ? (
               <div className="space-y-4">
-                <div className="w-full rounded-2xl border border-p-border bg-p-surface p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface-2 p-1">
+                {/* Qué mirar, buscar y crear: una sola fila. */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
+                    {([
+                      { id: 'DEBT', label: 'Por cobrar' },
+                      { id: 'PAID', label: 'Pagadas' },
+                      { id: 'ALL', label: 'Todas' },
+                    ] as Array<{ id: AccountsFilter; label: string }>).map((option) => (
+                      <button
+                        key={`accounts-filter-${option.id}`}
+                        type="button"
+                        aria-pressed={accountsFilter === option.id}
+                        onClick={() => setAccountsFilter(option.id)}
+                        className={`h-9 rounded-lg px-3.5 text-[13px] font-semibold transition ${
+                          accountsFilter === option.id
+                            ? 'bg-ink-900 text-ink-50'
+                            : 'text-p-text-secondary hover:bg-p-surface-2'
+                        }`}
+                      >
+                        {option.label}
+                        {option.id === 'DEBT' && accountsDebtSummary.count > 0 ? ` (${accountsDebtSummary.count})` : ''}
+                      </button>
+                    ))}
+                  </div>
+
+                  {accountsFilter !== 'DEBT' && (
+                    <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
                       {(['hoy', 'semana', 'mes'] as CashPeriod[]).map((period) => (
                         <button
                           key={`accounts-${period}`}
@@ -1985,142 +2062,129 @@ export default function AdminPaymentsPlaygroundPage() {
                             setCashActivePeriod(period);
                             setCashPeriodOffset(0);
                           }}
-                          className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition ${
+                          className={`h-7 rounded-lg px-2.5 text-[12px] font-semibold transition ${
                             cashActivePeriod === period
-                              ? 'bg-p-surface text-p-accent shadow-sm'
+                              ? 'bg-p-surface-3 text-p-text'
                               : 'text-p-text-muted hover:text-p-text-secondary'
                           }`}
                         >
-                          {period === 'hoy' ? 'Hoy' : period === 'semana' ? 'Semana' : 'Mes'}
+                          {period === 'hoy' ? 'Día' : period === 'semana' ? 'Semana' : 'Mes'}
                         </button>
                       ))}
-                    </div>
-
-                    <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface px-1 py-1">
                       <button
                         type="button"
+                        aria-label="Período anterior"
                         onClick={() => setCashPeriodOffset((prev) => prev - 1)}
-                        className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2"
+                        className="grid h-7 w-7 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2"
                       >
-                        <ChevronLeft size={16} />
+                        <ChevronLeft size={15} />
                       </button>
-                      <span className="min-w-[120px] text-center text-[12px] font-semibold text-p-text-secondary">{cashPeriodLabel}</span>
+                      <span className="min-w-[96px] text-center text-[12px] font-semibold text-p-text-secondary">{cashPeriodLabel}</span>
                       <button
                         type="button"
+                        aria-label="Período siguiente"
                         onClick={() => setCashPeriodOffset((prev) => Math.min(0, prev + 1))}
                         disabled={cashPeriodOffset === 0}
-                        className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:text-p-text-muted disabled:hover:bg-transparent"
+                        className="grid h-7 w-7 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-40 disabled:hover:bg-transparent"
                       >
-                        <ChevronRight size={16} />
+                        <ChevronRight size={15} />
                       </button>
                     </div>
-                  </div>
+                  )}
+
+                  <label className="relative min-w-[200px] flex-1 sm:max-w-[320px]">
+                    <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
+                    <input
+                      type="text"
+                      value={accountsSearchTerm}
+                      onChange={(event) => setAccountsSearchTerm(event.target.value)}
+                      placeholder="Buscar cliente o cancha"
+                      className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleQuickOpenAccount()}
+                    disabled={openingAccount}
+                    className="ml-auto inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3.5 text-[13px] font-semibold text-p-text hover:bg-p-surface-2 disabled:opacity-60"
+                  >
+                    <Plus size={15} strokeWidth={2.5} />
+                    {openingAccount ? 'Creando...' : 'Cuenta suelta'}
+                  </button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                  <MetricCard label="Cuentas abiertas" value={visibleOpenAccounts.length} format="number" />
-                  <MetricCard
-                    label="Con deuda"
-                    value={visibleAccountsWithDebtCount}
-                    format="number"
-                    valueColor="var(--warn-fg)"
-                  />
-                  <MetricCard label="Cerradas" value={visibleClosedAccounts.length} format="number" valueColor="var(--positive-fg)" />
-                  <MetricCard label="Con devoluciones" value={visibleAccountsWithRefundsCount} format="number" valueColor="var(--accent-fg)" />
-                </div>
-                <AdminPanel
-                  title="Cuentas"
-                  description="Gestión operativa de cuentas abiertas y cerradas."
-                  headerClassName="pl-4 pr-2 py-3"
-                  actions={(
-                    <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-1 sm:flex-nowrap sm:justify-end">
-                      <label className="relative w-full sm:w-[300px] sm:flex-none">
-                        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                        <input
-                          type="text"
-                          value={accountsSearchTerm}
-                          onChange={(event) => setAccountsSearchTerm(event.target.value)}
-                          placeholder="Buscar por cliente, cuenta, reserva o cancha"
-                          className="h-8 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[12px] outline-none focus:border-p-accent"
-                        />
-                      </label>
-                      <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
-                        {[
-                          { id: 'ALL', label: 'Todas' },
-                          { id: 'OPEN', label: 'Abiertas' },
-                          { id: 'CLOSED', label: 'Cerradas' },
-                          { id: 'WITH_REFUNDS', label: 'Con devolución' },
-                        ].map((option) => (
-                          <button
-                            key={`accounts-filter-${option.id}`}
-                            type="button"
-                            onClick={() => setAccountsFilter(option.id as AccountsFilter)}
-                            className={`h-7 rounded-lg px-2.5 text-[11px] font-semibold transition ${
-                              accountsFilter === option.id
-                                ? 'bg-p-positive-bg text-p-accent'
-                                : 'text-p-text-muted hover:bg-p-surface-2'
-                            }`}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => void handleQuickOpenAccount()}
-                        disabled={openingAccount}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-60"
-                      >
-                        <Plus size={14} strokeWidth={2.5} />
-                        {openingAccount ? 'Creando...' : 'Nueva cuenta'}
-                      </button>
-                    </AdminFilterToolbar>
-                  )}
-                >
-                  {filteredAccounts.length === 0 ? (
-                    <div className="rounded-xl border border-p-border bg-p-surface px-4 py-10 text-center">
-                      <p className="text-[13px] font-semibold text-p-text-secondary">No hay cuentas para este período</p>
-                      <p className="mt-1 text-[12px] text-p-text-muted">Cambiá el rango o ajustá los filtros para encontrar registros.</p>
-                    </div>
-                  ) : (
-                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-                    <div className="lg:max-h-[560px] lg:overflow-y-auto lg:pr-1">
-                      <CashAccountsList
-                        accounts={cashAccountItems}
-                        selectedId={selectedAccountId}
-                        onSelect={handleSelectAccount}
-                        onPay={(accountId) => openAccountDrawer(accountId, 'payment')}
+                {accountsFilter === 'DEBT' && (
+                  <p className="text-[15px] text-p-text-secondary">
+                    {accountsDebtSummary.count === 0 ? (
+                      'Nadie debe nada. 🎉'
+                    ) : (
+                      <>
+                        Te deben <span className="font-bold tabular-nums text-p-text">{formatMoney(accountsDebtSummary.amount)}</span>{' '}
+                        en {accountsDebtSummary.count === 1 ? '1 cuenta' : `${accountsDebtSummary.count} cuentas`}.
+                      </>
+                    )}
+                  </p>
+                )}
+
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+                  <div className="lg:max-h-[640px] lg:overflow-y-auto lg:pr-1">
+                    <CashAccountsList
+                      accounts={cashAccountItems}
+                      selectedId={selectedAccountId}
+                      onSelect={handleSelectAccount}
+                      onPay={(accountId) => openAccountDrawer(accountId, 'payment')}
+                      emptyTitle={
+                        accountsSearchTerm.trim()
+                          ? 'Sin resultados'
+                          : accountsFilter === 'DEBT'
+                            ? 'No hay nada por cobrar'
+                            : 'No hay cuentas en este período'
+                      }
+                      emptyDescription={
+                        accountsSearchTerm.trim()
+                          ? 'Probá con otro nombre o cancha.'
+                          : accountsFilter === 'DEBT'
+                            ? 'Todas las cuentas están al día.'
+                            : 'Cambiá el período para ver otras fechas.'
+                      }
+                    />
+                  </div>
+
+                  <div
+                    ref={selectedAccountDetailFocusRef}
+                    tabIndex={-1}
+                    className="min-w-0 scroll-mt-4 outline-none lg:sticky lg:top-0 lg:max-h-[640px]"
+                  >
+                    {selectedAccountVisible && selectedAccountItem ? (
+                      <CashAccountDetailPanel
+                        account={selectedAccountItem}
+                        detail={selectedAccountDetail}
+                        loading={selectedAccountDetailLoading}
+                        error={accountDetailError}
+                        onManage={() => openAccountDrawer(selectedAccountItem.id, 'add_item')}
+                        onPay={() => openAccountDrawer(selectedAccountItem.id, 'payment')}
+                        onRefund={() => void openRefundRequestForAccount(selectedAccountItem.id)}
+                        onCloseAccount={() => openAccountDrawer(selectedAccountItem.id, 'close')}
+                        onValidateMember={(item) => void handleValidateMemberFromCash(selectedAccountItem.id, item as AccountDetailItem)}
+                        validatingItemId={validatingMemberItemId}
                       />
-                    </div>
-
-                    <div
-                      ref={selectedAccountDetailFocusRef}
-                      tabIndex={-1}
-                      className="min-w-0 scroll-mt-4 outline-none"
-                    >
-                      {selectedAccountVisible && selectedAccount ? (
+                    ) : (
+                      cashAccountItems.length > 0 && (
                         <CashAccountDetailPanel
-                          account={selectedAccount}
-                          detail={selectedAccountDetail}
-                          loading={selectedAccountDetailLoading}
-                          error={accountDetailError}
-                          onManage={() => openAccountDrawer(selectedAccount.id, 'overview')}
-                          onPay={() => openAccountDrawer(selectedAccount.id, 'payment')}
-                          onRefund={() => void openRefundRequestForAccount(selectedAccount.id)}
-                          onCloseAccount={() => openAccountDrawer(selectedAccount.id, 'close')}
-                          onValidateMember={(item) => void handleValidateMemberFromCash(selectedAccount.id, item)}
-                          validatingItemId={validatingMemberItemId}
+                          account={null}
+                          detail={null}
+                          loading={false}
+                          error=""
+                          onManage={() => undefined}
+                          onPay={() => undefined}
+                          onRefund={() => undefined}
+                          onCloseAccount={() => undefined}
                         />
-                      ) : (
-                        <div className="rounded-xl border border-p-border bg-p-surface px-4 py-10 text-center">
-                          <p className="text-[13px] font-semibold text-p-text-secondary">Seleccioná una cuenta</p>
-                          <p className="mt-1 text-[12px] text-p-text-muted">Elegí un registro de la lista para ver su detalle y deuda actual.</p>
-                        </div>
-                      )}
-                    </div>
+                      )
+                    )}
                   </div>
-                  )}
-                </AdminPanel>
+                </div>
               </div>
             ) : isCashSectionTab(activeTab) ? (
               <div className="space-y-4">

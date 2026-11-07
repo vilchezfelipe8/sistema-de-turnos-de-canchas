@@ -68,6 +68,7 @@ export class AccountController {
             ? {
                 id: booking.id,
                 startDateTime: booking.startDateTime,
+                endDateTime: booking.endDateTime,
                 courtName: booking.court?.name ?? null,
                 clientName: booking.client?.name ?? null
               }
