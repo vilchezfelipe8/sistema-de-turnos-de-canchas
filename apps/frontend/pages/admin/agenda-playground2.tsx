@@ -2,7 +2,7 @@ import Head from 'next/head';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/router';
-import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock3, MoreVertical, Pencil, Plus, Repeat, Search, User, Users, Settings, X, BarChart3, Trophy, MessageSquare, ShoppingBag, FileText, GraduationCap, Lock, Trash2 } from 'lucide-react';
+import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock3, MoreVertical, Pencil, Plus, Repeat, Search, User, Users, Settings, X, BarChart3, Trophy, MessageSquare, ShoppingBag, FileText, GraduationCap, Lock, Minus, Trash2 } from 'lucide-react';
 import NotFound from '../../components/NotFound';
 import RouteTransitionScreen from '../../components/RouteTransitionScreen';
 import AdminPlaygroundShell from '../../components/admin/AdminPlaygroundShell';
@@ -8273,116 +8273,97 @@ export default function AdminAgendaPlaygroundPage() {
                       )}
 
                       {showSimplifiedConsumptionsSection && (
-                        <section className="rounded-xl border border-p-border bg-p-surface-2 p-4">
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <p className="text-[18px] font-semibold text-p-text">Consumos</p>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-[11px] text-p-text-muted">Total consumos</p>
-                              <p className="text-[18px] font-semibold text-p-text">
-                                {formatMoney(bookingItemsAmount)}
+                        <section>
+                          {/* Encabezado: cuánto suman los consumos y cuánto falta cobrar de ellos. */}
+                          <div className="flex items-baseline justify-between gap-3">
+                            <p className="text-[15px] font-semibold text-p-text">Consumos</p>
+                            {bookingConsumptionItems.length > 0 && (
+                              <p className="text-[13px] tabular-nums text-p-text-muted">
+                                <span className="font-semibold text-p-text">{formatMoney(bookingItemsAmount)}</span>
+                                {bookingConsumptionsRemaining > 0.009
+                                  ? ` · debe ${formatMoney(bookingConsumptionsRemaining)}`
+                                  : ' · pagado'}
                               </p>
-                            </div>
+                            )}
                           </div>
 
-                          <div className="mt-3 grid grid-cols-3 gap-2 text-[12px] text-p-text-muted">
-                            <div className="rounded-lg border border-p-border bg-p-surface px-2 py-1.5">
-                              <p>Items</p>
-                              <p className="text-[15px] font-semibold text-p-text">
-                                {bookingConsumptionItems.length}
-                              </p>
+                          {/* Agregar: producto, cantidad y listo. */}
+                          <div className="mt-3 flex flex-wrap items-end gap-2">
+                            <div className="min-w-[200px] flex-1">
+                              <PlaygroundCombo
+                                value={consumptionProductDraft}
+                                onChange={(value) => {
+                                  setConsumptionProductDraft(String(value || ''));
+                                  setBookingConsumptionError('');
+                                }}
+                                options={consumptionProductOptions}
+                                variant="participant"
+                              />
                             </div>
-                            <div className="rounded-lg border border-p-border bg-p-surface px-2 py-1.5">
-                              <p>Pagado</p>
-                              <p className="text-[15px] font-semibold text-p-positive">
-                                {formatMoney(bookingConsumptionsPaid)}
-                              </p>
+                            <div className="inline-flex h-11 items-center rounded-xl border border-p-border bg-p-surface">
+                              <button
+                                type="button"
+                                aria-label="Restar uno"
+                                onClick={() => setConsumptionQuantityDraft(String(Math.max(1, selectedConsumptionQuantity - 1)))}
+                                disabled={selectedConsumptionQuantity <= 1}
+                                className="grid h-full w-9 place-items-center text-p-text-secondary hover:text-p-text disabled:opacity-40"
+                              >
+                                <Minus size={14} />
+                              </button>
+                              <span className="w-7 text-center text-[14px] font-semibold tabular-nums text-p-text">
+                                {selectedConsumptionQuantity}
+                              </span>
+                              <button
+                                type="button"
+                                aria-label="Sumar uno"
+                                onClick={() => setConsumptionQuantityDraft(String(selectedConsumptionQuantity + 1))}
+                                className="grid h-full w-9 place-items-center text-p-text-secondary hover:text-p-text"
+                              >
+                                <Plus size={14} />
+                              </button>
                             </div>
-                            <div className="rounded-lg border border-p-border bg-p-surface px-2 py-1.5">
-                              <p>Pendiente</p>
-                              <p className="text-[15px] font-semibold text-p-warning">
-                                {formatMoney(bookingConsumptionsRemaining)}
-                              </p>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void handleAddConsumption()}
+                              disabled={!canAddConsumption}
+                              className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-ink-900 px-4 text-[14px] font-semibold text-ink-50 hover:bg-ink-800 disabled:opacity-50"
+                            >
+                              <Plus size={14} />
+                              {consumptionAddInFlight ? 'Agregando...' : 'Agregar'}
+                            </button>
                           </div>
-
-                          <div className="mt-4 rounded-xl border border-p-border bg-p-surface p-3">
-                            <p className="text-[13px] font-semibold text-p-text">Agregar consumo</p>
-                            <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-[minmax(220px,1fr)_112px_auto]">
-                              <div>
-                                <span className="text-[12px] font-medium text-p-text-muted">Producto</span>
-                                <PlaygroundCombo
-                                  value={consumptionProductDraft}
-                                  onChange={(value) => {
-                                    setConsumptionProductDraft(String(value || ''));
-                                    setBookingConsumptionError('');
-                                  }}
-                                  options={consumptionProductOptions}
-                                  variant="participant"
-                                  className="mt-1"
-                                />
-                              </div>
-                              <label className="block">
-                                <span className="text-[12px] font-medium text-p-text-muted">Cantidad</span>
-                                <input
-                                  type="number"
-                                  min={1}
-                                  step={1}
-                                  value={consumptionQuantityDraft}
-                                  onChange={(event) => {
-                                    setConsumptionQuantityDraft(event.target.value);
-                                    setBookingConsumptionError('');
-                                  }}
-                                  className="mt-1 h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text outline-none"
-                                />
-                              </label>
-                              <div className="flex items-end">
-                                <button
-                                  type="button"
-                                  onClick={() => void handleAddConsumption()}
-                                  disabled={!canAddConsumption}
-                                  className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-ink-900 px-3 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-50"
-                                >
-                                  <Plus size={13} />
-                                  {consumptionAddInFlight ? 'Agregando...' : 'Agregar'}
-                                </button>
-                              </div>
-                            </div>
-
-                            <label className="mt-2 inline-flex items-center gap-2 text-[12px] text-p-text-secondary">
+                          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[12px]">
+                            <span className="min-h-[18px] tabular-nums">
+                              {consumptionProductsLoading ? (
+                                <span className="text-p-text-muted">Cargando productos...</span>
+                              ) : consumptionProductsError ? (
+                                <span className="text-p-error">{consumptionProductsError}</span>
+                              ) : consumptionQuoteLoading ? (
+                                <span className="text-p-text-muted">Calculando...</span>
+                              ) : consumptionQuoteError ? (
+                                <span className="text-p-error">{consumptionQuoteError}</span>
+                              ) : consumptionQuote ? (
+                                <span className="text-p-text-secondary">
+                                  Suma {formatMoney(consumptionQuote.finalTotal)}
+                                  {consumptionQuote.hasDiscount && consumptionQuote.discountAmount > 0.009
+                                    ? ` (con ${formatMoney(consumptionQuote.discountAmount)} de descuento)`
+                                    : ''}
+                                </span>
+                              ) : selectedConsumptionProduct ? (
+                                <span className="text-p-text-secondary">
+                                  Suma {formatMoney(roundMoney(selectedConsumptionProduct.price * selectedConsumptionQuantity))}
+                                </span>
+                              ) : null}
+                            </span>
+                            <label className="inline-flex cursor-pointer items-center gap-1.5 text-p-text-muted">
                               <input
                                 type="checkbox"
                                 checked={consumptionApplyDiscountDraft}
                                 onChange={(event) => setConsumptionApplyDiscountDraft(event.target.checked)}
-                                className="h-4 w-4 accent-p-brand"
+                                className="h-3.5 w-3.5 accent-p-brand"
                               />
-                              Aplicar descuentos automáticos del cliente
+                              Descuentos del cliente
                             </label>
-
-                            <div className="mt-2 min-h-[20px]">
-                              {consumptionProductsLoading ? (
-                                <p className="text-[12px] text-p-text-muted">Cargando productos...</p>
-                              ) : consumptionProductsError ? (
-                                <p className="text-[12px] text-p-error">{consumptionProductsError}</p>
-                              ) : consumptionQuoteLoading ? (
-                                <p className="text-[12px] text-p-text-muted">Cotizando...</p>
-                              ) : consumptionQuoteError ? (
-                                <p className="text-[12px] text-p-error">{consumptionQuoteError}</p>
-                              ) : consumptionQuote ? (
-                                <p className="text-[12px] text-p-text-secondary">
-                                  Lista {formatMoney(consumptionQuote.listTotal)} · Final {formatMoney(consumptionQuote.finalTotal)}
-                                  {consumptionQuote.hasDiscount && consumptionQuote.discountAmount > 0.009
-                                    ? ` · Descuento ${formatMoney(consumptionQuote.discountAmount)}`
-                                    : ''}
-                                </p>
-                              ) : selectedConsumptionProduct ? (
-                                <p className="text-[12px] text-p-text-secondary">
-                                  Subtotal estimado:{' '}
-                                  {formatMoney(roundMoney(selectedConsumptionProduct.price * selectedConsumptionQuantity))}
-                                </p>
-                              ) : null}
-                            </div>
                           </div>
 
                           {bookingConsumptionError && (
@@ -8391,55 +8372,57 @@ export default function AdminAgendaPlaygroundPage() {
                             </AdminFeedbackBanner>
                           )}
 
-                          <div className="mt-4 rounded-xl border border-p-border bg-p-surface">
-                            <div className="border-b border-p-border px-3 py-2">
-                              <p className="text-[13px] font-semibold text-p-text">Consumos cargados</p>
-                            </div>
+                          {/* Lista: una fila por consumo, sin cajas. */}
+                          <div className="mt-4 border-t border-p-border">
                             {bookingConsumptionLoading ? (
                               <div className="flex items-center justify-center py-6">
-                                <div className="h-5 w-5 rounded-full border-2 border-p-accent border-t-p-accent animate-spin" />
+                                <div className="h-5 w-5 rounded-full border-2 border-p-accent border-t-transparent animate-spin" />
                               </div>
                             ) : bookingConsumptionItems.length === 0 ? (
-                              <p className="px-3 py-4 text-[12px] text-p-text-muted">Todavía no hay consumos cargados.</p>
+                              <p className="py-4 text-[13px] text-p-text-muted">Todavía no hay consumos.</p>
                             ) : (
                               <div className="divide-y divide-p-border">
-                                {bookingConsumptionItems.map((item) => (
-                                  <div
-                                    key={`booking-consumption-${item.id}`}
-                                    className="grid grid-cols-[1fr_auto_auto] items-center gap-2 px-3 py-2.5"
-                                  >
-                                    <div className="min-w-0">
-                                      <p className="truncate text-[14px] font-semibold text-p-text">{item.description}</p>
-                                      <p className="text-[12px] text-p-text-muted">
-                                        {item.quantity} x {formatMoney(item.unitPrice)} · Total {formatMoney(item.totalPrice)}
+                                {bookingConsumptionItems.map((item) => {
+                                  const isPaid = item.remainingAmount <= 0.009;
+                                  const isPartial = !isPaid && item.paidAmount > 0.009;
+                                  return (
+                                    <div
+                                      key={`booking-consumption-${item.id}`}
+                                      className="flex items-center gap-3 py-2.5"
+                                    >
+                                      <div className="min-w-0 flex-1">
+                                        <p className="truncate text-[14px] font-medium text-p-text">
+                                          {item.quantity > 1 ? `${item.quantity} × ` : ''}
+                                          {item.description}
+                                        </p>
+                                        <p
+                                          className={`text-[12px] ${
+                                            isPaid ? 'text-p-positive' : isPartial ? 'text-p-warning' : 'text-p-text-muted'
+                                          }`}
+                                        >
+                                          {isPaid
+                                            ? 'Pagado'
+                                            : isPartial
+                                              ? `Debe ${formatMoney(item.remainingAmount)}`
+                                              : 'Sin cobrar'}
+                                        </p>
+                                      </div>
+                                      <p className="text-[14px] font-semibold tabular-nums text-p-text">
+                                        {formatMoney(item.totalPrice)}
                                       </p>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleRemoveConsumption(item.id)}
+                                        disabled={consumptionRemovingId === item.id || item.paidAmount > 0.009}
+                                        aria-label={`Quitar ${item.description}`}
+                                        title={item.paidAmount > 0.009 ? 'Tiene pagos: no se puede quitar' : 'Quitar'}
+                                        className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted hover:bg-p-error-bg hover:text-p-error disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-p-text-muted"
+                                      >
+                                        {consumptionRemovingId === item.id ? '…' : <Trash2 size={15} />}
+                                      </button>
                                     </div>
-                                    <span
-                                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                                        item.remainingAmount <= 0.009
-                                          ? 'bg-p-positive-bg text-p-positive'
-                                          : item.paidAmount > 0.009
-                                            ? 'bg-p-warning-bg text-p-warning'
-                                            : 'bg-p-surface-3 text-p-text-secondary'
-                                      }`}
-                                    >
-                                      {item.remainingAmount <= 0.009
-                                        ? 'Pagado'
-                                        : item.paidAmount > 0.009
-                                          ? 'Parcial'
-                                          : 'Pendiente'}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => void handleRemoveConsumption(item.id)}
-                                      disabled={consumptionRemovingId === item.id || item.paidAmount > 0.009}
-                                      className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-error px-2 text-[12px] font-semibold text-p-error hover:bg-p-error-bg disabled:opacity-45"
-                                    >
-                                      <X size={12} />
-                                      {consumptionRemovingId === item.id ? '...' : 'Quitar'}
-                                    </button>
-                                  </div>
-                                ))}
+                                  );
+                                })}
                               </div>
                             )}
                           </div>
