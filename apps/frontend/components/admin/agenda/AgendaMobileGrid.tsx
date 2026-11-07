@@ -4,6 +4,14 @@ import { CalendarDays, Check, ChevronLeft, ChevronRight, DollarSign, Lock, Plus,
 import type { Booking, Court } from './types/agendaTypes';
 import { slotMinutes, slotToTime, startHour, totalSlots } from './utils/agendaDateUtils';
 import { bookingColor } from './utils/agendaDisplayUtils';
+import type { AgendaRuleSlot } from './utils/agendaBookingRules';
+
+/** Turnos que el club acepta en una cancha: inicios, duraciones y slots reservables. */
+export type AgendaMobileCourtRules = {
+  ruleSlots: AgendaRuleSlot[];
+  mask: boolean[];
+  durations: number[];
+};
 
 type AgendaMobileGridProps = {
   courts: Court[];
@@ -19,6 +27,10 @@ type AgendaMobileGridProps = {
   onCreateBooking: () => void;
   onConfirmBooking: (booking: Booking) => Promise<void>;
   onChargeBooking: (booking: Booking) => void;
+  /** Reglas por cancha (id). Sin reglas, la cancha usa duraciones libres. */
+  courtRules?: Map<string, AgendaMobileCourtRules>;
+  /** Slots del día que ya pasaron. */
+  pastSlotCount?: number;
 };
 
 type FreeSelection = {
@@ -91,6 +103,8 @@ export default function AgendaMobileGrid({
   onCreateBooking,
   onConfirmBooking,
   onChargeBooking,
+  courtRules,
+  pastSlotCount = 0,
 }: AgendaMobileGridProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const dateInputRef = useRef<HTMLInputElement | null>(null);
@@ -172,17 +186,42 @@ export default function AgendaMobileGrid({
     const rect = event.currentTarget.getBoundingClientRect();
     const offsetY = event.clientY - rect.top;
     const rawSlot = Math.floor(offsetY / MOBILE_SLOT_PX);
-    const startSlot = Math.max(0, Math.min(totalSlots - 1, rawSlot - (rawSlot % 2)));
+    const tappedSlot = Math.max(0, Math.min(totalSlots - 1, rawSlot));
     const courtBookings = bookingsByCourt.get(court.id) || [];
-    if (courtBookings.some((booking) => startSlot < booking.endSlot && startSlot + 1 > booking.startSlot)) return;
-    if (isToday && startSlot * slotMinutes + startHour * 60 < now.getHours() * 60 + now.getMinutes() - slotMinutes) {
+    if (tappedSlot < pastSlotCount) {
       setPreviewBookingId(null);
       setFreeSelection(null);
       return;
     }
+    const rules = courtRules?.get(court.id);
+    let startSlot = Math.max(0, Math.min(totalSlots - 1, tappedSlot - (tappedSlot % 2)));
+    if (rules) {
+      // El inicio válido más cercano antes (o en) el toque, que no choque con otra reserva.
+      const isFree = (slot: AgendaRuleSlot) =>
+        slot.startSlot >= pastSlotCount &&
+        !courtBookings.some((booking) => slot.startSlot < booking.endSlot && slot.endSlot > booking.startSlot);
+      const candidates = rules.ruleSlots.filter(
+        (slot) => rules.durations.includes(slot.durationMinutes) && slot.startSlot <= tappedSlot && tappedSlot < slot.endSlot && isFree(slot)
+      );
+      if (candidates.length === 0) {
+        setPreviewBookingId(null);
+        setFreeSelection(null);
+        return;
+      }
+      startSlot = Math.max(...candidates.map((slot) => slot.startSlot));
+    }
+    if (courtBookings.some((booking) => startSlot < booking.endSlot && startSlot + 1 > booking.startSlot)) return;
     const nextBooking = courtBookings.find((booking) => booking.startSlot > startSlot);
     const maxEndSlot = nextBooking ? nextBooking.startSlot : totalSlots;
-    const defaultMinutes = Number(court.defaultDurationMinutes || 60);
+    const ruleDurationsHere = rules
+      ? rules.ruleSlots
+          .filter((slot) => slot.startSlot === startSlot && slot.endSlot <= maxEndSlot && rules.durations.includes(slot.durationMinutes))
+          .map((slot) => slot.durationMinutes)
+          .sort((a, b) => a - b)
+      : [];
+    const defaultMinutes = ruleDurationsHere.includes(Number(court.defaultDurationMinutes))
+      ? Number(court.defaultDurationMinutes)
+      : ruleDurationsHere[0] ?? Number(court.defaultDurationMinutes || 60);
     const defaultSlots = Math.max(1, Math.round(defaultMinutes / slotMinutes));
     setPreviewBookingId(null);
     setFreeSelection({
@@ -196,10 +235,19 @@ export default function AgendaMobileGrid({
   const selectionCourt = freeSelection ? courts.find((court) => court.id === freeSelection.courtId) : null;
   const previewCourt = previewBooking ? courts.find((court) => court.id === previewBooking.courtId) : null;
   const durationOptions = useMemo(() => {
+    const rules = freeSelection ? courtRules?.get(freeSelection.courtId) : undefined;
+    if (rules && freeSelection) {
+      // Solo las duraciones que el club ofrece a ese horario.
+      const fromRules = rules.ruleSlots
+        .filter((slot) => slot.startSlot === freeSelection.startSlot && rules.durations.includes(slot.durationMinutes))
+        .map((slot) => slot.durationMinutes);
+      const unique = Array.from(new Set(fromRules)).sort((a, b) => a - b);
+      if (unique.length > 0) return unique;
+    }
     const defaults = new Set(DURATION_OPTIONS_MIN);
     if (selectionCourt?.defaultDurationMinutes) defaults.add(Number(selectionCourt.defaultDurationMinutes));
     return Array.from(defaults).sort((a, b) => a - b);
-  }, [selectionCourt?.defaultDurationMinutes]);
+  }, [courtRules, freeSelection, selectionCourt?.defaultDurationMinutes]);
 
   const dateLabel = selectedDate.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
   const showSportChips = availableSports.length > 2;
@@ -366,6 +414,37 @@ export default function AgendaMobileGrid({
                       backgroundImage: `repeating-linear-gradient(to bottom, var(--border) 0, var(--border) 1px, transparent 1px, transparent ${MOBILE_SLOT_PX * 4}px)`,
                     }}
                   >
+                    {pastSlotCount > 0 && (
+                      <div
+                        className="pointer-events-none absolute inset-x-0 top-0 bg-p-surface-2/70"
+                        style={{ height: Math.min(pastSlotCount, totalSlots) * MOBILE_SLOT_PX }}
+                      />
+                    )}
+                    {(() => {
+                      const mask = courtRules?.get(court.id)?.mask;
+                      if (!mask) return null;
+                      const ranges: Array<[number, number]> = [];
+                      let rangeStart = -1;
+                      for (let slot = 0; slot <= totalSlots; slot += 1) {
+                        const blocked = slot < totalSlots && mask[slot] === false && slot >= pastSlotCount;
+                        if (blocked && rangeStart < 0) rangeStart = slot;
+                        if (!blocked && rangeStart >= 0) {
+                          ranges.push([rangeStart, slot]);
+                          rangeStart = -1;
+                        }
+                      }
+                      return ranges.map(([from, to]) => (
+                        <div
+                          key={`mobile-closed-${court.id}-${from}`}
+                          className="pointer-events-none absolute inset-x-0 bg-p-surface-2"
+                          style={{
+                            top: from * MOBILE_SLOT_PX,
+                            height: (to - from) * MOBILE_SLOT_PX,
+                            backgroundImage: 'repeating-linear-gradient(135deg, transparent 0 6px, var(--border) 6px 7px)',
+                          }}
+                        />
+                      ));
+                    })()}
                     {courtBookings.map((booking) => {
                       const top = booking.startSlot * MOBILE_SLOT_PX + 2;
                       const height = Math.max(14, (booking.endSlot - booking.startSlot) * MOBILE_SLOT_PX - 4);
@@ -501,7 +580,7 @@ export default function AgendaMobileGrid({
                 );
               })}
             </div>
-            {freeSelection.maxEndSlot - freeSelection.startSlot < Math.round(DURATION_OPTIONS_MIN[0] / slotMinutes) && (
+            {freeSelection.maxEndSlot - freeSelection.startSlot < Math.round((durationOptions[0] ?? DURATION_OPTIONS_MIN[0]) / slotMinutes) && (
               <p className="mt-1.5 text-[11px] text-p-text-muted">
                 Hay {formatDuration((freeSelection.maxEndSlot - freeSelection.startSlot) * slotMinutes)} libres hasta el próximo turno.
               </p>

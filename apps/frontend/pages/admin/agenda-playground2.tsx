@@ -3823,6 +3823,20 @@ export default function AdminAgendaPlaygroundPage() {
     return { x: nextX, y: nextY };
   }, []);
 
+  // Grilla de celular: mismas reglas por cancha (turnos válidos, duraciones y horarios reservables).
+  const mobileCourtRules = useMemo(() => {
+    const map = new Map<string, { ruleSlots: AgendaRuleSlot[]; mask: boolean[]; durations: number[] }>();
+    courtBookingRules.forEach((value, courtId) => {
+      if (!value?.rule) return;
+      map.set(courtId, {
+        ruleSlots: value.ruleSlots,
+        mask: value.mask,
+        durations: allowedDurationsFor(value.rule, null),
+      });
+    });
+    return map;
+  }, [courtBookingRules]);
+
   // Ajusta lo que se arrastra en la grilla a un turno que el club acepta (inicio + duración válidos).
   const snapCreateForCourt = (courtId: string, anchorSlot: number, pointerSlot: number) => {
     const courtRules = courtBookingRules.get(courtId);
@@ -6503,6 +6517,8 @@ export default function AdminAgendaPlaygroundPage() {
                     }
                   }}
                   onChargeBooking={(booking) => void openAgendaAccountDrawer(Number(booking.id), 'payment')}
+                  courtRules={mobileCourtRules}
+                  pastSlotCount={pastSlotCount}
                 />
               </div>
               <div className="hidden h-full flex-col p-4 lg:flex lg:p-6 gap-4">
