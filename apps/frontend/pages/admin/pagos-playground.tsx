@@ -232,6 +232,8 @@ type CashShift = {
   status: 'OPEN' | 'CLOSED';
   openedAt: string;
   openingAmount: number;
+  expectedCash?: number | null;
+  digitalAmount?: number | null;
   cashRegister?: {
     id: string;
     name: string;
@@ -425,7 +427,7 @@ const parsePaymentsTab = (value: unknown): PaymentsTab => {
   if (raw === 'cash') return 'SUMMARY';
   if (raw === 'summary') return 'SUMMARY';
   if (raw === 'movements') return 'MOVEMENTS';
-  if (raw === 'closure') return 'CLOSURE';
+  if (raw === 'closure') return 'SUMMARY';
   if (raw === 'refunds') return 'REFUNDS';
   if (raw === 'accounts') return 'ACCOUNTS';
   if (raw === 'reports') return 'REPORTS';
@@ -1950,7 +1952,6 @@ export default function AdminPaymentsPlaygroundPage() {
               { value: 'SUMMARY', label: 'Resumen' },
               { value: 'ACCOUNTS', label: 'Cuentas' },
               { value: 'MOVEMENTS', label: 'Movimientos' },
-              { value: 'CLOSURE', label: 'Cierre' },
               { value: 'REFUNDS', label: 'Devoluciones' },
               { value: 'REPORTS', label: 'Reportes' },
             ]}
@@ -2125,6 +2126,21 @@ export default function AdminPaymentsPlaygroundPage() {
               <div className="space-y-4">
                 {cashActiveView === 'live' && (
                   <>
+                    <CashShiftPanel
+                      shift={cashCurrentShift}
+                      loading={loadingCashShift}
+                      onToggleShift={() => {
+                        if (cashCurrentShift && shouldBlockCloseShiftWithOpenAccounts) {
+                          showAdminToast(closeShiftBlockedMessage, 'warning');
+                          return;
+                        }
+                        if (cashCurrentShift) setCashCloseShiftForm({ countedCash: '' });
+                        setCashSidebarView(cashCurrentShift ? 'close_shift' : 'open_shift');
+                      }}
+                      onRegisterMovement={() => setCashSidebarView('movement_create')}
+                      onProductSale={() => setCashSidebarView('product_sale')}
+                      onViewLastClose={cashLastCloseReport ? () => setCashSidebarView('close_report') : undefined}
+                    />
                     <div className="w-full rounded-2xl border border-p-border bg-p-surface p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface-2 p-1">
@@ -2225,25 +2241,6 @@ export default function AdminPaymentsPlaygroundPage() {
                   </div>
                 )}
 
-                {cashActiveView === 'live' && (
-                  <CashShiftPanel
-                    shift={cashCurrentShift}
-                    loading={loadingCashShift}
-                    onToggleShift={() => {
-                      if (cashCurrentShift && shouldBlockCloseShiftWithOpenAccounts) {
-                        showAdminToast(closeShiftBlockedMessage, 'warning');
-                        return;
-                      }
-                      setCashSidebarView(cashCurrentShift ? 'close_shift' : 'open_shift');
-                    }}
-                    onRegisterMovement={() => {
-                      navigateToPaymentsTab('MOVEMENTS');
-                      setCashSidebarView('movement_create');
-                    }}
-                    onGoToClosures={() => navigateToPaymentsTab('CLOSURE')}
-                    onProductSale={() => setCashSidebarView('product_sale')}
-                  />
-                )}
 
                 {cashActiveView === 'movements' && (
                   <AdminPanel
@@ -3314,7 +3311,7 @@ export default function AdminPaymentsPlaygroundPage() {
           cashSidebarView === 'open_shift'
             ? 'Configura caja registradora y monto inicial.'
             : cashSidebarView === 'close_shift'
-              ? 'Ingresa el efectivo contado para cerrar el turno.'
+              ? 'Contá el efectivo del cajón y anotá cuánto hay.'
               : cashSidebarView === 'movement_create'
                 ? 'Crea ingresos o egresos sin saturar la vista principal.'
                 : cashSidebarView === 'close_report'
@@ -3357,7 +3354,7 @@ export default function AdminPaymentsPlaygroundPage() {
                 className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Check size={14} />
-                {closingCashShift ? 'Cerrando...' : 'Confirmar cierre'}
+                {closingCashShift ? 'Cerrando...' : 'Cerrar caja'}
               </button>
             )}
 
@@ -3426,28 +3423,57 @@ export default function AdminPaymentsPlaygroundPage() {
 
         {cashSidebarView === 'close_shift' && (
           <form id="cash-close-shift-form" className="space-y-5" onSubmit={handleCloseShift}>
-            <AdminDrawerSection title="Turno actual" className={drawerSectionCardClass}>
-              <div className="rounded-xl border border-p-border bg-p-surface-2 p-3 text-[12px] text-p-text-secondary">
-                <p><span className="font-semibold">Caja:</span> {cashCurrentShift?.cashRegister?.name || '-'}</p>
-                <p><span className="font-semibold">Apertura:</span> {cashCurrentShift?.openedAt ? formatDateTime24(cashCurrentShift.openedAt) : '-'}</p>
-                <p><span className="font-semibold">Monto inicial:</span> {formatMoney(Number(cashCurrentShift?.openingAmount || 0))}</p>
-              </div>
-            </AdminDrawerSection>
-
-            <AdminDrawerSection title="Arqueo" className={drawerSectionCardClass}>
-              <label className="block">
-                <span className="text-[12px] font-medium text-p-text-secondary">Dinero contado al cierre</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={cashCloseShiftForm.countedCash}
-                  onChange={(event) => setCashCloseShiftForm({ countedCash: event.target.value })}
-                  className="mt-1 h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent"
-                  placeholder="0"
-                />
-              </label>
-            </AdminDrawerSection>
+            {(() => {
+              const expectedCash = Number(
+                cashCurrentShift?.expectedCash ?? cashCurrentShift?.openingAmount ?? 0
+              );
+              const countedRaw = cashCloseShiftForm.countedCash.trim();
+              const counted = Number(countedRaw);
+              const hasCounted = countedRaw.length > 0 && Number.isFinite(counted);
+              const difference = hasCounted ? Math.round((counted - expectedCash) * 100) / 100 : 0;
+              return (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-[13px] text-p-text-muted">Debería haber en efectivo</p>
+                    <p className="text-[30px] font-bold leading-tight tabular-nums text-p-text">{formatMoney(expectedCash)}</p>
+                    <p className="text-[12px] text-p-text-muted">
+                      {cashCurrentShift?.cashRegister?.name || 'Caja'} · abierta{' '}
+                      {cashCurrentShift?.openedAt ? formatDateTime24(cashCurrentShift.openedAt) : '-'} · empezó con{' '}
+                      {formatMoney(Number(cashCurrentShift?.openingAmount || 0))}
+                    </p>
+                  </div>
+                  <label className="block">
+                    <span className="text-[13px] font-medium text-p-text">¿Cuánto contaste?</span>
+                    <input
+                      autoFocus
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      value={cashCloseShiftForm.countedCash}
+                      onChange={(event) => setCashCloseShiftForm({ countedCash: event.target.value })}
+                      className="mt-1 h-12 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[18px] font-semibold tabular-nums text-p-text outline-none focus:border-p-border-strong"
+                      placeholder="0"
+                    />
+                  </label>
+                  {hasCounted && (
+                    <p
+                      className={`rounded-xl px-3 py-2.5 text-[14px] font-semibold ${
+                        Math.abs(difference) <= 0.009
+                          ? 'bg-p-positive-bg text-p-positive'
+                          : 'bg-p-warning-bg text-p-warning'
+                      }`}
+                    >
+                      {Math.abs(difference) <= 0.009
+                        ? 'Coincide con lo esperado.'
+                        : difference > 0
+                          ? `Sobran ${formatMoney(difference)}. Se registra como diferencia de caja.`
+                          : `Faltan ${formatMoney(Math.abs(difference))}. Se registra como diferencia de caja.`}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
           </form>
         )}
 
