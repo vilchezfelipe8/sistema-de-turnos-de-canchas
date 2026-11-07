@@ -96,6 +96,14 @@ router.get('/:slug/admin/schedule',
     bookingController.getAdminSchedule
 );
 
+// Reglas de reserva del día (inicios y duraciones permitidas por actividad)
+router.get('/:slug/admin/booking-rules',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    bookingController.getAdminBookingRules
+);
+
 // Obtener todas las canchas del club
 router.get('/:slug/admin/courts',
     authMiddleware,

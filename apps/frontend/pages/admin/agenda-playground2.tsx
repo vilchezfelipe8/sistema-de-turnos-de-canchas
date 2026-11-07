@@ -70,6 +70,20 @@ import {
   toSelectionRange,
 } from '../../components/admin/agenda/utils/agendaDateUtils';
 import {
+  allowedDurationsFor,
+  bookableSlotMask,
+  defaultDurationFor,
+  formatDurationLabel,
+  isValidRulePlacement,
+  snapCreateSelection,
+  snapMoveStart,
+  startSlotsForDuration,
+  toRuleSlots,
+  type AgendaActivityBookingRules,
+  type AgendaBookingRules,
+  type AgendaRuleSlot,
+} from '../../components/admin/agenda/utils/agendaBookingRules';
+import {
   blockContentVisibility,
   bookingBadgeColor,
   bookingColor,
@@ -1031,6 +1045,7 @@ export default function AdminAgendaPlaygroundPage() {
   }, []);
 
   const [dragSelection, setDragSelection] = useState<DraftSelection | null>(null);
+  const createDragAnchorRef = useRef<{ courtId: string; slot: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [draggingBookingId, setDraggingBookingId] = useState<string | null>(null);
   const [draggingBookingMeta, setDraggingBookingMeta] = useState<DraggingBookingMeta | null>(null);
@@ -1820,6 +1835,46 @@ export default function AdminAgendaPlaygroundPage() {
       return '';
     }
   }, []);
+
+  // Reglas del club para el día (inicios y duraciones válidas). Sin reglas cargadas, la grilla queda libre
+  // y el servidor valida al guardar.
+  const [bookingRules, setBookingRules] = useState<AgendaBookingRules | null>(null);
+  const selectedDateKey = formatLocalDate(selectedDate);
+  useEffect(() => {
+    const slug = getClubSlug();
+    if (!slug) return;
+    let cancelled = false;
+    setBookingRules(null);
+    ClubAdminService.getBookingRules(slug, selectedDateKey)
+      .then((rules) => {
+        if (!cancelled) setBookingRules(rules);
+      })
+      .catch((error) => {
+        reportUiError({ area: 'AgendaPlayground', action: 'loadBookingRules' }, error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [getClubSlug, selectedDateKey]);
+
+  const courtBookingRules = useMemo(() => {
+    const byCourt = new Map<string, {
+      rule: AgendaActivityBookingRules | null;
+      ruleSlots: AgendaRuleSlot[];
+      mask: boolean[];
+      activityId: number | null;
+    }>();
+    if (!bookingRules) return byCourt;
+    for (const court of effectiveCourts) {
+      const activityId = Number(court.activityTypeId || 0) || null;
+      const rule = activityId
+        ? bookingRules.activities.find((item) => item.activityId === activityId) || null
+        : null;
+      const ruleSlots = toRuleSlots(rule);
+      byCourt.set(court.id, { rule, ruleSlots, mask: bookableSlotMask(ruleSlots), activityId });
+    }
+    return byCourt;
+  }, [bookingRules, effectiveCourts]);
 
   const resetSimplifiedNewParticipantDraft = useCallback(() => {
     setSimplifiedNewParticipantOpen(false);
@@ -2972,6 +3027,17 @@ export default function AdminAgendaPlaygroundPage() {
         const safeStart = bookingDropPreview.startSlot;
         const safeEnd = bookingDropPreview.endSlot;
         const targetCourtId = bookingDropPreview.courtId;
+        if (targetCourtId === meta.courtId && safeStart === meta.startSlot) {
+          // Volvió a su lugar (o no había otro turno válido): no hay nada que guardar.
+          setDraggingBookingId(null);
+          setDraggingBookingMeta(null);
+          draggingBookingMetaRef.current = null;
+          dragGrabOffsetSlotsRef.current = 0;
+          lastValidDropPreviewRef.current = null;
+          setBookingDropPreview(null);
+          pendingBookingPointerRef.current = null;
+          return;
+        }
         const dropHasConflict = bookings.some((booking) => {
           if (String(booking.id) === String(meta.bookingId)) return false;
           if (booking.courtId !== targetCourtId) return false;
@@ -3164,12 +3230,37 @@ export default function AdminAgendaPlaygroundPage() {
         Number.isFinite(preferredRange?.startSlot) &&
         Number.isFinite(preferredRange?.endSlot) &&
         Number(preferredRange?.endSlot) > Number(preferredRange?.startSlot);
+      // Sin rango elegido: proponer el próximo turno válido y libre de esa cancha.
+      const quickRules = courtBookingRules.get(fallbackCourtId);
+      let ruleSuggestion: AgendaRuleSlot | null = null;
+      if (!hasPreferredRange && quickRules?.rule) {
+        const defaultDuration = defaultDurationFor(quickRules.rule);
+        const durations = allowedDurationsFor(quickRules.rule, null);
+        ruleSuggestion =
+          quickRules.ruleSlots
+            .filter(
+              (slot) =>
+                durations.includes(slot.durationMinutes) &&
+                slot.startSlot >= suggestedStartSlot &&
+                !hasOverlapForRange({
+                  courtId: fallbackCourtId,
+                  startSlot: slot.startSlot,
+                  endSlot: slot.endSlot,
+                  ignoreBookingId: null,
+                })
+            )
+            .sort(
+              (left, right) =>
+                left.startSlot - right.startSlot ||
+                Number(right.durationMinutes === defaultDuration) - Number(left.durationMinutes === defaultDuration)
+            )[0] ?? null;
+      }
       const nextStartSlot = hasPreferredRange
         ? Math.max(0, Math.min(totalSlots - 1, Number(preferredRange?.startSlot)))
-        : suggestedStartSlot;
+        : ruleSuggestion?.startSlot ?? suggestedStartSlot;
       const nextEndSlot = hasPreferredRange
         ? Math.max(nextStartSlot + 1, Math.min(totalSlots, Number(preferredRange?.endSlot)))
-        : suggestedEndSlot;
+        : ruleSuggestion?.endSlot ?? suggestedEndSlot;
 
       setEditingBookingId(null);
       setEditingBaseline(null);
@@ -3198,7 +3289,9 @@ export default function AdminAgendaPlaygroundPage() {
       setFormError('');
     },
     [
+      courtBookingRules,
       effectiveCourts,
+      hasOverlapForRange,
       selectedCourtId,
       selectedDate,
       selectedEndSlot,
@@ -3617,10 +3710,25 @@ export default function AdminAgendaPlaygroundPage() {
     return { x: nextX, y: nextY };
   }, []);
 
+  // Ajusta lo que se arrastra en la grilla a un turno que el club acepta (inicio + duración válidos).
+  const snapCreateForCourt = (courtId: string, anchorSlot: number, pointerSlot: number) => {
+    const courtRules = courtBookingRules.get(courtId);
+    if (!courtRules?.rule) return undefined;
+    return snapCreateSelection({
+      ruleSlots: courtRules.ruleSlots,
+      durations: allowedDurationsFor(courtRules.rule, null),
+      anchorSlot,
+      pointerSlot,
+      isFree: (startSlot, endSlot) =>
+        !hasOverlapForRange({ courtId, startSlot, endSlot, ignoreBookingId: null }),
+    });
+  };
+
   const handleSlotMouseDown = (event: React.MouseEvent<HTMLDivElement>, courtId: string, slot: number) => {
     event.preventDefault();
     if (draggingBookingMetaRef.current) return;
     setBookingHoverPreview(null);
+    createDragAnchorRef.current = null;
     const startsOnConflict = hasOverlapForRange({
       courtId,
       startSlot: slot,
@@ -3628,6 +3736,20 @@ export default function AdminAgendaPlaygroundPage() {
       ignoreBookingId: null,
     });
     if (startsOnConflict) return;
+    const snapped = snapCreateForCourt(courtId, slot, slot);
+    if (snapped === null) {
+      // Horario grisado: no se puede reservar. Si el horario es válido pero no entra un turno, avisar.
+      if (courtBookingRules.get(courtId)?.mask[slot]) {
+        showAgendaToast('No entra un turno completo en ese hueco.');
+      }
+      return;
+    }
+    if (snapped) {
+      createDragAnchorRef.current = { courtId, slot };
+      setIsDragging(true);
+      setDragSelection({ courtId, startSlot: snapped.startSlot, endSlot: snapped.endSlot - 1 });
+      return;
+    }
     setIsDragging(true);
     setDragSelection({ courtId, startSlot: slot, endSlot: slot });
   };
@@ -3637,6 +3759,30 @@ export default function AdminAgendaPlaygroundPage() {
       const durationSlots = Math.max(1, Number(draggingBookingMetaRef.current.durationSlots || 1));
       const offsetSlots = Math.max(0, Math.min(durationSlots - 1, Number(dragGrabOffsetSlotsRef.current || 0)));
       const desiredStart = slot - offsetSlots;
+      const targetRules = courtBookingRules.get(courtId);
+      if (targetRules?.rule) {
+        const originActivityId = courtBookingRules.get(draggingBookingMetaRef.current.courtId)?.activityId ?? null;
+        const movingBookingId = draggingBookingMetaRef.current.bookingId;
+        const snappedMove =
+          originActivityId && targetRules.activityId !== originActivityId
+            ? null
+            : snapMoveStart({
+                ruleSlots: targetRules.ruleSlots,
+                durationMinutes: durationSlots * slotMinutes,
+                desiredStartSlot: desiredStart,
+                isFree: (startSlot, endSlot) =>
+                  !hasOverlapForRange({ courtId, startSlot, endSlot, ignoreBookingId: movingBookingId }),
+              });
+        // Solo se acepta un inicio válido cercano; si no hay, la vista previa queda en el último lugar válido.
+        if (!snappedMove || Math.abs(snappedMove.startSlot - desiredStart) > durationSlots) {
+          if (lastValidDropPreviewRef.current) setBookingDropPreview(lastValidDropPreviewRef.current);
+          return;
+        }
+        const snappedCandidate = { courtId, startSlot: snappedMove.startSlot, endSlot: snappedMove.endSlot };
+        lastValidDropPreviewRef.current = snappedCandidate;
+        setBookingDropPreview(snappedCandidate);
+        return;
+      }
       const safeStart = Math.max(0, Math.min(totalSlots - durationSlots, desiredStart));
       const candidate = {
         courtId,
@@ -3660,6 +3806,14 @@ export default function AdminAgendaPlaygroundPage() {
       return;
     }
     if (!isDragging) return;
+    const createAnchor = createDragAnchorRef.current;
+    if (createAnchor) {
+      if (createAnchor.courtId !== courtId) return;
+      const snapped = snapCreateForCourt(courtId, createAnchor.slot, slot);
+      if (!snapped) return;
+      setDragSelection({ courtId, startSlot: snapped.startSlot, endSlot: snapped.endSlot - 1 });
+      return;
+    }
     setDragSelection((previous) => {
       if (!previous || previous.courtId !== courtId) return previous;
       const candidate = { ...previous, endSlot: slot };
@@ -3698,6 +3852,69 @@ export default function AdminAgendaPlaygroundPage() {
       })),
     []
   );
+
+  // Panel de reserva: solo inicios y fines que el club acepta para la cancha (y modalidad) elegida.
+  const drawerCourtRules = courtBookingRules.get(selectedCourtId) ?? null;
+  const drawerRuleSlots = drawerCourtRules?.rule ? drawerCourtRules.ruleSlots : null;
+  const drawerAllowedDurations = useMemo(
+    () => (drawerCourtRules?.rule ? allowedDurationsFor(drawerCourtRules.rule, bookingActivityFormatId || null) : []),
+    [bookingActivityFormatId, drawerCourtRules]
+  );
+  const drawerStartTimeOptions = useMemo(() => {
+    if (!drawerRuleSlots) {
+      return timeOptions.slice(0, -1).map((option) => ({ value: option.value, label: option.value }));
+    }
+    const starts = new Set<number>([selectedStartSlot]);
+    for (const duration of drawerAllowedDurations) {
+      for (const slot of startSlotsForDuration(drawerRuleSlots, duration)) starts.add(slot);
+    }
+    return Array.from(starts)
+      .sort((a, b) => a - b)
+      .map((slot) => ({ value: slotToTime(slot), label: slotToTime(slot) }));
+  }, [drawerAllowedDurations, drawerRuleSlots, selectedStartSlot, timeOptions]);
+  const drawerEndTimeOptions = useMemo(() => {
+    if (!drawerRuleSlots) {
+      return timeOptions.slice(1).map((option) => ({ value: option.value, label: option.value }));
+    }
+    const options = drawerRuleSlots
+      .filter(
+        (slot) => slot.startSlot === selectedStartSlot && drawerAllowedDurations.includes(slot.durationMinutes)
+      )
+      .sort((a, b) => a.endSlot - b.endSlot)
+      .map((slot) => ({
+        value: slotToTime(slot.endSlot),
+        label: `${slotToTime(slot.endSlot)} · ${formatDurationLabel(slot.durationMinutes)}`,
+      }));
+    if (!options.some((option) => option.value === slotToTime(selectedEndSlot))) {
+      options.push({ value: slotToTime(selectedEndSlot), label: slotToTime(selectedEndSlot) });
+    }
+    return options;
+  }, [drawerAllowedDurations, drawerRuleSlots, selectedEndSlot, selectedStartSlot, timeOptions]);
+  const drawerSelectionIsAllowed =
+    !drawerRuleSlots ||
+    (drawerAllowedDurations.includes((selectedEndSlot - selectedStartSlot) * slotMinutes) &&
+      isValidRulePlacement(drawerRuleSlots, selectedStartSlot, selectedEndSlot));
+
+  /** Cambiar la hora de inicio mantiene la duración si sigue siendo válida; si no, toma la válida más parecida. */
+  const applyDrawerStartSlot = (nextStart: number) => {
+    const currentSpan = Math.max(1, selectedEndSlot - selectedStartSlot);
+    setSelectedStartSlot(nextStart);
+    if (drawerRuleSlots) {
+      const candidates = drawerRuleSlots.filter(
+        (slot) => slot.startSlot === nextStart && drawerAllowedDurations.includes(slot.durationMinutes)
+      );
+      const sameSpan = candidates.find((slot) => slot.endSlot - slot.startSlot === currentSpan);
+      const closest =
+        sameSpan ||
+        [...candidates].sort(
+          (a, b) =>
+            Math.abs(a.endSlot - a.startSlot - currentSpan) - Math.abs(b.endSlot - b.startSlot - currentSpan)
+        )[0];
+      setSelectedEndSlot(closest ? closest.endSlot : Math.min(totalSlots, nextStart + currentSpan));
+      return;
+    }
+    setSelectedEndSlot(Math.min(totalSlots, nextStart + currentSpan));
+  };
 
   const updateParticipant = useCallback((
     id: string,
@@ -5084,7 +5301,7 @@ export default function AdminAgendaPlaygroundPage() {
 
   const resolveSuggestionPlacement = useCallback((
     anchor: HTMLDivElement | null,
-    options?: { itemCount?: number; loading?: boolean }
+    options?: { itemCount?: number; loading?: boolean; extraRows?: number }
   ): SuggestionPlacement => {
     if (!anchor) return { openUp: false, maxHeight: 280 };
     const rect = anchor.getBoundingClientRect();
@@ -5095,7 +5312,8 @@ export default function AdminAgendaPlaygroundPage() {
     const spaceAbove = Math.max(0, rect.top - 12);
     const itemCount = Math.max(0, Number(options?.itemCount || 0));
     const loadingRows = options?.loading ? 1 : 0;
-    const estimatedContentHeight = Math.max(120, Math.min(280, (itemCount + loadingRows) * 44 + 12));
+    const extraRows = Math.max(0, Number(options?.extraRows || 0));
+    const estimatedContentHeight = Math.max(120, Math.min(380, (itemCount + loadingRows + extraRows) * 56 + 16));
     // Si con su alto natural tocaría el footer, abrir arriba.
     const openUp = spaceBelow < estimatedContentHeight;
     const available = openUp ? spaceAbove : spaceBelow;
@@ -5110,8 +5328,9 @@ export default function AdminAgendaPlaygroundPage() {
     }
     setSimplifiedOwnerSuggestionsPlacement(
       resolveSuggestionPlacement(simplifiedOwnerInputContainerRef.current, {
-        itemCount: simplifiedOwnerSuggestions.length,
+        itemCount: Math.min(8, simplifiedOwnerSuggestions.length),
         loading: simplifiedOwnerSearchLoading,
+        extraRows: 1,
       })
     );
   }, [
@@ -6056,6 +6275,11 @@ export default function AdminAgendaPlaygroundPage() {
                                   totalSlots={totalSlots}
                                   onSlotMouseDown={handleSlotMouseDown}
                                   onSlotMouseEnter={handleSlotMouseEnter}
+                                  bookableMask={
+                                    courtBookingRules.get(court.id)?.rule
+                                      ? courtBookingRules.get(court.id)?.mask
+                                      : null
+                                  }
                                 >
 
                                   {(() => {
@@ -7547,14 +7771,11 @@ export default function AdminAgendaPlaygroundPage() {
                             value={slotToTime(selectedStartSlot)}
                             onChange={(nextValue) => {
                               const nextStart = timeToSlot(nextValue);
-                              setSelectedStartSlot(nextStart);
-                              if (nextStart >= selectedEndSlot) {
-                                setSelectedEndSlot(nextStart + 1);
-                              }
+                              applyDrawerStartSlot(nextStart);
                               setScheduleInputsDirty(true);
                               setFormError('');
                             }}
-                            options={timeOptions.slice(0, -1).map((option) => ({ value: option.value, label: option.value }))}
+                            options={drawerStartTimeOptions}
                             compact
                             className="min-w-[92px]"
                           />
@@ -7566,7 +7787,7 @@ export default function AdminAgendaPlaygroundPage() {
                               setScheduleInputsDirty(true);
                               setFormError('');
                             }}
-                            options={timeOptions.slice(1).map((option) => ({ value: option.value, label: option.value }))}
+                            options={drawerEndTimeOptions}
                             compact
                             className="min-w-[92px]"
                           />
@@ -7664,17 +7885,11 @@ export default function AdminAgendaPlaygroundPage() {
                                 value={slotToTime(selectedStartSlot)}
                                 onChange={(nextValue) => {
                                   const nextStart = timeToSlot(nextValue);
-                                  setSelectedStartSlot(nextStart);
-                                  if (nextStart >= selectedEndSlot) {
-                                    setSelectedEndSlot(nextStart + 1);
-                                  }
+                                  applyDrawerStartSlot(nextStart);
                                   setScheduleInputsDirty(true);
                                   setFormError('');
                                 }}
-                                options={timeOptions.slice(0, -1).map((option) => ({
-                                  value: option.value,
-                                  label: option.value,
-                                }))}
+                                options={drawerStartTimeOptions}
                                 disabled={isCompletedReservationScheduleLocked}
                                 className="mt-1"
                               />
@@ -7689,10 +7904,7 @@ export default function AdminAgendaPlaygroundPage() {
                                   setScheduleInputsDirty(true);
                                   setFormError('');
                                 }}
-                                options={timeOptions.slice(1).map((option) => ({
-                                  value: option.value,
-                                  label: option.value,
-                                }))}
+                                options={drawerEndTimeOptions}
                                 disabled={isCompletedReservationScheduleLocked}
                                 className="mt-1"
                               />
@@ -7835,17 +8047,11 @@ export default function AdminAgendaPlaygroundPage() {
                                     value={slotToTime(selectedStartSlot)}
                                     onChange={(nextValue) => {
                                       const nextStart = timeToSlot(nextValue);
-                                      setSelectedStartSlot(nextStart);
-                                      if (nextStart >= selectedEndSlot) {
-                                        setSelectedEndSlot(nextStart + 1);
-                                      }
+                                      applyDrawerStartSlot(nextStart);
                                       setScheduleInputsDirty(true);
                                       setFormError('');
                                     }}
-                                    options={timeOptions.slice(0, -1).map((option) => ({
-                                      value: option.value,
-                                      label: slotToTimeAmPm(option.slot),
-                                    }))}
+                                    options={drawerStartTimeOptions}
                                     className="mt-1"
                                   />
                                 </div>
@@ -7859,10 +8065,7 @@ export default function AdminAgendaPlaygroundPage() {
                                       setScheduleInputsDirty(true);
                                       setFormError('');
                                     }}
-                                    options={timeOptions.slice(1).map((option) => ({
-                                      value: option.value,
-                                      label: slotToTimeAmPm(option.slot),
-                                    }))}
+                                    options={drawerEndTimeOptions}
                                     className="mt-1"
                                   />
                                 </div>
@@ -7995,17 +8198,11 @@ export default function AdminAgendaPlaygroundPage() {
                                   value={slotToTime(selectedStartSlot)}
                                   onChange={(nextValue) => {
                                     const nextStart = timeToSlot(nextValue);
-                                    setSelectedStartSlot(nextStart);
-                                    if (nextStart >= selectedEndSlot) {
-                                      setSelectedEndSlot(nextStart + 1);
-                                    }
+                                    applyDrawerStartSlot(nextStart);
                                     setScheduleInputsDirty(true);
                                     setFormError('');
                                   }}
-                                  options={timeOptions.slice(0, -1).map((option) => ({
-                                    value: option.value,
-                                    label: slotToTimeAmPm(option.slot),
-                                  }))}
+                                  options={drawerStartTimeOptions}
                                   className="mt-1"
                                 />
                               </div>
@@ -8019,10 +8216,7 @@ export default function AdminAgendaPlaygroundPage() {
                                     setScheduleInputsDirty(true);
                                     setFormError('');
                                   }}
-                                  options={timeOptions.slice(1).map((option) => ({
-                                    value: option.value,
-                                    label: slotToTimeAmPm(option.slot),
-                                  }))}
+                                  options={drawerEndTimeOptions}
                                   className="mt-1"
                                 />
                               </div>
@@ -8606,7 +8800,7 @@ export default function AdminAgendaPlaygroundPage() {
                                       className="overflow-y-auto overscroll-contain p-1"
                                     >
                                       {simplifiedOwnerSearchLoading && (
-                                        <p className="px-2 py-1 text-[11px] text-p-text-muted">Buscando...</p>
+                                        <p className="px-3 py-2 text-[13px] text-p-text-muted">Buscando...</p>
                                       )}
                                       {simplifiedOwnerSuggestions.slice(0, 8).map((suggestion) => (
                                         <button
@@ -8617,31 +8811,23 @@ export default function AdminAgendaPlaygroundPage() {
                                             if (!ownerParticipant) return;
                                             applySimplifiedOwnerSuggestion(ownerParticipant.id, suggestion);
                                           }}
-                                          className="w-full text-left rounded-lg px-2 py-1.5 hover:bg-p-surface-2"
+                                          className="w-full text-left rounded-lg px-3 py-2 hover:bg-p-surface-2 focus:bg-p-surface-2 focus:outline-none"
                                         >
-                                          <span className="block text-[12px] font-semibold text-p-text">{suggestion.label}</span>
-                                          {Array.isArray(suggestion.badges) && suggestion.badges.length > 0 && (
-                                            <span className="mt-1 flex flex-wrap gap-1">
-                                              {suggestion.badges.map((badge) => (
-                                                <span
-                                                  key={`${suggestion.id}-${badge}`}
-                                                  className="inline-flex items-center rounded-full border border-p-border bg-p-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-p-text-muted"
-                                                >
-                                                  {badge}
-                                                </span>
-                                              ))}
+                                          <span className="block truncate text-[14px] font-semibold text-p-text">{suggestion.label}</span>
+                                          {(suggestion.secondary || (Array.isArray(suggestion.badges) && suggestion.badges.length > 0)) && (
+                                            <span className="mt-0.5 block truncate text-[12px] text-p-text-muted">
+                                              {[suggestion.secondary, ...(Array.isArray(suggestion.badges) ? suggestion.badges : [])]
+                                                .filter(Boolean)
+                                                .join(' · ')}
                                             </span>
-                                          )}
-                                          {suggestion.secondary && (
-                                            <span className="block text-[11px] text-p-text-muted">{suggestion.secondary}</span>
                                           )}
                                         </button>
                                       ))}
                                       {ownerHasTypedName && (
                                         <>
                                           {simplifiedOwnerSuggestions.length === 0 && !simplifiedOwnerSearchLoading && (
-                                            <p className="px-2 py-1 text-[11px] text-p-text-muted">
-                                              No encontramos personas con ese dato.
+                                            <p className="px-3 py-2 text-[13px] text-p-text-muted">
+                                              No hay clientes con ese dato.
                                             </p>
                                           )}
                                           <button
@@ -8667,11 +8853,11 @@ export default function AdminAgendaPlaygroundPage() {
                                               setFormError('');
                                               window.setTimeout(() => simplifiedOwnerPhoneInputRef.current?.focus(), 0);
                                             }}
-                                            className="mt-1 w-full rounded-lg border border-dashed border-p-border px-2 py-2 text-left hover:bg-p-surface-2"
+                                            className="mt-1 flex w-full items-center gap-2 rounded-lg border-t border-p-border px-3 py-2.5 text-left text-[14px] hover:bg-p-surface-2"
                                           >
-                                            <span className="block text-[12px] font-semibold text-p-text">Cargar nuevo titular</span>
-                                            <span className="block text-[11px] text-p-text-muted">
-                                              Usar &quot;{ownerParticipant.name.trim()}&quot;, cargar teléfono y, si querés, sumar email o DNI acá mismo.
+                                            <Plus size={15} className="shrink-0 text-p-accent" />
+                                            <span className="min-w-0 truncate text-p-text">
+                                              Cliente nuevo: <strong className="font-semibold">{ownerParticipant.name.trim()}</strong>
                                             </span>
                                           </button>
                                         </>
@@ -9459,6 +9645,12 @@ export default function AdminAgendaPlaygroundPage() {
                       {shouldShowSeriesScopeHint && (
                         <div className="rounded-xl border border-p-accent bg-p-positive-bg px-3 py-2 text-[12px] text-p-accent">
                           Esta reserva pertenece a una serie. Al guardar, vas a elegir si editar solo esta ocurrencia, desde esta en adelante o toda la serie.
+                        </div>
+                      )}
+                      {!drawerSelectionIsAllowed && (!editingBookingId || hasScheduleChanges) && (
+                        <div className="rounded-xl border border-p-warning bg-p-warning-bg px-3 py-2 text-[12px] text-p-warning">
+                          El club no ofrece un turno de {formatDurationLabel(selectionMinutes)} a las{' '}
+                          {slotToTime(selectedStartSlot)}. Elegí otro horario o duración.
                         </div>
                       )}
                       {hasBlockingActionError && (

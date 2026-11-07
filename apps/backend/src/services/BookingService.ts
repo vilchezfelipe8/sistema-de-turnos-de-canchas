@@ -336,6 +336,8 @@ type BookingPriceQuoteInput = {
     clientDni?: string;
     applyDiscount?: boolean;
     activityFormatId?: string | null;
+    /** Solo validar horario y duración (mover / editar), sin calcular precio. */
+    scheduleOnly?: boolean;
 };
 
 type BookingPriceQuote = {
@@ -1039,6 +1041,22 @@ export class BookingService {
         const duration = Number(input.durationMinutes || durationFromRange || booking.activity?.defaultDurationMinutes || 60);
         const safeDuration = Number.isFinite(duration) && duration > 0 ? Math.floor(duration) : 60;
         const endDateTime = new Date(input.startDateTime.getTime() + safeDuration * 60000);
+
+        // Mover o editar respeta las mismas reglas que crear: deporte de la cancha, horarios y duraciones del club.
+        const targetActivityId = Number(targetCourt.activityTypeId || booking.activityId);
+        if (targetActivityId !== Number(booking.activityId)) {
+            throw this.invalidInput('No se puede mover la reserva a una cancha de otro deporte.');
+        }
+        await this.quoteBookingPrice({
+            courtId: targetCourt.id,
+            activityId: targetActivityId,
+            startDateTime: input.startDateTime,
+            durationMinutes: safeDuration,
+            activityFormatId: booking.activityFormatId ?? null,
+            clientId: booking.clientId ?? null,
+            allowAdminBenefits: true,
+            scheduleOnly: true
+        });
 
         const classOverlap = await this.findClassSessionOverlap({
             clubId: input.clubId,
@@ -2709,6 +2727,10 @@ export class BookingService {
             }
         }
 
+        if (input.scheduleOnly) {
+            return { listPrice: 0, finalPrice: 0, discountAmount: 0, hasDiscount: false, appliedPolicies: [] };
+        }
+
         const quoteClubId = Number((court as any).club.id);
         if (await this.playerSlotService.isPerPlayerClub(quoteClubId)) {
             // El staff cotiza para cualquier cliente; el jugador solo con la ficha vinculada a su usuario (D2).
@@ -4070,6 +4092,86 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         });
 
         return this.bookingRepo.mapToEntity(created);
+    }
+
+    /**
+     * Reglas de reserva del día para cada actividad del club: qué inicios y duraciones acepta el club.
+     * La agenda las usa para ajustar crear / mover / editar; el servidor valida lo mismo al guardar.
+     */
+    async getBookingRulesForDate(clubId: number, localDate: string) {
+        const club = await prisma.club.findUnique({ where: { id: clubId }, include: { settings: true } });
+        if (!club) throw this.clubConfigInvalid('Club inexistente');
+        const clubConfig = this.resolveClubConfig(club);
+        const timeZone = clubConfig?.timeZone ?? 'America/Argentina/Buenos_Aires';
+        const referenceDate = TimeHelper.localSlotToUtc(localDate, '12:00', timeZone);
+        const clubOpen = this.isClubOpenOnLocalDate(clubConfig, referenceDate, timeZone);
+
+        const professorOverrideMinutes = Number(clubConfig?.professorDurationOverrideMinutes ?? 60);
+        const professorOverride =
+            Boolean(clubConfig?.professorDurationOverrideEnabled) &&
+            Number.isFinite(professorOverrideMinutes) &&
+            professorOverrideMinutes > 0
+                ? professorOverrideMinutes
+                : null;
+
+        const perPlayer = await this.playerSlotService.isPerPlayerClub(clubId);
+        const activities = await prisma.activityType.findMany({
+            where: { clubId },
+            include: perPlayer ? { formats: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } } } : undefined
+        });
+
+        const rules = [];
+        for (const activity of activities as any[]) {
+            const resolved = await this.resolveActivityScheduleForDate(activity, referenceDate, timeZone);
+            const schedule = resolved.schedule;
+            const formats = perPlayer
+                ? (activity.formats || []).map((format: any) => ({
+                        id: String(format.id),
+                        name: String(format.name),
+                        // null = la modalidad no fija duración: valen las del club.
+                        durationMinutes: Number(format.durationMinutes) > 0 ? Number(format.durationMinutes) : null,
+                        shortGapMinutes: resolveShortGapMinutes(format)
+                    }))
+                : [];
+            const durations = Array.from(new Set<number>([
+                ...schedule.durations,
+                ...formats.map((format: any) => format.durationMinutes).filter((value: any) => Number(value) > 0),
+                ...formats.map((format: any) => format.shortGapMinutes).filter((value: any) => Number(value) > 0),
+            ])).sort((a, b) => a - b);
+
+            const slots: Array<{ start: string; durationMinutes: number }> = [];
+            if (clubOpen && !resolved.isClosed) {
+                for (const duration of durations) {
+                    const built = buildSlotsFromSchedule(
+                        {
+                            scheduleMode: schedule.mode,
+                            scheduleOpenTime: schedule.openTime,
+                            scheduleCloseTime: schedule.closeTime,
+                            scheduleIntervalMinutes: schedule.intervalMinutes,
+                            scheduleWindows: schedule.rangeWindows,
+                            scheduleDurations: schedule.durations,
+                            scheduleFixedSlots: schedule.fixedSlots
+                        },
+                        activity.defaultDurationMinutes,
+                        duration
+                    ) as Array<{ slotTime: string; dayOffset: number }>;
+                    for (const slot of built) {
+                        if (slot.dayOffset === 0) slots.push({ start: slot.slotTime, durationMinutes: duration });
+                    }
+                }
+            }
+
+            rules.push({
+                activityId: Number(activity.id),
+                isClosed: !clubOpen || resolved.isClosed,
+                mode: schedule.mode,
+                durations: schedule.durations,
+                formats,
+                slots
+            });
+        }
+
+        return { date: localDate, timeZone, professorOverrideMinutes: professorOverride, activities: rules };
     }
 
     async getAvailableSlots(courtId: number, date: Date, activityId: number, durationMinutes?: number): Promise<string[]> {

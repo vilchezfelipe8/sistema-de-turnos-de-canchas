@@ -1,6 +1,7 @@
 import { fetchWithAuth } from '../utils/apiClient';
 import { getApiUrl } from '../utils/apiUrl';
 import { parseApiErrorResponse, throwApiErrorFromResponse } from '../utils/apiError';
+import type { AgendaBookingRules } from '../components/admin/agenda/utils/agendaBookingRules';
 
 const apiBase = () => `${getApiUrl()}/api`;
 
@@ -756,6 +757,17 @@ export class ClubAdminService {
   /**
    * Obtener la agenda del administrador para un club específico
    */
+  static async getBookingRules(clubSlug: string, date: string): Promise<AgendaBookingRules> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/booking-rules?date=${date}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) {
+      await throwApiErrorFromResponse(res, 'Error al cargar los horarios del club');
+    }
+    return res.json();
+  }
+
   static async getAdminSchedule(clubSlug: string, date: string) {
 
     const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/schedule?date=${date}`, {

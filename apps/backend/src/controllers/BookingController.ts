@@ -1422,6 +1422,20 @@ export class BookingController {
         }
     }
 
+    getAdminBookingRules = async (req: Request, res: Response) => {
+        try {
+            const date = String(req.query.date || '').trim();
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+                return res.status(400).json({ error: "Falta el parámetro 'date' (ej: ?date=2025-10-25)" });
+            }
+            const clubId = Number((req as any).clubId);
+            const rules = await this.bookingService.getBookingRulesForDate(clubId, date);
+            res.json(rules);
+        } catch (error: any) {
+            return sendAppError(res, error, 'Error interno al cargar reglas de reserva');
+        }
+    }
+
     rescheduleBooking = async (req: Request, res: Response) => {
         try {
             const paramsSchema = z.object({
