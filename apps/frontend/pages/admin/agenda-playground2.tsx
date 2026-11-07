@@ -7522,229 +7522,137 @@ export default function AdminAgendaPlaygroundPage() {
 
             {deleteBookingConfirmOpen && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex justify-end p-0 sm:p-3`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
-                  handleModalBackdropPointerUp(event, closeDeleteBookingFlow)
+                  handleModalBackdropPointerUp(event, () => {
+                    if (!isDeletingBooking) closeDeleteBookingFlow();
+                  })
                 }
               >
+                {/* Un solo paso: este modal ya es la confirmación. */}
                 <div
-                  className="flex h-full w-full max-w-[560px] flex-col rounded-none border-0 bg-p-surface shadow-2xl sm:rounded-2xl sm:border sm:border-p-border"
+                  className="w-full max-w-[460px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
-                  <div className="flex items-start justify-between gap-3 border-b border-p-border px-5 py-4">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-p-text-muted">Agenda</p>
-                      <h3 className="mt-1 text-[22px] font-bold tracking-[-0.01em] text-p-text">Cancelar reserva</h3>
-                      <p className="mt-1 text-[12px] text-p-text-muted">
-                        Revisá el impacto financiero antes de confirmar.
+                  <div className="flex items-start justify-between gap-3 px-5 pt-5">
+                    <div className="min-w-0">
+                      <h3 className="text-[20px] font-bold tracking-[-0.01em] text-p-text">Cancelar la reserva</h3>
+                      <p className="mt-1 text-[14px] text-p-text-secondary">
+                        <span className="font-semibold text-p-text">{editingBooking?.title || 'Reserva'}</span>
+                        {' · '}
+                        {simplifiedEditDateLabel} {slotToTime(selectedStartSlot)}–{slotToTime(selectedEndSlot)} · {selectedCourt?.name || 'Cancha'}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={closeDeleteBookingFlow}
                       disabled={isDeletingBooking}
-                      className="grid h-8 w-8 place-items-center rounded-full border border-p-border text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-50"
+                      aria-label="Cerrar"
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-p-border text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-50"
                     >
                       <X size={15} />
                     </button>
                   </div>
 
-                  <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
-                    <div className="rounded-xl border border-p-border bg-p-surface-2 p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-p-text-muted">Reserva</p>
-                          <p className="mt-1 text-[15px] font-bold text-p-text">{editingBooking?.title || 'Reserva seleccionada'}</p>
-                          <p className="mt-0.5 text-[12px] text-p-text-muted">
-                            {selectedDate.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })} · {slotToTime(selectedStartSlot)} - {slotToTime(selectedEndSlot)}
-                          </p>
-                        </div>
-                        <div className="rounded-lg border border-p-border bg-p-surface px-3 py-2 text-right">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-p-text-muted">Cancha</p>
-                          <p className="mt-1 text-[13px] font-bold text-p-text">{selectedCourt?.name || 'Sin cancha'}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-p-text-muted">Total</p>
-                        <p className="mt-1 text-[17px] font-bold text-p-text">{formatMoney(Number(bookingFinancial?.total || totalPrice || 0))}</p>
-                      </div>
-                      <div className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-p-text-muted">Pagado</p>
-                        <p className="mt-1 text-[17px] font-bold text-p-positive">{formatMoney(cancelBookingPaidAmount)}</p>
-                      </div>
-                      <div className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-p-text-muted">Saldo</p>
-                        <p className="mt-1 text-[17px] font-bold text-p-text-muted">{formatMoney(Number(bookingFinancial?.remaining || 0))}</p>
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border border-p-border bg-p-surface p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-p-text-muted">Devolución</p>
-                          <p className="mt-1 text-[13px] text-p-text-muted">
-                            {cancelBookingHasPayments
-                              ? 'Se generará una devolución asociada a la cancelación.'
-                              : 'Esta reserva no tiene pagos registrados.'}
-                          </p>
-                        </div>
-                        {cancelBookingHasPayments && (
-                          <span className="rounded-full bg-p-positive-bg px-2.5 py-1 text-[11px] font-bold text-p-accent">
-                            Disponible {formatMoney(cancelBookingPaidAmount)}
-                          </span>
-                        )}
-                      </div>
-
-                      {isBookingFinancialLoading && (
-                        <div className="mt-3 rounded-xl border border-p-accent bg-p-positive-bg px-3 py-2 text-[12px] font-semibold text-p-accent">
-                          Cargando impacto financiero...
-                        </div>
-                      )}
-
-                      {cancelBookingHasPayments && (
-                        <div className="mt-4 space-y-3">
-                          <div>
-                            <label className="text-[11px] font-semibold text-p-text-muted">Monto a devolver</label>
+                  <div className="space-y-3 px-5 py-4 text-[13px] text-p-text-secondary">
+                    <p>La cancha queda libre para otra reserva.</p>
+                    {isBookingFinancialLoading ? (
+                      <p className="text-p-text-muted">Revisando pagos...</p>
+                    ) : !cancelBookingHasPayments ? (
+                      <p>No tiene pagos: no hay nada que devolver.</p>
+                    ) : (
+                      <div className="space-y-3 border-t border-p-border pt-3">
+                        <p>
+                          Tiene <span className="font-semibold text-p-text">{formatMoney(cancelBookingPaidAmount)}</span> cobrado.
+                        </p>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <label className="block">
+                            <span className="text-[12px] font-medium text-p-text-muted">Devolver</span>
                             <input
                               type="number"
                               min={0}
                               step="0.01"
+                              inputMode="decimal"
                               value={cancelRefundAmountInput}
                               onChange={(event) => {
                                 setCancelRefundAmountInput(event.target.value);
                                 setCancelBookingFlowError('');
                               }}
-                              className="mt-1 h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] font-semibold text-p-text outline-none focus:border-p-accent"
+                              className="mt-1 h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[15px] font-semibold tabular-nums text-p-text outline-none focus:border-p-border-strong"
                             />
-                          </div>
-
-                          <div>
-                            <label className="text-[11px] font-semibold text-p-text-muted">Motivo</label>
+                          </label>
+                          <label className="block">
+                            <span className="text-[12px] font-medium text-p-text-muted">Motivo</span>
                             <select
                               value={cancelRefundReasonType}
                               onChange={(event) => setCancelRefundReasonType(event.target.value as CancelRefundReasonType)}
-                              className="mt-1 h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] font-semibold text-p-text outline-none focus:border-p-accent"
+                              className="mt-1 h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text outline-none focus:border-p-border-strong"
                             >
                               {cancelRefundReasonOptions.map((option) => (
                                 <option key={option.value} value={option.value}>{option.label}</option>
                               ))}
                             </select>
-                          </div>
-
-                          <div>
-                            <label className="text-[11px] font-semibold text-p-text-muted">Nota interna</label>
-                            <textarea
-                              value={cancelRefundExecutionNotes}
-                              onChange={(event) => setCancelRefundExecutionNotes(event.target.value)}
-                              rows={3}
-                              maxLength={500}
-                              placeholder="Detalle operativo de la devolución"
-                              className="mt-1 w-full resize-none rounded-xl border border-p-border bg-p-surface px-3 py-2 text-[13px] font-semibold text-p-text outline-none focus:border-p-accent"
-                            />
-                          </div>
-
-                          <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-p-border bg-p-surface-2 px-3 py-2.5">
-                            <input
-                              type="checkbox"
-                              checked={cancelRefundExecuteNow}
-                              onChange={(event) => {
-                                setCancelRefundExecuteNow(event.target.checked);
-                                setCancelBookingFlowError('');
-                              }}
-                              className="h-4 w-4 accent-p-brand"
-                            />
-                            <span className="text-[12px] font-semibold text-p-text">Ejecutar devolución ahora</span>
                           </label>
                         </div>
-                      )}
-                    </div>
+                        <input
+                          value={cancelRefundExecutionNotes}
+                          onChange={(event) => setCancelRefundExecutionNotes(event.target.value)}
+                          maxLength={500}
+                          placeholder="Nota (opcional)"
+                          className="h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text outline-none focus:border-p-border-strong"
+                        />
+                        <label className="inline-flex cursor-pointer items-center gap-2 text-[13px] text-p-text">
+                          <input
+                            type="checkbox"
+                            checked={cancelRefundExecuteNow}
+                            onChange={(event) => {
+                              setCancelRefundExecuteNow(event.target.checked);
+                              setCancelBookingFlowError('');
+                            }}
+                            className="h-4 w-4 accent-p-brand"
+                          />
+                          Devolver la plata ahora (sale de caja)
+                        </label>
+                      </div>
+                    )}
 
                     {cancelBookingFlowError && (
-                      <div className="rounded-xl border border-p-error bg-p-error-bg px-3 py-2 text-[12px] font-semibold text-p-error">
+                      <p className="rounded-lg bg-p-error-bg px-3 py-2 text-[12px] font-semibold text-p-error">
                         {cancelBookingFlowError}
-                      </div>
+                      </p>
                     )}
                   </div>
 
-                  <div className="border-t border-p-border px-5 py-4">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={closeDeleteBookingFlow}
-                        disabled={isDeletingBooking}
-                        className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-sm font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-50"
-                      >
-                        <ChevronLeft size={14} />
-                        Volver
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const result = buildCancelBookingOptions();
-                          if (result.error) {
-                            setCancelBookingFlowError(result.error);
-                            return;
-                          }
-                          setCancelBookingFlowError('');
-                          setDeleteBookingFinalConfirmOpen(true);
-                        }}
-                        disabled={isDeletingBooking || isBookingFinancialLoading}
-                        className="h-10 rounded-xl bg-p-error px-5 text-sm font-bold text-ink-50 hover:bg-p-error disabled:opacity-50"
-                      >
-                        Cancelar reserva
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {deleteBookingFinalConfirmOpen && (
-              <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modalStacked} flex items-end justify-center bg-[var(--overlay)] p-0 sm:items-center sm:p-4`}
-                onPointerDown={handleModalBackdropPointerDown}
-                onPointerUp={(event) =>
-                  handleModalBackdropPointerUp(event, () => {
-                    if (!isDeletingBooking) setDeleteBookingFinalConfirmOpen(false);
-                  })
-                }
-              >
-                <div
-                  className="w-full max-w-[460px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <div className="border-b border-p-border px-5 py-4">
-                    <h3 className="text-[21px] font-bold tracking-[-0.01em] text-p-text">Confirmar cancelación</h3>
-                  </div>
-                  <div className="space-y-4 px-5 py-5">
-                    <p className="text-[14px] text-p-text-secondary">
-                      {cancelBookingHasPayments
-                        ? `Vas a cancelar esta reserva y devolver ${formatMoney(normalizedCancelRefundAmount)}.`
-                        : 'Vas a cancelar esta reserva sin generar devolución.'}
-                    </p>
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setDeleteBookingFinalConfirmOpen(false)}
-                        disabled={isDeletingBooking}
-                        className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-sm font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-50"
-                      >
-                        <ChevronLeft size={14} />
-                        Volver
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void confirmCancelBookingFromDrawer()}
-                        disabled={isDeletingBooking}
-                        className="h-10 rounded-xl bg-p-error px-5 text-sm font-bold text-ink-50 hover:bg-p-error disabled:opacity-50"
-                      >
-                        {isDeletingBooking ? 'Cancelando...' : 'Confirmar'}
-                      </button>
-                    </div>
+                  <div className="flex items-center justify-end gap-2 border-t border-p-border px-5 py-4">
+                    <button
+                      type="button"
+                      onClick={closeDeleteBookingFlow}
+                      disabled={isDeletingBooking}
+                      className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-sm font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-50"
+                    >
+                      Volver
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const result = buildCancelBookingOptions();
+                        if (result.error) {
+                          setCancelBookingFlowError(result.error);
+                          return;
+                        }
+                        setCancelBookingFlowError('');
+                        void handleDeleteBooking();
+                      }}
+                      disabled={isDeletingBooking || isBookingFinancialLoading}
+                      className="h-10 rounded-xl bg-p-error px-5 text-sm font-bold text-ink-50 hover:bg-p-error disabled:opacity-50"
+                    >
+                      {isDeletingBooking
+                        ? 'Cancelando...'
+                        : cancelBookingHasPayments && normalizedCancelRefundAmount > 0.009
+                          ? `Cancelar y devolver ${formatMoney(normalizedCancelRefundAmount)}`
+                          : 'Cancelar reserva'}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -9815,8 +9723,8 @@ export default function AdminAgendaPlaygroundPage() {
                                   <span className="flex items-start gap-2.5">
                                     <Trash2 size={15} className="mt-0.5 text-p-error" />
                                     <span>
-                                      <span className="block text-[14px] font-semibold text-p-error">Eliminar reserva</span>
-                                      <span className="block text-[12px] text-p-text-muted">Pide confirmación antes de eliminar</span>
+                                      <span className="block text-[14px] font-semibold text-p-error">Cancelar reserva</span>
+                                      <span className="block text-[12px] text-p-text-muted">Libera la cancha; si tiene pagos, elegís cuánto devolver</span>
                                     </span>
                                   </span>
                                 </button>
@@ -9966,8 +9874,8 @@ export default function AdminAgendaPlaygroundPage() {
                           <button
                             type="button"
                             onClick={openDeleteBookingFlow}
-                            aria-label="Eliminar reserva"
-                            title="Eliminar reserva"
+                            aria-label="Cancelar reserva"
+                            title="Cancelar reserva"
                             disabled={isSubmittingBooking || isDeletingBooking}
                             className="h-10 w-10 rounded-xl border border-p-error bg-p-surface text-p-error grid place-items-center hover:bg-p-error-bg disabled:opacity-40 disabled:cursor-not-allowed"
                           >
