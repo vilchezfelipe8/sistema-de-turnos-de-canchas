@@ -1035,7 +1035,7 @@ export default function AdminClientesPlayground2Page() {
   const closeActionSidebar = useCallback(() => {
     if (deletingClient || submittingClient) return;
     setErrorMessage('');
-    setSelectedClientId('');
+    // La ficha abierta sigue abierta al cerrar un formulario.
     resetClientDuplicateModal();
     setSidebarView('none');
   }, [deletingClient, resetClientDuplicateModal, submittingClient]);
@@ -1633,7 +1633,9 @@ export default function AdminClientesPlayground2Page() {
         }
         subtitle={
           isClientFormView
-            ? 'Gestión de datos básicos del cliente.'
+            ? sidebarView === 'client_create'
+              ? 'Con nombre y teléfono alcanza para reservar y cobrarle.'
+              : undefined
             : sidebarView === 'client_profile'
               ? selectedClient
                 ? getClientName(selectedClient)
@@ -1660,9 +1662,8 @@ export default function AdminClientesPlayground2Page() {
             <button
               type="button"
               onClick={closeActionSidebar}
-              className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+              className="inline-flex h-10 items-center rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
             >
-              <RotateCcw size={14} />
               Cancelar
             </button>
 
@@ -1670,37 +1671,11 @@ export default function AdminClientesPlayground2Page() {
               <>
                 <button
                   type="button"
-                  onClick={() => {
-                    setErrorMessage('');
-                    setClientFieldErrors({});
-                    setEditingClientId('');
-                    setClientForm({
-                      name: '',
-                      phoneCountryIso2: clubPhoneCountryIso2,
-                      phone: '',
-                      dni: '',
-                      email: '',
-                      isProfessor: false,
-                    });
-                  }}
-                  disabled={submittingClient}
-                  className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <span className="inline-flex items-center gap-1.5">
-                    <RotateCcw size={14} />
-                    Limpiar
-                  </span>
-                </button>
-                <button
-                  type="button"
                   onClick={() => void submitClient()}
                   disabled={submittingClient}
-                  className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-900 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <span className="inline-flex items-center gap-1.5">
-                    {sidebarView === 'client_edit' ? <Save size={14} /> : <UserPlus size={14} />}
-                    {submittingClient ? 'Guardando...' : sidebarView === 'client_edit' ? 'Guardar cambios' : 'Crear cliente'}
-                  </span>
+                  {submittingClient ? 'Guardando...' : sidebarView === 'client_edit' ? 'Guardar cambios' : 'Crear cliente'}
                 </button>
               </>
             )}
@@ -1764,82 +1739,85 @@ export default function AdminClientesPlayground2Page() {
         }
       >
         {isClientFormView && (
-          <AdminDrawerSection title="Datos basicos" className={drawerSectionCardClass}>
-            <div className="space-y-3">
-              {errorMessage && (
-                <AdminFeedbackBanner tone="error" compact>
-                  {errorMessage}
-                </AdminFeedbackBanner>
-              )}
+          <div className="space-y-4">
+            {errorMessage && (
+              <AdminFeedbackBanner tone="error" compact>
+                {errorMessage}
+              </AdminFeedbackBanner>
+            )}
 
-              <label className="block">
-                <span className="mb-1.5 block text-[12px] font-medium text-p-text-secondary">Nombre y apellido *</span>
-                <input
-                  type="text"
-                  value={clientForm.name}
+            <label className="block">
+              <span className="mb-1 block text-[13px] font-medium text-p-text">Nombre y apellido</span>
+              <input
+                type="text"
+                autoFocus
+                value={clientForm.name}
+                onChange={(event) => {
+                  setClientFieldErrors((prev) => ({ ...prev, name: '' }));
+                  setClientForm((prev) => ({ ...prev, name: event.target.value }));
+                }}
+                className="h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text outline-none transition focus:border-p-border-strong"
+                placeholder="Juan Pérez"
+              />
+              <AdminInlineError>{clientFieldErrors.name}</AdminInlineError>
+            </label>
+
+            <div>
+              <span className="mb-1 block text-[13px] font-medium text-p-text">Teléfono</span>
+              <div className="flex gap-2">
+                <select
+                  aria-label="País"
+                  value={clientForm.phoneCountryIso2}
                   onChange={(event) => {
-                    setClientFieldErrors((prev) => ({ ...prev, name: '' }));
-                    setClientForm((prev) => ({ ...prev, name: event.target.value }));
+                    setClientFieldErrors((prev) => ({ ...prev, phone: '' }));
+                    setClientForm((prev) => ({ ...prev, phoneCountryIso2: normalizePhoneCountryIso2(event.target.value) }));
                   }}
-                  className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text shadow-p-card outline-none transition focus:border-p-accent focus:ring-2 focus:ring-lima-300/30"
-                  placeholder="Ej: Juan Perez"
+                  className="h-11 w-[104px] flex-none rounded-xl border border-p-border bg-p-surface px-2 text-[13px] font-semibold text-p-text outline-none focus:border-p-border-strong"
+                >
+                  {PHONE_COUNTRY_OPTIONS.map((option) => (
+                    <option key={option.iso2} value={option.iso2}>
+                      {option.callingCode} {option.iso2}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  value={clientForm.phone}
+                  onChange={(event) => {
+                    setClientFieldErrors((prev) => ({ ...prev, phone: '' }));
+                    setClientForm((prev) => ({ ...prev, phone: event.target.value.replace(/[^\d]/g, '') }));
+                  }}
+                  className="h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text outline-none transition focus:border-p-border-strong"
+                  placeholder="351 555 1234"
                 />
-                <AdminInlineError>{clientFieldErrors.name}</AdminInlineError>
-              </label>
-
-              <div className="grid grid-cols-[110px_1fr] gap-2">
-                <label className="block">
-                  <span className="mb-1.5 block text-[12px] font-medium text-p-text-secondary">Pais</span>
-                  <select
-                    value={clientForm.phoneCountryIso2}
-                    onChange={(event) => {
-                      setClientFieldErrors((prev) => ({ ...prev, phone: '' }));
-                      setClientForm((prev) => ({ ...prev, phoneCountryIso2: normalizePhoneCountryIso2(event.target.value) }));
-                    }}
-                    className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-2 text-[12px] font-semibold text-p-text shadow-p-card outline-none transition focus:border-p-accent focus:ring-2 focus:ring-lima-300/30"
-                  >
-                    {PHONE_COUNTRY_OPTIONS.map((option) => (
-                      <option key={option.iso2} value={option.iso2}>
-                        {option.callingCode} {option.iso2}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="mb-1.5 block text-[12px] font-medium text-p-text-secondary">Teléfono *</span>
-                  <input
-                    type="text"
-                    value={clientForm.phone}
-                    onChange={(event) =>
-                      {
-                        setClientFieldErrors((prev) => ({ ...prev, phone: '' }));
-                        setClientForm((prev) => ({ ...prev, phone: event.target.value.replace(/[^\d]/g, '') }));
-                      }
-                    }
-                    className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text shadow-p-card outline-none transition focus:border-p-accent focus:ring-2 focus:ring-lima-300/30"
-                    placeholder="351..."
-                  />
-                </label>
               </div>
               <AdminInlineError>{clientFieldErrors.phone}</AdminInlineError>
+            </div>
 
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="block">
-                <span className="mb-1.5 block text-[12px] font-medium text-p-text-secondary">DNI</span>
+                <span className="mb-1 block text-[13px] font-medium text-p-text">
+                  DNI <span className="font-normal text-p-text-muted">(opcional)</span>
+                </span>
                 <input
                   type="text"
+                  inputMode="numeric"
                   value={clientForm.dni}
                   onChange={(event) => {
                     setClientFieldErrors((prev) => ({ ...prev, dni: '' }));
                     setClientForm((prev) => ({ ...prev, dni: event.target.value }));
                   }}
-                  className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text shadow-p-card outline-none transition focus:border-p-accent focus:ring-2 focus:ring-lima-300/30"
-                  placeholder="Documento"
+                  className="h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text outline-none transition focus:border-p-border-strong"
+                  placeholder="30123123"
                 />
                 <AdminInlineError>{clientFieldErrors.dni}</AdminInlineError>
               </label>
 
               <label className="block">
-                <span className="mb-1.5 block text-[12px] font-medium text-p-text-secondary">Email <span className="font-normal text-p-text-muted opacity-60">(opcional)</span></span>
+                <span className="mb-1 block text-[13px] font-medium text-p-text">
+                  Email <span className="font-normal text-p-text-muted">(opcional)</span>
+                </span>
                 <input
                   type="email"
                   value={clientForm.email}
@@ -1847,22 +1825,27 @@ export default function AdminClientesPlayground2Page() {
                     setClientFieldErrors((prev) => ({ ...prev, email: '' }));
                     setClientForm((prev) => ({ ...prev, email: event.target.value }));
                   }}
-                  className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text shadow-p-card outline-none transition focus:border-p-accent focus:ring-2 focus:ring-lima-300/30"
-                  placeholder="cliente@email.com"
+                  className="h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text outline-none transition focus:border-p-border-strong"
+                  placeholder="juan@email.com"
                 />
                 <AdminInlineError>{clientFieldErrors.email}</AdminInlineError>
               </label>
-
-              <label className="flex min-h-10 items-center gap-2 rounded-xl border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary">
-                <input
-                  type="checkbox"
-                  checked={Boolean(clientForm.isProfessor)}
-                  onChange={(event) => setClientForm((prev) => ({ ...prev, isProfessor: event.target.checked }))}
-                />
-                Es profesor
-              </label>
             </div>
-          </AdminDrawerSection>
+            <p className="-mt-2 text-[12px] text-p-text-muted">El DNI sirve para validar si es socio.</p>
+
+            <label className="flex cursor-pointer items-start gap-2.5">
+              <input
+                type="checkbox"
+                checked={Boolean(clientForm.isProfessor)}
+                onChange={(event) => setClientForm((prev) => ({ ...prev, isProfessor: event.target.checked }))}
+                className="mt-0.5 h-4 w-4 accent-p-brand"
+              />
+              <span>
+                <span className="block text-[14px] font-medium text-p-text">Es profesor</span>
+                <span className="block text-[12px] text-p-text-muted">Da clases en el club.</span>
+              </span>
+            </label>
+          </div>
         )}
 
         {sidebarView === 'client_profile' && (
@@ -2301,16 +2284,17 @@ export default function AdminClientesPlayground2Page() {
           setMergeModalOpen(false);
           resetMergeModal();
         }}
-        title="Fusionar cliente manualmente"
+        title="Unir clientes repetidos"
         message={
           <div className="space-y-4">
             {mergeError ? <AdminFeedbackBanner tone="error" compact>{mergeError}</AdminFeedbackBanner> : null}
-            <div className="rounded-xl border border-p-border bg-p-surface-2 p-3 text-[13px] text-p-text-secondary">
-              <p><span className="font-semibold text-p-text">Origen:</span> {selectedClient ? getClientName(selectedClient) : '-'}</p>
-              <p className="mt-1">Se van a mover reservas, cuentas y referencias operativas al cliente destino. No hay merge automático.</p>
-            </div>
+            <p className="text-[14px] text-p-text-secondary">
+              Las reservas, cuentas y pagos de{' '}
+              <span className="font-semibold text-p-text">{selectedClient ? getClientName(selectedClient) : 'este cliente'}</span>{' '}
+              pasan al cliente que elijas, y este deja de aparecer. No se puede deshacer.
+            </p>
             <label className="block">
-              <span className="mb-1.5 block text-[12px] font-medium text-p-text-secondary">Buscar cliente destino</span>
+              <span className="mb-1.5 block text-[13px] font-medium text-p-text">¿Con quién lo unís?</span>
               <input
                 type="text"
                 value={mergeSearchTerm}
@@ -2319,13 +2303,13 @@ export default function AdminClientesPlayground2Page() {
                   setMergeError('');
                 }}
                 className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent"
-                placeholder="Nombre, DNI, email o teléfono"
+                placeholder="Buscá por nombre, teléfono o DNI"
               />
             </label>
             <div className="max-h-64 space-y-2 overflow-auto">
-              {mergeSearchLoading ? <p className="text-[12px] text-p-text-muted">Buscando clientes...</p> : null}
+              {mergeSearchLoading ? <p className="text-[12px] text-p-text-muted">Buscando...</p> : null}
               {!mergeSearchLoading && mergeSearchTerm.trim().length >= 2 && mergeSearchResults.length === 0 ? (
-                <p className="text-[12px] text-p-text-muted">No se encontraron clientes destino.</p>
+                <p className="text-[12px] text-p-text-muted">No encontramos a nadie con ese dato.</p>
               ) : null}
               {mergeSearchResults.map((row: any) => {
                 const selected = String(mergeSelectedTarget?.id || '') === String(row?.id || '');
@@ -2345,18 +2329,26 @@ export default function AdminClientesPlayground2Page() {
               })}
             </div>
             <label className="block">
-              <span className="mb-1.5 block text-[12px] font-medium text-p-text-secondary">Nota interna (opcional)</span>
+              <span className="mb-1.5 block text-[13px] font-medium text-p-text">
+                Nota <span className="font-normal text-p-text-muted">(opcional)</span>
+              </span>
               <textarea
                 value={mergeNotes}
                 onChange={(event) => setMergeNotes(event.target.value)}
-                rows={3}
-                className="w-full rounded-xl border border-p-border bg-p-surface px-3 py-2 text-[13px] text-p-text outline-none focus:border-p-accent"
-                placeholder="Qué revisaste antes de fusionar"
+                rows={2}
+                className="w-full rounded-xl border border-p-border bg-p-surface px-3 py-2 text-[13px] text-p-text outline-none focus:border-p-border-strong"
+                placeholder="Ej: mismo DNI, se cargó dos veces"
               />
             </label>
           </div>
         }
-        confirmText={mergeBusy ? 'Fusionando...' : 'Confirmar fusión'}
+        confirmText={
+          mergeBusy
+            ? 'Uniendo...'
+            : mergeSelectedTarget?.id
+              ? `Unir con ${String(mergeSelectedTarget?.name || 'este cliente')}`
+              : 'Elegí con quién'
+        }
         confirmDisabled={mergeBusy || !mergeSelectedTarget?.id}
         isWarning
         onConfirm={() => {
