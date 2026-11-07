@@ -7,7 +7,7 @@ export function SettingsClubIdentitySection() {
     <AdminTabClub
       forcedTab="identity"
       title="Club"
-      subtitle="Perfil público, identidad visual, contacto y estado general del establecimiento."
+      subtitle="Cómo te ven los jugadores en la app: nombre, fotos, dirección y contacto."
     />
   );
 }
@@ -37,7 +37,7 @@ export function SettingsSchedulesSection() {
     <AdminTabClub
       forcedTab="schedules"
       title="Horarios"
-      subtitle="Disponibilidad base del club, agenda por actividad y generación de turnos."
+      subtitle="Qué días abre el club y en qué horarios se puede reservar cada deporte."
     />
   );
 }
@@ -57,7 +57,7 @@ export function SettingsExceptionsSection() {
     <AdminTabClub
       forcedTab="exceptions"
       title="Excepciones"
-      subtitle="Cierres puntuales y cambios excepcionales de agenda por fecha o actividad."
+      subtitle="Feriados y días especiales en que el club cierra o cambia el horario."
     />
   );
 }
@@ -67,7 +67,7 @@ export function SettingsAuditSection() {
     <AdminTabClub
       forcedTab="audit"
       title="Auditoría"
-      subtitle="Registro de cambios y trazabilidad de configuración."
+      subtitle="Quién cambió los ajustes del club y qué cambió."
     />
   );
 }
@@ -77,7 +77,7 @@ export function SettingsReviewsSection() {
     <AdminTabClub
       forcedTab="reviews"
       title="Reseñas"
-      subtitle="Moderación de reseñas públicas y gestión de contenido visible del club."
+      subtitle="Elegí qué opiniones se ven en la app."
     />
   );
 }

@@ -66,6 +66,62 @@ const BOOKING_CONFIRMATION_MODES: Array<{ value: BookingConfirmationMode; label:
   }
 ];
 
+/** Nombres simples para el historial de cambios (Auditoría). */
+const AUDIT_FIELD_LABELS: Record<string, string> = {
+  slug: 'Dirección de la página',
+  name: 'Nombre del club',
+  addressLine: 'Dirección',
+  city: 'Ciudad',
+  province: 'Provincia',
+  contactInfo: 'Email',
+  phone: 'Teléfono',
+  logoUrl: 'Logo',
+  clubImageUrl: 'Foto de portada',
+  instagramUrl: 'Instagram',
+  facebookUrl: 'Facebook',
+  websiteUrl: 'Sitio web',
+  description: 'Descripción',
+  lightsEnabled: 'Extra por luces',
+  lightsExtraAmount: 'Monto extra por luces',
+  lightsFromHour: 'Luces a partir de las',
+  professorDurationOverrideEnabled: 'Duración especial para profesores',
+  professorDurationOverrideMinutes: 'Minutos para profesores',
+  bookingConfirmationMode: 'Cómo se confirman las reservas',
+  bookingDepositPercent: 'Seña (%)',
+  allowManualConfirmationOverride: 'Confirmar a mano sin seña',
+  autoCancelPendingBookingsEnabled: 'Cancelar solas las reservas sin confirmar',
+  autoCancelPendingBookingsMinutesBefore: 'Minutos antes para cancelar',
+  autoCancelPendingBookingsOnlyIfUnpaid: 'Cancelar solo si no pagaron',
+  autoCancelPendingWarningEnabled: 'Avisar antes de cancelar',
+  autoCancelPendingWarningMinutesBefore: 'Minutos antes del aviso',
+  bookingSimpleAdvanceDaysUser: 'Días que pueden reservar los jugadores',
+  bookingSimpleAdvanceDaysAdmin: 'Días que se puede reservar desde el panel',
+  allowAdminSkipSimpleAdvanceLimit: 'Saltear el límite desde el panel',
+  enforceCashShiftCloseWithOpenAccounts: 'No cerrar caja con cuentas abiertas',
+  clubOperationalStatus: 'Estado del club',
+  temporaryClosureStartDate: 'Cierre temporal desde',
+  temporaryClosureEndDate: 'Cierre temporal hasta',
+  openingDays: 'Días de apertura',
+  closureDates: 'Fechas de cierre',
+  fixedBookingSettingsByActivity: 'Reservas fijas',
+};
+
+const auditValueText = (value: unknown): string => {
+  if (value == null || value === '') return '—';
+  if (Array.isArray(value)) return value.length > 0 ? value.map((item) => String(item)).join(', ') : 'ninguna';
+  if (typeof value === 'object') return Object.keys(value as object).length > 0 ? 'ajustado' : '—';
+  const raw = String(value);
+  if (raw === 'true') return 'Sí';
+  if (raw === 'false') return 'No';
+  if (raw === 'AUTOMATIC') return 'Al instante';
+  if (raw === 'MANUAL') return 'La confirmo yo';
+  if (raw === 'DEPOSIT_REQUIRED') return 'Con seña';
+  if (raw === 'OPEN') return 'Abierto';
+  if (raw === 'TEMPORARY_CLOSED') return 'Cierre temporal';
+  if (raw === 'PERMANENTLY_CLOSED') return 'Cierre permanente';
+  return raw.length > 60 ? `${raw.slice(0, 57)}…` : raw;
+};
+
 const LIGHTS_FROM_HOUR_OPTIONS = ["18:00", "19:00", "20:00", "21:00", "22:00"];
 
 const CLUB_OPERATIONAL_STATUS_OPTIONS: Array<{ value: ClubOperationalStatus; label: string; helper: string }> = [
@@ -677,9 +733,9 @@ export default function AdminTabClub({
     const actor = fullName || String(log.user?.email || 'Admin');
     const rawChanges = Array.isArray(log.payload?.changes) ? log.payload.changes : [];
     const changes: ConfigChange[] = rawChanges.slice(0, 20).map((item: any) => ({
-      label: String(item?.field || 'Cambio'),
-      before: item?.before == null ? '-' : String(item.before),
-      after: item?.after == null ? '-' : String(item.after),
+      label: AUDIT_FIELD_LABELS[String(item?.field || '')] || String(item?.field || 'Cambio'),
+      before: auditValueText(item?.before),
+      after: auditValueText(item?.after),
       critical: ['bookingConfirmationMode', 'bookingDepositPercent', 'autoCancelPendingBookingsEnabled', 'bookingSimpleAdvanceDaysUser', 'bookingSimpleAdvanceDaysAdmin'].includes(String(item?.field || ''))
     }));
     return { id: String(log.id), changedAt: String(log.createdAt), actor, changes };
@@ -3219,20 +3275,38 @@ export default function AdminTabClub({
               <div className="space-y-4">
                 {/* Historial de cambios */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Historial de cambios</p>
+                  <p className={cardTitleCls}>Quién cambió qué</p>
                   {changeHistory.length === 0 ? (
-                    <p className="text-[12px] text-p-text-muted">Aún no hay cambios auditados para este club.</p>
+                    <p className="text-[12px] text-p-text-muted">Todavía nadie cambió los ajustes del club.</p>
                   ) : (
-                    <div className="space-y-2 max-h-80 overflow-auto pr-1">
-                      {changeHistory.map((entry) => (
-                        <div key={entry.id} className="rounded-xl border border-p-border p-3">
-                          <p className="text-[12px] font-medium text-p-text">
-                            {entry.actor} · {new Date(entry.changedAt).toLocaleString('es-AR')}
-                          </p>
-                          <p className="mt-0.5 text-[11px] text-p-text-muted">{entry.changes.length} cambio(s) aplicado(s)</p>
-                        </div>
-                      ))}
-                    </div>
+                    <ul className="divide-y divide-p-border">
+                      {changeHistory.map((entry) => {
+                        const when = new Date(entry.changedAt);
+                        const whenText = Number.isNaN(when.getTime())
+                          ? ''
+                          : `${when.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/,/g, '').replace(/\./g, '')} ${when.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`;
+                        return (
+                          <li key={entry.id} className="py-3">
+                            <p className="text-[13px] text-p-text">
+                              <span className="font-semibold">{entry.actor}</span>
+                              <span className="text-p-text-muted"> · {whenText}</span>
+                            </p>
+                            {entry.changes.length === 0 ? (
+                              <p className="mt-0.5 text-[12px] text-p-text-muted">Guardó sin cambios visibles.</p>
+                            ) : (
+                              <ul className="mt-1 space-y-0.5">
+                                {entry.changes.map((change, index) => (
+                                  <li key={`${entry.id}-${index}`} className="text-[12px] text-p-text-secondary">
+                                    {change.label}: <span className="text-p-text-muted">{change.before}</span> →{' '}
+                                    <span className="font-medium text-p-text">{change.after}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
                   )}
                 </div>
               </div>
@@ -3243,7 +3317,7 @@ export default function AdminTabClub({
               <div className="space-y-4">
                 <div className={cardCls}>
                   <div className="mb-4 flex items-center justify-between">
-                    <p className={cardTitleCls} style={{ marginBottom: 0 }}>Moderación de reseñas</p>
+                    <p className={cardTitleCls} style={{ marginBottom: 0 }}>Lo que opinan los jugadores</p>
                     <div className="flex items-center gap-2">
                       <select
                         value={reviewStatusFilter}
@@ -3255,19 +3329,16 @@ export default function AdminTabClub({
                         <option value="HIDDEN">Ocultas</option>
                         <option value="REPORTED">Reportadas</option>
                       </select>
-                      <button
-                        type="button"
-                        onClick={() => { if (club?.slug) void loadClubReviews(club.slug, reviewStatusFilter); }}
-                        className="h-9 rounded-xl border border-p-border bg-p-surface px-3 text-[12px] text-p-text-muted hover:bg-p-surface-2 transition"
-                      >
-                        Recargar
-                      </button>
                     </div>
                   </div>
                   {loadingClubReviews ? (
                     <p className="text-[12px] text-p-text-muted">Cargando reseñas...</p>
                   ) : clubReviews.length === 0 ? (
-                    <p className="text-[12px] text-p-text-muted">No hay reseñas para el filtro seleccionado.</p>
+                    <p className="text-[12px] text-p-text-muted">
+                      {reviewStatusFilter === 'ALL'
+                        ? 'Todavía no hay reseñas. Los jugadores pueden opinar después de jugar.'
+                        : 'No hay reseñas con ese filtro.'}
+                    </p>
                   ) : (
                     <div className="space-y-2 max-h-96 overflow-auto pr-1">
                       {clubReviews.map((review) => (
@@ -3278,7 +3349,10 @@ export default function AdminTabClub({
                                 {review.user?.name || 'Usuario'} · {Number(review.rating).toFixed(1)} / 5
                               </p>
                               <p className="mt-0.5 text-[11px] text-p-text-muted">
-                                Reserva #{review.bookingId} · {new Date(review.createdAt).toLocaleDateString('es-AR')} · <span className="font-medium">{review.status}</span>
+                                {new Date(review.createdAt).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace(/\./g, '')} ·{' '}
+                                <span className="font-medium">
+                                  {review.status === 'PUBLISHED' ? 'Se ve en la app' : review.status === 'HIDDEN' ? 'Oculta' : review.status === 'REPORTED' ? 'Reportada' : String(review.status)}
+                                </span>
                               </p>
                               {review.comment ? (
                                 <p className="mt-2 text-[12px] text-p-text leading-relaxed">{review.comment}</p>
@@ -3293,7 +3367,7 @@ export default function AdminTabClub({
                                 onClick={() => void handleUpdateReviewStatus(review.id, 'PUBLISHED')}
                                 className="h-8 rounded-xl bg-ink-900 px-3 text-[11px] font-semibold text-ink-50 hover:bg-ink-900 transition disabled:opacity-40"
                               >
-                                Publicar
+                                Mostrar
                               </button>
                               <button
                                 type="button"
