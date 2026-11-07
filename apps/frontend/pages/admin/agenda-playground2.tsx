@@ -3770,7 +3770,16 @@ export default function AdminAgendaPlaygroundPage() {
   const shouldShowSeriesScopeHint = Boolean(
     editingBooking?.fixedBookingId && hasScheduleChanges && !pendingSeriesScopeSave
   );
-  const hasDeferredEditChanges = Boolean(editingBookingId ? hasScheduleChanges : selectedCourtId);
+  // En un bloqueo también cuenta cambiar el título ("Bloqueo" por defecto equivale a vacío).
+  const editingBlockBaselineTitle = (() => {
+    const raw = String(editingBaseline?.title || '');
+    return normalizeBookingDisplayTitle(raw, '') === 'Bloqueo' ? '' : raw.trim();
+  })();
+  const hasBlockTitleChange =
+    bookingKind === 'block' && Boolean(editingBookingId) && blockingTitle.trim() !== editingBlockBaselineTitle;
+  const hasDeferredEditChanges = Boolean(
+    editingBookingId ? hasScheduleChanges || hasBlockTitleChange : selectedCourtId
+  );
   const primaryActionDisabled = Boolean(
     isSubmittingBooking ||
     isDeletingBooking ||
