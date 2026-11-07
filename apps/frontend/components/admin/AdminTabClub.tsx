@@ -415,6 +415,8 @@ export default function AdminTabClub({
   const router = useRouter();
   const [club, setClub] = useState<Club | null>(null);
   const [loadingClub, setLoadingClub] = useState(false);
+  /** La dirección pública no se edita sin querer: hay que tocar "Cambiar". */
+  const [slugEditing, setSlugEditing] = useState(false);
   const [clubForm, setClubForm] = useState({
     slug: '', name: '', addressLine: '', city: '', province: '', country: '', contactInfo: '', phone: '', logoUrl: '', clubImageUrl: '',
     instagramUrl: '', facebookUrl: '', websiteUrl: '', description: '',
@@ -2276,15 +2278,36 @@ export default function AdminTabClub({
                   <p className={cardTitleCls}>Datos básicos</p>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
-                      <label className={labelCls}>Slug (URL)</label>
-                      <input
-                        type="text"
-                        value={clubForm.slug}
-                        onChange={(e) => setClubForm({ ...clubForm, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })}
-                        className={inputCls}
-                        placeholder="ej: las-tejas-padel"
-                      />
-                      <p className="mt-1 text-[11px] text-p-text-muted">pique.com.ar/club/<span className="text-p-accent">{clubForm.slug || '...'}</span></p>
+                      <label className={labelCls}>Tu página</label>
+                      {slugEditing ? (
+                        <>
+                          <input
+                            type="text"
+                            autoFocus
+                            value={clubForm.slug}
+                            onChange={(e) => setClubForm({ ...clubForm, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })}
+                            className={inputCls}
+                            placeholder="ej: las-tejas-padel"
+                          />
+                          <p className="mt-1 text-[11px] font-medium text-p-warning">
+                            Si la cambiás, los links que ya compartiste (WhatsApp, Instagram) dejan de funcionar.
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-p-text-muted">
+                            pique.com.ar/club/<span className="text-p-text">{clubForm.slug || '...'}</span>
+                          </p>
+                        </>
+                      ) : (
+                        <div className="flex h-10 items-center justify-between gap-2 rounded-xl border border-p-border bg-p-surface-2 px-3">
+                          <span className="truncate text-[13px] text-p-text">pique.com.ar/club/{clubForm.slug}</span>
+                          <button
+                            type="button"
+                            onClick={() => setSlugEditing(true)}
+                            className="shrink-0 text-[12px] font-semibold text-p-accent hover:underline underline-offset-2"
+                          >
+                            Cambiar
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <div>
                       <label className={labelCls}>Nombre comercial</label>

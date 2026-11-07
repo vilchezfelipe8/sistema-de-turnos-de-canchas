@@ -19,7 +19,6 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import AdminRouteShell from '../../components/admin/AdminRouteShell';
-import { AdminSegmentedControl } from '../../components/admin/ui';
 import AdminSettingsWorkspace, { type SettingsWorkspaceTab } from '../../modules/ajustes/components/AdminSettingsWorkspace';
 
 type SettingsTab = SettingsWorkspaceTab;
@@ -41,21 +40,16 @@ const SETTINGS_TABS: Array<{ value: SettingsTab; label: string; comingSoon?: boo
   { value: 'notificaciones', label: 'Notificaciones', comingSoon: true },
 ];
 
-const orderedSettingsTabs = [
-  ...SETTINGS_TABS.filter((tab) => !tab.comingSoon),
-  ...SETTINGS_TABS.filter((tab) => tab.comingSoon),
-];
-
 const MOBILE_SETTINGS_GROUPS: Array<{
   title: string;
   items: Array<{ value: SettingsTab; description: string; icon: LucideIcon }>;
 }> = [
   {
-    title: 'Club',
+    title: 'El club',
     items: [
       { value: 'club', description: 'Nombre, logo, dirección y contacto', icon: Home },
-      { value: 'canchas', description: 'Canchas, deportes y duración', icon: LayoutGrid },
-      { value: 'actividades', description: 'Actividades del club', icon: Dumbbell },
+      { value: 'canchas', description: 'Canchas, deportes y precio base', icon: LayoutGrid },
+      { value: 'actividades', description: 'Deportes y modalidades (Dobles, Singles)', icon: Dumbbell },
       { value: 'horarios', description: 'Apertura y cierre por día', icon: CalendarClock },
       { value: 'excepciones', description: 'Feriados y cierres puntuales', icon: CalendarOff },
     ],
@@ -67,16 +61,15 @@ const MOBILE_SETTINGS_GROUPS: Array<{
       { value: 'precios', description: 'Tarifas y descuentos', icon: Tag },
       { value: 'socios', description: 'Padrón y precios diferenciales', icon: Users },
       { value: 'planes', description: 'Abonos, cuotas y vencimientos', icon: Repeat },
-      { value: 'resenas', description: 'Opiniones de los jugadores', icon: Star },
     ],
   },
   {
     title: 'Equipo y sistema',
     items: [
-      { value: 'usuarios', description: 'Administradores y permisos', icon: UserCog },
-      { value: 'integraciones', description: 'Servicios conectados', icon: Plug },
+      { value: 'usuarios', description: 'Quién entra al panel', icon: UserCog },
+      { value: 'integraciones', description: 'Mercado Pago y otros servicios', icon: Plug },
+      { value: 'resenas', description: 'Opiniones de los jugadores', icon: Star },
       { value: 'auditoria', description: 'Registro de cambios', icon: ScrollText },
-      { value: 'notificaciones', description: 'Avisos automáticos', icon: Bell },
     ],
   },
 ];
@@ -97,7 +90,6 @@ const parseSettingsTab = (value: unknown): SettingsTab => {
   if (raw === 'usuarios') return 'usuarios';
   if (raw === 'socios' || raw === 'members') return 'socios';
   if (raw === 'planes' || raw === 'plans') return 'planes';
-  if (raw === 'notificaciones') return 'notificaciones';
   if (raw === 'excepciones') return 'excepciones';
   if (raw === 'auditoria') return 'auditoria';
   if (raw === 'resenas' || raw === 'reseñas' || raw === 'reviews' || raw === 'review') return 'resenas';
@@ -150,13 +142,6 @@ export default function AdminSettingsV2Page() {
             </div>
           </div>
         )}
-        <AdminSegmentedControl
-          options={orderedSettingsTabs.map((tab) => ({ value: tab.value, label: tab.label }))}
-          value={activeTab}
-          onChange={(value) => handleChangeTab(value as SettingsTab)}
-          ariaLabel="Subnavegacion de ajustes"
-          className="w-fit max-lg:hidden"
-        />
         {showMobileIndex && (
           <section className="min-h-0 flex-1 space-y-4 overflow-y-auto pb-6 lg:hidden">
             {MOBILE_SETTINGS_GROUPS.map((group) => (
@@ -198,9 +183,42 @@ export default function AdminSettingsV2Page() {
             ))}
           </section>
         )}
-        <section className={`min-h-0 flex-1 overflow-y-auto pb-6 lg:pb-8 ${showMobileIndex ? 'max-lg:hidden' : ''}`}>
-          <AdminSettingsWorkspace tab={activeTab} />
-        </section>
+        <div className={`min-h-0 flex-1 gap-6 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] ${showMobileIndex ? 'max-lg:hidden' : ''}`}>
+          <nav aria-label="Secciones de ajustes" className="hidden min-h-0 overflow-y-auto pb-6 lg:block">
+            <h1 className="mb-4 text-[20px] font-bold tracking-tight text-p-text">Ajustes</h1>
+            <div className="space-y-5">
+              {MOBILE_SETTINGS_GROUPS.map((group) => (
+                <div key={`desk-${group.title}`}>
+                  <p className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wide text-p-text-muted">{group.title}</p>
+                  <ul className="space-y-0.5">
+                    {group.items.map((item) => {
+                      const Icon = item.icon;
+                      const active = item.value === activeTab;
+                      return (
+                        <li key={`desk-${item.value}`}>
+                          <button
+                            type="button"
+                            aria-current={active ? 'page' : undefined}
+                            onClick={() => handleChangeTab(item.value)}
+                            className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-[13px] transition ${
+                              active ? 'bg-p-surface-2 font-semibold text-p-text' : 'text-p-text-secondary hover:bg-p-surface-2 hover:text-p-text'
+                            }`}
+                          >
+                            <Icon size={16} className={active ? 'text-p-accent' : 'text-p-text-muted'} />
+                            {SETTINGS_TABS.find((tab) => tab.value === item.value)?.label || item.value}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </nav>
+          <section className="h-full min-h-0 overflow-y-auto pb-6 lg:pb-8">
+            <AdminSettingsWorkspace tab={activeTab} />
+          </section>
+        </div>
       </div>
     </AdminRouteShell>
   );
