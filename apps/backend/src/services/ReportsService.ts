@@ -134,6 +134,7 @@ export class ReportsService {
           id: true,
           amount: true,
           method: true,
+          createdAt: true,
           account: {
             select: {
               sourceType: true,
@@ -176,6 +177,7 @@ export class ReportsService {
         },
         select: {
           amount: true,
+          executedAt: true,
         },
       }),
       this.cashService.getPosReport(clubId, range.startDate, range.endDate),
@@ -185,8 +187,31 @@ export class ReportsService {
     const bySourceMap = new Map<SourceType, { sourceType: SourceType; label: string; count: number; total: number }>();
     let collectedTotal = 0;
 
+    // Cobrado y devuelto por día (en la hora del club), con todos los días del rango.
+    const dayKeyOf = (value: Date) => {
+      const local = TimeHelper.utcToLocal(new Date(value), range.timeZone);
+      return `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, '0')}-${String(local.getDate()).padStart(2, '0')}`;
+    };
+    const byDayMap = new Map<string, { date: string; collected: number; refunded: number; count: number }>();
+    {
+      const [sy, sm, sd] = range.startDate.split('-').map(Number);
+      const [ey, em, ed] = range.endDate.split('-').map(Number);
+      const cursor = new Date(sy, sm - 1, sd);
+      const last = new Date(ey, em - 1, ed);
+      while (cursor.getTime() <= last.getTime()) {
+        const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`;
+        byDayMap.set(key, { date: key, collected: 0, refunded: 0, count: 0 });
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    }
+
     for (const payment of payments) {
       const amount = this.roundMoney(Number(payment.amount || 0));
+      const dayEntry = byDayMap.get(dayKeyOf(payment.createdAt));
+      if (dayEntry) {
+        dayEntry.collected = this.roundMoney(dayEntry.collected + amount);
+        dayEntry.count += 1;
+      }
       const method = (String(payment.method || 'OTHER').toUpperCase() || 'OTHER') as PaymentMethod | 'OTHER';
       const sourceType = (String(payment.account?.sourceType || 'MANUAL').toUpperCase() || 'MANUAL') as SourceType;
 
@@ -254,6 +279,12 @@ export class ReportsService {
       .sort((a, b) => b.ageDays - a.ageDays || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
     const pendingTotal = pendingAccounts.reduce((sum, account) => this.roundMoney(sum + account.pending), 0);
+    for (const refund of refundsExecuted) {
+      if (!refund.executedAt) continue;
+      const dayEntry = byDayMap.get(dayKeyOf(refund.executedAt));
+      if (dayEntry) dayEntry.refunded = this.roundMoney(dayEntry.refunded + Number(refund.amount || 0));
+    }
+
     const refundedTotal = refundsExecuted.reduce(
       (sum, refund) => this.roundMoney(sum + Number(refund.amount || 0)),
       0
@@ -274,6 +305,7 @@ export class ReportsService {
         },
         byMethod: Array.from(byMethodMap.values()).sort((a, b) => b.total - a.total),
         byAccountSource: Array.from(bySourceMap.values()).sort((a, b) => b.total - a.total),
+        byDay: Array.from(byDayMap.values()),
       },
       bookings: {
         total: bookings.length,

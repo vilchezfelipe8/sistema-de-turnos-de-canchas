@@ -29,6 +29,13 @@ export type AdminDashboardReport = {
       count: number;
       total: number;
     }>;
+    /** Cobrado y devuelto por día del rango (días sin movimiento en 0). */
+    byDay?: Array<{
+      date: string;
+      collected: number;
+      refunded: number;
+      count: number;
+    }>;
   };
   bookings: {
     total: number;

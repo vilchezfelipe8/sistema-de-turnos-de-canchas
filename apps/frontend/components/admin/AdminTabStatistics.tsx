@@ -50,6 +50,88 @@ function toDateKeyLocal(date: Date) {
 const shortDay = (key: string) =>
   parseDateKey(key).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace(/\./g, '');
 
+/** Barras por día: una serie, sin leyenda (el título la nombra), detalle al pasar el mouse. */
+function DailyBars({ days, loading }: { days: Array<{ date: string; collected: number; count: number }>; loading: boolean }) {
+  const [hover, setHover] = useState<number | null>(null);
+  if (loading && days.length === 0) return <div className="h-40 animate-pulse rounded-xl bg-p-surface-2" />;
+  const max = Math.max(1, ...days.map((day) => day.collected));
+  const labelEvery = days.length > 16 ? 5 : days.length > 8 ? 2 : 1;
+  const hovered = hover === null ? null : days[hover];
+  return (
+    <div>
+      <div className="mb-1 h-5 text-[12px] text-p-text-secondary">
+        {hovered ? (
+          <>
+            <span className="font-semibold text-p-text">{shortDay(hovered.date)}</span>
+            {' · '}
+            {formatReportsMoney(hovered.collected)}
+            {hovered.count > 0 ? ` en ${hovered.count} ${hovered.count === 1 ? 'cobro' : 'cobros'}` : ''}
+          </>
+        ) : (
+          <span className="text-p-text-muted">Pasá el mouse por una barra para ver el día.</span>
+        )}
+      </div>
+      <div className="relative h-40 border-b border-p-border" onMouseLeave={() => setHover(null)}>
+        <div className="absolute inset-0 flex items-end gap-[2px]">
+          {days.map((day, index) => {
+            const height = day.collected > 0 ? Math.max(3, Math.round((day.collected / max) * 100)) : 0;
+            return (
+              <div
+                key={day.date}
+                className="relative flex h-full flex-1 items-end"
+                onMouseEnter={() => setHover(index)}
+                role="img"
+                aria-label={`${shortDay(day.date)}: ${formatReportsMoney(day.collected)}`}
+              >
+                <div
+                  className={`w-full rounded-t-[4px] transition-opacity ${hover === null || hover === index ? 'opacity-100' : 'opacity-40'} bg-p-accent`}
+                  style={{ height: `${height}%` }}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="mt-1 flex gap-[2px]">
+        {days.map((day, index) => (
+          <span key={`label-${day.date}`} className="flex-1 text-center text-[10px] tabular-nums text-p-text-muted">
+            {index % labelEvery === 0 ? parseDateKey(day.date).getDate() : ''}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Barras horizontales con monto y porcentaje: "Efectivo $309.050 · 87%". */
+function ShareBars({ rows, loading, empty }: { rows: Array<{ key: string; label: string; total: number; count: number }>; loading: boolean; empty: string }) {
+  if (loading && rows.length === 0) return <div className="h-24 animate-pulse rounded-xl bg-p-surface-2" />;
+  const sum = rows.reduce((acc, row) => acc + row.total, 0);
+  if (rows.length === 0 || sum <= 0) return <p className="text-[13px] text-p-text-muted">{empty}</p>;
+  const max = Math.max(...rows.map((row) => row.total));
+  return (
+    <ul className="space-y-3">
+      {rows.map((row) => {
+        const pct = Math.round((row.total / sum) * 100);
+        return (
+          <li key={row.key} title={`${row.count} ${row.count === 1 ? 'cobro' : 'cobros'}`}>
+            <div className="flex items-baseline justify-between gap-3 text-[13px]">
+              <span className="text-p-text">{row.label}</span>
+              <span className="tabular-nums text-p-text">
+                <span className="font-semibold">{formatReportsMoney(row.total)}</span>
+                <span className="text-p-text-muted"> · {pct}%</span>
+              </span>
+            </div>
+            <div className="mt-1 h-2 rounded-full bg-p-surface-2">
+              <div className="h-2 rounded-full bg-p-accent" style={{ width: `${Math.max(2, Math.round((row.total / max) * 100))}%` }} />
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 /** "+12% vs octubre" con color según si subir es bueno o malo. */
 function DeltaLine({
   current,
@@ -430,91 +512,82 @@ export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Prop
         </AdminPanel>
       ) : null}
 
-      {showSection(focus, 'ingresos') && (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <AdminPanel title="Ingresos por método" description="Cobros reales registrados en el período.">
-            <AdminDataTable
-              columns={[
-                { key: 'label', label: 'Método' },
-                { key: 'count', label: 'Pagos', align: 'right' },
-                {
-                  key: 'total',
-                  label: 'Total',
-                  align: 'right',
-                  render: (row) => <span className="font-semibold text-p-text">{formatReportsMoney(row.total)}</span>,
-                },
-              ]}
-              data={report?.income.byMethod || []}
-              rowKey={(row) => row.method}
-              loading={loading}
-              empty={{
-                title: 'Sin cobros registrados',
-                description: 'No hubo pagos en el rango seleccionado.',
-              }}
-            />
-          </AdminPanel>
+      {showSection(focus, 'ingresos') && (() => {
+        const days = report?.income.byDay || [];
+        const collected = Number(report?.income.totals.collectedTotal || 0);
+        const activeDays = days.filter((day) => day.collected > 0);
+        const best = activeDays.reduce<(typeof days)[number] | null>(
+          (top, day) => (!top || day.collected > top.collected ? day : top),
+          null
+        );
+        const average = days.length > 0 ? collected / days.length : 0;
+        const refunded = Number(report?.income.totals.refundedTotal || 0);
+        const voided = Number(report?.income.totals.voidedTotal || 0);
+        return (
+          <>
+            <AdminPanel title="Cobrado por día">
+              <p className="mb-3 text-[14px] text-p-text-secondary">
+                <span className="text-[22px] font-bold tabular-nums text-p-text">{formatReportsMoney(collected)}</span>
+                {days.length > 1 && collected > 0 && (
+                  <>
+                    {' · '}promedio {formatReportsMoney(Math.round(average))} por día
+                    {best ? <> · mejor día {shortDay(best.date)} ({formatReportsMoney(best.collected)})</> : null}
+                  </>
+                )}
+              </p>
+              {days.length > 1 ? (
+                <DailyBars days={days} loading={loading} />
+              ) : (
+                <p className="text-[13px] text-p-text-muted">Elegí Semana o Mes para ver el gráfico por día.</p>
+              )}
+            </AdminPanel>
 
-          <AdminPanel title="Ingresos por origen" description="Cómo entra la plata según tipo de cuenta.">
-            <AdminDataTable
-              columns={[
-                { key: 'label', label: 'Origen' },
-                { key: 'count', label: 'Pagos', align: 'right' },
-                {
-                  key: 'total',
-                  label: 'Total',
-                  align: 'right',
-                  render: (row) => <span className="font-semibold text-p-text">{formatReportsMoney(row.total)}</span>,
-                },
-              ]}
-              data={report?.income.byAccountSource || []}
-              rowKey={(row) => row.sourceType}
-              loading={loading}
-              empty={{
-                title: 'Sin ingresos por origen',
-                description: 'Todavía no hay pagos para clasificar.',
-              }}
-            />
-          </AdminPanel>
-        </div>
-      )}
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <AdminPanel title="Cómo te pagaron">
+                <ShareBars
+                  loading={loading}
+                  empty="No hubo cobros en este período."
+                  rows={(report?.income.byMethod || []).map((row) => ({
+                    key: row.method,
+                    label: row.label,
+                    total: Number(row.total || 0),
+                    count: Number(row.count || 0),
+                  }))}
+                />
+              </AdminPanel>
+              <AdminPanel title="De dónde vino la plata">
+                <ShareBars
+                  loading={loading}
+                  empty="No hubo cobros en este período."
+                  rows={(report?.income.byAccountSource || []).map((row) => ({
+                    key: row.sourceType,
+                    label: row.label,
+                    total: Number(row.total || 0),
+                    count: Number(row.count || 0),
+                  }))}
+                />
+              </AdminPanel>
+            </div>
 
-      {showSection(focus, 'ingresos') && (
-        <AdminPanel title="Totales del período" description="Cobrado, deuda abierta y ajustes operativos.">
-          <ReportsMetricGrid
-            className="xl:grid-cols-4"
-            metrics={[
-              {
-                label: 'Cobrado',
-                value: Number(report?.income.totals.collectedTotal || 0),
-                format: 'money',
-                icon: <Wallet size={18} strokeWidth={2.4} />,
-                loading,
-              },
-              {
-                label: 'Pendiente actual',
-                value: Number(report?.income.totals.pendingTotal || 0),
-                format: 'money',
-                icon: <Clock3 size={18} strokeWidth={2.4} />,
-                loading,
-              },
-              {
-                label: 'Devoluciones ejecutadas',
-                value: Number(report?.income.totals.refundedTotal || 0),
-                format: 'money',
-                icon: <Receipt size={18} strokeWidth={2.4} />,
-                loading,
-              },
-              {
-                label: 'Mostrador anulado',
-                value: Number(report?.income.totals.voidedTotal || 0),
-                format: 'money',
-                icon: <ShoppingBag size={18} strokeWidth={2.4} />,
-                loading,
-              },
-            ]}
-          />
-        </AdminPanel>
-      )}
+            {(refunded > 0 || voided > 0) && (
+              <p className="text-[14px] text-p-text-secondary">
+                {refunded > 0 && (
+                  <>
+                    Se devolvieron <span className="font-semibold tabular-nums text-p-text">{formatReportsMoney(refunded)}</span>
+                  </>
+                )}
+                {refunded > 0 && voided > 0 ? ' · ' : ''}
+                {voided > 0 && (
+                  <>
+                    se anularon ventas por <span className="font-semibold tabular-nums text-p-text">{formatReportsMoney(voided)}</span>
+                  </>
+                )}
+                .
+              </p>
+            )}
+          </>
+        );
+      })()}
 
       {showSection(focus, 'reservas') && (
         <AdminPanel title="Reservas por estado" description="Reservas del rango según estado operativo.">
