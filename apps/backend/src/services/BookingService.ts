@@ -1047,7 +1047,11 @@ export class BookingService {
         if (targetActivityId !== Number(booking.activityId)) {
             throw this.invalidInput('No se puede mover la reserva a una cancha de otro deporte.');
         }
-        await this.quoteBookingPrice({
+        const hasPlayerSlots = (await prisma.bookingPlayerSlot.count({ where: { bookingId: input.bookingId } })) > 0;
+        // Precio por cancha: depende de horario, duración y cancha, así que se recotiza.
+        // Precio por jugador: se recalcula por lugar dentro de la transacción (recalculateSlotsTx).
+        const isPerPlayerBooking = hasPlayerSlots || Boolean(booking.activityFormatId);
+        const scheduleQuote = await this.quoteBookingPrice({
             courtId: targetCourt.id,
             activityId: targetActivityId,
             startDateTime: input.startDateTime,
@@ -1055,8 +1059,9 @@ export class BookingService {
             activityFormatId: booking.activityFormatId ?? null,
             clientId: booking.clientId ?? null,
             allowAdminBenefits: true,
-            scheduleOnly: true
+            scheduleOnly: isPerPlayerBooking
         });
+        const courtQuote = isPerPlayerBooking ? null : scheduleQuote;
 
         const classOverlap = await this.findClassSessionOverlap({
             clubId: input.clubId,
@@ -1127,6 +1132,22 @@ export class BookingService {
                     },
                 });
 
+                if (hasPlayerSlots) {
+                    await this.playerSlotService.recalculateSlotsTx(tx as any, input.bookingId, {
+                        actorUserId: input.actorUserId ?? null
+                    });
+                } else if (courtQuote) {
+                    await this.repriceCourtBookingTx(tx, {
+                        bookingId: input.bookingId,
+                        clubId: input.clubId,
+                        clientId: booking.clientId ?? null,
+                        activityId: targetActivityId,
+                        listPrice: Number(courtQuote.listPrice || 0),
+                        finalPrice: Number(courtQuote.finalPrice || 0),
+                        actorUserId: input.actorUserId ?? null
+                    });
+                }
+
                 return persisted;
             });
             return updated;
@@ -1136,6 +1157,107 @@ export class BookingService {
             }
             throw error;
         }
+    }
+
+    /**
+     * Precio por cancha: deja el precio de la reserva y el ítem "Reserva cancha" de su cuenta
+     * alineados con la nueva cotización (al cambiar horario, duración o cancha).
+     * Si el ítem ya tiene pagos imputados no se toca: el precio cobrado queda congelado.
+     */
+    private async repriceCourtBookingTx(
+        tx: any,
+        params: {
+            bookingId: number;
+            clubId: number;
+            clientId: string | null;
+            activityId: number;
+            listPrice: number;
+            finalPrice: number;
+            actorUserId: number | null;
+        }
+    ) {
+        const finalPrice = this.roundCurrency(params.finalPrice);
+        const listPrice = this.roundCurrency(params.listPrice);
+        const account = await tx.account.findFirst({
+            where: { clubId: params.clubId, sourceType: 'BOOKING', sourceId: String(params.bookingId) }
+        });
+        if (account && account.status !== 'OPEN') return;
+        const bookingItem = account
+            ? await tx.accountItem.findFirst({ where: { accountId: account.id, type: 'BOOKING' } })
+            : null;
+
+        if (!account || !bookingItem) {
+            // Todavía sin cuenta (se crea al confirmar o cobrar): alcanza con el precio de la reserva.
+            await tx.booking.update({ where: { id: params.bookingId }, data: { price: finalPrice, listPrice } });
+            return;
+        }
+
+        const allocated = await tx.paymentAllocation.aggregate({
+            where: { accountItemId: bookingItem.id },
+            _sum: { amount: true }
+        });
+        if (this.roundCurrency(allocated._sum.amount) > 0.009) return;
+
+        const hadDiscounts = (await tx.accountItemDiscount.count({ where: { accountItemId: bookingItem.id } })) > 0;
+        const draft = hadDiscounts && params.clientId
+            ? await this.discountService.computeDraftDiscountTx(tx, {
+                clubId: params.clubId,
+                clientId: params.clientId,
+                itemType: 'BOOKING',
+                quantity: 1,
+                unitPrice: finalPrice,
+                activityTypeId: params.activityId
+            })
+            : { unitPrice: finalPrice, total: finalPrice, snapshots: [] as any[] };
+        const desiredTotal = this.roundCurrency(draft.total);
+        const currentTotal = this.roundCurrency(bookingItem.total);
+
+        if (Math.abs(desiredTotal - currentTotal) > 0.009) {
+            const nextAccountTotal = this.roundCurrency(Number(account.totalAmount) + desiredTotal - currentTotal);
+            if (this.roundCurrency(account.paidAmount) > nextAccountTotal + 0.009) {
+                throw this.invalidInput('El nuevo precio dejaría la cuenta sobrepagada. Revisá los pagos antes de cambiar el horario.');
+            }
+            await this.accountingService.reverseAccountItemTransaction(tx, {
+                clubId: params.clubId,
+                type: 'ACCOUNT_ITEM',
+                referenceType: 'ACCOUNT_ITEM',
+                referenceId: bookingItem.id,
+                accountId: account.id,
+                accountItemId: bookingItem.id,
+                amount: currentTotal,
+                revenueAccount: 'BOOKING_REVENUE',
+                description: `Reversión reserva cancha #${params.bookingId} (cambio de horario)`,
+                createdByUserId: params.actorUserId
+            });
+            await this.accountingService.createAccountItemTransaction(tx, {
+                clubId: params.clubId,
+                type: 'ACCOUNT_ITEM',
+                referenceType: 'BOOKING',
+                referenceId: String(params.bookingId),
+                accountId: account.id,
+                accountItemId: bookingItem.id,
+                amount: desiredTotal,
+                revenueAccount: 'BOOKING_REVENUE',
+                description: `Reserva cancha #${params.bookingId}`,
+                createdByUserId: params.actorUserId
+            });
+            await tx.accountItemDiscount.deleteMany({ where: { accountItemId: bookingItem.id } });
+            if (draft.snapshots.length) {
+                await this.discountService.persistAppliedDiscountsTx(tx, {
+                    clubId: params.clubId,
+                    accountItemId: bookingItem.id,
+                    appliedByUserId: params.actorUserId,
+                    snapshots: draft.snapshots
+                });
+            }
+            await tx.accountItem.update({
+                where: { id: bookingItem.id },
+                data: { unitPrice: this.roundCurrency(draft.unitPrice), total: desiredTotal }
+            });
+            await tx.account.update({ where: { id: account.id }, data: { totalAmount: nextAccountTotal } });
+            await this.projectionService.refreshAccountSummary(account.id, tx);
+        }
+        await tx.booking.update({ where: { id: params.bookingId }, data: { price: desiredTotal, listPrice } });
     }
 
     private roundCurrency(value: unknown) {
