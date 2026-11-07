@@ -4711,15 +4711,18 @@ export default function AdminAgendaPlaygroundPage() {
             return;
           }
 
-          setRecurringOverlapItems(previewOverlapDetails);
-          setRecurringPreviewSummary({
-            generatedCount: previewGeneratedCount,
-            skippedCount: previewSkippedCount,
-            courtsCount: selectedRecurringCourts.length,
-          });
-          setRecurringCreateConfirmOpen(true);
-          setFormError('');
-          return;
+          // Solo se pide confirmación si hay turnos que chocan: sin choques se crea directo.
+          if (previewSkippedCount > 0) {
+            setRecurringOverlapItems(previewOverlapDetails);
+            setRecurringPreviewSummary({
+              generatedCount: previewGeneratedCount,
+              skippedCount: previewSkippedCount,
+              courtsCount: selectedRecurringCourts.length,
+            });
+            setRecurringCreateConfirmOpen(true);
+            setFormError('');
+            return;
+          }
         }
 
         setRecurringOverlapItems([]);
@@ -4925,7 +4928,17 @@ export default function AdminAgendaPlaygroundPage() {
           generatedCount === 0 &&
           skippedCount > 0 &&
           overlapDetails.length > 0;
-        const shouldOpenRecurringResultModal = generatedCount > 0 || hasOnlyOverlapSkips;
+        // Igual que la reserva suelta: el admin la crea confirmada, para poder cobrarla sin un paso extra.
+        for (const created of createdDetails) {
+          if (!created.bookingId) continue;
+          try {
+            await confirmBooking(Number(created.bookingId));
+          } catch (error) {
+            reportUiError({ area: 'AgendaPlayground', action: 'confirmRecurringOccurrence' }, error);
+          }
+        }
+        // El detalle solo hace falta si hubo turnos salteados o errores; si se creó todo, alcanza el aviso.
+        const shouldOpenRecurringResultModal = skippedCount > 0 || hasOnlyOverlapSkips;
         recurringResultModalShouldOpen = shouldOpenRecurringResultModal;
         if (hardErrors.length > 0) {
           recurringSummaryError = `Algunas canchas fallaron: ${hardErrors.join(' · ')}`;
@@ -4947,7 +4960,12 @@ export default function AdminAgendaPlaygroundPage() {
         );
         setRecurringOverlapModalOpen(shouldOpenRecurringResultModal);
         if (generatedCount > 0) {
-          showAgendaToast(`Reserva fija creada: ${generatedCount} turnos.`, 'success');
+          showAgendaToast(
+            skippedCount > 0
+              ? `Reserva fija creada: ${generatedCount} turnos (${skippedCount} salteados por choques).`
+              : `Reserva fija creada: ${generatedCount} turnos.`,
+            'success'
+          );
         }
       } else {
         const selectedActivityId = Number(selectedCourt?.activityTypeId || 0);
@@ -5027,6 +5045,15 @@ export default function AdminAgendaPlaygroundPage() {
               (booking) => Number(booking.id) === firstCreatedRecurringBookingId
             )
           : null;
+        if (!recurringResultModalShouldOpen) {
+          // Se creó todo sin choques: no hay modal de resultado, se abre directo el primer turno.
+          if (firstCreatedBooking) {
+            openBookingInDrawer(firstCreatedBooking);
+          } else {
+            closeBookingDrawer({ clearFormError: true });
+          }
+          return;
+        }
         setPendingRecurringEditBooking(firstCreatedBooking || null);
         // No usamos closeBookingDrawer() acá: setear drawerOpen=false dispara el timer de
         // limpieza que resetea recurringResult (y otros estados) y se comería el modal de
