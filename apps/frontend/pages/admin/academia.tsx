@@ -40,6 +40,14 @@ function AcademyGettingStarted({
   onGoTo: (tab: AcademyTab) => void;
 }) {
   const [counts, setCounts] = useState<{ teachers: number; classes: number; students: number } | null>(null);
+  const [bump, setBump] = useState(0);
+
+  // Las pestañas avisan cuando crean o cambian algo, así la guía se actualiza sola.
+  useEffect(() => {
+    const onChanged = () => setBump((value) => value + 1);
+    window.addEventListener('academy:changed', onChanged);
+    return () => window.removeEventListener('academy:changed', onChanged);
+  }, []);
 
   useEffect(() => {
     if (!clubSlug) return;
@@ -59,7 +67,7 @@ function AcademyGettingStarted({
     return () => {
       cancelled = true;
     };
-  }, [clubSlug, refreshKey]);
+  }, [clubSlug, refreshKey, bump]);
 
   if (!counts || (counts.teachers > 0 && counts.classes > 0 && counts.students > 0)) return null;
 
