@@ -16,6 +16,7 @@ type ProductInput = {
     category?: string;
     isCombo?: boolean;
     components?: ProductComponentInput[];
+    minStock?: number;
 };
 
 export class ProductService {
@@ -235,6 +236,7 @@ export class ProductService {
                     name: data.name,
                     price: data.price,
                     stock: isCombo ? 0 : data.stock,
+                    ...(data.minStock !== undefined ? { minStock: data.minStock } : {}),
                     category: data.category,
                     isCombo
                 }
@@ -287,7 +289,7 @@ export class ProductService {
     async updateProductByClub(
         id: number,
         clubId: number,
-        data: { name?: string; price?: number; stock?: number; category?: string; isCombo?: boolean; components?: ProductComponentInput[] },
+        data: { name?: string; price?: number; stock?: number; minStock?: number; category?: string; isCombo?: boolean; components?: ProductComponentInput[] },
         actorUserId?: number | null
     ) {
         return prisma.$transaction(async (tx) => {
@@ -311,7 +313,8 @@ export class ProductService {
                     price: data.price,
                     category: data.category,
                     isCombo: nextIsCombo,
-                    stock: nextIsCombo ? 0 : data.stock
+                    stock: nextIsCombo ? 0 : data.stock,
+                    ...(data.minStock !== undefined ? { minStock: data.minStock } : {})
                 }
             });
 

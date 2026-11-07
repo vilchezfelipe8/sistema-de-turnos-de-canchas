@@ -24,6 +24,7 @@ const emptyForm = (): ProductFormData => ({
   name: '',
   price: '',
   stock: '',
+  minStock: '5',
   category: '',
   isCombo: false,
   components: [{ componentProductId: '', quantity: '1' }],
@@ -91,6 +92,7 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
       name: product.name,
       price: String(product.price),
       stock: String((product.baseStock as number | undefined) ?? product.stock ?? 0),
+      minStock: String((product.minStock as number | undefined) ?? 5),
       category: (product.category as string) || '',
       isCombo: Boolean(product.isCombo),
       components:
@@ -157,14 +159,17 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
 
     try {
       setSubmittingForm(true);
-      const payload = {
+      const minStock = formData.minStock.trim() === '' ? undefined : Number(formData.minStock);
+      const payload: Record<string, unknown> = {
         name: formData.name,
         price: Number(formData.price),
-        stock: formData.isCombo ? 0 : Number(formData.stock),
         category: formData.category,
         isCombo: formData.isCombo,
         components: formData.isCombo ? components : [],
+        ...(minStock !== undefined && Number.isFinite(minStock) ? { minStock } : {}),
       };
+      // El stock solo se manda al crear: después se mueve desde la ficha (queda registrado).
+      if (!editingProduct) payload.stock = formData.isCombo ? 0 : Number(formData.stock || 0);
       if (editingProduct) {
         await ClubAdminService.updateProduct(slug, editingProduct.id, payload);
         closeDrawer();
@@ -238,6 +243,14 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
   const filteredProducts = useMemo(
     () => products.filter((p) => p.name.toLowerCase().includes(searchTerm.toLowerCase())),
     [products, searchTerm],
+  );
+
+  const categories = useMemo(
+    () =>
+      Array.from(new Set(products.map((p) => String(p.category || '').trim()).filter(Boolean))).sort((a, b) =>
+        a.localeCompare(b, 'es'),
+      ),
+    [products],
   );
 
   const comboOptions = useMemo(
@@ -388,6 +401,7 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
         onClose={closeDrawer}
         editingProduct={editingProduct}
         comboOptions={comboOptions}
+        categories={categories}
         formData={formData}
         formError={formError}
         fieldErrors={formFieldErrors}

@@ -1,5 +1,4 @@
-import { Tag, DollarSign, Pencil, Plus } from 'lucide-react';
-import AdminDrawer, { AdminDrawerSection } from '../../../components/admin/ui/AdminDrawer';
+import AdminDrawer from '../../../components/admin/ui/AdminDrawer';
 import { AdminInlineError } from '../../../components/admin/ui';
 
 // ---------------------------------------------------------------------------
@@ -7,6 +6,7 @@ import { AdminInlineError } from '../../../components/admin/ui';
 // ---------------------------------------------------------------------------
 
 export type ServiceFormData = {
+  /** Identificador interno: se arma solo con el nombre si está vacío. */
   code: string;
   name: string;
   description: string;
@@ -26,24 +26,12 @@ type ServiceDrawerProps = {
   onSubmit: (e: React.FormEvent) => void;
 };
 
-// ---------------------------------------------------------------------------
-// Shared styles
-// ---------------------------------------------------------------------------
-
 const inputClass =
-  'h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text placeholder:text-p-text-muted outline-none transition-all focus:border-p-accent';
-const labelClass = 'mb-1.5 block text-[12px] font-medium text-p-text-secondary';
-const sectionCardClass = 'rounded-2xl border border-p-border bg-p-surface-2 p-4';
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+  'h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text placeholder:text-p-text-muted outline-none transition focus:border-p-border-strong';
+const labelClass = 'mb-1 block text-[13px] font-medium text-p-text';
 
 /**
- * ServiceDrawer — drawer de creación y edición de servicios.
- *
- * Puramente presentacional: sin estado propio, sin fetch.
- * Toda la lógica y el estado viven en ServicesPage.
+ * ServiceDrawer — crear o editar un servicio: nombre, precio y una descripción opcional.
  */
 export default function ServiceDrawer({
   open,
@@ -72,9 +60,8 @@ export default function ServiceDrawer({
         form="service-drawer-form"
         type="submit"
         disabled={submitting}
-        className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800"
+        className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-60"
       >
-        {isEditing ? <Pencil size={14} /> : <Plus size={14} />}
         {submitting ? 'Guardando...' : isEditing ? 'Guardar cambios' : 'Crear servicio'}
       </button>
     </div>
@@ -84,93 +71,60 @@ export default function ServiceDrawer({
     <AdminDrawer
       open={open}
       onClose={onClose}
-      title={isEditing ? 'Editar servicio' : 'Nuevo servicio'}
-      subtitle="Catálogo de servicios del club"
+      title={isEditing ? `Editar ${editingService?.name || 'servicio'}` : 'Nuevo servicio'}
+      subtitle={!isEditing ? 'Algo que cobrás sin stock: clase, alquiler de paleta, encordado…' : undefined}
       size="sm"
       footer={footer}
     >
-      <form id="service-drawer-form" onSubmit={onSubmit}>
-        {/* ── Datos generales ── */}
-        <AdminDrawerSection title="Identificación" className={sectionCardClass}>
-          <div>
-            <label className={labelClass}>Código del servicio</label>
-            <div className="relative">
-              <input
-                required
-                value={formData.code}
-                onChange={(e) =>
-                  onFormChange({ ...formData, code: e.target.value.toUpperCase() })
-                }
-                className={`${inputClass} pl-10`}
-                placeholder="Ej: CLASE_PARTICULAR"
-              />
-              <Tag
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted"
-                size={15}
-                strokeWidth={2.5}
-              />
-            </div>
-            <AdminInlineError>{fieldErrors?.code}</AdminInlineError>
-          </div>
+      <form id="service-drawer-form" onSubmit={onSubmit} className="space-y-4">
+        <label className="block">
+          <span className={labelClass}>Nombre</span>
+          <input
+            required
+            autoFocus={!isEditing}
+            value={formData.name}
+            onChange={(e) => onFormChange({ ...formData, name: e.target.value })}
+            className={inputClass}
+            placeholder="Alquiler de paleta"
+          />
+          <AdminInlineError>{fieldErrors?.name || fieldErrors?.code}</AdminInlineError>
+        </label>
 
-          <div>
-            <label className={labelClass}>Nombre</label>
+        <label className="block">
+          <span className={labelClass}>Precio</span>
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[14px] text-p-text-muted">$</span>
             <input
               required
-              value={formData.name}
-              onChange={(e) => onFormChange({ ...formData, name: e.target.value })}
-              className={inputClass}
-              placeholder="Ej: Clase particular"
+              type="number"
+              min={0.01}
+              step="0.01"
+              inputMode="decimal"
+              value={formData.price}
+              onChange={(e) => onFormChange({ ...formData, price: e.target.value })}
+              className={`${inputClass} pl-7`}
+              placeholder="3000"
+              onWheel={(e) => e.currentTarget.blur()}
             />
-            <AdminInlineError>{fieldErrors?.name}</AdminInlineError>
           </div>
-        </AdminDrawerSection>
+          <AdminInlineError>{fieldErrors?.price}</AdminInlineError>
+        </label>
 
-        {/* ── Precio ── */}
-        <AdminDrawerSection title="Precio" className={`${sectionCardClass} mt-5`}>
-          <div>
-            <label className={labelClass}>Precio ($)</label>
-            <div className="relative">
-              <input
-                required
-                type="number"
-                min={0.01}
-                step="0.01"
-                value={formData.price}
-                onChange={(e) => onFormChange({ ...formData, price: e.target.value })}
-                className={`${inputClass} pl-10`}
-                placeholder="0.00"
-                onWheel={(e) => e.currentTarget.blur()}
-              />
-              <DollarSign
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted"
-                size={15}
-                strokeWidth={2.5}
-              />
-            </div>
-            <AdminInlineError>{fieldErrors?.price}</AdminInlineError>
-          </div>
-        </AdminDrawerSection>
+        <label className="block">
+          <span className={labelClass}>
+            Descripción <span className="font-normal text-p-text-muted">(opcional)</span>
+          </span>
+          <textarea
+            value={formData.description}
+            onChange={(e) => onFormChange({ ...formData, description: e.target.value })}
+            className="min-h-[72px] w-full resize-none rounded-xl border border-p-border bg-p-surface px-3 py-2.5 text-[14px] text-p-text placeholder:text-p-text-muted outline-none focus:border-p-border-strong"
+            placeholder="Ej: incluye pelotas"
+          />
+          <AdminInlineError>{fieldErrors?.description}</AdminInlineError>
+        </label>
 
-        {/* ── Descripción ── */}
-        <AdminDrawerSection title="Descripción" className={`${sectionCardClass} mt-5`}>
-          <div>
-            <label className={labelClass}>Detalle descriptivo (opcional)</label>
-            <textarea
-              value={formData.description}
-              onChange={(e) => onFormChange({ ...formData, description: e.target.value })}
-              className="min-h-[80px] w-full resize-none rounded-xl border border-p-border bg-p-surface px-3 py-2.5 text-[13px] text-p-text placeholder:text-p-text-muted outline-none transition focus:border-p-accent"
-              placeholder="Información adicional para el equipo"
-            />
-            <AdminInlineError>{fieldErrors?.description}</AdminInlineError>
-          </div>
-        </AdminDrawerSection>
-
-        {/* ── Error ── */}
         {formError && (
-          <p className="mt-4 rounded-lg border border-p-error bg-p-error-bg px-3 py-2 text-[12px] font-semibold text-[var(--error-fg)]">
-            {formError}
-          </p>
+          <p className="rounded-lg bg-p-error-bg px-3 py-2 text-[12px] font-semibold text-p-error">{formError}</p>
         )}
       </form>
     </AdminDrawer>

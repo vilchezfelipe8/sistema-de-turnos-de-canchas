@@ -42,6 +42,7 @@ export class ProductController {
                 name: z.string().trim().min(2, 'Cargá un nombre válido.'),
                 price: z.preprocess((v) => Number(v), z.number().positive('Cargá un precio válido.')),
                 stock: z.preprocess((v) => (v === undefined || v === null || v === '' ? 0 : Number(v)), z.number().min(0, 'Cargá un stock válido.')),
+                minStock: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().min(0, 'Cargá un número desde 0.').optional()),
                 category: z.string().trim().max(100).optional().nullable(),
                 isCombo: z.boolean().optional(),
                 components: z.array(z.object({
@@ -61,6 +62,7 @@ export class ProductController {
                 name: sanitizeString(parsed.data.name, 200),
                 price: parsed.data.price,
                 stock: parsed.data.stock,
+                minStock: parsed.data.minStock,
                 category: parsed.data.category ? sanitizeString(String(parsed.data.category), 100) : undefined,
                 isCombo: Boolean(parsed.data.isCombo),
                 components: Array.isArray(parsed.data.components) ? parsed.data.components : []
@@ -81,6 +83,7 @@ export class ProductController {
                 name: z.string().trim().min(2, 'Cargá un nombre válido.').optional(),
                 price: z.preprocess((v) => (v === undefined ? undefined : Number(v)), z.number().positive('Cargá un precio válido.').optional()),
                 stock: z.preprocess((v) => (v === undefined ? undefined : Number(v)), z.number().min(0, 'Cargá un stock válido.').optional()),
+                minStock: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().min(0, 'Cargá un número desde 0.').optional()),
                 category: z.string().trim().max(100).optional().nullable(),
                 isCombo: z.boolean().optional(),
                 components: z.array(z.object({
