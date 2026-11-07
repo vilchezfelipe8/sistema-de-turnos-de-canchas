@@ -185,9 +185,15 @@ export default function ProductDrawer({
             <AdminInlineError>{fieldErrors?.price}</AdminInlineError>
           </div>
 
-          {!formData.isCombo && (
+          {!formData.isCombo && isEditing && (
+            <p className="text-[12px] text-p-text-muted">
+              El stock se cambia desde la ficha del producto (Entró mercadería, Conté o Se rompió), así queda registrado.
+            </p>
+          )}
+
+          {!formData.isCombo && !isEditing && (
             <div>
-              <label className={labelClass}>{isEditing ? 'Stock actual' : 'Stock inicial'}</label>
+              <label className={labelClass}>Stock inicial</label>
               <div className="relative">
                 <input
                   required
@@ -206,11 +212,7 @@ export default function ProductDrawer({
                 />
               </div>
               <AdminInlineError>{fieldErrors?.stock}</AdminInlineError>
-              <p className="mt-1 text-[11px] text-p-text-muted">
-                {isEditing
-                  ? 'Este valor reemplaza el stock disponible del producto al guardar.'
-                  : 'Se usa para definir el stock con el que arranca el producto.'}
-              </p>
+              <p className="mt-1 text-[11px] text-p-text-muted">Cuántas unidades tenés hoy.</p>
             </div>
           )}
 
