@@ -8216,20 +8216,11 @@ export default function AdminAgendaPlaygroundPage() {
                             )}
                           </div>
 
-                          {/* Bloquear no es un tipo de reserva: es otra acción sobre el mismo horario. */}
-                          {!isRecurringKind && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setFormError('');
-                                setBookingKind('block');
-                              }}
-                              className="mt-6 inline-flex items-center gap-1.5 self-start text-[13px] font-medium text-p-text-muted hover:text-p-text"
-                            >
-                              <Lock size={13} />
-                              Bloquear este horario en vez de reservar
-                            </button>
-                          )}
+                          {/*
+                            Bloquear un horario va acá como acción aparte ("Bloquear este horario en vez de reservar"),
+                            pero recién cuando el backend guarde bloqueos: hoy el bloqueo solo existe en pantalla
+                            y se pierde al recargar, así que no se ofrece.
+                          */}
                         </>
                       ))}
 
