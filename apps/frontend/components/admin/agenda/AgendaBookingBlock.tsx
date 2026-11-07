@@ -83,7 +83,9 @@ export default function AgendaBookingBlock({
   const showAmountPill = paymentState !== 'paid' && typeof debtAmount === 'number' && debtAmount > 0;
   // Una sola etiqueta que se lee de un vistazo: pagado, o cuánto falta cobrar.
   const paymentLabel =
-    paymentState === 'paid'
+    state === 'blocked'
+      ? 'Bloqueado'
+      : paymentState === 'paid'
       ? 'Pagado'
       : showAmountPill
         ? `Debe ${formatAmount(debtAmount!)}`
@@ -121,9 +123,11 @@ export default function AgendaBookingBlock({
           {visibility.showBadge && (
             <div className="mb-1 flex items-center gap-1">
               <span
-                className={`inline-flex items-center gap-1 rounded-full px-2 py-[3px] text-[11px] font-extrabold leading-none ${paymentStatePillClass(paymentState)}`}
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-[3px] text-[11px] font-extrabold leading-none ${
+                  state === 'blocked' ? 'bg-ink-900/80 text-ink-50' : paymentStatePillClass(paymentState)
+                }`}
               >
-                {paymentState === 'paid' && <Check size={12} className="shrink-0" />}
+                {state !== 'blocked' && paymentState === 'paid' && <Check size={12} className="shrink-0" />}
                 {paymentLabel}
               </span>
               {isRecurring && (
