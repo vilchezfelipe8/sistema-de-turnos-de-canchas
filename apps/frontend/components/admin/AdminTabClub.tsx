@@ -24,7 +24,8 @@ type AdminTabClubSection =
   | 'pricing'
   | 'exceptions'
   | 'audit'
-  | 'reviews';
+  | 'reviews'
+  | 'cash';
 
 type AdminTabClubProps = {
   forcedTab?: AdminTabClubSection;
@@ -50,18 +51,18 @@ const UNSAVED_NAVIGATION_ABORT_TOKEN = '__UNSAVED_NAVIGATION_ABORT__';
 const BOOKING_CONFIRMATION_MODES: Array<{ value: BookingConfirmationMode; label: string; helper: string }> = [
   {
     value: 'AUTOMATIC',
-    label: 'Automática',
-    helper: 'Toda reserva nueva queda confirmada al crearse.'
+    label: 'Al instante',
+    helper: 'La reserva queda confirmada apenas se hace.'
   },
   {
     value: 'MANUAL',
-    label: 'Manual',
-    helper: 'Las reservas nacen pendientes y un admin las confirma manualmente.'
+    label: 'La confirmo yo',
+    helper: 'Queda "sin confirmar" hasta que alguien del club la confirme.'
   },
   {
     value: 'DEPOSIT_REQUIRED',
     label: 'Con seña',
-    helper: 'Las reservas nacen pendientes y se confirman cuando cubren la seña mínima.'
+    helper: 'Se confirma sola cuando el jugador paga la seña.'
   }
 ];
 
@@ -2576,35 +2577,38 @@ export default function AdminTabClub({
 
                 {/* Confirmación de reservas */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Confirmación de reservas</p>
+                  <p className={cardTitleCls}>¿Cómo se confirma una reserva?</p>
                   <div className="space-y-4">
-                    <div>
-                      <label className={labelCls}>Modo de confirmación</label>
-                      <select
-                        value={clubForm.bookingConfirmationMode}
-                        onChange={(e) => {
-                          const nextMode = e.target.value as BookingConfirmationMode;
-                          setClubForm((prev) => ({
-                            ...prev,
-                            bookingConfirmationMode: nextMode,
-                            bookingDepositPercent: nextMode === 'DEPOSIT_REQUIRED' ? prev.bookingDepositPercent : ''
-                          }));
-                        }}
-                        className={`${inputCls} w-full md:w-80`}
-                      >
-                        {BOOKING_CONFIRMATION_MODES.map((mode) => (
-                          <option key={mode.value} value={mode.value}>{mode.label}</option>
-                        ))}
-                      </select>
-                      <p className="mt-1.5 text-[11px] text-p-text-muted">
-                        {BOOKING_CONFIRMATION_MODES.find((m) => m.value === clubForm.bookingConfirmationMode)?.helper}
-                      </p>
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                      {BOOKING_CONFIRMATION_MODES.map((mode) => {
+                        const active = clubForm.bookingConfirmationMode === mode.value;
+                        return (
+                          <button
+                            key={mode.value}
+                            type="button"
+                            aria-pressed={active}
+                            onClick={() =>
+                              setClubForm((prev) => ({
+                                ...prev,
+                                bookingConfirmationMode: mode.value,
+                                bookingDepositPercent: mode.value === 'DEPOSIT_REQUIRED' ? prev.bookingDepositPercent : ''
+                              }))
+                            }
+                            className={`rounded-xl border px-3 py-2.5 text-left transition ${
+                              active ? 'border-ink-900 bg-p-surface-2' : 'border-p-border bg-p-surface hover:bg-p-surface-2'
+                            }`}
+                          >
+                            <span className="block text-[13px] font-semibold text-p-text">{mode.label}</span>
+                            <span className="block text-[12px] text-p-text-muted">{mode.helper}</span>
+                          </button>
+                        );
+                      })}
                     </div>
 
                     {isDepositMode && (
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                         <div>
-                          <label className={labelCls}>Seña mínima (%)</label>
+                          <label className={labelCls}>Seña (% del total)</label>
                           <input
                             type="number"
                             min={1}
@@ -2623,7 +2627,7 @@ export default function AdminTabClub({
                             >
                               {clubForm.allowManualConfirmationOverride && <Check size={12} strokeWidth={3} className="text-ink-50" />}
                             </div>
-                            <span className="text-[12px] text-p-text">Permitir confirmación manual sin seña</span>
+                            <span className="text-[12px] text-p-text">Puedo confirmarla a mano aunque no haya pagado la seña</span>
                           </label>
                         </div>
                       </div>
@@ -2631,7 +2635,7 @@ export default function AdminTabClub({
 
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                       <div>
-                        <label className={labelCls}>Anticipación máx. usuario (días)</label>
+                        <label className={labelCls}>Los jugadores reservan hasta (días antes)</label>
                         <input
                           type="number"
                           min={1}
@@ -2641,7 +2645,7 @@ export default function AdminTabClub({
                         />
                       </div>
                       <div>
-                        <label className={labelCls}>Anticipación máx. admin (días)</label>
+                        <label className={labelCls}>Desde el panel, hasta (días antes)</label>
                         <input
                           type="number"
                           min={1}
@@ -2659,14 +2663,14 @@ export default function AdminTabClub({
                       >
                         {clubForm.allowAdminSkipSimpleAdvanceLimit && <Check size={12} strokeWidth={3} className="text-ink-50" />}
                       </div>
-                      <span className="text-[12px] text-p-text">Permitir que admin omita límite de anticipación</span>
+                      <span className="text-[12px] text-p-text">Desde el panel puedo reservar más adelante igual</span>
                     </label>
                   </div>
                 </div>
 
                 {/* Auto-cancelación */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Auto-cancelación</p>
+                  <p className={cardTitleCls}>Reservas que nadie confirma</p>
                   <div className="space-y-4">
                     <label className="flex cursor-pointer items-center gap-2.5">
                       <div
@@ -2675,12 +2679,12 @@ export default function AdminTabClub({
                       >
                         {clubForm.autoCancelPendingBookingsEnabled && <Check size={12} strokeWidth={3} className="text-ink-50" />}
                       </div>
-                      <span className="text-[12px] text-p-text">Cancelar reservas pendientes automáticamente</span>
+                      <span className="text-[12px] text-p-text">Cancelarlas solas si siguen sin confirmar</span>
                     </label>
                     {clubForm.autoCancelPendingBookingsEnabled && (
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 pl-7">
                         <div>
-                          <label className={labelCls}>Minutos antes del turno</label>
+                          <label className={labelCls}>¿Cuántos minutos antes del turno?</label>
                           <input
                             type="number"
                             min={1}
@@ -2698,7 +2702,7 @@ export default function AdminTabClub({
                             >
                               {clubForm.autoCancelPendingBookingsOnlyIfUnpaid && <Check size={12} strokeWidth={3} className="text-ink-50" />}
                             </div>
-                            <span className="text-[12px] text-p-text">Solo si no tiene pago registrado</span>
+                            <span className="text-[12px] text-p-text">Solo si no pagaron nada</span>
                           </label>
                         </div>
                       </div>
@@ -2710,11 +2714,11 @@ export default function AdminTabClub({
                       >
                         {clubForm.autoCancelPendingWarningEnabled && <Check size={12} strokeWidth={3} className="text-ink-50" />}
                       </div>
-                      <span className="text-[12px] text-p-text">Enviar aviso previo a la cancelación</span>
+                      <span className="text-[12px] text-p-text">Avisarle al jugador antes de cancelarla</span>
                     </label>
                     {clubForm.autoCancelPendingWarningEnabled && (
                       <div className="pl-7">
-                        <label className={labelCls}>Minutos antes del aviso</label>
+                        <label className={labelCls}>¿Cuántos minutos antes del turno se avisa?</label>
                         <input
                           type="number"
                           min={1}
@@ -2980,11 +2984,32 @@ export default function AdminTabClub({
               </div>
             )}
 
+            {/* ----- TAB: CAJA ----- */}
+            {effectiveTab === 'cash' && (
+              <div className="space-y-4">
+                <div className={cardCls}>
+                  <p className={cardTitleCls}>Cerrar la caja</p>
+                  <p className="mb-3 text-[12px] text-p-text-muted">
+                    Si lo activás, no se puede cerrar la caja mientras haya cuentas abiertas con plata por cobrar.
+                  </p>
+                  <label className="flex cursor-pointer items-center gap-2.5">
+                    <div
+                      className={checkboxCls(clubForm.enforceCashShiftCloseWithOpenAccounts)}
+                      onClick={() => setClubForm({ ...clubForm, enforceCashShiftCloseWithOpenAccounts: !clubForm.enforceCashShiftCloseWithOpenAccounts })}
+                    >
+                      {clubForm.enforceCashShiftCloseWithOpenAccounts && <Check size={12} strokeWidth={3} className="text-ink-50" />}
+                    </div>
+                    <span className="text-[12px] text-p-text">No dejar cerrar la caja si hay cuentas abiertas</span>
+                  </label>
+                </div>
+              </div>
+            )}
+
             {/* ----- TAB: PRECIOS ----- */}
             {effectiveTab === 'pricing' && (
               <div className="space-y-4">
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Iluminación</p>
+                  <p className={cardTitleCls}>Luces de noche</p>
                   <div className="space-y-4">
                     <label className="flex cursor-pointer items-center gap-2.5">
                       <div
@@ -2993,12 +3018,12 @@ export default function AdminTabClub({
                       >
                         {clubForm.lightsEnabled && <Check size={12} strokeWidth={3} className="text-ink-50" />}
                       </div>
-                      <span className="text-[12px] text-p-text">Activar recargo nocturno</span>
+                      <span className="text-[12px] text-p-text">Cobrar un extra por las luces</span>
                     </label>
                     {clubForm.lightsEnabled && (
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 pl-7">
                         <div>
-                          <label className={labelCls}>Monto extra ($)</label>
+                          <label className={labelCls}>Cuánto se suma por turno ($)</label>
                           <input
                             type="number"
                             min={0}
@@ -3010,7 +3035,7 @@ export default function AdminTabClub({
                           />
                         </div>
                         <div>
-                          <label className={labelCls}>Desde la hora</label>
+                          <label className={labelCls}>A partir de las</label>
                           <select
                             value={clubForm.lightsFromHour || ''}
                             onChange={(e) => setClubForm({ ...clubForm, lightsFromHour: e.target.value })}
@@ -3025,26 +3050,10 @@ export default function AdminTabClub({
                   </div>
                 </div>
 
-                <div className={cardCls}>
-                  <p className={cardTitleCls}>Política de cierre de caja</p>
-                  <p className="mb-3 text-[12px] text-p-text-muted">
-                    Define si el sistema permite cerrar caja cuando todavía hay cuentas corrientes abiertas.
-                  </p>
-                  <label className="flex cursor-pointer items-center gap-2.5">
-                    <div
-                      className={checkboxCls(clubForm.enforceCashShiftCloseWithOpenAccounts)}
-                      onClick={() => setClubForm({ ...clubForm, enforceCashShiftCloseWithOpenAccounts: !clubForm.enforceCashShiftCloseWithOpenAccounts })}
-                    >
-                      {clubForm.enforceCashShiftCloseWithOpenAccounts && <Check size={12} strokeWidth={3} className="text-ink-50" />}
-                    </div>
-                    <span className="text-[12px] text-p-text">Bloquear cierre de caja con cuentas corrientes abiertas</span>
-                  </label>
-                </div>
-
                 {/* Lista de políticas */}
                 <div className={cardCls}>
                   <div className="mb-4 flex items-center justify-between">
-                    <p className={cardTitleCls} style={{ marginBottom: 0 }}>Políticas de descuento</p>
+                    <p className={cardTitleCls} style={{ marginBottom: 0 }}>Descuentos para clientes</p>
                     <button
                       type="button"
                       onClick={() => {
@@ -3054,13 +3063,13 @@ export default function AdminTabClub({
                       }}
                       className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-ink-900 px-3 text-[11px] font-semibold text-ink-50 transition hover:bg-ink-900"
                     >
-                      + Nueva política
+                      + Nuevo descuento
                     </button>
                   </div>
                   {loadingDiscountPolicies ? (
                     <p className="text-[12px] text-p-text-muted">Cargando...</p>
                   ) : discountPolicies.length === 0 ? (
-                    <p className="text-[12px] text-p-text-muted">No hay políticas configuradas. Creá la primera con el botón de arriba.</p>
+                    <p className="text-[12px] text-p-text-muted">Todavía no hay descuentos. Creá el primero con el botón de arriba.</p>
                   ) : (
                     <div className="space-y-2">
                       {discountPolicies.map((policy) => (
@@ -3092,7 +3101,7 @@ export default function AdminTabClub({
 
                 {/* Asignación a clientes */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Asignar política a cliente</p>
+                  <p className={cardTitleCls}>Darle un descuento a un cliente</p>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div className="md:col-span-2">
                       <label className={labelCls}>Buscar cliente</label>
@@ -3129,13 +3138,13 @@ export default function AdminTabClub({
                       </div>
                     </div>
                     <div>
-                      <label className={labelCls}>Política</label>
+                      <label className={labelCls}>Descuento</label>
                       <select
                         value={selectedPolicyIdForAssignment}
                         onChange={(e) => setSelectedPolicyIdForAssignment(e.target.value)}
                         className={inputCls}
                       >
-                        <option value="">Seleccionar política...</option>
+                        <option value="">Elegí un descuento...</option>
                         {discountPolicies.filter((p) => p.isActive).map((p) => (
                           <option key={p.id} value={p.id}>{p.name}</option>
                         ))}

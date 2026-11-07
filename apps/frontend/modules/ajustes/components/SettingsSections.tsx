@@ -16,8 +16,18 @@ export function SettingsReservationsSection() {
   return (
     <AdminTabClub
       forcedTab="reservations"
-      title="Reservas"
-      subtitle="Confirmación, seña, auto-cancelación y límites operativos del flujo de reservas."
+      title="Confirmación y cancelación"
+      subtitle="Cómo se confirman las reservas, con cuánta anticipación se puede reservar y qué pasa con las que nadie confirma."
+    />
+  );
+}
+
+export function SettingsCashSection() {
+  return (
+    <AdminTabClub
+      forcedTab="cash"
+      title="Caja"
+      subtitle="Reglas para abrir y cerrar la caja del día."
     />
   );
 }
@@ -36,8 +46,8 @@ export function SettingsPricingSection() {
   return (
     <AdminTabClub
       forcedTab="pricing"
-      title="Precios"
-      subtitle="Recargos, descuentos y reglas comerciales que impactan en el cobro."
+      title="Recargos y descuentos"
+      subtitle="Extra por luces y descuentos para clientes puntuales."
     />
   );
 }

@@ -9,6 +9,7 @@ import SettingsOnlineDepositSection from './SettingsOnlineDepositSection';
 import SettingsBookingWindowSection from './SettingsBookingWindowSection';
 import {
   SettingsAuditSection,
+  SettingsCashSection,
   SettingsClubIdentitySection,
   SettingsExceptionsSection,
   SettingsIntegrationsWorkspaceSection,
@@ -30,6 +31,7 @@ export type SettingsWorkspaceTab =
   | 'usuarios'
   | 'socios'
   | 'planes'
+  | 'caja'
   | 'notificaciones'
   | 'excepciones'
   | 'auditoria'
@@ -51,8 +53,8 @@ export default function AdminSettingsWorkspace({ tab }: AdminSettingsWorkspacePr
   if (tab === 'reservas') {
     return (
       <div className="space-y-4">
-        <SettingsBookingWindowSection />
         <SettingsReservationsSection />
+        <SettingsBookingWindowSection />
         <SettingsOnlineDepositSection />
       </div>
     );
@@ -71,6 +73,7 @@ export default function AdminSettingsWorkspace({ tab }: AdminSettingsWorkspacePr
   if (tab === 'usuarios') return <SettingsMembersSection />;
   if (tab === 'socios') return <SettingsClubMembersSection />;
   if (tab === 'planes') return <SettingsSubscriptionPlansSection />;
+  if (tab === 'caja') return <SettingsCashSection />;
   if (tab === 'excepciones') return <SettingsExceptionsSection />;
   if (tab === 'auditoria') return <SettingsAuditSection />;
   if (tab === 'resenas') return <SettingsReviewsSection />;
