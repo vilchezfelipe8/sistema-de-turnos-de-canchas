@@ -1632,14 +1632,20 @@ export default function AdminPaymentsPlaygroundPage() {
   }, [ensureAccountDetail]);
   const accountDrawerContext = useMemo<AccountDrawerContext | undefined>(() => {
     if (!selectedAccount) return undefined;
+    const startTime = formatAccountTime(selectedAccount.booking?.startDateTime);
+    const endTime = formatAccountTime(selectedAccount.booking?.endDateTime);
     const subtitleParts = [
-      accountSourceLabel(selectedAccount.sourceType),
-      `#${shortCode(selectedAccount.id)}`,
-      selectedAccount.booking?.id ? `Reserva #${selectedAccount.booking.id}` : '',
-      selectedAccount.createdAt ? formatDateTime24(selectedAccount.createdAt) : '',
+      formatAccountDay(accountWhen(selectedAccount)),
+      startTime ? (endTime ? `${startTime}–${endTime}` : startTime) : '',
+      selectedAccount.booking?.courtName
+        ? `${accountKindLabel[selectedAccount.sourceType]} · ${selectedAccount.booking.courtName}`
+        : accountKindLabel[selectedAccount.sourceType],
     ].filter(Boolean);
     return {
-      title: accountDisplayLabel(selectedAccount),
+      title:
+        selectedAccount.booking?.clientName?.trim() ||
+        selectedAccount.client?.name?.trim() ||
+        accountKindLabel[selectedAccount.sourceType],
       subtitle: subtitleParts.join(' · '),
       accountStatus: selectedAccount.status,
     };
