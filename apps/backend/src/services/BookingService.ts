@@ -4130,6 +4130,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         name: String(format.name),
                         // null = la modalidad no fija duración: valen las del club.
                         durationMinutes: Number(format.durationMinutes) > 0 ? Number(format.durationMinutes) : null,
+                        playerCount: Number(format.playerCount) > 0 ? Number(format.playerCount) : null,
                         shortGapMinutes: resolveShortGapMinutes(format)
                     }))
                 : [];

@@ -28,6 +28,8 @@ type AgendaSelectionPreviewProps = {
   state?: BookingState;
   paymentState?: PaymentState;
   isRecurring?: boolean;
+  /** Reserva que se está armando: muestra esta etiqueta en lugar del estado de pago. */
+  draftLabel?: string | null;
 };
 
 function paymentStatePillClass(state: PaymentState): string {
@@ -54,6 +56,7 @@ export default function AgendaSelectionPreview({
   state = 'pending',
   paymentState = 'unpaid',
   isRecurring = false,
+  draftLabel = null,
 }: AgendaSelectionPreviewProps) {
   const top = range.start * slotHeight + 2;
   const height = (range.end - range.start) * slotHeight - 4;
@@ -78,13 +81,19 @@ export default function AgendaSelectionPreview({
         <>
           {visibility.showBadge && (
             <div className="mb-1 flex items-center gap-1 flex-wrap">
-              <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-extrabold leading-none ${paymentStatePillClass(paymentState)}`}>
-                {paymentState === 'paid' && <Check size={14} className="shrink-0" />}
-                {paymentStatePillLabel(paymentState)}
-              </span>
+              {draftLabel ? (
+                <span className="inline-flex items-center rounded-full bg-ink-900 px-2.5 py-1 text-[12px] font-extrabold leading-none text-ink-50">
+                  {draftLabel}
+                </span>
+              ) : (
+                <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-extrabold leading-none ${paymentStatePillClass(paymentState)}`}>
+                  {paymentState === 'paid' && <Check size={14} className="shrink-0" />}
+                  {paymentStatePillLabel(paymentState)}
+                </span>
+              )}
               {isRecurring ? (
                 <Repeat size={20} className="opacity-80 shrink-0" />
-              ) : (
+              ) : draftLabel ? null : (
                 <Calendar size={20} className="opacity-80 shrink-0" />
               )}
             </div>

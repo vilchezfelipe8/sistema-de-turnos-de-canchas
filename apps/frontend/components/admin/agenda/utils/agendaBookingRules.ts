@@ -6,6 +6,7 @@ export type AgendaBookingFormatRule = {
   name: string;
   durationMinutes: number | null;
   shortGapMinutes: number | null;
+  playerCount?: number | null;
 };
 
 export type AgendaActivityBookingRules = {

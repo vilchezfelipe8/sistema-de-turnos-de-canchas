@@ -124,10 +124,11 @@ export default function AgendaPlayerSlotsSection({
 
   if (pricingMode !== 'PER_PLAYER') return null;
 
-  // Reserva nueva: elegir modalidad.
+  // Reserva nueva: elegir modalidad. Con una sola no hay nada que elegir: se usa sola.
   if (!bookingId) {
+    if (activityFormats.length === 1) return null;
     return (
-      <section className="mt-4 rounded-xl border border-p-border bg-p-surface-2 p-4">
+      <section className="mt-6">
         <p className="text-[13px] font-semibold text-p-text">Modalidad</p>
         {activityFormats.length === 0 ? (
           <p className="mt-1 text-[12px] text-p-error">Esta actividad no tiene modalidades. Cargalas en Ajustes &gt; Actividades.</p>
@@ -140,9 +141,6 @@ export default function AgendaPlayerSlotsSection({
             ))}
           </div>
         )}
-        <p className="mt-2 text-[12px] text-p-text-muted">
-          Cada jugador paga según su categoría. Los lugares sin asignar se cobran como no socio; los completás después en Participantes.
-        </p>
       </section>
     );
   }

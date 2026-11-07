@@ -164,7 +164,7 @@ const bookingKindOptions: Array<{
   {
     value: 'regular',
     label: 'Reserva normal',
-    description: 'Para reservas individuales de un solo día y pista',
+    description: 'Para reservas individuales de un solo día y cancha',
     icon: CalendarDays,
   },
   {
@@ -188,7 +188,7 @@ const bookingKindOptions: Array<{
   {
     value: 'block',
     label: 'Bloqueo',
-    description: 'Para bloquear una pista y evitar nuevas reservas en ese rango.',
+    description: 'Para bloquear una cancha y evitar nuevas reservas en ese rango.',
     icon: Lock,
   },
 ];
@@ -221,6 +221,29 @@ const CUSTOM_DAY_OPTIONS = [
   { value: 6, short: 'Sa' },
   { value: 0, short: 'Do' },
 ];
+
+/** Teléfono argentino legible: 5493570000001 → +54 9 3570 00-0001. Otros formatos quedan igual. */
+function formatPhoneForDisplay(value: string): string {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!/^549\d{10}$/.test(digits)) return value;
+  const national = digits.slice(3);
+  const areaLength = national.startsWith('11') ? 2 : 4;
+  const area = national.slice(0, areaLength);
+  const rest = national.slice(areaLength);
+  return `+54 9 ${area} ${rest.slice(0, -4)}-${rest.slice(-4)}`;
+}
+
+/** Segunda línea de un resultado del buscador: contacto + lo que le sirve saber al que atiende. */
+function describeOwnerSuggestion(secondary: string | null | undefined, badges: unknown): string {
+  const labels = (Array.isArray(badges) ? badges : [])
+    .map((badge) => String(badge || ''))
+    .filter((badge) => badge && badge !== 'Cliente del club')
+    .map((badge) => (badge === 'Usuario Pique' ? 'Tiene la app' : badge));
+  const contact = secondary && secondary !== 'Cliente del club' && secondary !== 'Usuario Pique'
+    ? formatPhoneForDisplay(secondary)
+    : '';
+  return [contact, ...labels].filter(Boolean).join(' · ');
+}
 
 function PlaygroundCombo({
   value,
@@ -1285,6 +1308,7 @@ export default function AdminAgendaPlaygroundPage() {
     initialBookingDrawerState
   );
   const [recurringCourtsMenuOpen, setRecurringCourtsMenuOpen] = useState(false);
+  const [createCourtPickerOpen, setCreateCourtPickerOpen] = useState(false);
   const [selectedClubIdState, setSelectedClubIdState] = useState<number>(0);
   const [activeClubTimeZone, setActiveClubTimeZone] = useState<string>('');
   const [bookingHoverPreview, setBookingHoverPreview] = useState<{
@@ -3361,19 +3385,13 @@ export default function AdminAgendaPlaygroundPage() {
         return { recurrenceDays, frequencyDays };
       }
 
-      const customTotalReservations = Math.max(1, Math.floor(customEndAfterReservations || 0));
-      if (!Number.isFinite(customTotalReservations) || customTotalReservations <= 0) {
-        return {
-          recurrenceDays: [],
-          frequencyDays: 0,
-          error: 'Indicá cuántas repeticiones querés generar.',
-        };
-      }
-
+      // "Durante N semanas": cada día elegido se repite N / (cada cuántas semanas) veces.
+      const durationWeeks = Math.max(1, Math.floor(recurringRepetitions || 0));
+      const everyWeeks = Math.max(1, Math.floor(customRepeatEveryWeeks || 0));
       return {
         recurrenceDays,
         frequencyDays,
-        repetitionsPerDay: Math.max(1, Math.ceil(customTotalReservations / recurrenceDays.length)),
+        repetitionsPerDay: Math.max(1, Math.ceil(durationWeeks / everyWeeks)),
       };
     }
 
@@ -3443,6 +3461,20 @@ export default function AdminAgendaPlaygroundPage() {
     }
     return `Se crearán ${perCourtCount} turnos.`;
   }, [recurringEstimatedOccurrencesPerCourt, recurringEstimatedOccurrencesTotal, selectedRecurringCourts.length]);
+  /** Fecha del último turno de la serie (null si no tiene fin). */
+  const recurringLastOccurrence = useMemo(() => {
+    const repetitions = Number(recurringExecutionPlan.repetitionsPerDay);
+    if (recurringExecutionPlan.error || !Number.isFinite(repetitions) || repetitions <= 0) return null;
+    const baseDate = new Date(selectedDate);
+    baseDate.setHours(12, 0, 0, 0);
+    let last: Date | null = null;
+    for (const day of recurringExecutionPlan.recurrenceDays) {
+      const candidate = getNextDateForDay(baseDate, day, slotToTime(selectedStartSlot));
+      candidate.setDate(candidate.getDate() + (repetitions - 1) * recurringExecutionPlan.frequencyDays);
+      if (!last || candidate.getTime() > last.getTime()) last = candidate;
+    }
+    return last;
+  }, [recurringExecutionPlan, selectedDate, selectedStartSlot]);
 
   const selectionMinutes = Math.max((selectedEndSlot - selectedStartSlot) * slotMinutes, slotMinutes);
   // Precio por jugador: una modalidad con duración fija (ej. Single 60, Dobles 120) ajusta el fin del turno.
@@ -3609,7 +3641,11 @@ export default function AdminAgendaPlaygroundPage() {
     hasBlockingActionError ||
     !hasDeferredEditChanges
   );
-  const primaryActionLabel = editingBookingId ? 'Guardar cambios' : 'Crear reserva';
+  const primaryActionLabel = editingBookingId
+    ? 'Guardar cambios'
+    : bookingKind === 'block'
+      ? 'Crear bloqueo'
+      : 'Crear reserva';
   const primaryActionMeta = editingBookingId
     ? `${slotToTime(selectedStartSlot)} - ${slotToTime(selectedEndSlot)}`
     : (selectedCourt?.name || 'Sin cancha');
@@ -3894,6 +3930,19 @@ export default function AdminAgendaPlaygroundPage() {
     !drawerRuleSlots ||
     (drawerAllowedDurations.includes((selectedEndSlot - selectedStartSlot) * slotMinutes) &&
       isValidRulePlacement(drawerRuleSlots, selectedStartSlot, selectedEndSlot));
+
+  /** Duraciones que se pueden elegir con un botón para el inicio actual. */
+  const drawerDurationChoices = useMemo(() => {
+    if (!drawerRuleSlots) return [] as Array<{ durationMinutes: number; endSlot: number }>;
+    const byDuration = new Map<number, number>();
+    for (const slot of drawerRuleSlots) {
+      if (slot.startSlot !== selectedStartSlot || !drawerAllowedDurations.includes(slot.durationMinutes)) continue;
+      byDuration.set(slot.durationMinutes, slot.endSlot);
+    }
+    return Array.from(byDuration.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([durationMinutes, endSlot]) => ({ durationMinutes, endSlot }));
+  }, [drawerAllowedDurations, drawerRuleSlots, selectedStartSlot]);
 
   /** Cambiar la hora de inicio mantiene la duración si sigue siendo válida; si no, toma la válida más parecida. */
   const applyDrawerStartSlot = (nextStart: number) => {
@@ -5482,9 +5531,50 @@ export default function AdminAgendaPlaygroundPage() {
     }
 
     if (bookingKind === 'block') return 'Crear bloqueo';
-    if (bookingKind === 'recurringV2') return 'Crear serie recurrente';
-    if (useSimplifiedBookingSidebar) return `Crear reserva para ${simplifiedHeaderDateLabel}`;
+    if (bookingKind === 'recurringV2') return 'Nueva reserva fija';
+    if (useSimplifiedBookingSidebar) return 'Nueva reserva';
     return 'Crear reserva';
+  })();
+  const formatShortDayLabel = (date: Date) =>
+    date
+      .toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
+      .replace(/,/g, '')
+      .replace(/\./g, '');
+  const simplifiedCreateDateLabel = formatShortDayLabel(selectedDate);
+  // Precio por jugador: el total se muestra como "4 × $10.000".
+  const createPlayerCount = Number(
+    drawerCourtRules?.rule?.formats.find((format) => format.id === bookingActivityFormatId)?.playerCount || 0
+  );
+  /** "Repetir todas las semanas": arranca con el día de la reserva, 8 semanas, en su cancha. */
+  const setCreateRepeatEnabled = (enabled: boolean) => {
+    setFormError('');
+    setRecurringResult(null);
+    if (!enabled) {
+      setBookingKind('regular');
+      return;
+    }
+    setRecurringFrequencyPreset('custom');
+    setCustomRecurrenceDays([selectedDate.getDay()]);
+    setCustomRepeatEveryWeeks(1);
+    setCustomEndAfterEnabled(true);
+    setRecurringRepetitions(8);
+    if (selectedCourtId) setRecurringCourtIds([selectedCourtId]);
+    setBookingKind('recurringV2');
+  };
+  const createRepeatSummary = (() => {
+    if (recurringExecutionPlan.error) return recurringExecutionPlan.error;
+    // Primer turno real: el más cercano entre todos los días elegidos.
+    const baseDate = new Date(selectedDate);
+    baseDate.setHours(12, 0, 0, 0);
+    const firstDate = recurringExecutionPlan.recurrenceDays
+      .map((day) => getNextDateForDay(baseDate, day, slotToTime(selectedStartSlot)))
+      .sort((a, b) => a.getTime() - b.getTime())[0] ?? recurringFirstOccurrence;
+    const first = formatShortDayLabel(firstDate);
+    if (!Number.isFinite(recurringEstimatedOccurrencesTotal) || !recurringLastOccurrence) {
+      return `Desde el ${first}, sin fecha de fin.`;
+    }
+    const count = Number(recurringEstimatedOccurrencesTotal);
+    return `Se crean ${count} ${count === 1 ? 'turno' : 'turnos'}: ${first} → ${formatShortDayLabel(recurringLastOccurrence)}.`;
   })();
   const ownerEntries = participants.filter((participant) => participant.isOwner);
   const otherEntries = participants.filter((participant) => !participant.isOwner);
@@ -6306,7 +6396,13 @@ export default function AdminAgendaPlaygroundPage() {
                                       ? editingBooking?.title || 'Reserva'
                                       : bookingKind === 'block'
                                         ? (blockingTitle.trim() || 'Bloqueo')
-                                        : 'Reserva';
+                                        : ownerParticipant?.name.trim() || '';
+                                    const previewDraftLabel =
+                                      !isEditingMovedBookingPreview && bookingKind !== 'block'
+                                        ? bookingKind === 'recurringV2'
+                                          ? 'Nueva reserva fija'
+                                          : 'Nueva reserva'
+                                        : null;
                                     const previewState = isEditingMovedBookingPreview
                                       ? editingBooking?.state || 'pending'
                                       : bookingKind === 'block'
@@ -6331,6 +6427,7 @@ export default function AdminAgendaPlaygroundPage() {
                                         state={previewState}
                                         paymentState={previewPaymentState}
                                         isRecurring={previewIsRecurring}
+                                        draftLabel={previewDraftLabel}
                                       />
                                     );
                                   })()}
@@ -6471,7 +6568,7 @@ export default function AdminAgendaPlaygroundPage() {
                   </div>
                   <div className="px-5 py-5 space-y-4">
                     <div>
-                      <p className="text-[13px] text-p-text-muted mb-2">Days</p>
+                      <p className="text-[13px] text-p-text-muted mb-2">Días</p>
                       <div className="flex flex-wrap gap-2">
                         {(() => {
                           const weekdays = [1, 2, 3, 4, 5];
@@ -7646,7 +7743,7 @@ export default function AdminAgendaPlaygroundPage() {
             )}
 
             <aside
-              className={`absolute inset-y-0 right-0 z-[60] w-full md:max-w-[670px] border-l border-p-border bg-p-surface shadow-2xl transition-transform duration-300 ${
+              className={`absolute inset-y-0 right-0 z-[60] w-full ${editingBookingId ? 'md:max-w-[670px]' : 'md:max-w-[540px]'} border-l border-p-border bg-p-surface shadow-2xl transition-transform duration-300 ${
                 drawerOpen ? 'translate-x-0' : 'translate-x-full'
               }`}
             >
@@ -7832,7 +7929,7 @@ export default function AdminAgendaPlaygroundPage() {
 
                 <div ref={drawerScrollContainerRef} className="flex-1 overflow-y-auto px-3 py-3 lg:px-6 lg:py-6">
                   {useSimplifiedBookingSidebar ? (
-                    <section className="flex flex-col rounded-2xl border border-p-border bg-p-surface px-4 py-4">
+                    <section className={simplifiedIsEditingReservation ? "flex flex-col rounded-2xl border border-p-border bg-p-surface px-4 py-4" : "flex flex-col"}>
                       {showSimplifiedDetailsSection && (simplifiedIsEditingReservation ? (
                         <>
                           <div className="rounded-xl border border-p-border bg-p-surface-2 p-4">
@@ -7937,268 +8034,48 @@ export default function AdminAgendaPlaygroundPage() {
                         </>
                       ) : (
                         <>
-                          <div
-                            data-booking-kind-menu-root="true"
-                            className="relative rounded-xl border border-p-border bg-p-positive-bg px-3 py-2.5 flex items-center justify-between"
-                          >
-                            <div className="inline-flex items-center gap-2 text-[15px] font-medium text-p-accent">
-                              <Clock3 size={16} />
-                              <span>{bookingKind === 'recurringV2' ? 'Serie recurrente' : 'Reserva regular'}</span>
+                          {/* Cuándo: cancha y fecha vienen del clic en la grilla; acá solo se ajustan. */}
+                          <div className="mt-6">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-[15px] font-semibold text-p-text">
+                                {simplifiedSummaryCourtLabel} · {simplifiedCreateDateLabel}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => setCreateCourtPickerOpen((previous) => !previous)}
+                                className="text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
+                              >
+                                {createCourtPickerOpen ? 'Listo' : 'Cambiar cancha'}
+                              </button>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => setBookingKindMenuOpen((previous) => !previous)}
-                              className="text-[14px] font-semibold text-p-accent underline underline-offset-2 hover:text-p-accent"
-                            >
-                              Cambiar tipo
-                            </button>
-                            {bookingKindMenuOpen && (
-                              <div className="absolute right-0 top-[calc(100%+8px)] z-40 w-[360px] max-w-[calc(100vw-2rem)] rounded-2xl border border-p-border bg-p-surface p-2 shadow-xl">
-                                <div className="space-y-1">
-                                  {bookingKindOptions.map((option) => {
-                                    const isLockedForChange = lockedBookingKindChangeValues.has(option.value);
-
-                                    return (
-                                      <button
-                                        key={`simplified-booking-kind-${option.value}`}
-                                        type="button"
-                                        disabled={isLockedForChange}
-                                        onClick={() => {
-                                          if (isLockedForChange) return;
-                                          setBookingKind(option.value);
-                                          setBookingKindMenuOpen(false);
-                                          setFormError('');
-                                        }}
-                                        title={isLockedForChange ? 'No disponible desde Cambiar tipo' : undefined}
-                                        className={`w-full rounded-xl px-3 py-3 text-left transition ${
-                                          option.value === bookingKind
-                                            ? 'bg-p-positive-bg'
-                                            : isLockedForChange
-                                              ? 'cursor-not-allowed opacity-45'
-                                              : 'hover:bg-p-surface-2'
-                                        }`}
-                                      >
-                                        <span className="flex items-start gap-2">
-                                          <option.icon size={17} className="mt-[1px] text-p-text-secondary" />
-                                          <span>
-                                            <span className="block text-[16px] font-bold leading-none text-p-text">{option.label}</span>
-                                            <span className="block mt-1 text-[12px] leading-snug text-p-text-muted">{option.description}</span>
-                                          </span>
-                                        </span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
+                            {(createCourtPickerOpen || courtFieldError) && (
+                              <PlaygroundCombo
+                                value={selectedCourtId}
+                                onChange={(next) => {
+                                  setSelectedCourtId(next);
+                                  setRecurringCourtIds([next]);
+                                  setScheduleInputsDirty(true);
+                                  setFormError('');
+                                  setCreateCourtPickerOpen(false);
+                                }}
+                                options={effectiveCourts.map((court) => ({ value: court.id, label: court.name }))}
+                                className="mt-2"
+                              />
                             )}
-                          </div>
-                          {dateFieldError && (
-                            <p className="mt-2 text-[12px] font-medium text-p-error">{dateFieldError}</p>
-                          )}
+                            {courtFieldError && (
+                              <p className="mt-1 text-[12px] font-medium text-p-error">{courtFieldError}</p>
+                            )}
+                            {dateFieldError && (
+                              <p className="mt-1 text-[12px] font-medium text-p-error">{dateFieldError}</p>
+                            )}
 
-                          {bookingKind === 'recurringV2' ? (
-                            <>
-                              <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
-                                <div className="block">
-                                  <span className="text-[12px] font-medium text-p-text-muted">Día de repetición</span>
-                                  <PlaygroundCombo
-                                    value={String(recurringDayOfWeek)}
-                                    onChange={(nextValue) => {
-                                      setRecurringDayOfWeek(Number(nextValue));
-                                      setRecurringResult(null);
-                                      setFormError('');
-                                    }}
-                                    options={WEEKDAY_OPTIONS.map((option) => ({ value: String(option.value), label: option.label }))}
-                                    className="mt-1"
-                                  />
-                                </div>
-                                <div className="block">
-                                  <span className="text-[12px] font-medium text-p-text-muted">Frecuencia</span>
-                                  <PlaygroundCombo
-                                    value={recurringFrequencyPreset}
-                                    onChange={(nextValue) => {
-                                      const nextPreset = nextValue as RecurringFrequencyPreset;
-                                      setRecurringFrequencyPreset(nextPreset);
-                                      if (nextPreset === 'weekly') {
-                                        setRecurringEveryDays(7);
-                                      } else if (nextPreset === 'biweekly') {
-                                        setRecurringEveryDays(14);
-                                      } else if (nextPreset === 'custom') {
-                                        setCustomRepeatEveryWeeks(Math.max(1, Math.floor(recurringEveryDays / 7) || 1));
-                                        setCustomEndAfterReservations(Math.max(1, recurringRepetitions));
-                                        setCustomEndAfterEnabled(true);
-                                        setCustomRecurrenceDays((previous) => (previous.length > 0 ? previous : [recurringDayOfWeek]));
-                                        setCustomRecurrenceModalOpen(true);
-                                      }
-                                      setRecurringResult(null);
-                                      setFormError('');
-                                    }}
-                                    options={[
-                                      { value: 'weekly', label: 'Semanal' },
-                                      { value: 'biweekly', label: '2 semanas' },
-                                      { value: 'custom', label: 'Personalizado' },
-                                    ]}
-                                    className="mt-1"
-                                  />
-                                </div>
-                                <div className="block">
-                                  <span className="text-[12px] font-medium text-p-text-muted">Hora de inicio</span>
-                                  <PlaygroundCombo
-                                    value={slotToTime(selectedStartSlot)}
-                                    onChange={(nextValue) => {
-                                      const nextStart = timeToSlot(nextValue);
-                                      applyDrawerStartSlot(nextStart);
-                                      setScheduleInputsDirty(true);
-                                      setFormError('');
-                                    }}
-                                    options={drawerStartTimeOptions}
-                                    className="mt-1"
-                                  />
-                                </div>
-                                <div className="block">
-                                  <span className="text-[12px] font-medium text-p-text-muted">Hora de fin</span>
-                                  <PlaygroundCombo
-                                    value={slotToTime(selectedEndSlot)}
-                                    onChange={(nextValue) => {
-                                      const nextEnd = Math.max(timeToSlot(nextValue), selectedStartSlot + 1);
-                                      setSelectedEndSlot(nextEnd);
-                                      setScheduleInputsDirty(true);
-                                      setFormError('');
-                                    }}
-                                    options={drawerEndTimeOptions}
-                                    className="mt-1"
-                                  />
-                                </div>
-                                {timeFieldError && (
-                                  <div className="md:col-span-2">
-                                    <p className="text-[12px] font-medium text-p-error">{timeFieldError}</p>
-                                  </div>
-                                )}
-                              </div>
-
-                              <div className="mt-4">
-                                <p className="text-[12px] font-medium text-p-text-muted">Canchas para la serie</p>
-                                <div ref={recurringCourtsMenuRef} className="relative mt-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => setRecurringCourtsMenuOpen((previous) => !previous)}
-                                    onKeyDown={(event) => {
-                                      if (event.key === 'ArrowDown') {
-                                        event.preventDefault();
-                                        setRecurringCourtsMenuOpen(true);
-                                      }
-                                    }}
-                                    aria-haspopup="listbox"
-                                    aria-expanded={recurringCourtsMenuOpen}
-                                    className={`h-11 w-full rounded-xl border px-3 text-left text-[15px] inline-flex items-center justify-between gap-2 bg-p-surface transition outline-none focus:outline-none focus-visible:ring-2 focus-visible:ring-lima-300/30 focus-visible:ring-offset-0 ${
-                                      recurringCourtsMenuOpen
-                                        ? 'border-p-border ring-2 ring-lima-300/30 text-p-text'
-                                        : 'border-p-border text-p-text hover:border-p-border-strong'
-                                    }`}
-                                  >
-                                    <span className="truncate">{recurringCourtSelectionLabel || 'Seleccionar canchas'}</span>
-                                    <ChevronDown
-                                      size={15}
-                                      className={`text-p-text-muted transition-transform ${recurringCourtsMenuOpen ? 'rotate-180' : ''}`}
-                                    />
-                                  </button>
-                                  {recurringCourtsMenuOpen && (
-                                    <div className="absolute left-0 right-0 mt-2 rounded-xl border border-p-border bg-p-surface shadow-xl z-40 overflow-hidden">
-                                      <label className={`flex cursor-pointer items-center gap-2 px-3 py-2.5 text-[15px] text-p-text transition ${recurringAllCourtsSelected ? 'bg-p-positive-bg' : 'hover:bg-p-surface-2'}`}>
-                                        <input
-                                          type="checkbox"
-                                          className="peer sr-only"
-                                          checked={recurringAllCourtsSelected}
-                                          onChange={(event) => {
-                                            setRecurringCourtIds(event.target.checked ? effectiveCourts.map((court) => court.id) : []);
-                                            setRecurringResult(null);
-                                            setFormError('');
-                                          }}
-                                        />
-                                        <span className="grid h-7 w-7 place-items-center rounded-[10px] border border-p-border bg-p-surface text-[16px] leading-none text-p-accent peer-checked:border-p-accent peer-checked:bg-p-positive-bg">
-                                          {recurringAllCourtsSelected ? <Check size={14} strokeWidth={3} /> : null}
-                                        </span>
-                                        <span className="font-medium">Todas las canchas</span>
-                                      </label>
-                                      <div className="h-px bg-p-surface-3" />
-                                      <div className="max-h-56 overflow-y-auto">
-                                        {effectiveCourts.map((court) => {
-                                          const checked = recurringCourtIds.includes(court.id);
-                                          return (
-                                            <label
-                                              key={`recurring-court-${court.id}`}
-                                              className={`flex cursor-pointer items-center gap-2 px-3 py-2.5 text-[15px] text-p-text transition ${checked ? 'bg-p-positive-bg' : 'hover:bg-p-surface-2'}`}
-                                            >
-                                              <input
-                                                type="checkbox"
-                                                className="peer sr-only"
-                                                checked={checked}
-                                                onChange={(event) => {
-                                                  setRecurringCourtIds((previous) => {
-                                                    if (event.target.checked) {
-                                                      if (previous.includes(court.id)) return previous;
-                                                      return [...previous, court.id];
-                                                    }
-                                                    return previous.filter((id) => id !== court.id);
-                                                  });
-                                                  setRecurringResult(null);
-                                                  setFormError('');
-                                                }}
-                                              />
-                                              <span className="grid h-7 w-7 place-items-center rounded-[10px] border border-p-border bg-p-surface text-[16px] leading-none text-p-accent peer-checked:border-p-accent peer-checked:bg-p-positive-bg">
-                                                {checked ? <Check size={14} strokeWidth={3} /> : null}
-                                              </span>
-                                              <span className="truncate font-medium">{court.name}</span>
-                                            </label>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="mt-4 rounded-xl border border-p-border bg-p-surface px-4 py-3">
-                                {recurringFrequencyPreset === 'custom' && (
-                                  <>
-                                    <div className="flex items-center justify-between gap-3">
-                                      <p className="text-[12px] font-medium text-p-text-muted">Repetición personalizada</p>
-                                      <button
-                                        type="button"
-                                        onClick={() => setCustomRecurrenceModalOpen(true)}
-                                        className="h-9 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-accent hover:bg-p-positive-bg"
-                                      >
-                                        Editar repetición
-                                      </button>
-                                    </div>
-                                    <div className="my-2 h-px bg-p-surface-3" />
-                                  </>
-                                )}
-                                <p className="text-[12px] text-p-text-muted">
-                                  Primera ocurrencia:{' '}
-                                  <strong className="ml-1 text-[14px] font-semibold text-p-text">
-                                    {recurringFirstOccurrence.toLocaleDateString('es-AR', {
-                                      weekday: 'long',
-                                      day: '2-digit',
-                                      month: 'short',
-                                    })}{' '}
-                                    · {slotToTime(selectedStartSlot)} - {slotToTime(selectedEndSlot)}
-                                  </strong>
-                                </p>
-                                <p className="mt-1 text-[12px] text-p-text-muted">
-                                  {recurringCadenceShortSummary} · {recurringCreationCountSummary}
-                                </p>
-                              </div>
-                            </>
-                          ) : (
-                            <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
+                            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-[132px_minmax(0,1fr)]">
                               <div className="block">
-                                <span className="text-[12px] font-medium text-p-text-muted">Hora de inicio</span>
+                                <span className="text-[12px] font-medium text-p-text-muted">Inicio</span>
                                 <PlaygroundCombo
                                   value={slotToTime(selectedStartSlot)}
                                   onChange={(nextValue) => {
-                                    const nextStart = timeToSlot(nextValue);
-                                    applyDrawerStartSlot(nextStart);
+                                    applyDrawerStartSlot(timeToSlot(nextValue));
                                     setScheduleInputsDirty(true);
                                     setFormError('');
                                   }}
@@ -8207,43 +8084,152 @@ export default function AdminAgendaPlaygroundPage() {
                                 />
                               </div>
                               <div className="block">
-                                <span className="text-[12px] font-medium text-p-text-muted">Hora de fin</span>
-                                <PlaygroundCombo
-                                  value={slotToTime(selectedEndSlot)}
-                                  onChange={(nextValue) => {
-                                    const nextEnd = Math.max(timeToSlot(nextValue), selectedStartSlot + 1);
-                                    setSelectedEndSlot(nextEnd);
-                                    setScheduleInputsDirty(true);
-                                    setFormError('');
-                                  }}
-                                  options={drawerEndTimeOptions}
-                                  className="mt-1"
-                                />
-                              </div>
-                              {timeFieldError && (
-                                <div className="md:col-span-2">
-                                  <p className="text-[12px] font-medium text-p-error">{timeFieldError}</p>
-                                </div>
-                              )}
-                              <div className="block">
-                                <span className="text-[12px] font-medium text-p-text-muted">Cancha</span>
-                                <PlaygroundCombo
-                                  value={selectedCourtId}
-                                  onChange={(next) => {
-                                    setSelectedCourtId(next);
-                                    setScheduleInputsDirty(true);
-                                    setFormError('');
-                                  }}
-                                  options={effectiveCourts.map((court) => ({ value: court.id, label: court.name }))}
-                                  className="mt-1"
-                                />
-                                {courtFieldError && (
-                                  <p className="mt-1 text-[12px] font-medium text-p-error">{courtFieldError}</p>
+                                <span className="text-[12px] font-medium text-p-text-muted">Duración</span>
+                                {drawerDurationChoices.length > 0 ? (
+                                  <div className="mt-1 flex flex-wrap gap-2">
+                                    {drawerDurationChoices.map((choice) => {
+                                      const active = selectedEndSlot === choice.endSlot;
+                                      return (
+                                        <button
+                                          key={`create-duration-${choice.durationMinutes}`}
+                                          type="button"
+                                          aria-pressed={active}
+                                          onClick={() => {
+                                            setSelectedEndSlot(choice.endSlot);
+                                            setScheduleInputsDirty(true);
+                                            setFormError('');
+                                          }}
+                                          className={`h-11 rounded-xl border px-4 text-[14px] font-semibold transition ${
+                                            active
+                                              ? 'border-ink-900 bg-ink-900 text-ink-50'
+                                              : 'border-p-border bg-p-surface text-p-text hover:border-p-border-strong'
+                                          }`}
+                                        >
+                                          {formatDurationLabel(choice.durationMinutes)}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <PlaygroundCombo
+                                    value={slotToTime(selectedEndSlot)}
+                                    onChange={(nextValue) => {
+                                      setSelectedEndSlot(Math.max(timeToSlot(nextValue), selectedStartSlot + 1));
+                                      setScheduleInputsDirty(true);
+                                      setFormError('');
+                                    }}
+                                    options={drawerEndTimeOptions}
+                                    className="mt-1"
+                                  />
                                 )}
                               </div>
                             </div>
-                          )}
+                            <p className="mt-2 text-[12px] text-p-text-muted">
+                              De {slotToTime(selectedStartSlot)} a {slotToTime(selectedEndSlot)}
+                            </p>
+                            {timeFieldError && (
+                              <p className="mt-1 text-[12px] font-medium text-p-error">{timeFieldError}</p>
+                            )}
+                          </div>
 
+                          {/* Repetir: una reserva que se repite es la misma reserva con una opción más. */}
+                          <div className="mt-6">
+                            <label className="inline-flex cursor-pointer items-center gap-2.5 text-[14px] font-medium text-p-text">
+                              <input
+                                type="checkbox"
+                                checked={isRecurringKind}
+                                onChange={(event) => setCreateRepeatEnabled(event.target.checked)}
+                                className="h-4 w-4 accent-p-brand"
+                              />
+                              Repetir todas las semanas
+                            </label>
+                            {isRecurringKind && (
+                              <div className="mt-3 space-y-3 border-l-2 border-p-border pl-4">
+                                <div className="flex flex-wrap gap-1.5">
+                                  {CUSTOM_DAY_OPTIONS.map((day) => {
+                                    const active = customRecurrenceDays.includes(day.value);
+                                    return (
+                                      <button
+                                        key={`create-repeat-day-${day.value}`}
+                                        type="button"
+                                        aria-pressed={active}
+                                        onClick={() => {
+                                          setCustomRecurrenceDays((previous) =>
+                                            previous.includes(day.value)
+                                              ? previous.filter((value) => value !== day.value)
+                                              : [...previous, day.value]
+                                          );
+                                          setRecurringResult(null);
+                                          setFormError('');
+                                        }}
+                                        className={`h-9 w-10 rounded-lg border text-[13px] font-semibold transition ${
+                                          active
+                                            ? 'border-ink-900 bg-ink-900 text-ink-50'
+                                            : 'border-p-border bg-p-surface text-p-text-secondary hover:border-p-border-strong'
+                                        }`}
+                                      >
+                                        {day.short}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2 text-[13px] text-p-text-secondary">
+                                  <PlaygroundCombo
+                                    value={String(customRepeatEveryWeeks)}
+                                    onChange={(next) => {
+                                      setCustomRepeatEveryWeeks(Number(next) || 1);
+                                      setRecurringResult(null);
+                                    }}
+                                    options={[
+                                      { value: '1', label: 'Todas las semanas' },
+                                      { value: '2', label: 'Cada 2 semanas' },
+                                    ]}
+                                    compact
+                                    className="min-w-[170px]"
+                                  />
+                                  <span>durante</span>
+                                  <PlaygroundCombo
+                                    value={customEndAfterEnabled ? String(recurringRepetitions) : 'none'}
+                                    onChange={(next) => {
+                                      if (next === 'none') {
+                                        setCustomEndAfterEnabled(false);
+                                      } else {
+                                        setCustomEndAfterEnabled(true);
+                                        setRecurringRepetitions(Number(next) || 8);
+                                      }
+                                      setRecurringResult(null);
+                                    }}
+                                    options={[
+                                      { value: '4', label: '4 semanas' },
+                                      { value: '8', label: '8 semanas' },
+                                      { value: '12', label: '12 semanas' },
+                                      { value: '16', label: '16 semanas' },
+                                      { value: '24', label: '24 semanas' },
+                                      { value: 'none', label: 'Sin fecha de fin' },
+                                    ]}
+                                    compact
+                                    className="min-w-[150px]"
+                                  />
+                                </div>
+                                <p className="text-[13px] text-p-text-secondary">{createRepeatSummary}</p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Bloquear no es un tipo de reserva: es otra acción sobre el mismo horario. */}
+                          {!isRecurringKind && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormError('');
+                                setBookingKind('block');
+                              }}
+                              className="mt-6 inline-flex items-center gap-1.5 self-start text-[13px] font-medium text-p-text-muted hover:text-p-text"
+                            >
+                              <Lock size={13} />
+                              Bloquear este horario en vez de reservar
+                            </button>
+                          )}
                         </>
                       ))}
 
@@ -8475,8 +8461,8 @@ export default function AdminAgendaPlaygroundPage() {
                       />
 
                       {/* Al crear, lo primero es quién reserva: horario y cancha ya vienen del clic en la grilla. */}
-                      <section className={simplifiedIsEditingReservation ? 'mt-4' : 'order-first mb-4'}>
-                        <div className="rounded-xl border border-p-border bg-p-surface-2 p-4">
+                      <section className={simplifiedIsEditingReservation ? 'mt-4' : 'order-first'}>
+                        <div className={simplifiedIsEditingReservation ? 'rounded-xl border border-p-border bg-p-surface-2 p-4' : ''}>
                           <div className="flex items-center justify-between gap-3">
                             <p className="text-[18px] font-semibold text-p-text">
                               {simplifiedIsEditingReservation || simplifiedOwnerAdded ? 'Participantes' : '¿Quién reserva?'}
@@ -8816,9 +8802,7 @@ export default function AdminAgendaPlaygroundPage() {
                                           <span className="block truncate text-[14px] font-semibold text-p-text">{suggestion.label}</span>
                                           {(suggestion.secondary || (Array.isArray(suggestion.badges) && suggestion.badges.length > 0)) && (
                                             <span className="mt-0.5 block truncate text-[12px] text-p-text-muted">
-                                              {[suggestion.secondary, ...(Array.isArray(suggestion.badges) ? suggestion.badges : [])]
-                                                .filter(Boolean)
-                                                .join(' · ')}
+                                              {describeOwnerSuggestion(suggestion.secondary, suggestion.badges)}
                                             </span>
                                           )}
                                         </button>
@@ -9227,6 +9211,24 @@ export default function AdminAgendaPlaygroundPage() {
                     </section>
                   ) : (
                     <>
+                  {bookingKind === 'block' && !editingBookingId ? (
+                    <div className="mb-6 flex items-center justify-between gap-3">
+                      <p className="text-[15px] font-semibold text-p-text">
+                        {selectedCourt?.name || 'Cancha'} · {slotToTime(selectedStartSlot)} a {slotToTime(selectedEndSlot)}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormError('');
+                          setBookingKind('regular');
+                        }}
+                        className="text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
+                      >
+                        Volver a reserva
+                      </button>
+                    </div>
+                  ) : bookingKind === 'block' ? null : (
+                  <>
                   <section className="mb-6 rounded-xl border border-p-border bg-p-surface-2 px-4 py-3">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-[14px] font-semibold text-p-text">Checklist operativo</p>
@@ -9279,6 +9281,8 @@ export default function AdminAgendaPlaygroundPage() {
                       </div>
                     </div>
                   </section>
+                  </>
+                  )}
                   {bookingKind === 'block' ? (
                     <>
                       <section className="pb-6 border-b border-p-border">
@@ -9729,6 +9733,11 @@ export default function AdminAgendaPlaygroundPage() {
                             <p className="text-[18px] font-bold leading-tight tabular-nums text-p-text">
                               {createQuoteLoading ? '…' : createQuoteTotal != null ? formatMoney(createQuoteTotal) : '—'}
                             </p>
+                            {!createQuoteLoading && createQuoteTotal != null && createPlayerCount > 1 && (
+                              <p className="text-[11px] tabular-nums text-p-text-muted">
+                                {createPlayerCount} × {formatMoney(createQuoteTotal / createPlayerCount)}
+                              </p>
+                            )}
                           </div>
                         ) : (
                           <span />
@@ -9785,7 +9794,13 @@ export default function AdminAgendaPlaygroundPage() {
                               disabled={primaryActionDisabled}
                               className="h-11 flex-1 sm:h-10 sm:flex-none sm:min-w-[170px] rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-50"
                             >
-                              {editingBookingId ? 'Guardar cambios' : 'Crear reserva'}
+                              {editingBookingId
+                                ? 'Guardar cambios'
+                                : isRecurringKind && Number.isFinite(recurringEstimatedOccurrencesTotal)
+                                  ? `Crear ${Number(recurringEstimatedOccurrencesTotal)} turnos`
+                                  : isRecurringKind
+                                    ? 'Crear reserva fija'
+                                    : 'Crear reserva'}
                             </button>
                           )}
                         </div>
