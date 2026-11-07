@@ -26,7 +26,18 @@ const ACCOUNT_LABEL: Record<string, string> = {
   DISABLED: 'App deshabilitada'
 };
 
-// Clientes > Padrón: listado de socios con estado, categoría, vencimiento y estado de la cuenta de la app.
+/** "2026-11-05" → "5 nov" (con año si no es el actual). */
+const formatRosterDate = (value: string | null | undefined): string => {
+  if (!value) return '';
+  const date = new Date(`${String(value).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return String(value);
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date
+    .toLocaleDateString('es-AR', { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) })
+    .replace(/\./g, '');
+};
+
+// Clientes > Socios: listado de socios con estado, categoría, vencimiento y estado de la cuenta de la app.
 export default function MembersRosterPanel({ clubSlug, onSelectClient }: MembersRosterPanelProps) {
   const [membersEnabled, setMembersEnabled] = useState<boolean | null>(null);
   const [categories, setCategories] = useState<MemberCategory[]>([]);
@@ -164,10 +175,17 @@ export default function MembersRosterPanel({ clubSlug, onSelectClient }: Members
                 <td className="px-3 py-2 text-p-text-secondary">{item.client.dni || '—'}</td>
                 <td className="px-3 py-2 text-p-text-secondary">{item.categoryName}</td>
                 <td className="px-3 py-2">
-                  <MemberBadge member={item} />
-                  {!item.isCurrent ? <span className="ml-1 text-[12px] text-p-text-muted">{MEMBER_STATUS_LABELS[item.status]}</span> : null}
+                  {item.status === 'ACTIVE' ? (
+                    item.isCurrent ? (
+                      <span className="text-[12px] font-semibold text-p-positive">Al día</span>
+                    ) : (
+                      <span className="text-[12px] font-semibold text-p-warning">Cuota vencida</span>
+                    )
+                  ) : (
+                    <span className="text-[12px] font-semibold text-p-text-muted">{MEMBER_STATUS_LABELS[item.status]}</span>
+                  )}
                 </td>
-                <td className="px-3 py-2 text-p-text-secondary">{item.validUntil || '—'}</td>
+                <td className="px-3 py-2 text-p-text-secondary">{item.validUntil ? formatRosterDate(item.validUntil) : 'Sin vencimiento'}</td>
                 <td className="px-3 py-2 text-p-text-secondary">{item.appAccount ? ACCOUNT_LABEL[item.appAccount.status] : 'Sin cuenta'}</td>
               </tr>
             ))}

@@ -305,6 +305,7 @@ export default function AdminClientesPlayground2Page() {
   /** Lista de clientes: Todos, los que deben o los socios. */
   const [clientsListFilter, setClientsListFilter] = useState<'ALL' | 'DEBT' | 'MEMBERS'>('ALL');
   const [clientMenuOpen, setClientMenuOpen] = useState(false);
+  const [reviewCount, setReviewCount] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
 
   const [clients, setClients] = useState<any[]>([]);
@@ -640,6 +641,24 @@ export default function AdminClientesPlayground2Page() {
     if (!authChecked || !user || !hasAdminAccess(user)) return;
     void loadClients();
   }, [authChecked, user, loadClients]);
+
+  useEffect(() => {
+    if (!authChecked || !user || !hasAdminAccess(user)) return;
+    if (activeView === 'incidents') return;
+    const slug = resolveClubSlug();
+    if (!slug) return;
+    let cancelled = false;
+    Promise.all([
+      ClubAdminService.listClientDuplicateIncidents(slug, { status: 'OPEN' }).catch(() => []),
+      ClubAdminService.listClientIdentityIncidents(slug, { status: 'REVIEW_REQUIRED,SUGGESTED_LINK', limit: 80 }).catch(() => []),
+    ]).then(([duplicates, identity]) => {
+      if (cancelled) return;
+      setReviewCount((Array.isArray(duplicates) ? duplicates.length : 0) + (Array.isArray(identity) ? identity.length : 0));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView, authChecked, user, resolveClubSlug]);
 
   const clientsWithOpenDebt = useMemo(
     () => clients.filter((client) => Number(client?.totalDebt || 0) > EPSILON),
@@ -1159,151 +1178,25 @@ export default function AdminClientesPlayground2Page() {
                 onChange={(nextView) => setActiveView(nextView as ClientsView)}
                 options={[
                   { value: 'directory', label: 'Clientes' },
-                  { value: 'debt', label: 'Cuentas y deuda' },
-                  { value: 'members', label: 'Padrón' },
-                  { value: 'incidents', label: 'Incidentes' },
+                  { value: 'members', label: 'Socios' },
                 ]}
                 className="w-fit"
               />
 
+              {activeView === 'directory' && reviewCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveView('incidents')}
+                  className="w-full rounded-xl bg-p-warning-bg px-4 py-3 text-left text-[14px] text-p-warning"
+                >
+                  <span className="font-semibold">
+                    {reviewCount === 1 ? 'Hay 1 cliente para revisar' : `Hay ${reviewCount} clientes para revisar`}
+                  </span>{' '}
+                  (posibles repetidos o cuentas de la app sin unir). Revisar →
+                </button>
+              )}
+
               <div className="min-h-0 flex-1 overflow-hidden">
-                {activeView === 'debt' && (
-                  <div className="grid h-full grid-cols-1 gap-4 xl:grid-cols-[360px_1fr]">
-                    {/* Left: debtor list with search + count badge */}
-                    <article className={`flex min-h-0 flex-col rounded-xl border border-p-border bg-p-surface ${selectedClient ? 'max-lg:hidden' : ''}`}>
-                      <div className="p-4 pb-3">
-                        <div className="flex items-center justify-between">
-                          <h2 className="text-[13px] font-semibold text-p-text">Clientes con deuda</h2>
-                          <span className="rounded-full border border-p-error bg-p-error-bg px-2 py-0.5 text-[11px] font-semibold text-p-error">
-                            {clientsWithOpenDebt.length}
-                          </span>
-                        </div>
-                        <div className="relative mt-3">
-                          <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                          <input
-                            type="text"
-                            value={debtSearchTerm}
-                            onChange={(event) => setDebtSearchTerm(event.target.value)}
-                            placeholder="Buscar deudor..."
-                            className="h-8 w-full rounded-xl border border-p-border bg-p-surface-2 pl-9 pr-3 text-[12px] outline-none focus:border-p-accent"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="min-h-0 flex-1 overflow-auto border-t border-p-border">
-                        {loading ? (
-                          <div className="p-6 text-center text-[13px] text-p-text-muted">Cargando...</div>
-                        ) : debtFilteredClients.length === 0 ? (
-                          <div className="p-6 text-center text-[13px] text-p-text-muted">
-                            {debtSearchTerm ? 'Sin resultados.' : 'No hay clientes con deuda.'}
-                          </div>
-                        ) : (
-                          <ul className="divide-y divide-p-border">
-                            {debtFilteredClients.map((client) => {
-                              const pendingCount = (Array.isArray(client.history) ? client.history : []).filter(
-                                (a: any) => Number(a?.amount || 0) > EPSILON
-                              ).length;
-                              return (
-                                <li key={String(client.id)}>
-                                  <button
-                                    type="button"
-                                    onClick={() => setSelectedClientId(String(client.id))}
-                                    className={`w-full min-h-[46px] px-3 py-3 text-left transition ${
-                                      String(selectedClientId) === String(client.id) ? 'bg-p-positive-bg' : 'hover:bg-p-surface-2'
-                                    }`}
-                                  >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <p className="truncate text-[13px] font-semibold text-p-text">{getClientName(client)}</p>
-                                      {pendingCount > 0 && (
-                                        <span className="flex-none rounded-full bg-p-error-bg px-1.5 py-0.5 text-[10px] font-bold text-p-error">
-                                          {pendingCount}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <p className="text-[12px] font-semibold text-p-error">{formatMoney(Number(client.totalDebt || 0))}</p>
-                                  </button>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        )}
-                      </div>
-                    </article>
-
-                    {/* Right: pending accounts for selected debtor */}
-                    <article className={`flex min-h-0 flex-col rounded-xl border border-p-border bg-p-surface ${selectedClient ? '' : 'max-lg:hidden'}`}>
-                      {selectedClient && (
-                        <div className="px-4 pt-3 lg:hidden">
-                          <button
-                          type="button"
-                          onClick={() => setSelectedClientId('')}
-                          className="mb-1 inline-flex items-center gap-1 text-[12px] font-bold text-p-accent lg:hidden"
-                        >
-                          <ChevronLeft size={15} />
-                          Volver a la lista
-                        </button>
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between p-4 pb-3">
-                        <h2 className="text-[13px] font-semibold text-p-text">Cuentas pendientes</h2>
-                        {selectedClient && (
-                          <span className="text-[12px] font-semibold text-p-text">{getClientName(selectedClient)}</span>
-                        )}
-                      </div>
-
-                      <div className="min-h-0 flex-1 overflow-auto border-t border-p-border p-4">
-                        {!selectedClient ? (
-                          <div className="rounded-xl border border-p-border p-8 text-center text-[13px] text-p-text-muted">
-                            Selecciona un cliente para ver su deuda.
-                          </div>
-                        ) : selectedDebtorPendingEntries.length === 0 ? (
-                          <div className="rounded-xl border border-p-border p-8 text-center text-[13px] text-p-text-muted">
-                            Este cliente no tiene cuentas pendientes.
-                          </div>
-                        ) : (
-                          <div className="space-y-3">
-                            {selectedDebtorPendingEntries.map((account: any) => (
-                              <div key={String(account.id)} className="rounded-xl border border-p-border bg-p-surface p-4">
-                                <div className="flex flex-wrap items-start justify-between gap-2">
-                                  <div>
-                                    <p className="text-[13px] font-semibold text-p-text">
-                                      {formatAccountSourceType(account.sourceType)}{' '}
-                                      <span className="font-normal text-p-text-muted">#{shortId(account.id)}</span>
-                                    </p>
-                                    <p className="mt-0.5 text-[12px] text-p-text-muted">
-                                      {formatDate(account.date)}{account.time ? ` · ${account.time}` : ''}
-                                    </p>
-                                  </div>
-                                  <span className="rounded-full border border-p-error bg-p-error-bg px-2.5 py-1 text-[12px] font-bold text-p-error">
-                                    {formatMoney(Number(account.amount || 0))}
-                                  </span>
-                                </div>
-                                <div className="mt-3 flex items-center justify-end gap-2 border-t border-p-border pt-3">
-                                  <button
-                                    type="button"
-                                    onClick={() => openAccountDrawer(String(account.id), 'overview')}
-                                    className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
-                                  >
-                                    <Search size={12} />
-                                    Ver detalle
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => openAccountDrawer(String(account.id), 'payment')}
-                                    className="h-8 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 hover:bg-ink-900"
-                                  >
-                                    <span className="inline-flex items-center gap-1"><DollarSign size={13} /> Cobrar</span>
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </article>
-                  </div>
-                )}
-
                 {activeView === 'directory' && (
                   <div className="grid h-full grid-cols-1 gap-4 lg:grid-cols-[400px_minmax(0,1fr)]">
                     {/* Left: client list with search + debt badge */}
@@ -1709,6 +1602,14 @@ export default function AdminClientesPlayground2Page() {
 
                 {activeView === 'incidents' && (
                   <div className="h-full overflow-auto">
+                    <button
+                      type="button"
+                      onClick={() => setActiveView('directory')}
+                      className="mb-3 inline-flex items-center gap-1 text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
+                    >
+                      <ChevronLeft size={15} />
+                      Volver a clientes
+                    </button>
                     <AdminDuplicateIncidents preferredIdentityClientId={selectedClientId || null} />
                   </div>
                 )}
