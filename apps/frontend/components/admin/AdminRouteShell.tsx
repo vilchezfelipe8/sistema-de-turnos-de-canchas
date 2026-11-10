@@ -8,6 +8,7 @@ import { getPendingLogoutRedirect } from '../../services/AuthService';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
 import { getActiveClubSlug, hasAdminAccess, hasOperatorAccess } from '../../utils/session';
 import AdminPlaygroundShell from './AdminPlaygroundShell';
+import AdminNoAccessScreen from './AdminNoAccessScreen';
 import { CLUB_LOCKED_SIDEBAR_ITEMS } from './playgroundNavigation';
 
 type AdminRouteShellProps = {
@@ -56,7 +57,9 @@ export default function AdminRouteShell({
   const canAccess = requiredAccess === 'operator' ? hasOperatorAccess(user) : hasAdminAccess(user);
 
   if (!canAccess) {
-    return <NotFound message="No tenes permiso para acceder al panel de administracion." />;
+    // Staff del club: se queda en el panel y ve qué puede usar. Resto: fuera del panel.
+    if (hasOperatorAccess(user)) return <AdminNoAccessScreen user={user} activeItem={activeItem} title={title} />;
+    return <NotFound title="Sin acceso" message="Tu usuario no tiene acceso al panel del club." />;
   }
 
   return (

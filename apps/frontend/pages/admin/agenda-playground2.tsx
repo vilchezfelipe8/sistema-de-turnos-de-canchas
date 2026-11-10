@@ -1853,6 +1853,11 @@ export default function AdminAgendaPlaygroundPage() {
   }, []);
   const openBookingInDrawer = useCallback((booking: Booking) => {
     if (booking.state === 'class' && booking.classInfo) {
+      // Staff no entra a Academia: le mostramos la clase acá.
+      if (!hasAdminAccess(user)) {
+        setClassPeekBooking(booking);
+        return;
+      }
       void router.push(`/admin/academia?tab=clases&clase=${encodeURIComponent(booking.classInfo.classSessionId)}`);
       return;
     }
@@ -1899,7 +1904,7 @@ export default function AdminAgendaPlaygroundPage() {
     setDrawerOpen(true);
     setScheduleInputsDirty(false);
     setFormError('');
-  }, [resetConsumptionsDraft, resolveParticipantsForBooking, router]);
+  }, [resetConsumptionsDraft, resolveParticipantsForBooking, router, user]);
   const closeRecurringResultModal = useCallback(() => {
     setRecurringOverlapModalOpen(false);
     setPendingRecurringEditBooking((pendingBooking) => {
@@ -7082,20 +7087,22 @@ export default function AdminAgendaPlaygroundPage() {
                       </p>
                     ) : null}
                     <p className="text-[13px] text-p-text-muted">
-                      La cancha queda ocupada por la clase. Alumnos, asistencia y cobros se manejan en Academia.
+                      {hasAdminAccess(user)
+                        ? 'La cancha queda ocupada por la clase. Alumnos, asistencia y cobros se manejan en Academia.'
+                        : 'La cancha queda ocupada por la clase. Alumnos, asistencia y cobros los maneja la administración.'}
                     </p>
                   </div>
                 ) : null
               }
-              cancelText="Cerrar"
-              confirmText="Ver en Academia"
-              onConfirm={() => {
+              cancelText={hasAdminAccess(user) ? 'Cerrar' : ''}
+              confirmText={hasAdminAccess(user) ? 'Ver en Academia' : 'Cerrar'}
+              onConfirm={hasAdminAccess(user) ? () => {
                 const target = classPeekBooking;
                 setClassPeekBooking(null);
                 if (target?.classInfo) {
                   void router.push(`/admin/academia?tab=clases&clase=${encodeURIComponent(target.classInfo.classSessionId)}`);
                 }
-              }}
+              } : undefined}
             />
 
             {bookingHoverPreview && !draggingBookingId && !draggingBookingMeta && !isDragging && (

@@ -32,6 +32,7 @@ import MemberBadge from '../../components/admin/members/MemberBadge';
 import MembersRosterPanel from '../../components/admin/members/MembersRosterPanel';
 import { AdminDrawer, AdminDrawerSection, AdminFeedbackBanner, AdminFilterToolbar, AdminInlineError, AdminSegmentedControl } from '../../components/admin/ui';
 import NotFound from '../../components/NotFound';
+import AdminNoAccessScreen from '../../components/admin/AdminNoAccessScreen';
 import RouteTransitionScreen from '../../components/RouteTransitionScreen';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
 import { getPendingLogoutRedirect } from '../../services/AuthService';
@@ -41,7 +42,7 @@ import type { AdminAcademyStudentListItem } from '../../services/ClubAdminServic
 import { formatDateTime24 } from '../../utils/dateTime';
 import { getApiErrorMeta, getApiFieldErrors, normalizeApiError } from '../../utils/apiError';
 import { showAdminToast } from '../../utils/adminToast';
-import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser } from '../../utils/session';
+import { getActiveClubSlug, hasAdminAccess, hasOperatorAccess, normalizeSessionUser } from '../../utils/session';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import AccountDrawer, {
   type AccountDrawerContext,
@@ -1319,7 +1320,8 @@ export default function AdminClientesPlayground2Page() {
   }
 
   if (!hasAdminAccess(user)) {
-    return <NotFound message="No tenes permiso para acceder al panel de administracion." />;
+    if (hasOperatorAccess(user)) return <AdminNoAccessScreen user={user} activeItem="Clientes" title="Clientes | Pique Admin" />;
+    return <NotFound title="Sin acceso" message="Tu usuario no tiene acceso al panel del club." />;
   }
 
   return (
