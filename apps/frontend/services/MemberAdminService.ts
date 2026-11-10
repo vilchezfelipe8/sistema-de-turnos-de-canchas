@@ -119,7 +119,7 @@ export const MemberAdminService = {
       'No se pudo actualizar la categoría.'
     ),
 
-  listMembers: (slug: string, params: { status?: ClubMemberStatus; categoryId?: string; q?: string; page?: number; pageSize?: number }) => {
+  listMembers: (slug: string, params: { status?: ClubMemberStatus; currentness?: 'CURRENT' | 'EXPIRED'; categoryId?: string; q?: string; page?: number; pageSize?: number }) => {
     const search = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null && String(value).trim() !== '') search.set(key, String(value));

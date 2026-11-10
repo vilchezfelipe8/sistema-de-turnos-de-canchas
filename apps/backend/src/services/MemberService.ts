@@ -257,12 +257,29 @@ export class MemberService {
   async listMembers(input: {
     clubId: number;
     status?: ClubMemberStatus;
+    /** CURRENT: activo y al día. EXPIRED: activo pero con la cuota vencida (o categoría desactivada). */
+    currentness?: 'CURRENT' | 'EXPIRED';
     categoryId?: string;
     q?: string;
     page?: number;
     pageSize?: number;
   }) {
     const page = Math.max(1, Math.floor(input.page || 1));
+    const todayKey = localDateKey(new Date(), await this.clubTimeZone(input.clubId));
+    const today = new Date(`${todayKey}T00:00:00.000Z`);
+    const currentnessWhere: Prisma.ClubMemberWhereInput =
+      input.currentness === 'CURRENT'
+        ? {
+            status: 'ACTIVE',
+            category: { isActive: true },
+            OR: [{ validUntil: null }, { validUntil: { gte: today } }]
+          }
+        : input.currentness === 'EXPIRED'
+          ? {
+              status: 'ACTIVE',
+              OR: [{ validUntil: { lt: today } }, { category: { isActive: false } }]
+            }
+          : {};
     const pageSize = Math.min(200, Math.max(1, Math.floor(input.pageSize || 50)));
     const q = String(input.q || '').trim();
     const qDigits = q.replace(/\D/g, '');
@@ -270,6 +287,7 @@ export class MemberService {
     const where: Prisma.ClubMemberWhereInput = {
       clubId: input.clubId,
       ...(input.status ? { status: input.status } : {}),
+      ...(input.currentness ? { AND: [currentnessWhere] } : {}),
       ...(input.categoryId ? { categoryId: input.categoryId } : {}),
       ...(q
         ? {
@@ -282,7 +300,6 @@ export class MemberService {
         : {})
     };
 
-    const todayKey = localDateKey(new Date(), await this.clubTimeZone(input.clubId));
     const [total, rows] = await Promise.all([
       prisma.clubMember.count({ where }),
       prisma.clubMember.findMany({

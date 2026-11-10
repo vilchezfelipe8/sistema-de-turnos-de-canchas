@@ -3,6 +3,7 @@ import { MoreHorizontal } from 'lucide-react';
 import AdminModal from '../ui/AdminModal';
 import { AdminFeedbackBanner } from '../ui/AdminFeedback';
 import MemberBadge from './MemberBadge';
+import MemberRenewModal from './MemberRenewModal';
 import {
   MEMBER_STATUS_LABELS,
   MemberAdminService,
@@ -18,6 +19,8 @@ type ClientMemberPanelProps = {
   clubSlug: string;
   clientId: string;
   clientHasDni: boolean;
+  /** Para los textos de renovar cuota. */
+  clientName?: string;
   // Solo ADMIN/OWNER modifican el padrón (RN-09). STAFF solo puede generar códigos (RN-10).
   canManage: boolean;
   // Avisa al listado para refrescar el badge.
@@ -72,7 +75,7 @@ const todayKey = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-export default function ClientMemberPanel({ clubSlug, clientId, clientHasDni, canManage, onChanged }: ClientMemberPanelProps) {
+export default function ClientMemberPanel({ clubSlug, clientId, clientHasDni, clientName, canManage, onChanged }: ClientMemberPanelProps) {
   const [detail, setDetail] = useState<ClientMemberDetail | null>(null);
   const [categories, setCategories] = useState<MemberCategory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -85,6 +88,7 @@ export default function ClientMemberPanel({ clubSlug, clientId, clientHasDni, ca
   const [history, setHistory] = useState<MemberHistoryEntry[] | null>(null);
   const [issuedCode, setIssuedCode] = useState<{ code: string; expiresAt: string } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [renewOpen, setRenewOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!clubSlug || !clientId) return;
@@ -305,6 +309,18 @@ export default function ClientMemberPanel({ clubSlug, clientId, clientHasDni, ca
                 Hacerlo socio
               </button>
             ) : null}
+            {canManage && member && member.status === 'ACTIVE' ? (
+              <button
+                type="button"
+                className={expired
+                  ? 'inline-flex h-8 items-center rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 hover:bg-ink-800 disabled:opacity-50'
+                  : 'text-[13px] font-semibold text-p-accent hover:underline underline-offset-2 disabled:opacity-50'}
+                disabled={submitting}
+                onClick={() => setRenewOpen(true)}
+              >
+                Renovar cuota
+              </button>
+            ) : null}
             {canManage && member ? (
               <button
                 type="button"
@@ -379,6 +395,21 @@ export default function ClientMemberPanel({ clubSlug, clientId, clientHasDni, ca
           </ul>
         ) : null}
       </div>
+
+      {member ? (
+        <MemberRenewModal
+          open={renewOpen}
+          clubSlug={clubSlug}
+          clientId={clientId}
+          clientName={clientName || 'el socio'}
+          validUntil={member.validUntil}
+          onClose={() => setRenewOpen(false)}
+          onRenewed={() => {
+            void load();
+            onChanged?.();
+          }}
+        />
+      ) : null}
 
       <AdminModal
         open={formMode !== null}

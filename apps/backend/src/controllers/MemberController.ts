@@ -101,6 +101,7 @@ export class MemberController {
     try {
       const parsed = z.object({
         status: z.enum(['ACTIVE', 'SUSPENDED', 'INACTIVE']).optional(),
+        currentness: z.enum(['CURRENT', 'EXPIRED']).optional(),
         categoryId: z.string().trim().min(1).optional(),
         q: z.string().trim().max(120).optional(),
         page: z.preprocess((v) => (v == null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),

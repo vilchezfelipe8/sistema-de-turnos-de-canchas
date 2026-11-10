@@ -1832,6 +1832,7 @@ export default function AdminClientesPlayground2Page() {
                                 key={`member-${String(selectedClient.id)}-${memberPanelVersion}`}
                                 clubSlug={resolveClubSlug() || ''}
                                 clientId={String(selectedClient.id)}
+                                clientName={getClientName(selectedClient)}
                                 clientHasDni={Boolean(String(selectedClient.dni || '').replace(/\D/g, ''))}
                                 canManage={hasAdminAccess(user)}
                                 onChanged={() => void loadClients()}
@@ -1902,6 +1903,7 @@ export default function AdminClientesPlayground2Page() {
                   <div className="h-full overflow-auto">
                     <MembersRosterPanel
                       clubSlug={resolveClubSlug() || ''}
+                      canManage={hasAdminAccess(user)}
                       onSelectClient={(clientId) => {
                         setSelectedClientId(clientId);
                         setActiveView('directory');
