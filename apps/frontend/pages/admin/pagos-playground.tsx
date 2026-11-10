@@ -597,6 +597,10 @@ const formatMovementConcept = (movement: any) => {
   return rawConcept;
 };
 
+const CASH_EXPENSE_PRESETS = ['Proveedor', 'Sueldos', 'Limpieza', 'Mantenimiento', 'Retiro del dueño'];
+const CASH_INCOME_PRESETS = ['Cambio para la caja', 'Aporte del dueño', 'Alquiler de espacio'];
+const CASH_MOVEMENT_PRESETS = [...CASH_EXPENSE_PRESETS, ...CASH_INCOME_PRESETS];
+
 const formatMovementSlot = (iso: string | null | undefined): string => {
   if (!iso) return '';
   const d = new Date(iso);
@@ -777,11 +781,15 @@ export default function AdminPaymentsPlaygroundPage() {
   });
   const [cashCloseShiftForm, setCashCloseShiftForm] = useState({ countedCash: '' });
   const [cashNewMovement, setCashNewMovement] = useState({
-    type: 'INCOME' as 'INCOME' | 'EXPENSE',
+    type: 'EXPENSE' as 'INCOME' | 'EXPENSE',
     description: '',
     amount: '',
     method: 'CASH' as 'CASH' | 'TRANSFER' | 'CARD',
   });
+  // El aviso de error se va apenas se corrige algo.
+  useEffect(() => {
+    setCashMovementError('');
+  }, [cashNewMovement.amount, cashNewMovement.description, cashNewMovement.type, cashSidebarView]);
 
   // POS — Venta mostrador (Fase 1.6)
   const [posProducts, setPosProducts] = useState<PosItem[]>([]);
@@ -1388,11 +1396,11 @@ export default function AdminPaymentsPlaygroundPage() {
       return;
     }
     if (cashNewMovement.description.trim().length < 3) {
-      setCashMovementError('Describe el movimiento con al menos 3 caracteres.');
+      setCashMovementError('Escribí en qué se usó la plata (o tocá una opción).');
       return;
     }
     if (!Number.isFinite(amount) || amount <= 0) {
-      setCashMovementError('Ingresa un monto valido mayor a 0.');
+      setCashMovementError('Poné cuánta plata fue.');
       return;
     }
 
@@ -1404,8 +1412,8 @@ export default function AdminPaymentsPlaygroundPage() {
         type: cashNewMovement.type,
         method: cashNewMovement.method,
       });
-      setCashNewMovement({ type: 'INCOME', description: '', amount: '', method: 'CASH' });
-      showAdminToast('Movimiento registrado correctamente.');
+      setCashNewMovement({ type: 'EXPENSE', description: '', amount: '', method: 'CASH' });
+      showAdminToast(cashNewMovement.type === 'EXPENSE' ? 'Egreso anotado.' : 'Ingreso anotado.');
       setCashSidebarView('none');
       await loadCashSummary();
     } catch (movementError) {
@@ -3240,7 +3248,7 @@ export default function AdminPaymentsPlaygroundPage() {
             : cashSidebarView === 'close_shift'
               ? 'Cerrar caja'
               : cashSidebarView === 'movement_create'
-                ? 'Registrar movimiento'
+                ? 'Ingreso o egreso'
                 : cashSidebarView === 'close_report'
                   ? 'Cierres de caja'
                   : cashSidebarView === 'product_sale'
@@ -3253,11 +3261,11 @@ export default function AdminPaymentsPlaygroundPage() {
             : cashSidebarView === 'close_shift'
               ? 'Mirá qué pasó en el turno, contá el efectivo y anotá cuánto hay.'
               : cashSidebarView === 'movement_create'
-                ? 'Crea ingresos o egresos sin saturar la vista principal.'
+                ? 'Plata que entra o sale de la caja sin ser un cobro: un pago a un proveedor, cambio para el cajón…'
                 : cashSidebarView === 'close_report'
                   ? 'Lo que se contó en cada cierre.'
                   : cashSidebarView === 'product_sale'
-                    ? 'Seleccioná productos y creá la cuenta para cobrar.'
+                    ? 'Tocá lo que lleva y cobrá. El medio de pago se elige en el paso siguiente.'
                     : undefined
         }
         statusChip={cashCurrentShift ? 'Caja abierta' : 'Caja cerrada'}
@@ -3306,7 +3314,7 @@ export default function AdminPaymentsPlaygroundPage() {
                 className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Plus size={14} />
-                {submittingCashMovement ? 'Registrando...' : 'Registrar movimiento'}
+                {submittingCashMovement ? 'Guardando...' : cashNewMovement.type === 'EXPENSE' ? 'Anotar egreso' : 'Anotar ingreso'}
               </button>
             )}
 
@@ -3318,7 +3326,7 @@ export default function AdminPaymentsPlaygroundPage() {
                 className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <CreditCard size={14} />
-                {posSubmitting ? 'Creando cuenta...' : 'Crear cuenta y cobrar'}
+                {posSubmitting ? 'Preparando...' : posQuote && posQuote.finalTotal > 0 ? `Cobrar ${formatMoney(posQuote.finalTotal)}` : 'Cobrar'}
               </button>
             )}
           </div>
@@ -3423,81 +3431,111 @@ export default function AdminPaymentsPlaygroundPage() {
 
         {cashSidebarView === 'movement_create' && (
           <form id="cash-new-movement-form" className="space-y-5" onSubmit={handleCreateMovement}>
-            <AdminDrawerSection title="Tipo" className={drawerSectionCardClass}>
-              <div className="grid grid-cols-2 gap-2">
+            {cashMovementError && (
+              <div className="rounded-xl border border-p-error bg-p-error-bg px-3 py-2 text-[12px] text-p-error">{cashMovementError}</div>
+            )}
+            {!cashCurrentShift && (
+              <p className="rounded-xl bg-p-surface-2 px-3 py-2 text-[12px] text-p-text-muted">Abrí la caja para anotar ingresos o egresos.</p>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { id: 'EXPENSE', label: 'Sale plata', hint: 'Pago, compra, retiro', active: 'border-p-error bg-p-error-bg text-p-error' },
+                { id: 'INCOME', label: 'Entra plata', hint: 'Cambio, aporte', active: 'border-p-positive bg-p-positive-bg text-p-positive' },
+              ] as const).map((option) => (
                 <button
+                  key={option.id}
                   type="button"
-                  onClick={() => setCashNewMovement((prev) => ({ ...prev, type: 'INCOME' }))}
-                  className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border text-[12px] font-semibold ${
-                    cashNewMovement.type === 'INCOME'
-                      ? 'border-p-positive bg-p-positive-bg text-p-positive'
-                      : 'border-p-border bg-p-surface text-p-text-secondary'
-                  }`}
-                >
-                  <Plus size={12} />
-                  Ingreso
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCashNewMovement((prev) => ({ ...prev, type: 'EXPENSE' }))}
-                  className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border text-[12px] font-semibold ${
-                    cashNewMovement.type === 'EXPENSE'
-                      ? 'border-p-error bg-p-error-bg text-p-error'
-                      : 'border-p-border bg-p-surface text-p-text-secondary'
-                  }`}
-                >
-                  <X size={12} />
-                  Egreso
-                </button>
-              </div>
-            </AdminDrawerSection>
-
-            <AdminDrawerSection title="Detalle" className={drawerSectionCardClass}>
-              <label className="block">
-                <span className="text-[12px] font-medium text-p-text-secondary">Concepto</span>
-                <input
-                  type="text"
-                  value={cashNewMovement.description}
-                  onChange={(event) => setCashNewMovement((prev) => ({ ...prev, description: event.target.value }))}
-                  className="mt-1 h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent"
-                  placeholder="Descripción del movimiento"
-                />
-              </label>
-
-              <label className="mt-3 block">
-                <span className="text-[12px] font-medium text-p-text-secondary">Monto</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={cashNewMovement.amount}
-                  onChange={(event) => setCashNewMovement((prev) => ({ ...prev, amount: event.target.value }))}
-                  className="mt-1 h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent"
-                  placeholder="0"
-                />
-              </label>
-            </AdminDrawerSection>
-
-            <AdminDrawerSection title="Método" className={drawerSectionCardClass}>
-              <label className="block">
-                <span className="text-[12px] font-medium text-p-text-secondary">Método</span>
-                <select
-                  value={cashNewMovement.method}
-                  onChange={(event) =>
-                    setCashNewMovement((prev) => ({ ...prev, method: event.target.value as 'CASH' | 'TRANSFER' | 'CARD' }))
+                  aria-pressed={cashNewMovement.type === option.id}
+                  onClick={() =>
+                    setCashNewMovement((prev) => ({
+                      ...prev,
+                      type: option.id,
+                      // Una opción rápida del otro tipo no tiene sentido acá.
+                      description: CASH_MOVEMENT_PRESETS.includes(prev.description) ? '' : prev.description,
+                    }))
                   }
-                  className="mt-1 h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent"
+                  className={`rounded-xl border px-3 py-2.5 text-left ${
+                    cashNewMovement.type === option.id ? option.active : 'border-p-border bg-p-surface text-p-text-secondary hover:bg-p-surface-2'
+                  }`}
                 >
-                  <option value="CASH">Efectivo</option>
-                  <option value="TRANSFER">Transferencia</option>
-                  <option value="CARD">Tarjeta</option>
-                </select>
-              </label>
+                  <span className="block text-[14px] font-bold">{option.label}</span>
+                  <span className="block text-[11px] opacity-80">{option.hint}</span>
+                </button>
+              ))}
+            </div>
 
-              {!cashCurrentShift && (
-                <p className="mt-3 text-[12px] text-p-text-muted">Abrí caja para habilitar movimientos.</p>
+            <div>
+              <p className="text-[12px] font-semibold text-p-text-secondary">¿Para qué?</p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {(cashNewMovement.type === 'EXPENSE' ? CASH_EXPENSE_PRESETS : CASH_INCOME_PRESETS).map((concept) => (
+                  <button
+                    key={concept}
+                    type="button"
+                    aria-pressed={cashNewMovement.description === concept}
+                    onClick={() => setCashNewMovement((prev) => ({ ...prev, description: concept }))}
+                    className={`h-8 rounded-lg px-3 text-[12px] font-semibold ${
+                      cashNewMovement.description === concept
+                        ? 'bg-ink-900 text-ink-50'
+                        : 'bg-p-surface-2 text-p-text-secondary hover:brightness-95'
+                    }`}
+                  >
+                    {concept}
+                  </button>
+                ))}
+              </div>
+              <input
+                type="text"
+                value={cashNewMovement.description}
+                onChange={(event) => setCashNewMovement((prev) => ({ ...prev, description: event.target.value }))}
+                className="mt-2 h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent"
+                placeholder={cashNewMovement.type === 'EXPENSE' ? 'O escribí: compra de pelotas, luz…' : 'O escribí de dónde vino'}
+                aria-label="Para qué"
+              />
+            </div>
+
+            <label className="block">
+              <span className="text-[12px] font-semibold text-p-text-secondary">¿Cuánto?</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={cashNewMovement.amount}
+                onChange={(event) => setCashNewMovement((prev) => ({ ...prev, amount: event.target.value }))}
+                className="mt-1 h-12 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[18px] font-semibold tabular-nums text-p-text outline-none focus:border-p-accent"
+                placeholder="0"
+              />
+            </label>
+
+            <div>
+              <p className="text-[12px] font-semibold text-p-text-secondary">¿Cómo?</p>
+              <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+                {([
+                  { id: 'CASH', label: 'Efectivo' },
+                  { id: 'TRANSFER', label: 'Transferencia' },
+                  { id: 'CARD', label: 'Tarjeta' },
+                ] as const).map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    aria-pressed={cashNewMovement.method === option.id}
+                    onClick={() => setCashNewMovement((prev) => ({ ...prev, method: option.id }))}
+                    className={`h-9 rounded-lg text-[12px] font-semibold ${
+                      cashNewMovement.method === option.id
+                        ? 'bg-ink-900 text-ink-50'
+                        : 'border border-p-border bg-p-surface text-p-text-secondary hover:bg-p-surface-2'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              {cashNewMovement.method === 'CASH' && (
+                <p className="mt-1.5 text-[11px] text-p-text-muted">
+                  {cashNewMovement.type === 'EXPENSE' ? 'Se descuenta del efectivo del cajón.' : 'Se suma al efectivo del cajón.'}
+                </p>
               )}
-            </AdminDrawerSection>
+            </div>
           </form>
         )}
 
@@ -3595,123 +3633,148 @@ export default function AdminPaymentsPlaygroundPage() {
               </p>
             </AdminDrawerSection>
 
-            {/* Productos y Servicios */}
-            <AdminDrawerSection title="Ítems" className={drawerSectionCardClass}>
-              <div className="space-y-2">
-                {posItems.map((item, index) => {
-                  const selectedProduct = (() => {
-                    if (!item.productId.includes(':')) return undefined;
-                    const [itemType, itemIdStr] = item.productId.split(':');
-                    const itemId = Number(itemIdStr);
-                    return posProducts.find((p) => p.type === itemType && p.id === itemId);
-                  })();
-                  const isService = selectedProduct?.type === 'service';
-                  const stock = (selectedProduct && !isService) ? selectedProduct.stock : null;
-                  const qty = Number(item.quantity) || 0;
-                  const stockOver = stock !== null && stock > 0 && qty > stock;
-                  const stockEmpty = stock === 0;
-                  const stockBorderClass = !isService && (stockEmpty || stockOver)
-                    ? 'border-p-error'
-                    : !isService && selectedProduct && stock !== null && stock <= 3
-                    ? 'border-amber-300'
-                    : 'border-p-border';
-
-                  return (
-                    <div
-                      key={index}
-                      className={`rounded-xl border bg-p-surface-2 ${stockBorderClass} transition-colors`}
-                    >
-                      {/* Fila principal: select + qty */}
-                      <div className="flex items-center gap-2 p-2">
-                        <select
-                          value={item.productId}
-                          onChange={(event) => {
-                            const next = [...posItems];
-                            next[index] = { ...next[index], productId: event.target.value };
-                            setPosItems(next);
-                            setPosError('');
-                          }}
-                          disabled={posSubmitting || posLoadingProducts}
-                          className="h-9 min-w-0 flex-1 rounded-lg border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent disabled:opacity-60"
-                        >
-                          <option value="">{posLoadingProducts ? 'Cargando...' : 'Seleccionar ítem'}</option>
-                          {posProducts.filter((p) => p.type === 'product').length > 0 && (
-                            <optgroup label="Productos">
-                              {posProducts.filter((p) => p.type === 'product').map((product) => (
-                                <option key={`product:${product.id}`} value={`product:${product.id}`} disabled={product.stock === 0}>
-                                  {product.name} — {formatMoney(product.price)}{product.stock === 0 ? ' (sin stock)' : ''}
-                                </option>
-                              ))}
-                            </optgroup>
-                          )}
-                          {posProducts.filter((p) => p.type === 'service').length > 0 && (
-                            <optgroup label="Servicios">
-                              {posProducts.filter((p) => p.type === 'service').map((service) => (
-                                <option key={`service:${service.id}`} value={`service:${service.id}`}>
-                                  {service.name} — {formatMoney(service.price)}
-                                </option>
-                              ))}
-                            </optgroup>
-                          )}
-                        </select>
-                        <input
-                          type="number"
-                          min="1"
-                          step="1"
-                          value={item.quantity}
-                          onChange={(event) => {
-                            const next = [...posItems];
-                            next[index] = { ...next[index], quantity: event.target.value };
-                            setPosItems(next);
-                            setPosError('');
-                          }}
-                          disabled={posSubmitting}
-                          className="h-9 w-14 shrink-0 rounded-lg border border-p-border bg-p-surface px-2 text-center text-[13px] text-p-text outline-none focus:border-p-accent disabled:opacity-60"
-                          placeholder="1"
-                        />
-                        {posItems.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => setPosItems((prev) => prev.filter((_, i) => i !== index))}
-                            disabled={posSubmitting}
-                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-p-border bg-p-surface text-p-text-muted transition hover:bg-p-error-bg hover:text-p-error disabled:opacity-60"
-                          >
-                            <X size={13} />
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Footer del card: stock (solo para productos) */}
-                      {selectedProduct && !isService && (
-                        <div className="flex items-center gap-2 border-t border-p-border px-3 py-1.5">
-                          {stockEmpty ? (
-                            <span className="text-[11px] font-medium text-p-error">Sin stock — no se puede vender</span>
-                          ) : stockOver ? (
-                            <>
-                              <span className="text-[11px] font-medium text-p-error">Stock insuficiente</span>
-                              <span className="text-[11px] text-p-text-muted">· solo hay {stock}</span>
-                            </>
-                          ) : stock !== null && stock <= 3 ? (
-                            <span className="text-[11px] font-medium text-amber-600">Stock bajo · {stock} {stock === 1 ? 'disponible' : 'disponibles'}</span>
-                          ) : (
-                            <span className="text-[11px] text-p-text-muted">{stock} disponibles en stock</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
+            {/* Productos y servicios: tocar suma uno */}
+            <AdminDrawerSection title="¿Qué lleva?" className={drawerSectionCardClass}>
+              {(() => {
+                const qtyOf = (key: string) =>
+                  posItems.filter((i) => i.productId === key).reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
+                const addOne = (key: string) => {
+                  setPosError('');
+                  setPosItems((prev) => {
+                    const clean = prev.filter((i) => i.productId);
+                    const idx = clean.findIndex((i) => i.productId === key);
+                    if (idx >= 0) {
+                      const next = [...clean];
+                      next[idx] = { ...next[idx], quantity: String((Number(next[idx].quantity) || 0) + 1) };
+                      return next;
+                    }
+                    return [...clean, { productId: key, quantity: '1' }];
+                  });
+                };
+                const removeOne = (key: string) => {
+                  setPosError('');
+                  setPosItems((prev) =>
+                    prev
+                      .filter((i) => i.productId)
+                      .flatMap((i) =>
+                        i.productId !== key
+                          ? [i]
+                          : (Number(i.quantity) || 0) > 1
+                            ? [{ ...i, quantity: String((Number(i.quantity) || 0) - 1) }]
+                            : []
+                      )
                   );
-                })}
+                };
+                const chosen = posItems
+                  .filter((i) => i.productId)
+                  .map((i) => {
+                    const [itemType, itemId] = i.productId.split(':');
+                    return {
+                      key: i.productId,
+                      qty: Number(i.quantity) || 0,
+                      product: posProducts.find((p) => p.type === itemType && p.id === Number(itemId)),
+                    };
+                  })
+                  .filter((row) => row.product && row.qty > 0);
+                const sections = [
+                  { label: 'Productos', rows: posProducts.filter((p) => p.type === 'product') },
+                  { label: 'Servicios', rows: posProducts.filter((p) => p.type === 'service') },
+                ].filter((section) => section.rows.length > 0);
+                return (
+                  <div className="space-y-3">
+                    {posLoadingProducts && <p className="text-[12px] text-p-text-muted">Cargando productos...</p>}
+                    {!posLoadingProducts && sections.length === 0 && (
+                      <p className="text-[12px] text-p-text-muted">No hay productos cargados. Se cargan en Tienda.</p>
+                    )}
+                    {sections.map((section) => (
+                      <div key={section.label}>
+                        {sections.length > 1 && (
+                          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-p-text-muted">{section.label}</p>
+                        )}
+                        <div className="grid grid-cols-2 gap-2">
+                          {section.rows.map((product) => {
+                            const key = `${product.type}:${product.id}`;
+                            const qty = qtyOf(key);
+                            const stock = product.type === 'product' ? product.stock : null;
+                            const soldOut = stock === 0;
+                            const atLimit = stock !== null && stock > 0 && qty >= stock;
+                            return (
+                              <button
+                                key={key}
+                                type="button"
+                                onClick={() => addOne(key)}
+                                disabled={posSubmitting || soldOut || atLimit}
+                                className={`relative min-h-[64px] rounded-xl border px-3 py-2 text-left transition disabled:cursor-not-allowed ${
+                                  qty > 0
+                                    ? 'border-ink-900 bg-p-surface'
+                                    : 'border-p-border bg-p-surface hover:bg-p-surface-2'
+                                } ${soldOut ? 'opacity-50' : ''}`}
+                              >
+                                <span className="block pr-6 text-[13px] font-semibold leading-tight text-p-text">{product.name}</span>
+                                <span className="mt-0.5 block text-[12px] tabular-nums text-p-text-secondary">{formatMoney(product.price)}</span>
+                                {stock !== null && (
+                                  <span
+                                    className={`block text-[11px] ${
+                                      soldOut || atLimit ? 'text-p-error' : stock <= 3 ? 'text-amber-600' : 'text-p-text-muted'
+                                    }`}
+                                  >
+                                    {soldOut ? 'Sin stock' : atLimit ? `No hay más (${stock})` : stock <= 3 ? `Quedan ${stock}` : `${stock} en stock`}
+                                  </span>
+                                )}
+                                {qty > 0 && (
+                                  <span className="absolute right-2 top-2 grid h-6 min-w-6 place-items-center rounded-full bg-ink-900 px-1.5 text-[12px] font-bold text-ink-50">
+                                    {qty}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
 
-                <button
-                  type="button"
-                  onClick={() => setPosItems((prev) => [...prev, { productId: '', quantity: '1' }])}
-                  disabled={posSubmitting}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-medium text-p-text-secondary transition hover:bg-p-surface-2 disabled:opacity-60"
-                >
-                  <Plus size={12} />
-                  Agregar ítem
-                </button>
-              </div>
+                    {chosen.length > 0 && (
+                      <div className="rounded-xl border border-p-border">
+                        <p className="border-b border-p-border px-3 py-2 text-[12px] font-semibold text-p-text-secondary">Lleva</p>
+                        <ul className="divide-y divide-p-border">
+                          {chosen.map((row) => (
+                            <li key={row.key} className="flex items-center gap-2 px-3 py-2 text-[13px]">
+                              <span className="min-w-0 flex-1 truncate text-p-text">{row.product?.name}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeOne(row.key)}
+                                disabled={posSubmitting}
+                                aria-label={`Sacar uno de ${row.product?.name}`}
+                                className="grid h-7 w-7 place-items-center rounded-lg border border-p-border text-p-text-secondary hover:bg-p-surface-2"
+                              >
+                                −
+                              </button>
+                              <span className="w-5 text-center font-semibold tabular-nums">{row.qty}</span>
+                              <button
+                                type="button"
+                                onClick={() => addOne(row.key)}
+                                disabled={
+                                  posSubmitting ||
+                                  (row.product?.type === 'product' &&
+                                    row.product.stock !== null &&
+                                    row.qty >= Number(row.product.stock))
+                                }
+                                aria-label={`Sumar uno de ${row.product?.name}`}
+                                className="grid h-7 w-7 place-items-center rounded-lg border border-p-border text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-40"
+                              >
+                                +
+                              </button>
+                              <span className="w-20 text-right font-semibold tabular-nums text-p-text">
+                                {formatMoney(Number(row.product?.price || 0) * row.qty)}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Total real del quote (con descuentos si aplica) */}
               {(posQuoteLoading || posQuote) && (
@@ -3742,10 +3805,6 @@ export default function AdminPaymentsPlaygroundPage() {
               )}
             </AdminDrawerSection>
 
-            {/* Aviso de siguiente paso */}
-            <div className="rounded-xl border border-p-border bg-p-surface-2 px-3 py-2.5 text-[12px] text-p-text-muted">
-              Al crear la cuenta podrás elegir el método de pago (efectivo, transferencia, tarjeta) desde el flujo de cobro.
-            </div>
 
             {/* Error */}
             {posError && (
