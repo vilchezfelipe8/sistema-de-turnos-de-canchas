@@ -243,6 +243,17 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
   const [overviewError, setOverviewError] = useState('');
   const studentsRequestRef = useRef(0);
   const overviewRequestRef = useRef(0);
+  // Desde la ficha del cliente: /admin/academia?tab=alumnos&alumno=<clientId>
+  const studentFromUrlHandledRef = useRef(false);
+  useEffect(() => {
+    if (studentFromUrlHandledRef.current || typeof window === 'undefined' || students.length === 0) return;
+    const fromUrl = new URLSearchParams(window.location.search).get('alumno');
+    studentFromUrlHandledRef.current = true;
+    if (!fromUrl || !students.some((row) => String(row.client.id) === fromUrl)) return;
+    setStudentFilter('all');
+    setStudentDrawerTab('summary');
+    setSelectedStudentId(fromUrl);
+  }, [students]);
 
   const loadStudents = useCallback(
     async (query?: string) => {

@@ -36,6 +36,7 @@ import { useValidateAuth } from '../../hooks/useValidateAuth';
 import { getPendingLogoutRedirect } from '../../services/AuthService';
 import { ClientService, type ClientIdentityAuditEntry } from '../../services/ClientService';
 import { ClubAdminService, type PersonSearchResult } from '../../services/ClubAdminService';
+import type { AdminAcademyStudentListItem } from '../../services/ClubAdminService';
 import { formatDateTime24 } from '../../utils/dateTime';
 import { getApiErrorMeta, getApiFieldErrors, normalizeApiError } from '../../utils/apiError';
 import { showAdminToast } from '../../utils/adminToast';
@@ -124,6 +125,35 @@ const formatClientLastBooking = (iso: string | null | undefined): string => {
   if (days > 1 && days < 7) return `hace ${days} días`;
   return date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace(/\./g, '');
 };
+/** Última vez que vino de verdad (reserva pasada no cancelada). */
+const AWAY_DAYS = 30;
+const getClientLastPlayedAt = (client: any): Date | null => {
+  const rows = Array.isArray(client?.bookings) ? client.bookings : [];
+  const now = Date.now();
+  let best: Date | null = null;
+  rows.forEach((entry: any) => {
+    if (String(entry?.bookingStatus || entry?.status || '').toUpperCase() === 'CANCELLED') return;
+    const iso = entry?.startDateTime || (entry?.date ? `${String(entry.date).slice(0, 10)}T${entry?.time || '00:00'}:00` : null);
+    if (!iso) return;
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime()) || date.getTime() > now) return;
+    if (!best || date.getTime() > best.getTime()) best = date;
+  });
+  return best;
+};
+const isClientAway = (client: any): boolean => {
+  const last = getClientLastPlayedAt(client);
+  return Boolean(last && Date.now() - last.getTime() > AWAY_DAYS * 86_400_000);
+};
+const formatAcademySlot = (iso: string | null | undefined): string => {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const day = date.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/[.,]/g, '');
+  const time = date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  return `${day} · ${time}`;
+};
+
 type ClientActionSidebarView = 'none' | 'client_create' | 'client_edit' | 'client_profile' | 'client_delete';
 type ClientSearchRow = {
   id: string;
@@ -339,7 +369,7 @@ export default function AdminClientesPlayground2Page() {
 
   const [activeView, setActiveView] = useState<ClientsView>('directory');
   /** Lista de clientes: Todos, los que deben o los socios. */
-  const [clientsListFilter, setClientsListFilter] = useState<'ALL' | 'DEBT' | 'MEMBERS'>('ALL');
+  const [clientsListFilter, setClientsListFilter] = useState<'ALL' | 'DEBT' | 'MEMBERS' | 'AWAY'>('ALL');
   const [clientMenuOpen, setClientMenuOpen] = useState(false);
   const [reviewCount, setReviewCount] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
@@ -701,6 +731,37 @@ export default function AdminClientesPlayground2Page() {
     [clients]
   );
 
+  // Alumnos de Academia (solo los que tienen clases, packs o vínculos).
+  const [academyStudents, setAcademyStudents] = useState<AdminAcademyStudentListItem[]>([]);
+  useEffect(() => {
+    const slug = resolveClubSlug();
+    if (!slug) return;
+    let cancelled = false;
+    ClubAdminService.getAcademyStudents(slug)
+      .then((rows) => {
+        if (!cancelled) setAcademyStudents(rows);
+      })
+      .catch((error) => {
+        reportUiError({ area: 'ClientesPlayground2', action: 'loadAcademyStudents' }, error);
+      });
+    const onAcademyChanged = () => {
+      ClubAdminService.getAcademyStudents(slug)
+        .then((rows) => {
+          if (!cancelled) setAcademyStudents(rows);
+        })
+        .catch(() => undefined);
+    };
+    window.addEventListener('academy:changed', onAcademyChanged);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('academy:changed', onAcademyChanged);
+    };
+  }, [resolveClubSlug]);
+  const academyStudentsByClientId = useMemo(
+    () => new Map(academyStudents.map((row) => [String(row.client.id), row])),
+    [academyStudents]
+  );
+
   const filteredClients = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     if (!q) return clients;
@@ -716,6 +777,12 @@ export default function AdminClientesPlayground2Page() {
   const listedClients = useMemo(() => {
     if (clientsListFilter === 'DEBT') return filteredClients.filter((client) => Number(client?.totalDebt || 0) > EPSILON);
     if (clientsListFilter === 'MEMBERS') return filteredClients.filter((client) => Boolean(client?.member));
+    if (clientsListFilter === 'AWAY') {
+      // Los que hace más tiempo que no vienen, primero.
+      return filteredClients
+        .filter(isClientAway)
+        .sort((a, b) => (getClientLastPlayedAt(a)?.getTime() || 0) - (getClientLastPlayedAt(b)?.getTime() || 0));
+    }
     return filteredClients;
   }, [clientsListFilter, filteredClients]);
 
@@ -1315,18 +1382,19 @@ export default function AdminClientesPlayground2Page() {
                             className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
                           />
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className="-mx-1 flex items-center gap-1 overflow-x-auto px-1">
                           {([
                             { id: 'ALL', label: 'Todos' },
                             { id: 'DEBT', label: clientsWithOpenDebt.length > 0 ? `Deben (${clientsWithOpenDebt.length})` : 'Deben' },
                             { id: 'MEMBERS', label: 'Socios' },
-                          ] as Array<{ id: 'ALL' | 'DEBT' | 'MEMBERS'; label: string }>).map((option) => (
+                            { id: 'AWAY', label: 'No vienen' },
+                          ] as Array<{ id: 'ALL' | 'DEBT' | 'MEMBERS' | 'AWAY'; label: string }>).map((option) => (
                             <button
                               key={`clients-filter-${option.id}`}
                               type="button"
                               aria-pressed={clientsListFilter === option.id}
                               onClick={() => setClientsListFilter(option.id)}
-                              className={`h-8 rounded-lg px-3 text-[13px] font-semibold transition ${
+                              className={`h-8 shrink-0 rounded-lg px-3 text-[13px] font-semibold transition ${
                                 clientsListFilter === option.id ? 'bg-ink-900 text-ink-50' : 'text-p-text-secondary hover:bg-p-surface-2'
                               }`}
                             >
@@ -1335,7 +1403,12 @@ export default function AdminClientesPlayground2Page() {
                           ))}
                         </div>
                       </div>
-                      <div className="min-h-0 flex-1 overflow-auto border-t border-p-border">
+                          <div className="min-h-0 flex-1 overflow-auto border-t border-p-border">
+                        {clientsListFilter === 'AWAY' && !loading && listedClients.length > 0 && (
+                          <p className="border-b border-p-border bg-p-surface-2 px-4 py-2 text-[12px] text-p-text-muted">
+                            Vinieron alguna vez pero no en los últimos {AWAY_DAYS} días. Buen momento para escribirles.
+                          </p>
+                        )}
                         {loading ? (
                           <div className="p-6 text-center text-[13px] text-p-text-muted">Cargando...</div>
                         ) : listedClients.length === 0 ? (
@@ -1346,14 +1419,18 @@ export default function AdminClientesPlayground2Page() {
                                 ? 'Nadie debe nada.'
                                 : clientsListFilter === 'MEMBERS'
                                   ? 'No hay socios cargados.'
-                                  : 'Todavía no hay clientes.'}
+                                  : clientsListFilter === 'AWAY'
+                                    ? `Todos vinieron en los últimos ${AWAY_DAYS} días.`
+                                    : 'Todavía no hay clientes.'}
                           </div>
                         ) : (
                           <ul className="divide-y divide-p-border">
                             {listedClients.map((client) => {
                               const debt = Number(client?.totalDebt || 0);
                               const isSelected = String(selectedClientId) === String(client.id);
-                              const lastBooking = formatClientLastBooking(client?.lastBookingAt);
+                              const lastPlayedAt = getClientLastPlayedAt(client);
+                              const lastBooking = lastPlayedAt ? formatClientLastBooking(lastPlayedAt.toISOString()) : '';
+                              const academyStudent = academyStudentsByClientId.get(String(client.id));
                               const contact = String(client.phone || client.email || '').trim();
                               return (
                                 <li key={String(client.id)}>
@@ -1366,12 +1443,18 @@ export default function AdminClientesPlayground2Page() {
                                     }`}
                                   >
                                     <div className="min-w-0">
-                                      <div className="flex items-center gap-2">
-                                        <p className="truncate text-[14px] font-semibold text-p-text">{getClientName(client)}</p>
-                                        <MemberBadge member={client.member} />
+                                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                        <p className="max-w-full truncate text-[14px] font-semibold text-p-text">{getClientName(client)}</p>
+                                        <MemberBadge member={client.member} className="flex-none whitespace-nowrap" />
+                                        {academyStudent && (
+                                          <span className="flex-none rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-900">Alumno</span>
+                                        )}
+                                        {client.isProfessor && (
+                                          <span className="flex-none rounded-full bg-p-surface-3 px-2 py-0.5 text-[11px] font-semibold text-p-text-secondary">Profesor</span>
+                                        )}
                                       </div>
                                       <p className="truncate text-[12px] text-p-text-muted">
-                                        {[contact, lastBooking ? `última reserva ${lastBooking}` : 'sin reservas'].filter(Boolean).join(' · ')}
+                                        {[contact, lastBooking ? `vino ${lastBooking}` : 'todavía no vino'].filter(Boolean).join(' · ')}
                                       </p>
                                     </div>
                                     {debt > EPSILON && (
@@ -1684,6 +1767,64 @@ export default function AdminClientesPlayground2Page() {
                                 </div>
                               )}
                             </div>
+
+                            {/* Academia */}
+                            {(() => {
+                              const student = academyStudentsByClientId.get(String(selectedClient.id));
+                              if (!student && !selectedClient.isProfessor) return null;
+                              const linkClass = 'text-[13px] font-semibold text-p-accent hover:underline';
+                              return (
+                                <div className="border-t border-p-border pt-5">
+                                  <div className="flex items-baseline justify-between gap-3">
+                                    <p className="text-[13px] font-semibold text-p-text">Academia</p>
+                                    {student ? (
+                                      <button
+                                        type="button"
+                                        className={linkClass}
+                                        onClick={() =>
+                                          void router.push({ pathname: '/admin/academia', query: { tab: 'alumnos', alumno: String(selectedClient.id) } })
+                                        }
+                                      >
+                                        Ver como alumno →
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        className={linkClass}
+                                        onClick={() => void router.push({ pathname: '/admin/academia', query: { tab: 'profesores' } })}
+                                      >
+                                        Ver profesores →
+                                      </button>
+                                    )}
+                                  </div>
+                                  {student ? (
+                                    <ul className="mt-2 space-y-1.5 text-[13px]">
+                                      <li className="flex justify-between gap-3">
+                                        <span className="text-p-text-muted">Próxima clase</span>
+                                        <span className="text-right font-semibold text-p-text">
+                                          {student.nextClassAt ? formatAcademySlot(student.nextClassAt) : 'No está anotado'}
+                                        </span>
+                                      </li>
+                                      <li className="flex justify-between gap-3">
+                                        <span className="text-p-text-muted">Clases a favor</span>
+                                        <span className={`text-right font-semibold ${Number(student.summary.totalRemainingCredits || 0) > 0 ? 'text-p-accent' : 'text-p-text'}`}>
+                                          {Number(student.summary.totalRemainingCredits || 0) > 0
+                                            ? `${student.summary.totalRemainingCredits} ${Number(student.summary.totalRemainingCredits) === 1 ? 'clase' : 'clases'}`
+                                            : 'Ninguna'}
+                                        </span>
+                                      </li>
+                                      <li className="flex justify-between gap-3">
+                                        <span className="text-p-text-muted">Clases tomadas</span>
+                                        <span className="text-right font-semibold text-p-text">{Number(student.summary.pastEnrollmentsCount || 0)}</span>
+                                      </li>
+                                    </ul>
+                                  ) : null}
+                                  {selectedClient.isProfessor && (
+                                    <p className="mt-2 text-[13px] text-p-text-muted">Da clases en el club.</p>
+                                  )}
+                                </div>
+                              );
+                            })()}
 
                             {/* Socio */}
                             <div className="border-t border-p-border pt-5">
