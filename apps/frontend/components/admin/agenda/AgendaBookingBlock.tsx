@@ -1,7 +1,7 @@
 import type { CSSProperties, MouseEventHandler, ReactNode } from 'react';
 import { Repeat, Check } from 'lucide-react';
 
-type BookingState = 'pending' | 'confirmed' | 'completed' | 'blocked';
+type BookingState = 'pending' | 'confirmed' | 'completed' | 'blocked' | 'class';
 type PaymentState = 'paid' | 'partial' | 'unpaid';
 
 type BlockContentVisibility = {
@@ -28,6 +28,8 @@ type AgendaBookingBlockProps = {
   participantsCount?: number;
   sportLabel?: string;
   hasPendingNotification?: boolean;
+  /** Reemplaza la etiqueta de pago (ej: clases). */
+  badgeLabel?: string;
   isConflict?: boolean;
   conflictLabel?: string;
   className?: string;
@@ -68,6 +70,7 @@ export default function AgendaBookingBlock({
   participantsCount = 0,
   sportLabel = '',
   hasPendingNotification = false,
+  badgeLabel,
   isConflict = false,
   conflictLabel = 'Superposicion',
   className,
@@ -82,8 +85,9 @@ export default function AgendaBookingBlock({
   const debtAmount = typeof remainingAmount === 'number' ? remainingAmount : totalAmount;
   const showAmountPill = paymentState !== 'paid' && typeof debtAmount === 'number' && debtAmount > 0;
   // Una sola etiqueta que se lee de un vistazo: pagado, o cuánto falta cobrar.
-  const paymentLabel =
-    state === 'blocked'
+  const paymentLabel = badgeLabel
+    ? badgeLabel
+    : state === 'blocked'
       ? 'Bloqueado'
       : paymentState === 'paid'
       ? 'Pagado'
@@ -124,10 +128,14 @@ export default function AgendaBookingBlock({
             <div className="mb-1 flex items-center gap-1">
               <span
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-[3px] text-[11px] font-extrabold leading-none ${
-                  state === 'blocked' ? 'bg-ink-900/80 text-ink-50' : paymentStatePillClass(paymentState)
+                  state === 'blocked'
+                    ? 'bg-ink-900/80 text-ink-50'
+                    : state === 'class'
+                      ? 'bg-sky-700 text-white'
+                      : paymentStatePillClass(paymentState)
                 }`}
               >
-                {state !== 'blocked' && paymentState === 'paid' && <Check size={12} className="shrink-0" />}
+                {state !== 'blocked' && state !== 'class' && paymentState === 'paid' && <Check size={12} className="shrink-0" />}
                 {paymentLabel}
               </span>
               {isRecurring && (

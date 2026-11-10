@@ -1,5 +1,5 @@
 import type { GetServerSideProps } from 'next';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Pencil, Plus, Search, UserPlus, XCircle } from 'lucide-react';
 import {
   AcademyEmptyState,
@@ -1178,6 +1178,20 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     () => classSessions.find((row) => row.id === selectedClassId) || null,
     [classSessions, selectedClassId]
   );
+
+  // Desde la agenda se llega con ?clase=<id>: se abre esa clase una sola vez.
+  const classFromUrlHandledRef = useRef(false);
+  useEffect(() => {
+    if (classFromUrlHandledRef.current || typeof window === 'undefined' || classSessions.length === 0) return;
+    const fromUrl = new URLSearchParams(window.location.search).get('clase');
+    classFromUrlHandledRef.current = true;
+    if (!fromUrl) return;
+    const target = classSessions.find((row) => row.id === fromUrl);
+    if (!target) return;
+    if (classIsPast(target) || !['DRAFT', 'SCHEDULED', 'CONFIRMED'].includes(target.status)) setStatusFilter('all');
+    setClassDrawerTab('summary');
+    setSelectedClassId(target.id);
+  }, [classSessions]);
 
   useEffect(() => {
     if (!selectedClassId) return;

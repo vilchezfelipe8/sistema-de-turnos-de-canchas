@@ -79,6 +79,7 @@ function stateChip(state: Booking['state']) {
   if (state === 'confirmed') return { label: 'Confirmada', className: 'bg-p-positive-bg text-p-accent' };
   if (state === 'completed') return { label: 'Finalizada', className: 'bg-blue-100 text-ink-900' };
   if (state === 'blocked') return { label: 'Bloqueo', className: 'bg-red-100 text-red-900' };
+  if (state === 'class') return { label: 'Clase', className: 'bg-sky-100 text-sky-900' };
   return { label: 'Sin confirmar', className: 'bg-p-warning-bg text-p-warning' };
 }
 
@@ -86,6 +87,7 @@ function stateStripeClass(state: Booking['state']) {
   if (state === 'confirmed') return 'bg-lima-100';
   if (state === 'completed') return 'bg-blue-100';
   if (state === 'blocked') return 'bg-red-100';
+  if (state === 'class') return 'bg-sky-200';
   return 'bg-amber-200';
 }
 
@@ -145,7 +147,7 @@ export default function AgendaMobileGrid({
   }, [bookings]);
 
   const summary = useMemo(() => {
-    const realBookings = bookings.filter((booking) => booking.state !== 'blocked');
+    const realBookings = bookings.filter((booking) => booking.state !== 'blocked' && booking.state !== 'class');
     return {
       total: realBookings.length,
       pending: realBookings.filter((booking) => booking.state === 'pending').length,
@@ -449,6 +451,7 @@ export default function AgendaMobileGrid({
                       const top = booking.startSlot * MOBILE_SLOT_PX + 2;
                       const height = Math.max(14, (booking.endSlot - booking.startSlot) * MOBILE_SLOT_PX - 4);
                       const isBlocked = booking.state === 'blocked';
+                      const isClass = booking.state === 'class';
                       const remaining = Number(booking.hoverPayment?.remainingAmount || 0);
                       const isPreviewed = previewBookingId === String(booking.id);
                       return (
@@ -477,7 +480,12 @@ export default function AgendaMobileGrid({
                               {slotToTime(booking.startSlot)}–{slotToTime(booking.endSlot)}
                             </span>
                           )}
-                          {height >= 52 && !isBlocked && (
+                          {height >= 52 && isClass && booking.classInfo?.enrolled != null && (
+                            <span className="self-start rounded-full bg-sky-700 px-1.5 py-px text-[9px] font-extrabold text-white">
+                              {booking.classInfo.enrolled}/{booking.classInfo.capacity}
+                            </span>
+                          )}
+                          {height >= 52 && !isBlocked && !isClass && (
                             <span
                               className={`self-start rounded-full px-1.5 py-px text-[9px] font-extrabold ${paymentPillClass(
                                 booking.paymentState
@@ -625,6 +633,7 @@ export default function AgendaMobileGrid({
               const payment = previewBooking.hoverPayment;
               const remaining = Number(payment?.remainingAmount || 0);
               const isBlocked = previewBooking.state === 'blocked';
+              const isClass = previewBooking.state === 'class';
               const canConfirm = previewBooking.state === 'pending';
               const canCharge =
                 (previewBooking.state === 'confirmed' || previewBooking.state === 'completed') && remaining > EPSILON;
@@ -650,7 +659,7 @@ export default function AgendaMobileGrid({
                         <span className="tabular-nums">
                           · {slotToTime(previewBooking.startSlot)} a {slotToTime(previewBooking.endSlot)}
                         </span>
-                        {!isBlocked && Number(previewBooking.participantsCount || 0) > 0 && (
+                        {!isBlocked && !isClass && Number(previewBooking.participantsCount || 0) > 0 && (
                           <span className="inline-flex items-center gap-0.5">
                             · <Users size={11} /> {previewBooking.participantsCount}
                           </span>
@@ -659,7 +668,17 @@ export default function AgendaMobileGrid({
                     </div>
                   </div>
 
-                  {!isBlocked && payment && (
+                  {isClass && previewBooking.classInfo && (
+                    <p className="text-[13px] text-p-text-secondary">
+                      {previewBooking.classInfo.teacherName ? `Con ${previewBooking.classInfo.teacherName}` : 'Clase de Academia'}
+                      {previewBooking.classInfo.enrolled != null
+                        ? ` · ${previewBooking.classInfo.enrolled} de ${previewBooking.classInfo.capacity} anotados`
+                        : ''}
+                      . La cancha queda ocupada.
+                    </p>
+                  )}
+
+                  {!isBlocked && !isClass && payment && (
                     <div className="grid grid-cols-3 gap-1.5">
                       <div className="rounded-[10px] bg-p-surface-2 px-2.5 py-2">
                         <p className="text-[11px] text-p-text-muted">Total</p>
@@ -724,7 +743,7 @@ export default function AgendaMobileGrid({
                     }}
                     className="h-12 w-full rounded-xl bg-p-brand text-[14px] font-extrabold text-p-brand-on"
                   >
-                    {isBlocked ? 'Ver bloqueo' : 'Ver reserva completa'}
+                    {isClass ? 'Ver clase en Academia' : isBlocked ? 'Ver bloqueo' : 'Ver reserva completa'}
                   </button>
                 </>
               );

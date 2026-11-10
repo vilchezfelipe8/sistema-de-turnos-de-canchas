@@ -16,8 +16,19 @@ export type Booking = {
   startSlot: number;
   endSlot: number;
   title: string;
-  state: 'pending' | 'confirmed' | 'completed' | 'blocked';
+  state: 'pending' | 'confirmed' | 'completed' | 'blocked' | 'class';
   paymentState: 'paid' | 'partial' | 'unpaid';
+  /** Solo para clases de Academia que ocupan la cancha. */
+  classInfo?: {
+    classSessionId: string;
+    activityName: string | null;
+    teacherName: string | null;
+    enrolled: number | null;
+    capacity: number;
+    startsAt: string;
+    endsAt: string;
+    status: string;
+  };
   isRecurring?: boolean;
   participantsCount?: number;
   hasPendingNotification?: boolean;

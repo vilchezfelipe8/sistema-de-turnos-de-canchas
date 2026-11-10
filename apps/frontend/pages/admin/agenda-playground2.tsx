@@ -130,7 +130,8 @@ import {
 } from '../../components/admin/agenda/utils/bookingValidation';
 import { getPendingLogoutRedirect } from '../../services/AuthService';
 import { formatMoney } from '../../modules/cuentas/accountUtils';
-import { ClubAdminService, type CourtBlockDto } from '../../services/ClubAdminService';
+import { ClubAdminService, type AdminClassSession, type CourtBlockDto } from '../../services/ClubAdminService';
+import { AdminAppModal } from '../../components/admin/ui';
 import { addAdminBookingParticipant, cancelBooking, cancelFixedBooking, changeBookingClient, confirmBooking, createBooking, createFixedBooking, getAdminBookingHistory, getAdminBookingParticipants, getAdminSchedule, getBookingById, getBookingFinancialSummary, getBookingQuote, removeAdminBookingParticipant, rescheduleFixedBooking, type AdminBookingParticipantDto, type BookingHistoryEntryDto } from '../../services/BookingService';
 import AccountDrawer, {
   type AccountDrawerContext,
@@ -919,6 +920,49 @@ function parseCourtBlockToBooking(block: CourtBlockDto): Booking | null {
   };
 }
 
+// Clases de Academia: ocupan la cancha, se ven en la grilla pero se manejan desde Academia.
+const CLASS_SESSION_ID_PREFIX = 'class-';
+
+function isClassSessionBookingId(id: string | null | undefined) {
+  return String(id || '').startsWith(CLASS_SESSION_ID_PREFIX);
+}
+
+const CLASS_STATUSES_ON_AGENDA = new Set(['SCHEDULED', 'CONFIRMED', 'COMPLETED', 'DRAFT']);
+
+function parseClassSessionToBooking(row: AdminClassSession, localDate: string): Booking | null {
+  if (!row.courtId || !CLASS_STATUSES_ON_AGENDA.has(String(row.status))) return null;
+  const start = new Date(row.startsAt);
+  const end = new Date(row.endsAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  if (formatLocalDate(start) !== localDate) return null;
+  const baseMinutes = startHour * 60;
+  const startMinutes = start.getHours() * 60 + start.getMinutes();
+  const endMinutes = end.getHours() * 60 + end.getMinutes() || 24 * 60;
+  const startSlot = Math.max(0, Math.min(totalSlots - 1, Math.floor((startMinutes - baseMinutes) / slotMinutes)));
+  const endSlot = Math.max(startSlot + 1, Math.min(totalSlots, Math.ceil((endMinutes - baseMinutes) / slotMinutes)));
+  const activityName = row.activityType?.name || null;
+  const teacherName = row.teacher?.displayName || null;
+  return {
+    id: `${CLASS_SESSION_ID_PREFIX}${row.id}`,
+    courtId: String(row.courtId),
+    startSlot,
+    endSlot,
+    title: `${activityName ? `Clase de ${activityName}` : 'Clase'}${teacherName ? ` · ${teacherName}` : ''}`,
+    state: 'class',
+    paymentState: 'unpaid',
+    classInfo: {
+      classSessionId: String(row.id),
+      activityName,
+      teacherName,
+      enrolled: typeof row.enrolledCount === 'number' ? row.enrolledCount : null,
+      capacity: Number(row.capacity || 0),
+      startsAt: row.startsAt,
+      endsAt: row.endsAt,
+      status: String(row.status),
+    },
+  };
+}
+
 function roundMoney(value: number) {
   return Number((Math.max(0, value) || 0).toFixed(2));
 }
@@ -1099,6 +1143,7 @@ function allocatePaymentProportionallyByDebt(input: {
 
 export default function AdminAgendaPlaygroundPage() {
   const router = useRouter();
+  const [classPeekBooking, setClassPeekBooking] = useState<Booking | null>(null);
   const { authChecked, user } = useValidateAuth({ requireAdmin: true });
 
   const [sportFilter, setSportFilter] = useState<SportFilter>('Todos');
@@ -1797,6 +1842,10 @@ export default function AdminAgendaPlaygroundPage() {
     return buildDefaultParticipantsForBooking(booking);
   }, []);
   const openBookingInDrawer = useCallback((booking: Booking) => {
+    if (booking.state === 'class' && booking.classInfo) {
+      void router.push(`/admin/academia?tab=clases&clase=${encodeURIComponent(booking.classInfo.classSessionId)}`);
+      return;
+    }
     activeDrawerBookingIdRef.current =
       Number.isFinite(Number(booking.id)) && Number(booking.id) > 0 ? Number(booking.id) : null;
     bookingFinancialRequestSeqRef.current += 1;
@@ -1840,7 +1889,7 @@ export default function AdminAgendaPlaygroundPage() {
     setDrawerOpen(true);
     setScheduleInputsDirty(false);
     setFormError('');
-  }, [resetConsumptionsDraft, resolveParticipantsForBooking]);
+  }, [resetConsumptionsDraft, resolveParticipantsForBooking, router]);
   const closeRecurringResultModal = useCallback(() => {
     setRecurringOverlapModalOpen(false);
     setPendingRecurringEditBooking((pendingBooking) => {
@@ -1948,7 +1997,7 @@ export default function AdminAgendaPlaygroundPage() {
       const localDate = formatLocalDate(selectedDate);
       const slug = getClubSlug();
       // Los bloqueos se piden en paralelo; si fallan, la agenda igual carga las reservas.
-      const [raw, blocks] = await Promise.all([
+      const [raw, blocks, classSessions] = await Promise.all([
         getAdminSchedule(localDate),
         slug
           ? ClubAdminService.listCourtBlocks(slug, localDate).catch((error) => {
@@ -1956,6 +2005,12 @@ export default function AdminAgendaPlaygroundPage() {
               return [] as CourtBlockDto[];
             })
           : Promise.resolve([] as CourtBlockDto[]),
+        slug
+          ? ClubAdminService.getClassSessions(slug).catch((error) => {
+              reportUiError({ area: 'AgendaPlayground', action: 'loadClassSessions' }, error);
+              return [] as AdminClassSession[];
+            })
+          : Promise.resolve([] as AdminClassSession[]),
       ]);
       const mapped = [
         ...(Array.isArray(raw) ? raw : [])
@@ -1963,6 +2018,9 @@ export default function AdminAgendaPlaygroundPage() {
           .filter((booking): booking is Booking => Boolean(booking)),
         ...blocks
           .map(parseCourtBlockToBooking)
+          .filter((booking): booking is Booking => Boolean(booking)),
+        ...classSessions
+          .map((row) => parseClassSessionToBooking(row, localDate))
           .filter((booking): booking is Booking => Boolean(booking)),
       ];
       // Si mientras tanto salió otro pedido (cambio de fecha, refresco automático), gana el más nuevo.
@@ -4038,6 +4096,11 @@ export default function AdminAgendaPlaygroundPage() {
   const handleBookingMouseDown = (event: React.MouseEvent<HTMLDivElement>, booking: Booking) => {
     event.preventDefault();
     event.stopPropagation();
+    if (booking.state === 'class') {
+      setBookingHoverPreview(null);
+      setClassPeekBooking(booking);
+      return;
+    }
     const rect = event.currentTarget.getBoundingClientRect();
     const localY = Math.max(0, event.clientY - rect.top);
     const offsetSlots = Math.floor(localY / slotHeight);
@@ -6836,9 +6899,16 @@ export default function AdminAgendaPlaygroundPage() {
                                         visibility={visibility}
                                         slotToTime={slotToTime}
                                         colorClass={bookingColor(booking.state)}
+                                        badgeLabel={
+                                          booking.state === 'class'
+                                            ? booking.classInfo?.enrolled != null
+                                              ? `Clase · ${booking.classInfo.enrolled}/${booking.classInfo.capacity}`
+                                              : 'Clase'
+                                            : undefined
+                                        }
                                         onMouseDown={(event) => handleBookingMouseDown(event, booking)}
                                         onMouseEnter={(event) => {
-                                          if (draggingBookingMetaRef.current || isDragging) return;
+                                          if (draggingBookingMetaRef.current || isDragging || booking.state === 'class') return;
                                           const next = resolveBookingHoverPosition(
                                             event.clientX,
                                             event.clientY,
@@ -6847,7 +6917,7 @@ export default function AdminAgendaPlaygroundPage() {
                                           setBookingHoverPreview({ booking, ...next });
                                         }}
                                         onMouseMove={(event) => {
-                                          if (draggingBookingMetaRef.current || isDragging) return;
+                                          if (draggingBookingMetaRef.current || isDragging || booking.state === 'class') return;
                                           const next = resolveBookingHoverPosition(
                                             event.clientX,
                                             event.clientY,
@@ -6868,7 +6938,12 @@ export default function AdminAgendaPlaygroundPage() {
                                         style={{
                                           top,
                                           height,
-                                          cursor: booking.state === 'completed' ? 'pointer' : draggingBookingId ? 'grabbing' : 'grab',
+                                          cursor:
+                                            booking.state === 'completed' || booking.state === 'class'
+                                              ? 'pointer'
+                                              : draggingBookingId
+                                                ? 'grabbing'
+                                                : 'grab',
                                           zIndex: isHovered ? 16 : 10,
                                         }}
                                       />
@@ -6885,6 +6960,41 @@ export default function AdminAgendaPlaygroundPage() {
                 </div>
               </div>
             </div>
+
+            <AdminAppModal
+              show={Boolean(classPeekBooking)}
+              onClose={() => setClassPeekBooking(null)}
+              title={classPeekBooking?.classInfo?.activityName ? `Clase de ${classPeekBooking.classInfo.activityName}` : 'Clase'}
+              message={
+                classPeekBooking?.classInfo ? (
+                  <div className="space-y-2 text-[14px] text-p-text-secondary">
+                    <p className="text-[16px] font-semibold text-p-text">
+                      {slotToTime(classPeekBooking.startSlot)} a {slotToTime(classPeekBooking.endSlot)}
+                      {' · '}
+                      {effectiveCourts.find((court) => court.id === classPeekBooking.courtId)?.name || 'Cancha'}
+                    </p>
+                    {classPeekBooking.classInfo.teacherName ? <p>Con {classPeekBooking.classInfo.teacherName}</p> : null}
+                    {classPeekBooking.classInfo.enrolled != null ? (
+                      <p>
+                        {classPeekBooking.classInfo.enrolled} de {classPeekBooking.classInfo.capacity} anotados
+                      </p>
+                    ) : null}
+                    <p className="text-[13px] text-p-text-muted">
+                      La cancha queda ocupada por la clase. Alumnos, asistencia y cobros se manejan en Academia.
+                    </p>
+                  </div>
+                ) : null
+              }
+              cancelText="Cerrar"
+              confirmText="Ver en Academia"
+              onConfirm={() => {
+                const target = classPeekBooking;
+                setClassPeekBooking(null);
+                if (target?.classInfo) {
+                  void router.push(`/admin/academia?tab=clases&clase=${encodeURIComponent(target.classInfo.classSessionId)}`);
+                }
+              }}
+            />
 
             {bookingHoverPreview && !draggingBookingId && !draggingBookingMeta && !isDragging && (
               <BookingHoverCard

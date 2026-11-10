@@ -13,7 +13,7 @@ type BlockContentVisibility = {
   inlineTimeWithBadges?: boolean;
 };
 
-type BookingState = 'pending' | 'confirmed' | 'completed' | 'blocked';
+type BookingState = 'pending' | 'confirmed' | 'completed' | 'blocked' | 'class';
 type PaymentState = 'paid' | 'partial' | 'unpaid';
 
 type AgendaSelectionPreviewProps = {
