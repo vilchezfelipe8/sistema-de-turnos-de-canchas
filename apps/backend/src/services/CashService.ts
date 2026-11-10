@@ -178,6 +178,7 @@ export class CashService {
             const sourceType = movement?.payment?.account?.sourceType ?? movement?.refund?.account?.sourceType ?? null;
             const sourceId = movement?.payment?.account?.sourceId ?? movement?.refund?.account?.sourceId ?? null;
             const accountId = movement?.payment?.account?.id ?? movement?.refund?.account?.id ?? null;
+            const accountClientName = movement?.payment?.account?.client?.name ?? movement?.refund?.account?.client?.name ?? null;
             const paymentId = movement?.paymentId ?? movement?.refund?.payment?.id ?? movement?.refund?.paymentId ?? null;
             const refundId = movement?.refundId ?? movement?.refund?.id ?? null;
             let bookingAmount = 0;
@@ -198,6 +199,7 @@ export class CashService {
                 sourceType,
                 sourceId,
                 accountId,
+                accountClientName,
                 paymentId,
                 refundId,
                 booking,

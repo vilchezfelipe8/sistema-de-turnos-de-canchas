@@ -256,6 +256,11 @@ type Movement = {
   amount: number;
   description: string;
   method: 'CASH' | 'TRANSFER' | 'CARD';
+  kind: 'PAYMENT' | 'REFUND' | 'MANUAL';
+  who: string;
+  what: string;
+  accountId: string | null;
+  paymentId: string | null;
 };
 
 type Balance = {
@@ -590,6 +595,56 @@ const formatMovementConcept = (movement: any) => {
 
   if (!rawConcept) return 'Movimiento de caja';
   return rawConcept;
+};
+
+const formatMovementSlot = (iso: string | null | undefined): string => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const day = d
+    .toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
+    .replace(/,/g, '')
+    .replace(/\./g, '');
+  return `${day} ${d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`;
+};
+
+/** "Lionel Messi" + "Cobro de reserva · Cancha 1 · mar 3 nov 22:00". */
+const describeCashMovement = (item: any): Pick<Movement, 'kind' | 'who' | 'what' | 'accountId' | 'paymentId'> => {
+  const rawType = String(item?.type || '').toUpperCase();
+  const accountId = item?.accountId ? String(item.accountId) : null;
+  const paymentId = item?.paymentId ? String(item.paymentId) : null;
+  const sourceType = String(item?.sourceType || '').toUpperCase() as AccountRow['sourceType'];
+  const booking = item?.booking;
+  const isRefund = rawType === 'REFUND';
+  const isPayment = rawType === 'PAYMENT_IN' && Boolean(accountId);
+  if (isRefund || isPayment) {
+    const who =
+      String(booking?.clientName || '').trim() ||
+      String(item?.accountClientName || '').trim() ||
+      (sourceType === 'BAR' ? 'Venta mostrador' : accountKindLabel[sourceType] || 'Cuenta');
+    const target =
+      sourceType === 'BOOKING'
+        ? ['reserva', String(booking?.courtName || '').trim(), formatMovementSlot(booking?.startDateTime)].filter(Boolean).join(' · ')
+        : sourceType === 'BAR'
+          ? 'consumos'
+          : (accountKindLabel[sourceType] || 'cuenta').toLowerCase();
+    return {
+      kind: isRefund ? 'REFUND' : 'PAYMENT',
+      who,
+      what: `${isRefund ? 'Devolución de' : 'Cobro de'} ${target}`,
+      accountId,
+      paymentId,
+    };
+  }
+  const concept = String(item?.concept || '').replace(/\s*#\S+/g, '').trim();
+  const income = rawType === 'PAYMENT_IN' || rawType === 'DEPOSIT' || rawType === 'INCOME';
+  return {
+    kind: 'MANUAL',
+    who: concept || (income ? 'Ingreso' : 'Egreso'),
+    what: income ? 'Ingreso a mano' : 'Egreso a mano',
+    accountId,
+    paymentId,
+  };
 };
 
 const movementMethodLabel = (method: Movement['method']) => {
@@ -982,12 +1037,14 @@ export default function AdminPaymentsPlaygroundPage() {
         const type = String(item?.type || 'INCOME');
         const normalizedType: Movement['type'] =
           type === 'WITHDRAW' || type === 'REFUND' || type === 'EXPENSE' ? 'EXPENSE' : 'INCOME';
+        const described = describeCashMovement(item);
         return {
           id: Number(item?.id || 0),
           date: String(item?.createdAt || ''),
           type: normalizedType,
           amount: Number(item?.amount || 0),
-          description: formatMovementConcept(item),
+          ...described,
+          description: `${described.who} ${described.what} ${formatMovementConcept(item)}`,
           method: (['CASH', 'TRANSFER', 'CARD'].includes(String(item?.method))
             ? item.method
             : 'CASH') as Movement['method'],
@@ -2549,6 +2606,8 @@ export default function AdminPaymentsPlaygroundPage() {
 
                     <CashMovementsTimeline
                       movements={filteredCashMovements}
+                      allMovements={cashMovements}
+                      onOpenAccount={(accountId) => openAccountDrawer(accountId, 'overview')}
                       loading={loadingCashSummary}
                       emptyTitle={
                         cashSearchTerm.trim() || cashTypeFilter !== 'ALL' || cashMethodFilter !== 'ALL'
