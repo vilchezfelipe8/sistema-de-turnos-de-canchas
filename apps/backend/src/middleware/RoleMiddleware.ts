@@ -1,5 +1,7 @@
 ﻿import { Request, Response, NextFunction } from 'express';
 import { sendAuthError } from '../utils/authError';
+import { prismaRead } from '../prisma';
+import { isPiqueTeamUser } from '../config/piqueTeam';
 
 type AnyRole = string;
 
@@ -86,6 +88,25 @@ export const requireGlobalRole = (role: string | string[]) => {
 
         return sendAuthError(res, 403, 'AUTH_FORBIDDEN', 'Permisos insuficientes.');
     };
+};
+
+/**
+ * Herramientas de plataforma (ven datos de todos los clubes): solo equipo de Pique.
+ * Rol global ADMIN + email en PIQUE_TEAM_EMAILS. Un dueño de club no alcanza.
+ */
+export const requirePiqueTeam = async (req: Request, res: Response, next: NextFunction) => {
+    const user = ensureAuthenticated(req, res);
+    if (!user) return;
+    try {
+        const userId = Number(user.userId ?? user.id);
+        const record = Number.isInteger(userId) && userId > 0
+            ? await prismaRead.user.findUnique({ where: { id: userId }, select: { role: true, email: true } })
+            : null;
+        if (isPiqueTeamUser(record)) return next();
+    } catch {
+        // Ante la duda, cerrado.
+    }
+    return sendAuthError(res, 403, 'AUTH_FORBIDDEN', 'Permisos insuficientes.');
 };
 
 /**

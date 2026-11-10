@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { isPiqueTeamUser } from '../config/piqueTeam';
 import { prisma } from '../prisma';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
@@ -307,6 +308,7 @@ export class AuthController {
                 email: user.email,
                 phoneNumber: user.phoneNumber,
                 role: user.role,
+                isPiqueTeam: isPiqueTeamUser(user),
                 clubId: resolvedClubId,
                 memberships,
                 activeClubId: resolvedClubId,
@@ -1269,6 +1271,7 @@ export class AuthController {
                 email: user.email,
                 phoneNumber: user.phoneNumber,
                 role: user.role,
+                isPiqueTeam: isPiqueTeamUser(user),
                 clubId,
                 memberships,
                 activeClubId: clubId,
@@ -1374,6 +1377,7 @@ export class AuthController {
                 email: user.email,
                 phoneNumber: user.phoneNumber,
                 role: user.role,
+                isPiqueTeam: isPiqueTeamUser(user),
                 clubId,
                 memberships,
                 activeClubId: clubId,
