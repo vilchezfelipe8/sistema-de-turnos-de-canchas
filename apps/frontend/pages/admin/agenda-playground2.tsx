@@ -13,6 +13,7 @@ import AgendaSelectionPreview from '../../components/admin/agenda/AgendaSelectio
 import AgendaSlotLayer from '../../components/admin/agenda/AgendaSlotLayer';
 import AgendaTimeGutter from '../../components/admin/agenda/AgendaTimeGutter';
 import AgendaToolbar from '../../components/admin/agenda/AgendaToolbar';
+import AgendaDaySummary, { computeAgendaDaySummary } from '../../components/admin/agenda/AgendaDaySummary';
 import BookingHoverCard from '../../components/admin/agenda/BookingHoverCard';
 import ChangeTitularModal, { type ChangeTitularCandidate } from '../../components/admin/agenda/ChangeTitularModal';
 import DuplicateClientDecisionModal from '../../components/admin/agenda/DuplicateClientDecisionModal';
@@ -3955,6 +3956,15 @@ export default function AdminAgendaPlaygroundPage() {
     return { x: nextX, y: nextY };
   }, []);
 
+  // Resumen del día para la toolbar de escritorio (mismo cálculo que la grilla de celular).
+  const desktopDaySummary = useMemo(() => {
+    const courtMasks = new Map<string, boolean[]>();
+    courtBookingRules.forEach((value, courtId) => {
+      if (value?.rule) courtMasks.set(courtId, value.mask);
+    });
+    return computeAgendaDaySummary({ bookings: visibleBookings, courts: visibleCourts, courtMasks, pastSlotCount });
+  }, [courtBookingRules, visibleBookings, visibleCourts, pastSlotCount]);
+
   // Grilla de celular: mismas reglas por cancha (turnos válidos, duraciones y horarios reservables).
   const mobileCourtRules = useMemo(() => {
     const map = new Map<string, { ruleSlots: AgendaRuleSlot[]; mask: boolean[]; durations: number[] }>();
@@ -6743,6 +6753,7 @@ export default function AdminAgendaPlaygroundPage() {
                   onMoveDate={moveDate}
                   onCreateBooking={() => openQuickCreateBooking(visibleCourts[0]?.id)}
                   onGoToday={goToToday}
+                  summary={<AgendaDaySummary summary={desktopDaySummary} />}
                 />
 
                 <div className="flex-1 rounded-2xl border border-p-border bg-p-surface overflow-hidden">

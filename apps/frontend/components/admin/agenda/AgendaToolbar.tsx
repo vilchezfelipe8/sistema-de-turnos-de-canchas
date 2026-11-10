@@ -1,4 +1,4 @@
-import type { RefObject } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 
 type AgendaToolbarProps = {
@@ -14,6 +14,8 @@ type AgendaToolbarProps = {
   onCreateBooking: () => void;
   /** Volver al día de hoy (y a la hora actual). */
   onGoToday?: () => void;
+  /** Línea de resumen del día, a la derecha de los deportes. */
+  summary?: ReactNode;
 };
 
 const isSameLocalDay = (a: Date, b: Date) =>
@@ -38,6 +40,7 @@ export default function AgendaToolbar({
   onMoveDate,
   onCreateBooking,
   onGoToday,
+  summary,
 }: AgendaToolbarProps) {
   const isToday = isSameLocalDay(selectedDate, new Date());
   const openNativeDatePicker = () => {
@@ -78,6 +81,9 @@ export default function AgendaToolbar({
               {sport}
             </button>
           ))}
+          {summary && (
+            <div className="ml-2 border-l border-p-border pl-3 text-[12px] font-semibold">{summary}</div>
+          )}
         </div>
       </div>
 

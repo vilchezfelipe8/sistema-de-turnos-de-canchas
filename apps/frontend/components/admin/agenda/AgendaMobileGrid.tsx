@@ -5,6 +5,7 @@ import type { Booking, Court } from './types/agendaTypes';
 import { slotMinutes, slotToTime, startHour, totalSlots } from './utils/agendaDateUtils';
 import { bookingColor } from './utils/agendaDisplayUtils';
 import type { AgendaRuleSlot } from './utils/agendaBookingRules';
+import AgendaDaySummary, { computeAgendaDaySummary } from './AgendaDaySummary';
 
 /** Turnos que el club acepta en una cancha: inicios, duraciones y slots reservables. */
 export type AgendaMobileCourtRules = {
@@ -147,16 +148,10 @@ export default function AgendaMobileGrid({
   }, [bookings]);
 
   const summary = useMemo(() => {
-    const realBookings = bookings.filter((booking) => booking.state !== 'blocked' && booking.state !== 'class');
-    return {
-      total: realBookings.length,
-      pending: realBookings.filter((booking) => booking.state === 'pending').length,
-      remaining: realBookings.reduce(
-        (sum, booking) => sum + Math.max(0, Number(booking.hoverPayment?.remainingAmount || 0)),
-        0
-      ),
-    };
-  }, [bookings]);
+    const courtMasks = new Map<string, boolean[]>();
+    courtRules?.forEach((rules, courtId) => courtMasks.set(courtId, rules.mask));
+    return computeAgendaDaySummary({ bookings, courts, courtMasks, pastSlotCount });
+  }, [bookings, courts, courtRules, pastSlotCount]);
 
   const previewBooking = useMemo(
     () => (previewBookingId ? bookings.find((booking) => String(booking.id) === previewBookingId) || null : null),
@@ -339,21 +334,7 @@ export default function AgendaMobileGrid({
           </div>
         )}
 
-        <div className="flex gap-3 whitespace-nowrap text-[11px] font-bold text-p-text-muted">
-          <span>
-            <b className="text-p-text">{summary.total}</b> {summary.total === 1 ? 'turno' : 'turnos'}
-          </span>
-          {summary.pending > 0 && (
-            <span>
-              <b className="text-p-warning">{summary.pending}</b> sin confirmar
-            </span>
-          )}
-          {summary.remaining > EPSILON && (
-            <span>
-              <b className="text-p-warning">{formatCompactAmount(summary.remaining)}</b> por cobrar
-            </span>
-          )}
-        </div>
+        <AgendaDaySummary summary={summary} className="flex-wrap gap-y-0.5 text-[11px] font-bold" />
       </div>
 
       {/* ── Grilla ── */}
@@ -537,7 +518,7 @@ export default function AgendaMobileGrid({
           className="absolute bottom-4 right-4 z-30 inline-flex h-12 items-center gap-2 rounded-2xl bg-p-brand px-4 text-[14px] font-extrabold text-p-brand-on shadow-p-lg"
         >
           <Plus size={17} strokeWidth={2.75} />
-          Nuevo turno
+          Nueva reserva
         </button>
       )}
 
@@ -590,7 +571,7 @@ export default function AgendaMobileGrid({
             </div>
             {freeSelection.maxEndSlot - freeSelection.startSlot < Math.round((durationOptions[0] ?? DURATION_OPTIONS_MIN[0]) / slotMinutes) && (
               <p className="mt-1.5 text-[11px] text-p-text-muted">
-                Hay {formatDuration((freeSelection.maxEndSlot - freeSelection.startSlot) * slotMinutes)} libres hasta el próximo turno.
+                Hay {formatDuration((freeSelection.maxEndSlot - freeSelection.startSlot) * slotMinutes)} libres hasta la próxima reserva.
               </p>
             )}
           </div>
