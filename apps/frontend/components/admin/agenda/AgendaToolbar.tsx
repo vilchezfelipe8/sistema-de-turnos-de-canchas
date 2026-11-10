@@ -18,6 +18,8 @@ type AgendaToolbarProps = {
   summary?: ReactNode;
   /** Abre el buscador "¿Hay lugar?". */
   onFindFreeSlot?: () => void;
+  /** Botón de leyenda de colores. */
+  legend?: ReactNode;
 };
 
 const isSameLocalDay = (a: Date, b: Date) =>
@@ -44,6 +46,7 @@ export default function AgendaToolbar({
   onGoToday,
   summary,
   onFindFreeSlot,
+  legend,
 }: AgendaToolbarProps) {
   const isToday = isSameLocalDay(selectedDate, new Date());
   const openNativeDatePicker = () => {
@@ -155,6 +158,7 @@ export default function AgendaToolbar({
               aria-label="Fecha de agenda"
             />
           </div>
+          {legend}
           {onFindFreeSlot && (
             <button
               type="button"

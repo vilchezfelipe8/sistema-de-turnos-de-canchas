@@ -15,6 +15,7 @@ import AgendaTimeGutter from '../../components/admin/agenda/AgendaTimeGutter';
 import AgendaToolbar from '../../components/admin/agenda/AgendaToolbar';
 import AgendaDaySummary, { computeAgendaDaySummary } from '../../components/admin/agenda/AgendaDaySummary';
 import AgendaFreeSlotFinder from '../../components/admin/agenda/AgendaFreeSlotFinder';
+import AgendaColorLegend from '../../components/admin/agenda/AgendaColorLegend';
 import BookingHoverCard from '../../components/admin/agenda/BookingHoverCard';
 import ChangeTitularModal, { type ChangeTitularCandidate } from '../../components/admin/agenda/ChangeTitularModal';
 import DuplicateClientDecisionModal from '../../components/admin/agenda/DuplicateClientDecisionModal';
@@ -98,6 +99,7 @@ import {
   localizeLegacyUiText,
   normalizeBookingDisplayTitle,
   toUserSafeMessage,
+  isSettledPastBooking,
 } from '../../components/admin/agenda/utils/agendaDisplayUtils';
 import {
   formatSeriesDateLabel,
@@ -6782,6 +6784,7 @@ export default function AdminAgendaPlaygroundPage() {
                   onGoToday={goToToday}
                   summary={<AgendaDaySummary summary={desktopDaySummary} />}
                   onFindFreeSlot={() => setFreeFinderOpen(true)}
+                  legend={<AgendaColorLegend />}
                 />
 
                 <div className="flex-1 rounded-2xl border border-p-border bg-p-surface overflow-hidden">
@@ -6938,6 +6941,11 @@ export default function AdminAgendaPlaygroundPage() {
                                         visibility={visibility}
                                         slotToTime={slotToTime}
                                         colorClass={bookingColor(booking.state)}
+                                        className={
+                                          isSettledPastBooking(booking, pastSlotCount)
+                                            ? 'opacity-50 transition-opacity hover:opacity-100'
+                                            : undefined
+                                        }
                                         badgeLabel={
                                           booking.state === 'class'
                                             ? booking.classInfo?.enrolled != null

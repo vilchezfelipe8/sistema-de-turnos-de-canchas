@@ -105,6 +105,17 @@ export function bookingColor(state: Booking['state']) {
   return 'bg-amber-200 text-ink-900';
 }
 
+/**
+ * Ya terminó y no queda nada pendiente: se dibuja más claro.
+ * Si todavía debe plata o falta confirmar, se sigue viendo fuerte.
+ */
+export function isSettledPastBooking(booking: Booking, pastSlotCount: number): boolean {
+  if (booking.endSlot > pastSlotCount) return false;
+  if (booking.state === 'blocked' || booking.state === 'class') return true;
+  if (booking.state === 'pending') return false;
+  return Number(booking.hoverPayment?.remainingAmount || 0) <= 0.009;
+}
+
 export function bookingStatusLabel(state: Booking['state']) {
   if (state === 'completed') return 'COMPLETADA';
   if (state === 'confirmed') return 'CONFIRMADA';

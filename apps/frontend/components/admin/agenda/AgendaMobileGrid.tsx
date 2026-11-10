@@ -3,7 +3,8 @@ import type { MouseEvent as ReactMouseEvent } from 'react';
 import { CalendarDays, Check, ChevronLeft, ChevronRight, DollarSign, Lock, Plus, Repeat, Search, Users, X } from 'lucide-react';
 import type { Booking, Court } from './types/agendaTypes';
 import { slotMinutes, slotToTime, startHour, totalSlots } from './utils/agendaDateUtils';
-import { bookingColor } from './utils/agendaDisplayUtils';
+import { bookingColor, isSettledPastBooking } from './utils/agendaDisplayUtils';
+import AgendaColorLegend from './AgendaColorLegend';
 import type { AgendaRuleSlot } from './utils/agendaBookingRules';
 import AgendaDaySummary, { computeAgendaDaySummary } from './AgendaDaySummary';
 
@@ -348,7 +349,12 @@ export default function AgendaMobileGrid({
           </div>
         )}
 
-        <AgendaDaySummary summary={summary} className="flex-wrap gap-y-0.5 text-[11px] font-bold" />
+        <div className="flex items-start justify-between gap-2">
+          <AgendaDaySummary summary={summary} className="min-w-0 flex-wrap gap-y-0.5 text-[11px] font-bold" />
+          <div className="shrink-0">
+            <AgendaColorLegend variant="mobile" align="right" />
+          </div>
+        </div>
       </div>
 
       {/* ── Grilla ── */}
@@ -462,7 +468,7 @@ export default function AgendaMobileGrid({
                             booking.state
                           )} ${isBlocked ? 'bg-[repeating-linear-gradient(135deg,#FEE2E2,#FEE2E2_6px,#FECACA_6px,#FECACA_12px)] text-red-900' : ''} ${
                             isPreviewed ? 'ring-2 ring-p-brand ring-offset-1 ring-offset-[var(--bg)]' : ''
-                          }`}
+                          } ${isSettledPastBooking(booking, pastSlotCount) && !isPreviewed ? 'opacity-50' : ''}`}
                           style={{ top, height }}
                         >
                           <span className="flex min-w-0 items-center gap-1">
