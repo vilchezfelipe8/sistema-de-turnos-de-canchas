@@ -10,6 +10,76 @@ import { WhatsappSenderResolver } from './WhatsappSenderResolver';
 export class ClubMessagingStatusService {
   private readonly senderResolver = new WhatsappSenderResolver();
 
+  /** Últimos avisos del club, con la reserva a la que se refieren. Sin payloads crudos. */
+  async getHistory(clubId: number, input: { onlyFailed?: boolean; limit?: number } = {}) {
+    const take = Math.min(100, Math.max(1, Math.floor(input.limit || 30)));
+    const rows = await prismaRead.whatsappDelivery.findMany({
+      where: { clubId, ...(input.onlyFailed ? { status: 'FAILED' } : {}) },
+      orderBy: { createdAt: 'desc' },
+      take,
+      select: {
+        id: true,
+        createdAt: true,
+        status: true,
+        eventType: true,
+        recipientRole: true,
+        recipientPhone: true,
+        errorCode: true,
+        outboxMessage: { select: { aggregateType: true, aggregateId: true } }
+      }
+    });
+
+    const bookingIds = Array.from(
+      new Set(
+        rows
+          .filter((row) => row.outboxMessage?.aggregateType === 'BOOKING')
+          .map((row) => Number(row.outboxMessage?.aggregateId))
+          .filter((id) => Number.isInteger(id) && id > 0)
+      )
+    );
+    const bookings = bookingIds.length
+      ? await prismaRead.booking.findMany({
+          where: { clubId, id: { in: bookingIds } },
+          select: {
+            id: true,
+            startDateTime: true,
+            court: { select: { name: true } },
+            client: { select: { id: true, name: true } }
+          }
+        })
+      : [];
+    const bookingById = new Map(bookings.map((booking) => [booking.id, booking]));
+
+    return rows.map((row) => {
+      const bookingId = row.outboxMessage?.aggregateType === 'BOOKING' ? Number(row.outboxMessage.aggregateId) : NaN;
+      const booking = bookingById.get(bookingId);
+      return {
+        id: row.id,
+        createdAt: row.createdAt,
+        status: row.status,
+        eventType: row.eventType,
+        recipientRole: row.recipientRole,
+        recipientPhone: row.recipientPhone,
+        // 131026: el número no tiene WhatsApp (código de Meta).
+        failReason:
+          row.status === 'FAILED'
+            ? String(row.errorCode || '') === '131026'
+              ? 'Ese número no tiene WhatsApp'
+              : 'WhatsApp no lo pudo entregar'
+            : null,
+        booking: booking
+          ? {
+              id: booking.id,
+              startDateTime: booking.startDateTime,
+              courtName: booking.court?.name ?? null,
+              clientId: booking.client?.id ?? null,
+              clientName: booking.client?.name ?? null
+            }
+          : null
+      };
+    });
+  }
+
   async getStatus(clubId: number) {
     const [club, settings, sender, recent] = await Promise.all([
       prismaRead.club.findUnique({ where: { id: clubId }, select: { phone: true } }),

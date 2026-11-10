@@ -10,4 +10,6 @@ const controller = new ClubMessagingController();
 
 router.get('/status', authMiddleware, setAdminClubFromUser, requireTenantRole(['ADMIN', 'STAFF']), controller.status);
 
+router.get('/history', authMiddleware, setAdminClubFromUser, requireTenantRole(['ADMIN', 'STAFF']), controller.history);
+
 export default router;

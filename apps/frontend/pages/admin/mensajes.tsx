@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import AdminRouteShell from '../../components/admin/AdminRouteShell';
 import ClubMessagesPanel from '../../components/admin/messages/ClubMessagesPanel';
+import ClubMessagesHistory from '../../components/admin/messages/ClubMessagesHistory';
 import WhatsappOpsPanel from '../../components/admin/messages/WhatsappOpsPanel';
 import { getStoredUser } from '../../utils/session';
 
@@ -47,7 +48,14 @@ export default function AdminMessagesPage() {
             </div>
           )}
 
-          {tab === 'tecnico' && isPiqueTeam ? <WhatsappOpsPanel /> : <ClubMessagesPanel />}
+          {tab === 'tecnico' && isPiqueTeam ? (
+            <WhatsappOpsPanel />
+          ) : (
+            <>
+              <ClubMessagesPanel />
+              <ClubMessagesHistory />
+            </>
+          )}
         </div>
       </section>
     </AdminRouteShell>

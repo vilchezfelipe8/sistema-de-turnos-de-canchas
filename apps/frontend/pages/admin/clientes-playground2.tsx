@@ -1,6 +1,6 @@
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CalendarPlus,
   ChevronLeft,
@@ -849,6 +849,15 @@ export default function AdminClientesPlayground2Page() {
     });
     setSidebarView('client_edit');
   };
+
+  // Link directo a la ficha: /admin/clientes?cliente=<id> (se lee una vez, cuando ya cargaron los clientes).
+  const clientFromUrlHandledRef = useRef(false);
+  useEffect(() => {
+    if (clientFromUrlHandledRef.current || typeof window === 'undefined' || clients.length === 0) return;
+    clientFromUrlHandledRef.current = true;
+    const fromUrl = new URLSearchParams(window.location.search).get('cliente');
+    if (fromUrl && clients.some((client) => String(client.id) === fromUrl)) setSelectedClientId(fromUrl);
+  }, [clients]);
 
   const openClientProfile = (client: any) => {
     setSelectedClientId(String(client?.id || ''));
