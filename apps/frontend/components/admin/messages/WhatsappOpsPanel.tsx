@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCcw } from 'lucide-react';
-import AdminPageHeader from '../ui/AdminPageHeader';
 import AdminPanel from '../ui/AdminPanel';
 import { AdminFeedbackBanner } from '../ui/AdminFeedback';
 import { fetchWithAuth } from '../../../utils/apiClient';
@@ -195,262 +194,323 @@ export default function WhatsappOpsPanel() {
   };
 
   const preflightStatus = data?.preflight.status ?? 'WARN';
+  const failingChecks = data ? data.preflight.checks.filter((check) => !check.ok) : [];
+  const passingChecks = data ? data.preflight.checks.filter((check) => check.ok) : [];
+  const failingGroups = groupFailingChecks(failingChecks);
 
   return (
     <div className="flex flex-col gap-4">
-          <AdminPageHeader
-            eyebrow="Operaciones"
-            title="Mensajes y WhatsApp"
-            description="Visibilidad operativa del pipeline Cloud API: preflight, deliveries recientes, webhooks y señales de rollout."
-            actions={(
-              <button
-                type="button"
-                className={adminButtonClassName}
-                onClick={() => {
-                  void load('reload');
-                }}
-                disabled={reloading}
-              >
-                {reloading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCcw size={14} />}
-                Actualizar
-              </button>
-            )}
-          />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-[15px] font-bold text-p-text">Estado técnico de WhatsApp</p>
+          <p className="text-[13px] text-p-text-muted">Solo lo ve el equipo de Pique. Sirve para saber qué falta antes de prender los avisos.</p>
+        </div>
+        <button type="button" className={adminButtonClassName} onClick={() => void load('reload')} disabled={reloading}>
+          {reloading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCcw size={14} />}
+          Actualizar
+        </button>
+      </div>
 
-          {error ? (
-            <AdminFeedbackBanner tone="error" title="No pudimos cargar el panel">
-              {error}
-            </AdminFeedbackBanner>
-          ) : null}
+      {error ? (
+        <AdminFeedbackBanner tone="error" title="No pudimos cargar el panel">
+          {error}
+        </AdminFeedbackBanner>
+      ) : null}
 
-          {loading ? (
-            <AdminPanel className="overflow-hidden" bodyClassName="flex items-center justify-center gap-2 px-4 py-12">
-              <Loader2 size={16} className="animate-spin text-p-accent" />
-              <span className="text-[13px] font-medium text-p-text-secondary">
-                Cargando operación de WhatsApp...
-              </span>
-            </AdminPanel>
-          ) : null}
+      {loading ? (
+        <div className="flex items-center justify-center gap-2 rounded-2xl border border-p-border bg-p-surface px-4 py-12">
+          <Loader2 size={16} className="animate-spin text-p-accent" />
+          <span className="text-[13px] font-medium text-p-text-secondary">Cargando...</span>
+        </div>
+      ) : null}
 
-          {!loading && data ? (
-            <>
-              <AdminFeedbackBanner tone={toneByPreflightStatus[preflightStatus]} title="Estado de readiness">
-                <>
-                  Preflight <strong>{data.preflight.status}</strong>. Checks: {data.preflight.checks.length}.
-                </>
-              </AdminFeedbackBanner>
+      {!loading && data ? (
+        <>
+          <AdminFeedbackBanner
+            tone={toneByPreflightStatus[preflightStatus]}
+            title={
+              preflightStatus === 'OK'
+                ? 'Todo listo para mandar avisos'
+                : preflightStatus === 'FAIL'
+                  ? `Falta resolver ${failingGroups.length} ${failingGroups.length === 1 ? 'cosa' : 'cosas'} antes de prender los avisos`
+                  : `Funciona, pero hay ${failingGroups.length} ${failingGroups.length === 1 ? 'cosa' : 'cosas'} para revisar`
+            }
+          >
+            {preflightStatus === 'OK'
+              ? 'El número, las plantillas y la conexión con Meta están bien.'
+              : 'Abajo está cada una con qué hacer.'}
+          </AdminFeedbackBanner>
 
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <MetricCard
-                  label="Deliveries 24h"
-                  value={data.summary.totals.last24h}
-                  helper="Actividad reciente"
-                />
-                <MetricCard
-                  label="Deliveries 7d"
-                  value={data.summary.totals.last7d}
-                  helper="Ventana operativa"
-                />
-                <MetricCard
-                  label="Accepted sin webhook"
-                  value={data.summary.acceptedWithoutWebhookCount}
-                  helper={`Más viejos que ${data.summary.acceptedStaleMinutes} min`}
-                />
-                <MetricCard
-                  label="Webhooks huérfanos"
-                  value={data.summary.orphanWebhookCount}
-                  helper="Eventos sin delivery asociado"
-                />
-              </div>
-
-              <div className="grid gap-4 xl:grid-cols-[1.2fr,0.8fr]">
-                <AdminPanel
-                  title="Preflight"
-                  description="Readiness real antes de encender o ampliar rollout."
-                  bodyClassName="overflow-hidden"
-                >
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-p-border text-left text-[12px]">
-                      <thead className="bg-p-surface-2 text-p-text-muted">
-                        <tr>
-                          <th className="px-4 py-3 font-semibold">Check</th>
-                          <th className="px-4 py-3 font-semibold">Severidad</th>
-                          <th className="px-4 py-3 font-semibold">Estado</th>
-                          <th className="px-4 py-3 font-semibold">Detalle</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-p-border">
-                        {data.preflight.checks.map((check) => (
-                          <tr key={check.key} className="align-top">
-                            <td className="px-4 py-3 font-semibold text-p-text">{check.key}</td>
-                            <td className="px-4 py-3 text-p-text-secondary">{check.severity}</td>
-                            <td className="px-4 py-3">
-                              <StatusBadge status={check.ok ? 'OK' : 'FAIL'} />
-                            </td>
-                            <td className="px-4 py-3 text-p-text-secondary">{check.message}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </AdminPanel>
-
-                <AdminPanel
-                  title="Resumen operativo"
-                  description="Conteos por estado, rol y evento."
-                >
-                  <div className="flex flex-wrap gap-2">
-                    {Object.entries(data.summary.countsByStatus).map(([key, value]) => (
-                      <span key={key} className={adminChipClassName}>
-                        Estado {key}: {value}
-                      </span>
-                    ))}
-                    {Object.entries(data.summary.countsByRecipientRole).map(([key, value]) => (
-                      <span key={key} className={adminChipClassName}>
-                        Rol {key}: {value}
-                      </span>
-                    ))}
-                    {Object.entries(data.summary.countsByEventType).map(([key, value]) => (
-                      <span key={key} className={adminChipClassName}>
-                        Evento {key}: {value}
-                      </span>
-                    ))}
-                  </div>
-
-                  <div className="mt-4 space-y-2">
-                    <p className="text-[12px] font-semibold text-p-text">Errores más frecuentes</p>
-                    {data.summary.topErrors.length > 0 ? (
-                      data.summary.topErrors.map((item) => (
-                        <div
-                          key={item.errorCode}
-                          className="flex items-center justify-between rounded-lg border border-p-border bg-p-surface-2 px-3 py-2 text-[12px]"
-                        >
-                          <span className="font-semibold text-p-text">{item.errorCode}</span>
-                          <span className="text-p-text-secondary">{item.count}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="rounded-lg border border-dashed border-p-border px-3 py-3 text-[12px] text-p-text-muted">
-                        No hay errores registrados en la ventana actual.
+          {failingChecks.length > 0 && (
+            <section>
+              <p className="mb-1.5 px-1 text-[13px] font-semibold text-p-text">Qué falta</p>
+              <ul className="divide-y divide-p-border rounded-2xl border border-p-border bg-p-surface">
+                {failingGroups.map((group) => (
+                  <li key={group.checks[0].key} className="px-4 py-3">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle
+                        size={15}
+                        className={`mt-0.5 flex-none ${group.checks.some((check) => check.severity === 'ERROR') ? 'text-p-error' : 'text-p-warning'}`}
+                      />
+                      <div className="min-w-0">
+                        <p className="text-[14px] font-semibold text-p-text">{group.title}</p>
+                        <p className="text-[12px] text-p-text-muted">{group.fix}</p>
+                        <details className="mt-1 text-[12px] text-p-text-muted">
+                          <summary className="cursor-pointer select-none font-semibold">Detalle técnico</summary>
+                          {group.checks.map((check) => (
+                            <div key={check.key} className="mt-1">
+                              <p className="break-all font-mono text-[11px]">{check.key}</p>
+                              <p>{check.message}</p>
+                            </div>
+                          ))}
+                        </details>
                       </div>
-                    )}
-                  </div>
-                </AdminPanel>
-              </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
-              <div className="grid gap-4 xl:grid-cols-2">
-                <AdminPanel
-                  title="Deliveries recientes"
-                  description="Últimos 10 deliveries del pipeline WhatsApp."
-                  bodyClassName="overflow-hidden"
-                >
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-p-border text-left text-[12px]">
-                      <thead className="bg-p-surface-2 text-p-text-muted">
-                        <tr>
-                          <th className="px-4 py-3 font-semibold">Estado</th>
-                          <th className="px-4 py-3 font-semibold">Evento</th>
-                          <th className="px-4 py-3 font-semibold">Rol</th>
-                          <th className="px-4 py-3 font-semibold">Destino</th>
-                          <th className="px-4 py-3 font-semibold">Fecha</th>
-                          <th className="px-4 py-3 font-semibold">Acción</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-p-border">
-                        {data.deliveries.items.map((item) => (
-                          <tr key={item.id} className="align-top">
-                            <td className="px-4 py-3">
-                              <StatusBadge status={item.status} />
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="font-semibold text-p-text">{item.eventType}</div>
-                              <div className="mt-1 text-p-text-muted">{item.provider}</div>
-                            </td>
-                            <td className="px-4 py-3 text-p-text-secondary">{item.recipientRole}</td>
-                            <td className="px-4 py-3">
-                              <div className="font-medium text-p-text">{item.recipientPhoneMasked}</div>
-                              {item.errorCode ? (
-                                <div className="mt-1 text-p-error">{item.errorCode}</div>
-                              ) : item.providerMessageId ? (
-                                <div className="mt-1 text-p-text-muted">{item.providerMessageId}</div>
-                              ) : null}
-                            </td>
-                            <td className="px-4 py-3 text-p-text-secondary">{formatDateTime(item.createdAt)}</td>
-                            <td className="px-4 py-3">
-                              <button
-                                type="button"
-                                className={adminButtonClassName}
-                                onClick={() => {
-                                  void resendDelivery(item.id);
-                                }}
-                                disabled={resendingId === item.id}
-                              >
-                                {resendingId === item.id ? (
-                                  <Loader2 size={14} className="animate-spin" />
-                                ) : (
-                                  <RefreshCcw size={14} />
-                                )}
-                                Reenviar
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </AdminPanel>
+          {passingChecks.length > 0 && (
+            <details className="rounded-2xl border border-p-border bg-p-surface px-4 py-3">
+              <summary className="cursor-pointer select-none text-[13px] font-semibold text-p-text">
+                <CheckCircle2 size={14} className="mr-1 inline text-p-positive" />
+                {passingChecks.length} {passingChecks.length === 1 ? 'chequeo está bien' : 'chequeos están bien'}
+              </summary>
+              <ul className="mt-2 space-y-1.5">
+                {passingChecks.map((check) => (
+                  <li key={check.key} className="text-[12px] text-p-text-secondary">
+                    <span className="font-semibold text-p-text">{explainCheck(check.key).okTitle}</span>
+                    <span className="block break-all font-mono text-[11px] text-p-text-muted">{check.key}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
 
-                <AdminPanel
-                  title="Webhook events recientes"
-                  description="Últimos 10 eventos procesados desde Meta."
-                  bodyClassName="overflow-hidden"
-                >
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-p-border text-left text-[12px]">
-                      <thead className="bg-p-surface-2 text-p-text-muted">
-                        <tr>
-                          <th className="px-4 py-3 font-semibold">Tipo</th>
-                          <th className="px-4 py-3 font-semibold">Estado</th>
-                          <th className="px-4 py-3 font-semibold">Asociación</th>
-                          <th className="px-4 py-3 font-semibold">Fecha</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-p-border">
-                        {data.webhookEvents.items.map((item) => (
-                          <tr key={item.id} className="align-top">
-                            <td className="px-4 py-3 font-semibold text-p-text">{item.eventType}</td>
-                            <td className="px-4 py-3">
-                              <StatusBadge status={item.status || 'IGNORED'} />
-                            </td>
-                            <td className="px-4 py-3">
-                              {item.orphan ? (
-                                <span className="inline-flex items-center gap-1 text-p-warning">
-                                  <AlertTriangle size={12} />
-                                  Huérfano
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 text-p-positive">
-                                  <CheckCircle2 size={12} />
-                                  Asociado
-                                </span>
-                              )}
-                              {item.providerMessageId ? (
-                                <div className="mt-1 text-p-text-muted">{item.providerMessageId}</div>
-                              ) : null}
-                            </td>
-                            <td className="px-4 py-3 text-p-text-secondary">{formatDateTime(item.createdAt)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </AdminPanel>
-              </div>
-            </>
-          ) : null}
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+            <MetricCard label="Últimas 24 h" value={data.summary.totals.last24h} helper="mensajes" />
+            <MetricCard label="Últimos 7 días" value={data.summary.totals.last7d} helper="mensajes" />
+            <MetricCard
+              label="Sin confirmar"
+              value={data.summary.acceptedWithoutWebhookCount}
+              helper={`Meta no avisó si llegaron (más de ${data.summary.acceptedStaleMinutes} min)`}
+            />
+            <MetricCard
+              label="Avisos sueltos"
+              value={data.summary.orphanWebhookCount}
+              helper="Meta avisó de mensajes que no tenemos"
+            />
+          </div>
+
+          {data.summary.topErrors.length > 0 && (
+            <section>
+              <p className="mb-1.5 px-1 text-[13px] font-semibold text-p-text">Errores más frecuentes</p>
+              <ul className="divide-y divide-p-border rounded-2xl border border-p-border bg-p-surface">
+                {data.summary.topErrors.map((item) => (
+                  <li key={item.errorCode} className="flex items-center justify-between gap-3 px-4 py-2.5 text-[13px]">
+                    <span className="text-p-text">
+                      {explainErrorCode(item.errorCode)}
+                      <span className="ml-1 font-mono text-[11px] text-p-text-muted">{item.errorCode}</span>
+                    </span>
+                    <span className="font-semibold tabular-nums text-p-text">{item.count}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          <section>
+            <p className="mb-1.5 px-1 text-[13px] font-semibold text-p-text">Últimos mensajes (todos los clubes)</p>
+            {data.deliveries.items.length === 0 ? (
+              <p className="rounded-2xl border border-dashed border-p-border px-4 py-6 text-center text-[13px] text-p-text-muted">
+                Todavía no salió ningún mensaje.
+              </p>
+            ) : (
+              <ul className="divide-y divide-p-border rounded-2xl border border-p-border bg-p-surface">
+                {data.deliveries.items.map((item) => (
+                  <li key={item.id} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-semibold text-p-text">
+                        {EVENT_LABEL[item.eventType] || item.eventType} · {item.recipientRole === 'CLUB_STAFF' ? 'al club' : 'al cliente'}
+                      </p>
+                      <p className="text-[12px] text-p-text-muted">
+                        Club {item.clubId} · {item.recipientPhoneMasked} · {formatDateTime(item.createdAt)}
+                      </p>
+                      {item.errorCode ? (
+                        <p className="text-[12px] text-p-error">
+                          {explainErrorCode(item.errorCode)} <span className="font-mono text-[11px]">({item.errorCode})</span>
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-none items-center gap-2">
+                      <StatusBadge status={item.status} />
+                      {item.status === 'FAILED' && (
+                      <button
+                        type="button"
+                        className={adminButtonClassName}
+                        onClick={() => {
+                          if (!window.confirm('¿Reenviar este WhatsApp? Le va a llegar de nuevo a esa persona.')) return;
+                          void resendDelivery(item.id);
+                        }}
+                        disabled={resendingId === item.id}
+                      >
+                        {resendingId === item.id ? <Loader2 size={14} className="animate-spin" /> : <RefreshCcw size={14} />}
+                        Reenviar
+                      </button>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <details className="rounded-2xl border border-p-border bg-p-surface px-4 py-3">
+            <summary className="cursor-pointer select-none text-[13px] font-semibold text-p-text">
+              Avisos de Meta y conteos ({data.webhookEvents.items.length})
+            </summary>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {Object.entries(data.summary.countsByStatus).map(([key, value]) => (
+                <span key={`s-${key}`} className={adminChipClassName}>
+                  {STATUS_LABEL[key] || key}: {value}
+                </span>
+              ))}
+              {Object.entries(data.summary.countsByEventType).map(([key, value]) => (
+                <span key={`e-${key}`} className={adminChipClassName}>
+                  {EVENT_LABEL[key] || key}: {value}
+                </span>
+              ))}
+            </div>
+            {data.webhookEvents.items.length === 0 ? (
+              <p className="mt-2 text-[12px] text-p-text-muted">Meta todavía no mandó avisos.</p>
+            ) : (
+              <ul className="mt-2 divide-y divide-p-border">
+                {data.webhookEvents.items.map((item) => (
+                  <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-[12px]">
+                    <span className="text-p-text">
+                      {item.eventType} · {formatDateTime(item.createdAt)}
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <StatusBadge status={item.status || 'IGNORED'} />
+                      {item.orphan ? (
+                        <span className="inline-flex items-center gap-1 text-p-warning">
+                          <AlertTriangle size={12} />
+                          Sin mensaje
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-p-positive">
+                          <CheckCircle2 size={12} />
+                          Asociado
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </details>
+        </>
+      ) : null}
     </div>
   );
 }
+
+const EVENT_LABEL: Record<string, string> = {
+  BOOKING_CREATED: 'Reserva hecha',
+  BOOKING_CANCELLED: 'Reserva cancelada',
+  BOOKING_PENDING_WARNING: 'Aviso antes de cancelar',
+  ACCOUNT_VERIFICATION_CODE: 'Código de la app',
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  QUEUED: 'Por salir',
+  ACCEPTED: 'Aceptado por Meta',
+  SENT: 'Enviado',
+  DELIVERED: 'Llegó',
+  READ: 'Leído',
+  FAILED: 'Falló',
+  SKIPPED: 'No se mandó',
+  IGNORED: 'Ignorado',
+};
+
+const TEMPLATE_LABEL: Record<string, string> = {
+  customer_booking_created_v1: 'Reserva hecha (al cliente)',
+  customer_booking_cancelled_v1: 'Reserva cancelada (al cliente)',
+  customer_booking_pending_warning_v1: 'Aviso antes de cancelar (al cliente)',
+  staff_booking_created_v1: 'Nueva reserva (al club)',
+  staff_booking_cancelled_v1: 'Reserva cancelada (al club)',
+  staff_booking_pending_warning_v1: 'Reserva sin confirmar (al club)',
+};
+
+/** Cada chequeo en palabras: qué pasa y qué hacer. */
+const explainCheck = (key: string): { title: string; fix: string; okTitle: string } => {
+  if (key.startsWith('template.')) {
+    const name = key.slice('template.'.length);
+    const label = TEMPLATE_LABEL[name] || name;
+    return {
+      title: `Falta la plantilla "${label}"`,
+      fix: 'Crearla y aprobarla en Meta, y cargarla activa en Pique.',
+      okTitle: `Plantilla "${label}" lista`,
+    };
+  }
+  switch (key) {
+    case 'sender.exists':
+      return { title: 'No está cargado el número de WhatsApp de Pique', fix: 'Correr el script de alta de WhatsApp (bootstrapWhatsappCloudApi).', okTitle: 'Número de Pique cargado' };
+    case 'sender.active':
+      return { title: 'El número de Pique no está activo', fix: 'Activarlo cuando Meta lo apruebe.', okTitle: 'Número de Pique activo' };
+    case 'sender.phoneNumberId':
+      return { title: 'Falta el ID del número en Meta', fix: 'Copiarlo de Meta (WhatsApp > API) y cargarlo en el número de Pique.', okTitle: 'ID del número cargado' };
+    case 'sender.wabaId':
+      return { title: 'Falta el ID de la cuenta de WhatsApp Business', fix: 'Copiarlo de Meta y cargarlo en el número de Pique.', okTitle: 'Cuenta de WhatsApp Business cargada' };
+    case 'sender.tokenSecretRef':
+    case 'sender.tokenEnv':
+      return { title: 'Falta el token de acceso de Meta', fix: 'Cargar el token en las variables del servidor y referenciarlo en el número de Pique.', okTitle: 'Token de Meta cargado' };
+    case 'webhook.verifyToken':
+      return { title: 'Meta no puede avisarnos si los mensajes llegan', fix: 'Revisar el token de verificación del webhook en Meta y en el servidor.', okTitle: 'Meta puede avisarnos si los mensajes llegan' };
+    default:
+      return { title: key, fix: 'Ver el detalle técnico.', okTitle: key };
+  }
+};
+
+/**
+ * Junta los chequeos que dicen lo mismo (ej. los dos del token) y, si falta el número de Pique,
+ * mete adentro todo lo del número: no tiene sentido pedir su ID si el número no existe.
+ */
+const groupFailingChecks = (checks: PreflightCheck[]) => {
+  const senderMissing = checks.some((check) => check.key === 'sender.exists');
+  const groups: Array<{ title: string; fix: string; checks: PreflightCheck[] }> = [];
+  for (const check of checks) {
+    const explained =
+      senderMissing && check.key.startsWith('sender.') ? explainCheck('sender.exists') : explainCheck(check.key);
+    const existing = groups.find((group) => group.title === explained.title);
+    if (existing) existing.checks.push(check);
+    else groups.push({ title: explained.title, fix: explained.fix, checks: [check] });
+  }
+  return groups;
+};
+
+/** Códigos de error de Meta más comunes, en palabras. */
+const explainErrorCode = (code: string): string => {
+  switch (String(code)) {
+    case '131026':
+      return 'El número no tiene WhatsApp';
+    case '131047':
+      return 'Pasaron más de 24 h sin respuesta del cliente';
+    case '131051':
+      return 'Tipo de mensaje no soportado';
+    case '132000':
+    case '132001':
+      return 'Problema con la plantilla';
+    case '130429':
+      return 'Demasiados mensajes seguidos';
+    case '190':
+      return 'El token de Meta venció';
+    default:
+      return 'Error de WhatsApp';
+  }
+};
 
 function MetricCard({
   label,
@@ -480,7 +540,7 @@ function StatusBadge({ status }: { status: string }) {
     <span
       className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${tone}`}
     >
-      {status}
+      {STATUS_LABEL[status] || status}
     </span>
   );
 }
