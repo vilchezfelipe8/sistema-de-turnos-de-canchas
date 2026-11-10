@@ -85,6 +85,21 @@ const toTelHref = (raw: unknown): string => {
   return text.replace(/\D/g, '').length >= 6 ? `tel:${text}` : '';
 };
 
+const WEEKDAY_SHORT = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+
+const formatDaysAgo = (date: Date): string => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const day = new Date(date);
+  day.setHours(0, 0, 0, 0);
+  const days = Math.round((today.getTime() - day.getTime()) / 86400000);
+  if (days <= 0) return 'hoy';
+  if (days === 1) return 'ayer';
+  if (days < 30) return `hace ${days} días`;
+  const months = Math.round(days / 30);
+  return months <= 1 ? 'hace un mes' : `hace ${months} meses`;
+};
+
 const accountSortKey = (account: any): string =>
   `${String(account?.date || '').slice(0, 10)} ${String(account?.time || '').padStart(5, '0')}`;
 
@@ -1132,13 +1147,56 @@ export default function AdminClientesPlayground2Page() {
       .sort((a: any, b: any) => a.start.getTime() - b.start.getTime())
       .slice(0, 5);
   }, [clientBookingRows]);
-  const clientRecentBookings = useMemo(() => {
+  // Lo que pasó con la plata de cada reserva (sale de su cuenta).
+  const clientBookingPayment = useMemo(() => {
+    const map = new Map<string, { paid: boolean; owes: number }>();
+    historyAccounts.forEach((account: any) => {
+      const bookingId = String(account?.bookingId ?? '').trim();
+      if (!bookingId) return;
+      const owes = Math.max(0, Number(account?.amount || 0));
+      const total = Number(account?.totalAmount || 0);
+      const paid = owes <= EPSILON && (total > EPSILON || String(account?.paymentStatus || '').toUpperCase() === 'PAID');
+      map.set(bookingId, { paid, owes });
+    });
+    return map;
+  }, [historyAccounts]);
+  // Últimas jugadas: sin canceladas (esas van aparte).
+  const clientPlayedBookings = useMemo(() => {
     const now = Date.now();
     return clientBookingRows
-      .filter((row: any) => row.start && row.start.getTime() < now)
-      .sort((a: any, b: any) => b.start.getTime() - a.start.getTime())
-      .slice(0, 5);
+      .filter((row: any) => row.start && row.start.getTime() < now && row.status !== 'CANCELLED')
+      .sort((a: any, b: any) => b.start.getTime() - a.start.getTime());
   }, [clientBookingRows]);
+  const clientRecentBookings = useMemo(() => clientPlayedBookings.slice(0, 5), [clientPlayedBookings]);
+  const clientCancelledBookings = useMemo(
+    () =>
+      clientBookingRows
+        .filter((row: any) => row.start && row.status === 'CANCELLED')
+        .sort((a: any, b: any) => b.start.getTime() - a.start.getTime()),
+    [clientBookingRows]
+  );
+  // "Jugó 12 veces · la última hace 3 días · suele venir sáb 10:30"
+  const clientHabitLine = useMemo(() => {
+    const played = clientPlayedBookings;
+    if (played.length === 0) return clientBookingRows.length > 0 ? 'Todavía no jugó ninguna reserva.' : '';
+    const parts = [played.length === 1 ? 'Jugó 1 vez' : `Jugó ${played.length} veces`];
+    parts.push(`la última ${formatDaysAgo(played[0].start)}`);
+    if (played.length >= 3) {
+      const counts = new Map<string, number>();
+      played.forEach((row: any) => {
+        const time = row.start.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+        const key = `${WEEKDAY_SHORT[row.start.getDay()]} ${time}`;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      });
+      const [bestKey, bestCount] = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0];
+      if (bestCount >= 2) parts.push(`suele venir ${bestKey}`);
+    }
+    return parts.join(' · ');
+  }, [clientPlayedBookings, clientBookingRows.length]);
+  const [showClientCancelled, setShowClientCancelled] = useState(false);
+  useEffect(() => {
+    setShowClientCancelled(false);
+  }, [selectedClientId]);
   const clientPendingAccounts = useMemo(
     () =>
       historyAccounts
@@ -1541,13 +1599,11 @@ export default function AdminClientesPlayground2Page() {
 
                             {/* Reservas */}
                             <div className="border-t border-p-border pt-5">
+                              {clientHabitLine && (
+                                <p className="mb-3 rounded-xl bg-p-surface-2 px-3 py-2 text-[13px] font-semibold text-p-text-secondary">{clientHabitLine}</p>
+                              )}
                               <div className="flex items-baseline justify-between gap-3">
                                 <p className="text-[13px] font-semibold text-p-text">Próximas reservas</p>
-                                {Number(selectedClient.totalBookings || 0) > 0 && (
-                                  <p className="text-[12px] text-p-text-muted">
-                                    {Number(selectedClient.totalBookings) === 1 ? 'Reservó 1 vez' : `Reservó ${selectedClient.totalBookings} veces`}
-                                  </p>
-                                )}
                               </div>
                               {clientUpcomingBookings.length === 0 ? (
                                 <p className="mt-1 text-[13px] text-p-text-muted">No tiene reservas próximas.</p>
@@ -1559,6 +1615,17 @@ export default function AdminClientesPlayground2Page() {
                                       <span className="text-right text-p-text-secondary">
                                         {row.courtName}
                                         {row.status === 'PENDING' ? <span className="text-p-warning"> · sin confirmar</span> : null}
+                                        {(() => {
+                                          const pay = clientBookingPayment.get(String(row.id));
+                                          if (!pay) return null;
+                                          if (pay.owes > EPSILON) {
+                                            return <span className="ml-2 rounded-full bg-p-warning-bg px-2 py-0.5 text-[11px] font-bold text-p-warning">Debe {formatMoney(pay.owes)}</span>;
+                                          }
+                                          if (pay.paid) {
+                                            return <span className="ml-2 rounded-full bg-p-positive-bg px-2 py-0.5 text-[11px] font-bold text-p-accent">Pagada</span>;
+                                          }
+                                          return null;
+                                        })()}
                                       </span>
                                     </li>
                                   ))}
@@ -1566,24 +1633,55 @@ export default function AdminClientesPlayground2Page() {
                               )}
                               {clientRecentBookings.length > 0 && (
                                 <>
-                                  <p className="mt-4 text-[13px] font-semibold text-p-text">Últimas</p>
+                                  <p className="mt-4 text-[13px] font-semibold text-p-text">Últimas que jugó</p>
                                   <ul className="mt-1 divide-y divide-p-border">
-                                    {clientRecentBookings.map((row: any) => {
-                                      const status = CLIENT_BOOKING_STATUS[row.status];
-                                      return (
-                                        <li key={`past-${row.id}`} className="flex items-center justify-between gap-3 py-2.5 text-[13px]">
-                                          <span className={row.status === 'CANCELLED' ? 'text-p-text-muted' : 'text-p-text'}>
-                                            {formatClientSlot(row.iso, row.date, row.time)}
-                                          </span>
-                                          <span className="text-right text-p-text-muted">
-                                            {row.courtName}
-                                            {status ? <span className={status.tone === 'text-p-warning' ? 'text-p-warning' : ''}> · {status.label.toLowerCase()}</span> : null}
-                                          </span>
-                                        </li>
-                                      );
-                                    })}
+                                    {clientRecentBookings.map((row: any) => (
+                                      <li key={`past-${row.id}`} className="flex items-center justify-between gap-3 py-2.5 text-[13px]">
+                                        <span className="text-p-text">{formatClientSlot(row.iso, row.date, row.time)}</span>
+                                        <span className="flex items-center text-right text-p-text-muted">
+                                          {row.courtName}
+                                          {(() => {
+                                          const pay = clientBookingPayment.get(String(row.id));
+                                          if (!pay) return null;
+                                          if (pay.owes > EPSILON) {
+                                            return <span className="ml-2 rounded-full bg-p-warning-bg px-2 py-0.5 text-[11px] font-bold text-p-warning">Debe {formatMoney(pay.owes)}</span>;
+                                          }
+                                          if (pay.paid) {
+                                            return <span className="ml-2 rounded-full bg-p-positive-bg px-2 py-0.5 text-[11px] font-bold text-p-accent">Pagada</span>;
+                                          }
+                                          return null;
+                                        })()}
+                                        </span>
+                                      </li>
+                                    ))}
                                   </ul>
                                 </>
+                              )}
+                              {clientCancelledBookings.length > 0 && (
+                                <div className="mt-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowClientCancelled((value) => !value)}
+                                    className="text-[12px] font-semibold text-p-text-muted underline-offset-2 hover:underline"
+                                    aria-expanded={showClientCancelled}
+                                  >
+                                    {showClientCancelled
+                                      ? 'Ocultar canceladas'
+                                      : clientCancelledBookings.length === 1
+                                        ? 'Ver 1 cancelada'
+                                        : `Ver ${clientCancelledBookings.length} canceladas`}
+                                  </button>
+                                  {showClientCancelled && (
+                                    <ul className="mt-1 divide-y divide-p-border">
+                                      {clientCancelledBookings.slice(0, 20).map((row: any) => (
+                                        <li key={`cancel-${row.id}`} className="flex items-center justify-between gap-3 py-2 text-[12px] text-p-text-muted">
+                                          <span>{formatClientSlot(row.iso, row.date, row.time)}</span>
+                                          <span className="text-right">{row.courtName} · cancelada</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
                               )}
                             </div>
 
