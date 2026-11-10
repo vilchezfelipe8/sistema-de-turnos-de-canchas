@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { CalendarDays, Check, ChevronLeft, ChevronRight, DollarSign, Lock, Plus, Repeat, Users, X } from 'lucide-react';
+import { CalendarDays, Check, ChevronLeft, ChevronRight, DollarSign, Lock, Plus, Repeat, Search, Users, X } from 'lucide-react';
 import type { Booking, Court } from './types/agendaTypes';
 import { slotMinutes, slotToTime, startHour, totalSlots } from './utils/agendaDateUtils';
 import { bookingColor } from './utils/agendaDisplayUtils';
@@ -32,6 +32,8 @@ type AgendaMobileGridProps = {
   courtRules?: Map<string, AgendaMobileCourtRules>;
   /** Slots del día que ya pasaron. */
   pastSlotCount?: number;
+  /** Abre el buscador "¿Hay lugar?". */
+  onFindFreeSlot?: () => void;
 };
 
 type FreeSelection = {
@@ -108,6 +110,7 @@ export default function AgendaMobileGrid({
   onChargeBooking,
   courtRules,
   pastSlotCount = 0,
+  onFindFreeSlot,
 }: AgendaMobileGridProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const dateInputRef = useRef<HTMLInputElement | null>(null);
@@ -311,6 +314,17 @@ export default function AgendaMobileGrid({
           >
             Hoy
           </button>
+          {onFindFreeSlot && (
+            <button
+              type="button"
+              onClick={onFindFreeSlot}
+              className="ml-auto inline-flex h-9 items-center gap-1 rounded-xl border border-p-border bg-p-surface px-2.5 text-[12px] font-extrabold text-p-text-secondary"
+              aria-label="¿Hay lugar?"
+            >
+              <Search size={14} />
+              Lugar
+            </button>
+          )}
         </div>
 
         {showSportChips && (

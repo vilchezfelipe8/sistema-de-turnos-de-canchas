@@ -1,5 +1,5 @@
 import type { ReactNode, RefObject } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Plus, Search } from 'lucide-react';
 
 type AgendaToolbarProps = {
   availableSports: string[];
@@ -16,6 +16,8 @@ type AgendaToolbarProps = {
   onGoToday?: () => void;
   /** Línea de resumen del día, a la derecha de los deportes. */
   summary?: ReactNode;
+  /** Abre el buscador "¿Hay lugar?". */
+  onFindFreeSlot?: () => void;
 };
 
 const isSameLocalDay = (a: Date, b: Date) =>
@@ -41,6 +43,7 @@ export default function AgendaToolbar({
   onCreateBooking,
   onGoToday,
   summary,
+  onFindFreeSlot,
 }: AgendaToolbarProps) {
   const isToday = isSameLocalDay(selectedDate, new Date());
   const openNativeDatePicker = () => {
@@ -152,6 +155,16 @@ export default function AgendaToolbar({
               aria-label="Fecha de agenda"
             />
           </div>
+          {onFindFreeSlot && (
+            <button
+              type="button"
+              onClick={onFindFreeSlot}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-2.5 text-[12px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
+            >
+              <Search size={14} />
+              ¿Hay lugar?
+            </button>
+          )}
           <button
             type="button"
             onClick={onCreateBooking}

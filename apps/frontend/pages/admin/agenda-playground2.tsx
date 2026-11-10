@@ -14,6 +14,7 @@ import AgendaSlotLayer from '../../components/admin/agenda/AgendaSlotLayer';
 import AgendaTimeGutter from '../../components/admin/agenda/AgendaTimeGutter';
 import AgendaToolbar from '../../components/admin/agenda/AgendaToolbar';
 import AgendaDaySummary, { computeAgendaDaySummary } from '../../components/admin/agenda/AgendaDaySummary';
+import AgendaFreeSlotFinder from '../../components/admin/agenda/AgendaFreeSlotFinder';
 import BookingHoverCard from '../../components/admin/agenda/BookingHoverCard';
 import ChangeTitularModal, { type ChangeTitularCandidate } from '../../components/admin/agenda/ChangeTitularModal';
 import DuplicateClientDecisionModal from '../../components/admin/agenda/DuplicateClientDecisionModal';
@@ -1145,6 +1146,10 @@ function allocatePaymentProportionallyByDebt(input: {
 export default function AdminAgendaPlaygroundPage() {
   const router = useRouter();
   const [classPeekBooking, setClassPeekBooking] = useState<Booking | null>(null);
+  const [freeFinderOpen, setFreeFinderOpen] = useState(false);
+  /** Día cuyas reservas ya están en `bookings` (el buscador espera a que coincida). */
+  const [loadedScheduleDate, setLoadedScheduleDate] = useState('');
+  const [bookingRulesSettledDate, setBookingRulesSettledDate] = useState('');
   const { authChecked, user } = useValidateAuth({ requireAdmin: true });
 
   const [sportFilter, setSportFilter] = useState<SportFilter>('Todos');
@@ -1966,6 +1971,9 @@ export default function AdminAgendaPlaygroundPage() {
       })
       .catch((error) => {
         reportUiError({ area: 'AgendaPlayground', action: 'loadBookingRules' }, error);
+      })
+      .finally(() => {
+        if (!cancelled) setBookingRulesSettledDate(selectedDateKey);
       });
     return () => {
       cancelled = true;
@@ -2027,6 +2035,7 @@ export default function AdminAgendaPlaygroundPage() {
       // Si mientras tanto salió otro pedido (cambio de fecha, refresco automático), gana el más nuevo.
       if (requestSeq === scheduleRequestSeqRef.current) {
         setBookings(mapped);
+        setLoadedScheduleDate(localDate);
       }
       return mapped;
     } catch (error) {
@@ -3954,6 +3963,23 @@ export default function AdminAgendaPlaygroundPage() {
     }
 
     return { x: nextX, y: nextY };
+  }, []);
+
+  const freeFinderDay = useMemo<'today' | 'tomorrow' | 'other'>(() => {
+    const today = new Date(nowTick);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    if (formatLocalDate(today) === selectedDateKey) return 'today';
+    if (formatLocalDate(tomorrow) === selectedDateKey) return 'tomorrow';
+    return 'other';
+  }, [nowTick, selectedDateKey]);
+
+  const handleFreeFinderDayChange = useCallback((day: 'today' | 'tomorrow') => {
+    const next = new Date();
+    if (day === 'tomorrow') next.setDate(next.getDate() + 1);
+    next.setHours(12, 0, 0, 0);
+    setSelectedDate(next);
+    setFormError('');
   }, []);
 
   // Resumen del día para la toolbar de escritorio (mismo cálculo que la grilla de celular).
@@ -6735,6 +6761,7 @@ export default function AdminAgendaPlaygroundPage() {
                   onChargeBooking={(booking) => void openAgendaAccountDrawer(Number(booking.id), 'payment')}
                   courtRules={mobileCourtRules}
                   pastSlotCount={pastSlotCount}
+                  onFindFreeSlot={() => setFreeFinderOpen(true)}
                 />
               </div>
               <div className="hidden h-full flex-col p-4 lg:flex lg:p-6 gap-4">
@@ -6754,6 +6781,7 @@ export default function AdminAgendaPlaygroundPage() {
                   onCreateBooking={() => openQuickCreateBooking(visibleCourts[0]?.id)}
                   onGoToday={goToToday}
                   summary={<AgendaDaySummary summary={desktopDaySummary} />}
+                  onFindFreeSlot={() => setFreeFinderOpen(true)}
                 />
 
                 <div className="flex-1 rounded-2xl border border-p-border bg-p-surface overflow-hidden">
@@ -6971,6 +6999,26 @@ export default function AdminAgendaPlaygroundPage() {
                 </div>
               </div>
             </div>
+
+            <AgendaFreeSlotFinder
+              show={freeFinderOpen}
+              onClose={() => setFreeFinderOpen(false)}
+              sports={availableSports.filter((sport) => sport !== 'Todos')}
+              initialSport={sportFilter !== 'Todos' ? sportFilter : undefined}
+              courts={effectiveCourts}
+              bookings={bookings}
+              courtRules={mobileCourtRules}
+              pastSlotCount={pastSlotCount}
+              ready={loadedScheduleDate === selectedDateKey && bookingRulesSettledDate === selectedDateKey}
+              day={freeFinderDay}
+              dayLabel={selectedDate.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })}
+              onDayChange={handleFreeFinderDayChange}
+              onPick={(pick) => {
+                setFreeFinderOpen(false);
+                if (sportFilter !== 'Todos' && sportFilter !== pick.sport) setSportFilter(pick.sport as SportFilter);
+                openQuickCreateBooking(pick.courtId, { startSlot: pick.startSlot, endSlot: pick.endSlot });
+              }}
+            />
 
             <AdminAppModal
               show={Boolean(classPeekBooking)}
