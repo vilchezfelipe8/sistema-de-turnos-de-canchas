@@ -27,6 +27,7 @@ import DuplicateClientDecisionModal, {
 import ClientsTable from '../../modules/clientes/components/ClientsTable';
 import ClientMemberPanel from '../../components/admin/members/ClientMemberPanel';
 import ClientSubscriptionsPanel from '../../components/admin/subscriptions/ClientSubscriptionsPanel';
+import ClientMessagesSection from '../../components/admin/messages/ClientMessagesSection';
 import MemberBadge from '../../components/admin/members/MemberBadge';
 import MembersRosterPanel from '../../components/admin/members/MembersRosterPanel';
 import { AdminDrawer, AdminDrawerSection, AdminFeedbackBanner, AdminFilterToolbar, AdminInlineError, AdminSegmentedControl } from '../../components/admin/ui';
@@ -1878,6 +1879,8 @@ export default function AdminClientesPlayground2Page() {
                                 </div>
                               </div>
                             )}
+
+                            <ClientMessagesSection clientId={String(selectedClient.id)} />
 
                             {/* Datos */}
                             <div className="border-t border-p-border pt-5">

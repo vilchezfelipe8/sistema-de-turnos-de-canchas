@@ -11,10 +11,25 @@ export class ClubMessagingStatusService {
   private readonly senderResolver = new WhatsappSenderResolver();
 
   /** Últimos avisos del club, con la reserva a la que se refieren. Sin payloads crudos. */
-  async getHistory(clubId: number, input: { onlyFailed?: boolean; limit?: number } = {}) {
+  async getHistory(clubId: number, input: { onlyFailed?: boolean; limit?: number; clientId?: string } = {}) {
     const take = Math.min(100, Math.max(1, Math.floor(input.limit || 30)));
+    // Por cliente: los avisos que le mandamos sobre sus reservas (las últimas 300).
+    let clientFilter = {};
+    if (input.clientId) {
+      const clientBookings = await prismaRead.booking.findMany({
+        where: { clubId, clientId: input.clientId },
+        orderBy: { startDateTime: 'desc' },
+        take: 300,
+        select: { id: true }
+      });
+      if (clientBookings.length === 0) return [];
+      clientFilter = {
+        recipientRole: 'CUSTOMER' as const,
+        outboxMessage: { aggregateType: 'BOOKING', aggregateId: { in: clientBookings.map((b) => String(b.id)) } }
+      };
+    }
     const rows = await prismaRead.whatsappDelivery.findMany({
-      where: { clubId, ...(input.onlyFailed ? { status: 'FAILED' } : {}) },
+      where: { clubId, ...(input.onlyFailed ? { status: 'FAILED' } : {}), ...clientFilter },
       orderBy: { createdAt: 'desc' },
       take,
       select: {

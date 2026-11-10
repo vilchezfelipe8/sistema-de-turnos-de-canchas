@@ -24,7 +24,7 @@ export type ClubMessageItem = {
 
 type Filter = 'all' | 'failed';
 
-const STATUS: Record<ClubMessageItem['status'], { label: string; tone: string }> = {
+export const CLUB_MESSAGE_STATUS: Record<ClubMessageItem['status'], { label: string; tone: string }> = {
   QUEUED: { label: 'Por salir', tone: 'text-p-text-muted' },
   ACCEPTED: { label: 'Enviado', tone: 'text-p-text-secondary' },
   SENT: { label: 'Enviado', tone: 'text-p-text-secondary' },
@@ -34,7 +34,7 @@ const STATUS: Record<ClubMessageItem['status'], { label: string; tone: string }>
   SKIPPED: { label: 'No se mandó', tone: 'text-p-text-muted' },
 };
 
-const formatSlot = (iso: string | null | undefined): string => {
+export const formatClubMessageSlot = (iso: string | null | undefined): string => {
   if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
@@ -45,7 +45,7 @@ const formatSlot = (iso: string | null | undefined): string => {
   return `${day} ${d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`;
 };
 
-const formatWhen = (iso: string): string => {
+export const formatClubMessageWhen = (iso: string): string => {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   const today = new Date();
@@ -56,7 +56,7 @@ const formatWhen = (iso: string): string => {
 
 /** "Le avisamos a Messi que su reserva del sáb 10:00 en Cancha 1 quedó hecha." */
 export const describeClubMessage = (item: ClubMessageItem): string => {
-  const slot = item.booking ? formatSlot(item.booking.startDateTime) : '';
+  const slot = item.booking ? formatClubMessageSlot(item.booking.startDateTime) : '';
   const court = item.booking?.courtName ? ` en ${item.booking.courtName}` : '';
   const turno = slot ? `la reserva del ${slot}${court}` : 'una reserva';
   if (item.recipientRole === 'CLUB_STAFF') {
@@ -136,13 +136,13 @@ export default function ClubMessagesHistory() {
       ) : (
         <ul className="divide-y divide-p-border rounded-2xl border border-p-border bg-p-surface">
           {items.map((item) => {
-            const status = STATUS[item.status] || STATUS.SENT;
+            const status = CLUB_MESSAGE_STATUS[item.status] || CLUB_MESSAGE_STATUS.SENT;
             return (
               <li key={item.id} className="flex items-start justify-between gap-3 px-4 py-3">
                 <div className="min-w-0">
                   <p className="text-[13px] text-p-text">{describeClubMessage(item)}</p>
                   <p className="text-[12px] text-p-text-muted">
-                    {formatWhen(item.createdAt)} · {/^\d+$/.test(item.recipientPhone) ? `+${item.recipientPhone}` : item.recipientPhone}
+                    {formatClubMessageWhen(item.createdAt)} · {/^\d+$/.test(item.recipientPhone) ? `+${item.recipientPhone}` : item.recipientPhone}
                     {item.failReason ? <span className="text-p-error"> · {item.failReason}</span> : null}
                   </p>
                   {item.booking?.clientId && item.recipientRole === 'CUSTOMER' && (

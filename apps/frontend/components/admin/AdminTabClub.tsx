@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import ActivityScheduleEditor from '../../modules/ajustes/components/ActivityScheduleEditor';
 import SettingsActivityFormatsSection from '../../modules/ajustes/components/SettingsActivityFormatsSection';
@@ -2442,6 +2443,12 @@ export default function AdminTabClub({
                           placeholder="+54 9 351..."
                         />
                       </div>
+                      <p className="mt-1 text-[12px] text-p-text-muted">
+                        A este número te llegan por WhatsApp los avisos de reservas nuevas y canceladas.{' '}
+                        <Link href="/admin/mensajes" className="font-semibold text-p-accent hover:underline">
+                          Ver avisos
+                        </Link>
+                      </p>
                     </div>
                   </div>
                 </div>

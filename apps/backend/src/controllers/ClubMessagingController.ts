@@ -11,7 +11,8 @@ export class ClubMessagingController {
       if (!Number.isFinite(clubId) || clubId <= 0) throw badRequest('Club inválido.', ErrorCodes.INVALID_INPUT);
       const onlyFailed = String(req.query.filter || '').toLowerCase() === 'failed';
       const limit = Number(req.query.limit) || 30;
-      return res.json({ items: await this.service.getHistory(clubId, { onlyFailed, limit }) });
+      const clientId = String(req.query.clientId || '').trim() || undefined;
+      return res.json({ items: await this.service.getHistory(clubId, { onlyFailed, limit, clientId }) });
     } catch (error: unknown) {
       return sendAppError(res, error, 'No se pudo obtener el historial de avisos.');
     }
