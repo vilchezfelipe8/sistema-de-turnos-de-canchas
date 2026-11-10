@@ -17,6 +17,7 @@ import { useRouter } from 'next/router';
 import AdminPlaygroundShell from '../../components/admin/AdminPlaygroundShell';
 import MetricCard from '../../components/admin/ui/MetricCard';
 import CashSummaryCards from '../../modules/caja/components/CashSummaryCards';
+import CashTodayToCollect, { type CashTodayItem } from '../../modules/caja/components/CashTodayToCollect';
 import CashMovementsTimeline from '../../modules/caja/components/CashMovementsTimeline';
 import CashAccountsList from '../../modules/caja/components/CashAccountsList';
 import type { CashAccountItem } from '../../modules/caja/components/CashAccountsList';
@@ -1658,6 +1659,51 @@ export default function AdminPaymentsPlaygroundPage() {
     return { count, amount: Math.round(amount * 100) / 100 };
   }, [accountOwesMoney, accountRemaining, allAccounts]);
 
+  // Resumen: qué hay que cobrar hoy (turnos/cuentas de hoy con deuda) y lo que quedó de antes.
+  const cashTodayToCollect = useMemo(() => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const startOfTomorrow = new Date(startOfToday);
+    startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+    const today: Array<{ when: number; item: CashTodayItem }> = [];
+    let olderCount = 0;
+    let olderAmount = 0;
+    for (const account of allAccounts) {
+      if (!accountOwesMoney(account)) continue;
+      const when = accountWhen(account);
+      if (!Number.isFinite(when.getTime())) continue;
+      const owes = accountRemaining(account);
+      if (when < startOfToday) {
+        olderCount += 1;
+        olderAmount += owes;
+        continue;
+      }
+      if (when >= startOfTomorrow) continue;
+      const startTime = formatAccountTime(account.booking?.startDateTime);
+      const endTime = formatAccountTime(account.booking?.endDateTime);
+      today.push({
+        when: when.getTime(),
+        item: {
+          id: account.id,
+          time: startTime ? (endTime ? `${startTime}–${endTime}` : startTime) : '',
+          who:
+            account.booking?.clientName?.trim() ||
+            account.client?.name?.trim() ||
+            (account.sourceType === 'BAR' ? 'Consumidor final' : accountKindLabel[account.sourceType]),
+          what: account.booking?.courtName
+            ? `${accountKindLabel[account.sourceType]} · ${account.booking.courtName}`
+            : accountKindLabel[account.sourceType],
+          owes,
+        },
+      });
+    }
+    today.sort((a, b) => a.when - b.when);
+    return {
+      items: today.map((row) => row.item),
+      olderDebt: { count: olderCount, amount: Math.round(olderAmount * 100) / 100 },
+    };
+  }, [accountOwesMoney, accountRemaining, allAccounts]);
+
   const filteredAccounts = useMemo(() => {
     const search = accountsSearchTerm.trim().toLowerCase();
     const base =
@@ -2289,6 +2335,16 @@ export default function AdminPaymentsPlaygroundPage() {
                       onProductSale={() => setCashSidebarView('product_sale')}
                       onViewLastClose={cashLastCloseReport ? () => setCashSidebarView('close_report') : undefined}
                     />
+                    <CashTodayToCollect
+                      items={cashTodayToCollect.items}
+                      olderDebt={cashTodayToCollect.olderDebt}
+                      loading={loading}
+                      onPay={(accountId) => openAccountDrawer(accountId, 'payment')}
+                      onSeeAccounts={() => {
+                        setAccountsFilter('DEBT');
+                        navigateToPaymentsTab('ACCOUNTS');
+                      }}
+                    />
                     <div className="w-full rounded-2xl border border-p-border bg-p-surface p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface-2 p-1">
@@ -2332,7 +2388,15 @@ export default function AdminPaymentsPlaygroundPage() {
                       </div>
                     </div>
 
-                    <CashSummaryCards balance={cashBalance} loading={loadingCashSummary} />
+                    <CashSummaryCards
+                      balance={cashBalance}
+                      loading={loadingCashSummary}
+                      emptyText={
+                        cashActivePeriod === 'hoy' && cashPeriodOffset === 0
+                          ? 'Hoy todavía no entró ni salió plata.'
+                          : `En ${cashPeriodLabel.toLowerCase()} no entró ni salió plata.`
+                      }
+                    />
                   </>
                 )}
 

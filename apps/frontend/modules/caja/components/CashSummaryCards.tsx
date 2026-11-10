@@ -16,6 +16,8 @@ type CashSummaryCardsProps = {
   balance: CashBalance;
   loading?: boolean;
   className?: string;
+  /** Si no hubo movimientos, una frase en vez de cuatro tarjetas en $0. */
+  emptyText?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -32,7 +34,25 @@ export default function CashSummaryCards({
   balance,
   loading = false,
   className,
+  emptyText,
 }: CashSummaryCardsProps) {
+  const isEmpty =
+    !loading &&
+    Math.abs(balance.income) < 0.01 &&
+    Math.abs(balance.expense) < 0.01 &&
+    Math.abs(balance.cash) < 0.01 &&
+    Math.abs(balance.digital) < 0.01;
+  if (isEmpty && emptyText) {
+    return (
+      <p
+        className={['rounded-2xl border border-dashed border-p-border px-4 py-4 text-center text-[13px] text-p-text-muted', className]
+          .filter(Boolean)
+          .join(' ')}
+      >
+        {emptyText}
+      </p>
+    );
+  }
   return (
     <div
       className={[
