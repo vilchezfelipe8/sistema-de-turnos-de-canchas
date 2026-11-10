@@ -2,8 +2,11 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  CalendarPlus,
   ChevronLeft,
   Link2,
+  MessageCircle,
+  Phone,
   MoreHorizontal,
   DollarSign,
   Pencil,
@@ -66,6 +69,24 @@ const formatClientSlot = (iso: string | null | undefined, fallbackDate?: string 
     : fallbackTime || '';
   return time ? `${day} · ${time}` : day;
 };
+
+/** Número para wa.me: con código de país. Un celular argentino de 10 dígitos se completa con 549. */
+const toWhatsAppNumber = (raw: unknown): string => {
+  const text = String(raw || '').trim();
+  const digits = text.replace(/\D/g, '');
+  if (!digits) return '';
+  if (text.startsWith('+') || digits.length >= 11) return digits;
+  if (digits.length === 10) return `549${digits}`;
+  return '';
+};
+
+const toTelHref = (raw: unknown): string => {
+  const text = String(raw || '').trim().replace(/[^\d+]/g, '');
+  return text.replace(/\D/g, '').length >= 6 ? `tel:${text}` : '';
+};
+
+const accountSortKey = (account: any): string =>
+  `${String(account?.date || '').slice(0, 10)} ${String(account?.time || '').padStart(5, '0')}`;
 
 const CLIENT_BOOKING_STATUS: Record<string, { label: string; tone: string }> = {
   CONFIRMED: { label: 'Confirmada', tone: 'text-p-text-muted' },
@@ -1120,11 +1141,14 @@ export default function AdminClientesPlayground2Page() {
   }, [clientBookingRows]);
   const clientPendingAccounts = useMemo(
     () =>
-      historyAccounts.filter(
-        (account: any) =>
-          String(account?.accountStatus || account?.status || 'OPEN').toUpperCase() !== 'CLOSED' &&
-          Number(account?.amount || 0) > EPSILON
-      ),
+      historyAccounts
+        .filter(
+          (account: any) =>
+            String(account?.accountStatus || account?.status || 'OPEN').toUpperCase() !== 'CLOSED' &&
+            Number(account?.amount || 0) > EPSILON
+        )
+        // La deuda más vieja primero: es la que hay que cobrar antes.
+        .sort((a: any, b: any) => accountSortKey(a).localeCompare(accountSortKey(b))),
     [historyAccounts]
   );
 
@@ -1405,6 +1429,53 @@ export default function AdminClientesPlayground2Page() {
                                 )}
                               </div>
                             </div>
+                              {(() => {
+                                const telHref = toTelHref(selectedClient.phone);
+                                const waNumber = toWhatsAppNumber(selectedClient.phone);
+                                const actionClass =
+                                  'inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3 text-[13px] font-semibold text-p-text hover:bg-p-surface-2';
+                                return (
+                                  <div
+                                    className="mt-3 grid gap-2 sm:flex sm:flex-wrap"
+                                    style={{ gridTemplateColumns: `repeat(${1 + (telHref ? 1 : 0) + (waNumber ? 1 : 0)}, minmax(0, 1fr))` }}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const query: Record<string, string> = {
+                                          cliente: String(selectedClient.id),
+                                          nombre: getClientName(selectedClient),
+                                        };
+                                        const phone = String(selectedClient.phone || '').trim();
+                                        if (phone) query.tel = phone;
+                                        void router.push({ pathname: '/admin/agenda', query });
+                                      }}
+                                      className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-ink-900 px-3.5 text-[13px] font-semibold text-ink-50 hover:bg-ink-800"
+                                    >
+                                      <CalendarPlus size={14} />
+                                      Reservar
+                                    </button>
+                                    {telHref && (
+                                      <a href={telHref} className={actionClass}>
+                                        <Phone size={14} />
+                                        Llamar
+                                      </a>
+                                    )}
+                                    {waNumber && (
+                                      <a
+                                        href={`https://wa.me/${waNumber}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className={actionClass}
+                                        title="Abre WhatsApp con este número. No se manda nada solo."
+                                      >
+                                        <MessageCircle size={14} />
+                                        WhatsApp
+                                      </a>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                           </div>
 
                           <div className="space-y-6 p-4 lg:p-5">

@@ -1152,6 +1152,8 @@ export default function AdminAgendaPlaygroundPage() {
   /** Día cuyas reservas ya están en `bookings` (el buscador espera a que coincida). */
   const [loadedScheduleDate, setLoadedScheduleDate] = useState('');
   const [bookingRulesSettledDate, setBookingRulesSettledDate] = useState('');
+  /** Titular pedido por URL (?cliente=), pendiente de cargar cuando abre el drawer. */
+  const [pendingUrlOwner, setPendingUrlOwner] = useState<ParticipantSuggestion | null>(null);
   const { authChecked, user } = useValidateAuth({ requireAdmin: true });
 
   const [sportFilter, setSportFilter] = useState<SportFilter>('Todos');
@@ -4385,6 +4387,32 @@ export default function AdminAgendaPlaygroundPage() {
     setFormError('');
   }, [updateParticipant]);
 
+  // Desde la ficha del cliente: /admin/agenda?cliente=<id>&nombre=...&tel=... abre una reserva nueva con él de titular.
+  const clientFromUrlHandledRef = useRef(false);
+  useEffect(() => {
+    if (clientFromUrlHandledRef.current || !router.isReady) return;
+    const clientId = String(router.query.cliente || '').trim();
+    if (!clientId) return;
+    // Esperar canchas, reservas y reglas del día: así la reserva propone un turno válido y libre.
+    if (effectiveCourts.length === 0) return;
+    if (loadedScheduleDate !== selectedDateKey || bookingRulesSettledDate !== selectedDateKey) return;
+    clientFromUrlHandledRef.current = true;
+    const name = String(router.query.nombre || '').trim();
+    const contact = String(router.query.tel || '').trim();
+    openQuickCreateBooking();
+    setPendingUrlOwner({
+      id: `client:${clientId}`,
+      label: name || 'Cliente',
+      name: name || 'Cliente',
+      contact,
+      sourceType: 'clubClient',
+      entityRef: `client:${clientId}`,
+      personKind: 'clubClient',
+    });
+    const { cliente: _cliente, nombre: _nombre, tel: _tel, ...rest } = router.query;
+    void router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
+  }, [router, effectiveCourts.length, loadedScheduleDate, bookingRulesSettledDate, selectedDateKey, openQuickCreateBooking]);
+
   const runSimplifiedNewParticipantSearch = useCallback(async (rawValue: string) => {
     setSimplifiedNewParticipantName(rawValue);
     setSimplifiedNewParticipantContact('');
@@ -5644,6 +5672,13 @@ export default function AdminAgendaPlaygroundPage() {
       resetSimplifiedNewParticipantDraft();
     }
   }, [drawerOpen, editingBookingId, resetSimplifiedNewParticipantDraft]);
+
+  // Titular que vino desde la ficha del cliente: se carga después de que el drawer limpió su estado.
+  useEffect(() => {
+    if (!drawerOpen || editingBookingId || !pendingUrlOwner) return;
+    applySimplifiedOwnerSuggestion('owner', pendingUrlOwner);
+    setPendingUrlOwner(null);
+  }, [drawerOpen, editingBookingId, pendingUrlOwner, applySimplifiedOwnerSuggestion]);
 
   useEffect(() => {
     if (!drawerOpen || !editingBookingId) return;
