@@ -25,6 +25,10 @@ import { ADMIN_Z_INDEX } from '../../utils/adminZIndex';
 import { CLUB_LOCKED_SIDEBAR_ITEMS, PLAYGROUND_SIDEBAR_ITEMS } from './playgroundNavigation';
 import PiqueLogo from '../PiqueLogo';
 
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'pique:admin-sidebar-collapsed';
+// Vive entre páginas (cada página monta su propio shell): evita que se abra un instante al navegar.
+let rememberedSidebarCollapsed: boolean | null = null;
+
 type AdminPlaygroundShellProps = {
   activeItem: string;
   children: ReactNode;
@@ -107,7 +111,32 @@ export default function AdminPlaygroundShell({
 }: AdminPlaygroundShellProps) {
   const router = useRouter();
   const { isLight, toggleTheme } = useUserTheme();
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  // Colapso de la barra lateral: se recuerda al cambiar de sección y al recargar.
+  const [isSidebarCollapsed, setIsSidebarCollapsedState] = useState<boolean>(() => rememberedSidebarCollapsed ?? false);
+  const setIsSidebarCollapsed = (update: (previous: boolean) => boolean) => {
+    setIsSidebarCollapsedState((previous) => {
+      const next = update(previous);
+      rememberedSidebarCollapsed = next;
+      try {
+        window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, next ? '1' : '0');
+      } catch {
+        // Sin storage: igual queda recordado mientras no se recargue.
+      }
+      return next;
+    });
+  };
+  useLayoutEffect(() => {
+    // Primera carga (recarga del navegador): leer lo guardado antes de pintar.
+    if (rememberedSidebarCollapsed !== null) return;
+    let stored = false;
+    try {
+      stored = window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === '1';
+    } catch {
+      stored = false;
+    }
+    rememberedSidebarCollapsed = stored;
+    if (stored) setIsSidebarCollapsedState(true);
+  }, []);
   const [clubMenuOpen, setClubMenuOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
