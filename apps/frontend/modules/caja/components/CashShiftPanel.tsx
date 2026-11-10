@@ -126,7 +126,7 @@ export default function CashShiftPanel({
               onClick={onViewLastClose}
               className="mt-2 text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
             >
-              Ver el último cierre
+              Ver cierres anteriores
             </button>
           )}
         </div>
@@ -146,12 +146,19 @@ export default function CashShiftPanel({
       {openDays >= 1 && (
         <div className="mb-4 flex items-start gap-2 rounded-xl bg-p-warning-bg px-3 py-2.5 text-[13px] text-p-warning">
           <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-          <p>
+          <p className="flex-1">
             <span className="font-semibold">
               La caja está abierta desde hace {openDays === 1 ? '1 día' : `${openDays} días`}.
             </span>{' '}
-            Cerrala al terminar cada día para que el arqueo coincida.
+            Cerrala al terminar cada día así la cuenta del cajón da justa.
           </p>
+          <button
+            type="button"
+            onClick={onToggleShift}
+            className="h-8 flex-none rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 hover:bg-ink-800"
+          >
+            Cerrar ahora
+          </button>
         </div>
       )}
 
@@ -179,6 +186,18 @@ export default function CashShiftPanel({
         </div>
         <p className="text-[12px] text-p-text-muted">
           {shift.cashRegister?.name || 'Caja'} · abierta {formatOpenedAt(shift.openedAt)}
+          {onViewLastClose && (
+            <>
+              {' · '}
+              <button
+                type="button"
+                onClick={onViewLastClose}
+                className="font-semibold text-p-accent underline-offset-2 hover:underline"
+              >
+                Cierres anteriores
+              </button>
+            </>
+          )}
         </p>
       </div>
 

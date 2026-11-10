@@ -7,6 +7,7 @@ import { CashShiftController } from '../controllers/CashShiftController';
 const router = Router();
 const controller = new CashShiftController();
 
+router.get('/', authMiddleware, setAdminClubFromUser, requireTenantRole(['ADMIN', 'STAFF']), controller.listClosed);
 router.post('/open', authMiddleware, setAdminClubFromUser, requireTenantRole(['ADMIN', 'STAFF']), controller.open);
 router.post('/close', authMiddleware, setAdminClubFromUser, requireTenantRole(['ADMIN', 'STAFF']), controller.closeCurrent);
 router.post('/:id/close', authMiddleware, setAdminClubFromUser, requireTenantRole(['ADMIN', 'STAFF']), controller.close);

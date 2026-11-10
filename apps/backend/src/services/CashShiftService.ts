@@ -109,6 +109,49 @@ export class CashShiftService {
     }, 0);
   }
 
+  /** Qué pasó en el turno, en palabras del mostrador: efectivo que entró/salió y lo digital por medio. */
+  private breakdown(movements: Array<{ amount: unknown; method: string; type: string }>) {
+    const result = { cashIn: 0, cashOut: 0, transfer: 0, card: 0, other: 0 };
+    movements.forEach((movement) => {
+      const amount = Number(movement.amount || 0);
+      const sign =
+        movement.type === 'PAYMENT_IN' || movement.type === 'DEPOSIT'
+          ? 1
+          : movement.type === 'WITHDRAW' || movement.type === 'REFUND'
+            ? -1
+            : 0;
+      if (!sign) return;
+      if (movement.method === 'CASH') {
+        if (sign > 0) result.cashIn += amount;
+        else result.cashOut += amount;
+      } else if (movement.method === 'TRANSFER') result.transfer += sign * amount;
+      else if (movement.method === 'CARD') result.card += sign * amount;
+      else result.other += sign * amount;
+    });
+    return {
+      cashIn: this.roundMoney(result.cashIn),
+      cashOut: this.roundMoney(result.cashOut),
+      transfer: this.roundMoney(result.transfer),
+      card: this.roundMoney(result.card),
+      other: this.roundMoney(result.other)
+    };
+  }
+
+  /** Últimos cierres de caja del club, del más nuevo al más viejo. */
+  async listClosed(clubId: number, limit = 10) {
+    const rows = await prismaRead.cashShift.findMany({
+      where: { status: 'CLOSED', cashRegister: { clubId } },
+      include: { cashRegister: true, movements: { select: { amount: true, method: true, type: true } } },
+      orderBy: { closedAt: 'desc' },
+      take: Math.min(50, Math.max(1, Math.floor(limit)))
+    });
+    return rows.map((shift) => ({
+      ...shift,
+      digitalAmount: this.roundMoney(this.digitalDelta(shift.movements as any)),
+      breakdown: this.breakdown(shift.movements as any)
+    }));
+  }
+
   async current(clubId: number) {
     const shift = await prismaRead.cashShift.findFirst({
       where: {
@@ -133,6 +176,7 @@ export class CashShiftService {
       // Turno abierto: lo esperado en el cajón se calcula en vivo (al cerrar queda guardado).
       expectedCash: this.roundMoney(Number(shift.openingAmount || 0) + this.cashDelta(shift.movements as any)),
       digitalAmount: this.roundMoney(this.digitalDelta(shift.movements as any)),
+      breakdown: this.breakdown(shift.movements as any),
       openAccountsSummary: summary,
       closePolicy: policy
     };
@@ -240,7 +284,11 @@ export class CashShiftService {
       : null;
 
     return {
-      shift,
+      shift: {
+        ...shift,
+        digitalAmount: this.roundMoney(this.digitalDelta(shift.movements as any)),
+        breakdown: this.breakdown(shift.movements as any)
+      },
       totals: projection
         ? {
             paymentIn: Number(projection.paymentIn || 0),

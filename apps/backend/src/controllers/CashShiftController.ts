@@ -72,6 +72,22 @@ export class CashShiftController {
     }
   };
 
+  listClosed = async (req: Request, res: Response) => {
+    try {
+      const query = z
+        .object({ limit: z.preprocess((v) => (v == null || v === '' ? undefined : Number(v)), z.number().int().min(1).max(50).optional()) })
+        .safeParse(req.query);
+      if (!query.success) return res.status(400).json({ error: query.error.format() });
+
+      const clubId = this.resolveClubId(req);
+      const rows = await this.service.listClosed(clubId, query.data.limit ?? 10);
+      // Sin el detalle de movimientos: solo los totales del cierre.
+      return res.json(rows.map(({ movements: _movements, ...shift }) => mapCashShiftDto(shift)));
+    } catch (error: unknown) {
+      return sendAppError(res, error, 'No se pudieron obtener los cierres de caja.');
+    }
+  };
+
   current = async (req: Request, res: Response) => {
     try {
       const clubId = this.resolveClubId(req);

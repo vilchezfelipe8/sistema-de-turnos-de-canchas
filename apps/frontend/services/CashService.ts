@@ -100,6 +100,16 @@ export class CashService {
     return res.json();
   }
 
+  /** Últimos cierres de caja (más nuevo primero). */
+  static async listClosedShifts(limit = 10) {
+    const res = await fetchWithAuth(`${apiBase()}/cash-shifts?limit=${limit}`, { method: 'GET' });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'Error al obtener los cierres de caja');
+    }
+    return res.json();
+  }
+
   static async getShiftReport(shiftId: string) {
     const res = await fetchWithAuth(`${apiBase()}/cash-shifts/${shiftId}/report`, { method: 'GET' });
     if (!res.ok) {
