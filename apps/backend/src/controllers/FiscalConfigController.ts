@@ -3,6 +3,7 @@ import { z } from 'zod';
 import forge from 'node-forge';
 import { prisma } from '../prisma';
 import { sendAppError, zodValidationAppError } from '../errors';
+import { encryptIntegrationSecret } from '../utils/integrationSecrets';
 
 const FISCAL_CONDITION_VALUES = [
   'RESPONSABLE_INSCRIPTO',
@@ -52,6 +53,44 @@ const parseCertMetadata = (pem: string) => {
   } catch {
     return { certificadoSerial: null, certificadoSubject: null, vencimientoCertificado: null };
   }
+};
+
+// Valida que certificado y clave se lean y sean pareja. Devuelve la clave sin contraseña,
+// lista para cifrarse con INTEGRATION_SECRETS_KEY (la contraseña no se guarda).
+const prepareCertificatePair = (
+  certPem: string,
+  keyPem: string,
+  passphrase?: string | null
+): { ok: true; certPem: string; keyPem: string } | { ok: false; error: string } => {
+  let cert: forge.pki.Certificate;
+  try {
+    cert = forge.pki.certificateFromPem(certPem);
+  } catch {
+    return { ok: false, error: 'No se pudo leer el certificado. Tiene que ser el archivo .crt que te dio ARCA.' };
+  }
+
+  const pass = String(passphrase || '');
+  let key: forge.pki.rsa.PrivateKey | null = null;
+  try {
+    key = keyPem.includes('ENCRYPTED')
+      ? (pass ? forge.pki.decryptRsaPrivateKey(keyPem, pass) : null)
+      : (forge.pki.privateKeyFromPem(keyPem) as forge.pki.rsa.PrivateKey);
+  } catch {
+    key = null;
+  }
+  if (!key) {
+    if (keyPem.includes('ENCRYPTED')) {
+      return { ok: false, error: pass ? 'La contraseña de la clave no es correcta.' : 'La clave tiene contraseña: escribila para poder usarla.' };
+    }
+    return { ok: false, error: 'No se pudo leer la clave. Tiene que ser el archivo .key que generaste al pedir el certificado.' };
+  }
+
+  const publicKey = cert.publicKey as forge.pki.rsa.PublicKey;
+  if (!publicKey?.n || publicKey.n.compareTo(key.n) !== 0) {
+    return { ok: false, error: 'La clave no corresponde a este certificado. Usá la misma clave con la que pediste el certificado en ARCA.' };
+  }
+
+  return { ok: true, certPem: forge.pki.certificateToPem(cert), keyPem: forge.pki.privateKeyToPem(key) };
 };
 
 // Strips PEM fields from the response; adds computed hasCertificate
@@ -144,14 +183,17 @@ export class FiscalConfigController {
       }
 
       const { certificadoPem, clavePrivadaPem, clavePrivadaPassphrase } = parsed.data;
-      const meta = parseCertMetadata(certificadoPem);
+      const pair = prepareCertificatePair(certificadoPem, clavePrivadaPem, clavePrivadaPassphrase);
+      if (!pair.ok) return res.status(400).json({ error: pair.error });
+      const meta = parseCertMetadata(pair.certPem);
 
       await prisma.configuracionFiscal.update({
         where: { clubId },
         data: {
-          certificadoPem,
-          clavePrivadaPem,
-          clavePrivadaPassphrase: clavePrivadaPassphrase ?? null,
+          // Cifrados: ArcaAuthService los descifra al firmar.
+          certificadoPem: encryptIntegrationSecret(pair.certPem),
+          clavePrivadaPem: encryptIntegrationSecret(pair.keyPem),
+          clavePrivadaPassphrase: null,
           ...meta
         }
       });

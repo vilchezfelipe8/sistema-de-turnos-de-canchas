@@ -4,6 +4,10 @@ import { RedisService } from './RedisService';
 import { ArcaSoapClient } from './ArcaSoapClient';
 import { acquireDistributedLock } from '../utils/distributedLock';
 import { decryptIntegrationSecret } from '../utils/integrationSecrets';
+
+// Certificados cargados antes de cifrarlos quedaron en texto (PEM): se leen tal cual.
+const readStoredPem = (value: string): string | null =>
+  value.trim().startsWith('-----BEGIN') ? value : decryptIntegrationSecret(value);
 import { arcaConfig, type ArcaEnvironment } from '../utils/arcaConfig';
 
 // §7 — 15 min margin: renew when less than this remains before expiry
@@ -159,8 +163,8 @@ export class ArcaAuthService {
         throw new Error('Certificado o clave privada faltante');
       }
 
-      const certPem = decryptIntegrationSecret(certificateEnc);
-      const keyPem = decryptIntegrationSecret(privateKeyEnc);
+      const certPem = readStoredPem(certificateEnc);
+      const keyPem = readStoredPem(privateKeyEnc);
       if (!certPem || !keyPem) {
         throw new Error('No se pudo descifrar certificado o clave');
       }
