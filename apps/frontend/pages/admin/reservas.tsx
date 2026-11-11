@@ -6,6 +6,8 @@ import AdminRouteShell from '../../components/admin/AdminRouteShell';
 import { AdminFeedbackBanner } from '../../components/admin/ui/AdminFeedback';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
+import { showAdminToast } from '../../utils/adminToast';
+import { ClubAdminService } from '../../services/ClubAdminService';
 import {
   listAdminBookings,
   type BookingListItem,
@@ -86,10 +88,28 @@ const formatDayShort = (iso: string, timeZone: string) =>
     .replace(/\./g, '')
     .replace(',', '');
 
-function BookingRow({ booking, timeZone, showDay }: { booking: BookingListItem; timeZone: string; showDay?: boolean }) {
+type RowAction = 'confirm' | 'cancel';
+
+function BookingRow({
+  booking,
+  timeZone,
+  showDay,
+  busy,
+  onAction,
+}: {
+  booking: BookingListItem;
+  timeZone: string;
+  showDay?: boolean;
+  busy?: boolean;
+  onAction?: (booking: BookingListItem, action: RowAction) => Promise<boolean>;
+}) {
   const chip = statusChip(booking);
   const cancelled = booking.status === 'CANCELLED';
   const href = `/admin/agenda?fecha=${dayKey(booking.startDateTime, timeZone)}${cancelled ? '' : `&reserva=${booking.id}`}`;
+  // Pendientes que todavía no pasaron: se confirman o cancelan desde acá.
+  const actionable = Boolean(onAction) && booking.status === 'PENDING' && new Date(booking.endDateTime).getTime() >= Date.now();
+  const hasPayments = booking.paidAmount > 0.009;
+  const [askCancel, setAskCancel] = useState(false);
 
   const body = (
     <div className="flex items-start justify-between gap-3">
@@ -140,6 +160,63 @@ function BookingRow({ booking, timeZone, showDay }: { booking: BookingListItem; 
       >
         {body}
       </Link>
+      {actionable && (
+        <div className="px-4 pb-3">
+          {askCancel ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-p-surface-2 px-3 py-2">
+              <p className="mr-auto text-[12px] text-p-text">¿Cancelar la reserva de {booking.client.name}? El horario queda libre.</p>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setAskCancel(false)}
+                className="h-8 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text hover:bg-p-surface-2 disabled:opacity-50"
+              >
+                No
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  const ok = await onAction!(booking, 'cancel');
+                  if (!ok) setAskCancel(false);
+                }}
+                className="h-8 rounded-lg bg-[var(--error-fg)] px-3 text-[12px] font-semibold text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {busy ? 'Cancelando…' : 'Sí, cancelar'}
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2 pl-[64px]">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void onAction!(booking, 'confirm')}
+                className="h-8 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold !text-ink-50 hover:bg-ink-800 disabled:opacity-50"
+              >
+                {busy ? 'Confirmando…' : 'Confirmar'}
+              </button>
+              {hasPayments ? (
+                <Link
+                  href={href}
+                  className="inline-flex h-8 items-center rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text hover:bg-p-surface-2"
+                  title="Ya pagó algo: cancelala desde el calendario para decidir la devolución"
+                >
+                  Cancelar en el calendario
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setAskCancel(true)}
+                  className="h-8 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text hover:bg-p-surface-2 disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </li>
   );
 }
@@ -196,6 +273,34 @@ function BookingsContent({ slug }: { slug: string }) {
     if (!router.isReady) return;
     void load();
   }, [router.isReady, load]);
+
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const runAction = useCallback(
+    async (booking: BookingListItem, action: RowAction) => {
+      setBusyId(booking.id);
+      try {
+        if (action === 'confirm') {
+          await ClubAdminService.confirmBooking(slug, booking.id);
+          showAdminToast(`Reserva de ${booking.client.name} confirmada.`);
+        } else {
+          await ClubAdminService.cancelBooking(slug, booking.id);
+          showAdminToast(`Reserva de ${booking.client.name} cancelada.`);
+        }
+        await load();
+        return true;
+      } catch (err) {
+        reportUiError({ area: 'AdminBookingsPage', action }, err);
+        showAdminToast(
+          extractErrorMessage(err, action === 'confirm' ? 'No se pudo confirmar la reserva.' : 'No se pudo cancelar la reserva.'),
+          'error'
+        );
+        return false;
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [slug, load]
+  );
 
   const timeZone = result?.timeZone || 'America/Argentina/Buenos_Aires';
   const items = result?.items ?? [];
@@ -337,7 +442,7 @@ function BookingsContent({ slug }: { slug: string }) {
                   </p>
                   <ul className="divide-y divide-p-border overflow-hidden rounded-xl border border-p-border bg-p-surface">
                     {group.items.map((booking) => (
-                      <BookingRow key={booking.id} booking={booking} timeZone={timeZone} />
+                      <BookingRow key={booking.id} booking={booking} timeZone={timeZone} busy={busyId === booking.id} onAction={runAction} />
                     ))}
                   </ul>
                 </div>
