@@ -8,7 +8,7 @@
 //   onClose        — callback para cerrar.
 //   onSuccess      — invocado tras cada acción exitosa; el padre actualiza su lista.
 //   onRefundRequest — abre el drawer de devolución en el padre (necesita contexto de allAccounts).
-//   initialView    — intención de apertura: detalle, cobro o nuevo concepto.
+//   initialView    — intención de apertura: detalle, cobro, nuevo concepto, cierre o factura.
 //   context        — copia visible para identificar la cuenta dentro del drawer.
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -20,6 +20,13 @@ import { getAccountById, addAccountItem, registerPayment, closeAccount, voidPosA
 import type { PaymentMethod, PaymentChannel } from '../../../services/AccountService';
 import { getAccountFacturas, emitAccountFactura, retryFactura, type EmitFacturaInput } from '../../../services/FiscalBandejaService';
 import { getFiscalConfig } from '../../../services/FiscalConfigService';
+import {
+  FACTURA_ACTION_HINT,
+  FACTURA_TONE_CLASS,
+  facturaStateText,
+  formatCuit,
+  isValidCuit,
+} from '../../facturacion/fiscalTexts';
 import { useAuth } from '../../../contexts/AuthContext';
 import { getActiveClubSlug } from '../../../utils/session';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
@@ -57,7 +64,7 @@ type AccountDrawerView =
   | 'payment_result'
   | 'close_confirm';
 
-export type AccountDrawerInitialView = 'overview' | 'add_item' | 'payment' | 'close';
+export type AccountDrawerInitialView = 'overview' | 'add_item' | 'payment' | 'close' | 'invoice';
 
 export type AccountDrawerContext = {
   title?: string;
@@ -132,29 +139,7 @@ const sectionCardClass = 'rounded-2xl border border-p-border bg-p-surface-2 p-4'
 const sectionListClass = 'divide-y divide-p-border overflow-hidden rounded-xl border border-p-border bg-p-surface';
 const SUCCESS_ANIMATION_VARIANT: 'soft' | 'bold' = 'bold';
 
-const FACTURA_STATUS_LABELS: Record<string, string> = {
-  PENDING: 'Pendiente',
-  PROCESSING: 'Procesando',
-  APPROVED: 'Aprobado',
-  APPROVED_WITH_OBSERVATIONS: 'Aprobado c/obs.',
-  REJECTED: 'Rechazado',
-  TECHNICAL_ERROR: 'Error técnico',
-  CANCELLED: 'Cancelado',
-};
-
-const FACTURA_STATUS_COLORS: Record<string, string> = {
-  PENDING: 'bg-p-warning-bg text-p-warning',
-  PROCESSING: 'bg-p-accent/10 text-p-accent',
-  APPROVED: 'bg-p-positive-bg text-p-positive',
-  APPROVED_WITH_OBSERVATIONS: 'bg-emerald-50 text-emerald-700',
-  REJECTED: 'bg-p-error-bg text-[var(--error-fg)]',
-  TECHNICAL_ERROR: 'bg-p-error-bg text-[var(--error-fg)]',
-  CANCELLED: 'bg-p-surface-3 text-p-text-muted',
-};
-
 const ACTIVE_FACTURA_STATUSES = new Set(['PENDING', 'PROCESSING', 'APPROVED', 'APPROVED_WITH_OBSERVATIONS']);
-
-type FacturaStatus = keyof typeof FACTURA_STATUS_LABELS;
 
 type ReceptorCondicion = 'CONSUMIDOR_FINAL' | 'RESPONSABLE_INSCRIPTO' | 'MONOTRIBUTO' | 'EXENTO';
 
@@ -169,27 +154,38 @@ type InvoiceDraft = {
   fechaVencimientoPago: string;
 };
 
-const CONDICION_LABELS: Record<ReceptorCondicion, string> = {
-  CONSUMIDOR_FINAL: 'Consumidor Final',
-  RESPONSABLE_INSCRIPTO: 'Responsable Inscripto',
-  MONOTRIBUTO: 'Monotributo',
-  EXENTO: 'Exento',
+// Condiciones de quien recibe una factura con CUIT.
+const CUIT_CONDITIONS: Array<{ value: Exclude<ReceptorCondicion, 'CONSUMIDOR_FINAL'>; label: string }> = [
+  { value: 'RESPONSABLE_INSCRIPTO', label: 'Responsable inscripto' },
+  { value: 'MONOTRIBUTO', label: 'Monotributista' },
+  { value: 'EXENTO', label: 'Exento' },
+];
+
+// RG 5824/2026: a consumidor final, desde $10M hay que identificarlo.
+const CF_THRESHOLD = 10_000_000;
+
+/** Qué le falta al borrador para poder emitir (null = listo). */
+const invoiceDraftError = (draft: InvoiceDraft, total: number): string | null => {
+  if (draft.condicionFiscal !== 'CONSUMIDOR_FINAL') {
+    if (!isValidCuit(draft.cuit)) return 'Revisá el CUIT: tiene que tener 11 números y ser válido.';
+    if (!draft.receptorNombre.trim()) return 'Escribí la razón social.';
+    return null;
+  }
+  if (total >= CF_THRESHOLD && !draft.dni.trim()) return 'Desde $10.000.000 ARCA pide el DNI del cliente.';
+  if (draft.dni && (draft.dni.length < 7 || draft.dni.length > 8)) return 'El DNI tiene 7 u 8 números.';
+  return null;
 };
 
-const todayDateString = () => new Date().toISOString().slice(0, 10);
-
-const createDefaultInvoiceDraft = (detail: AccountDetail | null): InvoiceDraft => {
-  const today = todayDateString();
-  return {
-    condicionFiscal: 'CONSUMIDOR_FINAL',
-    receptorNombre: detail?.client?.name ?? '',
-    cuit: '',
-    dni: '',
-    fechaServicioDesde: today,
-    fechaServicioHasta: today,
-    fechaVencimientoPago: today,
-  };
-};
+// Fechas vacías = el backend usa la fecha de hoy en Argentina.
+const createDefaultInvoiceDraft = (detail: AccountDetail | null): InvoiceDraft => ({
+  condicionFiscal: 'CONSUMIDOR_FINAL',
+  receptorNombre: detail?.client?.name ?? '',
+  cuit: '',
+  dni: '',
+  fechaServicioDesde: '',
+  fechaServicioHasta: '',
+  fechaVencimientoPago: '',
+});
 
 type InvoiceRow = {
   id: string;
@@ -248,6 +244,7 @@ export default function AccountDrawer({
   const [invoicesLoading, setInvoicesLoading] = useState(false);
   // Facturar solo si el club tiene la facturación electrónica prendida.
   const [fiscalEnabled, setFiscalEnabled] = useState(false);
+  const [fiscalTestMode, setFiscalTestMode] = useState(false);
   const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraft>(() => createDefaultInvoiceDraft(null));
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceRow | null>(null);
 
@@ -342,6 +339,13 @@ export default function AccountDrawer({
         return;
       }
 
+      if (initialView === 'invoice') {
+        setSelectedInvoice(null);
+        setInvoiceDraft(createDefaultInvoiceDraft(targetDetail));
+        setView('invoice_form');
+        return;
+      }
+
       setView('overview');
     },
     [initialView, openPaymentFlowForDetail]
@@ -372,6 +376,8 @@ export default function AccountDrawer({
     setItemForm(createDefaultItemForm());
     setVoidConfirmOpen(false);
     setSelectedInvoice(null);
+    setInvoices([]);
+    setInvoicesLoading(true);
     setInvoiceDraft(createDefaultInvoiceDraft(null));
     setView('overview');
     initialViewAppliedKeyRef.current = '';
@@ -394,7 +400,10 @@ export default function AccountDrawer({
   }, [open, accountId, normalizeDrawerDetail]);
 
   const loadInvoices = useCallback(async () => {
-    if (!accountId || !slug) return [] as InvoiceRow[];
+    if (!accountId || !slug) {
+      setInvoicesLoading(false);
+      return [] as InvoiceRow[];
+    }
     try {
       setInvoicesLoading(true);
       const items = await getAccountFacturas(slug, accountId);
@@ -454,6 +463,7 @@ export default function AccountDrawer({
       .then((config) => {
         if (cancelled) return;
         setFiscalEnabled(Boolean(config?.facturacionHabilitada && config.modoFacturacion && config.modoFacturacion !== 'DESHABILITADA'));
+        setFiscalTestMode(Boolean(config?.usaHomologacion));
       })
       .catch(() => {
         if (!cancelled) setFiscalEnabled(false);
@@ -950,32 +960,20 @@ export default function AccountDrawer({
     }
   }, [accountId, detail, reloadDetail, getSuccessMeta, onClose, onSuccess]);
 
-  const CF_THRESHOLD = 10_000_000; // RG 5824/2026
 
   const handleEmitInvoice = useCallback(async () => {
     if (!accountId || !slug) return;
 
-    // Client-side validation: non-CF requires CUIT
-    if (invoiceDraft.condicionFiscal !== 'CONSUMIDOR_FINAL' && !invoiceDraft.cuit.trim()) {
-      setActionError(`La condición ${CONDICION_LABELS[invoiceDraft.condicionFiscal]} requiere un CUIT.`);
-      return;
-    }
-
-    // RG 5824/2026 — CF con importe >= $10M requiere identificación
-    const accountTotal = Number(detail?.total || 0);
-    if (
-      invoiceDraft.condicionFiscal === 'CONSUMIDOR_FINAL' &&
-      accountTotal >= CF_THRESHOLD &&
-      !invoiceDraft.dni.trim() && !invoiceDraft.cuit.trim()
-    ) {
-      setActionError(`El importe supera $10.000.000. Se requiere DNI o CUIT del receptor (RG 5824/2026).`);
+    const invoiceError = invoiceDraftError(invoiceDraft, Number(detail?.total || 0));
+    if (invoiceError) {
+      setActionError(invoiceError);
       return;
     }
 
     const input: EmitFacturaInput = {
       receptorCondicionFiscal: invoiceDraft.condicionFiscal,
       receptorNombre: invoiceDraft.receptorNombre.trim() || undefined,
-      receptorCuit: invoiceDraft.condicionFiscal !== 'CONSUMIDOR_FINAL' ? invoiceDraft.cuit : undefined,
+      receptorCuit: invoiceDraft.condicionFiscal !== 'CONSUMIDOR_FINAL' ? invoiceDraft.cuit.replace(/\D/g, '') : undefined,
       receptorDni: invoiceDraft.condicionFiscal === 'CONSUMIDOR_FINAL' && invoiceDraft.dni ? invoiceDraft.dni : undefined,
       fechaServicioDesde: invoiceDraft.fechaServicioDesde || undefined,
       fechaServicioHasta: invoiceDraft.fechaServicioHasta || undefined,
@@ -986,7 +984,7 @@ export default function AccountDrawer({
       setSubmitting(true);
       setActionError('');
       await emitAccountFactura(slug, accountId, input);
-      showAdminToast('Solicitud de factura enviada.');
+      showAdminToast('Factura enviada a ARCA. En un rato aparece emitida.');
       await loadInvoices();
       await reloadDetail();
       setView('overview');
@@ -996,7 +994,15 @@ export default function AccountDrawer({
     } finally {
       setSubmitting(false);
     }
-  }, [accountId, slug, invoiceDraft, loadInvoices, reloadDetail]);
+  }, [accountId, slug, invoiceDraft, detail?.total, loadInvoices, reloadDetail]);
+
+  // Si la cuenta ya tiene una factura (o se abrió desde Caja sin saber), no se factura dos veces.
+  useEffect(() => {
+    if (view !== 'invoice_form' || invoicesLoading) return;
+    if (!invoices.some((i) => ACTIVE_FACTURA_STATUSES.has(i.status))) return;
+    setActionError('Esta cuenta ya tiene una factura.');
+    setView('overview');
+  }, [view, invoices, invoicesLoading]);
 
   const closeInvoicePanel = useCallback(() => {
     if (submitting) return;
@@ -1062,6 +1068,10 @@ export default function AccountDrawer({
       ? payResult?.title || 'Cobro'
     : view === 'close_confirm'
     ? 'Cerrar cuenta'
+    : view === 'invoice_form'
+    ? 'Emitir factura'
+    : view === 'invoice_detail'
+    ? 'Factura'
     : accountTitle;
 
   const statusChip = view === 'overview' && detail && detail.status !== 'OPEN' ? 'Cerrada' : undefined;
@@ -1159,16 +1169,10 @@ export default function AccountDrawer({
           <button
             type="submit"
             form="invoice-form"
-            disabled={
-              submitting ||
-              (invoiceDraft.condicionFiscal !== 'CONSUMIDOR_FINAL' && invoiceDraft.cuit.length !== 11) ||
-              (invoiceDraft.condicionFiscal === 'CONSUMIDOR_FINAL' &&
-                Number(detail?.total || 0) >= CF_THRESHOLD &&
-                !invoiceDraft.dni.trim() && !invoiceDraft.cuit.trim())
-            }
+            disabled={submitting}
             className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-40"
           >
-            {submitting ? 'Emitiendo...' : 'Emitir factura'}
+            {submitting ? 'Enviando…' : `Facturar ${formatMoney(Number(detail?.total || 0))}`}
           </button>
         </div>
       );
@@ -1484,8 +1488,9 @@ export default function AccountDrawer({
             ) : (
               <div className={sectionListClass}>
                 {invoices.map((invoice) => {
-                  const invStatusLabel = FACTURA_STATUS_LABELS[invoice.status] ?? invoice.status;
-                  const invStatusColor = FACTURA_STATUS_COLORS[invoice.status] ?? 'bg-p-surface-3 text-p-text-muted';
+                  const invState = facturaStateText(invoice.status);
+                  const invStatusLabel = invState.label;
+                  const invStatusColor = FACTURA_TONE_CLASS[invState.tone];
                   return (
                   <div key={invoice.id} className="flex items-center justify-between gap-3 px-4 py-3">
                     <div className="min-w-0 flex-1">
@@ -1493,7 +1498,7 @@ export default function AccountDrawer({
                         <p className="truncate text-[13px] font-medium text-p-text">
                           {invoice.documentType || 'Factura'}
                         </p>
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${invStatusColor}`}>
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${invStatusColor}`}>
                           {invStatusLabel}
                         </span>
                       </div>
@@ -1501,9 +1506,6 @@ export default function AccountDrawer({
                         {formatRelativeDate(invoice.issuedAt || invoice.createdAt || '')}
                         {invoice.providerInvoiceId ? ` · N° ${invoice.providerInvoiceId}` : ''}
                       </p>
-                      {invoice.cae && (
-                        <p className="mt-1 text-[11px] text-p-text-muted">CAE: {String(invoice.cae)}</p>
-                      )}
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       <span className="text-[13px] font-semibold text-p-positive">
@@ -1735,7 +1737,7 @@ export default function AccountDrawer({
             void handleEmitInvoice();
           }}
         >
-          <AdminDrawerSection title="Datos del receptor" className={sectionCardClass}>
+          <AdminDrawerSection title="¿A quién le facturás?" className={sectionCardClass}>
             <div className="space-y-3">
               {actionError && (
                 <div className="flex items-start gap-2 rounded-xl border border-p-error bg-p-error-bg px-4 py-3">
@@ -1744,86 +1746,123 @@ export default function AccountDrawer({
                 </div>
               )}
 
-              {/* Condición fiscal */}
-              <label className="space-y-1.5">
-                <span className="block text-[12px] font-medium text-p-text-muted">Condición fiscal</span>
-                <select
-                  value={invoiceDraft.condicionFiscal}
-                  onChange={(e) => setInvoiceDraft((prev) => ({
-                    ...prev,
-                    condicionFiscal: e.target.value as ReceptorCondicion,
-                    cuit: '',
-                    dni: '',
-                  }))}
-                  className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text focus:border-p-accent focus:outline-none"
-                >
-                  {(Object.keys(CONDICION_LABELS) as ReceptorCondicion[]).map((key) => (
-                    <option key={key} value={key}>{CONDICION_LABELS[key]}</option>
-                  ))}
-                </select>
-              </label>
+              {/* ¿A quién? Consumidor final salvo que pidan factura con CUIT. */}
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="A quién se factura">
+                {[
+                  { cf: true, title: 'Consumidor final', hint: 'La mayoría de los clientes' },
+                  { cf: false, title: 'Con CUIT', hint: 'Empresa o monotributista' },
+                ].map((option) => {
+                  const selected = option.cf ? !needsCuit : needsCuit;
+                  return (
+                    <button
+                      key={option.title}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() =>
+                        setInvoiceDraft((prev) => ({
+                          ...prev,
+                          condicionFiscal: option.cf ? 'CONSUMIDOR_FINAL' : 'RESPONSABLE_INSCRIPTO',
+                          receptorNombre: option.cf ? detail.client?.name ?? '' : '',
+                          cuit: '',
+                          dni: '',
+                        }))
+                      }
+                      className={`rounded-xl border px-3 py-2.5 text-left transition ${
+                        selected ? 'border-ink-900 bg-p-surface ring-1 ring-ink-900' : 'border-p-border bg-p-surface hover:bg-p-surface-2'
+                      }`}
+                    >
+                      <span className="block text-[13px] font-semibold text-p-text">{option.title}</span>
+                      <span className="block text-[11px] text-p-text-muted">{option.hint}</span>
+                    </button>
+                  );
+                })}
+              </div>
 
-              {/* Nombre / razón social */}
-              <label className="space-y-1.5">
-                <span className="block text-[12px] font-medium text-p-text-muted">Nombre / razón social</span>
-                <input
-                  type="text"
-                  value={invoiceDraft.receptorNombre}
-                  onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, receptorNombre: e.target.value }))}
-                  placeholder="Consumidor Final"
-                  className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text placeholder:text-p-text-muted focus:border-p-accent focus:outline-none"
-                />
-              </label>
-
-              {/* CUIT — requerido para RI / Monotributo / Exento */}
-              {needsCuit && (
-                <label className="space-y-1.5">
-                  <span className="block text-[12px] font-medium text-p-text-muted">
-                    CUIT <span className="text-[var(--error-fg)]">*</span>
-                  </span>
-                  <input
-                    type="text"
-                    value={invoiceDraft.cuit}
-                    onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, cuit: e.target.value.replace(/\D/g, '') }))}
-                    placeholder="20123456789"
-                    maxLength={11}
-                    inputMode="numeric"
-                    className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text placeholder:text-p-text-muted focus:border-p-accent focus:outline-none"
-                  />
-                  {invoiceDraft.cuit && invoiceDraft.cuit.length !== 11 && (
-                    <p className="text-[11px] text-[var(--error-fg)]">El CUIT debe tener 11 dígitos.</p>
-                  )}
-                </label>
-              )}
-
-              {/* DNI — opcional para Consumidor Final (requerido si importe >= $10M) */}
-              {!needsCuit && (
-                <label className="space-y-1.5">
-                  <span className="block text-[12px] font-medium text-p-text-muted">
-                    DNI{' '}
-                    {Number(detail.total || 0) >= CF_THRESHOLD ? (
-                      <span className="text-[var(--error-fg)]">* requerido (&gt;$10M)</span>
-                    ) : (
-                      <span className="font-normal">(opcional)</span>
+              {needsCuit ? (
+                <>
+                  <label className="block space-y-1.5">
+                    <span className="block text-[12px] font-medium text-p-text-muted">CUIT</span>
+                    <input
+                      type="text"
+                      value={formatCuit(invoiceDraft.cuit)}
+                      onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, cuit: e.target.value.replace(/\D/g, '').slice(0, 11) }))}
+                      placeholder="30-12345678-9"
+                      inputMode="numeric"
+                      className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] tabular-nums text-p-text placeholder:text-p-text-muted focus:border-p-accent focus:outline-none"
+                    />
+                    {invoiceDraft.cuit.length === 11 && !isValidCuit(invoiceDraft.cuit) && (
+                      <p className="text-[11px] text-[var(--error-fg)]">Ese CUIT no es válido. Revisá los números.</p>
                     )}
-                  </span>
-                  <input
-                    type="text"
-                    value={invoiceDraft.dni}
-                    onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, dni: e.target.value.replace(/\D/g, '') }))}
-                    placeholder="Sin documento"
-                    maxLength={8}
-                    inputMode="numeric"
-                    className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text placeholder:text-p-text-muted focus:border-p-accent focus:outline-none"
-                  />
-                </label>
+                  </label>
+                  <label className="block space-y-1.5">
+                    <span className="block text-[12px] font-medium text-p-text-muted">Razón social</span>
+                    <input
+                      type="text"
+                      value={invoiceDraft.receptorNombre}
+                      onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, receptorNombre: e.target.value }))}
+                      placeholder="Como figura en ARCA"
+                      className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text placeholder:text-p-text-muted focus:border-p-accent focus:outline-none"
+                    />
+                  </label>
+                  <label className="block space-y-1.5">
+                    <span className="block text-[12px] font-medium text-p-text-muted">Frente al IVA es</span>
+                    <select
+                      value={invoiceDraft.condicionFiscal}
+                      onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, condicionFiscal: e.target.value as ReceptorCondicion }))}
+                      className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text focus:border-p-accent focus:outline-none"
+                    >
+                      {CUIT_CONDITIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              ) : (
+                <>
+                  <label className="block space-y-1.5">
+                    <span className="block text-[12px] font-medium text-p-text-muted">
+                      Nombre <span className="font-normal">(opcional)</span>
+                    </span>
+                    <input
+                      type="text"
+                      value={invoiceDraft.receptorNombre}
+                      onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, receptorNombre: e.target.value }))}
+                      placeholder="Consumidor final"
+                      className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text placeholder:text-p-text-muted focus:border-p-accent focus:outline-none"
+                    />
+                  </label>
+                  <label className="block space-y-1.5">
+                    <span className="block text-[12px] font-medium text-p-text-muted">
+                      DNI{' '}
+                      {Number(detail.total || 0) >= CF_THRESHOLD ? (
+                        <span className="font-normal">(ARCA lo pide desde $10.000.000)</span>
+                      ) : (
+                        <span className="font-normal">(opcional)</span>
+                      )}
+                    </span>
+                    <input
+                      type="text"
+                      value={invoiceDraft.dni}
+                      onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, dni: e.target.value.replace(/\D/g, '').slice(0, 8) }))}
+                      placeholder="Sin DNI"
+                      inputMode="numeric"
+                      className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] tabular-nums text-p-text placeholder:text-p-text-muted focus:border-p-accent focus:outline-none"
+                    />
+                  </label>
+                </>
               )}
 
-              {/* Fechas de servicio — §55.7 AFIP */}
-              <div className="space-y-2 rounded-xl border border-p-border bg-p-surface-2 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-p-text-muted">
-                  Período de servicio
-                </p>
+              {/* Fechas: por defecto hoy; casi nunca hace falta cambiarlas. */}
+              <details className="group rounded-xl border border-p-border bg-p-surface px-3 py-2.5">
+                <summary className="cursor-pointer list-none text-[12px] text-p-text-muted">
+                  {invoiceDraft.fechaServicioDesde || invoiceDraft.fechaServicioHasta || invoiceDraft.fechaVencimientoPago
+                    ? 'Fechas cambiadas'
+                    : 'Se factura con fecha de hoy.'}{' '}
+                  <span className="font-semibold text-p-text-secondary underline-offset-2 group-open:hidden hover:underline">Cambiar</span>
+                </summary>
+                <div className="mt-3 space-y-2">
+                <p className="text-[11px] text-p-text-muted">Cuándo se jugó o se dio el servicio.</p>
                 <div className="grid grid-cols-2 gap-2">
                   <label className="space-y-1">
                     <span className="block text-[12px] font-medium text-p-text-muted">Desde</span>
@@ -1844,8 +1883,8 @@ export default function AccountDrawer({
                     />
                   </label>
                 </div>
-                <label className="space-y-1">
-                  <span className="block text-[12px] font-medium text-p-text-muted">Vencimiento de pago</span>
+                <label className="block space-y-1">
+                  <span className="block text-[12px] font-medium text-p-text-muted">Vence el pago</span>
                   <input
                     type="date"
                     value={invoiceDraft.fechaVencimientoPago}
@@ -1853,20 +1892,12 @@ export default function AccountDrawer({
                     className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text focus:border-p-accent focus:outline-none"
                   />
                 </label>
-              </div>
+                </div>
+              </details>
 
-              {/* Resumen del importe */}
-              <div className={sectionListClass}>
-                <DataRow
-                  label="Importe a facturar"
-                  value={formatMoney(Number(detail.total || 0))}
-                  valueClassName="font-bold"
-                />
-              </div>
-
-              <p className="text-[11px] text-p-text-muted">
-                El tipo de comprobante (A / B / C) se determina según la condición fiscal del club emisor y la del receptor.
-              </p>
+              {fiscalTestMode && (
+                <p className="text-[12px] text-p-warning">Modo prueba: esta factura no tiene validez fiscal.</p>
+              )}
             </div>
           </AdminDrawerSection>
         </form>
@@ -1875,8 +1906,9 @@ export default function AccountDrawer({
 
     if (view === 'invoice_detail') {
       const invoice = selectedInvoice;
-      const statusLabel = invoice ? (FACTURA_STATUS_LABELS[invoice.status] ?? invoice.status) : '';
-      const statusColor = invoice ? (FACTURA_STATUS_COLORS[invoice.status] ?? 'bg-p-surface-3 text-p-text-muted') : '';
+      const invState = invoice ? facturaStateText(invoice.status) : null;
+      const statusLabel = invState?.label ?? '';
+      const statusColor = invState ? FACTURA_TONE_CLASS[invState.tone] : '';
       return (
         <AdminDrawerSection className={sectionCardClass}>
           {invoice ? (
@@ -1884,21 +1916,23 @@ export default function AccountDrawer({
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[13px] font-semibold text-p-text">{invoice.documentType || 'Factura'}</p>
-                  <span className={`mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${statusColor}`}>
+                  <span className={`mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusColor}`}>
                     {statusLabel}
                   </span>
                 </div>
-                <span className="shrink-0 text-[16px] font-bold text-p-positive">{formatMoney(invoice.totalAmount)}</span>
+                <span className="shrink-0 text-[16px] font-bold text-p-text">{formatMoney(invoice.totalAmount)}</span>
               </div>
               <div className={sectionListClass}>
-                <DataRow label="CAE" value={invoice.cae || '-'} />
-                <DataRow label="Nro. comprobante" value={invoice.providerInvoiceId || '-'} />
-                <DataRow label="Emitida" value={formatRelativeDate(invoice.issuedAt || invoice.createdAt || '')} />
-                <DataRow label="Receptor" value={invoice.receiverName || '-'} />
-                <DataRow
-                  label="Documento"
-                  value={invoice.receiverDocNumber ? `DNI ${invoice.receiverDocNumber}` : '-'}
-                />
+                {invoice.providerInvoiceId && <DataRow label="Número" value={invoice.providerInvoiceId} />}
+                <DataRow label="Fecha" value={formatRelativeDate(invoice.issuedAt || invoice.createdAt || '')} />
+                <DataRow label="A nombre de" value={invoice.receiverName || 'Consumidor final'} />
+                {invoice.receiverDocNumber && invoice.receiverDocNumber !== '0' && (
+                  <DataRow
+                    label={invoice.receiverDocNumber.length === 11 ? 'CUIT' : 'DNI'}
+                    value={invoice.receiverDocNumber.length === 11 ? formatCuit(invoice.receiverDocNumber) : invoice.receiverDocNumber}
+                  />
+                )}
+                {invoice.cae && <DataRow label="CAE" value={invoice.cae} />}
                 {invoice.pdfUrl && (
                   <div className="flex items-center justify-between px-4 py-3">
                     <span className="text-[13px] text-p-text-muted">Comprobante</span>
@@ -1914,12 +1948,16 @@ export default function AccountDrawer({
                   </div>
                 )}
               </div>
-              {invoice.mensajeError && (
+              {invState?.tone === 'problem' && (
                 <div className="rounded-xl border border-p-error/30 bg-p-error-bg px-4 py-3">
-                  <p className="text-[12px] font-semibold text-[var(--error-fg)]">Error AFIP</p>
-                  <p className="mt-0.5 text-[12px] text-[var(--error-fg)]">{invoice.mensajeError}</p>
-                  {invoice.suggestedAction && (
-                    <p className="mt-1 text-[11px] text-p-text-muted">{invoice.suggestedAction}</p>
+                  <p className="text-[12px] font-semibold text-[var(--error-fg)]">
+                    {(invoice.suggestedAction && FACTURA_ACTION_HINT[invoice.suggestedAction]) || 'La factura no salió.'}
+                  </p>
+                  {invoice.mensajeError && (
+                    <details className="mt-1">
+                      <summary className="cursor-pointer text-[11px] text-p-text-muted">Qué dijo ARCA</summary>
+                      <p className="mt-1 break-words text-[11px] text-p-text-secondary">{invoice.mensajeError}</p>
+                    </details>
                   )}
                 </div>
               )}

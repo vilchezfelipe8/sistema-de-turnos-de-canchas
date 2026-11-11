@@ -19,6 +19,12 @@ import {
   type PaginatedResult,
 } from '../../services/FiscalBandejaService';
 import { getFiscalConfig, type FiscalConfigData } from '../../services/FiscalConfigService';
+import {
+  FACTURA_ACTION_HINT,
+  FACTURA_TONE_CLASS,
+  facturaStateText,
+  type FacturaTone,
+} from '../../modules/facturacion/fiscalTexts';
 
 // Facturación: las facturas que salieron, las que no y qué hacer con cada una.
 
@@ -38,7 +44,7 @@ const parseFilter = (value: unknown): ListFilter => {
   return raw === 'PROBLEMS' || raw === 'IN_PROGRESS' || raw === 'ISSUED' ? raw : '';
 };
 
-type RowState = { label: string; tone: 'ok' | 'progress' | 'problem' | 'muted' };
+type RowState = { label: string; tone: FacturaTone };
 
 const isIssued = (f: FacturaSummary) => f.status === 'APPROVED' || f.status === 'APPROVED_WITH_OBSERVATIONS';
 const isAnnulled = (f: FacturaSummary) =>
@@ -48,29 +54,11 @@ const annulInProgress = (f: FacturaSummary) =>
 
 const rowState = (f: FacturaSummary): RowState => {
   if (isAnnulled(f)) return { label: 'Anulada', tone: 'muted' };
-  if (isIssued(f)) return { label: 'Emitida', tone: 'ok' };
-  if (f.status === 'PENDING' || f.status === 'PROCESSING') return { label: 'Saliendo…', tone: 'progress' };
-  if (f.status === 'REJECTED') return { label: 'ARCA la rechazó', tone: 'problem' };
-  if (f.status === 'TECHNICAL_ERROR') return { label: 'No salió', tone: 'problem' };
-  return { label: 'Cancelada', tone: 'muted' };
+  return facturaStateText(f.status);
 };
 
-const TONE_CLASS: Record<RowState['tone'], string> = {
-  ok: 'bg-p-positive-bg text-p-positive',
-  progress: 'bg-p-surface-2 text-p-text-secondary',
-  problem: 'bg-p-error-bg text-[var(--error-fg)]',
-  muted: 'bg-p-surface-2 text-p-text-muted',
-};
-
-// Qué hacer, según lo que sugiere el backend.
-const ACTION_HINT: Record<string, string> = {
-  RETRY_AUTOMATICALLY: 'Pique la vuelve a intentar sola.',
-  REFRESH_AUTH_AND_RETRY: 'Pique pide permiso a ARCA de nuevo y la reintenta.',
-  REQUIRE_ADMIN_CONFIGURATION_FIX: 'Revisá los datos del club, el punto de venta o el certificado en Ajustes → Facturación.',
-  REQUIRE_RECEIVER_DATA_FIX: 'Revisá el CUIT o DNI del cliente y volvé a emitirla desde la cuenta.',
-  REQUIRE_MANUAL_RECONCILIATION: 'Puede que ARCA ya la tenga. Fijate en la web de ARCA antes de reintentar, para no duplicarla.',
-  REQUIRE_ENGINEERING_REVIEW: 'Es un error que tiene que mirar Pique. Escribinos.',
-};
+const TONE_CLASS = FACTURA_TONE_CLASS;
+const ACTION_HINT = FACTURA_ACTION_HINT;
 
 const INCIDENT_TEXT: Record<string, { title: string; hint: string }> = {
   MAX_RETRIES_EXCEEDED: {

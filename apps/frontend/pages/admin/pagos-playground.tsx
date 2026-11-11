@@ -67,6 +67,7 @@ import {
 } from '../../services/PaymentService';
 import { formatDateTime24 } from '../../utils/dateTime';
 import { getActiveClubSlug, hasOperatorAccess, normalizeSessionUser } from '../../utils/session';
+import { getFiscalConfig } from '../../services/FiscalConfigService';
 import { showAdminToast } from '../../utils/adminToast';
 import { ADMIN_Z_INDEX } from '../../utils/adminZIndex';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
@@ -711,6 +712,8 @@ export default function AdminPaymentsPlaygroundPage() {
   const [accountDrawerOpen, setAccountDrawerOpen] = useState(false);
   const [accountDrawerInitialView, setAccountDrawerInitialView] =
     useState<AccountDrawerInitialView>('overview');
+  // "Emitir factura" en una cuenta, solo si el club factura.
+  const [fiscalBillingEnabled, setFiscalBillingEnabled] = useState(false);
   const [accountDetailById, setAccountDetailById] = useState<Record<string, AccountDetail>>({});
   const [loadingAccountDetailById, setLoadingAccountDetailById] = useState<Record<string, boolean>>({});
   const [accountDetailError, setAccountDetailError] = useState('');
@@ -1124,6 +1127,26 @@ export default function AdminPaymentsPlaygroundPage() {
     if (!authChecked || !user || !hasOperatorAccess(user)) return;
     void refresh();
   }, [authChecked, refresh, user]);
+
+  useEffect(() => {
+    if (!authChecked || !user || !hasOperatorAccess(user)) return;
+    const slug = getActiveClubSlug(normalizeSessionUser(user as any));
+    if (!slug) return;
+    let cancelled = false;
+    getFiscalConfig(slug)
+      .then((config) => {
+        if (cancelled) return;
+        setFiscalBillingEnabled(
+          Boolean(config?.facturacionHabilitada && config.modoFacturacion && config.modoFacturacion !== 'DESHABILITADA')
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setFiscalBillingEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authChecked, user]);
 
   useEffect(() => {
     if (!authChecked || !user || !hasOperatorAccess(user)) return;
@@ -2398,6 +2421,7 @@ export default function AdminPaymentsPlaygroundPage() {
                         onPay={() => openAccountDrawer(selectedAccountItem.id, 'payment')}
                         onRefund={() => void openRefundRequestForAccount(selectedAccountItem.id)}
                         onCloseAccount={() => openAccountDrawer(selectedAccountItem.id, 'close')}
+                        onInvoice={fiscalBillingEnabled ? () => openAccountDrawer(selectedAccountItem.id, 'invoice') : undefined}
                         onValidateMember={(item) => void handleValidateMemberFromCash(selectedAccountItem.id, item as AccountDetailItem)}
                         validatingItemId={validatingMemberItemId}
                       />
